@@ -112,9 +112,13 @@ async fn generate_missing_capture_configs(
     connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftCapture {
-        model: Some(models::CaptureDef {
-            endpoint, bindings, ..
-        }),
+        model:
+            Some(models::CaptureDef {
+                endpoint,
+                bindings,
+                vmm,
+                ..
+            }),
         ..
     } = capture
     else {
@@ -154,7 +158,13 @@ async fn generate_missing_capture_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let spec = local_connector::spec_capture(connector_router, None, spec).await?;
+    let spec = local_connector::spec_capture(
+        connector_router,
+        None,
+        assemble::connector_execution(*vmm),
+        spec,
+    )
+    .await?;
     let capture::response::Spec {
         config_schema_json,
         resource_config_schema_json,
@@ -185,6 +195,7 @@ async fn generate_missing_collection_configs(
         using,
         transforms,
         shards,
+        vmm,
         ..
     }) = derive
     else {
@@ -220,7 +231,13 @@ async fn generate_missing_collection_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let spec = local_connector::spec_derive(connector_router, None, spec).await?;
+    let spec = local_connector::spec_derive(
+        connector_router,
+        None,
+        assemble::connector_execution(*vmm),
+        spec,
+    )
+    .await?;
     let derive::response::Spec {
         config_schema_json,
         resource_config_schema_json,
@@ -240,9 +257,13 @@ async fn generate_missing_materialization_configs(
     connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftMaterialization {
-        model: Some(models::MaterializationDef {
-            endpoint, bindings, ..
-        }),
+        model:
+            Some(models::MaterializationDef {
+                endpoint,
+                bindings,
+                vmm,
+                ..
+            }),
         ..
     } = materialization
     else {
@@ -289,7 +310,13 @@ async fn generate_missing_materialization_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let spec = local_connector::spec_materialize(connector_router, None, spec).await?;
+    let spec = local_connector::spec_materialize(
+        connector_router,
+        None,
+        assemble::connector_execution(*vmm),
+        spec,
+    )
+    .await?;
     let materialize::response::Spec {
         config_schema_json,
         resource_config_schema_json,

@@ -223,6 +223,7 @@ where
 
     let spec =
         flow::MaterializationSpec::decode(spec.as_ref()).context("invalid current Apply spec")?;
+    let execution = spec.execution;
 
     let initial = materialize::Request {
         kind: Some(materialize::request::Kind::Open(Box::new(
@@ -253,6 +254,7 @@ where
         connector::proto::request::Start {
             log_level: log_level as i32,
             sqlite_vfs_uri: String::new(),
+            execution,
         },
         connector::proto::request::Kind::Materialize(initial),
     )

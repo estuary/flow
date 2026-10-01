@@ -26,7 +26,8 @@ container's network; it runs on the host, not in a VMM container. See
 - `src/net.rs`: the addresses the tap, the ruleset and the resolver are pinned
   to, plus the tap, the ruleset apply and the upstream nameserver.
 - `src/console.rs`: the console descriptors and the `--debug` tee.
-- `src/policy.rs`: the policy JSON, the baseline exclusions, and every refusal.
+- The policy JSON, its host-name rules and the baseline come from
+  [`crates/egress`](../egress/README.md).
 - `src/ruleset.rs`: policy in, `inet flow_egress` text out, for the VMM's own
   network namespace.
 - `src/boundary.rs`: the host's `inet` and `bridge` `flow_vmm_boundary` tables,
@@ -178,7 +179,7 @@ the host will have, and every owner installs identical tables.
 |---|---|
 | inet prerouting (raw) | IPv6; a source that does not route back out of the bridge it came in on; IP fragments (none arrive while conntrack reassembles) |
 | inet input | everything addressed to the host, except UDP/53 to the address of the bridge it arrived on |
-| inet forward | anything to another VMM bridge or back out of its own; `policy::baseline` destinations; TCP/25; IPv6 into a VMM; any packet into a VMM that is not a reply |
+| inet forward | anything to another VMM bridge or back out of its own; `egress::baseline` destinations; TCP/25; IPv6 into a VMM; any packet into a VMM that is not a reply |
 | inet output | IPv6, and anything that is not a reply, from the host into a VMM |
 | bridge prerouting, output | frames that are neither IPv4 nor ARP |
 | bridge forward | every frame from one port of a VMM bridge to another |
@@ -216,37 +217,14 @@ connections or distinct destinations are not here.
 
 ## The policy
 
-```json
-{
-  "egress": "public",
-  "allowAll": false,
-  "allowedNames": ["pypi.org", "files.pythonhosted.org", "*.acmeco.example"],
-  "declaredCidrs": [ { "cidr": "93.184.216.0/24", "ports": [443] } ],
-  "connectionsPerMinute": null,
-  "distinctDestinationsPerMinute": null,
-  "ttlFloorSecs": 90,
-  "ttlCapSecs": 3600
-}
-```
-
-`allowedNames` matches DNS question names on label boundaries. A bare name
-admits only itself; `*.acmeco.example` admits names at any depth beneath
-`acmeco.example`, but not the base. List both forms to admit both.
-
-Wildcards over public suffixes are refused because unrelated registrants may
-control names beneath them. The check uses the `psl` crate's ICANN and private
-rules and applies only to the wildcard base.
+`/init/policy.json` is parsed by `egress::load`. Its fields, the host-name
+rules of `allowedNames` and the baseline are documented in
+[`crates/egress`](../egress/README.md).
 
 `egress: none` renders the same skeleton with the acceptance chain, the
 `resolved` set and the guest's DNS rule all absent. `allowAll` adds one accept
 at the head of the acceptance chain and removes the requirement that a
 destination be *named* - not the requirement that it be public.
-
-Only `egress`, `allowAll` and the two TTL bounds have a producer today.
-`allowedNames` is populated by hand and by the test suites; `declaredCidrs`,
-`connectionsPerMinute` and `distinctDestinationsPerMinute` are carried at full
-shape, validated and snapshot-tested, but nothing generates them until the
-catalog model that owns them exists.
 
 ## The ruleset, in one paragraph
 
@@ -268,31 +246,10 @@ address is treated as sensitive even where the service behind it authenticates,
 and there is no known sensitive public-IP service, so the boundary is drawn at
 reachability rather than at a list of things worth protecting.
 
-`baseline` is that boundary. It holds every prefix IANA's IPv4 Special-Purpose
-Address Registry marks as not globally reachable, plus multicast, plus the
-VMM's own interface subnets read at start:
-
-| prefix | what it is |
-|---|---|
-| `0.0.0.0/8` | "this network"; `0.0.0.0/32` is this host |
-| `10.0.0.0/8` | private use (RFC 1918) |
-| `100.64.0.0/10` | shared address space, carrier NAT (RFC 6598) |
-| `127.0.0.0/8` | loopback |
-| `169.254.0.0/16` | link local, and every cloud's instance metadata service |
-| `172.16.0.0/12` | private use (RFC 1918) |
-| `192.0.0.0/24` | IETF protocol assignments: DS-Lite, NAT64/DNS64 discovery |
-| `192.0.2.0/24` | documentation (TEST-NET-1), and the tap `192.0.2.0/30` |
-| `192.88.99.0/24` | deprecated 6to4 relay anycast |
-| `192.168.0.0/16` | private use (RFC 1918) |
-| `198.18.0.0/15` | benchmarking (RFC 2544); several vendors use it as private space |
-| `198.51.100.0/24` | documentation (TEST-NET-2) |
-| `203.0.113.0/24` | documentation (TEST-NET-3) |
-| `224.0.0.0/4` | multicast; not a unicast destination |
-| `240.0.0.0/4` | reserved, including `255.255.255.255` |
-
-Three registry entries are deliberately absent because IANA marks them
-globally reachable: `192.31.196.0/24` (AS112-v4), `192.52.193.0/24` (AMT) and
-`192.175.48.0/24` (AS112 direct delegation).
+`egress::baseline` is that boundary: every prefix IANA's IPv4 Special-Purpose
+Address Registry marks as not globally reachable, plus multicast (listed in
+[`crates/egress`](../egress/README.md)), plus the VMM's own interface subnets
+read at start.
 
 These exclusions win over everything. `allowAll` does not lift them, a declared
 CIDR inside one is refused rather than rendered, and an answer from the

@@ -22,6 +22,14 @@ pub struct Derivation {
     /// A configuration using `secrets` may not also be sealed with `sops`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<Secret, JsonPointer>,
+    /// # Run this derivation's connector within a VMM.
+    /// When true, every invocation of the connector runs within a VMM rather
+    /// than an ordinary container. Only connectors which are eligible for VMM
+    /// execution may request it, and only on the V2 runtime. A data plane which
+    /// cannot run the connector within a VMM fails the invocation: it never
+    /// falls back to an ordinary container.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub vmm: bool,
     /// # Transforms which make up this derivation.
     pub transforms: Vec<TransformDef>,
     /// # Key component types of the shuffle keys used by derivation lambdas.
@@ -208,5 +216,66 @@ mod test {
                 .get("secrets")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn vmm_round_trips_across_task_models() {
+        fn round_trip<M: serde::Serialize + serde::de::DeserializeOwned>(
+            mut fixture: serde_json::Value,
+            vmm: Option<bool>,
+            selected: impl Fn(&M) -> bool,
+        ) -> String {
+            if let Some(vmm) = vmm {
+                fixture["vmm"] = json!(vmm);
+            }
+            let model: M = serde_json::from_value(fixture).unwrap();
+            let serialized = serde_json::to_value(&model).unwrap();
+            format!(
+                "{vmm:?} => vmm={} serialized={}",
+                selected(&model),
+                serialized["vmm"]
+            )
+        }
+
+        let capture = json!({
+            "endpoint": {"connector": {"image": "an/image", "config": {}}},
+            "bindings": [],
+        });
+        let derivation = json!({
+            "using": {"connector": {"image": "an/image", "config": {}}},
+            "transforms": [],
+        });
+        let materialization = json!({
+            "endpoint": {"connector": {"image": "an/image", "config": {}}},
+            "bindings": [],
+        });
+
+        let mut rows = Vec::new();
+        for vmm in [None, Some(false), Some(true)] {
+            rows.push(format!(
+                "capture {}",
+                round_trip::<crate::CaptureDef>(capture.clone(), vmm, |m| m.vmm)
+            ));
+            rows.push(format!(
+                "derivation {}",
+                round_trip::<Derivation>(derivation.clone(), vmm, |m| m.vmm)
+            ));
+            rows.push(format!(
+                "materialization {}",
+                round_trip::<crate::MaterializationDef>(materialization.clone(), vmm, |m| m.vmm)
+            ));
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r"
+        capture None => vmm=false serialized=null
+        derivation None => vmm=false serialized=null
+        materialization None => vmm=false serialized=null
+        capture Some(false) => vmm=false serialized=null
+        derivation Some(false) => vmm=false serialized=null
+        materialization Some(false) => vmm=false serialized=null
+        capture Some(true) => vmm=true serialized=true
+        derivation Some(true) => vmm=true serialized=true
+        materialization Some(true) => vmm=true serialized=true
+        ");
     }
 }

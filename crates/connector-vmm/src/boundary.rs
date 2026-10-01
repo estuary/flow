@@ -254,7 +254,7 @@ fn expected() -> Vec<Value> {
         "left": { "payload": { "protocol": "ether", "field": "type" } },
         "right": { "set": ["ip", "arp"] },
     }});
-    let baseline: Vec<Value> = crate::policy::baseline(&[])
+    let baseline: Vec<Value> = egress::baseline(&[])
         .iter()
         .map(|prefix| json!({ "prefix": { "addr": prefix.ip().to_string(), "len": prefix.prefix() } }))
         .collect();

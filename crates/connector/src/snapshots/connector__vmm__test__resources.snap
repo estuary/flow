@@ -1,0 +1,64 @@
+---
+source: crates/connector/src/vmm.rs
+expression: table
+---
+## guest memory MiB, less 256 MiB of overhead
+"1g" => 768
+"1.5g" => 1280
+"1.5 GiB" => 1280
+"1280m" => 1024
+"1073741823" => 767
+"0.1g" => error: leaves no guest RAM
+"257m" => 1
+"256m" => error: leaves no guest RAM
+"4294967551m" => 4294967295
+"4294967552m" => error: leaves 4294967296 MiB of guest RAM, above 4294967295
+"17179869184g" => error: exceeds the largest byte count
+"1e400g" => error: "1e400" is not a finite number
+"nan g" => error: "nan" is not a finite number
+"0x1p30" => error: "0x1p30" is hexadecimal; write it in decimal
+"1_000m" => 744
+"1__0m" => error: "1__0" has an underscore that does not separate digits
+"-1g" => error: is negative
+"1.5gg" => error: "gg" is not a unit
+"1  g" => error: "1 " is not a number
+"g" => error: expected a number of bytes, optionally with a unit
+"" => error: expected a number of bytes, optionally with a unit
+
+## guest vCPUs
+"2" => 2
+"1.5" => 2
+"0.5" => 1
+"0.000000001" => 1
+"0.0000000001" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"1.0" => 1
+"255" => 255
+"254.1" => 255
+"256" => error: is 256 vCPUs, above 255
+"0" => error: is no CPU at all
+"0.0" => error: is no CPU at all
+"1." => error: expected a decimal number of CPUs, with at most nine fraction digits
+".5" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"-1" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"+1" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"1e3" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"99999999999999999999" => error: is too large: number too large to fit in target type
+
+## disk MiB
+"2048" => 2048
+"1" => 1
+"0" => error: is an empty disk
+"8796093022207" => 8796093022207
+"8796093022208" => error: is above the largest disk, 8796093022207 MiB
+"+5" => error: expected a whole number of MiB
+"2g" => error: expected a whole number of MiB
+" 5" => error: expected a whole number of MiB
+
+## memory overhead MiB
+"256" => 256
+"1" => 1
+"0" => error: leaves the VMM no memory of its own
+"4294967295" => 4294967295
+"4294967296" => error: is above 4294967295 MiB
+"64m" => error: expected a whole number of MiB

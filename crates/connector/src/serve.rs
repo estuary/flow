@@ -47,6 +47,7 @@ where
 
     let first = request_rx.next().await;
     let Authorized {
+        execution,
         log_level,
         sqlite_vfs_uri,
         task_name,
@@ -60,6 +61,7 @@ where
     let result = start_and_pump(
         &service,
         log_sink,
+        execution,
         log_level,
         sqlite_vfs_uri,
         &task_name,
@@ -90,6 +92,7 @@ where
 async fn start_and_pump<R>(
     service: &crate::Service,
     log_sink: crate::LogSink,
+    execution: proto_flow::flow::ConnectorExecution,
     log_level: ops::LogLevel,
     sqlite_vfs_uri: String,
     task_name: &str,
@@ -108,6 +111,7 @@ where
             run::<crate::capture::Capture, R>(
                 service,
                 log_sink,
+                execution,
                 log_level,
                 sqlite_vfs_uri,
                 task_name,
@@ -122,6 +126,7 @@ where
             run::<crate::derive::Derive, R>(
                 service,
                 log_sink,
+                execution,
                 log_level,
                 sqlite_vfs_uri,
                 task_name,
@@ -136,6 +141,7 @@ where
             run::<crate::materialize::Materialize, R>(
                 service,
                 log_sink,
+                execution,
                 log_level,
                 sqlite_vfs_uri,
                 task_name,
@@ -152,6 +158,7 @@ where
 async fn run<P, R>(
     service: &crate::Service,
     log_sink: crate::LogSink,
+    execution: proto_flow::flow::ConnectorExecution,
     log_level: ops::LogLevel,
     sqlite_vfs_uri: Option<String>,
     task_name: &str,
@@ -166,6 +173,7 @@ where
 {
     let ctx = crate::protocol::StartContext {
         container_network: service.container_network.clone(),
+        execution,
         log_level,
         log_sink,
         plane: service.plane,
@@ -173,6 +181,7 @@ where
         secret_resolver: service.secret_resolver.clone(),
         task_name: task_name.to_string(),
         task_update: service.task_update.clone(),
+        vmm: service.vmm.clone(),
     };
     let started = tokio::select! {
         () = response_tx.closed() => return Err(client_dropped()),
@@ -261,6 +270,7 @@ where
 }
 
 struct Authorized {
+    execution: proto_flow::flow::ConnectorExecution,
     log_level: ops::LogLevel,
     sqlite_vfs_uri: String,
     task_name: String,
@@ -278,6 +288,7 @@ fn authorize(
 
     let (
         Some(proto::request::Start {
+            execution,
             log_level,
             sqlite_vfs_uri,
         }),
@@ -314,6 +325,7 @@ fn authorize(
     );
 
     Ok(Authorized {
+        execution: execution.unwrap_or_default(),
         log_level,
         sqlite_vfs_uri,
         task_name,

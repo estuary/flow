@@ -202,6 +202,11 @@ impl DiscoverHandler {
             .map(|model| assemble::secrets(&model.secrets))
             .unwrap_or_default();
 
+        let execution = capture_def
+            .model
+            .as_ref()
+            .and_then(|model| assemble::connector_execution(model.vmm));
+
         // INFO is a good default since these are not shown in the UI, so if we're looking then
         // there's already a problem.
         let log_level = capture_def
@@ -218,6 +223,7 @@ impl DiscoverHandler {
         let request = connector::Request {
             start: Some(connector::request::Start {
                 log_level: log_level as i32,
+                execution,
                 ..Default::default()
             }),
             kind: Some(connector::request::Kind::Capture(capture::Request {

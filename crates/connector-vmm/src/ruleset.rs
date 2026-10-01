@@ -1,6 +1,6 @@
 //! Compile a policy into a complete nftables ruleset without touching the kernel.
 
-use crate::policy::{Mode, Policy};
+use egress::{Mode, Policy};
 use ipnetwork::Ipv4Network;
 use std::fmt::Write;
 
@@ -14,8 +14,8 @@ pub const RESOLVED_SIZE: usize = 1024;
 /// baseline. `run` reads them from `getifaddrs`; `print-ruleset` takes them
 /// from `--vmm-subnet`.
 pub fn render(policy: &Policy, vmm_subnets: &[Ipv4Network]) -> anyhow::Result<String> {
-    let baseline = crate::policy::baseline(vmm_subnets);
-    crate::policy::check_declared(policy, &baseline)?;
+    let baseline = egress::baseline(vmm_subnets);
+    egress::check_declared(policy, &baseline)?;
 
     let public = policy.egress == Mode::Public;
     let declared = declared_elements(policy);
@@ -233,7 +233,7 @@ mod tests {
     }
 
     fn render(document: &str) -> String {
-        let policy = crate::policy::parse(document.as_bytes()).expect("fixture parses");
+        let policy = egress::parse(document.as_bytes()).expect("fixture parses");
         super::render(&policy, &vmm_subnets()).expect("fixture renders")
     }
 

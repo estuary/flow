@@ -85,5 +85,5 @@ expression: proto_test(msg)
 |65436f2f 70617373 776f7264 12152f63| eCo/password../c 00000500
 |72656465 6e746961 6c732f70 61737377| redentials/passw 00000510
 |6f726472 150a1361 636d6543 6f2f7768| ordr...acmeCo/wh 00000520
-|6f6c652d 636f6e66 6967|              ole-config       00000530
-                                                       0000053a
+|6f6c652d 636f6e66 69677a02 0801|     ole-configz...   00000530
+                                                       0000053e

@@ -5,10 +5,10 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     80  capture::Request
     40  capture::request::Spec
    112  capture::request::Discover
-   816  capture::request::Validate
+   824  capture::request::Validate
     48  capture::request::validate::Binding
-  1392  capture::request::Apply
-   768  capture::request::Open
+  1408  capture::request::Apply
+   776  capture::request::Open
      4  capture::request::Acknowledge
     96  capture::Response
    408  capture::response::Spec
@@ -62,7 +62,7 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
    448  flow::CollectionSpec
    632  flow::collection_spec::Derivation
    288  flow::collection_spec::derivation::Transform
-   656  flow::CaptureSpec
+   664  flow::CaptureSpec
     96  flow::capture_spec::Binding
    688  flow::MaterializationSpec
    408  flow::materialization_spec::Binding

@@ -285,6 +285,11 @@
         "shards": {
           "title": "Template for shards of this capture task.",
           "$ref": "#/$defs/ShardTemplate"
+        },
+        "vmm": {
+          "title": "Run this capture's connector within a VMM.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only on the V2 runtime. A data plane which\ncannot run the connector within a VMM fails the invocation: it never\nfalls back to an ordinary container.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -545,6 +550,11 @@
         "using": {
           "title": "The selected runtime for this derivation.",
           "$ref": "#/$defs/DeriveUsing"
+        },
+        "vmm": {
+          "title": "Run this derivation's connector within a VMM.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only on the V2 runtime. A data plane which\ncannot run the connector within a VMM fails the invocation: it never\nfalls back to an ordinary container.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -1055,6 +1065,11 @@
               "type": "null"
             }
           ]
+        },
+        "vmm": {
+          "title": "Run this materialization's connector within a VMM.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only on the V2 runtime. A data plane which\ncannot run the connector within a VMM fails the invocation: it never\nfalls back to an ordinary container.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,

@@ -23,7 +23,7 @@ pub(crate) const SECRETS_LABEL: &str = "dev.estuary.secrets";
 
 /// Estuary declarations carried by an inspected connector image.
 #[derive(Debug, serde::Serialize)]
-struct Declarations {
+pub(crate) struct Declarations {
     pub runtime_protocol: crate::RuntimeProtocol,
     #[serde(skip)]
     pub codec: connector_init::Codec,
@@ -35,7 +35,7 @@ struct Declarations {
 }
 
 impl Declarations {
-    fn parse(inspected: &connector_init::inspect::Image) -> anyhow::Result<Self> {
+    pub(crate) fn parse(inspected: &connector_init::inspect::Image) -> anyhow::Result<Self> {
         let labels = &inspected.config.labels;
         let mut network_ports = Vec::new();
 

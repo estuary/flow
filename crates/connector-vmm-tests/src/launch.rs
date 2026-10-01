@@ -1,8 +1,9 @@
 //! The reference podman lines for a VMM container: its network, its `run`,
 //! and the host boundary it sits behind.
 //!
-//! A launcher must produce these lines byte for byte apart from their ids, so
-//! they are pure functions and each production shape is a snapshot. They
+//! A launcher must produce these lines byte for byte apart from their ids and
+//! the container's `--memory` and `--cpus`, which it takes from its own limits,
+//! so they are pure functions and each production shape is a snapshot. They
 //! carry every flag that bears on the VMM; labels, `--cgroup-parent` and
 //! `--platform` are the launcher's own business and are absent.
 

@@ -1,0 +1,145 @@
+---
+source: crates/connector/src/vmm.rs
+expression: table
+---
+# nothing set
+=> None
+
+# no image, so nothing else is read
+CONNECTOR_VMM_DISK_MIB=x
+CONNECTOR_VMM_STATE_DIR=relative
+=> None
+
+# an empty image
+CONNECTOR_VMM_IMAGE=
+=> None
+
+# an image without a state directory
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+=> error: CONNECTOR_VMM_STATE_DIR is required when CONNECTOR_VMM_IMAGE is set
+
+# an empty state directory
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_STATE_DIR=
+=> error: CONNECTOR_VMM_STATE_DIR is required when CONNECTOR_VMM_IMAGE is set
+
+# defaults
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> Some(
+    Vmm {
+        image: "ghcr.io/estuary/connector-vmm:dev",
+        podman: "podman",
+        state_dir: "/var/lib/flow/connector-vmm",
+        disk_mib: 2048,
+        memory_limit: "1g",
+        cpu_limit: "2",
+        guest_memory_mib: 768,
+        vcpus: 2,
+        cgroup_parent: None,
+    },
+)
+
+# every setting
+CONNECTOR_CGROUP_PARENT=estuary-connectors.slice
+CONNECTOR_CPU_LIMIT=1.5
+CONNECTOR_MEMORY_LIMIT=2g
+CONNECTOR_VMM_DISK_MIB=4096
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_MEMORY_OVERHEAD_MIB=128
+CONNECTOR_VMM_PODMAN=/usr/local/bin/podman
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> Some(
+    Vmm {
+        image: "ghcr.io/estuary/connector-vmm:dev",
+        podman: "/usr/local/bin/podman",
+        state_dir: "/var/lib/flow/connector-vmm",
+        disk_mib: 4096,
+        memory_limit: "2g",
+        cpu_limit: "1.5",
+        guest_memory_mib: 1920,
+        vcpus: 2,
+        cgroup_parent: Some(
+            "estuary-connectors.slice",
+        ),
+    },
+)
+
+# empty VMM settings take their defaults
+CONNECTOR_VMM_DISK_MIB=
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_MEMORY_OVERHEAD_MIB=
+CONNECTOR_VMM_PODMAN=
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> Some(
+    Vmm {
+        image: "ghcr.io/estuary/connector-vmm:dev",
+        podman: "podman",
+        state_dir: "/var/lib/flow/connector-vmm",
+        disk_mib: 2048,
+        memory_limit: "1g",
+        cpu_limit: "2",
+        guest_memory_mib: 768,
+        vcpus: 2,
+        cgroup_parent: None,
+    },
+)
+
+# an empty memory limit is used as an ordinary launch uses it
+CONNECTOR_MEMORY_LIMIT=
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> error: CONNECTOR_MEMORY_LIMIT "", less 256 MiB of VMM overhead: expected a number of bytes, optionally with a unit
+
+# a relative state directory
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_STATE_DIR=var/lib/flow
+=> error: CONNECTOR_VMM_STATE_DIR "var/lib/flow": is not an absolute path
+
+# a malformed disk size
+CONNECTOR_VMM_DISK_MIB=2g
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> error: CONNECTOR_VMM_DISK_MIB "2g": expected a whole number of MiB
+
+# a malformed overhead
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_MEMORY_OVERHEAD_MIB=-1
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> error: CONNECTOR_VMM_MEMORY_OVERHEAD_MIB "-1": expected a whole number of MiB
+
+# an overhead consuming the whole limit
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_MEMORY_OVERHEAD_MIB=1024
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> error: CONNECTOR_MEMORY_LIMIT "1g", less 1024 MiB of VMM overhead: leaves no guest RAM
+
+# a fractional memory limit
+CONNECTOR_MEMORY_LIMIT=1.5g
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> Some(
+    Vmm {
+        image: "ghcr.io/estuary/connector-vmm:dev",
+        podman: "podman",
+        state_dir: "/var/lib/flow/connector-vmm",
+        disk_mib: 2048,
+        memory_limit: "1.5g",
+        cpu_limit: "2",
+        guest_memory_mib: 1280,
+        vcpus: 2,
+        cgroup_parent: None,
+    },
+)
+
+# a memory limit podman cannot read either
+CONNECTOR_MEMORY_LIMIT=1.5gg
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> error: CONNECTOR_MEMORY_LIMIT "1.5gg", less 256 MiB of VMM overhead: "gg" is not a unit
+
+# a malformed CPU limit
+CONNECTOR_CPU_LIMIT=two
+CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> error: CONNECTOR_CPU_LIMIT "two": expected a decimal number of CPUs, with at most nine fraction digits

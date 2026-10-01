@@ -5,6 +5,9 @@ expression: json_test(ex_connector_response())
 {
   "started": {
     "codec": "PROTO",
+    "execution": {
+      "vmm": true
+    },
     "derive": {}
   }
 }

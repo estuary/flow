@@ -103,9 +103,13 @@ async fn get_spec_response(
                 config_json: serde_json::to_string(config).unwrap().into(),
             },
         };
-        let response =
-            local_connector::spec_capture(router, model.shards.log_level.as_deref(), request)
-                .await?;
+        let response = local_connector::spec_capture(
+            router,
+            model.shards.log_level.as_deref(),
+            assemble::connector_execution(model.vmm),
+            request,
+        )
+        .await?;
 
         return serde_json::to_string(&response).context("Failed to serialize spec response");
     }
@@ -123,9 +127,13 @@ async fn get_spec_response(
         };
 
         let request = validation::derive_spec_request(&model.using, &model.shards);
-        let response =
-            local_connector::spec_derive(router, model.shards.log_level.as_deref(), request)
-                .await?;
+        let response = local_connector::spec_derive(
+            router,
+            model.shards.log_level.as_deref(),
+            assemble::connector_execution(model.vmm),
+            request,
+        )
+        .await?;
 
         return serde_json::to_string(&response).context("Failed to serialize spec response");
     }
@@ -151,9 +159,13 @@ async fn get_spec_response(
                 config_json: serde_json::to_string(config).unwrap().into(),
             },
         };
-        let response =
-            local_connector::spec_materialize(router, model.shards.log_level.as_deref(), request)
-                .await?;
+        let response = local_connector::spec_materialize(
+            router,
+            model.shards.log_level.as_deref(),
+            assemble::connector_execution(model.vmm),
+            request,
+        )
+        .await?;
 
         return serde_json::to_string(&response).context("Failed to serialize spec response");
     }

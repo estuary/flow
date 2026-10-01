@@ -5,6 +5,7 @@ package connector;
 import "broker/protocol/protocol.proto";
 import "go/protocols/capture/capture.proto";
 import "go/protocols/derive/derive.proto";
+import "go/protocols/flow/flow.proto";
 import "go/protocols/materialize/materialize.proto";
 import "go/protocols/ops/ops.proto";
 import "go/protocols/runtime/runtime.proto";
@@ -35,6 +36,13 @@ message Request {
     // the only caller which may set it, and only for a `Sqlite` derivation.
     // A gRPC client which sets it is rejected, as is any other connector type.
     string sqlite_vfs_uri = 2;
+    // Execution of the connector, or unset for ordinary execution.
+    // Task-associated requests carry the task's execution: a request which
+    // embeds the task's built spec (Apply or Open) MUST match its `execution`.
+    // A task-less Spec carries the execution chosen by its caller's policy.
+    // A requested execution which this service cannot provide fails the
+    // stream before the connector starts.
+    flow.ConnectorExecution execution = 3;
   }
   Start start = 1;
 
@@ -79,6 +87,10 @@ message Response {
       derive.Response.Spec derive = 6;
       materialize.Response.Spec materialize = 7;
     }
+    // Execution with which the connector was started, echoing
+    // `Start.execution`. Clients verify it, so that a service which predates
+    // a requested execution cannot silently start the connector without it.
+    flow.ConnectorExecution execution = 8;
   }
 
   oneof kind {

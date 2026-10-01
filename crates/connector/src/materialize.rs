@@ -75,6 +75,7 @@ impl Protocol for Materialize {
         crate::policy::check_connector_sqlite_vfs(false, sqlite_vfs_uri.is_some())
             .map_err(|err| crate::invalid_argument(err.to_string()))?;
         let mut build = None;
+        let mut spec_execution = None;
 
         let (connector_type, config_json, sealed_config_json, secrets) = match &mut request.kind {
             Some(request::Kind::Spec(spec)) => (
@@ -95,6 +96,7 @@ impl Protocol for Materialize {
                     .as_mut()
                     .expect("checked by task_name");
                 build = Some(crate::protocol::shard_build(&inner.shard_template)?);
+                spec_execution = Some(inner.execution.unwrap_or_default());
                 (
                     inner.connector_type,
                     &mut inner.config_json,
@@ -106,6 +108,7 @@ impl Protocol for Materialize {
                 let sealed_config_json = &mut open.sealed_config_json;
                 let inner = open.materialization.as_mut().expect("checked by task_name");
                 build = Some(crate::protocol::shard_build(&inner.shard_template)?);
+                spec_execution = Some(inner.execution.unwrap_or_default());
                 (
                     inner.connector_type,
                     &mut inner.config_json,
@@ -149,6 +152,7 @@ impl Protocol for Materialize {
             initial_config_slot: config_json,
             initial_sealed_config_slot: sealed_config_json,
             secrets,
+            spec_execution,
         })
     }
 }

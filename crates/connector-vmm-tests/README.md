@@ -39,7 +39,8 @@ KVM test started any other way fails naming the task.
   tests are the host boundary's.
 - `src/launch.rs`: the reference lines: a VMM's own network, its `podman run`,
   and `boundary` from the VMM image. Their snapshots are what a launcher must
-  reproduce byte for byte, apart from ids.
+  reproduce byte for byte, apart from ids and the container's limits;
+  `crates/connector`'s VMM plan is tested against them.
 - `src/run.rs`: `run.json`, the resources list, staging, the `Vmm` guard and
   its network, sidecar containers, scratch network namespaces, waits, and the
   stderr framing check.

@@ -245,6 +245,7 @@ fn extract_endpoint<'r>(
                     .materialization
                     .as_mut()
                     .context("`apply` missing required `materialization`")?;
+                crate::refuse_execution(inner.execution.as_ref())?;
 
                 (
                     inner.connector_type,
@@ -260,6 +261,7 @@ fn extract_endpoint<'r>(
                     .materialization
                     .as_mut()
                     .context("`open` missing required `materialization`")?;
+                crate::refuse_execution(inner.execution.as_ref())?;
 
                 (
                     inner.connector_type,
@@ -295,5 +297,62 @@ fn extract_endpoint<'r>(
         anyhow::bail!("Dekaf materializations are served by the connector crate");
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_refuses_non_ordinary_execution() {
+        use proto_flow::flow;
+
+        let spec = |execution| flow::MaterializationSpec {
+            name: "acmeCo/materialization".to_string(),
+            connector_type: ConnectorType::Local as i32,
+            config_json: serde_json::json!({"command": ["true"], "config": {}})
+                .to_string()
+                .into(),
+            execution,
+            ..Default::default()
+        };
+        let outcome = |mut request: Request| match extract_endpoint(&mut request) {
+            Ok(_) => "extracted".to_string(),
+            Err(err) => format!("{err:#}"),
+        };
+
+        let mut rows = Vec::new();
+        for execution in [
+            None,
+            Some(flow::ConnectorExecution { vmm: false }),
+            Some(flow::ConnectorExecution { vmm: true }),
+        ] {
+            let apply = Request {
+                kind: Some(request::Kind::Apply(Box::new(request::Apply {
+                    materialization: Some(spec(execution)),
+                    ..Default::default()
+                }))),
+                ..Default::default()
+            };
+            let open = Request {
+                kind: Some(request::Kind::Open(Box::new(request::Open {
+                    materialization: Some(spec(execution)),
+                    ..Default::default()
+                }))),
+                ..Default::default()
+            };
+            rows.push(format!("Apply {execution:?} => {}", outcome(apply)));
+            rows.push(format!("Open {execution:?} => {}", outcome(open)));
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r"
+        Apply None => extracted
+        Open None => extracted
+        Apply Some(ConnectorExecution { vmm: false }) => extracted
+        Open Some(ConnectorExecution { vmm: false }) => extracted
+        Apply Some(ConnectorExecution { vmm: true }) => this task requests connector execution ConnectorExecution { vmm: true }, which the V1 runtime cannot provide
+        Open Some(ConnectorExecution { vmm: true }) => this task requests connector execution ConnectorExecution { vmm: true }, which the V1 runtime cannot provide
+        ");
     }
 }

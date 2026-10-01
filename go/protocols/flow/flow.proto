@@ -214,6 +214,17 @@ message NetworkPort {
   bool public = 3;
 }
 
+// ConnectorExecution is how a task's connector is executed, apart from its
+// endpoint configuration. Every invocation of the connector -- Spec, Discover,
+// Validate, Apply, and Open -- uses the same settings. An unset or default
+// value selects ordinary execution.
+message ConnectorExecution {
+  // Run the connector within a VMM, rather than an ordinary container.
+  // A runtime unable to do so fails the invocation; it never falls back
+  // to ordinary execution.
+  bool vmm = 1;
+}
+
 message CollectionSpec {
   // Next tag: 13.
 
@@ -366,6 +377,8 @@ message CollectionSpec {
     // into that location, as an RFC 7396 merge patch, before handing the
     // configuration to the connector.
     map<string, string> secrets = 11;
+    // Execution of this derivation's connector, or unset if ordinary.
+    ConnectorExecution execution = 12;
   }
   Derivation derivation = 12;
 }
@@ -473,6 +486,8 @@ message CaptureSpec {
   // into that location, as an RFC 7396 merge patch, before handing the
   // configuration to the connector.
   map<string, string> secrets = 13;
+  // Execution of this capture's connector, or unset if ordinary.
+  ConnectorExecution execution = 14;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
@@ -600,6 +615,8 @@ message MaterializationSpec {
   // secret into that location, as an RFC 7396 merge patch, before handing the
   // configuration to the connector.
   map<string, string> secrets = 14;
+  // Execution of this materialization's connector, or unset if ordinary.
+  ConnectorExecution execution = 15;
 }
 
 // OAuth2 describes an OAuth2 provider

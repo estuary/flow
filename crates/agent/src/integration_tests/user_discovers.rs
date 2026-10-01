@@ -736,3 +736,76 @@ async fn test_discover_merge_filters_unauthorized_collection() {
         result.draft
     );
 }
+
+#[tokio::test]
+async fn test_discover_carries_drafted_execution() {
+    let mut harness = TestHarness::init("test_discover_carries_drafted_execution").await;
+    let user_id = harness.setup_tenant("acmeCo").await;
+
+    let draft = draft_catalog(serde_json::json!({
+        "captures": {
+            "acmeCo/vmm": {
+                "endpoint": {"connector": {"image": "source/test:test", "config": {}}},
+                "vmm": true,
+                "bindings": []
+            },
+            "acmeCo/ordinary": {
+                "endpoint": {"connector": {"image": "source/test:test", "config": {}}},
+                "bindings": []
+            }
+        }
+    }));
+    let draft_id = harness.create_draft(user_id, "two captures", draft).await;
+    let discovered = Discovered {
+        bindings: vec![Binding {
+            recommended_name: String::from("burrows"),
+            document_schema_json: document_schema(1),
+            resource_config_json: r#"{"id": "burrows"}"#.into(),
+            key: vec!["/id".to_string()],
+            disable: false,
+            resource_path: Vec::new(),
+            is_fallback_key: false,
+        }],
+    };
+
+    let mut executions = Vec::new();
+    for capture in ["acmeCo/vmm", "acmeCo/ordinary"] {
+        let result = harness
+            .user_discover(
+                "source/test",
+                ":test",
+                capture,
+                draft_id,
+                r#"{"tail": "shake"}"#,
+                false,
+                Ok((spec_fixture(), discovered.clone())),
+            )
+            .await;
+        assert!(result.job_status.is_success(), "{:?}", result.job_status);
+
+        let model = result
+            .draft
+            .captures
+            .get_by_key(&models::Capture::new(capture))
+            .and_then(|row| row.model.as_ref())
+            .expect("discovered capture is drafted");
+        let start = harness
+            .connectors
+            .last_discover_start(capture)
+            .expect("a Discover request was made");
+
+        executions.push((capture, model.vmm, start.execution));
+    }
+
+    assert_eq!(
+        executions,
+        vec![
+            (
+                "acmeCo/vmm",
+                true,
+                Some(proto_flow::flow::ConnectorExecution { vmm: true })
+            ),
+            ("acmeCo/ordinary", false, None),
+        ]
+    );
+}

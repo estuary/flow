@@ -13,12 +13,13 @@ name = "flow-connector-vmm"
 path = "src/main.rs"
 
 [dependencies]
+egress = { path = "../egress" }
+
 anyhow = { workspace = true }
 clap = { workspace = true }
 ipnetwork = { workspace = true }
 libc = { workspace = true }
 libloading = { workspace = true }
-psl = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

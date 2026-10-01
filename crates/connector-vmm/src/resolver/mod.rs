@@ -27,7 +27,7 @@
 mod dns;
 mod nftset;
 
-use crate::policy::{AllowedName, Policy};
+use egress::{AllowedName, Policy};
 use ipnetwork::Ipv4Network;
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -83,7 +83,7 @@ impl Config {
             allowed_names: policy.allowed_names.clone(),
             ttl_floor: policy.ttl_floor_secs,
             ttl_cap: policy.ttl_cap_secs,
-            baseline: crate::policy::baseline(vmm_subnets),
+            baseline: egress::baseline(vmm_subnets),
         }
     }
 
@@ -759,7 +759,7 @@ mod tests {
     }
 
     fn resolver_under(policy: &str, upstream: SocketAddr, writer: Recorder) -> Resolver {
-        let policy = crate::policy::parse(policy.as_bytes()).expect("fixture parses");
+        let policy = egress::parse(policy.as_bytes()).expect("fixture parses");
         let config = Config::new(
             &policy,
             &[],
@@ -1249,7 +1249,7 @@ mod tests {
 
     #[test]
     fn start_refuses_the_wildcard() {
-        let policy = crate::policy::parse(POLICY.as_bytes()).expect("fixture parses");
+        let policy = egress::parse(POLICY.as_bytes()).expect("fixture parses");
         let config = Config::new(
             &policy,
             &[],

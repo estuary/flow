@@ -192,6 +192,7 @@ where
 
     let open_spec = flow::CollectionSpec::decode(open_spec.as_ref())
         .context("invalid CollectionSpec in L:Open")?;
+    let execution = open_spec.derivation.as_ref().and_then(|d| d.execution);
 
     let initial = derive::Request {
         kind: Some(derive::request::Kind::Open(Box::new(
@@ -220,6 +221,7 @@ where
         connector::proto::request::Start {
             log_level: log_level as i32,
             sqlite_vfs_uri,
+            execution,
         },
         connector::proto::request::Kind::Derive(initial),
     )

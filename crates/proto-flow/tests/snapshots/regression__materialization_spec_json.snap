@@ -200,5 +200,8 @@ expression: json_test(msg)
   "secrets": {
     "acmeCo/password": "/credentials/password",
     "acmeCo/whole-config": ""
+  },
+  "execution": {
+    "vmm": true
   }
 }

@@ -1,0 +1,67 @@
+---
+source: crates/connector/src/vmm/plan.rs
+expression: describe(&plan)
+---
+name: fv_0123456789abcdef
+interface: fvm0123456789ab
+socket: /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock/init.sock (62 bytes)
+
+## directories
+0711 /var/lib/flow/connector-vmm/fv_0123456789abcdef
+0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/init
+0711 /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock
+0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch
+
+## /var/lib/flow/connector-vmm/fv_0123456789abcdef/init/policy.json
+{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example","*.cdn.acmeco.example"],"egress":"public"}
+
+## connector mount
+0555 /tmp/connector-mounts-0/mount-acme/flow-connector-init
+0444 /tmp/connector-mounts-0/mount-acme/image-inspect.json
+
+## verify
+podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN ghcr.io/estuary/connector-vmm:dev boundary verify
+
+## network
+podman network create --driver=bridge --interface-name=fvm0123456789ab fv_0123456789abcdef
+
+## run
+podman run \
+  --rm \
+  --name=fv_0123456789abcdef \
+  --network=fv_0123456789abcdef \
+  --log-driver=none \
+  --read-only \
+  --read-only-tmpfs=false \
+  --device=/dev/kvm \
+  --device=/dev/net/tun \
+  --cap-add=CAP_NET_ADMIN \
+  --sysctl=net.ipv4.ip_forward=1 \
+  --sysctl=net.ipv4.conf.default.rp_filter=1 \
+  --sysctl=net.ipv6.conf.default.disable_ipv6=1 \
+  --memory=1g \
+  --cpus=1.5 \
+  --mount=type=image,source=ghcr.io/estuary/derive-python:stable,destination=/rootfs,rw=true \
+  --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/init,target=/init,readonly \
+  --mount=type=bind,source=/tmp/connector-mounts-0/mount-acme,target=/tmp/connector-mounts-0/mount-acme,readonly \
+  --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/sock,target=/sock \
+  --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch,target=/scratch-backing \
+  --env=CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-acme \
+  --env=LOG_FORMAT=json \
+  --env=LOG_LEVEL=info \
+  --platform=linux/amd64 \
+  --label=image=ghcr.io/estuary/derive-python:stable \
+  --label=task-name=acmeCo/anvils/derivation \
+  --label=task-type=derivation \
+  ghcr.io/estuary/connector-vmm:dev \
+  run \
+  --policy \
+  /init/policy.json \
+  --connector-mount \
+  /tmp/connector-mounts-0/mount-acme \
+  --memory-mib \
+  768 \
+  --vcpus \
+  2 \
+  --disk-mib \
+  2048

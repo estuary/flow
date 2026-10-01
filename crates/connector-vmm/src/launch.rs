@@ -116,7 +116,7 @@ pub struct Console {
 pub fn run(args: &Args) -> anyhow::Result<Infallible> {
     check_read_only(&args.connector_mount)?;
 
-    let policy = crate::policy::load(&args.policy)?;
+    let policy = egress::load(&args.policy)?;
 
     // The first side-effecting step, so a missing or wrong library is the
     // first line on stderr with nothing half-built behind it.
@@ -176,7 +176,7 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
         error: libc::STDERR_FILENO,
     };
 
-    if policy.egress == crate::policy::Mode::Public {
+    if policy.egress == egress::Mode::Public {
         let upstream = match args.resolver_upstream {
             Some(upstream) => upstream,
             None => net::upstream_nameserver()?,

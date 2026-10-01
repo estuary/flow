@@ -1,6 +1,6 @@
-//! The policy JSON the launcher writes into `/init/policy.json`, and the
-//! baseline exclusions that are not in it: the baseline belongs to the
-//! ruleset, not to the tenant.
+//! The host names a connector may reach, the policy JSON the launcher writes
+//! into a VMM's `/init/policy.json`, and the baseline exclusions that are not
+//! in it: the baseline belongs to the ruleset, not to the tenant.
 //!
 //! Everything a connector may reach is a public unicast destination. Every
 //! refusal in this module is a policy the ruleset could not have honored, so
@@ -59,6 +59,15 @@ pub enum AllowedName {
     /// `*.pypi.org`, held as `pypi.org`: every name beneath it at any depth,
     /// and not the name itself.
     Subdomains(String),
+}
+
+impl std::fmt::Display for AllowedName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AllowedName::Exact(name) => f.write_str(name),
+            AllowedName::Subdomains(base) => write!(f, "*.{base}"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -162,7 +171,7 @@ pub fn parse(content: &[u8]) -> anyhow::Result<Policy> {
     Ok(Policy {
         egress: document.egress,
         allow_all: document.allow_all,
-        allowed_names: normalize_names(&document.allowed_names)?,
+        allowed_names: hosts("allowedNames", &document.allowed_names)?,
         declared_cidrs: normalize_declared(&document.declared_cidrs)?,
         connections_per_minute: document.connections_per_minute,
         distinct_destinations_per_minute: document.distinct_destinations_per_minute,
@@ -213,14 +222,17 @@ fn canonical(network: Ipv4Network) -> Ipv4Network {
         .expect("a prefix length that already parsed is in range")
 }
 
+/// Validate and normalize host names wherever they are declared, naming
+/// `field` in every refusal. Lowercases, and drops repeats after the first.
+///
 /// `allowedNames` gates the resolver on the question name, so a name that no
 /// query can carry is a rule that can never fire. Each refusal below is a name
 /// that would otherwise sit in the policy looking like access.
-fn normalize_names(raw: &[String]) -> anyhow::Result<Vec<AllowedName>> {
+pub fn hosts(field: &str, raw: &[String]) -> anyhow::Result<Vec<AllowedName>> {
     let mut names: Vec<AllowedName> = Vec::with_capacity(raw.len());
 
     for name in raw {
-        let allowed = check_name(name, &name.to_ascii_lowercase())?;
+        let allowed = check_name(field, name, &name.to_ascii_lowercase())?;
 
         if !names.contains(&allowed) {
             names.push(allowed);
@@ -229,13 +241,25 @@ fn normalize_names(raw: &[String]) -> anyhow::Result<Vec<AllowedName>> {
     Ok(names)
 }
 
-fn check_name(original: &str, name: &str) -> anyhow::Result<AllowedName> {
+/// The policy document a launcher writes: public destinations, reachable only
+/// by the names in `names`. An empty list admits no name at all.
+pub fn public_policy(names: &[AllowedName]) -> Vec<u8> {
+    let names: Vec<String> = names.iter().map(AllowedName::to_string).collect();
+
+    serde_json::to_vec(&serde_json::json!({
+        "egress": "public",
+        "allowedNames": names,
+    }))
+    .expect("a map of strings always serializes")
+}
+
+fn check_name(field: &str, original: &str, name: &str) -> anyhow::Result<AllowedName> {
     if name.is_empty() {
-        anyhow::bail!("allowedNames contains an empty name");
+        anyhow::bail!("{field} contains an empty name");
     }
     if !name.is_ascii() {
         anyhow::bail!(
-            "allowedNames {original:?} is not ASCII; write the punycode (xn--) form, \
+            "{field} {original:?} is not ASCII; write the punycode (xn--) form, \
              which is what a query carries"
         );
     }
@@ -245,39 +269,39 @@ fn check_name(original: &str, name: &str) -> anyhow::Result<AllowedName> {
     };
     if base.contains('*') {
         anyhow::bail!(
-            "allowedNames {original:?} has a wildcard other than a leading \"*.\", \
+            "{field} {original:?} has a wildcard other than a leading \"*.\", \
              the only form supported"
         );
     }
     if name.ends_with('.') {
-        anyhow::bail!("allowedNames {original:?} has a trailing dot; write the name without it");
+        anyhow::bail!("{field} {original:?} has a trailing dot; write the name without it");
     }
     if name.len() > 253 {
         anyhow::bail!(
-            "allowedNames {original:?} is {} bytes; a name is at most 253",
+            "{field} {original:?} is {} bytes; a name is at most 253",
             name.len()
         );
     }
 
     let labels: Vec<&str> = base.split('.').collect();
     if !wildcard && labels.len() < 2 {
-        anyhow::bail!("allowedNames {original:?} is a single label, which cannot resolve publicly");
+        anyhow::bail!("{field} {original:?} is a single label, which cannot resolve publicly");
     }
     for label in &labels {
         if label.is_empty() {
-            anyhow::bail!("allowedNames {original:?} has an empty label");
+            anyhow::bail!("{field} {original:?} has an empty label");
         }
         if label.len() > 63 {
-            anyhow::bail!("allowedNames {original:?} has a label longer than 63 bytes: {label:?}");
+            anyhow::bail!("{field} {original:?} has a label longer than 63 bytes: {label:?}");
         }
         if !label
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         {
-            anyhow::bail!("allowedNames {original:?} has a label outside [a-z0-9-]: {label:?}");
+            anyhow::bail!("{field} {original:?} has a label outside [a-z0-9-]: {label:?}");
         }
         if label.starts_with('-') || label.ends_with('-') {
-            anyhow::bail!("allowedNames {original:?} has a label bounded by a hyphen: {label:?}");
+            anyhow::bail!("{field} {original:?} has a label bounded by a hyphen: {label:?}");
         }
     }
 
@@ -286,22 +310,22 @@ fn check_name(original: &str, name: &str) -> anyhow::Result<AllowedName> {
     let top = labels.last().expect("split yields at least one label");
     if top.bytes().all(|b| b.is_ascii_digit()) {
         anyhow::bail!(
-            "allowedNames {original:?} ends in an all-numeric label; \
-             allowedNames takes names and declaredCidrs takes addresses"
+            "{field} {original:?} ends in an all-numeric label; \
+             {field} takes names, not addresses"
         );
     }
 
     if !wildcard {
         return Ok(AllowedName::Exact(base.to_string()));
     }
-    check_wildcard_base(original, base)?;
+    check_wildcard_base(field, original, base)?;
     Ok(AllowedName::Subdomains(base.to_string()))
 }
 
 /// A wildcard over a public suffix grants names controlled by unrelated
 /// registrants. Check only the base: `*.amazonaws.com` is valid even though
 /// `s3.amazonaws.com` beneath it is a suffix.
-fn check_wildcard_base(original: &str, base: &str) -> anyhow::Result<()> {
+fn check_wildcard_base(field: &str, original: &str, base: &str) -> anyhow::Result<()> {
     let suffix = psl::suffix(base.as_bytes()).expect("every validated name has a suffix");
     if suffix.as_bytes() != base.as_bytes() {
         return Ok(());
@@ -314,7 +338,7 @@ fn check_wildcard_base(original: &str, base: &str) -> anyhow::Result<()> {
         }
     };
     anyhow::bail!(
-        "allowedNames {original:?} is a wildcard over the public suffix {base:?}, {source}; \
+        "{field} {original:?} is a wildcard over the public suffix {base:?}, {source}; \
          names beneath a public suffix belong to unrelated registrants"
     );
 }
@@ -441,6 +465,59 @@ mod tests {
             policy.ttl_floor_secs,
             policy.ttl_cap_secs,
         )
+    }
+
+    /// What a launcher writes is what the VMM reads back: the same names, and
+    /// every other field at its default.
+    #[test]
+    fn public_policy_round_trips() {
+        let names = super::hosts(
+            "dev.estuary.egress-hosts",
+            &[
+                "pypi.org".to_string(),
+                "*.ACMEco.example".to_string(),
+                "api.acmeco.example".to_string(),
+            ],
+        )
+        .expect("valid names");
+        let document = super::public_policy(&names);
+
+        insta::assert_snapshot!(
+            String::from_utf8(document.clone()).expect("JSON is UTF-8"),
+            @r#"{"allowedNames":["pypi.org","*.acmeco.example","api.acmeco.example"],"egress":"public"}"#
+        );
+
+        let policy = super::parse(&document).expect("the parser accepts a launcher's policy");
+        assert_eq!(policy.egress, super::Mode::Public);
+        assert!(!policy.allow_all);
+        assert_eq!(policy.allowed_names, names);
+        assert!(policy.declared_cidrs.is_empty());
+        assert_eq!(policy.connections_per_minute, None);
+        assert_eq!(policy.distinct_destinations_per_minute, None);
+        assert_eq!((policy.ttl_floor_secs, policy.ttl_cap_secs), (90, 3600));
+
+        let empty = super::parse(&super::public_policy(&[])).expect("an empty list parses");
+        assert_eq!(empty.egress, super::Mode::Public);
+        assert!(empty.allowed_names.is_empty());
+    }
+
+    #[test]
+    fn hosts_name_the_field_they_came_from() {
+        let rows: Vec<String> = ["*.com", "api.*.acmeco.example", "", "169.254.169.254"]
+            .into_iter()
+            .map(|name| {
+                let error = super::hosts("dev.estuary.egress-hosts", &[name.to_string()])
+                    .expect_err("each is refused");
+                format!("{error:#}")
+            })
+            .collect();
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+        dev.estuary.egress-hosts "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+        dev.estuary.egress-hosts "api.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+        dev.estuary.egress-hosts contains an empty name
+        dev.estuary.egress-hosts "169.254.169.254" ends in an all-numeric label; dev.estuary.egress-hosts takes names, not addresses
+        "#);
     }
 
     #[test]

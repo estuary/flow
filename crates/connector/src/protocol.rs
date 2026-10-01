@@ -13,12 +13,15 @@
 use crate::proto;
 use anyhow::Context;
 use futures::{StreamExt, future::BoxFuture, stream::BoxStream};
+use proto_flow::flow;
 
 /// Everything a connector start needs from its [`Service`](crate::Service) and
 /// the client's `Start` request.
 pub(crate) struct StartContext {
     /// OCI container network to use.
     pub container_network: String,
+    /// Execution requested by the client's `Start`.
+    pub execution: flow::ConnectorExecution,
     /// Log level of the container.
     pub log_level: ops::LogLevel,
     /// Sink for connector logs.
@@ -33,6 +36,8 @@ pub(crate) struct StartContext {
     pub task_name: String,
     /// Authorizes the connector to update its task configuration and secrets.
     pub task_update: Option<crate::TaskUpdate>,
+    /// VMM capability of the [`Service`](crate::Service), if any.
+    pub vmm: Option<crate::Vmm>,
 }
 
 /// Result of opening a protocol RPC on an image connector's channel.
@@ -114,6 +119,9 @@ pub(crate) struct Extracted<'r, P: Protocol> {
     /// Secrets of the task. Keys are catalog names of secrets,
     /// while values are JSON pointers into the endpoint config.
     pub secrets: &'r std::collections::BTreeMap<String, String>,
+    /// Execution of the task's built spec, present only on requests which
+    /// embed it (Apply and Open). Unset in the spec is ordinary execution.
+    pub spec_execution: Option<flow::ConnectorExecution>,
 }
 
 /// Normalized endpoint: the three ways a connector is run.
@@ -146,7 +154,20 @@ pub(crate) async fn start<P: Protocol>(
         initial_config_slot,
         initial_sealed_config_slot,
         secrets,
+        spec_execution,
     } = P::extract_endpoint(&mut initial, sqlite_vfs_uri)?;
+
+    let image = match &endpoint {
+        Endpoint::Image { image, .. } => Some(image.as_str()),
+        Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
+    };
+    crate::vmm::vmm_for(
+        ctx.vmm.as_ref(),
+        P::TASK_TYPE,
+        image,
+        &ctx.execution,
+        spec_execution.as_ref(),
+    )?;
 
     // TODO(johnny): This bit of ugliness is to support frozen
     // derive-typescript/python `:dev` image tags, which are required for the
@@ -330,6 +351,7 @@ pub(crate) async fn start<P: Protocol>(
                 token_restart_at,
                 process: ctx.process,
                 spec: Some(spec),
+                execution: Some(ctx.execution).filter(|execution| *execution != Default::default()),
             })),
         },
         connector_tx,

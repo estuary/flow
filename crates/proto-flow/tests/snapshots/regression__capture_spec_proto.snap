@@ -58,5 +58,5 @@ expression: proto_test(msg)
 |61737377 6f726412 152f6372 6564656e| assword../creden 00000350
 |7469616c 732f7061 7373776f 72646a15| tials/passwordj. 00000360
 |0a136163 6d65436f 2f77686f 6c652d63| ..acmeCo/whole-c 00000370
-|6f6e6669 67|                         onfig            00000380
-                                                       00000385
+|6f6e6669 67720208 01|                onfigr...        00000380
+                                                       00000389

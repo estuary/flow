@@ -245,6 +245,14 @@ pub enum Error {
     },
     #[error("connector returned wrong number of bindings (expected {expect}, got {got})")]
     WrongConnectorBindings { expect: usize, got: usize },
+    #[error(
+        "{entity} {name} requests VMM execution, which requires the V2 runtime, but its shards select the V1 runtime (see shard flag {flag:?})"
+    )]
+    VmmRequiresRuntimeV2 {
+        entity: &'static str,
+        name: String,
+        flag: &'static str,
+    },
     #[error("error while communicating with the Flow control-plane API")]
     ControlPlane {
         #[source]

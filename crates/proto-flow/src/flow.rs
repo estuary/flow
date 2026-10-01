@@ -322,6 +322,18 @@ pub struct NetworkPort {
     #[prost(bool, tag = "3")]
     pub public: bool,
 }
+/// ConnectorExecution is how a task's connector is executed, apart from its
+/// endpoint configuration. Every invocation of the connector -- Spec, Discover,
+/// Validate, Apply, and Open -- uses the same settings. An unset or default
+/// value selects ordinary execution.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ConnectorExecution {
+    /// Run the connector within a VMM, rather than an ordinary container.
+    /// A runtime unable to do so fails the invocation; it never falls back
+    /// to ordinary execution.
+    #[prost(bool, tag = "1")]
+    pub vmm: bool,
+}
 /// Next tag: 13.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CollectionSpec {
@@ -419,6 +431,9 @@ pub mod collection_spec {
             ::prost::alloc::string::String,
             ::prost::alloc::string::String,
         >,
+        /// Execution of this derivation's connector, or unset if ordinary.
+        #[prost(message, optional, tag = "12")]
+        pub execution: ::core::option::Option<super::ConnectorExecution>,
     }
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
@@ -652,6 +667,9 @@ pub struct CaptureSpec {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    /// Execution of this capture's connector, or unset if ordinary.
+    #[prost(message, optional, tag = "14")]
+    pub execution: ::core::option::Option<ConnectorExecution>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -786,6 +804,9 @@ pub struct MaterializationSpec {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    /// Execution of this materialization's connector, or unset if ordinary.
+    #[prost(message, optional, tag = "15")]
+    pub execution: ::core::option::Option<ConnectorExecution>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {

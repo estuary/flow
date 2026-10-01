@@ -1,5 +1,5 @@
 ---
-source: crates/connector-vmm/src/policy.rs
+source: crates/egress/src/lib.rs
 expression: table
 ---
 # unknown field
@@ -60,7 +60,7 @@ allowedNames "localhost" is a single label, which cannot resolve publicly
 
 # allowedNames all-numeric top label
 {"egress":"public","allowedNames":["169.254.169.254"]}
-allowedNames "169.254.169.254" ends in an all-numeric label; allowedNames takes names and declaredCidrs takes addresses
+allowedNames "169.254.169.254" ends in an all-numeric label; allowedNames takes names, not addresses
 
 # allowedNames empty label
 {"egress":"public","allowedNames":["files..acmeco.example"]}

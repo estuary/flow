@@ -47,6 +47,7 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Materialize> {
     let logger = service.logger_factory.open(&service.task_name);
+    let execution = apply.materialization.as_ref().and_then(|m| m.execution);
     let (_started, response) = proto_grpc::connector::unary(
         &*service.connector_router,
         &|log| logger.log(log),
@@ -54,6 +55,7 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             start: Some(connector::proto::request::Start {
                 log_level: log_level as i32,
                 sqlite_vfs_uri: String::new(),
+                execution,
             }),
             kind: Some(connector::proto::request::Kind::Materialize(
                 materialize::Request {
@@ -339,6 +341,7 @@ mod test {
         let registry = service_kit::Registry::new();
         let (_connector_svc, connector_router) = ::connector::Service::new_local(
             String::new(),
+            None,
             registry.clone(),
             std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
         );

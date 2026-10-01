@@ -14,6 +14,7 @@ connector-init = { path = "../connector-init" }
 dekaf-connector = { path = "../dekaf-connector" }
 derive-sqlite = { path = "../derive-sqlite" }
 flow-client-next = { path = "../flow-client-next" }
+egress = { path = "../egress" }
 iam-auth = { path = "../iam-auth" }
 labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }
@@ -50,6 +51,8 @@ validator = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+connector-vmm-tests = { path = "../connector-vmm-tests" }
+
 insta = { workspace = true }
 rustls = { workspace = true }
 tokio = { workspace = true, features = ["macros", "test-util"] }

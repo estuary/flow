@@ -137,6 +137,7 @@ fn extract_endpoint<'r>(
                 .derivation
                 .as_mut()
                 .context("`collection` missing required `derivation`")?;
+            crate::refuse_execution(inner.execution.as_ref())?;
 
             (inner.connector_type, &mut inner.config_json)
         }
@@ -184,5 +185,54 @@ fn extract_endpoint<'r>(
         ))
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_refuses_non_ordinary_execution() {
+        use proto_flow::flow;
+        let outcome = |mut request: Request| match extract_endpoint(&mut request) {
+            Ok(_) => "extracted".to_string(),
+            Err(err) => format!("{err:#}"),
+        };
+
+        let rows: Vec<String> = [
+            None,
+            Some(flow::ConnectorExecution { vmm: false }),
+            Some(flow::ConnectorExecution { vmm: true }),
+        ]
+        .into_iter()
+        .map(|execution| {
+            let open = Request {
+                kind: Some(request::Kind::Open(Box::new(request::Open {
+                    collection: Some(flow::CollectionSpec {
+                        name: "acmeCo/derivation".to_string(),
+                        derivation: Some(Box::new(flow::collection_spec::Derivation {
+                            connector_type: ConnectorType::Local as i32,
+                            config_json: serde_json::json!({"command": ["true"], "config": {}})
+                                .to_string()
+                                .into(),
+                            execution,
+                            ..Default::default()
+                        })),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }))),
+                ..Default::default()
+            };
+            format!("Open {execution:?} => {}", outcome(open))
+        })
+        .collect();
+
+        insta::assert_snapshot!(rows.join("\n"), @r"
+        Open None => extracted
+        Open Some(ConnectorExecution { vmm: false }) => extracted
+        Open Some(ConnectorExecution { vmm: true }) => this task requests connector execution ConnectorExecution { vmm: true }, which the V1 runtime cannot provide
+        ");
     }
 }

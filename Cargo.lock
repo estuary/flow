@@ -2054,8 +2054,10 @@ dependencies = [
  "async-process",
  "bytes",
  "connector-init",
+ "connector-vmm-tests",
  "dekaf-connector",
  "derive-sqlite",
+ "egress",
  "flow-client-next",
  "futures",
  "iam-auth",
@@ -2128,11 +2130,11 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "egress",
  "insta",
  "ipnetwork",
  "libc",
  "libloading",
- "psl",
  "serde",
  "serde_json",
  "tempfile",
@@ -3276,6 +3278,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78e4f79b296fbaab6ce2e22d52cb4c7f010fe0ebe7a32e34fa25885fd797bd02"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "egress"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "insta",
+ "ipnetwork",
+ "psl",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

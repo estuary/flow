@@ -34,6 +34,10 @@ owns its container, image, and local-connector implementation independently.
 - `Started` is the first protocol response and carries the connector's Spec
   response. Logs may precede it, so clients read until `Started`. Later items
   are logs or protocol responses of the established type.
+- `Start.execution` is the connector's execution, unset for ordinary. A request
+  which embeds the task's built spec (Apply, Open) must match that spec's
+  `execution`. `Started.execution` echoes it, unset when ordinary, and
+  `proto_grpc::connector::start` rejects a `Started` which doesn't.
 - A failure before the connector runs ends the stream with a `Status` and no
   `Started`.
 - After protocol responses end, stderr is drained before EOF or a terminal
@@ -113,7 +117,10 @@ It exists only under the V2 runtime; the V1 `runtime` crate is untouched.
 | `LogSink` / `LogDest`           | Routes connector logs and container lifecycle records                     |
 | `protocol::start`               | The start pipeline every connector goes through                          |
 | `protocol::Protocol`            | Per-protocol trait: Spec request, RPC, and endpoint extraction             |
-| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets |
+| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets, execution, VMM |
+| `Vmm`, `Vmm::from_env` | VMM capability and configuration from `CONNECTOR_VMM_*` |
+| `vmm::vmm_for` | Admission decision for requested execution |
+| `vmm::plan::plan` | Pure plan of a VMM launch |
 | `TaskUpdate`                    | Signer and URLs by which a connector updates its config and secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
 | `protocol::create_connector_mount` | Creates the per-run connector mount; see above                        |
@@ -133,6 +140,8 @@ src/
 ├── capture.rs    # Protocol impl: capture endpoints and RPC
 ├── derive.rs     # Protocol impl: derive endpoints and RPC, incl. derive-sqlite
 ├── materialize.rs# Protocol impl: materialize endpoints and RPC, incl. Dekaf
+├── vmm.rs        # VMM configuration and admission
+├── vmm/plan.rs   # Pure launch planning
 └── container.rs  # Docker/Podman pull, inspect/run capabilities, dial
 tests/
 └── e2e.rs        # served streams: loopback gRPC, EndpointRouter, in-process
@@ -186,6 +195,59 @@ EOF or status. A client which does not drain responses may park the handler.
 - **`Start.sqlite_vfs_uri` is runtime-internal.** It's set only by an in-process
   shard hosting a recorded recovery log, and only for a `Sqlite` derivation;
   any other connector type rejects it as `InvalidArgument`.
+
+- **Every start is admitted by `vmm_for`, before anything runs.** It sees the
+  requested execution, the endpoint, the protocol, and the service's VMM
+  capability, after endpoint extraction and before any image is pulled or
+  process started. A VMM request must name an eligible image (by repository,
+  whatever its tag or digest: today only `ghcr.io/estuary/derive-python` as a
+  derivation), on a service with VMM capability. VMM launch is not yet
+  implemented, so even then the request fails: it never falls back to an
+  ordinary container. A local or in-process endpoint cannot request it.
+
+- **VMM configuration is read once, and checked whole.** `Vmm::from_env`
+  reads nothing else when `CONNECTOR_VMM_IMAGE` is unset or empty. Otherwise
+  `CONNECTOR_VMM_STATE_DIR` is required: an absolute host path without a
+  comma, at most 72 bytes so that `<dir>/fv_<16 hex>/sock/init.sock` fits a
+  Unix socket address. `CONNECTOR_VMM_DISK_MIB` (2048),
+  `CONNECTOR_VMM_MEMORY_OVERHEAD_MIB` (256) and `CONNECTOR_VMM_PODMAN`
+  (`podman`, the rootful engine however this process reaches it) take
+  defaults. A malformed value fails service construction. Whether the host
+  can actually run a VMM is a question for each launch, not for configuration.
+
+- **A VMM container gets an ordinary connector's limits.** `--memory` and
+  `--cpus` are `CONNECTOR_MEMORY_LIMIT` and `CONNECTOR_CPU_LIMIT`, verbatim.
+  The guest is sized within them: RAM is the limit's whole MiB less the
+  overhead, and vCPUs are the CPU limit rounded up. The memory limit is read
+  as podman reads `--memory` (go-units' `RAMInBytes`: fractions, exponents,
+  `b`/`ib` units, one optional space), so the guest fits the cap the engine
+  actually applies; only a hexadecimal number is refused. The CPU limit is a
+  decimal number of CPUs.
+
+- **A VMM connector's hosts are its defaults plus its image's label.** Each
+  eligible connector carries default hosts (Python's package index, for
+  `derive-python`), and the image may add more as a JSON array of names in
+  its `dev.estuary.egress-hosts` label. A missing, blank or empty label adds
+  nothing; anything else that isn't valid names is refused. Names follow
+  [`crates/egress`](../egress/README.md), whose `public_policy` writes the
+  VMM's `policy.json`. Ordinary launches never read the label.
+
+- **A VMM launch is planned before anything is created.** `vmm::plan::plan`
+  turns the configuration and the connector's image inspection into the
+  policy, the `fv_<16 hex>` state directories and socket, the files the
+  connector mount must hold, and three podman lines: `boundary verify` from
+  the VMM image, the VMM's own `fvm<12 hex>` bridge network, and its `run`.
+  It refuses an image which exposes TCP ports, which nothing could reach. The
+  lines are those of `crates/connector-vmm-tests`'s `src/launch.rs` plus
+  `--platform`, the usage labels and `--cgroup-parent`, which the reference
+  leaves to a launcher, and with the configured limits as written;
+  `plan_reproduces_the_reference_lines` holds them to it. `LOG_LEVEL`
+  defaults to `info` on local planes and `warn` elsewhere. Nothing calls the
+  plan yet: VMM requests are refused before it would be made.
+
+- **Image admission identifies images by repository.** The public-plane
+  refusal of Python derivations applies to every tag, digest, and bare
+  spelling of `ghcr.io/estuary/derive-python`.
 
 - **A response-stream error is terminal.** Panics in the spawned handler are
 converted into a terminal gRPC status rather than appearing as clean EOF.

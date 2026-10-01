@@ -22,6 +22,11 @@ pub async fn start(
         tonic::Status::invalid_argument("first Connector request must set a protocol request")
     })?;
     let task_type = super::task_type(kind);
+    let requested = first
+        .start
+        .as_ref()
+        .and_then(|start| start.execution)
+        .unwrap_or_default();
     let (request_tx, request_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
     request_tx.try_send(first).expect("channel is empty");
     let mut response_rx = router.open(task_type, task_name, request_rx);
@@ -41,6 +46,15 @@ pub async fn start(
             },
         }
     };
+
+    // A service which predates a requested execution ignores it, and would
+    // start the connector ordinarily. Its `Started` doesn't echo the request.
+    let reported = started.execution.unwrap_or_default();
+    if reported != requested {
+        anyhow::bail!(
+            "connector Started with execution {reported:?}, but {requested:?} was requested"
+        );
+    }
     Ok((request_tx, response_rx, started))
 }
 
@@ -247,8 +261,15 @@ mod test {
     }
 
     fn request() -> connector::Request {
+        request_with(None)
+    }
+
+    fn request_with(execution: Option<proto_flow::flow::ConnectorExecution>) -> connector::Request {
         connector::Request {
-            start: Some(Default::default()),
+            start: Some(connector::request::Start {
+                execution,
+                ..Default::default()
+            }),
             kind: Some(connector::request::Kind::Capture(capture::Request {
                 kind: Some(capture::request::Kind::Validate(Box::new(
                     capture::request::Validate {
@@ -262,12 +283,19 @@ mod test {
     }
 
     fn started() -> connector::Response {
+        started_with(None)
+    }
+
+    fn started_with(
+        execution: Option<proto_flow::flow::ConnectorExecution>,
+    ) -> connector::Response {
         connector::Response {
             kind: Some(connector::response::Kind::Started(
                 connector::response::Started {
                     spec: Some(connector::response::started::Spec::Capture(Box::new(
                         Default::default(),
                     ))),
+                    execution,
                     ..Default::default()
                 },
             )),
@@ -357,5 +385,41 @@ mod test {
             err.downcast_ref::<tokio::time::error::Elapsed>().is_some(),
             "callers add data-plane context only to timeout errors"
         );
+    }
+
+    #[tokio::test]
+    async fn start_requires_started_to_echo_the_requested_execution() {
+        use proto_flow::flow::ConnectorExecution;
+        let vmm = Some(ConnectorExecution { vmm: true });
+        let ordinary = Some(ConnectorExecution { vmm: false });
+
+        let mut rows = Vec::new();
+        for (requested, reported) in [
+            (None, None),
+            (ordinary, None),
+            (None, ordinary),
+            (vmm, vmm),
+            (vmm, None),
+            (None, vmm),
+        ] {
+            let router = TestRouter::new([Ok(started_with(reported))], false);
+            let outcome =
+                match super::start(&router, &|_| {}, "acmeCo/capture", request_with(requested))
+                    .await
+                {
+                    Ok(_) => "started".to_string(),
+                    Err(err) => format!("{err:#}"),
+                };
+            rows.push(format!("{requested:?} / {reported:?} => {outcome}"));
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r"
+        None / None => started
+        Some(ConnectorExecution { vmm: false }) / None => started
+        None / Some(ConnectorExecution { vmm: false }) => started
+        Some(ConnectorExecution { vmm: true }) / Some(ConnectorExecution { vmm: true }) => started
+        Some(ConnectorExecution { vmm: true }) / None => connector Started with execution ConnectorExecution { vmm: false }, but ConnectorExecution { vmm: true } was requested
+        None / Some(ConnectorExecution { vmm: true }) => connector Started with execution ConnectorExecution { vmm: true }, but ConnectorExecution { vmm: false } was requested
+        ");
     }
 }

@@ -95,9 +95,13 @@ pub async fn do_oauth(
 
     // Get the task spec's oauth field
     let router = ctx.local_connector_router();
-    let spec_response =
-        local_connector::spec_capture(&*router, model.shards.log_level.as_deref(), spec_req)
-            .await?;
+    let spec_response = local_connector::spec_capture(
+        &*router,
+        model.shards.log_level.as_deref(),
+        assemble::connector_execution(model.vmm),
+        spec_req,
+    )
+    .await?;
 
     let oauth_spec = spec_response
         .oauth2

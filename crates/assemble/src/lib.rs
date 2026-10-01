@@ -600,6 +600,11 @@ pub fn secrets(
         .collect()
 }
 
+/// Map VMM selection into connector execution; leave ordinary execution unset.
+pub fn connector_execution(vmm: bool) -> Option<flow::ConnectorExecution> {
+    vmm.then_some(flow::ConnectorExecution { vmm })
+}
+
 pub fn compression_codec(t: models::CompressionCodec) -> broker::CompressionCodec {
     match t {
         models::CompressionCodec::None => broker::CompressionCodec::None,

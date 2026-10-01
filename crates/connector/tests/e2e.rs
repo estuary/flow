@@ -18,6 +18,7 @@ use tokio::sync::mpsc;
 fn local_service() -> (connector::Service, connector::ServiceRouter) {
     connector::Service::new_local(
         String::new(),
+        None,
         service_kit::Registry::new(),
         std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
     )
@@ -329,6 +330,7 @@ impl flow_client_next::SecretResolver for SecretResolver {
 fn resolving_router(reachable: bool) -> connector::ServiceRouter {
     let (_service, router) = connector::Service::new_local(
         String::new(),
+        None,
         service_kit::Registry::new(),
         std::sync::Arc::new(SecretResolver { reachable }),
     );
@@ -617,6 +619,7 @@ async fn leave_a_silent_wire_connector(script: &str) -> Vec<String> {
     let registry = service_kit::Registry::new();
     let (service, router) = connector::Service::new_local(
         String::new(),
+        None,
         registry.clone(),
         std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
     );
@@ -966,6 +969,7 @@ fn task_update_router(refresh_interval: std::time::Duration) -> connector::Servi
     let service = connector::Service::new(
         connector::Plane::Local,
         String::new(),
+        None,
         proto_grpc::Authenticator::new(
             connector::LOCAL_ISSUER.to_string(),
             vec![tokens::jwt::DecodingKey::from_secret(&key)],

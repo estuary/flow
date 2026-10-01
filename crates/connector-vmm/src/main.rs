@@ -13,7 +13,6 @@ mod image;
 mod krun;
 mod launch;
 mod net;
-mod policy;
 mod resolver;
 mod ruleset;
 mod sys;
@@ -90,7 +89,7 @@ fn run(args: &Args) -> anyhow::Result<()> {
             policy,
             vmm_subnet: vmm_subnets,
         } => {
-            let policy = policy::load(policy)?;
+            let policy = egress::load(policy)?;
             print!("{}", ruleset::render(&policy, vmm_subnets)?);
             Ok(())
         }

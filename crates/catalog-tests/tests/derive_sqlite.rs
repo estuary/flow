@@ -152,6 +152,7 @@ async fn start_sessions(
             n_shards,
             runtime_local::local_router(
                 String::new(),
+                None,
                 registry.clone(),
                 std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
             ),
@@ -710,4 +711,64 @@ async fn death_after_open_reports_and_tears_down() {
     eprintln!("shutdown reported: {shutdown:?}");
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+}
+
+/// Validate and Open both carry VMM execution to the connector service.
+#[tokio::test]
+async fn vmm_execution_is_carried_to_validate_and_open() {
+    init_test_process();
+
+    let yaml = SINGLE_HOP.replace(
+        "    derive:\n      using:\n",
+        "    derive:\n      vmm: true\n      shards:\n        flags:\n          enable-runtime-v2: \"true\"\n      using:\n",
+    );
+    assert_ne!(yaml, SINGLE_HOP);
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("catalog.flow.yaml");
+    std::fs::write(&path, &yaml).unwrap();
+    let url = build::arg_source_to_url(path.to_str().unwrap(), false).unwrap();
+
+    let refusal = "VMM execution requires an image connector";
+
+    let Err(errors) = build::for_local_test(&url, false).await.into_result() else {
+        panic!("Validate of a VMM SQLite derivation fails");
+    };
+    let errors = format!("{errors:?}");
+    assert!(errors.contains(refusal), "{errors}");
+
+    let output = build::for_local_test(&url, true)
+        .await
+        .into_result()
+        .expect("a build without connector validation succeeds");
+    let spec = output
+        .built
+        .built_collections
+        .iter()
+        .find_map(|bc| bc.spec.clone().filter(|s| s.derivation.is_some()))
+        .expect("the catalog builds one derivation");
+    assert_eq!(
+        spec.derivation.as_ref().unwrap().execution,
+        Some(proto_flow::flow::ConnectorExecution { vmm: true })
+    );
+
+    let registry = service_kit::Registry::new();
+    let store = Arc::new(Mutex::new(CollectionStore::new()));
+    let err = DerivationSession::start(
+        &spec,
+        1,
+        runtime_local::local_router(
+            String::new(),
+            None,
+            registry.clone(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        ),
+        registry,
+        store,
+        runtime_next::TracingLoggerFactory,
+    )
+    .await
+    .err()
+    .expect("Open of a VMM SQLite derivation fails");
+    assert!(format!("{err:#}").contains(refusal), "{err:#}");
 }

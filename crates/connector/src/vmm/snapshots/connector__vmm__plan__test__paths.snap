@@ -1,0 +1,23 @@
+---
+source: crates/connector/src/vmm/plan.rs
+expression: table
+---
+## state directory
+"/var/lib/flow/connector-vmm" (27 bytes, 27 chars) => socket 62 bytes
+"/var/lib/flow/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" (72 bytes, 72 chars) => socket 107 bytes
+"/var/lib/flow/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" (73 bytes, 73 chars) => refused: is 73 bytes, so a VMM's socket path would be 108 bytes; a Unix socket path holds at most 107
+"/var/lib/flow/ééééééééééééééééééééééééééééé" (72 bytes, 43 chars) => socket 107 bytes
+"/var/lib/flow/éééééééééééééééééééééééééééééé" (74 bytes, 44 chars) => refused: is 74 bytes, so a VMM's socket path would be 109 bytes; a Unix socket path holds at most 107
+"var/lib/flow" (12 bytes, 12 chars) => refused: is not an absolute path
+"/" (1 bytes, 1 chars) => refused: is the root
+"/var/lib/flow/" (14 bytes, 14 chars) => refused: ends in a slash; write it without one
+"/var/lib/flow,rw=true" (21 bytes, 21 chars) => refused: contains a comma, which podman's --mount cannot carry
+
+## launch
+a relative mount => refused: connector mount "tmp/mount-acme": is not an absolute path
+the root as the mount => refused: connector mount "/": is the root
+a comma in the mount => refused: connector mount "/tmp/mount-acme,rw=true": contains a comma, which podman's --mount cannot carry
+a comma in the image => refused: connector image "ghcr.io/estuary/derive-python:stable,rw=true": contains a comma, which podman's --mount cannot carry
+a comma in the persistent disk => refused: persistent disk "/var/lib/disk,rw": contains a comma, which podman's --mount cannot carry
+a relative persistent disk guest path => refused: persistent disk guest path "state": is not an absolute path
+a comma in the persistent disk guest path, which is not a mount option => plans

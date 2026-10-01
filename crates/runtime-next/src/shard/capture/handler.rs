@@ -274,6 +274,7 @@ where
         connector::proto::request::Start {
             log_level: log_level as i32,
             sqlite_vfs_uri: String::new(),
+            execution: spec.execution,
         },
         connector::proto::request::Kind::Capture(open.clone()),
     )
@@ -441,6 +442,7 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             connector::proto::request::Start {
                 log_level: log_level as i32,
                 sqlite_vfs_uri: String::new(),
+                execution: next_spec.execution,
             },
             connector::proto::request::Kind::Capture(capture::Request {
                 kind: Some(capture::request::Kind::Apply(Box::new(apply))),
@@ -543,6 +545,7 @@ mod test {
         let registry = service_kit::Registry::new();
         let (_connector_svc, connector_router) = ::connector::Service::new_local(
             String::new(),
+            None,
             registry.clone(),
             std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
         );

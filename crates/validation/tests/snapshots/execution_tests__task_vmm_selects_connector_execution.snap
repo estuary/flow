@@ -1,0 +1,13 @@
+---
+source: crates/validation/tests/execution_tests.rs
+expression: "rows.join(\"\\n\")"
+---
+capture acmeCo/ordinary-capture: None
+capture acmeCo/vmm-capture: Some(ConnectorExecution { vmm: true })
+derivation acmeCo/vmm-derivation: Some(ConnectorExecution { vmm: true })
+materialization acmeCo/ordinary-materialization: None
+materialization acmeCo/vmm-materialization: Some(ConnectorExecution { vmm: true })
+error test://example/catalog.yaml#/captures/acmeCo~1v1-capture/vmm: capture acmeCo/v1-capture requests VMM execution, which requires the V2 runtime, but its shards select the V1 runtime (see shard flag "enable-runtime-v2")
+error test://example/catalog.yaml#/collections/acmeCo~1disabled-v1-derivation/derive/vmm: derivation acmeCo/disabled-v1-derivation requests VMM execution, which requires the V2 runtime, but its shards select the V1 runtime (see shard flag "enable-runtime-v2")
+error test://example/catalog.yaml#/collections/acmeCo~1v1-derivation/derive/vmm: derivation acmeCo/v1-derivation requests VMM execution, which requires the V2 runtime, but its shards select the V1 runtime (see shard flag "enable-runtime-v2")
+error test://example/catalog.yaml#/materializations/acmeCo~1v1-materialization/vmm: materialization acmeCo/v1-materialization requests VMM execution, which requires the V2 runtime, but its shards select the V1 runtime (see shard flag "enable-runtime-v2")
