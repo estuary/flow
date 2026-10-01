@@ -1,14 +1,14 @@
 //! The plan of one VMM launch: the policy its guest is held to, the state it
 //! is given, and the podman lines that verify the host boundary, create its
-//! network and run it. Planning is pure. It creates nothing and probes
-//! nothing, so whether this host can carry the plan out is for the launch.
+//! network and create its container. Planning is pure. It creates nothing and
+//! probes nothing, so whether this host can carry the plan out is for the
+//! launch.
 //!
 //! `crates/connector-vmm-tests` holds the reference lines the plan reproduces;
 //! the README records where and why it departs from them.
 
 use super::{Eligible, Vmm};
 use anyhow::Context;
-use std::collections::BTreeMap;
 
 /// Must match `boundary::BRIDGE_PREFIX` of `flow-connector-vmm`: a bridge so
 /// named is behind the host boundary, and nothing else puts it there.
@@ -21,22 +21,87 @@ const EGRESS_HOSTS_LABEL: &str = "dev.estuary.egress-hosts";
 /// `sun_path` holds 108 bytes, its terminating NUL among them.
 const SOCKET_PATH_MAX: usize = 107;
 
+/// What a launch's guest may reach.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Egress {
+    /// Only these names, each with where it was first declared.
+    Names(Vec<(egress::AllowedName, Source)>),
+    /// Any public destination: the task declares no egress, and its data
+    /// plane does not require one.
+    AnyPublic,
+}
+
+/// Where a permitted name was declared.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Source {
+    Connector,
+    /// The image's `dev.estuary.egress-hosts` label.
+    Image,
+    Task,
+}
+
+impl std::fmt::Display for Egress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names = match self {
+            Egress::AnyPublic => {
+                return f.write_str(
+                    "VMM egress permits any public destination: the task declares no \
+                     egress, and this data plane does not require one",
+                );
+            }
+            Egress::Names(names) if names.is_empty() => {
+                return f.write_str("VMM egress permits no host names");
+            }
+            Egress::Names(names) => names,
+        };
+        f.write_str("VMM egress permits only these host names: ")?;
+
+        let groups = [
+            (Source::Connector, "connector defaults"),
+            (Source::Image, "image label"),
+            (Source::Task, "task egress.hosts"),
+        ];
+        let mut first = true;
+        for (source, what) in groups {
+            let group: Vec<String> = names
+                .iter()
+                .filter(|(_, from)| *from == source)
+                .map(|(name, _)| name.to_string())
+                .collect();
+            if group.is_empty() {
+                continue;
+            }
+            if !first {
+                f.write_str("; ")?;
+            }
+            first = false;
+            write!(f, "{} ({what})", group.join(", "))?;
+        }
+        Ok(())
+    }
+}
+
 /// One VMM launch of an admitted connector.
 pub(crate) struct Launch<'a> {
-    /// Names the container, its network and its state: `fv_<16 hex>`.
+    /// Names the container, its network, its state and its record:
+    /// `fv_<16 hex>`.
     pub id: u64,
+    /// Marks the network and container as the launch's own.
+    pub token: u128,
     pub eligible: &'static Eligible,
     pub image: &'a str,
     /// `podman image inspect` of `image`, which the connector mount also
     /// carries as `image-inspect.json`.
     pub inspection: &'a [u8],
-    /// Absolute host path, shared at that same path into the container and
-    /// the guest.
-    pub connector_mount: &'a str,
+    /// Absolute host directory of connector mounts, in which the launch's
+    /// own is `mount-fv_<16 hex>`.
+    pub connector_mounts: &'a str,
     pub log_level: ops::LogLevel,
     pub plane: crate::Plane,
     pub task_name: &'a str,
     pub persistent_disk: Option<PersistentDisk<'a>>,
+    /// The hosts the task's egress declares, or None if it declares none.
+    pub egress: Option<&'a [egress::AllowedName]>,
 }
 
 /// The task's persistent storage: a host directory, and where the guest
@@ -53,10 +118,24 @@ pub(crate) struct Plan {
     /// The network's bridge, `fvm` and twelve of the id's digits: an
     /// interface name holds fifteen bytes.
     pub interface: String,
+    /// The launch's own state directory, `fv_<16 hex>` beneath the
+    /// configured one.
+    pub state: String,
+    /// The launch's ownership record, beside its state directory.
+    pub record: String,
+    /// The value of the owner label on the launch's network and container.
+    pub token: String,
+    /// The connector mount, shared at that same path into the container and
+    /// the guest.
+    pub mount: String,
     /// The state directory, then the three the container binds, each with
     /// its mode. `sock/` is traversable so that an unprivileged process can
     /// dial the socket, which the VMM leaves at mode 0777.
     pub directories: Vec<(String, u32)>,
+    /// Where the VMM opens its `O_TMPFILE` scratch disk.
+    pub scratch: String,
+    /// What the guest may reach, from which `policy` is written.
+    pub egress: Egress,
     /// Written to `policy_path`, the VMM's `/init/policy.json`.
     pub policy: Vec<u8>,
     pub policy_path: String,
@@ -64,23 +143,26 @@ pub(crate) struct Plan {
     pub socket: String,
     /// What the connector mount must hold, with modes.
     pub mount_files: Vec<(String, u32)>,
-    /// Arguments after `podman`, in the order they run.
+    /// Arguments after `podman`, in the order they run. The container is
+    /// started, once created, by its ID.
     pub verify: Vec<String>,
     pub network: Vec<String>,
-    pub run: Vec<String>,
+    pub create: Vec<String>,
 }
 
 pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     let Launch {
         id,
+        token,
         eligible,
         image,
         inspection,
-        connector_mount: mount,
+        connector_mounts,
         log_level,
         plane,
         task_name,
         persistent_disk,
+        egress,
     } = launch;
 
     let image_inspection = connector_init::inspect::Image::parse_from_json_slice(inspection)?;
@@ -119,11 +201,15 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         .context("parsing image inspection")?
         .config
         .labels;
-    let hosts =
-        egress_hosts(eligible, &labels).with_context(|| format!("connector image '{image}'"))?;
+    let image_hosts = label_hosts(labels.get(EGRESS_HOSTS_LABEL).map(String::as_str))
+        .with_context(|| format!("connector image '{image}'"))?;
+    let egress = plan_egress(eligible, &image_hosts, *egress, *plane);
+
+    let name = format!("fv_{id:016x}");
+    let mount = format!("{connector_mounts}/mount-{name}");
 
     check_mount_value(image).with_context(|| format!("connector image {image:?}"))?;
-    check_share(mount).with_context(|| format!("connector mount {mount:?}"))?;
+    check_share(&mount).with_context(|| format!("connector mount {mount:?}"))?;
     if let Some(PersistentDisk {
         host_dir,
         guest_path,
@@ -135,10 +221,11 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             .with_context(|| format!("persistent disk guest path {guest_path:?}"))?;
     }
 
-    let name = format!("fv_{id:016x}");
     let interface = format!("{BRIDGE_PREFIX}{}", &name[3..15]);
     let state = format!("{}/{name}", vmm.state_dir);
     let socket = format!("{state}/sock/init.sock");
+    let token = format!("{token:032x}");
+    let owner = format!("--label={}={token}", super::record::OWNER_LABEL);
     assert!(
         socket.len() <= SOCKET_PATH_MAX,
         "check_state_dir bounds every socket path"
@@ -149,8 +236,8 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         crate::Plane::Public | crate::Plane::Private => ops::LogLevel::Warn,
     });
 
-    let mut run: Vec<String> = vec![
-        "run".to_string(),
+    let mut create: Vec<String> = vec![
+        "create".to_string(),
         "--rm".to_string(),
         format!("--name={name}"),
         format!("--network={name}"),
@@ -175,11 +262,11 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         format!("--mount=type=bind,source={state}/scratch,target=/scratch-backing"),
     ];
     if let Some(PersistentDisk { host_dir, .. }) = persistent_disk {
-        run.push(format!(
+        create.push(format!(
             "--mount=type=bind,source={host_dir},target=/persistent-disk"
         ));
     }
-    run.extend([
+    create.extend([
         format!("--env=CONNECTOR_MOUNT={mount}"),
         "--env=LOG_FORMAT=json".to_string(),
         format!("--env=LOG_LEVEL={}", log_level.as_str_name()),
@@ -187,17 +274,18 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         format!("--label=image={image}"),
         format!("--label=task-name={task_name}"),
         format!("--label=task-type={}", eligible.task_type.as_str_name()),
+        owner.clone(),
     ]);
     if let Some(cgroup_parent) = &vmm.cgroup_parent {
-        run.push(format!("--cgroup-parent={cgroup_parent}"));
+        create.push(format!("--cgroup-parent={cgroup_parent}"));
     }
-    run.extend([
+    create.extend([
         vmm.image.clone(),
         "run".to_string(),
         "--policy".to_string(),
         "/init/policy.json".to_string(),
         "--connector-mount".to_string(),
-        mount.to_string(),
+        mount.clone(),
         "--memory-mib".to_string(),
         vmm.guest_memory_mib.to_string(),
         "--vcpus".to_string(),
@@ -206,8 +294,8 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         vmm.disk_mib.to_string(),
     ]);
     if let Some(PersistentDisk { guest_path, .. }) = persistent_disk {
-        run.push("--persistent-disk".to_string());
-        run.push(guest_path.to_string());
+        create.push("--persistent-disk".to_string());
+        create.push(guest_path.to_string());
     }
 
     Ok(Plan {
@@ -217,7 +305,18 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             (format!("{state}/sock"), 0o711),
             (format!("{state}/scratch"), 0o700),
         ],
-        policy: egress::public_policy(&hosts),
+        scratch: format!("{state}/scratch"),
+        record: super::record::path(&vmm.state_dir, &name),
+        token,
+        policy: match &egress {
+            Egress::Names(names) => {
+                let names: Vec<egress::AllowedName> =
+                    names.iter().map(|(name, _)| name.clone()).collect();
+                egress::public_policy(&names)
+            }
+            Egress::AnyPublic => egress::any_public_policy(),
+        },
+        egress,
         policy_path: format!("{state}/init/policy.json"),
         socket,
         mount_files: vec![
@@ -241,11 +340,14 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             "create".to_string(),
             "--driver=bridge".to_string(),
             format!("--interface-name={interface}"),
+            owner,
             name.clone(),
         ],
-        run,
+        create,
         name,
         interface,
+        state,
+        mount,
     })
 }
 
@@ -268,26 +370,45 @@ pub(super) fn check_state_dir(state_dir: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The hosts `eligible`'s defaults and the image's label declare, in that
-/// order and without repeats.
-fn egress_hosts(
+/// What the guest may reach. A task which declares egress, or any task on a
+/// public data plane, is held to the hosts of `eligible`, the image's label
+/// and the task, in that order and without repeats. Otherwise the data plane
+/// leaves its egress open to any public destination.
+fn plan_egress(
     eligible: &Eligible,
-    labels: &BTreeMap<String, String>,
-) -> anyhow::Result<Vec<egress::AllowedName>> {
+    image_hosts: &[egress::AllowedName],
+    task_hosts: Option<&[egress::AllowedName]>,
+    plane: crate::Plane,
+) -> Egress {
+    // Exhaustive, so that a new kind of plane must decide.
+    let undeclared_is_open = match plane {
+        crate::Plane::Public => false,
+        crate::Plane::Private | crate::Plane::Local => true,
+    };
+    if task_hosts.is_none() && undeclared_is_open {
+        return Egress::AnyPublic;
+    }
     let defaults: Vec<String> = eligible
         .egress_hosts
         .iter()
         .map(ToString::to_string)
         .collect();
-    let mut hosts =
+    let defaults =
         egress::hosts("default hosts", &defaults).expect("eligible default hosts are valid");
 
-    for host in label_hosts(labels.get(EGRESS_HOSTS_LABEL).map(String::as_str))? {
-        if !hosts.contains(&host) {
-            hosts.push(host);
+    let mut names: Vec<(egress::AllowedName, Source)> = Vec::new();
+    for (hosts, source) in [
+        (defaults.as_slice(), Source::Connector),
+        (image_hosts, Source::Image),
+        (task_hosts.unwrap_or_default(), Source::Task),
+    ] {
+        for host in hosts {
+            if !names.iter().any(|(name, _)| name == host) {
+                names.push((host.clone(), source));
+            }
         }
     }
-    Ok(hosts)
+    Egress::Names(names)
 }
 
 /// A missing, blank or empty label declares nothing.
@@ -335,8 +456,9 @@ mod test {
     use serde_json::json;
 
     const IMAGE: &str = "ghcr.io/estuary/derive-python:stable";
-    const MOUNT: &str = "/tmp/connector-mounts-0/mount-acme";
+    const MOUNTS: &str = "/tmp/connector-mounts-0";
     const ID: u64 = 0x0123456789abcdef;
+    const TOKEN: u128 = 0x00112233445566778899aabbccddeeff;
 
     fn vmm(vars: &[(&str, &str)]) -> Vmm {
         let vars: std::collections::BTreeMap<&str, &str> = [
@@ -381,22 +503,30 @@ mod test {
     fn launch<'a>(inspection: &'a [u8]) -> Launch<'a> {
         Launch {
             id: ID,
+            token: TOKEN,
             eligible: crate::vmm::eligible(ops::TaskType::Derivation, IMAGE)
                 .expect("derive-python is eligible"),
             image: IMAGE,
             inspection,
-            connector_mount: MOUNT,
+            connector_mounts: MOUNTS,
             log_level: ops::LogLevel::UndefinedLevel,
             plane: crate::Plane::Public,
             task_name: "acmeCo/anvils/derivation",
             persistent_disk: None,
+            egress: None,
         }
     }
 
+    fn task_hosts(hosts: &[&str]) -> Vec<egress::AllowedName> {
+        let hosts: Vec<String> = hosts.iter().map(ToString::to_string).collect();
+        egress::hosts("task egress.hosts", &hosts).expect("valid task hosts")
+    }
+
     /// Given the reference's own inputs, the plan's lines are the reference
-    /// lines plus the arguments the reference leaves to a launcher. The
-    /// reference sizes the container from guest RAM and this plan sizes guest
-    /// RAM from the container's limit, so the inputs are chosen to meet.
+    /// lines plus the arguments the reference leaves to a launcher, and the
+    /// plan creates the container the reference runs. The reference sizes the
+    /// container from guest RAM and this plan sizes guest RAM from the
+    /// container's limit, so the inputs are chosen to meet.
     #[test]
     fn plan_reproduces_the_reference_lines() {
         use connector_vmm_tests::launch as reference;
@@ -435,7 +565,7 @@ mod test {
                 name: &plan.name,
                 network: &plan.name,
                 state_dir: &format!("/var/lib/flow/connector-vmm/{}", plan.name),
-                connector_mount: MOUNT,
+                connector_mount: &plan.mount,
                 connector_image: IMAGE,
                 vmm_image: &vmm.image,
                 memory_mib: 1024,
@@ -444,14 +574,20 @@ mod test {
                 log_level: "warn",
                 persistent_disk,
             });
-            let (added, run): (Vec<String>, Vec<String>) =
-                plan.run.iter().cloned().partition(|arg| {
-                    ["--platform=", "--label=", "--cgroup-parent="]
-                        .iter()
-                        .any(|prefix| arg.starts_with(prefix))
-                });
+            let launcher_only = |arg: &String| {
+                ["--platform=", "--label=", "--cgroup-parent="]
+                    .iter()
+                    .any(|prefix| arg.starts_with(prefix))
+            };
+            let owner = "--label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff";
 
-            assert_eq!(run, expected, "{persistent_disk:?}");
+            let (added, create): (Vec<String>, Vec<String>) =
+                plan.create.iter().cloned().partition(launcher_only);
+            assert_eq!(
+                (create[0].as_str(), expected[0].as_str()),
+                ("create", "run")
+            );
+            assert_eq!(create[1..], expected[1..], "{persistent_disk:?}");
             assert_eq!(
                 added,
                 [
@@ -459,14 +595,15 @@ mod test {
                     "--label=image=ghcr.io/estuary/derive-python:stable",
                     "--label=task-name=acmeCo/anvils/derivation",
                     "--label=task-type=derivation",
+                    owner,
                     "--cgroup-parent=estuary-connectors.slice",
                 ]
             );
 
-            assert_eq!(
-                plan.network,
-                reference::network(&plan.name, &plan.interface)
-            );
+            let (added, network): (Vec<String>, Vec<String>) =
+                plan.network.iter().cloned().partition(launcher_only);
+            assert_eq!(network, reference::network(&plan.name, &plan.interface));
+            assert_eq!(added, [owner]);
             assert_eq!(
                 plan.verify,
                 reference::boundary(&vmm.image, "host", "verify")
@@ -475,7 +612,8 @@ mod test {
     }
 
     /// Everything one plan holds, where the limits are spelled as an operator
-    /// might write them and the guest's differ from the container's.
+    /// might write them and the guest's differ from the container's, and the
+    /// task's egress repeats a default and a label host.
     #[test]
     fn a_plan() {
         let vmm = vmm(&[
@@ -486,10 +624,12 @@ mod test {
             json!({"dev.estuary.egress-hosts": r#"["api.acmeco.example", "*.cdn.acmeco.example"]"#}),
             json!({"9000/udp": {}}),
         );
+        let task_hosts = task_hosts(&["API.acmeco.example", "*.svc.acmeco.example", "pypi.org"]);
         let plan = super::plan(
             &vmm,
             &Launch {
                 plane: crate::Plane::Local,
+                egress: Some(&task_hosts),
                 ..launch(&inspection)
             },
         )
@@ -511,23 +651,80 @@ mod test {
                 "pypi.org",
                 "files.pythonhosted.org",
                 "api.acmeco.example",
-                "*.cdn.acmeco.example"
+                "*.cdn.acmeco.example",
+                "*.svc.acmeco.example",
             ]
         );
+    }
+
+    #[test]
+    fn egress_by_plane_and_declaration() {
+        let vmm = vmm(&[]);
+        let label = json!({"dev.estuary.egress-hosts": r#"["api.acmeco.example"]"#});
+        let declared = task_hosts(&[
+            "*.svc.acmeco.example",
+            "API.acmeco.example",
+            "files.pythonhosted.org",
+            "ok.acmeco.example",
+        ]);
+        let declarations: [(&str, Option<&[egress::AllowedName]>); 3] = [
+            ("omitted", None),
+            ("empty", Some(&[])),
+            ("hosts", Some(&declared)),
+        ];
+
+        let mut table = String::new();
+        for (labels, what) in [(json!({}), "no label"), (label, "a label")] {
+            let inspection = inspection(labels, json!({}));
+            for plane in [
+                crate::Plane::Public,
+                crate::Plane::Private,
+                crate::Plane::Local,
+            ] {
+                for (declaration, egress) in declarations {
+                    let plan = super::plan(
+                        &vmm,
+                        &Launch {
+                            plane,
+                            egress,
+                            ..launch(&inspection)
+                        },
+                    )
+                    .expect("plans");
+                    table.push_str(&format!(
+                        "# {what}, {} plane, egress {declaration}
+{}
+{}
+
+",
+                        plane.as_str_name(),
+                        plan.egress,
+                        String::from_utf8(plan.policy).unwrap(),
+                    ));
+                }
+            }
+        }
+        insta::assert_snapshot!(table);
     }
 
     fn describe(plan: &Plan) -> String {
         let Plan {
             name,
             interface,
+            state,
+            record,
+            token,
+            mount,
             directories,
+            scratch,
+            egress,
             policy,
             policy_path,
             socket,
             mount_files,
             verify,
             network,
-            run,
+            create,
         } = plan;
         let modes = |entries: &[(String, u32)]| -> String {
             entries
@@ -537,16 +734,18 @@ mod test {
         };
 
         format!(
-            "name: {name}\ninterface: {interface}\nsocket: {socket} ({} bytes)\n\
-             \n## directories\n{}\n## {policy_path}\n{}\n\n## connector mount\n{}\
-             \n## verify\npodman {}\n\n## network\npodman {}\n\n## run\npodman {}\n",
+            "name: {name}\ninterface: {interface}\nstate: {state}\nrecord: {record}\n\
+             token: {token}\nmount: {mount}\nscratch: {scratch}\n\
+             socket: {socket} ({} bytes)\n\
+             \n## directories\n{}\n## egress\n{egress}\n\n## {policy_path}\n{}\n\n## connector mount\n{}\
+             \n## verify\npodman {}\n\n## network\npodman {}\n\n## create\npodman {}\n",
             socket.len(),
             modes(directories),
             String::from_utf8_lossy(policy),
             modes(mount_files),
             verify.join(" "),
             network.join(" "),
-            run.join(" \\\n  "),
+            create.join(" \\\n  "),
         )
     }
 
@@ -681,23 +880,16 @@ mod test {
         let inspection = inspection(json!({}), json!({}));
         let cases: Vec<(&str, Launch)> = vec![
             (
-                "a relative mount",
+                "a relative mounts directory",
                 Launch {
-                    connector_mount: "tmp/mount-acme",
+                    connector_mounts: "tmp/connector-mounts-0",
                     ..launch(&inspection)
                 },
             ),
             (
-                "the root as the mount",
+                "a comma in the mounts directory",
                 Launch {
-                    connector_mount: "/",
-                    ..launch(&inspection)
-                },
-            ),
-            (
-                "a comma in the mount",
-                Launch {
-                    connector_mount: "/tmp/mount-acme,rw=true",
+                    connector_mounts: "/tmp/connector-mounts-0,rw=true",
                     ..launch(&inspection)
                 },
             ),

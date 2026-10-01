@@ -223,6 +223,18 @@ message ConnectorExecution {
   // A runtime unable to do so fails the invocation; it never falls back
   // to ordinary execution.
   bool vmm = 1;
+
+  // Egress a task declares.
+  message Egress {
+    // Host names the connector may reach, in addition to those of its
+    // connector and image: an exact name, or `*.` and a base name for every
+    // name beneath that base but not the base itself. As the task wrote them.
+    repeated string hosts = 1;
+  }
+  // Egress the task declares. Its presence is the declaration, even with no
+  // hosts: an execution which cannot enforce egress fails the invocation.
+  // When unset, the data plane decides what the connector may reach.
+  Egress egress = 2;
 }
 
 message CollectionSpec {

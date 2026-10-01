@@ -124,6 +124,15 @@ fn ex_secrets() -> std::collections::BTreeMap<String, String> {
     .into()
 }
 
+fn ex_execution(hosts: &[&str]) -> Option<flow::ConnectorExecution> {
+    Some(flow::ConnectorExecution {
+        vmm: true,
+        egress: Some(flow::connector_execution::Egress {
+            hosts: hosts.iter().map(ToString::to_string).collect(),
+        }),
+    })
+}
+
 fn ex_network_ports() -> Vec<flow::NetworkPort> {
     [
         flow::NetworkPort {
@@ -233,7 +242,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
         created_at: "2025-07-09".to_string(),
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
-        execution: Some(flow::ConnectorExecution { vmm: true }),
+        execution: ex_execution(&["api.acmeco.example", "*.svc.acmeco.example"]),
     }
 }
 
@@ -277,7 +286,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
         redact_salt: b"test-derivation-salt".to_vec().into(),
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
-        execution: Some(flow::ConnectorExecution { vmm: true }),
+        execution: ex_execution(&[]),
     }));
 
     spec
@@ -340,7 +349,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         sync_schedule_json: json!({"baseInterval": "4h", "timezone": "America/New_York", "windows": [{"interval": "30m", "start": "09:00", "end": "17:00"}]}).to_string().into(),
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
-        execution: Some(flow::ConnectorExecution { vmm: true }),
+        execution: ex_execution(&["api.acmeco.example", "*.svc.acmeco.example"]),
     }
 }
 
@@ -391,7 +400,7 @@ fn ex_connector_response() -> connector::Response {
                 spec: Some(connector::response::started::Spec::Derive(Box::new(
                     derive::response::Spec::default(),
                 ))),
-                execution: Some(flow::ConnectorExecution { vmm: true }),
+                execution: ex_execution(&["api.acmeco.example"]),
                 ..Default::default()
             },
         )),

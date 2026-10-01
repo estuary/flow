@@ -27,6 +27,10 @@ pub struct Run {
     pub vmm_image: String,
     pub guest_image: String,
     pub hello_world_image: String,
+    /// `connector-vmm-fake`, built from this checkout.
+    pub fake_image: String,
+    /// The one connector eligible for VMM execution, pulled by the task.
+    pub derive_python_image: String,
     pub connector_init: PathBuf,
     /// The controlled public addresses, inside `endpoint_netns`.
     pub endpoints: Vec<Ipv4Addr>,

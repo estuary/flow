@@ -5,7 +5,9 @@
 //! the container's `--memory` and `--cpus`, which it takes from its own limits,
 //! so they are pure functions and each production shape is a snapshot. They
 //! carry every flag that bears on the VMM; labels, `--cgroup-parent` and
-//! `--platform` are the launcher's own business and are absent.
+//! `--platform` are the launcher's own business and are absent. A launcher
+//! may `podman create` with the `run` line's arguments and then start the
+//! container, as `crates/connector`'s does.
 
 /// Must match `boundary::BRIDGE_PREFIX` in `flow-connector-vmm`: a bridge
 /// named so is behind the host boundary, and nothing else puts it there.

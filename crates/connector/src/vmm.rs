@@ -1,12 +1,12 @@
-//! VMM capability, connector start admission, and the plan of a VMM launch.
+//! VMM capability, connector start admission, and the plan, launch, ownership
+//! and release of a VMM.
 use anyhow::Context;
 use proto_flow::flow;
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "VMM launches are refused before any plan is made")
-)]
+pub(crate) mod launch;
 mod plan;
+mod record;
+mod release;
 
 /// VMM capability of a connector service, and the configuration every VMM it
 /// launches shares.
@@ -269,21 +269,84 @@ fn eligible(task_type: ops::TaskType, image: &str) -> Option<&'static Eligible> 
         .find(|eligible| eligible.task_type == task_type && eligible.repository == repository)
 }
 
-/// Decide whether a connector start may proceed, given the `execution` it
-/// requests and the VMM capability `vmm` of this service. `image` is the
-/// connector's image, or None if its endpoint isn't an image. A request which
-/// embeds the task's built spec passes that spec's execution as
-/// `spec_execution`, which must agree with `execution`, so that a caller cannot
-/// drop the task's settings.
+/// How an admitted connector start runs.
+#[derive(Debug)]
+pub(crate) enum Execution<'a> {
+    Ordinary,
+    /// In a VMM of this service's configuration, as the eligible connector.
+    Vmm {
+        vmm: &'a Vmm,
+        eligible: &'static Eligible,
+        egress: Option<Vec<egress::AllowedName>>,
+    },
+}
+
+/// Decide whether a connector start may proceed, and how, given the
+/// `execution` it requests and the VMM capability `vmm` of this service.
+/// `image` is the connector's image, or None if its endpoint isn't an image.
+/// A request which embeds the task's built spec passes that spec's execution
+/// as `spec_execution`, which must agree with `execution`, so that a caller
+/// cannot drop the task's settings.
 ///
 /// Every connector start is decided here, before any image is pulled or any
-/// connector is started, and `Ok` starts the connector ordinarily. VMM launch
-/// is not yet implemented, so a request for VMM execution always fails: it
-/// never falls back to an ordinary container.
-pub(crate) fn vmm_for(
-    vmm: Option<&Vmm>,
+/// connector is started. A request for VMM execution is either launched in a
+/// VMM or fails: it never falls back to an ordinary container. Declared
+/// egress is refused by any execution which cannot enforce it, and its hosts
+/// are validated here, so that a direct caller cannot skip either check.
+pub(crate) fn vmm_for<'a>(
+    vmm: Option<&'a Vmm>,
     task_type: ops::TaskType,
     image: Option<&str>,
+    execution: &flow::ConnectorExecution,
+    spec_execution: Option<&flow::ConnectorExecution>,
+) -> anyhow::Result<Execution<'a>> {
+    check_spec_execution(execution, spec_execution)?;
+
+    if execution.egress.is_some() && !execution.vmm {
+        return Err(crate::invalid_argument(
+            "the task declares egress, which ordinary execution cannot enforce; \
+             egress is enforced only by VMM execution"
+                .to_string(),
+        ));
+    }
+    if !execution.vmm {
+        return Ok(Execution::Ordinary);
+    }
+    let Some(image) = image else {
+        return Err(crate::invalid_argument(
+            "VMM execution requires an image connector".to_string(),
+        ));
+    };
+    let Some(eligible) = eligible(task_type, image) else {
+        return Err(crate::invalid_argument(format!(
+            "connector image '{image}' is not eligible for VMM execution as a {}",
+            task_type.as_str_name()
+        )));
+    };
+    let Some(vmm) = vmm else {
+        return Err(proto_grpc::status_to_anyhow(
+            tonic::Status::failed_precondition("this data plane does not support VMM execution"),
+        ));
+    };
+    let egress = execution
+        .egress
+        .as_ref()
+        .map(|flow::connector_execution::Egress { hosts }| {
+            egress::hosts("task egress.hosts", hosts)
+        })
+        .transpose()
+        .map_err(|err| crate::invalid_argument(format!("{err:#}")))?;
+
+    Ok(Execution::Vmm {
+        vmm,
+        eligible,
+        egress,
+    })
+}
+
+/// The connector's execution and egress policy are fixed at start; later
+/// built specs cannot change them.
+pub(crate) fn check_spec_execution(
     execution: &flow::ConnectorExecution,
     spec_execution: Option<&flow::ConnectorExecution>,
 ) -> anyhow::Result<()> {
@@ -294,41 +357,19 @@ pub(crate) fn vmm_for(
             "Start.execution {execution:?} differs from the execution {spec_execution:?} of the task's built spec"
         )));
     }
-    if !execution.vmm {
-        return Ok(());
-    }
-    let Some(image) = image else {
-        return Err(crate::invalid_argument(
-            "VMM execution requires an image connector".to_string(),
-        ));
-    };
-    if eligible(task_type, image).is_none() {
-        return Err(crate::invalid_argument(format!(
-            "connector image '{image}' is not eligible for VMM execution as a {}",
-            task_type.as_str_name()
-        )));
-    }
-    if vmm.is_none() {
-        return Err(status(tonic::Status::failed_precondition(
-            "this data plane does not support VMM execution",
-        )));
-    }
-    Err(status(tonic::Status::unimplemented(
-        "VMM execution of connectors is not yet implemented",
-    )))
+    Ok(())
 }
 
-fn status(status: tonic::Status) -> anyhow::Error {
-    proto_grpc::status_to_anyhow(status)
-}
-
-/// A capable service's configuration, with every default.
+/// A capable service's configuration, with every default but a podman and a
+/// state directory which do not exist, so that a launch fails at its first
+/// step without ever reaching an engine.
 #[cfg(test)]
 pub(crate) fn fixture() -> Vmm {
     Vmm::from_vars(|name| {
         Ok(match name {
             IMAGE => Some("ghcr.io/estuary/connector-vmm:dev".to_string()),
-            STATE_DIR => Some("/var/lib/flow/connector-vmm".to_string()),
+            PODMAN => Some("/nonexistent/connector-vmm-tests/podman".to_string()),
+            STATE_DIR => Some("/nonexistent/connector-vmm-tests/state".to_string()),
             _ => None,
         })
     })
@@ -339,7 +380,7 @@ pub(crate) fn fixture() -> Vmm {
 #[cfg(test)]
 mod test {
     use super::{Vmm, vmm_for};
-    use proto_flow::flow::ConnectorExecution;
+    use proto_flow::flow::{ConnectorExecution, connector_execution::Egress};
 
     #[test]
     fn configuration() {
@@ -607,9 +648,12 @@ mod test {
         insta::assert_snapshot!(table);
     }
 
-    fn outcome(result: anyhow::Result<()>) -> String {
+    fn outcome(result: anyhow::Result<super::Execution>) -> String {
         match result {
-            Ok(()) => "ordinary".to_string(),
+            Ok(super::Execution::Ordinary) => "ordinary".to_string(),
+            Ok(super::Execution::Vmm { eligible, .. }) => {
+                format!("vmm, eligible as {}", eligible.repository)
+            }
             Err(err) => {
                 let status = err.downcast_ref::<proto_grpc::StatusError>().unwrap();
                 format!("{:?}: {}", status.code(), status.message())
@@ -617,11 +661,20 @@ mod test {
         }
     }
 
+    fn execution(vmm: bool, hosts: Option<&[&str]>) -> ConnectorExecution {
+        ConnectorExecution {
+            vmm,
+            egress: hosts.map(|hosts| Egress {
+                hosts: hosts.iter().map(ToString::to_string).collect(),
+            }),
+        }
+    }
+
     #[test]
     fn vmm_for_matrix() {
         let capable = super::fixture();
-        let ordinary = ConnectorExecution { vmm: false };
-        let vmm = ConnectorExecution { vmm: true };
+        let ordinary = execution(false, None);
+        let vmm = execution(true, None);
 
         let images = [
             Some("ghcr.io/estuary/derive-python:stable"),
@@ -667,30 +720,92 @@ mod test {
     }
 
     #[test]
+    fn vmm_for_egress() {
+        let capable = super::fixture();
+        let images = [
+            Some("ghcr.io/estuary/derive-python:stable"),
+            Some("ghcr.io/estuary/derive-typescript:stable"),
+            Some("ghcr.io/estuary/source-hello-world:dev"),
+            None,
+        ];
+        let executions = [
+            ("ordinary, egress []", execution(false, Some(&[]))),
+            (
+                "ordinary, egress [api]",
+                execution(false, Some(&["api.acmeco.example"])),
+            ),
+            ("vmm, egress []", execution(true, Some(&[]))),
+            (
+                "vmm, egress [API, *.svc, api]",
+                execution(
+                    true,
+                    Some(&[
+                        "API.acmeco.example",
+                        "*.svc.acmeco.example",
+                        "api.acmeco.example",
+                    ]),
+                ),
+            ),
+            (
+                "vmm, egress [*.com]",
+                execution(true, Some(&["api.acmeco.example", "*.com"])),
+            ),
+        ];
+
+        let mut rows = Vec::new();
+        for capability in [None, Some(&capable)] {
+            for image in images {
+                for (name, execution) in &executions {
+                    let outcome = match vmm_for(
+                        capability,
+                        ops::TaskType::Derivation,
+                        image,
+                        execution,
+                        None,
+                    ) {
+                        Ok(super::Execution::Vmm { egress, .. }) => {
+                            let hosts: Option<Vec<String>> =
+                                egress.map(|hosts| hosts.iter().map(ToString::to_string).collect());
+                            format!("vmm, task hosts {hosts:?}")
+                        }
+                        result => outcome(result),
+                    };
+                    rows.push(format!(
+                        "{capable:<7} {image:<40} {name:<29} => {outcome}",
+                        capable = if capability.is_some() { "capable" } else { "-" },
+                        image = image.unwrap_or("<not an image>"),
+                    ));
+                }
+            }
+        }
+        insta::assert_snapshot!(rows.join("\n"));
+    }
+
+    #[test]
     fn vmm_for_requires_the_built_spec_execution() {
         let image = Some("ghcr.io/estuary/derive-python:stable");
-        let ordinary = ConnectorExecution { vmm: false };
-        let vmm = ConnectorExecution { vmm: true };
         let derivation = ops::TaskType::Derivation;
+        let executions = [
+            ("ordinary", execution(false, None)),
+            ("vmm", execution(true, None)),
+            ("vmm egress []", execution(true, Some(&[]))),
+            (
+                "vmm egress [api]",
+                execution(true, Some(&["api.acmeco.example"])),
+            ),
+            (
+                "vmm egress [API]",
+                execution(true, Some(&["API.acmeco.example"])),
+            ),
+        ];
 
-        let rows: Vec<String> = [
-            (&ordinary, &ordinary),
-            (&ordinary, &vmm),
-            (&vmm, &ordinary),
-            (&vmm, &vmm),
-        ]
-        .into_iter()
-        .map(|(start, spec)| {
-            let outcome = outcome(vmm_for(None, derivation, image, start, Some(spec)));
-            format!("start vmm={} spec vmm={} => {outcome}", start.vmm, spec.vmm)
-        })
-        .collect();
-
-        insta::assert_snapshot!(rows.join("\n"), @r"
-        start vmm=false spec vmm=false => ordinary
-        start vmm=false spec vmm=true => InvalidArgument: Start.execution ConnectorExecution { vmm: false } differs from the execution ConnectorExecution { vmm: true } of the task's built spec
-        start vmm=true spec vmm=false => InvalidArgument: Start.execution ConnectorExecution { vmm: true } differs from the execution ConnectorExecution { vmm: false } of the task's built spec
-        start vmm=true spec vmm=true => FailedPrecondition: this data plane does not support VMM execution
-        ");
+        let mut rows = Vec::new();
+        for (start_name, start) in &executions {
+            for (spec_name, spec) in &executions {
+                let outcome = outcome(vmm_for(None, derivation, image, start, Some(spec)));
+                rows.push(format!("start {start_name} spec {spec_name} => {outcome}"));
+            }
+        }
+        insta::assert_snapshot!(rows.join("\n"));
     }
 }

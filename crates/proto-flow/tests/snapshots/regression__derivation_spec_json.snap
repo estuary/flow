@@ -276,7 +276,8 @@ expression: json_test(msg)
       "acmeCo/whole-config": ""
     },
     "execution": {
-      "vmm": true
+      "vmm": true,
+      "egress": {}
     }
   }
 }

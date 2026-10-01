@@ -69,9 +69,10 @@ func (Response_Started_Codec) EnumDescriptor() ([]byte, []int) {
 // The FIRST request MUST set `start` AND exactly one protocol request, which
 // determines the connector type for the life of the stream. Every later
 // request sets exactly one protocol request of that same type, and MUST NOT
-// set `start`. Only the first request is inspected: its endpoint
-// configuration is extracted and unsealed, and its task identity is
-// authorized against the bearer's claims. All later requests pass through.
+// set `start`. Only the first request's endpoint configuration is extracted
+// and unsealed, and only its task identity is authorized against the
+// bearer's claims. Later requests pass through, except that one which embeds
+// the task's built spec is first held to `Start.execution`.
 type Request struct {
 	Start *Request_Start `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
 	// Types that are valid to be assigned to Kind:
@@ -183,8 +184,9 @@ type Request_Start struct {
 	// A gRPC client which sets it is rejected, as is any other connector type.
 	SqliteVfsUri string `protobuf:"bytes,2,opt,name=sqlite_vfs_uri,json=sqliteVfsUri,proto3" json:"sqlite_vfs_uri,omitempty"`
 	// Execution of the connector, or unset for ordinary execution.
-	// Task-associated requests carry the task's execution: a request which
-	// embeds the task's built spec (Apply or Open) MUST match its `execution`.
+	// Task-associated requests carry the task's execution: every request of
+	// the stream, first or later, which embeds the task's built spec (Apply
+	// or Open) MUST match its `execution`, or the stream fails.
 	// A task-less Spec carries the execution chosen by its caller's policy.
 	// A requested execution which this service cannot provide fails the
 	// stream before the connector starts.

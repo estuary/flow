@@ -326,13 +326,30 @@ pub struct NetworkPort {
 /// endpoint configuration. Every invocation of the connector -- Spec, Discover,
 /// Validate, Apply, and Open -- uses the same settings. An unset or default
 /// value selects ordinary execution.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ConnectorExecution {
     /// Run the connector within a VMM, rather than an ordinary container.
     /// A runtime unable to do so fails the invocation; it never falls back
     /// to ordinary execution.
     #[prost(bool, tag = "1")]
     pub vmm: bool,
+    /// Egress the task declares. Its presence is the declaration, even with no
+    /// hosts: an execution which cannot enforce egress fails the invocation.
+    /// When unset, the data plane decides what the connector may reach.
+    #[prost(message, optional, tag = "2")]
+    pub egress: ::core::option::Option<connector_execution::Egress>,
+}
+/// Nested message and enum types in `ConnectorExecution`.
+pub mod connector_execution {
+    /// Egress a task declares.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Egress {
+        /// Host names the connector may reach, in addition to those of its
+        /// connector and image: an exact name, or `*.` and a base name for every
+        /// name beneath that base but not the base itself. As the task wrote them.
+        #[prost(string, repeated, tag = "1")]
+        pub hosts: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    }
 }
 /// Next tag: 13.
 #[derive(Clone, PartialEq, ::prost::Message)]

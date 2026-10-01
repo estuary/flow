@@ -29,7 +29,7 @@ mod nftset;
 
 use egress::{AllowedName, Policy};
 use ipnetwork::Ipv4Network;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
@@ -52,6 +52,9 @@ const RECLAIM: Duration = Duration::from_secs(10);
 /// Share the kernel set's cap so exhaustion returns SERVFAIL before an insert
 /// can fail fatally with ENFILE. The same cap bounds remembered CNAME targets.
 const CAP: usize = crate::ruleset::RESOLVED_SIZE;
+
+/// Bound task log output because the guest chooses the names it queries.
+const REPORTED_REFUSALS: usize = 32;
 
 pub struct Config {
     listen: SocketAddr,
@@ -144,6 +147,53 @@ pub struct Resolver {
     /// that re-queries a target by name work.
     targets: HashMap<String, Instant>,
     scratch: Vec<u8>,
+    refusals: Refusals,
+}
+
+#[derive(Default)]
+pub struct Refusals {
+    reported: HashSet<String>,
+    stopped: bool,
+}
+
+impl Refusals {
+    /// The log line which reports `decision`, if it is a refusal of a name
+    /// not yet reported. An answer refused for its address is reported
+    /// without the address: the upstream may be the host's own resolver, and
+    /// the guest is told no more than that it was refused.
+    pub fn report(&mut self, decision: &Decision) -> Option<String> {
+        let message = match &decision.outcome {
+            Outcome::RefusedName => format!(
+                "refused DNS name {}, which this connector's egress does not permit; \
+                 a task may permit it in egress.hosts",
+                decision.name
+            ),
+            Outcome::RefusedPrivate(_) => format!(
+                "refused DNS name {}, which resolved to an address that is not public",
+                decision.name
+            ),
+            _ => return None,
+        };
+        if self.stopped || self.reported.contains(&decision.name) {
+            return None;
+        }
+        let line = if self.reported.len() == REPORTED_REFUSALS {
+            self.stopped = true;
+            serde_json::json!({
+                "level": "warn",
+                "message": "further refused DNS names are not reported",
+                "fields": {"reported": REPORTED_REFUSALS},
+            })
+        } else {
+            self.reported.insert(decision.name.clone());
+            serde_json::json!({
+                "level": "warn",
+                "message": message,
+                "fields": {"name": decision.name},
+            })
+        };
+        Some(format!("{line}\n"))
+    }
 }
 
 /// What the resolver did with one query, and the bytes to send back if any.
@@ -229,6 +279,7 @@ impl Resolver {
             addresses: HashMap::new(),
             targets: HashMap::new(),
             scratch: Vec::new(),
+            refusals: Refusals::default(),
         }
     }
 
@@ -252,6 +303,11 @@ impl Resolver {
 
             if self.config.debug {
                 eprintln!("flow-connector-vmm: {}", handled.decision);
+            }
+            if let Some(line) = self.refusals.report(&handled.decision) {
+                // One write, so the guest's console output, which shares
+                // stderr, cannot land inside the line.
+                _ = std::io::Write::write_all(&mut std::io::stderr().lock(), line.as_bytes());
             }
             let Some(answer) = handled.answer else {
                 continue;
@@ -580,7 +636,7 @@ fn dropped(name: String, qtype: u16, error: &anyhow::Error) -> Handled {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, Decision, Handled, Outcome, Resolver, dns, nftset};
+    use super::{Config, Decision, Handled, Outcome, Refusals, Resolver, dns, nftset};
     use std::net::{Ipv4Addr, SocketAddr};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
@@ -851,6 +907,47 @@ mod tests {
                 vec![Rr::A("pypi.org", public(10), 300)],
             ),
         ]
+    }
+
+    #[test]
+    fn refusals_are_reported_once_each_and_bounded() {
+        let mut refusals = Refusals::default();
+        let mut lines = Vec::new();
+        let mut report = |name: &str, outcome: Outcome| {
+            lines.extend(refusals.report(&super::decision(name.to_string(), 1, outcome)));
+        };
+
+        report("other.acmeco.example", Outcome::RefusedName);
+        report("other.acmeco.example", Outcome::RefusedName);
+        report(
+            "leak.acmeco.example",
+            Outcome::RefusedPrivate(Ipv4Addr::new(10, 1, 2, 3)),
+        );
+        report("pypi.org", Outcome::Resolved);
+        report("pypi.org", Outcome::EmptyAaaa);
+        report("odd\"name\n .acmeco.example", Outcome::RefusedName);
+        for index in 0..40 {
+            report(&format!("n{index}.acmeco.example"), Outcome::RefusedName);
+        }
+        report("late.acmeco.example", Outcome::RefusedName);
+
+        for line in &lines {
+            let (body, rest) = line.split_once('\n').expect("a line ends in a newline");
+            assert_eq!(rest, "", "one line per report: {line:?}");
+            assert!(!body.starts_with(' '), "only readiness begins with a space");
+            let parsed: serde_json::Value = serde_json::from_str(body).expect("a JSON line");
+            assert_eq!(parsed["level"], "warn");
+        }
+        assert_eq!(lines.len(), super::REPORTED_REFUSALS + 1);
+        insta::assert_snapshot!(lines[..3].concat(), @r#"
+        {"fields":{"name":"other.acmeco.example"},"level":"warn","message":"refused DNS name other.acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts"}
+        {"fields":{"name":"leak.acmeco.example"},"level":"warn","message":"refused DNS name leak.acmeco.example, which resolved to an address that is not public"}
+        {"fields":{"name":"odd\"name\n .acmeco.example"},"level":"warn","message":"refused DNS name odd\"name\n .acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts"}
+        "#);
+        insta::assert_snapshot!(lines[lines.len() - 2..].concat(), @r#"
+        {"fields":{"name":"n28.acmeco.example"},"level":"warn","message":"refused DNS name n28.acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts"}
+        {"fields":{"reported":32},"level":"warn","message":"further refused DNS names are not reported"}
+        "#);
     }
 
     #[test]

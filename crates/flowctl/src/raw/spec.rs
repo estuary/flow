@@ -106,7 +106,7 @@ async fn get_spec_response(
         let response = local_connector::spec_capture(
             router,
             model.shards.log_level.as_deref(),
-            assemble::connector_execution(model.vmm),
+            assemble::connector_execution(model.vmm, model.egress.as_ref()),
             request,
         )
         .await?;
@@ -130,7 +130,7 @@ async fn get_spec_response(
         let response = local_connector::spec_derive(
             router,
             model.shards.log_level.as_deref(),
-            assemble::connector_execution(model.vmm),
+            assemble::connector_execution(model.vmm, model.egress.as_ref()),
             request,
         )
         .await?;
@@ -162,7 +162,7 @@ async fn get_spec_response(
         let response = local_connector::spec_materialize(
             router,
             model.shards.log_level.as_deref(),
-            assemble::connector_execution(model.vmm),
+            assemble::connector_execution(model.vmm, model.egress.as_ref()),
             request,
         )
         .await?;

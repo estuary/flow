@@ -747,6 +747,7 @@ async fn test_discover_carries_drafted_execution() {
             "acmeCo/vmm": {
                 "endpoint": {"connector": {"image": "source/test:test", "config": {}}},
                 "vmm": true,
+                "egress": {"hosts": ["api.acmeco.example"]},
                 "bindings": []
             },
             "acmeCo/ordinary": {
@@ -794,7 +795,7 @@ async fn test_discover_carries_drafted_execution() {
             .last_discover_start(capture)
             .expect("a Discover request was made");
 
-        executions.push((capture, model.vmm, start.execution));
+        executions.push((capture, model.vmm, model.egress.clone(), start.execution));
     }
 
     assert_eq!(
@@ -803,9 +804,17 @@ async fn test_discover_carries_drafted_execution() {
             (
                 "acmeCo/vmm",
                 true,
-                Some(proto_flow::flow::ConnectorExecution { vmm: true })
+                Some(models::Egress {
+                    hosts: vec!["api.acmeco.example".to_string()]
+                }),
+                Some(proto_flow::flow::ConnectorExecution {
+                    vmm: true,
+                    egress: Some(proto_flow::flow::connector_execution::Egress {
+                        hosts: vec!["api.acmeco.example".to_string()],
+                    }),
+                })
             ),
-            ("acmeCo/ordinary", false, None),
+            ("acmeCo/ordinary", false, None, None),
         ]
     );
 }

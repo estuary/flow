@@ -738,13 +738,16 @@ mod test {
     }
 }
 
-/// Reject VMM execution on V1 while preserving it for the connector service.
+/// Reject VMM execution on V1, and declared egress which no execution of the
+/// task could enforce or which names invalid hosts, while preserving both for
+/// the connector service.
 fn walk_execution(
     scope: Scope,
     entity: &'static str,
     name: &str,
     task_type: models::CatalogType,
     vmm: bool,
+    egress: Option<&models::Egress>,
     shards: &models::ShardTemplate,
     errors: &mut tables::Errors,
 ) -> Option<proto_flow::flow::ConnectorExecution> {
@@ -756,7 +759,30 @@ fn walk_execution(
         }
         .push(scope.push_prop("vmm"), errors);
     }
-    assemble::connector_execution(vmm)
+    if let Some(models::Egress { hosts }) = egress {
+        let scope = scope.push_prop("egress");
+
+        if !vmm {
+            Error::EgressRequiresEnforcement {
+                entity,
+                name: name.to_string(),
+            }
+            .push(scope, errors);
+        }
+        // Each host on its own, so that every invalid one is reported.
+        let scope = scope.push_prop("hosts");
+        for (index, host) in hosts.iter().enumerate() {
+            if let Err(detail) = egress::hosts("egress.hosts", std::slice::from_ref(host)) {
+                Error::InvalidEgressHost {
+                    entity,
+                    name: name.to_string(),
+                    detail,
+                }
+                .push(scope.push_item(index), errors);
+            }
+        }
+    }
+    assemble::connector_execution(vmm, egress)
 }
 
 /// Issue a unary Validate `kind` to the task's connector (or to the permissive

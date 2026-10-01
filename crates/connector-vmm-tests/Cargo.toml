@@ -14,9 +14,14 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+connector = { path = "../connector" }
 proto-flow = { path = "../proto-flow" }
-proto-grpc = { path = "../proto-grpc", features = ["capture_client"] }
+proto-grpc = { path = "../proto-grpc", features = ["capture_client", "connector_client", "derive_client"] }
+service-kit = { path = "../service-kit" }
+tokens = { path = "../tokens" }
 
+anyhow = { workspace = true }
+base64 = { workspace = true }
 futures = { workspace = true }
 hyper-util = { workspace = true }
 insta = { workspace = true }

@@ -103,7 +103,7 @@ prefix. Before creating that network the launcher runs `boundary verify` from
 the same VMM image, in the host's network namespace, and launches only if it
 exits zero; nothing is cached between launches. The reference lines for all
 three are in [`crates/connector-vmm-tests`](../connector-vmm-tests/README.md)'s
-`src/launch.rs`.
+`src/launch.rs`; `crates/connector`'s `vmm::launch` is the launcher.
 
 The launcher owns access control on `/sock`: the VMM sets `umask(0)` so
 unprivileged clients can connect to `/sock/init.sock`. The socket outlives the
@@ -147,7 +147,9 @@ serves `/sock/init.sock` at mode 0777 and hands the workload `CONNECTOR_MOUNT`,
 `LOG_FORMAT` and `LOG_LEVEL`. connector-init runs chrooted into `/rootfs`, from
 a copy of the connector mount staged at the mount's own path, and socat bridges
 the socket to its TCP port. It needs none of the launch line's devices or
-capabilities. What it does not stand in for:
+capabilities. `boundary` is not faked: the image carries the real binary and
+Ubuntu's `nft`, and the entrypoint runs it, so a launcher verifies with the
+fake exactly as it would with the real image. What it does not stand in for:
 
 - The guest. No VM, tap, ruleset, resolver, scratch disk or guest init, and
   connector-init also listens on the container's network, as an ordinary
@@ -290,6 +292,15 @@ handles elements expiring before the delete commits. The netlink module
 documents acknowledgment and timeout behavior observed in the kernel.
 
 DNS is UDP-only: the ruleset does not admit TCP retries for oversized answers.
+
+A refused name is reported to the task, once per name, as a `warn` JSON log
+line on stderr, which the launcher's stderr pump hands on: refused for its name,
+or because its answer named an address the baseline excludes. That address is
+not reported, since the upstream may be the host's own resolver. The guest
+chooses its question names, so `resolver::Refusals` reports at most 32
+distinct names, then one line saying it has stopped. Each line is one write,
+so the guest's console output cannot interleave within it. `--debug`'s
+per-query decision lines are separate, and test-only.
 
 ## Non-obvious details
 

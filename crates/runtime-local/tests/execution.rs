@@ -1,4 +1,6 @@
-//! Verify local capture Apply carries its built spec's VMM execution.
+//! Verify local capture Apply carries its built spec's VMM execution and
+//! egress. The connector service refuses an Apply whose Start differs from
+//! its built spec, so the refusal it gives instead proves both arrived.
 
 const CATALOG: &str = r#"
 captures:
@@ -8,6 +10,8 @@ captures:
         command: ["false"]
         config: {}
     vmm: true
+    egress:
+      hosts: [api.acmeco.example, "*.svc.acmeco.example"]
     bindings:
       - resource: { name: docs }
         target: acmeCo/docs
@@ -43,7 +47,15 @@ async fn vmm_execution_is_carried_to_capture_apply() {
         .expect("the catalog builds one capture");
     assert_eq!(
         spec.execution,
-        Some(proto_flow::flow::ConnectorExecution { vmm: true })
+        Some(proto_flow::flow::ConnectorExecution {
+            vmm: true,
+            egress: Some(proto_flow::flow::connector_execution::Egress {
+                hosts: vec![
+                    "api.acmeco.example".to_string(),
+                    "*.svc.acmeco.example".to_string(),
+                ],
+            }),
+        })
     );
 
     let registry = service_kit::Registry::new();

@@ -327,6 +327,7 @@ fn indirect_derivation(
         redact_salt: _,
         secrets: _,
         vmm: _,
+        egress: _,
     } = derivation;
     let mut is_sql = false;
 

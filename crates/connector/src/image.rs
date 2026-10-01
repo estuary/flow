@@ -102,6 +102,8 @@ impl Declarations {
 /// Connect an image endpoint after its reference-only policy has been checked.
 pub(super) async fn connect<P: crate::protocol::Protocol>(
     ctx: &crate::protocol::StartContext,
+    execution: crate::vmm::Execution<'_>,
+    build: Option<&str>,
     image: String,
     sealed_config: models::RawValue,
     policy: &crate::policy::Image,
@@ -112,99 +114,119 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
     spec_on_own_rpc: bool, // TODO(johnny): remove.
     requests: futures::stream::BoxStream<'static, P::Request>,
 ) -> anyhow::Result<crate::Transport<P>> {
-    let inspected = crate::container::pull_and_inspect(&image, &ctx.log_sink).await?;
-    let Declarations {
-        codec,
-        declared_usage_rate,
-        network_ports,
-        runtime_protocol,
-        secrets: declared_secrets,
-    } = Declarations::parse(&inspected.inspection)?;
+    let (container, channel, process, vmm_guard, codec) = match execution {
+        crate::vmm::Execution::Ordinary => {
+            let inspected = crate::container::pull_and_inspect(&image, &ctx.log_sink).await?;
+            let Declarations {
+                codec,
+                declared_usage_rate,
+                network_ports,
+                runtime_protocol,
+                secrets: declared_secrets,
+            } = Declarations::parse(&inspected.inspection)?;
 
-    if !matches!(
-        (runtime_protocol, P::TASK_TYPE),
-        (crate::RuntimeProtocol::Capture, ops::TaskType::Capture)
-            | (crate::RuntimeProtocol::Derive, ops::TaskType::Derivation)
-            | (
-                crate::RuntimeProtocol::Materialize,
-                ops::TaskType::Materialization
+            if !matches!(
+                (runtime_protocol, P::TASK_TYPE),
+                (crate::RuntimeProtocol::Capture, ops::TaskType::Capture)
+                    | (crate::RuntimeProtocol::Derive, ops::TaskType::Derivation)
+                    | (
+                        crate::RuntimeProtocol::Materialize,
+                        ops::TaskType::Materialization
+                    )
+            ) {
+                anyhow::bail!(
+                    "connector protocol {runtime_protocol:?} does not match requested type {:?}",
+                    P::TASK_TYPE,
+                );
+            }
+
+            crate::policy::check_secrets(
+                &ctx.task_name,
+                secrets
+                    .iter()
+                    .map(|(name, pointer)| (name.as_str(), pointer.as_str())),
+                crate::policy::SecretIdentity::Image {
+                    image: &image,
+                    repository: policy.repository(),
+                    declared: &declared_secrets,
+                },
+            )?;
+            let usage_rate = policy.usage_rate(runtime_protocol, declared_usage_rate)?;
+
+            let labels = BTreeMap::from([
+                ("image".to_string(), image.clone()),
+                ("task-name".to_string(), ctx.task_name.clone()),
+                (
+                    "task-type".to_string(),
+                    P::TASK_TYPE.as_str_name().to_string(),
+                ),
+            ]);
+
+            let quoted_task_name: bytes::Bytes = format!("\"{}\"", ctx.task_name).into();
+            let running = crate::container::run(
+                inspected,
+                crate::container::RunParams {
+                    env,
+                    host_gateway_names: host_gateway_names(ctx.plane, ctx.task_update.as_ref()),
+                    labels,
+                    log_sink: ctx.log_sink.clone(),
+                    mount: mount.to_owned(),
+                    network: ctx.container_network.clone(),
+                    publish_ports: matches!(ctx.plane, crate::Plane::Local),
+                },
+                move |log| crate::policy::sanitize_connector_log(&quoted_task_name, log),
             )
-    ) {
-        anyhow::bail!(
-            "connector protocol {runtime_protocol:?} does not match requested type {:?}",
-            P::TASK_TYPE,
-        );
-    }
+            .await?;
 
-    crate::policy::check_secrets(
-        &ctx.task_name,
-        secrets
-            .iter()
-            .map(|(name, pointer)| (name.as_str(), pointer.as_str())),
-        crate::policy::SecretIdentity::Image {
-            image: &image,
-            repository: policy.repository(),
-            declared: &declared_secrets,
-        },
-    )?;
-    let usage_rate = policy.usage_rate(runtime_protocol, declared_usage_rate)?;
+            let container = crate::Container {
+                ip_addr: running.ip_addr.to_string(),
+                network_ports,
+                mapped_host_ports: running.mapped_host_ports,
+                usage_rate: usage_rate.value,
+            };
+            ctx.log_sink
+                .send(crate::build_log(
+                    ops::LogLevel::Info,
+                    "started connector container",
+                    [
+                        ("image", crate::json_field(&image)),
+                        ("container", crate::json_field(&container)),
+                    ],
+                ))
+                .await;
 
-    let labels = BTreeMap::from([
-        ("image".to_string(), image.clone()),
-        ("task-name".to_string(), ctx.task_name.clone()),
-        (
-            "task-type".to_string(),
-            P::TASK_TYPE.as_str_name().to_string(),
-        ),
-    ]);
-
-    let quoted_task_name: bytes::Bytes = format!("\"{}\"", ctx.task_name).into();
-    let running = crate::container::run(
-        inspected,
-        crate::container::RunParams {
-            env,
-            host_gateway_names: host_gateway_names(ctx.plane, ctx.task_update.as_ref()),
-            labels,
-            log_sink: ctx.log_sink.clone(),
-            mount: mount.to_owned(),
-            network: ctx.container_network.clone(),
-            publish_ports: matches!(ctx.plane, crate::Plane::Local),
-        },
-        move |log| crate::policy::sanitize_connector_log(&quoted_task_name, log),
-    )
-    .await?;
-
-    let container = crate::Container {
-        ip_addr: running.ip_addr.to_string(),
-        network_ports,
-        mapped_host_ports: running.mapped_host_ports,
-        usage_rate: usage_rate.value,
+            (
+                container,
+                running.channel,
+                Some(running.process),
+                None,
+                codec,
+            )
+        }
+        crate::vmm::Execution::Vmm {
+            vmm,
+            eligible,
+            egress,
+        } => {
+            let (container, channel, guard, codec) =
+                crate::vmm::launch::start(ctx, vmm, eligible, egress, &image, secrets, build)
+                    .await?;
+            (container, channel, None, Some(guard), codec)
+        }
     };
-    ctx.log_sink
-        .send(crate::build_log(
-            ops::LogLevel::Info,
-            "started connector container",
-            [
-                ("image", crate::json_field(&image)),
-                ("container", crate::json_field(&container)),
-            ],
-        ))
-        .await;
-
-    // Drive the Spec to completion on its own RPC before opening the real one,
-    // so the connector sees one request per invocation.
+    // Frozen V1 derivations still exchange Spec on an RPC of its own.
     let spec = if spec_on_own_rpc {
-        Some(crate::protocol::spec_rpc::<P>(running.channel.clone(), connector_type).await?)
+        Some(crate::protocol::spec_rpc::<P>(channel.clone(), connector_type).await?)
     } else {
         None
     };
-    let connector_rx = P::open_rpc(running.channel, requests).await?.into_inner();
-
+    let connector_rx = P::open_rpc(channel, requests).await?.into_inner();
     Ok(crate::Transport {
         connector_rx: connector_rx.boxed(),
         container: Some(container),
         codec,
-        process: Some(running.process),
+        process,
+        vmm: vmm_guard,
         sealed_config,
         spec,
     })

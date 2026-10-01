@@ -96,7 +96,7 @@ release() {
         route) sudo -n ip route del ${value} 2>/dev/null || true ;;
         dir)
             case "${value}" in
-            "${ROOT}"/state/fv_* | "${ROOT}"/connector-mounts-0/mount-*)
+            "${ROOT}"/state/fv_* | "${ROOT}"/connector-mounts-0/mount-* | "${ROOT}"/launcher-*)
                 sudo -n rm -rf --one-file-system "${value}"
                 ;;
             *) echo "Not removing ${value}: it is outside ${ROOT}" >&2 ;;
@@ -161,6 +161,13 @@ VMM_IMAGE=$(sudo -n podman load -q -i "${RUN_DIR}/connector-vmm.tar" | grep -oE 
 record image "${VMM_IMAGE}"
 rm -f "${RUN_DIR}/connector-vmm.tar"
 
+echo "=== Building the fake VMM image ==="
+cp crates/connector-vmm/fake-entrypoint.sh "${RUN_DIR}/package/amd64/connector-vmm-fake-entrypoint.sh"
+FAKE_IMAGE="localhost/connector-vmm-fake:kvm-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+record image "${FAKE_IMAGE}"
+sudo -n podman build -q --platform linux/amd64 --build-arg TARGETARCH=amd64 -t "${FAKE_IMAGE}" \
+    -f docker/connector-vmm-fake.Dockerfile "${RUN_DIR}/package" >/dev/null
+
 echo "=== Pulling ${DERIVE_PYTHON} and ${HELLO_WORLD}, and building the test guest ==="
 sudo -n podman pull -q "${DERIVE_PYTHON}" >/dev/null
 sudo -n podman pull -q "${HELLO_WORLD}" >/dev/null
@@ -221,11 +228,13 @@ jq -n \
     --arg vmmImage "${VMM_IMAGE}" \
     --arg guestImage "${GUEST_IMAGE}" \
     --arg helloWorldImage "${HELLO_WORLD}" \
+    --arg fakeImage "${FAKE_IMAGE}" \
+    --arg derivePythonImage "${DERIVE_PYTHON}" \
     --arg connectorInit "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-connector-init" \
     --arg endpointNetns "${NETNS}" \
     --arg endpointPeer "${ENDPOINT_PEER}" \
     --argjson decoys "$(printf '%s\n' "${DECOYS[@]}" | jq -R . | jq -s .)" \
-    '{$runDir, $vmmImage, $guestImage, $helloWorldImage, $connectorInit, endpoints: $ARGS.positional, $endpointNetns, $endpointPeer, $decoys}' \
+    '{$runDir, $vmmImage, $guestImage, $helloWorldImage, $fakeImage, $derivePythonImage, $connectorInit, endpoints: $ARGS.positional, $endpointNetns, $endpointPeer, $decoys}' \
     --args "${ENDPOINTS[@]}" | sudo -n tee "${ROOT}/run.json" >/dev/null
 
 status=0
@@ -239,6 +248,7 @@ else
 fi
 
 echo "=== The KVM suite ==="
+PATH="${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release:${PATH}" \
 CONNECTOR_VMM_KVM=1 cargo nextest run --locked --profile connector-vmm-kvm -p connector-vmm-tests \
     --no-fail-fast ${FILTER:+"${FILTER}"} || status=$?
 

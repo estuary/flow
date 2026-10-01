@@ -2144,6 +2144,9 @@ dependencies = [
 name = "connector-vmm-tests"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "connector",
  "futures",
  "hyper-util",
  "insta",
@@ -2152,6 +2155,8 @@ dependencies = [
  "proto-grpc",
  "serde",
  "serde_json",
+ "service-kit",
+ "tokens",
  "tokio",
  "tonic",
  "tower",
@@ -9937,6 +9942,7 @@ dependencies = [
  "assemble",
  "bytes",
  "doc",
+ "egress",
  "extractors",
  "futures",
  "insta",

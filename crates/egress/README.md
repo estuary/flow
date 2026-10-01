@@ -10,8 +10,9 @@ copy of these semantics: what a launcher writes is exactly what the VMM parses.
 ## Roadmap
 
 - `src/lib.rs`: `hosts`, the host-name rules, wherever names are declared;
-  `public_policy`, the document a launcher writes; `parse` and `load`, the
-  VMM's side, with every refusal; `baseline` and `check_declared`.
+  `public_policy` and `any_public_policy`, the documents a launcher writes;
+  `parse` and `load`, the VMM's side, with every refusal; `baseline` and
+  `check_declared`.
 
 ## Host names
 
@@ -24,8 +25,9 @@ control names beneath them. The check uses the `psl` crate's ICANN and private
 rules and applies only to the wildcard base.
 
 `hosts` applies these rules to any list of declared names and names its source
-in every refusal: `allowedNames` within a policy, or an image label. Names are
-lowercased and repeats dropped. Non-ASCII names must be written in punycode,
+in every refusal: `allowedNames` within a policy, an image label, or a task's
+`egress.hosts`, which catalog validation checks one name at a time and the
+connector service checks again. Names are lowercased and repeats dropped. Non-ASCII names must be written in punycode,
 and a name ending in an all-numeric label is refused as an address.
 
 ## The policy document
@@ -43,12 +45,30 @@ and a name ending in an all-numeric label is refused as an address.
 }
 ```
 
-`public_policy` writes the only shape a launcher produces: `egress: public`
-and `allowedNames`, everything else at its default. An empty list admits no
-name; the resolver refuses each query. `allowAll`, `declaredCidrs`, the two
-rate limits and the TTL bounds are carried at full shape, validated and
-snapshot-tested for the VMM and its test suites, but no launcher writes them
-and no image or task declaration reaches them.
+A launcher writes one of two shapes, everything else at its default.
+`public_policy` writes `egress: public` and `allowedNames`; an empty list
+admits no name, and the resolver refuses each query. `any_public_policy`
+writes `egress: public` and `allowAll`: no name gate, and the baseline below
+still holds. `declaredCidrs`, the two rate limits and the TTL bounds are
+carried at full shape, validated and snapshot-tested for the VMM and its test
+suites, but no launcher writes them and no image or task declaration reaches
+them.
+
+## Task egress
+
+A task may declare `egress: {hosts: [...]}` beside `vmm`.
+
+- Declared hosts add to those of the connector and its image; they never
+  remove one. An empty list adds nothing, and is still a declaration.
+- A name is a host, with no port, address or range: every port of it is
+  reachable, at public addresses only. Nothing a task declares reaches a
+  baseline destination below, or TCP port 25.
+- An execution which cannot enforce a declaration refuses the task, rather
+  than run it unenforced. Only VMM execution enforces one today, and nothing
+  infers `vmm` from `egress`.
+- A task which declares nothing is the data plane's to decide: a public plane
+  holds it to its connector's and image's hosts, and a private or local one
+  leaves it any public destination.
 
 ## Public destinations only
 

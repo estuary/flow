@@ -5,10 +5,10 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     80  capture::Request
     40  capture::request::Spec
    112  capture::request::Discover
-   824  capture::request::Validate
+   848  capture::request::Validate
     48  capture::request::validate::Binding
-  1408  capture::request::Apply
-   776  capture::request::Open
+  1456  capture::request::Apply
+   800  capture::request::Open
      4  capture::request::Acknowledge
     96  capture::Response
    408  capture::response::Spec
@@ -39,10 +39,10 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     40  derive::response::StartedCommit
    200  materialize::Request
     40  materialize::request::Spec
-   848  materialize::request::Validate
+   880  materialize::request::Validate
     96  materialize::request::validate::Binding
-  1456  materialize::request::Apply
-   800  materialize::request::Open
+  1520  materialize::request::Apply
+   832  materialize::request::Open
     72  materialize::request::Load
     80  materialize::request::Flush
    168  materialize::request::Store
@@ -57,14 +57,14 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     40  materialize::response::Flushed
     40  materialize::response::StartedCommit
     40  materialize::response::Acknowledged
-   232  connector::Request
-   232  connector::Response
+   264  connector::Request
+   240  connector::Response
    448  flow::CollectionSpec
-   632  flow::collection_spec::Derivation
+   664  flow::collection_spec::Derivation
    288  flow::collection_spec::derivation::Transform
-   664  flow::CaptureSpec
+   688  flow::CaptureSpec
     96  flow::capture_spec::Binding
-   688  flow::MaterializationSpec
+   720  flow::MaterializationSpec
    408  flow::materialization_spec::Binding
    416  flow::Projection
    360  flow::Inference

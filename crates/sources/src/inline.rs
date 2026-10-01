@@ -143,6 +143,7 @@ fn inline_derivation(
         redact_salt: _,
         secrets: _,
         vmm: _,
+        egress: _,
     } = derivation;
 
     match using {
@@ -263,6 +264,7 @@ fn inline_materialization(
         on_incompatible_schema_change: _,
         secrets: _,
         vmm: _,
+        egress: _,
     } = model;
 
     match endpoint {

@@ -25,7 +25,7 @@ pub async fn start(
     let requested = first
         .start
         .as_ref()
-        .and_then(|start| start.execution)
+        .and_then(|start| start.execution.clone())
         .unwrap_or_default();
     let (request_tx, request_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
     request_tx.try_send(first).expect("channel is empty");
@@ -49,7 +49,7 @@ pub async fn start(
 
     // A service which predates a requested execution ignores it, and would
     // start the connector ordinarily. Its `Started` doesn't echo the request.
-    let reported = started.execution.unwrap_or_default();
+    let reported = started.execution.clone().unwrap_or_default();
     if reported != requested {
         anyhow::bail!(
             "connector Started with execution {reported:?}, but {requested:?} was requested"
@@ -389,37 +389,64 @@ mod test {
 
     #[tokio::test]
     async fn start_requires_started_to_echo_the_requested_execution() {
-        use proto_flow::flow::ConnectorExecution;
-        let vmm = Some(ConnectorExecution { vmm: true });
-        let ordinary = Some(ConnectorExecution { vmm: false });
+        use proto_flow::flow::{ConnectorExecution, connector_execution::Egress};
+        let with = |vmm: bool, hosts: Option<&[&str]>| {
+            Some(ConnectorExecution {
+                vmm,
+                egress: hosts.map(|hosts| Egress {
+                    hosts: hosts.iter().map(ToString::to_string).collect(),
+                }),
+            })
+        };
+        let vmm = with(true, None);
+        let ordinary = with(false, None);
+        let declared = with(true, Some(&["api.acmeco.example"]));
+        let other = with(true, Some(&["*.acmeco.example"]));
+        let empty = with(true, Some(&[]));
 
         let mut rows = Vec::new();
         for (requested, reported) in [
             (None, None),
-            (ordinary, None),
-            (None, ordinary),
-            (vmm, vmm),
-            (vmm, None),
-            (None, vmm),
+            (ordinary.clone(), None),
+            (None, ordinary.clone()),
+            (vmm.clone(), vmm.clone()),
+            (vmm.clone(), None),
+            (None, vmm.clone()),
+            (declared.clone(), declared.clone()),
+            (empty.clone(), empty.clone()),
+            (declared.clone(), vmm.clone()),
+            (declared.clone(), other),
+            (empty, vmm.clone()),
+            (vmm, declared),
         ] {
-            let router = TestRouter::new([Ok(started_with(reported))], false);
-            let outcome =
-                match super::start(&router, &|_| {}, "acmeCo/capture", request_with(requested))
-                    .await
-                {
-                    Ok(_) => "started".to_string(),
-                    Err(err) => format!("{err:#}"),
-                };
+            let router = TestRouter::new([Ok(started_with(reported.clone()))], false);
+            let outcome = match super::start(
+                &router,
+                &|_| {},
+                "acmeCo/capture",
+                request_with(requested.clone()),
+            )
+            .await
+            {
+                Ok(_) => "started".to_string(),
+                Err(err) => format!("{err:#}"),
+            };
             rows.push(format!("{requested:?} / {reported:?} => {outcome}"));
         }
 
-        insta::assert_snapshot!(rows.join("\n"), @r"
+        insta::assert_snapshot!(rows.join("\n"), @r#"
         None / None => started
-        Some(ConnectorExecution { vmm: false }) / None => started
-        None / Some(ConnectorExecution { vmm: false }) => started
-        Some(ConnectorExecution { vmm: true }) / Some(ConnectorExecution { vmm: true }) => started
-        Some(ConnectorExecution { vmm: true }) / None => connector Started with execution ConnectorExecution { vmm: false }, but ConnectorExecution { vmm: true } was requested
-        None / Some(ConnectorExecution { vmm: true }) => connector Started with execution ConnectorExecution { vmm: true }, but ConnectorExecution { vmm: false } was requested
-        ");
+        Some(ConnectorExecution { vmm: false, egress: None }) / None => started
+        None / Some(ConnectorExecution { vmm: false, egress: None }) => started
+        Some(ConnectorExecution { vmm: true, egress: None }) / Some(ConnectorExecution { vmm: true, egress: None }) => started
+        Some(ConnectorExecution { vmm: true, egress: None }) / None => connector Started with execution ConnectorExecution { vmm: false, egress: None }, but ConnectorExecution { vmm: true, egress: None } was requested
+        None / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: false, egress: None } was requested
+        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }) => started
+        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) }) => started
+        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }) / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } was requested
+        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["*.acmeco.example"] }) }) => connector Started with execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["*.acmeco.example"] }) }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } was requested
+        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) }) / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } was requested
+        Some(ConnectorExecution { vmm: true, egress: None }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }) => connector Started with execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }, but ConnectorExecution { vmm: true, egress: None } was requested
+        "#);
     }
 }

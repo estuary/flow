@@ -245,7 +245,7 @@ mod test {
 
     #[tokio::test]
     async fn test_http_ingest_spec() {
-        if let Err(_) = locate_bin::locate("flow-connector-init") {
+        if let Err(_) = locate_bin::locate_static("flow-connector-init") {
             // Skip if `flow-connector-init` isn't available (yet). We're probably on CI.
             // This test is useful as a sanity check for local development
             // and we have plenty of other coverage during CI.
@@ -317,19 +317,29 @@ mod test {
         let mut rows = Vec::new();
         for execution in [
             None,
-            Some(flow::ConnectorExecution { vmm: false }),
-            Some(flow::ConnectorExecution { vmm: true }),
+            Some(flow::ConnectorExecution {
+                vmm: false,
+                egress: None,
+            }),
+            Some(flow::ConnectorExecution {
+                vmm: true,
+                egress: None,
+            }),
+            Some(flow::ConnectorExecution {
+                vmm: false,
+                egress: Some(flow::connector_execution::Egress { hosts: Vec::new() }),
+            }),
         ] {
             let apply = Request {
                 kind: Some(request::Kind::Apply(Box::new(request::Apply {
-                    capture: Some(spec(execution)),
+                    capture: Some(spec(execution.clone())),
                     ..Default::default()
                 }))),
                 ..Default::default()
             };
             let open = Request {
                 kind: Some(request::Kind::Open(Box::new(request::Open {
-                    capture: Some(spec(execution)),
+                    capture: Some(spec(execution.clone())),
                     ..Default::default()
                 }))),
                 ..Default::default()
@@ -338,13 +348,15 @@ mod test {
             rows.push(format!("Open {execution:?} => {}", outcome(open)));
         }
 
-        insta::assert_snapshot!(rows.join("\n"), @r"
+        insta::assert_snapshot!(rows.join("\n"), @r#"
         Apply None => extracted
         Open None => extracted
-        Apply Some(ConnectorExecution { vmm: false }) => extracted
-        Open Some(ConnectorExecution { vmm: false }) => extracted
-        Apply Some(ConnectorExecution { vmm: true }) => this task requests connector execution ConnectorExecution { vmm: true }, which the V1 runtime cannot provide
-        Open Some(ConnectorExecution { vmm: true }) => this task requests connector execution ConnectorExecution { vmm: true }, which the V1 runtime cannot provide
-        ");
+        Apply Some(ConnectorExecution { vmm: false, egress: None }) => extracted
+        Open Some(ConnectorExecution { vmm: false, egress: None }) => extracted
+        Apply Some(ConnectorExecution { vmm: true, egress: None }) => this task requests connector execution ConnectorExecution { vmm: true, egress: None }, which the V1 runtime cannot provide
+        Open Some(ConnectorExecution { vmm: true, egress: None }) => this task requests connector execution ConnectorExecution { vmm: true, egress: None }, which the V1 runtime cannot provide
+        Apply Some(ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }) => this task requests connector execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }, which the V1 runtime cannot provide
+        Open Some(ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }) => this task requests connector execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }, which the V1 runtime cannot provide
+        "#);
     }
 }

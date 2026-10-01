@@ -253,6 +253,16 @@ pub fn public_policy(names: &[AllowedName]) -> Vec<u8> {
     .expect("a map of strings always serializes")
 }
 
+/// The policy document of a launch whose guest may reach any public
+/// destination: no name gate, and still the baseline.
+pub fn any_public_policy() -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "egress": "public",
+        "allowAll": true,
+    }))
+    .expect("a map of a string and a bool always serializes")
+}
+
 fn check_name(field: &str, original: &str, name: &str) -> anyhow::Result<AllowedName> {
     if name.is_empty() {
         anyhow::bail!("{field} contains an empty name");
@@ -499,6 +509,25 @@ mod tests {
         let empty = super::parse(&super::public_policy(&[])).expect("an empty list parses");
         assert_eq!(empty.egress, super::Mode::Public);
         assert!(empty.allowed_names.is_empty());
+    }
+
+    #[test]
+    fn any_public_policy_round_trips() {
+        let document = super::any_public_policy();
+
+        insta::assert_snapshot!(
+            String::from_utf8(document.clone()).expect("JSON is UTF-8"),
+            @r#"{"allowAll":true,"egress":"public"}"#
+        );
+
+        let policy = super::parse(&document).expect("the parser accepts a launcher's policy");
+        assert_eq!(policy.egress, super::Mode::Public);
+        assert!(policy.allow_all);
+        assert!(policy.allowed_names.is_empty());
+        assert!(policy.declared_cidrs.is_empty());
+        assert_eq!(policy.connections_per_minute, None);
+        assert_eq!(policy.distinct_destinations_per_minute, None);
+        assert_eq!((policy.ttl_floor_secs, policy.ttl_cap_secs), (90, 3600));
     }
 
     #[test]

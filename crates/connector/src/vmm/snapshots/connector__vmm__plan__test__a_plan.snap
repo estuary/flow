@@ -4,6 +4,11 @@ expression: describe(&plan)
 ---
 name: fv_0123456789abcdef
 interface: fvm0123456789ab
+state: /var/lib/flow/connector-vmm/fv_0123456789abcdef
+record: /var/lib/flow/connector-vmm/fv_0123456789abcdef.owner
+token: 00112233445566778899aabbccddeeff
+mount: /tmp/connector-mounts-0/mount-fv_0123456789abcdef
+scratch: /var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch
 socket: /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock/init.sock (62 bytes)
 
 ## directories
@@ -12,21 +17,24 @@ socket: /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock/init.sock (62 bytes
 0711 /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock
 0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch
 
+## egress
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example, *.cdn.acmeco.example (image label); *.svc.acmeco.example (task egress.hosts)
+
 ## /var/lib/flow/connector-vmm/fv_0123456789abcdef/init/policy.json
-{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example","*.cdn.acmeco.example"],"egress":"public"}
+{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example","*.cdn.acmeco.example","*.svc.acmeco.example"],"egress":"public"}
 
 ## connector mount
-0555 /tmp/connector-mounts-0/mount-acme/flow-connector-init
-0444 /tmp/connector-mounts-0/mount-acme/image-inspect.json
+0555 /tmp/connector-mounts-0/mount-fv_0123456789abcdef/flow-connector-init
+0444 /tmp/connector-mounts-0/mount-fv_0123456789abcdef/image-inspect.json
 
 ## verify
 podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN ghcr.io/estuary/connector-vmm:dev boundary verify
 
 ## network
-podman network create --driver=bridge --interface-name=fvm0123456789ab fv_0123456789abcdef
+podman network create --driver=bridge --interface-name=fvm0123456789ab --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff fv_0123456789abcdef
 
-## run
-podman run \
+## create
+podman create \
   --rm \
   --name=fv_0123456789abcdef \
   --network=fv_0123456789abcdef \
@@ -43,22 +51,23 @@ podman run \
   --cpus=1.5 \
   --mount=type=image,source=ghcr.io/estuary/derive-python:stable,destination=/rootfs,rw=true \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/init,target=/init,readonly \
-  --mount=type=bind,source=/tmp/connector-mounts-0/mount-acme,target=/tmp/connector-mounts-0/mount-acme,readonly \
+  --mount=type=bind,source=/tmp/connector-mounts-0/mount-fv_0123456789abcdef,target=/tmp/connector-mounts-0/mount-fv_0123456789abcdef,readonly \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/sock,target=/sock \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch,target=/scratch-backing \
-  --env=CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-acme \
+  --env=CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-fv_0123456789abcdef \
   --env=LOG_FORMAT=json \
   --env=LOG_LEVEL=info \
   --platform=linux/amd64 \
   --label=image=ghcr.io/estuary/derive-python:stable \
   --label=task-name=acmeCo/anvils/derivation \
   --label=task-type=derivation \
+  --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff \
   ghcr.io/estuary/connector-vmm:dev \
   run \
   --policy \
   /init/policy.json \
   --connector-mount \
-  /tmp/connector-mounts-0/mount-acme \
+  /tmp/connector-mounts-0/mount-fv_0123456789abcdef \
   --memory-mib \
   768 \
   --vcpus \

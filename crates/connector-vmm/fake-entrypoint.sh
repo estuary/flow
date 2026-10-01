@@ -21,7 +21,12 @@ fail() {
     exit "${EXIT_FAILED}"
 }
 
-[[ "${1:-}" == run ]] || fail "expected the run subcommand; the fake implements nothing else"
+# The host boundary is the real binary's, so that a launcher verifying with
+# the fake verifies exactly as it would with the real image.
+if [[ "${1:-}" == boundary ]]; then
+    exec /usr/local/libexec/flow-connector-vmm "$@"
+fi
+[[ "${1:-}" == run ]] || fail "expected the run or boundary subcommand; the fake implements nothing else"
 shift
 
 declare -A args=()

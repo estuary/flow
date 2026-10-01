@@ -132,6 +132,7 @@ struct Transport<P: protocol::Protocol> {
     codec: connector_init::Codec,
     /// `docker run` of an image connector, which its [`Guard`] SIGKILLs.
     process: Option<async_process::Child>,
+    vmm: Option<vmm::launch::Guard>,
     /// Sealed endpoint configuration of the dispatched endpoint.
     sealed_config: models::RawValue,
     /// Spec already exchanged on an RPC of its own, only when required.
@@ -148,6 +149,8 @@ struct Started<P: protocol::Protocol> {
     /// Keeps an image or local connector's host resources alive until stream
     /// teardown. In-process connectors have none.
     guard: Guard,
+    /// Execution admitted at start, fixed for this session.
+    execution: proto_flow::flow::ConnectorExecution,
 }
 
 /// Host resources of an image or local connector, released when the served
@@ -158,6 +161,7 @@ struct Started<P: protocol::Protocol> {
 /// Killing the container also closes its stderr, so its log pump can finish.
 pub(crate) struct Guard {
     _process: Option<async_process::Child>,
+    _vmm: Option<vmm::launch::Guard>,
     _refresh: Option<tokio::sync::oneshot::Sender<()>>,
     _mount: tempfile::TempDir,
 }

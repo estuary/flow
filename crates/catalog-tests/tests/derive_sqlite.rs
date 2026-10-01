@@ -713,14 +713,15 @@ async fn death_after_open_reports_and_tears_down() {
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 }
 
-/// Validate and Open both carry VMM execution to the connector service.
+/// Validate and Open both carry VMM execution and egress to the connector
+/// service, which refuses an Open whose Start differs from its built spec.
 #[tokio::test]
 async fn vmm_execution_is_carried_to_validate_and_open() {
     init_test_process();
 
     let yaml = SINGLE_HOP.replace(
         "    derive:\n      using:\n",
-        "    derive:\n      vmm: true\n      shards:\n        flags:\n          enable-runtime-v2: \"true\"\n      using:\n",
+        "    derive:\n      vmm: true\n      egress:\n        hosts: [api.acmeco.example]\n      shards:\n        flags:\n          enable-runtime-v2: \"true\"\n      using:\n",
     );
     assert_ne!(yaml, SINGLE_HOP);
 
@@ -749,7 +750,12 @@ async fn vmm_execution_is_carried_to_validate_and_open() {
         .expect("the catalog builds one derivation");
     assert_eq!(
         spec.derivation.as_ref().unwrap().execution,
-        Some(proto_flow::flow::ConnectorExecution { vmm: true })
+        Some(proto_flow::flow::ConnectorExecution {
+            vmm: true,
+            egress: Some(proto_flow::flow::connector_execution::Egress {
+                hosts: vec!["api.acmeco.example".to_string()],
+            }),
+        })
     );
 
     let registry = service_kit::Registry::new();

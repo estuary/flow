@@ -192,7 +192,10 @@ where
 
     let open_spec = flow::CollectionSpec::decode(open_spec.as_ref())
         .context("invalid CollectionSpec in L:Open")?;
-    let execution = open_spec.derivation.as_ref().and_then(|d| d.execution);
+    let execution = open_spec
+        .derivation
+        .as_ref()
+        .and_then(|d| d.execution.clone());
 
     let initial = derive::Request {
         kind: Some(derive::request::Kind::Open(Box::new(

@@ -36,6 +36,17 @@ pub struct CaptureDef {
     /// falls back to an ordinary container.
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub vmm: bool,
+    /// # Egress this capture's connector is held to.
+    /// Declaring egress, even with no hosts, holds the connector to the hosts
+    /// of its connector and image, plus those listed. Only an execution which
+    /// enforces egress, such as VMM execution (`vmm: true`), may run a task
+    /// which declares it; any other fails the task.
+    /// When omitted, the data plane decides: a public data plane holds a VMM
+    /// to its connector's and image's hosts, while a private data plane lets
+    /// it reach any public destination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "super::Egress")]
+    pub egress: Option<super::Egress>,
     /// # Bound collections to capture from the endpoint.
     pub bindings: Vec<CaptureBinding>,
     /// # Interval of time between invocations of the capture.
@@ -157,6 +168,7 @@ impl CaptureDef {
             endpoint: CaptureEndpoint::Connector(ConnectorConfig::example()),
             secrets: BTreeMap::new(),
             vmm: false,
+            egress: None,
             bindings: vec![CaptureBinding::example()],
             interval: Self::default_interval(),
             shards: ShardTemplate::default(),

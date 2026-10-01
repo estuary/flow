@@ -200,7 +200,7 @@ fn client_dropped() -> anyhow::Error {
 
 /// Forward requests and responses in independent bursts. A full request
 /// channel parks only its forwarding future, leaving responses free to drain.
-async fn pump<P, R>(
+pub(crate) async fn pump<P, R>(
     mut request_rx: R,
     started: crate::Started<P>,
     response_tx: &mpsc::Sender<tonic::Result<proto::Response>>,
@@ -213,6 +213,7 @@ where
         connector_tx,
         mut connector_rx,
         guard,
+        execution,
         ..
     } = started;
 
@@ -232,6 +233,8 @@ where
                         .to_string(),
                 ));
             };
+            crate::vmm::check_spec_execution(&execution, P::spec_execution(&request).as_ref())?;
+
             if connector_tx.send(request).await.is_err() {
                 break;
             }
@@ -349,8 +352,10 @@ mod test {
             started: proto::Response::default(),
             connector_tx,
             connector_rx: futures::stream::pending().boxed(),
+            execution: Default::default(),
             guard: crate::Guard {
                 _process: None,
+                _vmm: None,
                 _refresh: None,
                 _mount: tempfile::tempdir().unwrap(),
             },

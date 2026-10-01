@@ -117,6 +117,7 @@ async fn generate_missing_capture_configs(
                 endpoint,
                 bindings,
                 vmm,
+                egress,
                 ..
             }),
         ..
@@ -161,7 +162,7 @@ async fn generate_missing_capture_configs(
     let spec = local_connector::spec_capture(
         connector_router,
         None,
-        assemble::connector_execution(*vmm),
+        assemble::connector_execution(*vmm, egress.as_ref()),
         spec,
     )
     .await?;
@@ -196,6 +197,7 @@ async fn generate_missing_collection_configs(
         transforms,
         shards,
         vmm,
+        egress,
         ..
     }) = derive
     else {
@@ -234,7 +236,7 @@ async fn generate_missing_collection_configs(
     let spec = local_connector::spec_derive(
         connector_router,
         None,
-        assemble::connector_execution(*vmm),
+        assemble::connector_execution(*vmm, egress.as_ref()),
         spec,
     )
     .await?;
@@ -262,6 +264,7 @@ async fn generate_missing_materialization_configs(
                 endpoint,
                 bindings,
                 vmm,
+                egress,
                 ..
             }),
         ..
@@ -313,7 +316,7 @@ async fn generate_missing_materialization_configs(
     let spec = local_connector::spec_materialize(
         connector_router,
         None,
-        assemble::connector_execution(*vmm),
+        assemble::connector_execution(*vmm, egress.as_ref()),
         spec,
     )
     .await?;

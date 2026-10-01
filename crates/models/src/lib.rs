@@ -14,6 +14,7 @@ mod derive_sqlite;
 mod derive_typescript;
 pub mod discovers;
 pub mod draft_error;
+mod egress;
 mod id;
 mod journals;
 mod labels;
@@ -49,6 +50,7 @@ pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef
 pub use derive_python::DeriveUsingPython;
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
+pub use egress::Egress;
 pub use id::{Id, IdGenerator};
 pub use journals::{
     AZURE_CONTAINER_RE, AZURE_STORAGE_ACCOUNT_RE, AzureStorageConfig, CompressionCodec,

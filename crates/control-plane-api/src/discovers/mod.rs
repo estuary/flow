@@ -205,7 +205,7 @@ impl DiscoverHandler {
         let execution = capture_def
             .model
             .as_ref()
-            .and_then(|model| assemble::connector_execution(model.vmm));
+            .and_then(|model| assemble::connector_execution(model.vmm, model.egress.as_ref()));
 
         // INFO is a good default since these are not shown in the UI, so if we're looking then
         // there's already a problem.

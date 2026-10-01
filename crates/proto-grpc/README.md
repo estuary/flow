@@ -25,5 +25,6 @@ of `connector.Connector`: the object-safe `Router` seam, `EndpointRouter`,
 request identity and bearer minting, the `start` / `next` stream helpers, and a
 `unary` adapter which consumes logs, `Started`, one protocol response, and EOF.
 `start` (and so `unary`) requires `Started.execution` to echo the requested
-`Start.execution`: a service which predates a requested execution ignores it,
-and would otherwise start the connector ordinarily.
+`Start.execution` whole: a service which predates a requested execution, or a
+part of one such as its egress, ignores it, and would otherwise start the
+connector without it.

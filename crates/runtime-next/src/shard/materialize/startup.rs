@@ -223,7 +223,7 @@ where
 
     let spec =
         flow::MaterializationSpec::decode(spec.as_ref()).context("invalid current Apply spec")?;
-    let execution = spec.execution;
+    let execution = spec.execution.clone();
 
     let initial = materialize::Request {
         kind: Some(materialize::request::Kind::Open(Box::new(

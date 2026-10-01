@@ -9,8 +9,9 @@
 //!
 //! A unit test rather than an integration test under `tests/`: Cargo builds a
 //! package's binaries for its integration tests, which would put a glibc
-//! `flow-connector-init` in `$CARGO_TARGET_DIR/debug`, where `locate_bin` and
-//! $PATH lookups prefer it over the musl build that connector containers need.
+//! `flow-connector-init` in `$CARGO_TARGET_DIR/debug`. Launchers pass it over
+//! (`locate_bin::locate_static`), but plain $PATH lookups prefer it over the
+//! musl build that connector containers need.
 
 use futures::TryStreamExt;
 

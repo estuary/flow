@@ -202,8 +202,18 @@ mod test {
 
         let rows: Vec<String> = [
             None,
-            Some(flow::ConnectorExecution { vmm: false }),
-            Some(flow::ConnectorExecution { vmm: true }),
+            Some(flow::ConnectorExecution {
+                vmm: false,
+                egress: None,
+            }),
+            Some(flow::ConnectorExecution {
+                vmm: true,
+                egress: None,
+            }),
+            Some(flow::ConnectorExecution {
+                vmm: false,
+                egress: Some(flow::connector_execution::Egress { hosts: Vec::new() }),
+            }),
         ]
         .into_iter()
         .map(|execution| {
@@ -216,7 +226,7 @@ mod test {
                             config_json: serde_json::json!({"command": ["true"], "config": {}})
                                 .to_string()
                                 .into(),
-                            execution,
+                            execution: execution.clone(),
                             ..Default::default()
                         })),
                         ..Default::default()
@@ -229,10 +239,11 @@ mod test {
         })
         .collect();
 
-        insta::assert_snapshot!(rows.join("\n"), @r"
+        insta::assert_snapshot!(rows.join("\n"), @r#"
         Open None => extracted
-        Open Some(ConnectorExecution { vmm: false }) => extracted
-        Open Some(ConnectorExecution { vmm: true }) => this task requests connector execution ConnectorExecution { vmm: true }, which the V1 runtime cannot provide
-        ");
+        Open Some(ConnectorExecution { vmm: false, egress: None }) => extracted
+        Open Some(ConnectorExecution { vmm: true, egress: None }) => this task requests connector execution ConnectorExecution { vmm: true, egress: None }, which the V1 runtime cannot provide
+        Open Some(ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }) => this task requests connector execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }, which the V1 runtime cannot provide
+        "#);
     }
 }

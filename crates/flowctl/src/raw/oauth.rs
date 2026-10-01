@@ -98,7 +98,7 @@ pub async fn do_oauth(
     let spec_response = local_connector::spec_capture(
         &*router,
         model.shards.log_level.as_deref(),
-        assemble::connector_execution(model.vmm),
+        assemble::connector_execution(model.vmm, model.egress.as_ref()),
         spec_req,
     )
     .await?;

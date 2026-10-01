@@ -83,6 +83,10 @@ pub(crate) trait Protocol: Sized + 'static {
         response: Self::Response,
     ) -> Result<proto::response::started::Spec, Self::Response>;
 
+    /// Execution of the task's built spec, if the request embeds one (Apply or
+    /// Open). Previous `last_*` specs do not select the current execution.
+    fn spec_execution(request: &Self::Request) -> Option<flow::ConnectorExecution>;
+
     /// Open this protocol's RPC over a started container's channel.
     fn open_rpc<S>(
         channel: tonic::transport::Channel,
@@ -119,9 +123,6 @@ pub(crate) struct Extracted<'r, P: Protocol> {
     /// Secrets of the task. Keys are catalog names of secrets,
     /// while values are JSON pointers into the endpoint config.
     pub secrets: &'r std::collections::BTreeMap<String, String>,
-    /// Execution of the task's built spec, present only on requests which
-    /// embed it (Apply and Open). Unset in the spec is ordinary execution.
-    pub spec_execution: Option<flow::ConnectorExecution>,
 }
 
 /// Normalized endpoint: the three ways a connector is run.
@@ -147,6 +148,7 @@ pub(crate) async fn start<P: Protocol>(
     sqlite_vfs_uri: Option<String>,
     mut initial: P::Request,
 ) -> anyhow::Result<crate::Started<P>> {
+    let spec_execution = P::spec_execution(&initial);
     let Extracted {
         build,
         connector_type,
@@ -154,14 +156,13 @@ pub(crate) async fn start<P: Protocol>(
         initial_config_slot,
         initial_sealed_config_slot,
         secrets,
-        spec_execution,
     } = P::extract_endpoint(&mut initial, sqlite_vfs_uri)?;
 
     let image = match &endpoint {
         Endpoint::Image { image, .. } => Some(image.as_str()),
         Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
     };
-    crate::vmm::vmm_for(
+    let execution = crate::vmm::vmm_for(
         ctx.vmm.as_ref(),
         P::TASK_TYPE,
         image,
@@ -183,37 +184,33 @@ pub(crate) async fn start<P: Protocol>(
 
     // Apply image policy checks that don't require inspection (and registry I/O).
     let image_policy = match &endpoint {
-        Endpoint::Image { image, .. } => Some(crate::policy::Image::check(ctx.plane, image)?),
+        Endpoint::Image { image, .. } => Some(crate::policy::Image::check(
+            if matches!(execution, crate::vmm::Execution::Vmm { .. }) {
+                crate::Plane::Private
+            } else {
+                ctx.plane
+            },
+            image,
+        )?),
         Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
     };
 
     let mount = create_connector_mount()?;
     let env = connector_env(ctx.plane, ctx.log_level, mount.path())?;
 
-    // If Some(task_update), inject and rotate credentials and metadata which
-    // offer tasks a capability to update their configuration and/or secrets.
-    let mut refresh = None;
-    if let Some(task_update) = ctx
-        .task_update
-        .as_ref()
-        .filter(|_| ctx.task_name != crate::SPEC_TASK_NAME)
-    {
-        // Written before the connector starts, so that its first read succeeds.
-        let token = mint_task_update(task_update, P::TASK_TYPE, &ctx.task_name, build)?;
-        write_task_update(mount.path(), task_update, &token).await?;
-
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(refresh_task_update(
-            task_update.clone(),
+    let refresh = if matches!(execution, crate::vmm::Execution::Ordinary) {
+        start_task_update(
+            ctx.task_update.as_ref(),
             P::TASK_TYPE,
-            ctx.task_name.clone(),
-            build.map(str::to_string),
-            mount.path().to_owned(),
-            ctx.log_sink.clone(),
-            stop_rx,
-        ));
-        refresh = Some(stop_tx);
-    }
+            &ctx.task_name,
+            build,
+            mount.path(),
+            &ctx.log_sink,
+        )
+        .await?
+    } else {
+        None
+    };
 
     let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
     if !spec_on_own_rpc {
@@ -230,6 +227,7 @@ pub(crate) async fn start<P: Protocol>(
         container,
         codec,
         process,
+        vmm,
         sealed_config,
         spec: own_rpc_spec,
     } = match endpoint {
@@ -239,6 +237,8 @@ pub(crate) async fn start<P: Protocol>(
         } => {
             crate::image::connect::<P>(
                 &ctx,
+                execution,
+                build,
                 image,
                 sealed_config,
                 image_policy.as_ref().unwrap(),
@@ -266,6 +266,7 @@ pub(crate) async fn start<P: Protocol>(
             container: None,
             codec: connector_init::Codec::Proto,
             process: None,
+            vmm: None,
             sealed_config,
             spec: None,
         }),
@@ -356,12 +357,44 @@ pub(crate) async fn start<P: Protocol>(
         },
         connector_tx,
         connector_rx,
+        execution: ctx.execution,
         guard: crate::Guard {
             _process: process,
+            _vmm: vmm,
             _refresh: refresh,
             _mount: mount,
         },
     })
+}
+
+/// Initialize and rotate the shared task-update credential contract. A VMM
+/// invokes this only after claiming its recoverable connector mount, so rotation
+/// and mount release follow the same owner as its container.
+pub(crate) async fn start_task_update(
+    task_update: Option<&crate::TaskUpdate>,
+    task_type: ops::TaskType,
+    task_name: &str,
+    build: Option<&str>,
+    mount: &std::path::Path,
+    log_sink: &crate::LogSink,
+) -> anyhow::Result<Option<tokio::sync::oneshot::Sender<()>>> {
+    let Some(task_update) = task_update.filter(|_| task_name != crate::SPEC_TASK_NAME) else {
+        return Ok(None);
+    };
+    let token = mint_task_update(task_update, task_type, task_name, build)?;
+    write_task_update(mount, task_update, &token).await?;
+
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(refresh_task_update(
+        task_update.clone(),
+        task_type,
+        task_name.to_string(),
+        build.map(str::to_string),
+        mount.to_owned(),
+        log_sink.clone(),
+        stop_rx,
+    ));
+    Ok(Some(stop_tx))
 }
 
 /// Build the environment contract shared by image and local connectors.
@@ -643,6 +676,7 @@ fn connect_local<P: Protocol>(
         container: None,
         codec,
         process: None,
+        vmm: None,
         sealed_config,
         spec: None,
     })

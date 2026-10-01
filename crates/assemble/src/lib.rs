@@ -600,9 +600,19 @@ pub fn secrets(
         .collect()
 }
 
-/// Map VMM selection into connector execution; leave ordinary execution unset.
-pub fn connector_execution(vmm: bool) -> Option<flow::ConnectorExecution> {
-    vmm.then_some(flow::ConnectorExecution { vmm })
+/// Map VMM selection and declared egress into connector execution; leave
+/// ordinary execution without egress unset. Declared egress is kept even when
+/// it lists no hosts, because the declaration itself requires enforcement.
+pub fn connector_execution(
+    vmm: bool,
+    egress: Option<&models::Egress>,
+) -> Option<flow::ConnectorExecution> {
+    let egress = egress.map(
+        |models::Egress { hosts }| flow::connector_execution::Egress {
+            hosts: hosts.clone(),
+        },
+    );
+    (vmm || egress.is_some()).then_some(flow::ConnectorExecution { vmm, egress })
 }
 
 pub fn compression_codec(t: models::CompressionCodec) -> broker::CompressionCodec {

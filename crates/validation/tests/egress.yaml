@@ -1,0 +1,229 @@
+test://example/catalog.yaml:
+  collections:
+    acmeCo/source:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+
+    # Hosts are carried as written: the connector normalizes them.
+    acmeCo/egress-derivation:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+      derive:
+        using:
+          python:
+            module: python module placeholder
+        vmm: true
+        egress:
+          hosts: [Api.AcmeCo.example, "*.svc.acmeco.example", api.acmeco.example]
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+        transforms:
+          - name: fromSource
+            source: acmeCo/source
+            shuffle: any
+
+    # Declared egress without hosts is still a declaration.
+    acmeCo/empty-egress-derivation:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+      derive:
+        using:
+          python:
+            module: python module placeholder
+        vmm: true
+        egress:
+          hosts: []
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+        transforms:
+          - name: fromSource
+            source: acmeCo/source
+            shuffle: any
+
+    acmeCo/ordinary-egress-derivation:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+      derive:
+        using:
+          python:
+            module: python module placeholder
+        egress:
+          hosts: [api.acmeco.example]
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+        transforms:
+          - name: fromSource
+            source: acmeCo/source
+            shuffle: any
+
+    # A disabled task skips its connector, but not its egress requirement.
+    acmeCo/disabled-egress-derivation:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+      derive:
+        using:
+          python:
+            module: python module placeholder
+        egress:
+          hosts: [api.acmeco.example]
+        shards:
+          disable: true
+          flags:
+            enable-runtime-v2: "true"
+        transforms:
+          - name: fromSource
+            source: acmeCo/source
+            shuffle: any
+
+    # Derivations default to the V1 runtime, which enforces no egress.
+    acmeCo/v1-egress-derivation:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+      derive:
+        using:
+          python:
+            module: python module placeholder
+        egress:
+          hosts: [api.acmeco.example]
+        transforms:
+          - name: fromSource
+            source: acmeCo/source
+            shuffle: any
+
+  captures:
+    # Every invalid host is reported, at its own index.
+    acmeCo/invalid-egress-capture:
+      endpoint:
+        connector:
+          image: source/image
+          config: {}
+      vmm: true
+      egress:
+        hosts:
+          - "*.com"
+          - ok.acmeco.example
+          - 10.0.0.1
+          - "*.github.io"
+          - api..acmeco.example
+          - "api.*.acmeco.example"
+      bindings:
+        - resource: { table: one }
+          target: acmeCo/source
+
+    acmeCo/empty-egress-capture:
+      endpoint:
+        connector:
+          image: source/image
+          config: {}
+      egress:
+        hosts: []
+      bindings:
+        - resource: { table: two }
+          target: acmeCo/source
+
+  materializations:
+    acmeCo/egress-materialization:
+      endpoint:
+        connector:
+          image: materialize/image
+          config: {}
+      vmm: true
+      egress:
+        hosts: ["*.warehouse.acmeco.example"]
+      shards:
+        flags:
+          enable-runtime-v2: "true"
+      bindings:
+        - resource: { table: one }
+          source: acmeCo/source
+
+    # A null declaration is no declaration.
+    acmeCo/null-egress-materialization:
+      endpoint:
+        connector:
+          image: materialize/image
+          config: {}
+      egress: null
+      bindings:
+        - resource: { table: two }
+          source: acmeCo/source
+
+# Each mock call requires its Validate request to `Start` with exactly
+# `execution`. Tasks with egress errors have no mock: their connectors must
+# not be called at all.
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+
+  derivations:
+    acmeCo/egress-derivation:
+      execution:
+        vmm: true
+        egress:
+          hosts: [Api.AcmeCo.example, "*.svc.acmeco.example", api.acmeco.example]
+      connectorType: IMAGE
+      config:
+        image: ghcr.io/estuary/derive-python:stable
+        config:
+          module: python module placeholder
+          dependencies: {}
+      shuffleKeyTypes: []
+      transforms:
+        - readOnly: true
+    acmeCo/empty-egress-derivation:
+      execution: { vmm: true, egress: {} }
+      connectorType: IMAGE
+      config:
+        image: ghcr.io/estuary/derive-python:stable
+        config:
+          module: python module placeholder
+          dependencies: {}
+      shuffleKeyTypes: []
+      transforms:
+        - readOnly: true
+
+  materializations:
+    acmeCo/egress-materialization:
+      execution:
+        vmm: true
+        egress: { hosts: ["*.warehouse.acmeco.example"] }
+      connectorType: IMAGE
+      config: { image: materialize/image, config: {} }
+      bindings:
+        - constraints:
+            id: { type: 2, reason: "location required" }
+          resourcePath: [one]
+    acmeCo/null-egress-materialization:
+      connectorType: IMAGE
+      config: { image: materialize/image, config: {} }
+      bindings:
+        - constraints:
+            id: { type: 2, reason: "location required" }
+          resourcePath: [two]

@@ -291,6 +291,7 @@ async fn walk_derivation(
         redact_salt: model_redact_salt,
         secrets,
         vmm,
+        egress,
         shards,
     } = model;
 
@@ -301,6 +302,7 @@ async fn walk_derivation(
         collection,
         models::CatalogType::Collection,
         vmm,
+        egress.as_ref(),
         &shards,
         errors,
     );
@@ -545,7 +547,7 @@ async fn walk_derivation(
         noop_derivations || shards.disable,
         data_plane_id,
         shards.log_level.as_deref(),
-        execution,
+        execution.clone(),
         connector::request::Kind::Derive(derive::Request {
             kind: Some(derive::request::Kind::Validate(Box::new(validate_request))),
             ..Default::default()
@@ -801,6 +803,7 @@ async fn walk_derivation(
         redact_salt: model_redact_salt,
         secrets,
         vmm,
+        egress,
         shards,
     };
 

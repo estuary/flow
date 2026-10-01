@@ -361,6 +361,7 @@ async fn prepare_discover<'a>(
                 redact_salt: None,
                 secrets: Default::default(),
                 vmm: false,
+                egress: None,
                 shards: models::ShardTemplate::default(),
                 expect_pub_id: None,
                 bindings: Vec::new(),

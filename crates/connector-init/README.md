@@ -24,8 +24,9 @@ codec the image speaks.
   binding of `rpc` to its generated tonic service.
 - `src/vsock_test.rs`: a Spec RPC over AF_VSOCK against an in-process server
   (Linux only). A unit test because an integration test would make Cargo
-  build a glibc `flow-connector-init` into `target/debug`, where `locate_bin`
-  finds it ahead of the musl build connector containers need.
+  build a glibc `flow-connector-init` into `target/debug`, which launchers
+  pass over (`locate_bin::locate_static`) but plain `PATH` lookups find ahead
+  of the musl build connector containers need.
 
 ## Transports
 

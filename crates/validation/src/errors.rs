@@ -253,6 +253,17 @@ pub enum Error {
         name: String,
         flag: &'static str,
     },
+    #[error(
+        "{entity} {name} declares egress, which its connector's execution cannot enforce; egress is enforced only by VMM execution (`vmm: true`)"
+    )]
+    EgressRequiresEnforcement { entity: &'static str, name: String },
+    #[error("{entity} {name} declares an invalid egress host")]
+    InvalidEgressHost {
+        entity: &'static str,
+        name: String,
+        #[source]
+        detail: anyhow::Error,
+    },
     #[error("error while communicating with the Flow control-plane API")]
     ControlPlane {
         #[source]

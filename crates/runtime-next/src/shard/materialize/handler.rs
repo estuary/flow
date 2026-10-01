@@ -47,7 +47,10 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Materialize> {
     let logger = service.logger_factory.open(&service.task_name);
-    let execution = apply.materialization.as_ref().and_then(|m| m.execution);
+    let execution = apply
+        .materialization
+        .as_ref()
+        .and_then(|m| m.execution.clone());
     let (_started, response) = proto_grpc::connector::unary(
         &*service.connector_router,
         &|log| logger.log(log),
