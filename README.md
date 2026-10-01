@@ -57,6 +57,8 @@ You can switch seamlessly between them as you build and refine your pipelines, a
 ## Resources
 
 -   📖 [Estuary documentation](https://docs.estuary.dev/)
+    - The docs source is not in this repo. Connector reference pages are in [estuary/connectors](https://github.com/estuary/connectors/tree/main/docs/reference/Connectors), and pull requests there are welcome.
+    - The other pages are in the `estuary/docs` repo, which is internal to the Estuary team. To report a problem with one of them, [open an issue](https://github.com/estuary/flow/issues/new?labels=docs) in this repo.
 
 -   🧐 **Examples and tutorials**
     - [Blog tutorials](https://estuary.dev/blog/tutorial/)
