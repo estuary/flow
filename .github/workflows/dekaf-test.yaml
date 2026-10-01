@@ -9,12 +9,8 @@ on:
     # cold. rust-cache keys on ${GITHUB_JOB}, so no other workflow warms it.
     push:
         branches: [master]
-        paths-ignore:
-            - "site/**"
     pull_request:
         branches: [master]
-        paths-ignore:
-            - "site/**"
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
