@@ -1,5 +1,3 @@
-use std::u32;
-
 use super::logs;
 use anyhow::Context;
 use chrono::{DateTime, Utc};

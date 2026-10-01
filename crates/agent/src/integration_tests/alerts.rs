@@ -1,5 +1,3 @@
-use std::usize;
-
 use crate::integration_tests::harness::TestHarness;
 use chrono::{DateTime, Utc};
 use control_plane_api::alerts::{AlertAction, ResolveAlert, apply_alert_actions};
