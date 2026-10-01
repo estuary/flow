@@ -3078,6 +3078,12 @@ input TenantCreateInput {
 	Organization name as a single catalog token, without a trailing slash.
 	"""
 	name: String!
+	"""
+	Whether the submitting user has read and accepts the
+	[Privacy Policy](https://www.estuary.dev/privacy-policy/) and
+	[Terms of Service](https://dashboard.estuary.dev/terms.html). Must be true to create a tenant.
+	"""
+	submittingUserAgreesToTerms: Boolean!
 	survey: JSON
 }
 

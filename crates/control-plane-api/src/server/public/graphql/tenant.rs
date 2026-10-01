@@ -1,6 +1,8 @@
 use async_graphql::{Context, Result, SimpleObject};
 use validator::Validate;
 
+const TERMS_VERSION: &str = "v1";
+
 const TENANT_UNAVAILABLE_MESSAGE: &str = "The organization name is already in use, \
     please choose a different one or contact support@estuary.dev.";
 
@@ -102,6 +104,10 @@ pub struct TenantMutation;
 pub struct TenantCreateInput {
     /// Organization name as a single catalog token, without a trailing slash.
     pub name: String,
+    /// Whether the submitting user has read and accepts the
+    /// [Privacy Policy](https://www.estuary.dev/privacy-policy/) and
+    /// [Terms of Service](https://dashboard.estuary.dev/terms.html). Must be true to create a tenant.
+    pub submitting_user_agrees_to_terms: bool,
     pub survey: Option<async_graphql::Json<serde_json::Value>>,
 }
 
@@ -125,6 +131,11 @@ impl TenantMutation {
                 "Restricted tokens cannot create tenants",
             ));
         }
+        if !input.submitting_user_agrees_to_terms {
+            return Err(async_graphql::Error::new(
+                "You must read and agree to these policies and terms to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html",
+            ));
+        }
         let mut txn = env.pg_pool.begin().await?;
         let is_service_account = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM internal.service_accounts WHERE user_id = $1) AS \"exists!\"",
@@ -144,6 +155,18 @@ impl TenantMutation {
             input.survey.map(|v| v.0).unwrap_or(serde_json::Value::Null),
             &mut txn,
         )
+        .await?;
+        // Record consent atomically with provisioning, using the stored user identity.
+        sqlx::query(
+            "INSERT INTO public.tenant_consent
+                (user_id, user_email, terms_version, tenant_name, tenant_id)
+             VALUES ($1, (SELECT email FROM auth.users WHERE id = $1), $2,
+                     $3::catalog_tenant, (SELECT id FROM public.tenants WHERE tenant = $3))",
+        )
+        .bind(claims.sub)
+        .bind(TERMS_VERSION)
+        .bind(&tenant_name)
+        .execute(&mut *txn)
         .await?;
         txn.commit().await?;
 
@@ -258,6 +281,7 @@ mod test {
             "query": "mutation($input: TenantCreateInput!) { tenantCreate(input: $input) }",
             "variables": { "input": {
                 "name": tenant,
+                "submittingUserAgreesToTerms": true,
                 "survey": { "origin": "search", "details": "testing" },
             }}
         })
@@ -280,6 +304,28 @@ mod test {
         }
         "#);
 
+        let consent: serde_json::Value = sqlx::query_scalar(
+            "SELECT jsonb_build_object(
+                'userId', c.user_id, 'userEmail', c.user_email,
+                'termsVersion', c.terms_version, 'tenantName', c.tenant_name,
+                'tenantMatches', c.tenant_id = t.id,
+                'hasTimestamp', c.timestamp IS NOT NULL)
+             FROM tenant_consent c JOIN tenants t ON t.tenant = c.tenant_name",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        insta::assert_json_snapshot!(consent, @r#"
+        {
+          "hasTimestamp": true,
+          "tenantMatches": true,
+          "tenantName": "acmeCo/",
+          "termsVersion": "v1",
+          "userEmail": "alice@example.test",
+          "userId": "11111111-1111-1111-1111-111111111111"
+        }
+        "#);
+
         let state: serde_json::Value = sqlx::query_scalar(r#"SELECT jsonb_build_object(
             'creator', created_by,
             'metadata', metadata,
@@ -298,6 +344,61 @@ mod test {
           }
         }
         "#);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_requires_consent(pool: sqlx::PgPool) {
+        let server = server(&pool).await;
+        let token = server.make_access_token(ALICE, None);
+        let mut req = request("acmeCo");
+        req["variables"]["input"]["submittingUserAgreesToTerms"] = false.into();
+        let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
+        assert_eq!(
+            response["errors"][0]["message"],
+            "You must read and agree to these policies and terms to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html"
+        );
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
+                    (SELECT count(*) FROM tenant_consent WHERE user_id = $1)",
+        )
+        .bind(ALICE)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (0, 0));
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_rolls_back_when_consent_fails(pool: sqlx::PgPool) {
+        let server = server(&pool).await;
+        sqlx::query("UPDATE auth.users SET email = NULL WHERE id = $1")
+            .bind(ALICE)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let token = server.make_access_token(ALICE, Some("untrusted@example.test"));
+        let response: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
+        assert!(
+            response["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty())
+        );
+        let counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
+                    (SELECT count(*) FROM tenant_consent WHERE user_id = $1),
+                    (SELECT count(*) FROM user_grants WHERE user_id = $1)",
+        )
+        .bind(ALICE)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (0, 0, 0));
     }
 
     #[sqlx::test(
