@@ -988,13 +988,13 @@ mod test {
             "clean rollback clears the gap",
         );
 
-        // ACK < L: durable deep rollback. `last_commit` regresses to the ACK clock.
+        // ACK < L: durable deep rollback. `last_commit` is retained at L.
         let s = seq(ACK, 50).unwrap();
         assert!(s.is_commit && !s.replay, "deep rollback commits");
         assert_eq!(
             s.producer_state.last_commit,
-            Clock::from_u64(50),
-            "deep rollback regresses last_commit to the ACK clock",
+            Clock::from_u64(100),
+            "deep rollback retains last_commit",
         );
         assert_eq!(s.producer_state.offset, -500);
         assert!(
