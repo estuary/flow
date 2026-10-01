@@ -107,10 +107,7 @@ pub(crate) async fn generate_access_token(
     })
 }
 
-/// Lifetime of a token minted with a `capability_mask`. It is deliberately not
-/// capped at the bearer's expiry: a masked token cannot mint again, and an
-/// unmasked bearer can already obtain longer-lived credentials through
-/// `createRefreshToken`, so a cap would bound nothing.
+/// Lifetime of a token minted with a `capability_mask`.
 const CAPABILITY_TOKEN_DURATION: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Mint a capability-masked access token for the authenticated caller.
