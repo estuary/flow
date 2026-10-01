@@ -3,7 +3,7 @@ begin;
 create table public.tenant_consent (
     user_id uuid not null references auth.users (id),
     user_email text not null,
-    terms_version text not null check (length(btrim(terms_version)) > 0),
+    terms_version integer not null check (terms_version > 0),
     timestamp timestamptz not null default now(),
     tenant_name public.catalog_tenant not null,
     tenant_id public.flowid not null references public.tenants (id),

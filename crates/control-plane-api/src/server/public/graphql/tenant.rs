@@ -104,8 +104,8 @@ pub struct TenantCreateInput {
     pub name: String,
     /// Version of the terms the submitting user has read and accepts, including the
     /// [Privacy Policy](https://www.estuary.dev/privacy-policy/) and
-    /// [Terms of Service](https://dashboard.estuary.dev/terms.html). Must be non-empty to create a tenant.
-    pub submitting_user_agrees_to_terms_version: String,
+    /// [Terms of Service](https://dashboard.estuary.dev/terms.html). Must be a positive integer to create a tenant.
+    pub submitting_user_agrees_to_terms_version: i32,
     pub survey: Option<async_graphql::Json<serde_json::Value>>,
 }
 
@@ -129,13 +129,9 @@ impl TenantMutation {
                 "Restricted tokens cannot create tenants",
             ));
         }
-        if input
-            .submitting_user_agrees_to_terms_version
-            .trim()
-            .is_empty()
-        {
+        if input.submitting_user_agrees_to_terms_version <= 0 {
             return Err(async_graphql::Error::new(
-                "You must provide the version of the policies and terms you accept to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html",
+                "You must provide a positive integer version of the policies and terms you accept to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html",
             ));
         }
         let mut txn = env.pg_pool.begin().await?;
@@ -166,7 +162,7 @@ impl TenantMutation {
                      $3::catalog_tenant, (SELECT id FROM public.tenants WHERE tenant = $3))",
         )
         .bind(claims.sub)
-        .bind(&input.submitting_user_agrees_to_terms_version)
+        .bind(input.submitting_user_agrees_to_terms_version)
         .bind(&tenant_name)
         .execute(&mut *txn)
         .await?;
@@ -283,7 +279,7 @@ mod test {
             "query": "mutation($input: TenantCreateInput!) { tenantCreate(input: $input) }",
             "variables": { "input": {
                 "name": tenant,
-                "submittingUserAgreesToTermsVersion": "v2",
+                "submittingUserAgreesToTermsVersion": 2,
                 "survey": { "origin": "search", "details": "testing" },
             }}
         })
@@ -322,7 +318,7 @@ mod test {
           "hasTimestamp": true,
           "tenantMatches": true,
           "tenantName": "acmeCo/",
-          "termsVersion": "v2",
+          "termsVersion": 2,
           "userEmail": "alice@example.test",
           "userId": "11111111-1111-1111-1111-111111111111"
         }
@@ -356,12 +352,12 @@ mod test {
         let server = server(&pool).await;
         let token = server.make_access_token(ALICE, None);
         let mut req = request("acmeCo");
-        for version in ["", " ", "\t\n"] {
+        for version in [0, -1] {
             req["variables"]["input"]["submittingUserAgreesToTermsVersion"] = version.into();
             let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
             assert_eq!(
                 response["errors"][0]["message"],
-                "You must provide the version of the policies and terms you accept to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html"
+                "You must provide a positive integer version of the policies and terms you accept to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html"
             );
         }
         let counts: (i64, i64) = sqlx::query_as(
