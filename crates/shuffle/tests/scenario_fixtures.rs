@@ -1254,7 +1254,7 @@ fn build_rollback_ack(
 /// Phase 4: Deep rollback for P1 — P1 writes fresh CONTINUE_TXN docs
 ///   and then receives an ACK at `Clock::default()` (< P1's last_commit).
 ///   Because there are pending CONTINUEs, this triggers `AckDeepRollback`.
-///   P1's `last_commit` regresses to `Clock::default()`.
+///   P1's `last_commit` is retained: it never decreases.
 async fn rollback(
     materialization_spec: &flow::MaterializationSpec,
     capture_spec: &flow::CaptureSpec,
@@ -1425,7 +1425,7 @@ async fn rollback(
     // P1 writes fresh CONTINUE_TXN docs (setting max_continue > 0), then
     // receives an ACK at Clock::default() (< P1's last_commit). Because
     // there are pending CONTINUEs, this triggers AckDeepRollback rather
-    // than AckDuplicate. P1's last_commit regresses.
+    // than AckDuplicate. P1's last_commit is retained.
 
     for id in ["rb-p1-deep-1", "rb-p1-deep-2"] {
         pub1.enqueue(
@@ -1451,8 +1451,8 @@ async fn rollback(
     let deep_rollback_acks = build_rollback_ack(p1, uuid::Clock::default(), &p2_journals);
     pub1.write_intents(deep_rollback_acks).await.unwrap();
 
-    // P1's pending CONTINUE docs are rolled back. P1's last_commit regresses
-    // to Clock::default().
+    // P1's pending CONTINUE docs are rolled back. P1's last_commit is
+    // retained at its prior commit.
     let frontier4 = next_resolved_checkpoint(&mut session, "phase 4 checkpoint").await;
     let read4 = collect_read_entries(&frontier4, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
