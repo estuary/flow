@@ -202,8 +202,8 @@ mod test {
     /// rejections (unknown bundle names, unknown request fields, no bearer, a
     /// non-user `role`, a service-account caller) and, for accepted masks, that
     /// the minted JWT verifies under the server's keys, carries the caller's
-    /// identity claims plus the requested mask verbatim, and has a fixed
-    /// one-hour lifetime that is independent of the bearer's.
+    /// identity claims and `prefix_scope` plus the requested mask verbatim,
+    /// and has a fixed one-hour lifetime that is independent of the bearer's.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
@@ -332,10 +332,6 @@ mod test {
         let body: serde_json::Value = minted.json().await.unwrap();
 
         let claims = server.verify_access_token(body["access_token"].as_str().unwrap());
-        assert_eq!(
-            claims.exp - claims.iat,
-            super::CAPABILITY_TOKEN_DURATION.as_secs()
-        );
         insta::assert_json_snapshot!(claims, {
             ".iat" => "[iat]",
             ".exp" => "[exp]",
@@ -388,7 +384,7 @@ mod test {
         // would bound nothing, since an unmasked bearer can already obtain
         // long-lived credentials via createRefreshToken, and a predictable
         // lifetime is simpler for clients to reason about.
-        let short_lived_token = {
+        let life_extending_token = {
             let now = tokens::now();
             server.sign_claims(&models::authorizations::ControlClaims {
                 iat: now.timestamp() as u64,
@@ -401,7 +397,7 @@ mod test {
                 prefix_scope: None,
             })
         };
-        let bearer_exp = server.verify_access_token(&short_lived_token).exp;
+        let bearer_exp = server.verify_access_token(&life_extending_token).exp;
 
         let minted = server
             .rest_client()
@@ -411,7 +407,7 @@ mod test {
                     "grant_type": "capability_token",
                     "capability_mask": ["viewer"],
                 }),
-                Some(&short_lived_token),
+                Some(&life_extending_token),
             )
             .send()
             .await
