@@ -13,7 +13,13 @@ name: Label deploy scope
 # holds the private key of a GitHub App installed on estuary/ops (contents:
 # read); the OPS_APP_ID repository variable identifies that app, and a
 # short-lived installation token is minted from the two each run.
+#
+# Migration PRs are labeled on merge and cleared manually after applying the
+# migration: application deploys do not establish a database migration baseline.
 on:
+  pull_request_target:
+    branches: [master]
+    types: [closed]
   push:
     branches: [master]
   workflow_run:
@@ -24,12 +30,57 @@ on:
     types: [completed]
   workflow_dispatch: {}
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || 'reconcile' }}
   cancel-in-progress: true
 jobs:
+  migration:
+    name: Label pending migration
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...context.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            if (!files.some(file =>
+              file.status !== 'removed' &&
+              file.filename.startsWith('supabase/migrations/') &&
+              file.filename.endsWith('.sql')
+            )) return;
+
+            const name = 'pending:migration';
+            try {
+              await github.rest.issues.getLabel({ ...context.repo, name });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              try {
+                await github.rest.issues.createLabel({
+                  ...context.repo,
+                  name,
+                  color: '1D76DB',
+                  description: 'Merged, contains a database migration awaiting application',
+                });
+              } catch (error) {
+                // Another PR may have created the label concurrently.
+                if (error.status !== 422) throw error;
+                await github.rest.issues.getLabel({ ...context.repo, name });
+              }
+            }
+            await github.rest.issues.addLabels({
+              ...context.repo,
+              issue_number: context.payload.pull_request.number,
+              labels: [name],
+            });
   reconcile:
     name: ${{ matrix.target }}
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name != 'pull_request_target' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     strategy:
       # One job per target so a failing target is visible by name, and one
       # target's failure does not cancel the others.
