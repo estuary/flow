@@ -78,7 +78,7 @@ impl std::fmt::Debug for Lsn {
 mod actor;
 mod block;
 mod handler;
-mod heap;
+mod read_ahead;
 pub mod reader;
 mod state;
 pub mod writer;
@@ -207,7 +207,7 @@ pub(crate) struct LogJoinSlot {
 
 #[derive(Clone)]
 pub(crate) struct Metrics {
-    /// Total Append messages drained from the heap into the current block.
+    /// Total Append messages drained from the merge into the current block.
     appends: metrics::Counter,
     /// Total source bytes of those Appends (sum of `source_byte_length`),
     /// approximating the bytes of input that resulted in log entries.
@@ -219,16 +219,20 @@ pub(crate) struct Metrics {
     /// Current on-disk backlog across all living sealed segments. Set on each
     /// segment seal and on each reclaim from compression / unlink.
     disk_backlog_bytes: metrics::Gauge,
+    /// Total rounds received from Slices.
+    rounds: metrics::Counter,
+    /// Time the merge was constrained, indexed by the constraining Slice.
+    constrained_micros: Vec<metrics::Counter>,
 }
 
 impl Metrics {
-    fn new(shard_id: &str) -> Self {
+    fn new(shard_id: &str, num_slices: usize) -> Self {
         static DESCRIBE: std::sync::Once = std::sync::Once::new();
         DESCRIBE.call_once(|| {
             metrics::describe_counter!(
                 "shuffle_log_appends",
                 metrics::Unit::Count,
-                "Append messages drained from the heap into the current block",
+                "Append messages drained from the merge into the current block",
             );
             metrics::describe_counter!(
                 "shuffle_log_bytes_appended",
@@ -250,6 +254,16 @@ impl Metrics {
                 metrics::Unit::Bytes,
                 "current on-disk backlog across all living sealed segments",
             );
+            metrics::describe_counter!(
+                "shuffle_log_rounds",
+                metrics::Unit::Count,
+                "rounds received from Slices",
+            );
+            metrics::describe_counter!(
+                "shuffle_log_constrained_micros",
+                metrics::Unit::Microseconds,
+                "time the merge minimum was constrained, by the constraining Slice",
+            );
         });
 
         Self {
@@ -258,6 +272,16 @@ impl Metrics {
             flushes: metrics::counter!("shuffle_log_flushes", "shard_id" => shard_id.to_string()),
             segments_sealed: metrics::counter!("shuffle_log_segments_sealed", "shard_id" => shard_id.to_string()),
             disk_backlog_bytes: metrics::gauge!("shuffle_log_disk_backlog_bytes", "shard_id" => shard_id.to_string()),
+            rounds: metrics::counter!("shuffle_log_rounds", "shard_id" => shard_id.to_string()),
+            constrained_micros: (0..num_slices)
+                .map(|slice| {
+                    metrics::counter!(
+                        "shuffle_log_constrained_micros",
+                        "shard_id" => shard_id.to_string(),
+                        "slice" => slice.to_string(),
+                    )
+                })
+                .collect(),
         }
     }
 }
