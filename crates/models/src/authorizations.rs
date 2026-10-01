@@ -29,6 +29,10 @@ pub struct ControlClaims {
     // grant's legacy `capability` value is not attenuated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capability_mask: Option<Vec<String>>,
+    /// Intersects user's reachable nodes with this prefix and its reachable nodes.
+    /// Omitted or null is unrestricted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix_scope: Option<String>,
 }
 
 impl ControlClaims {
@@ -37,6 +41,13 @@ impl ControlClaims {
         use serde::{Deserialize, de::value};
         crate::authz::Subject {
             user_id: self.sub,
+            prefix_scope: self.prefix_scope.as_ref().map(|scope| {
+                let mut scope = scope.clone();
+                if !scope.ends_with('/') {
+                    scope.push('/');
+                }
+                scope
+            }),
             capability_mask: self.capability_mask.as_ref().map(|mask| {
                 mask.iter()
                     .filter_map(|name| {
@@ -426,6 +437,32 @@ mod test {
     use crate::authz::{Capability, CapabilityBundle, CapabilitySet, Subject};
 
     #[test]
+    fn prefix_scope_from_token_payload() {
+        let mut payload = serde_json::json!({
+            "aud": "authenticated", "iat": 1700000000, "exp": 1700003600,
+            "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a", "role": "authenticated",
+        });
+        for (scope, expected) in [
+            (serde_json::Value::Null, None),
+            (serde_json::json!(""), Some("/")),
+            (serde_json::json!("acmeCo/team/"), Some("acmeCo/team/")),
+            (serde_json::json!("acmeCo/team"), Some("acmeCo/team/")),
+            (serde_json::json!("pizza"), Some("pizza/")),
+        ] {
+            payload["prefix_scope"] = scope.clone();
+            let claims: ControlClaims = serde_json::from_value(payload.clone()).unwrap();
+            assert_eq!(claims.subject().prefix_scope.as_deref(), expected);
+            let round_trip: ControlClaims =
+                serde_json::from_value(serde_json::to_value(&claims).unwrap()).unwrap();
+            assert_eq!(round_trip.subject(), claims.subject());
+        }
+        for malformed in [serde_json::json!([]), serde_json::json!(42)] {
+            payload["prefix_scope"] = malformed;
+            assert!(serde_json::from_value::<ControlClaims>(payload.clone()).is_err());
+        }
+    }
+
+    #[test]
     fn subject_from_deserialized_token_payload() {
         let user_id = uuid::Uuid::parse_str("d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a").unwrap();
         let viewer = CapabilityBundle::Viewer.capabilities();
@@ -517,6 +554,7 @@ mod test {
                 Subject {
                     user_id,
                     capability_mask: *expected_mask,
+                    prefix_scope: None,
                 },
                 "{payload}"
             );

@@ -535,6 +535,7 @@ mod tests {
             role: "authenticated".to_string(),
             email,
             capability_mask: None,
+            prefix_scope: None,
         };
 
         match evaluate_authorization(&snapshot, &claims, &prefix, &data_plane, capability) {

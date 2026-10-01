@@ -373,6 +373,7 @@ mod tests {
             aud: "authenticated".to_string(),
             email: Some("user@example.test".to_string()),
             capability_mask: None,
+            prefix_scope: None,
         }
     }
 
