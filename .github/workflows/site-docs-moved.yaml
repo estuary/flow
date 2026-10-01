@@ -1,0 +1,24 @@
+# The docs moved out of this repo, and site/ was deleted in #3556. Nothing here
+# builds or serves site/, so a PR that adds files there (often an agent working
+# from an old picture of the layout) would pass CI and publish nowhere. This
+# check fails that PR and says where the change belongs.
+name: Docs moved out of this repo
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "site/**"
+
+permissions:
+  contents: read
+
+jobs:
+  site-docs-moved:
+    name: Docs moved out of this repo
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Point at where the docs live now
+        run: |
+          echo "::error title=Docs moved out of this repo::This PR adds files under site/, which nothing builds or serves. The docs source moved to the estuary/docs repo: pages from site/docs/ are in content/, and site/src/ is in src/. Connector reference pages moved to estuary/connectors under docs/reference/Connectors/. Move the change there and drop site/ from this PR."
+          exit 1
