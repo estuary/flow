@@ -290,12 +290,12 @@ async fn update_collection_methods(
                 updated.push(Invoice::from(invoice));
             }
             Err(e) => {
-                pb.println(format!(
-                    "Skipping invoice {} (tenant: {}) after collection method update failed: {}",
-                    inv.id(),
-                    inv.tenant(),
-                    e
-                ));
+                tracing::error!(
+                    invoice = %inv.id(),
+                    tenant = %inv.tenant(),
+                    error = %format!("{e:#}"),
+                    "Skipping invoice after collection method update failed"
+                );
             }
         }
         pb.inc(1);
@@ -389,7 +389,7 @@ async fn finalize_invoices(
         .into_iter()
         .filter(|res: &anyhow::Result<Invoice>| {
             if let Err(e) = res {
-                pb.println(format!("Failed to process invoice: {e:#}"));
+                tracing::error!(error = %format!("{e:#}"), "Failed to process invoice");
                 return false;
             }
             true
@@ -508,12 +508,12 @@ async fn update_auto_advance(
             }
             Err(e) => {
                 failures += 1;
-                pb.println(format!(
-                    "Failed to update auto_advance for invoice {} (tenant: {}): {:#}",
-                    inv.id(),
-                    inv.tenant(),
-                    e
-                ));
+                tracing::error!(
+                    invoice = %inv.id(),
+                    tenant = %inv.tenant(),
+                    error = %format!("{e:#}"),
+                    "Failed to update auto_advance for invoice"
+                );
             }
         }
         pb.inc(1);
