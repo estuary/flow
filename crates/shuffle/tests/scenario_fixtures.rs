@@ -39,6 +39,45 @@ async fn next_resolved_checkpoint(
     frontier
 }
 
+/// Reduce checkpoints until `journals` journals are each read through their
+/// write head. A single scan of that cumulative frontier yields each shard's
+/// log in on-disk order (scans of interim checkpoints would not: an entry not
+/// yet committed in one is re-yielded later, from a remainder).
+async fn read_through_write_heads(
+    session: &mut shuffle::SessionClient,
+    journals: usize,
+) -> shuffle::Frontier {
+    let mut frontier = shuffle::Frontier::default();
+    loop {
+        frontier = frontier.reduce(next_resolved_checkpoint(session, "next_checkpoint").await);
+
+        if frontier.journals.len() == journals
+            && frontier
+                .journals
+                .iter()
+                .all(|jf| jf.bytes_behind_delta == 0)
+        {
+            return frontier;
+        }
+    }
+}
+
+/// Scan the committed entries of a shard's log through `frontier`,
+/// in on-disk order.
+fn scan_shard_log(
+    log_dir: &std::path::Path,
+    shard_index: u32,
+    frontier: &shuffle::Frontier,
+    mut on_entry: impl FnMut(shuffle::log::reader::Entry<'_>),
+) {
+    let reader = Reader::new(log_dir, shard_index);
+    let mut scan = FrontierScan::new(frontier.clone(), reader, VecDeque::new()).unwrap();
+
+    while scan.advance_block().unwrap() {
+        scan.block_iter().for_each(&mut on_entry);
+    }
+}
+
 /// Build a Materialization task from a built MaterializationSpec.
 /// Exercises `shuffle::Binding::from_materialization_binding()`.
 fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
@@ -274,6 +313,43 @@ async fn shuffle_scenarios() {
     .await;
     data_plane.reset().await.expect("reset");
 
+    merged_across_slices(
+        "merged_across_slices",
+        2_000,
+        2048,
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    // Large documents, which bind the byte window of Slice-to-Log flow control.
+    merged_across_slices(
+        "merged_large_across_slices",
+        96,
+        512 * 1024,
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    read_delay_merge_order(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
     resume_from_checkpoint(
         &materialization_spec,
         &capture_spec,
@@ -460,9 +536,13 @@ async fn single_producer_outside_txn(
     .await
     .expect("SessionClient::open");
 
-    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    // Flush boundaries may split the documents across checkpoints, so read
+    // through the journal's write head. How many flushes that takes decides
+    // its flushed LSNs, which aren't snapshotted.
+    let mut frontier = read_through_write_heads(&mut session, 1).await;
     let mut shard_state: ShardState = (0..1).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
+    frontier.flushed_lsn.clear();
     insta::assert_debug_snapshot!(
         "single_producer_outside_txn",
         Checkpoint {
@@ -585,9 +665,13 @@ async fn multi_shard_routing(
     .await
     .expect("SessionClient::open");
 
-    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    // Flush boundaries may split the documents across checkpoints, so read
+    // through the journal's write head. How many flushes that takes decides
+    // its flushed LSNs, which aren't snapshotted.
+    let mut frontier = read_through_write_heads(&mut session, 1).await;
     let mut shard_state: ShardState = (0..3).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
+    frontier.flushed_lsn.clear();
     insta::assert_debug_snapshot!(
         "multi_shard_routing",
         Checkpoint {
@@ -595,6 +679,201 @@ async fn multi_shard_routing(
             read,
         }
     );
+
+    session.close().await.expect("close");
+}
+
+/// Publish many documents round-robin across partitions, which the session
+/// spreads as reads across the Slices of a 3-shard topology. Every Log must
+/// merge its Appends from all Slices in strict clock order: each Log's merge
+/// is constrained by the merge constraints of Slices lacking a queued Append.
+/// `docs` of `padding` bytes are sized to span many rounds of Appends at
+/// every Slice: many small documents fill channels' message capacity, while
+/// fewer large ones fill their byte window.
+async fn merged_across_slices(
+    name: &str,
+    docs: usize,
+    padding: usize,
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let scenario_dir = log_dir.join(name);
+    std::fs::create_dir_all(&scenario_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+
+    const CATEGORIES: [&str; 8] = ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7"];
+    let padding = "x".repeat(padding);
+
+    for i in 0..docs {
+        let category = CATEGORIES[i % CATEGORIES.len()];
+        pub_.enqueue(
+            |uuid| {
+                Ok((
+                    1, // Bananas, which the materialization reads unfiltered.
+                    serde_json::json!({
+                        "_meta": {"uuid": uuid.to_string()},
+                        "id": format!("m-{i}"),
+                        "category": category,
+                        "value": i,
+                        "padding": &padding,
+                    }),
+                ))
+            },
+            uuid::Flags::OUTSIDE_TXN,
+        )
+        .await
+        .unwrap();
+    }
+    pub_.flush().await.unwrap();
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(3, service.peer_endpoint(), &scenario_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    let frontier = read_through_write_heads(&mut session, CATEGORIES.len()).await;
+
+    let mut clocks: Vec<Vec<u64>> = vec![Vec::new(); 3];
+    let mut journals: Vec<std::collections::BTreeSet<String>> = vec![Default::default(); 3];
+
+    for shard_index in 0..3 {
+        scan_shard_log(&scenario_dir, shard_index as u32, &frontier, |entry| {
+            clocks[shard_index].push(entry.meta.clock.to_native());
+            journals[shard_index].insert(entry.journal.name.as_str().to_owned());
+        });
+    }
+
+    for (shard_index, clocks) in clocks.iter().enumerate() {
+        assert!(
+            journals[shard_index].len() > 1,
+            "shard {shard_index} should merge documents of many journals"
+        );
+        assert!(
+            clocks.is_sorted(),
+            "shard {shard_index} log must be in merged clock order"
+        );
+    }
+    assert_eq!(clocks.iter().map(Vec::len).sum::<usize>(), docs);
+
+    session.close().await.expect("close");
+}
+
+/// A derivation reads bananas with a 2s read delay, and cherries without.
+/// (It's built from the materialization's bananas and cherries bindings:
+/// a fixture derivation built with no-op connectors has no transforms.)
+/// Documents are published at wall-clock time, interleaved across both
+/// collections and several partitions, and read by a 3-shard topology.
+/// Slices sleep on delayed documents at their heap top, while telling Logs
+/// (by merge constraint) of that future position. Every Log must merge in adjusted-clock
+/// order: cherries ahead of bananas published up to 2s earlier.
+async fn read_delay_merge_order(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let scenario_dir = log_dir.join("read_delay_merge_order");
+    std::fs::create_dir_all(&scenario_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+    // Publish at wall-clock time, so that the read delay is observed.
+    pub_.update_clock();
+
+    const CATEGORIES: [&str; 4] = ["c0", "c1", "c2", "c3"];
+    const DOCS: usize = 400;
+
+    for i in 0..DOCS {
+        let category = CATEGORIES[(i / 2) % CATEGORIES.len()];
+        pub_.enqueue(
+            |uuid| {
+                Ok((
+                    1 + i % 2, // Alternate bananas (delayed) and cherries.
+                    serde_json::json!({
+                        "_meta": {"uuid": uuid.to_string()},
+                        "id": format!("d-{i}"),
+                        "category": category,
+                        "value": i,
+                    }),
+                ))
+            },
+            uuid::Flags::OUTSIDE_TXN,
+        )
+        .await
+        .unwrap();
+    }
+    pub_.flush().await.unwrap();
+
+    let transforms = materialization_spec.bindings[1..=2]
+        .iter()
+        .zip([("fromBananas", 2), ("fromCherries", 0)])
+        .map(
+            |(binding, (name, read_delay_seconds))| flow::collection_spec::derivation::Transform {
+                name: name.to_string(),
+                collection: binding.collection.clone(),
+                collection_index: binding.collection_index,
+                partition_selector: binding.partition_selector.clone(),
+                journal_read_suffix: format!("derive/testing/delayed/{name}"),
+                state_key: name.to_string(),
+                read_delay_seconds,
+                ..Default::default()
+            },
+        )
+        .collect();
+
+    let derivation_spec = flow::CollectionSpec {
+        name: "testing/delayed".to_string(),
+        derivation: Some(Box::new(flow::collection_spec::Derivation {
+            transforms,
+            linked_collections: materialization_spec.linked_collections.clone(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+
+    let task = shuffle::proto::Task {
+        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+    };
+    // Bindings map each logged entry to its merge position (priority and adjusted clock).
+    let (bindings, _, _) = shuffle::Binding::from_task(&task).expect("Binding::from_task");
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        task,
+        build_shards(3, service.peer_endpoint(), &scenario_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    let frontier = read_through_write_heads(&mut session, 2 * CATEGORIES.len()).await;
+    let mut total = 0;
+
+    for shard_index in 0..3 {
+        let mut positions = Vec::new();
+
+        scan_shard_log(&scenario_dir, shard_index, &frontier, |entry| {
+            let binding = &bindings[entry.meta.binding.to_native() as usize];
+            positions
+                .push(binding.merge_position(uuid::Clock::from_u64(entry.meta.clock.to_native())));
+        });
+        assert!(
+            positions.is_sorted(),
+            "shard {shard_index} log must be in adjusted-clock order"
+        );
+        total += positions.len();
+    }
+    assert_eq!(total, DOCS);
 
     session.close().await.expect("close");
 }
@@ -1925,31 +2204,32 @@ fn scrub_measures(frontier: &shuffle::Frontier) -> shuffle::Frontier {
     scrubbed
 }
 
-/// Causal-hint elevation flips a producer's stale span-begin offset to the
-/// journal's cut floor `-M` (`JournalFrontier::resolve_hints`), and the flip
-/// surfaces in a persisted checkpoint exactly when the resolving progress is
-/// itself held back by a *fresh* unresolved hint — otherwise the read-derived
-/// commit offset (a larger magnitude) folds into the same emission and
-/// dominates the flip in reduction.
+/// Causal-hint elevation closes a producer's stale span-begin offset
+/// (`JournalFrontier::resolve_hints`, then `ProducerFrontier::reduce`), and
+/// the closure surfaces in a persisted checkpoint exactly when the resolving
+/// progress is itself held back by a *fresh* unresolved hint — otherwise the
+/// read-derived commit offset (a larger magnitude) folds into the same
+/// emission and dominates in reduction.
 ///
 /// Phase 1 (held): P1 commits an OUTSIDE baseline in apples (so its later span
 /// begins at O > 0 — the shape that would re-gap on recovery), then opens
 /// transaction T1 spanning apples (span at O) and bananas. P2 commits later in
 /// apples, so its ACK end M > O is apples' maximum offset. T1 commits at H1,
 /// but only bananas' ACK is written — P1 "crashed" before writing apples' —
-/// so the apples read can never observe T1's commit directly and the pipeline
-/// holds P1's entry `{C0, H1, +O}` in `unresolved`, answering checkpoint
-/// requests with peeks.
+/// so the apples read can never observe T1's commit directly. The pipeline
+/// holds the H1 hint in `unresolved` and answers checkpoint requests with
+/// peeks, and the cumulative checkpoint holds P1 at `{C0, H1, +O}`.
 ///
 /// Phase 2 (flip): P1 recovers — transaction T2 adds a bananas document and
 /// commits at H2, writing recovery ACKs for both session journals. Apples'
 /// ACK is written: it proves P1's apples commits through H2, elevating the
 /// held entry (capped at the H1 hint) and flipping its offset to the cut
-/// floor -M; and it carries a fresh causal hint (bananas @ H2) whose own ACK
-/// is withheld, holding the read-derived apples progress in `unresolved`. The
-/// emitted checkpoint therefore shows P1 at `{H1, H1, -M}` — matching P2's
-/// committed end — and the flip survives the client's cumulative
-/// max-magnitude reduce over the earlier `+O` peek.
+/// floor -M' of `unresolved`; and it carries a fresh causal hint (bananas @
+/// H2) whose own ACK is withheld, holding the read-derived apples progress in
+/// `unresolved`. M' depends on which flush carried P2's committed end M: it's
+/// M if that flush also carried the H1 hint, and otherwise zero. Either way,
+/// the client's cumulative reduce closes the earlier `+O` against the
+/// elevated commit, at `-max(O, M')`.
 ///
 /// Phase 3 (resumed): resuming from the cumulative checkpoint recovers P1
 /// committed (negative offset) — NOT gapped — so the apples read starts at M
@@ -1975,10 +2255,7 @@ async fn hint_elevated_offset_flip(
     let mut pub2 = make_publisher(capture_spec, journal_client, p2);
 
     // P1's OUTSIDE baseline: gives P1 a committed last_commit C0 and pushes its
-    // later span begin O above zero. Being the lowest-clock commit, it also
-    // absorbs the Slice's first flush-cycle boundary, so all remaining stage-1
-    // state lands in one subsequent flush frontier and is promoted to
-    // `unresolved` whole — with P2's -M sibling present as the cut floor.
+    // later span begin O above zero.
     pub1.enqueue(
         |uuid| {
             Ok((
@@ -2080,7 +2357,7 @@ async fn hint_elevated_offset_flip(
     .expect("SessionClient::open phase 1");
 
     // Held phase: the H1 hint cannot resolve (apples' T1 ACK is unwritten), so
-    // the pipeline parks P1's entry in `unresolved` and answers with peeks.
+    // the pipeline parks it in `unresolved` and answers with peeks.
     // Emissions may split across flush cycles, so accumulate the client-side
     // cumulative checkpoint until the held state is fully visible.
     let mut base = shuffle::Frontier::default();
@@ -2123,9 +2400,9 @@ async fn hint_elevated_offset_flip(
 
     // Phase 2: P1 recovers — T2 adds a bananas document and commits at H2,
     // with recovery ACKs for both session journals. Only apples' ACK is
-    // written: it elevates the held entry (capped at H1, flipping the offset
-    // to -M) and carries the fresh bananas @ H2 hint that holds the
-    // read-derived apples progress in `unresolved`, letting the flip surface.
+    // written: it elevates the held entry (capped at H1) and carries the fresh
+    // bananas @ H2 hint that holds the read-derived apples progress in
+    // `unresolved`, letting the closure surface.
     pub1.enqueue(
         |uuid| {
             Ok((
@@ -2161,34 +2438,46 @@ async fn hint_elevated_offset_flip(
     let cp2 = next_resolved_checkpoint(&mut session, "hint flip checkpoint 2").await;
 
     // The core of this fixture: P1's held entry was elevated to (and capped
-    // at) the H1 hint, and its offset flipped from the stale +O span begin to
-    // -M — the journal's cut floor, which is exactly P2's committed end.
+    // at) the H1 hint. The flip's -M' is the cut floor of `unresolved`, which
+    // flush boundaries decide: -M if P2's committed end rode the flush of the
+    // H1 hint, and zero if the hint's flush carried apples only as a hint.
     let flipped = find_producer(&cp2, "apples", p1).expect("P1 in checkpoint 2");
-    let sibling = find_producer(&cp2, "apples", p2).expect("P2 in checkpoint 2");
     assert_eq!(flipped.last_commit, t1_commit, "elevated to the H1 cap");
     assert_eq!(flipped.hinted_commit, t1_commit);
-    assert!(flipped.offset < 0, "offset flipped to a committed encoding");
-    assert_eq!(
-        flipped.offset, sibling.offset,
-        "the flip writes -M, the cut floor set by P2's committed end",
-    );
+    assert!(flipped.offset <= 0, "the flip writes -M'");
 
-    // Durability: |-M| beats the earlier +O span begin in the client's
-    // cumulative max-magnitude reduce, so the flip survives into the base
-    // checkpoint a coordinator would resume from.
+    // Durability: the cumulative reduce closes the earlier +O span begin
+    // against the elevated commit, at -max(O, M'). Either way P1 recovers
+    // committed from the base checkpoint a coordinator would resume from.
+    let (o, m) = (
+        held.offset,
+        -find_producer(&base, "apples", p2).unwrap().offset,
+    );
     base = base.reduce(cp2.clone());
-    assert_eq!(
-        find_producer(&base, "apples", p1).unwrap().offset,
-        flipped.offset,
-        "-M survives the cumulative reduce over the earlier +O",
+    let closed = find_producer(&base, "apples", p1).unwrap();
+    assert_eq!(closed.last_commit, t1_commit);
+    assert!(
+        [-o, -m].contains(&closed.offset),
+        "P1 closes at -O ({o}) or -M ({m}), not {}",
+        closed.offset,
     );
 
     // The resolved emission releases exactly the held span's document.
+    // Whether P1 closes at -O or -M depends on flush boundaries (asserted
+    // above), so the snapshot normalizes it to -M.
     let read2 = collect_read_entries(&base, &phase1_dir, &mut shard_state);
+    let mut scrubbed = scrub_measures(&base);
+    scrubbed
+        .journals
+        .iter_mut()
+        .filter(|jf| jf.journal.contains("apples"))
+        .flat_map(|jf| jf.producers.iter_mut())
+        .filter(|pf| pf.producer == p1)
+        .for_each(|pf| pf.offset = -m);
     insta::assert_debug_snapshot!(
         "hint_elevated_offset_checkpoint2",
         Checkpoint {
-            frontier: &scrub_measures(&cp2),
+            frontier: &scrubbed,
             read: read2,
         }
     );
@@ -2198,7 +2487,7 @@ async fn hint_elevated_offset_flip(
     // session can resolve T2's fresh hint.
     pub1.write_intents(ack_b2).await.unwrap();
 
-    // Resume from the cumulative checkpoint. P1's apples entry {H1, H1, -M}
+    // Resume from the cumulative checkpoint. P1's apples entry {H1, H1, -O|-M}
     // recovers committed — NOT gapped — so the read starts at M, skips the
     // closed span [O, M) without a replay, and treats apples' recovery ACK
     // as an empty commit. Only T2's bananas document is newly delivered.

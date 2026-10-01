@@ -76,7 +76,7 @@ where
         .map(|b| b.cohort as usize + 1)
         .max()
         .unwrap_or(0);
-    let metrics = super::Metrics::new(shard_id, num_cohorts);
+    let metrics = super::Metrics::new(shard_id, num_cohorts, shards.len());
 
     service_kit::event!(
         tracing::Level::INFO,
@@ -160,8 +160,7 @@ where
         flush: state::FlushState::new(),
         progress: state::ProgressState::new(),
         slice_response_tx,
-        log_prev_journal: vec![String::new(); log_request_tx.len()],
-        log_request_tx,
+        rounds: super::rounds::Rounds::new(log_request_tx),
         pending_probes: stream::FuturesUnordered::new(),
         pending_reads: stream::FuturesUnordered::new(),
         parser: simd_doc::SimdParser::new(1_000_000),
@@ -199,11 +198,10 @@ async fn open_log_rpc(
         "Opened",
         &shards[log_shard_index as usize].endpoint,
     );
-    let (request_tx, request_rx) = crate::new_channel::<shuffle::LogRequest>();
+    let (request_tx, request_rx) = crate::new_channel();
 
     // Spawn or dial RPC, yielding a boxed response stream.
     let request_rx = tokio_stream::wrappers::ReceiverStream::new(request_rx);
-
     let mut response_rx = if log_shard_index == slice_shard_index {
         tracing::debug!("spawning in-process Log RPC");
         tokio_stream::wrappers::ReceiverStream::new(
@@ -235,7 +233,8 @@ async fn open_log_rpc(
                 slice_shard_index,
                 log_shard_index,
             }),
-            append: None,
+            appends: Vec::new(),
+            constraint: None,
             flush: None,
         },
     )?;
