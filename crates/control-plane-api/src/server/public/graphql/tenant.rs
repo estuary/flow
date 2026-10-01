@@ -1,8 +1,6 @@
 use async_graphql::{Context, Result, SimpleObject};
 use validator::Validate;
 
-const TERMS_VERSION: &str = "v1";
-
 const TENANT_UNAVAILABLE_MESSAGE: &str = "The organization name is already in use, \
     please choose a different one or contact support@estuary.dev.";
 
@@ -104,10 +102,10 @@ pub struct TenantMutation;
 pub struct TenantCreateInput {
     /// Organization name as a single catalog token, without a trailing slash.
     pub name: String,
-    /// Whether the submitting user has read and accepts the
+    /// Version of the terms the submitting user has read and accepts, including the
     /// [Privacy Policy](https://www.estuary.dev/privacy-policy/) and
-    /// [Terms of Service](https://dashboard.estuary.dev/terms.html). Must be true to create a tenant.
-    pub submitting_user_agrees_to_terms: bool,
+    /// [Terms of Service](https://dashboard.estuary.dev/terms.html). Must be non-empty to create a tenant.
+    pub submitting_user_agrees_to_terms_version: String,
     pub survey: Option<async_graphql::Json<serde_json::Value>>,
 }
 
@@ -131,9 +129,13 @@ impl TenantMutation {
                 "Restricted tokens cannot create tenants",
             ));
         }
-        if !input.submitting_user_agrees_to_terms {
+        if input
+            .submitting_user_agrees_to_terms_version
+            .trim()
+            .is_empty()
+        {
             return Err(async_graphql::Error::new(
-                "You must read and agree to these policies and terms to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html",
+                "You must provide the version of the policies and terms you accept to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html",
             ));
         }
         let mut txn = env.pg_pool.begin().await?;
@@ -164,7 +166,7 @@ impl TenantMutation {
                      $3::catalog_tenant, (SELECT id FROM public.tenants WHERE tenant = $3))",
         )
         .bind(claims.sub)
-        .bind(TERMS_VERSION)
+        .bind(&input.submitting_user_agrees_to_terms_version)
         .bind(&tenant_name)
         .execute(&mut *txn)
         .await?;
@@ -281,7 +283,7 @@ mod test {
             "query": "mutation($input: TenantCreateInput!) { tenantCreate(input: $input) }",
             "variables": { "input": {
                 "name": tenant,
-                "submittingUserAgreesToTerms": true,
+                "submittingUserAgreesToTermsVersion": "v2",
                 "survey": { "origin": "search", "details": "testing" },
             }}
         })
@@ -320,7 +322,7 @@ mod test {
           "hasTimestamp": true,
           "tenantMatches": true,
           "tenantName": "acmeCo/",
-          "termsVersion": "v1",
+          "termsVersion": "v2",
           "userEmail": "alice@example.test",
           "userId": "11111111-1111-1111-1111-111111111111"
         }
@@ -350,16 +352,18 @@ mod test {
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes"))
     )]
-    async fn tenant_create_requires_consent(pool: sqlx::PgPool) {
+    async fn tenant_create_requires_consent_version(pool: sqlx::PgPool) {
         let server = server(&pool).await;
         let token = server.make_access_token(ALICE, None);
         let mut req = request("acmeCo");
-        req["variables"]["input"]["submittingUserAgreesToTerms"] = false.into();
-        let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
-        assert_eq!(
-            response["errors"][0]["message"],
-            "You must read and agree to these policies and terms to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html"
-        );
+        for version in ["", " ", "\t\n"] {
+            req["variables"]["input"]["submittingUserAgreesToTermsVersion"] = version.into();
+            let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
+            assert_eq!(
+                response["errors"][0]["message"],
+                "You must provide the version of the policies and terms you accept to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html"
+            );
+        }
         let counts: (i64, i64) = sqlx::query_as(
             "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
                     (SELECT count(*) FROM tenant_consent WHERE user_id = $1)",
