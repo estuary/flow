@@ -369,7 +369,8 @@ pub async fn find_tenant_quotas(
                     where
                         live_specs.spec_type = 'capture' or
                         live_specs.spec_type = 'materialization' or
-                        live_specs.spec_type = 'collection' and live_specs.spec->'derive' is not null
+                        live_specs.spec_type = 'collection' and live_specs.spec->'derive' is not null and
+                        (live_specs.spec->'derive'->'shards'->>'disable')::boolean is not true
                 ))::integer as tasks_used,
                 (count(live_specs.catalog_name) filter (
                     where live_specs.spec_type = 'collection'
