@@ -58,6 +58,13 @@ if [ -n "${STRIPE_API_KEY:-}" ]; then
     echo "STRIPE_API_KEY=${STRIPE_API_KEY}" >> "${FLOW_ENV_DIR}/agent-${NAME}.env"
 fi
 
+# Forward SPRITES_TOKEN from the invoking shell when set. Without it, the
+# sandbox GraphQL mutations and the sandbox exec route report that sandboxes
+# are not configured.
+if [ -n "${SPRITES_TOKEN:-}" ]; then
+    echo "SPRITES_TOKEN=${SPRITES_TOKEN}" >> "${FLOW_ENV_DIR}/agent-${NAME}.env"
+fi
+
 {
     emit_common_vars
     cat <<EOF
