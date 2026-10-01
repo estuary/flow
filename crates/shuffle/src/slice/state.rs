@@ -1,7 +1,7 @@
 use super::producer::ProducerState;
 use crate::ProducerMap;
 use crate::binding::PartitionFilter;
-use crate::log;
+use crate::{log, merge};
 use anyhow::Context;
 use proto_flow::shuffle;
 use proto_gazette::uuid;
@@ -125,6 +125,99 @@ impl FlushState {
         self.cycle += 1;
 
         Ok(Some(std::mem::take(&mut self.flushing)))
+    }
+}
+
+/// State of the Slice's ready-read heap, as it bears on draining it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeapState {
+    /// A read could still resolve to content that preempts the heap top,
+    /// which may not be taken while we await IO (see `SliceActor::heap_state`).
+    Blocked,
+    /// All reads are tailing and no documents are ready.
+    Tailing,
+    /// The heap top may be taken, once its adjusted clock is reached.
+    Ready(merge::Position),
+}
+
+/// ConstraintState tracks the merge positions of Appends sent to Logs, and
+/// determines the merge constraint of each round. The constraint exceeds every
+/// Append which a Log may not yet have merged, as proven by completed flush
+/// cycles, but otherwise tracks the Slice's actual position and falls with it.
+/// See "Rounds and Merge Constraints" of the README for why.
+#[derive(Debug)]
+pub struct ConstraintState {
+    /// Maximum position of Appends sent since the last flush was sent.
+    sent_max: Option<merge::Position>,
+    /// Maximum position of Appends sent before the in-flight flush was sent.
+    flushing_max: Option<merge::Position>,
+    /// Last Append which was sent, which is used only when all prior Appends
+    /// have been merged and flushed, but we still don't know our next position
+    /// (due to upstream read I/O stall).
+    last: Option<merge::Position>,
+    /// Constraint last sent to all Logs, tested for whether it's changed.
+    last_sent: merge::Constraint,
+}
+
+impl ConstraintState {
+    pub fn new() -> Self {
+        Self {
+            sent_max: None,
+            flushing_max: None,
+            last: None,
+            last_sent: merge::Constraint::INITIAL,
+        }
+    }
+
+    /// Record an Append at `position` queued to Logs.
+    pub fn on_append(&mut self, position: merge::Position) {
+        self.sent_max = self.sent_max.max(Some(position));
+        self.last = Some(position);
+    }
+
+    /// Record that a flush cycle has completed at all Logs.
+    pub fn on_flush_completed(&mut self) {
+        self.flushing_max = None;
+    }
+
+    /// Close the current round, given the state of the heap and whether the
+    /// round requests a flush. Returns the round's merge constraint, and
+    /// whether it must go to every Log: it changed, or the round requests a
+    /// flush. Otherwise it's sent only with rounds having Appends, because all
+    /// Logs already know it.
+    pub fn close_round(&mut self, heap: HeapState, flush: bool) -> (merge::Constraint, bool) {
+        // `floor` must exceed every Append which a Log may not yet have merged.
+        let floor = self
+            .sent_max
+            .max(self.flushing_max)
+            .map(merge::Position::successor);
+
+        let constraint = match (heap, floor) {
+            (HeapState::Ready(top), Some(floor)) => merge::Constraint::At(floor.max(top)),
+            (HeapState::Ready(top), None) => merge::Constraint::At(top),
+            (HeapState::Tailing, _) => merge::Constraint::Tailing,
+            (HeapState::Blocked, Some(floor)) => merge::Constraint::At(floor),
+            (HeapState::Blocked, None) => merge::Constraint::At(
+                // Every Append we've sent has been merged and flushed, but read
+                // I/O stall means we still don't know our next position.
+                // Advertise that we'll resume near our `last` Append, so peer
+                // Appends below this position remain unconstrained.
+                self.last
+                    .map_or(merge::Position::MIN, merge::Position::successor),
+            ),
+        };
+        let broadcast = flush || self.last_sent != constraint;
+
+        if flush {
+            assert!(
+                self.flushing_max.is_none(),
+                "at most one flush is in flight"
+            );
+            self.flushing_max = self.sent_max.take();
+        }
+        self.last_sent = constraint;
+
+        (constraint, broadcast)
     }
 }
 
@@ -701,6 +794,71 @@ mod test {
             hinted_commit: 0,
             offset: -committed_end, // Negative = committed end offset.
         }
+    }
+
+    #[test]
+    fn test_constraint_state() {
+        let pos = |clock: u64| merge::Position {
+            priority: 0,
+            adjusted_clock: uuid::Clock::from_u64(clock),
+        };
+        let mut b = ConstraintState::new();
+
+        // Each closed round records its heap state and flush, and the
+        // resulting (constraint, broadcast), with positions as raw clocks.
+        let mut trace = Vec::new();
+        let mut close = |b: &mut ConstraintState, heap: HeapState, flush: bool| {
+            let (constraint, broadcast) = b.close_round(heap, flush);
+            let constraint = match constraint {
+                merge::Constraint::INITIAL => "INITIAL".to_string(),
+                merge::Constraint::At(p) => format!("At({})", p.adjusted_clock.as_u64()),
+                merge::Constraint::Tailing => "Tailing".to_string(),
+            };
+            let heap = match heap {
+                HeapState::Ready(p) => format!("Ready({})", p.adjusted_clock.as_u64()),
+                heap => format!("{heap:?}"),
+            };
+            let flush = if flush { " +flush" } else { "" };
+            trace.push(format!(
+                "{heap}{flush} -> {constraint}, broadcast: {broadcast}"
+            ));
+        };
+
+        // With no sends, a Blocked Slice knows nothing of its position.
+        // That's the initial constraint which Logs assume, and needn't be sent.
+        close(&mut b, HeapState::Blocked, false);
+        // A changed constraint is broadcast, and then isn't again.
+        close(&mut b, HeapState::Tailing, false);
+        close(&mut b, HeapState::Tailing, false);
+
+        // The constraint exceeds sent Appends, and is the heap top if that's later.
+        b.on_append(pos(100));
+        close(&mut b, HeapState::Blocked, false);
+        close(&mut b, HeapState::Ready(pos(150)), false);
+        close(&mut b, HeapState::Ready(pos(50)), false);
+
+        // A backwards Append doesn't lower the constraint.
+        b.on_append(pos(60));
+        close(&mut b, HeapState::Blocked, false);
+
+        // A flush cycle, which is always broadcast: Appends sent before it
+        // must be exceeded until it completes at all Logs. Afterwards, only
+        // later Appends need be.
+        close(&mut b, HeapState::Blocked, true);
+        b.on_append(pos(70));
+        close(&mut b, HeapState::Blocked, false);
+        b.on_flush_completed();
+        close(&mut b, HeapState::Blocked, false);
+
+        // A completed flush with no later Appends: a Blocked Slice is floored
+        // at its last Append, but a Ready one is at its heap top, even below
+        // that last Append.
+        close(&mut b, HeapState::Blocked, true);
+        b.on_flush_completed();
+        close(&mut b, HeapState::Blocked, false);
+        close(&mut b, HeapState::Ready(pos(40)), false);
+
+        insta::assert_snapshot!(trace.join("\n"));
     }
 
     struct TestState {
