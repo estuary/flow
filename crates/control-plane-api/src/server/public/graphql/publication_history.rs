@@ -8,6 +8,9 @@ use std::collections::HashMap;
 pub struct SpecPublicationHistoryItem {
     /// The id of the publication
     pub publication_id: models::Id,
+    /// Type of the published catalog specification, if recorded.
+    /// This may be null for a deletion.
+    pub catalog_type: Option<models::CatalogType>,
     /// Timestamp of the publication
     pub published_at: DateTime<Utc>,
     /// The id of the user who created the publication
@@ -27,34 +30,41 @@ pub struct SpecPublicationHistoryItem {
 
 #[async_graphql::ComplexObject]
 impl SpecPublicationHistoryItem {
-    /// The live spec model that was published
+    /// Catalog specification published by this publication, or null for a deletion.
     pub async fn model<'a>(&'a self) -> Option<async_graphql::Json<&'a models::RawValue>> {
         self.model.as_ref().map(|model| async_graphql::Json(model))
     }
 }
 
-/// Key for loading the most recent publication info for a given spec
+/// Key for loading a publication of a given spec.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LastPublicationInfoKey {
+pub struct PublicationInfoKey {
     pub catalog_name: models::Name,
+    /// None selects the most recent publication.
+    pub publication_id: Option<models::Id>,
     pub include_model: bool,
 }
 
-impl async_graphql::dataloader::Loader<LastPublicationInfoKey> for PgDataLoader {
+impl async_graphql::dataloader::Loader<PublicationInfoKey> for PgDataLoader {
     type Value = SpecPublicationHistoryItem;
 
     type Error = String;
 
     async fn load(
         &self,
-        keys: &[LastPublicationInfoKey],
-    ) -> Result<HashMap<LastPublicationInfoKey, Self::Value>, Self::Error> {
+        keys: &[PublicationInfoKey],
+    ) -> Result<HashMap<PublicationInfoKey, Self::Value>, Self::Error> {
         let names: Vec<&'_ str> = keys.iter().map(|n| n.catalog_name.as_str()).collect();
+        let publication_ids: Vec<Option<models::Id>> =
+            keys.iter().map(|k| k.publication_id).collect();
         let include_models: Vec<bool> = keys.iter().map(|k| k.include_model).collect();
         let rows = sqlx::query!(
             r#"select
                 ls.catalog_name as "catalog_name!: models::Name",
-                ls.last_pub_id as "publication_id!: models::Id",
+                args.publication_id as "requested_publication_id: models::Id",
+                args.include_model as "include_model!: bool",
+                ps.pub_id as "publication_id!: models::Id",
+                ps.spec_type as "catalog_type: models::CatalogType",
                 ps.published_at as "published_at!: DateTime<Utc>",
                 ps.user_id as "user_id!: uuid::Uuid",
                 u.email as "user_email: String",
@@ -62,27 +72,30 @@ impl async_graphql::dataloader::Loader<LastPublicationInfoKey> for PgDataLoader 
                 u.raw_user_meta_data->>'full_name' as "user_full_name: String",
                 ps.detail as "detail: String",
                 case when args.include_model then ps.spec else null end as "model: models::RawValue"
-              from unnest($1::catalog_name[], $2::boolean[]) as args(name, include_model)
+              from unnest($1::catalog_name[], $2::flowid[], $3::boolean[]) as args(name, publication_id, include_model)
               join live_specs ls on args.name = ls.catalog_name
-              join publication_specs ps on ls.id = ps.live_spec_id and ls.last_pub_id = ps.pub_id
+              join publication_specs ps on ls.id = ps.live_spec_id and ps.pub_id = coalesce(args.publication_id, ls.last_pub_id)
               left outer join auth.users u on ps.user_id = u.id
             "#,
             &names as &[&str],
+            &publication_ids as &[Option<models::Id>],
             &include_models as &[bool]
         )
         .fetch_all(&self.0)
         .await
-        .map_err(|e| format!("failed to fetch last publication info: {e}"))?;
+        .map_err(|e| format!("failed to fetch publication info: {e}"))?;
 
         let results = rows
             .into_iter()
             .map(|row| {
-                let key = LastPublicationInfoKey {
-                    catalog_name: models::Name::new(row.catalog_name),
-                    include_model: row.model.is_some(),
+                let key = PublicationInfoKey {
+                    catalog_name: row.catalog_name,
+                    publication_id: row.requested_publication_id,
+                    include_model: row.include_model,
                 };
                 let val = SpecPublicationHistoryItem {
                     publication_id: row.publication_id,
+                    catalog_type: row.catalog_type,
                     published_at: row.published_at,
                     user_id: row.user_id,
                     user_email: row.user_email,
@@ -185,6 +198,7 @@ async fn fetch_spec_history_before(
         SpecPublicationHistoryItem,
         r#"select
             ps.pub_id as "publication_id: models::Id",
+            ps.spec_type as "catalog_type: models::CatalogType",
             ps.published_at as "published_at: DateTime<Utc>",
             ps.user_id as "user_id: uuid::Uuid",
             u.email as "user_email: String",
@@ -228,6 +242,7 @@ async fn fetch_spec_history_after(
         SpecPublicationHistoryItem,
         r#"select
             ps.pub_id as "publication_id: models::Id",
+            ps.spec_type as "catalog_type: models::CatalogType",
             ps.published_at as "published_at: DateTime<Utc>",
             ps.user_id as "user_id: uuid::Uuid",
             u.email as "user_email: String",
@@ -257,4 +272,185 @@ async fn fetch_spec_history_after(
     }
     // keep rows in ascending order
     Ok((rows, has_next))
+}
+
+#[cfg(test)]
+mod test {
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn publication_for_id(pool: sqlx::PgPool) {
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        const MODEL: &str = r#"{"schema":{"type":"object","description":"old"},"key":[]}"#;
+
+        sqlx::query(
+            "INSERT INTO publication_specs (live_spec_id, pub_id, published_at, spec, spec_type, user_id)
+             SELECT id, p.pub_id::flowid, p.ts::timestamptz, $1::json, spec_type, $2
+             FROM live_specs CROSS JOIN (VALUES
+                 ('0000000000000010', '2024-01-01'),
+                 ('0000000000000011', '2024-01-01')
+             ) p(pub_id, ts) WHERE catalog_name = 'aliceCo/data/foo'",
+        )
+        .bind(MODEL)
+        .bind(alice)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO publication_specs (live_spec_id, pub_id, spec, spec_type, user_id)
+             SELECT id, '0000000000000012', spec, spec_type, $1 FROM live_specs
+             WHERE catalog_name = 'aliceCo/in/capture-foo'",
+        )
+        .bind(alice)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO publication_specs (live_spec_id, pub_id, published_at, spec, spec_type, user_id)
+             SELECT id, '0000000000000013', '2024-02-01', NULL, NULL, $1 FROM live_specs
+             WHERE catalog_name = 'aliceCo/data/foo'",
+        )
+        .bind(alice)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE live_specs SET spec = NULL, spec_type = NULL, last_pub_id = '0000000000000013'
+             WHERE catalog_name = 'aliceCo/data/foo'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server = crate::test_server::TestServer::start(
+            pool.clone(),
+            crate::test_server::snapshot(pool, false).await,
+        )
+        .await;
+        let token = server.make_access_token(alice, None);
+        const QUERY: &str = r#"
+            query($name: Name!, $publicationId: Id!) {
+                liveSpecs(by: { names: [$name] }) {
+                    edges { node {
+                        liveSpec { catalogType }
+                        lastPublication { publicationId catalogType }
+                        withModel: lastPublication { publicationId catalogType model }
+                        publicationForId(id: $publicationId) { publicationId catalogType model }
+                        withoutModel: publicationForId(id: $publicationId) { publicationId catalogType }
+                        previous: publicationForId(id: "0000000000000010") { publicationId catalogType model }
+                        publicationHistory {
+                            edges { node { publicationId catalogType model } }
+                            pageInfo { hasNextPage hasPreviousPage }
+                        }
+                        reverseHistory: publicationHistory(last: 10) {
+                            edges { node { publicationId catalogType model } }
+                        }
+                    } }
+                }
+            }
+        "#;
+
+        // Aliases exercise distinct IDs and model selections in the same loader.
+        // The lookup is exact even when two revisions share a timestamp.
+        for (publication_id, found) in [
+            ("0000000000000011", true),
+            ("0000000000000013", true),
+            ("0000000000000012", false),
+            ("0000000000000099", false),
+        ] {
+            let raw: Box<serde_json::value::RawValue> = server
+                .graphql(
+                    &serde_json::json!({"query": QUERY, "variables": {
+                        "name": "aliceCo/data/foo", "publicationId": publication_id,
+                    }}),
+                    Some(&token),
+                )
+                .await;
+            let response: serde_json::Value = serde_json::from_str(raw.get()).unwrap();
+            assert!(response.get("errors").is_none(), "{response}");
+            let node = &response["data"]["liveSpecs"]["edges"][0]["node"];
+            assert!(node["liveSpec"].is_null());
+            assert_eq!(
+                node["lastPublication"],
+                serde_json::json!({
+                    "publicationId": "0000000000000013", "catalogType": null,
+                })
+            );
+            assert_eq!(
+                node["withModel"],
+                serde_json::json!({
+                    "publicationId": "0000000000000013", "catalogType": null, "model": null,
+                })
+            );
+            let mut expected = serde_json::Value::Null;
+            if found {
+                expected =
+                    serde_json::json!({"publicationId": publication_id, "catalogType": null});
+                if publication_id != "0000000000000013" {
+                    expected["catalogType"] = "collection".into();
+                }
+            }
+            assert_eq!(node["withoutModel"], expected);
+            if found {
+                expected["model"] = if publication_id == "0000000000000013" {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::from_str(MODEL).unwrap()
+                };
+            }
+            assert_eq!(node["publicationForId"], expected);
+            assert_eq!(
+                node["previous"],
+                serde_json::json!({
+                    "publicationId": "0000000000000010", "catalogType": "collection",
+                    "model": serde_json::from_str::<serde_json::Value>(MODEL).unwrap(),
+                })
+            );
+            assert_eq!(
+                node["publicationHistory"]["pageInfo"],
+                serde_json::json!({"hasNextPage": false, "hasPreviousPage": false})
+            );
+            for history in ["publicationHistory", "reverseHistory"] {
+                let edges = node[history]["edges"].as_array().unwrap();
+                let mut actual_ids = edges
+                    .iter()
+                    .map(|edge| edge["node"]["publicationId"].as_str().unwrap())
+                    .collect::<Vec<_>>();
+                actual_ids.sort_unstable();
+                assert_eq!(
+                    actual_ids,
+                    ["0000000000000010", "0000000000000011", "0000000000000013"]
+                );
+                for edge in edges {
+                    if edge["node"]["publicationId"] == "0000000000000013" {
+                        assert!(edge["node"]["model"].is_null());
+                        assert!(edge["node"]["catalogType"].is_null());
+                    } else {
+                        assert_eq!(edge["node"]["catalogType"], "collection");
+                        assert_eq!(
+                            edge["node"]["model"],
+                            serde_json::from_str::<serde_json::Value>(MODEL).unwrap()
+                        );
+                    }
+                }
+            }
+            assert!(
+                raw.get().contains(MODEL),
+                "historical model key order changed: {raw:?}"
+            );
+        }
+
+        for (name, access_token) in [
+            ("ops/tasks/public/one/logs", Some(token.as_str())),
+            ("aliceCo/data/foo", None),
+        ] {
+            let response: serde_json::Value = server.graphql(
+                &serde_json::json!({"query": QUERY, "variables": {"name": name, "publicationId": "0000000000000011"}}),
+                access_token,
+            ).await;
+            assert!(response.get("errors").is_some(), "{response}");
+            assert!(response["data"].is_null(), "{response}");
+        }
+    }
 }

@@ -118,8 +118,9 @@ impl LiveSpecRef {
         }
 
         let include_model = ctx.look_ahead().field("model").exists();
-        let key = publication_history::LastPublicationInfoKey {
+        let key = publication_history::PublicationInfoKey {
             catalog_name: self.catalog_name.clone(),
+            publication_id: None,
             include_model,
         };
 
@@ -128,7 +129,28 @@ impl LiveSpecRef {
         Ok(pub_info)
     }
 
-    /// The complete history of publications of this spec
+    /// The change to this specification recorded by the given publication,
+    /// or null if no accessible matching record exists. This is an exact lookup,
+    /// not the specification as of a publication that did not change it.
+    async fn publication_for_id(
+        &self,
+        ctx: &Context<'_>,
+        id: models::Id,
+    ) -> async_graphql::Result<Option<publication_history::SpecPublicationHistoryItem>> {
+        if self.user_capability.is_none() {
+            return Ok(None);
+        }
+
+        let key = publication_history::PublicationInfoKey {
+            catalog_name: self.catalog_name.clone(),
+            publication_id: Some(id),
+            include_model: ctx.look_ahead().field("model").exists(),
+        };
+        let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
+        Ok(loader.load_one(key).await?)
+    }
+
+    /// The complete history of publications of this spec.
     async fn publication_history(
         &self,
         ctx: &Context<'_>,
