@@ -22,7 +22,7 @@ impl Client {
             let metrics = Metrics::new(&req.journal);
 
             loop {
-                let err = match self.try_append(metrics.clone(), &mut req, source()).await {
+                let err = match self.try_append(&metrics, &mut req, source()).await {
                     Ok(resp) => {
                         () = co.yield_(Ok(resp)).await;
                         return;
@@ -50,7 +50,7 @@ impl Client {
 
     async fn try_append<S>(
         &self,
-        metrics: Metrics,
+        metrics: &Metrics,
         req: &mut broker::AppendRequest,
         source: S,
     ) -> crate::Result<AppendResponse>
@@ -62,6 +62,10 @@ impl Client {
             .await?;
 
         let req_clone = req.clone();
+
+        // Bytes read from `source` by this attempt.
+        let attempt_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let attempt_bytes_inner = attempt_bytes.clone();
 
         let (source_err_tx, source_err_rx) = tokio::sync::oneshot::channel();
 
@@ -76,7 +80,8 @@ impl Client {
                     // like EOFs to the append RPC and cause confusion.
                     Ok(content) if content.len() == 0 => None,
                     Ok(content) => {
-                        metrics.append.increment(content.len() as u64);
+                        _ = attempt_bytes_inner
+                            .fetch_add(content.len() as u64, std::sync::atomic::Ordering::Relaxed);
                         Some(Ok(broker::AppendRequest {
                             content,
                             ..Default::default()
@@ -118,6 +123,16 @@ impl Client {
         let mut resp = result?.into_inner();
 
         if resp.status() == broker::Status::Ok {
+            let bytes = attempt_bytes.load(std::sync::atomic::Ordering::Relaxed);
+            metrics.append.increment(bytes);
+
+            // The broker reports a count of delayed chunks, not which ones, so
+            // delayed bytes are prorated (exact when chunks are uniform).
+            if resp.delayed_chunks > 0 && resp.total_chunks > 0 {
+                let delayed =
+                    bytes as u128 * resp.delayed_chunks as u128 / resp.total_chunks as u128;
+                metrics.append_delayed.increment(delayed as u64);
+            }
             return Ok(resp);
         }
         req.header = resp.header.take();
@@ -133,9 +148,9 @@ impl Client {
     }
 }
 
-#[derive(Clone)]
 struct Metrics {
     append: metrics::Counter,
+    append_delayed: metrics::Counter,
 }
 
 impl Metrics {
@@ -145,11 +160,21 @@ impl Metrics {
             metrics::describe_counter!(
                 "gazette_append",
                 metrics::Unit::Bytes,
-                "number of bytes appended to a journal",
+                "number of bytes appended to a journal by successful (200 OK) appends",
+            );
+            metrics::describe_counter!(
+                "gazette_append_delayed",
+                metrics::Unit::Bytes,
+                "number of appended bytes delayed by journal flow control, prorated from the broker's count of delayed chunks",
             );
         });
         let append = metrics::counter!("gazette_append", "journal" => journal.to_string());
+        let append_delayed =
+            metrics::counter!("gazette_append_delayed", "journal" => journal.to_string());
 
-        Self { append }
+        Self {
+            append,
+            append_delayed,
+        }
     }
 }
