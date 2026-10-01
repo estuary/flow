@@ -45,7 +45,8 @@ impl ProducerFrontier {
     /// Maximizes `last_commit` and `hinted_commit`. Takes `offset` with the
     /// largest absolute value, because the sign encodes semantics (negative =
     /// closed end, non-negative = open `+begin`) and the magnitude
-    /// represents how far into the journal we've read.
+    /// represents how far into the journal we've read. An open `+begin` is
+    /// then closed if the other side carries a later commit.
     pub fn reduce(self, other: Self) -> Self {
         // We cannot simply take the offset from whichever side has the larger
         // `last_commit`, because causal hint resolution (`resolve_hints`) elevates
@@ -60,8 +61,10 @@ impl ProducerFrontier {
         // A producer's next span begins exactly at its previous transaction's
         // committed end offset whenever no other producer appended in between,
         // so a `+F` span begin routinely ties with the prior committed `-O`
-        // (F == O) — and the span begin is the strictly newer state.
-        let offset = if self.offset.abs() != other.offset.abs() {
+        // (F == O) — and the span begin is the strictly newer state. Note `+F`
+        // also carries `-O`'s commit as its `last_commit`, so the flip below
+        // keeps it open: a tie closes only against a later commit.
+        let mut offset = if self.offset.abs() != other.offset.abs() {
             if self.offset.abs() > other.offset.abs() {
                 self.offset
             } else {
@@ -70,9 +73,24 @@ impl ProducerFrontier {
         } else {
             self.offset.max(other.offset)
         };
+        let last_commit = self.last_commit.max(other.last_commit);
+
+        // A later commit of the producer closes its open span. A `+begin` is
+        // carried with the delta of a producer that begins a span, and a later
+        // `last_commit` of lesser offset magnitude comes from hint resolution:
+        // it proves the span's transaction committed, but its conservative
+        // `-M` may not reach `+begin` (M is the cut floor of its own delta,
+        // and zero if that delta has only a hint of this journal). Keep the
+        // magnitude, which is a conservative lower-bound offset of the later
+        // `last_commit`, but flip its sign to close it.
+        let is_latest = |p: &Self| p.offset == offset && p.last_commit == last_commit;
+        if offset > 0 && !is_latest(&self) && !is_latest(&other) {
+            offset = -offset;
+        }
+
         Self {
             producer: self.producer,
-            last_commit: self.last_commit.max(other.last_commit),
+            last_commit,
             hinted_commit: self.hinted_commit.max(other.hinted_commit),
             offset,
         }
@@ -1207,11 +1225,56 @@ mod test {
             // checkpoint-derived restart.
             ((100, 0, -500), (100, 0, 500), (100, 0, 500)),
             ((100, 0, 500), (100, 0, -500), (100, 0, 500)),
+            // A later commit closes an open span begin of larger magnitude, as
+            // when a hint-resolved `{H, H, -M}` meets a `+O` with M < O,
+            // or with M == 0 from a hint-only delta.
+            ((100, 400, 207), (400, 400, -150), (400, 400, -207)),
+            ((100, 0, 207), (400, 400, 0), (400, 400, -207)),
+            // ... including on an equal magnitude.
+            ((100, 0, 500), (400, 400, -500), (400, 400, -500)),
+            // An open span begin carrying the latest commit stays open.
+            ((400, 0, 900), (400, 400, -500), (400, 400, 900)),
+            ((400, 0, 900), (100, 0, -500), (400, 0, 900)),
         ];
 
         for (a, b, expect) in cases {
-            let r = pf(0x01, a.0, a.1, a.2).reduce(pf(0x01, b.0, b.1, b.2));
-            assert_eq!(pf_tuple(&r), expect, "reduce({a:?}, {b:?})");
+            for (a, b) in [(a, b), (b, a)] {
+                let r = pf(0x01, a.0, a.1, a.2).reduce(pf(0x01, b.0, b.1, b.2));
+                assert_eq!(pf_tuple(&r), expect, "reduce({a:?}, {b:?})");
+            }
+        }
+    }
+
+    #[test]
+    fn test_producer_frontier_reduce_groupings() {
+        // Checkpoints are reduced in differing groupings: the session folds
+        // promoted generations into `ready`, and the runtime folds emitted
+        // frontiers into transaction extents. Each case must reduce the same
+        // under both groupings, (a, b), c and a, (b, c).
+        let cases: Vec<[(u64, u64, i64); 4]> = vec![
+            // An open span begin +207, then a peek of its unresolved hint
+            // {0, H, 0}, then its resolution {H, H, 0} from a hint-only delta
+            // (M == 0). The span recovers closed at its begin.
+            [(100, 0, 207), (0, 400, 0), (400, 400, 0), (400, 400, -207)],
+            // As above, with the resolution's cut floor M = 396 beyond the
+            // span begin. The span recovers closed at M.
+            [
+                (100, 0, 207),
+                (0, 400, 0),
+                (400, 400, -396),
+                (400, 400, -396),
+            ],
+            // A resolved span, then the producer's next span begin, which
+            // carries the resolved commit and stays open.
+            [(100, 0, 207), (400, 400, 0), (400, 0, 900), (400, 400, 900)],
+        ];
+
+        for [a, b, c, expect] in cases {
+            let [a, b, c] = [a, b, c].map(|(commit, hint, offset)| pf(0x01, commit, hint, offset));
+            let left = a.clone().reduce(b.clone()).reduce(c.clone());
+            let right = a.reduce(b.reduce(c));
+            assert_eq!(pf_tuple(&left), expect, "(a, b), c");
+            assert_eq!(pf_tuple(&right), expect, "a, (b, c)");
         }
     }
 
