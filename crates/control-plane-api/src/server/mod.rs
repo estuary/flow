@@ -264,13 +264,14 @@ impl axum::response::IntoResponse for Rejection {
     }
 }
 
-/// Verify that `user_id` is not a service-account identity.
+/// Returns whether `user_id` is a service-account identity.
 ///
 /// Service-account credentials are administered through createApiKey /
-/// revokeApiKey. The self-service refresh-token mutations reject a
-/// service-account caller: a valid key could otherwise mint replacement
-/// credentials for its own account — sidestepping the CreateApiKey gate and
-/// the admin-chosen expiry — or revoke keys outside the admin-facing flow.
+/// revokeApiKey. The self-service refresh-token mutations and the
+/// capability-token mint reject a service-account caller: a valid key could
+/// otherwise mint replacement or derived credentials for its own account —
+/// sidestepping the CreateApiKey gate and the admin-chosen expiry — or revoke
+/// keys outside the admin-facing flow.
 pub(crate) async fn is_service_account(
     pg_pool: &sqlx::PgPool,
     user_id: uuid::Uuid,

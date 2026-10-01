@@ -187,7 +187,10 @@ impl TestServer {
         self.make_restricted_access_token(user_id, email, None, None)
     }
 
-    /// Like `make_access_token`, with optional capability and prefix restrictions.
+    /// Like `make_access_token`, with optional capability and prefix
+    /// restrictions. Unlike a token from the real mint, it keeps the
+    /// `authenticated` role, so it exercises restriction enforcement in
+    /// isolation from the PostgREST-rejecting role.
     pub fn make_restricted_access_token(
         &self,
         user_id: uuid::Uuid,
@@ -195,30 +198,10 @@ impl TestServer {
         capability_mask: Option<Vec<String>>,
         prefix_scope: Option<String>,
     ) -> String {
-        self.make_access_token_with(
-            user_id,
-            email,
-            capability_mask,
-            prefix_scope,
-            chrono::Duration::hours(1),
-        )
-    }
-
-    /// The fully-parameterized form of `make_access_token`: an unmasked or
-    /// masked token that expires `ttl` after now, for tests that care about
-    /// the bearer's remaining lifetime.
-    pub fn make_access_token_with(
-        &self,
-        user_id: uuid::Uuid,
-        email: Option<&str>,
-        capability_mask: Option<Vec<String>>,
-        prefix_scope: Option<String>,
-        ttl: chrono::Duration,
-    ) -> String {
         let now = tokens::now();
         self.sign_claims(&models::authorizations::ControlClaims {
             iat: now.timestamp() as u64,
-            exp: (now + ttl).timestamp() as u64,
+            exp: (now + chrono::Duration::hours(1)).timestamp() as u64,
             sub: user_id,
             role: "authenticated".to_string(),
             aud: "authenticated".to_string(),
@@ -230,7 +213,8 @@ impl TestServer {
 
     /// Sign arbitrary claims with the server's key. Tests use this to forge
     /// bearers that the `make_access_token*` helpers deliberately never
-    /// produce, such as a non-`authenticated` Postgres role.
+    /// produce, such as a non-`authenticated` Postgres role or an unusual
+    /// expiry.
     pub fn sign_claims(&self, claims: &models::authorizations::ControlClaims) -> String {
         jsonwebtoken::encode(&jsonwebtoken::Header::default(), claims, &self.encoding_key)
             .expect("failed to encode JWT")

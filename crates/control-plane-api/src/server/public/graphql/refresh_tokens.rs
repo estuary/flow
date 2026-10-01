@@ -349,10 +349,12 @@ mod test {
     /// JWT — is intentionally not exercised here: it reads `app.jwt_secret` from
     /// `vault.decrypted_secrets` and calls pgjwt's `sign()`, neither of which
     /// exists in the sqlx::test DB (only `auth`/`stripe` are polyfilled). That
-    /// signing path is covered by the pgTAP `test_generate_access_token`. The
-    /// assertions here all fail inside `generate_access_token` *before* signing
-    /// (bad secret, expired/revoked token, or an unknown grant), so they're
-    /// deterministic without the vault/pgjwt setup.
+    /// signing path is covered by the pgTAP `test_generate_access_token`, and by
+    /// `token_exchange::test_refresh_grant_ignores_authorization_header` under
+    /// the `jwt_sign_polyfill` fixture. The assertions here all fail inside
+    /// `generate_access_token` *before* signing (bad secret, expired/revoked
+    /// token, or an unknown grant), so they're deterministic without the
+    /// vault/pgjwt setup.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
