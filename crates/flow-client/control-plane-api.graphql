@@ -1515,6 +1515,25 @@ type JobStatus {
 	lockFailures: [LockFailure!]!
 }
 
+"""
+The text and version of the latest legal terms of a type.
+"""
+type LegalTerms {
+	text: String!
+	version: Int!
+}
+
+"""
+The kind of legal document. Each type is versioned independently.
+"""
+enum LegalTermsType {
+	"""
+	Master Services Agreement.
+	"""
+	MSA
+	PRIVACY_POLICY
+}
+
 type LiveSpec {
 	liveSpecId: Id!
 	catalogName: String!
@@ -2442,6 +2461,11 @@ type QueryRoot {
 	"""
 	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
 	tenant(name: String!): Tenant
+	"""
+	Returns the legal terms of the given type with the highest version.
+	Authentication is not required.
+	"""
+	legalTerms(type: LegalTermsType!): LegalTerms
 	"""
 	List refresh tokens owned by the authenticated user.
 	"""
