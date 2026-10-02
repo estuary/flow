@@ -123,6 +123,18 @@ pub struct SignupAttributionInput {
     /// Client-recorded UTM parameters from the signup journey, independent of ad clicks.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub utm: Option<UtmAttributionInput>,
+    /// Browser Analytics context. Omit when Analytics collection is disabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_analytics: Option<GoogleAnalyticsAttributionInput>,
+}
+
+#[derive(async_graphql::InputObject, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleAnalyticsAttributionInput {
+    /// Client ID from the Google tag, not a user or tenant identifier.
+    pub client_id: String,
+    /// Session ID from the Google tag, encoded as a positive decimal string.
+    pub session_id: String,
 }
 
 /// UTM values are case-sensitive. Blank values and values over 256 bytes are ignored.
@@ -178,7 +190,18 @@ impl SignupAttributionInput {
             ad_clicks.push(click);
         }
         let utm = self.utm.and_then(UtmAttributionInput::normalize);
-        (!ad_clicks.is_empty() || utm.is_some()).then_some(Self { ad_clicks, utm })
+        let google_analytics = self.google_analytics.filter(|ga| {
+            !ga.client_id.trim().is_empty()
+                && ga.client_id.len() <= 256
+                && ga.session_id.len() <= 20
+                && ga.session_id.bytes().all(|b| b.is_ascii_digit())
+                && ga.session_id.parse::<u64>().is_ok_and(|id| id > 0)
+        });
+        (!ad_clicks.is_empty() || utm.is_some() || google_analytics.is_some()).then_some(Self {
+            ad_clicks,
+            utm,
+            google_analytics,
+        })
     }
 }
 
@@ -410,7 +433,8 @@ mod test {
                 {"provider": "REDDIT", "clickId": "duplicate-click"},
                 {"provider": "LINKEDIN", "clickId": "linkedin-click"}
             ], "utm": {"source": "LinkedIn", "medium": "paid_social", "campaign": "fall_launch",
-                "term": "data pipelines", "content": "banner", "id": "campaign-123"}}),
+                "term": "data pipelines", "content": "banner", "id": "campaign-123"},
+                "googleAnalytics": {"clientId": "123456789.1790000000", "sessionId": "1790000000"}}),
         );
         let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
         assert_eq!(
@@ -440,6 +464,10 @@ mod test {
                 "provider": "LINKEDIN"
               }
             ],
+            "googleAnalytics": {
+              "clientId": "123456789.1790000000",
+              "sessionId": "1790000000"
+            },
             "utm": {
               "campaign": "fall_launch",
               "content": "banner",

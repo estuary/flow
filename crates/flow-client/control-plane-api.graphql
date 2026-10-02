@@ -1339,6 +1339,17 @@ input GCPPrivateServiceConnectInput {
 	allPorts: Boolean! = false
 }
 
+input GoogleAnalyticsAttributionInput {
+	"""
+	Client ID from the Google tag, not a user or tenant identifier.
+	"""
+	clientId: String!
+	"""
+	Session ID from the Google tag, encoded as a positive decimal string.
+	"""
+	sessionId: String!
+}
+
 scalar Id
 
 input IdFilter {
@@ -2822,6 +2833,10 @@ input SignupAttributionInput {
 	Client-recorded UTM parameters from the signup journey, independent of ad clicks.
 	"""
 	utm: UtmAttributionInput
+	"""
+	Browser Analytics context. Omit when Analytics collection is disabled.
+	"""
+	googleAnalytics: GoogleAnalyticsAttributionInput
 }
 
 """

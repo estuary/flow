@@ -42,5 +42,40 @@ expression: requests
     "restli": "2.0.0",
     "url": "https://api.linkedin.com/rest/conversionEvents",
     "version": "202605"
+  },
+  {
+    "body": {
+      "client_id": "123456789.1790000000",
+      "events": [
+        {
+          "name": "campaign_details",
+          "params": {
+            "campaign": "fall_launch",
+            "campaign_id": "campaign-123",
+            "content": "éééééééééééééééééééééééééééééééééééééééééééééééééé",
+            "medium": "email",
+            "session_id": 1790000000,
+            "source": "newsletter",
+            "term": "data pipelines"
+          }
+        },
+        {
+          "name": "sign_up",
+          "params": {
+            "event_id": "tenant-signup-test",
+            "session_id": 1790000000,
+            "utm_campaign": "fall_launch",
+            "utm_content": "éééééééééééééééééééééééééééééééééééééééééééééééééé",
+            "utm_id": "campaign-123",
+            "utm_medium": "email",
+            "utm_source": "newsletter",
+            "utm_term": "data pipelines"
+          }
+        }
+      ],
+      "timestamp_micros": 1790000000000000
+    },
+    "method": "POST",
+    "url": "https://www.google-analytics.com/mp/collect?measurement_id=G-TEST123&api_secret=test-ga4-secret"
   }
 ]

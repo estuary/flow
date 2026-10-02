@@ -63,7 +63,7 @@ Registered task types in `task_types` module:
 - `ALERT_NOTIFICATIONS` - Sends notifications as alerts fire and resolve
 - `TENANT_ALERT_EVALS` - Evaluates tenant-related alerts
 - `DATA_MOVEMENT_ALERT_EVALS` - Evaluates `data_movement_stalled` alerts
-- `TENANT_CONTROLLER` - Reconciles tenant billing and quotas, and reports signup ad attribution
+- `TENANT_CONTROLLER` - Reconciles tenant billing and quotas, and reports signup attribution to ad platforms and GA4
 - `DATA_PLANE_CONTROLLER_DEV` - Second data-plane-controller deployment
 
 Task types are the only axis on which the dequeue partitions work, so they
