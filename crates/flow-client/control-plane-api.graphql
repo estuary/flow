@@ -76,6 +76,10 @@ input AdClickInput {
 	Opaque platform click identifier. Blank IDs and IDs over 256 bytes are ignored.
 	"""
 	clickId: String!
+	"""
+	When the ad click occurred, as recorded by the client. Not the signup time.
+	"""
+	clickedAt: DateTime
 }
 
 """

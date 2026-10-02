@@ -9,6 +9,8 @@ rejects either restriction before provisioning a tenant.
 Tenant creation accepts optional Reddit and LinkedIn signup click IDs, normalizes
 them in `SignupAttributionInput::normalize`, and stores them alongside the survey
 in `tenants.metadata.signupAttribution` within the provisioning transaction.
+Each click may include a client-recorded `clickedAt` timestamp, stored in UTC;
+conversion reporting uses tenant creation time as the signup timestamp.
 
 ## Development
 

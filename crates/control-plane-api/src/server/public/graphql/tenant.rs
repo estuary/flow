@@ -109,6 +109,9 @@ pub struct AdClickInput {
     pub provider: AdAttributionProvider,
     /// Opaque platform click identifier. Blank IDs and IDs over 256 bytes are ignored.
     pub click_id: String,
+    /// When the ad click occurred, as recorded by the client. Not the signup time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clicked_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(async_graphql::InputObject, serde::Serialize)]
@@ -360,7 +363,7 @@ mod test {
             serde_json::json!({"adClicks": [
                 {"provider": "REDDIT", "clickId": " "},
                 {"provider": "LINKEDIN", "clickId": "x".repeat(257)},
-                {"provider": "REDDIT", "clickId": "reddit-click"},
+                {"provider": "REDDIT", "clickId": "reddit-click", "clickedAt": "2026-09-30T14:30:00-04:00"},
                 {"provider": "REDDIT", "clickId": "duplicate-click"},
                 {"provider": "LINKEDIN", "clickId": "linkedin-click"}
             ]}),
@@ -385,6 +388,7 @@ mod test {
             "adClicks": [
               {
                 "clickId": "reddit-click",
+                "clickedAt": "2026-09-30T18:30:00Z",
                 "provider": "REDDIT"
               },
               {
@@ -442,6 +446,7 @@ mod test {
                     .map(|click_id| AdClickInput {
                         provider: AdAttributionProvider::Reddit,
                         click_id,
+                        clicked_at: None,
                     })
                     .collect(),
             }

@@ -91,8 +91,9 @@ fn clicks(metadata: &serde_json::Value) -> Vec<Click> {
     clicks
 }
 
-// Keep request construction pure: retries use the persisted creation time and
-// tenant ID, including when a worker dies after delivery but before checkpointing.
+// A click's client-supplied clickedAt is attribution context, not the conversion
+// time. Retries use tenant creation time and ID, including when a worker dies
+// after delivery but before checkpointing.
 fn payload(
     click: &Click,
     event_id: &str,
@@ -299,10 +300,13 @@ mod tests {
         let now = chrono::DateTime::from_timestamp_millis(1_790_000_000_000).unwrap();
         let mut requests = Vec::new();
         for provider in [Provider::Reddit, Provider::Linkedin] {
-            let click = Click {
-                provider,
-                click_id: "invented-click".to_string(),
-            };
+            let click = clicks(&serde_json::json!({"signupAttribution": {"adClicks": [{
+                "provider": provider,
+                "clickId": "invented-click",
+                "clickedAt": "2026-09-01T00:00:00Z"
+            }]}}))
+            .pop()
+            .unwrap();
             let request = reporter
                 .request(&click, "tenant-signup-test", now)
                 .unwrap()
