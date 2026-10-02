@@ -3069,7 +3069,7 @@ type StorageMapping {
 	"""
 	The storage definition containing stores and data plane assignments.
 	"""
-	spec: JSON!
+	spec: JSON! @deprecated(reason: "Deprecated in favor of `dataPlanes` and `fragmentStores` fields.")
 	"""
 	The current user's capability to this storage mapping's prefix.
 	"""
