@@ -127,11 +127,7 @@ own broker.
 └── snapshots/<name>/      # named snapshots: rocksdb/ and journals.json
 ```
 
-Start from the examples:
-
-```bash
-mkdir -p ~/flow-lab/example && cp -r <repo>/crates/runtime-lab/examples/. ~/flow-lab/example/
-```
+Use `examples/` as a reference for creating an experiment's catalog and topology.
 
 Commands below run from the experiment directory, and name the lab's scripts
 by their path in the repository (`<repo>/crates/runtime-lab/scripts/`).
@@ -143,14 +139,28 @@ the reference connectors:
 
 - **`materialize-sink`**: loads nothing, and discards every Store.
 - **`derive-identity`**: publishes each source document unchanged.
+- **`capture-fake-postgres`**: a fake of source-postgres, which simulates a
+  database having declared tables (or a canned set), and emits its synthetic
+  backfill and WAL as fast as the runtime reads it: ascending key-ordered
+  backfill chunks, each with intermixed WAL updates, and checkpoints.
+  Documents are generated from the bound collection's top-level projections,
+  and are deterministic in the configuration's `seed`.
 
-Both are cheap, speak the protobuf codec (`local: {protobuf: true}`), and are
-meant to be forked. Copy one into `src/bin/<name>.rs`, change it (each lists
-its natural points of change), rebuild, and name it in the catalog. Keep its
-`runtime_lab::connector::serve` call, which also joins the host's connectors
-cgroup. Match a production connector's
-protocol behavior where the effect depends on it: Loaded responses, slow
-commits, acknowledgement timing, or connector state.
+All are cheap, speak the protobuf codec (`local: {protobuf: true}`), and are
+meant to be forked. Copy one into `src/bin/<name>.rs` (or a directory,
+`src/bin/<name>/`), change it (each lists its natural points of change),
+rebuild, and name it in the catalog. Keep its
+`runtime_lab::connector::serve` call (or `enter_cgroup`, for a connector with
+its own serving loop), which joins the host's connectors cgroup. Match a
+production connector's protocol behavior where the effect depends on it:
+Loaded responses, slow commits, acknowledgement timing, or connector state.
+
+A capture has exactly one shard, and writes its collections to the run's
+broker, where nothing reads them: a lab capture's output can't be the source
+of another lab task. Its partitions are throttled at production's append
+rate unless the topology's `maxAppendRate` says otherwise, so a saturating
+capture backs up behind journal flow control, and splits its partitions,
+as in production.
 
 ## Running
 

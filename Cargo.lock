@@ -7594,6 +7594,7 @@ dependencies = [
  "anyhow",
  "assemble",
  "axum",
+ "base64 0.22.1",
  "build",
  "bytes",
  "chrono",
@@ -7634,6 +7635,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+ "tuple",
  "url",
 ]
 

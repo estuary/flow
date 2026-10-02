@@ -65,13 +65,14 @@ src/
 ├── connector.rs     # reference connectors' serving loop, which joins the connectors cgroup
 └── bin/
     ├── materialize-sink.rs   # reference materialization: a pure sink
-    └── derive-identity.rs    # reference derivation: an identity transform
+    ├── derive-identity.rs    # reference derivation: an identity transform
+    └── capture-fake-postgres/  # reference capture: a fake of source-postgres (no database)
 scripts/
 ├── setup-cgroups.sh      # one-time: delegate cpuset + io cgroup controllers
 ├── report.py             # a run directory's headline measures
 ├── labrun.py             # helpers for scripted runs
 └── example_cap_cpu.py    # a scripted run: cap a node mid-run, then release it
-examples/                 # fictitious acmeCo/ catalog and topologies over a public demo collection
+examples/                 # a reference (not run as is): fictitious acmeCo/ catalog and topologies
 ```
 
 ## Non-obvious details
