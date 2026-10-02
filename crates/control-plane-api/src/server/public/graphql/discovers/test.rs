@@ -420,22 +420,46 @@ async fn logs_paginate_and_arrive_after_completion(pool: sqlx::PgPool) {
     let _guard = test_server::init();
     let (server, draft_id, alice, _) = setup(&pool).await;
     let id = insert_discover(&pool, draft_id, "aliceCo/logged").await;
-    sqlx::query(
-        r#"
-        INSERT INTO internal.log_lines (token, stream, log_line, logged_at)
-        SELECT logs_token, 'test', line, ts::timestamptz FROM discovers,
-        (VALUES ('first', '2026-01-01T00:00:00.000001Z'),
-                ('second', '2026-01-01T00:00:00.000002Z'),
-                ('third', '2026-01-01T00:00:00.000003Z'),
-                ('fourth', '2026-01-01T00:00:00.000004Z'),
-                ('fifth', '2026-01-01T00:00:00.000005Z')) AS lines(line, ts)
-        WHERE id = $1
-        "#,
+    let token: uuid::Uuid = sqlx::query_scalar("SELECT logs_token FROM discovers WHERE id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel(8);
+    // Queue the first batch before starting the writer so a page splits it.
+    crate::logs::capture_lines(
+        tx.clone(),
+        "test".into(),
+        token,
+        &b"first\nsecond\nthird"[..],
     )
-    .bind(id)
-    .execute(&pool)
     .await
     .unwrap();
+    let writer = tokio::spawn(crate::logs::serve_sink(pool.clone(), rx));
+    let wait_pool = &pool;
+    let wait_for_lines = |expected| async move {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let count: i64 =
+                    sqlx::query_scalar("SELECT count(*) FROM internal.log_lines WHERE token = $1")
+                        .bind(token)
+                        .fetch_one(wait_pool)
+                        .await
+                        .unwrap();
+                if count == expected {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    };
+    wait_for_lines(3).await;
+    crate::logs::capture_lines(tx.clone(), "test".into(), token, &b"fourth\nfifth"[..])
+        .await
+        .unwrap();
+    wait_for_lines(5).await;
     sqlx::query(r#"
         WITH foreign_draft AS (
             INSERT INTO drafts (user_id) VALUES ($2) RETURNING id
@@ -524,11 +548,12 @@ async fn logs_paginate_and_arrive_after_completion(pool: sqlx::PgPool) {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO internal.log_lines (token, stream, log_line, logged_at) SELECT logs_token, 'test', 'late line', now() FROM discovers WHERE id = $1")
-        .bind(id)
-        .execute(&pool)
+    crate::logs::capture_lines(tx.clone(), "test".into(), token, &b"late line"[..])
         .await
         .unwrap();
+    wait_for_lines(6).await;
+    drop(tx);
+    writer.await.unwrap().unwrap();
     let later: serde_json::Value = server
         .graphql(
             &serde_json::json!({ "query": LOOKUP, "variables": { "id": id, "after": last_cursor } }),
