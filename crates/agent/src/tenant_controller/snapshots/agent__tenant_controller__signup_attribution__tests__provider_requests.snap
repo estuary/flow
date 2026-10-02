@@ -1,0 +1,46 @@
+---
+source: crates/agent/src/tenant_controller/signup_attribution.rs
+expression: requests
+---
+[
+  {
+    "body": {
+      "events": [
+        {
+          "action_source": "WEBSITE",
+          "click_id": "invented-click",
+          "event_at": 1790000000000,
+          "metadata": {
+            "conversion_id": "tenant-signup-test"
+          },
+          "type": {
+            "tracking_type": "SIGN_UP"
+          }
+        }
+      ]
+    },
+    "method": "POST",
+    "restli": null,
+    "url": "https://ads-api.reddit.com/api/v3/pixels/test-pixel/conversion_events",
+    "version": null
+  },
+  {
+    "body": {
+      "conversion": "urn:lla:llaPartnerConversion:123",
+      "conversionHappenedAt": 1790000000000,
+      "eventId": "tenant-signup-test",
+      "user": {
+        "userIds": [
+          {
+            "idType": "LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID",
+            "idValue": "invented-click"
+          }
+        ]
+      }
+    },
+    "method": "POST",
+    "restli": "2.0.0",
+    "url": "https://api.linkedin.com/rest/conversionEvents",
+    "version": "202605"
+  }
+]

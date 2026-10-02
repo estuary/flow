@@ -63,6 +63,26 @@ type ActivationStatus {
 }
 
 """
+Advertising platform that supplied a signup click identifier.
+"""
+enum AdAttributionProvider {
+	REDDIT
+	LINKEDIN
+}
+
+input AdClickInput {
+	provider: AdAttributionProvider!
+	"""
+	Opaque platform click identifier. Blank IDs and IDs over 256 bytes are ignored.
+	"""
+	clickId: String!
+	"""
+	When the ad click occurred, as recorded by the client. Not the signup time.
+	"""
+	clickedAt: DateTime
+}
+
+"""
 An alert from the alert_history table
 """
 type Alert {
@@ -1738,7 +1758,7 @@ type MutationRoot {
 		"""
 		ID of the latest MSA terms the submitting user has read and accepts.
 		"""
-		submittingUserAgreesToTermsId: Id!,		survey: JSON
+		submittingUserAgreesToTermsId: Id!,		survey: JSON,		attribution: SignupAttributionInput
 	): Boolean!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
@@ -2791,6 +2811,13 @@ enum ShardsStatus {
 	Any task shard is `Failed`
 	"""
 	FAILED
+}
+
+input SignupAttributionInput {
+	"""
+	At most the first 16 entries are considered; the first valid ID per provider is kept.
+	"""
+	adClicks: [AdClickInput!]!
 }
 
 """
