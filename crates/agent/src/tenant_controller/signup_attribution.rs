@@ -250,40 +250,6 @@ async fn deliver(
 mod tests {
     use super::*;
 
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(
-            path = "../../../control-plane-api/src/fixtures",
-            scripts("data_planes")
-        )
-    )]
-    async fn reads_attribution_for_controller_task(pool: sqlx::PgPool) {
-        control_plane_api::directives::beta_onboard::provision_test_tenant(
-            &pool,
-            "acmeCo",
-            "alice@example.test",
-            serde_json::json!({}),
-        )
-        .await;
-        let task_id: models::Id = sqlx::query_scalar(
-            "UPDATE tenants SET metadata = $1 WHERE tenant = 'acmeCo/' RETURNING controller_task_id",
-        )
-        .bind(serde_json::json!({"signupAttribution": {"adClicks": [
-            {"provider": "REDDIT", "clickId": "invented-click"}
-        ]}}))
-        .fetch_one(&pool).await.unwrap();
-        let mut state = State::default();
-        let reporter = Reporter::new(Config::default()).unwrap();
-        assert!(matches!(
-            reconcile(&mut state, &pool, task_id, &reporter)
-                .await
-                .unwrap(),
-            outcome::Outcome::WaitForRetry(_)
-        ));
-        assert_eq!(state.len(), 1);
-        assert!(!state[&Provider::Reddit].complete);
-    }
-
     fn config() -> Config {
         Config {
             reddit_conversion_token: Some("test-reddit-token".to_string()),

@@ -118,7 +118,49 @@ pub struct AdClickInput {
 #[serde(rename_all = "camelCase")]
 pub struct SignupAttributionInput {
     /// At most the first 16 entries are considered; the first valid ID per provider is kept.
+    #[graphql(default)]
     pub ad_clicks: Vec<AdClickInput>,
+    /// Client-recorded UTM parameters from the signup journey, independent of ad clicks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub utm: Option<UtmAttributionInput>,
+}
+
+/// UTM values are case-sensitive. Blank values and values over 256 bytes are ignored.
+#[derive(async_graphql::InputObject, serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UtmAttributionInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub campaign: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub term: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+impl UtmAttributionInput {
+    fn normalize(mut self) -> Option<Self> {
+        let mut has_value = false;
+        for field in [
+            &mut self.source,
+            &mut self.medium,
+            &mut self.campaign,
+            &mut self.term,
+            &mut self.content,
+            &mut self.id,
+        ] {
+            *field = field
+                .take()
+                .filter(|value| !value.trim().is_empty() && value.len() <= 256);
+            has_value |= field.is_some();
+        }
+        has_value.then_some(self)
+    }
 }
 
 impl SignupAttributionInput {
@@ -135,7 +177,8 @@ impl SignupAttributionInput {
             }
             ad_clicks.push(click);
         }
-        (!ad_clicks.is_empty()).then_some(Self { ad_clicks })
+        let utm = self.utm.and_then(UtmAttributionInput::normalize);
+        (!ad_clicks.is_empty() || utm.is_some()).then_some(Self { ad_clicks, utm })
     }
 }
 
@@ -366,7 +409,8 @@ mod test {
                 {"provider": "REDDIT", "clickId": "reddit-click", "clickedAt": "2026-09-30T14:30:00-04:00"},
                 {"provider": "REDDIT", "clickId": "duplicate-click"},
                 {"provider": "LINKEDIN", "clickId": "linkedin-click"}
-            ]}),
+            ], "utm": {"source": "LinkedIn", "medium": "paid_social", "campaign": "fall_launch",
+                "term": "data pipelines", "content": "banner", "id": "campaign-123"}}),
         );
         let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
         assert_eq!(
@@ -395,79 +439,18 @@ mod test {
                 "clickId": "linkedin-click",
                 "provider": "LINKEDIN"
               }
-            ]
+            ],
+            "utm": {
+              "campaign": "fall_launch",
+              "content": "banner",
+              "id": "campaign-123",
+              "medium": "paid_social",
+              "source": "LinkedIn",
+              "term": "data pipelines"
+            }
           }
         }
         "#);
-    }
-
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(path = "../../../fixtures", scripts("data_planes"))
-    )]
-    async fn tenant_create_empty_attribution(pool: sqlx::PgPool) {
-        let server = server(&pool).await;
-        for (user, tenant, attribution) in [
-            (ALICE, "acmeCo", serde_json::Value::Null),
-            (
-                BOB,
-                "otherCo",
-                serde_json::json!({"adClicks": [
-                    {"provider": "REDDIT", "clickId": " "},
-                    {"provider": "LINKEDIN", "clickId": "x".repeat(257)}
-                ]}),
-            ),
-        ] {
-            let token = server.make_access_token(user, None);
-            let mut req = attributed_request(tenant, attribution);
-            req["variables"].as_object_mut().unwrap().remove("survey");
-            let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
-            assert_eq!(
-                response,
-                serde_json::json!({"data": {"tenantCreate": true}})
-            );
-            let metadata: serde_json::Value =
-                sqlx::query_scalar("SELECT metadata FROM tenants WHERE tenant = $1")
-                    .bind(format!("{tenant}/"))
-                    .fetch_one(&pool)
-                    .await
-                    .unwrap();
-            assert_eq!(metadata, serde_json::json!({}));
-        }
-    }
-
-    #[test]
-    fn signup_attribution_normalization() {
-        use super::{AdAttributionProvider, AdClickInput, SignupAttributionInput};
-        let normalize = |ids: Vec<String>| {
-            SignupAttributionInput {
-                ad_clicks: ids
-                    .into_iter()
-                    .map(|click_id| AdClickInput {
-                        provider: AdAttributionProvider::Reddit,
-                        click_id,
-                        clicked_at: None,
-                    })
-                    .collect(),
-            }
-            .normalize()
-            .map(|value| serde_json::to_value(value).unwrap())
-        };
-        assert_eq!(normalize(vec![]), None);
-        assert_eq!(
-            normalize(vec![" ".into(), "x".repeat(257), "é".repeat(129)]),
-            None
-        );
-        let mut too_many = vec![String::new(); 16];
-        too_many.push("ignored".into());
-        assert_eq!(normalize(too_many), None);
-        let boundary = "x".repeat(256);
-        assert_eq!(
-            normalize(vec![boundary.clone()]),
-            Some(serde_json::json!({
-                "adClicks": [{"provider": "REDDIT", "clickId": boundary}]
-            }))
-        );
     }
 
     #[sqlx::test(

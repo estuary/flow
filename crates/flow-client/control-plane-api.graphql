@@ -2817,7 +2817,11 @@ input SignupAttributionInput {
 	"""
 	At most the first 16 entries are considered; the first valid ID per provider is kept.
 	"""
-	adClicks: [AdClickInput!]!
+	adClicks: [AdClickInput!]! = []
+	"""
+	Client-recorded UTM parameters from the signup journey, independent of ad clicks.
+	"""
+	utm: UtmAttributionInput
 }
 
 """
@@ -3183,6 +3187,18 @@ A user_grant to seed a service account with at creation time.
 input UserGrantInput {
 	prefix: Prefix!
 	capability: Capability!
+}
+
+"""
+UTM values are case-sensitive. Blank values and values over 256 bytes are ignored.
+"""
+input UtmAttributionInput {
+	source: String
+	medium: String
+	campaign: String
+	term: String
+	content: String
+	id: String
 }
 
 """
