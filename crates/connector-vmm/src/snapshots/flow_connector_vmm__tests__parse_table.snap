@@ -1,0 +1,78 @@
+---
+source: crates/connector-vmm/src/main.rs
+expression: table
+---
+$ flow-connector-vmm print-ruleset --policy /init/policy.json
+ok: print-ruleset policy=/init/policy.json vmm_subnets=[]
+
+$ flow-connector-vmm print-ruleset --policy /init/policy.json --vmm-subnet 10.89.0.4/24 --vmm-subnet 192.0.2.1/30
+ok: print-ruleset policy=/init/policy.json vmm_subnets=["10.89.0.4/24", "192.0.2.1/30"]
+
+$ flow-connector-vmm print-ruleset --policy /init/policy.json --vmm-subnet fd00::/8
+flow-connector-vmm: error: invalid value 'fd00::/8' for '--vmm-subnet <CIDR>': expected an IPv4 subnet; the ruleset drops IPv6 outright
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm print-ruleset --policy /init/policy.json --vmm-subnet 10.89.0.0/33
+flow-connector-vmm: error: invalid value '10.89.0.0/33' for '--vmm-subnet <CIDR>': invalid prefix
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm print-ruleset
+flow-connector-vmm: error: the following required arguments were not provided:
+flow-connector-vmm:   --policy <PATH>
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm print-ruleset --policy <PATH>
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512
+ok: run policy=/init/policy.json connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None run_as_root=false as_root_exec=None debug=false resolver_upstream=None exec=None
+
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --persistent-disk /acmeCo/state
+ok: run policy=/init/policy.json connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=Some("/acmeCo/state") run_as_root=false as_root_exec=None debug=false resolver_upstream=None exec=None
+
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --debug --exec /bin/sh -c "exit 7"
+ok: run policy=/init/policy.json connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None run_as_root=false as_root_exec=None debug=true resolver_upstream=None exec=Some(["/bin/sh", "-c", "exit 7"])
+
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --exec /bin/sh -c "exit 7" --debug
+ok: run policy=/init/policy.json connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None run_as_root=false as_root_exec=None debug=false resolver_upstream=None exec=Some(["/bin/sh", "-c", "exit 7", "--debug"])
+
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --exec
+flow-connector-vmm: error: a value is required for '--exec <ARGV>...' but none was supplied
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount relative/mount --memory-mib 1024 --vcpus 2 --disk-mib 512
+flow-connector-vmm: error: invalid value 'relative/mount' for '--connector-mount <PATH>': expected an absolute path
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount / --memory-mib 1024 --vcpus 2 --disk-mib 512
+flow-connector-vmm: error: invalid value '/' for '--connector-mount <PATH>': the guest root is not a mount point for this share
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm run --policy /init/policy.json
+flow-connector-vmm: error: the following required arguments were not provided:
+flow-connector-vmm:   --connector-mount <PATH>
+flow-connector-vmm:   --memory-mib <N>
+flow-connector-vmm:   --vcpus <N>
+flow-connector-vmm:   --disk-mib <N>
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm run --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm
+flow-connector-vmm: Run one connector in a micro-VM.
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm <COMMAND>
+flow-connector-vmm:
+flow-connector-vmm: Commands:
+flow-connector-vmm:   run            Run one connector in a micro-VM. Does not return: libkrun takes over the process and exits with the guest workload's code
+flow-connector-vmm:   print-ruleset  Compile a policy into its nftables ruleset and write it to stdout
+flow-connector-vmm:   help           Print this message or the help of the given subcommand(s)
+flow-connector-vmm:
+flow-connector-vmm: Options:
+flow-connector-vmm:   -h, --help  Print help

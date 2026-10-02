@@ -1,0 +1,42 @@
+---
+source: crates/connector-vmm/src/resolver/dns.rs
+expression: table
+---
+# shorter than a header
+refused: message of 8 bytes is shorter than a header
+
+# one A record
+records: [A 93.184.216.34 ttl 300]
+
+# an A record in another class
+records: []
+
+# the owner name as a backward compression pointer
+records: [A 93.184.216.34 ttl 300]
+
+# a forward compression pointer
+refused: compression pointer at 32 does not point backwards
+
+# a CNAME target of the root
+records: []
+
+# a label above 63 bytes
+refused: reserved label length 0x40
+
+# a reserved label length
+refused: reserved label length 0x80
+
+# rdlength running past the message
+refused: resource record data truncated
+
+# more answers claimed than carried
+refused: name runs past the end of the message
+
+# a record past the answer section is not read
+records: [A 93.184.216.34 ttl 300]
+
+# a truncated question
+refused: question truncated
+
+# a truncated resource record
+refused: resource record truncated

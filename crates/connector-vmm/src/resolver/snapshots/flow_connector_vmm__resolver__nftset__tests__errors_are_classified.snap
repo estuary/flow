@@ -1,0 +1,18 @@
+---
+source: crates/connector-vmm/src/resolver/nftset.rs
+expression: rendered
+---
+# delete 0 missing
+seq=8 errno=2 -> absent delete 0
+
+# delete 1 missing
+seq=9 errno=2 -> absent delete 1
+
+# the insert, not a delete
+seq=10 errno=2 -> netlink message 10 of the batch failed: No such file or directory (os error 2)
+
+# a delete failing some other way
+seq=8 errno=17 -> netlink message 8 of the batch failed: File exists (os error 17)
+
+# the batch marker
+seq=7 errno=1 -> netlink message 7 of the batch failed: Operation not permitted (os error 1)

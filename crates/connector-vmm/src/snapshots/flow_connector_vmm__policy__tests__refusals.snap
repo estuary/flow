@@ -1,0 +1,275 @@
+---
+source: crates/connector-vmm/src/policy.rs
+expression: table
+---
+# unknown field
+{"egress":"public","allowNone":true}
+unknown field `allowNone`, expected one of `egress`, `allowAll`, `allowedNames`, `declaredCidrs`, `connectionsPerMinute`, `distinctDestinationsPerMinute`, `ttlFloorSecs`, `ttlCapSecs` at line 1 column 30
+
+# unknown egress mode
+{"egress":"partial"}
+unknown variant `partial`, expected `none` or `public` at line 1 column 19
+
+# egress absent
+{"allowAll":true}
+missing field `egress` at line 1 column 17
+
+# malformed json
+{"egress":"public",}
+trailing comma at line 1 column 20
+
+# allowAll under egress none
+{"egress":"none","allowAll":true}
+allowAll is set with egress "none", which allows nothing; set egress to "public" or clear allowAll
+
+# allowedNames and declaredCidrs are dormant under egress none, not refused
+{"egress":"none","allowedNames":["pypi.org"],"declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]}]}
+accepted: egress=None allowAll=false allowedNames=[Exact("pypi.org")] declaredCidrs=[93.184.216.0/24 ports [443]] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# ttlFloorSecs zero
+{"egress":"public","ttlFloorSecs":0}
+ttlFloorSecs is 0, which would hold a resolved address forever
+
+# ttlFloorSecs above ttlCapSecs
+{"egress":"public","ttlFloorSecs":7200,"ttlCapSecs":3600}
+ttlFloorSecs 7200 is above ttlCapSecs 3600
+
+# ttlCapSecs above the maximum
+{"egress":"public","ttlCapSecs":604800}
+ttlCapSecs 604800 is above the maximum 86400
+
+# connectionsPerMinute zero
+{"egress":"public","connectionsPerMinute":0}
+connectionsPerMinute is 0, which drops every connection; use null for no limit
+
+# distinctDestinationsPerMinute zero
+{"egress":"public","distinctDestinationsPerMinute":0}
+distinctDestinationsPerMinute is 0, which drops every connection; use null for no limit
+
+# allowedNames non-ASCII
+{"egress":"public","allowedNames":["café.example"]}
+allowedNames "café.example" is not ASCII; write the punycode (xn--) form, which is what a query carries
+
+# allowedNames trailing dot
+{"egress":"public","allowedNames":["pypi.org."]}
+allowedNames "pypi.org." has a trailing dot; write the name without it
+
+# allowedNames single label
+{"egress":"public","allowedNames":["localhost"]}
+allowedNames "localhost" is a single label, which cannot resolve publicly
+
+# allowedNames all-numeric top label
+{"egress":"public","allowedNames":["169.254.169.254"]}
+allowedNames "169.254.169.254" ends in an all-numeric label; allowedNames takes names and declaredCidrs takes addresses
+
+# allowedNames empty label
+{"egress":"public","allowedNames":["files..acmeco.example"]}
+allowedNames "files..acmeco.example" has an empty label
+
+# allowedNames hyphen-bounded label
+{"egress":"public","allowedNames":["-files.acmeco.example"]}
+allowedNames "-files.acmeco.example" has a label bounded by a hyphen: "-files"
+
+# allowedNames underscore
+{"egress":"public","allowedNames":["build_cache.acmeco.example"]}
+allowedNames "build_cache.acmeco.example" has a label outside [a-z0-9-]: "build_cache"
+
+# allowedNames empty string
+{"egress":"public","allowedNames":[""]}
+allowedNames contains an empty name
+
+# allowedNames lowercased and deduplicated
+{"egress":"public","allowedNames":["PyPI.ORG","pypi.org","artifacts.acmeco.example"]}
+accepted: egress=Public allowAll=false allowedNames=[Exact("pypi.org"), Exact("artifacts.acmeco.example")] declaredCidrs=[] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# allowedNames a name and its wildcard are distinct grants
+{"egress":"public","allowedNames":["acmeco.example","*.acmeco.example"]}
+accepted: egress=Public allowAll=false allowedNames=[Exact("acmeco.example"), Subdomains("acmeco.example")] declaredCidrs=[] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# allowedNames wildcard lowercased and deduplicated
+{"egress":"public","allowedNames":["*.ACMEco.example","*.acmeco.example"]}
+accepted: egress=Public allowAll=false allowedNames=[Subdomains("acmeco.example")] declaredCidrs=[] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# allowedNames wildcard alone
+{"egress":"public","allowedNames":["*"]}
+allowedNames "*" has a wildcard other than a leading "*.", the only form supported
+
+# allowedNames wildcard with no base
+{"egress":"public","allowedNames":["*."]}
+allowedNames "*." has a trailing dot; write the name without it
+
+# allowedNames two wildcard labels
+{"egress":"public","allowedNames":["*.*.acmeco.example"]}
+allowedNames "*.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# allowedNames doubled star
+{"egress":"public","allowedNames":["**.acmeco.example"]}
+allowedNames "**.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# allowedNames star without its dot
+{"egress":"public","allowedNames":["*acmeco.example"]}
+allowedNames "*acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# allowedNames star inside a label
+{"egress":"public","allowedNames":["api*.acmeco.example"]}
+allowedNames "api*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# allowedNames wildcard label in the middle
+{"egress":"public","allowedNames":["api.*.acmeco.example"]}
+allowedNames "api.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# allowedNames wildcard label last
+{"egress":"public","allowedNames":["acmeco.*"]}
+allowedNames "acmeco.*" has a wildcard other than a leading "*.", the only form supported
+
+# allowedNames wildcard with a trailing dot
+{"egress":"public","allowedNames":["*.acmeco.example."]}
+allowedNames "*.acmeco.example." has a trailing dot; write the name without it
+
+# allowedNames wildcard over an invalid label
+{"egress":"public","allowedNames":["*.-acmeco.example"]}
+allowedNames "*.-acmeco.example" has a label bounded by a hyphen: "-acmeco"
+
+# allowedNames wildcard over a top-level domain
+{"egress":"public","allowedNames":["*.com"]}
+allowedNames "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# allowedNames wildcard over an ICANN second-level suffix
+{"egress":"public","allowedNames":["*.co.uk"]}
+allowedNames "*.co.uk" is a wildcard over the public suffix "co.uk", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# allowedNames wildcard over a private suffix
+{"egress":"public","allowedNames":["*.github.io"]}
+allowedNames "*.github.io" is a wildcard over the public suffix "github.io", in the Public Suffix List's private section; names beneath a public suffix belong to unrelated registrants
+
+# allowedNames wildcard over a domain registered beneath a private suffix
+{"egress":"public","allowedNames":["*.acmeco.github.io"]}
+accepted: egress=Public allowAll=false allowedNames=[Subdomains("acmeco.github.io")] declaredCidrs=[] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# allowedNames wildcard over a domain holding private suffixes: only the base is checked
+{"egress":"public","allowedNames":["*.amazonaws.com"]}
+accepted: egress=Public allowAll=false allowedNames=[Subdomains("amazonaws.com")] declaredCidrs=[] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# allowedNames wildcard over a suffix made by a wildcard rule
+{"egress":"public","allowedNames":["*.acmeco.ck"]}
+allowedNames "*.acmeco.ck" is a wildcard over the public suffix "acmeco.ck", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# allowedNames wildcard over an exception to a wildcard rule
+{"egress":"public","allowedNames":["*.www.ck"]}
+accepted: egress=Public allowAll=false allowedNames=[Subdomains("www.ck")] declaredCidrs=[] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# allowedNames wildcard over a domain holding a wildcard rule: only the base is checked
+{"egress":"public","allowedNames":["*.kawasaki.jp"]}
+accepted: egress=Public allowAll=false allowedNames=[Subdomains("kawasaki.jp")] declaredCidrs=[] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# allowedNames wildcard over an exception beneath that wildcard rule
+{"egress":"public","allowedNames":["*.city.kawasaki.jp"]}
+accepted: egress=Public allowAll=false allowedNames=[Subdomains("city.kawasaki.jp")] declaredCidrs=[] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# allowedNames wildcard over an internationalized suffix, in punycode
+{"egress":"public","allowedNames":["*.xn--55qx5d.cn"]}
+allowedNames "*.xn--55qx5d.cn" is a wildcard over the public suffix "xn--55qx5d.cn", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# allowedNames wildcard over an unlisted top-level domain
+{"egress":"public","allowedNames":["*.example"]}
+allowedNames "*.example" is a wildcard over the public suffix "example", by the Public Suffix List's default rule, which makes every top-level label a suffix; names beneath a public suffix belong to unrelated registrants
+
+# allowedNames wildcard beneath an unlisted top-level domain
+{"egress":"public","allowedNames":["*.acmeco.example"]}
+accepted: egress=Public allowAll=false allowedNames=[Subdomains("acmeco.example")] declaredCidrs=[] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# allowedNames exact names are not checked against the list
+{"egress":"public","allowedNames":["s3.amazonaws.com","github.io","co.uk"]}
+accepted: egress=Public allowAll=false allowedNames=[Exact("s3.amazonaws.com"), Exact("github.io"), Exact("co.uk")] declaredCidrs=[] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# declaredCidrs unparsable
+{"egress":"public","declaredCidrs":[{"cidr":"not-a-cidr","ports":[443]}]}
+declaredCidrs "not-a-cidr": invalid address: invalid IPv4 address syntax
+
+# declaredCidrs with host bits set
+{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.5/24","ports":[443]}]}
+declaredCidrs "93.184.216.5/24" sets bits below its prefix; write 93.184.216.0/24
+
+# declaredCidrs with no ports
+{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[]}]}
+declaredCidrs 93.184.216.0/24 lists no ports
+
+# declaredCidrs port 0
+{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[0]}]}
+declaredCidrs 93.184.216.0/24 declares port 0, which is not a destination
+
+# declaredCidrs port 25
+{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443,25]}]}
+declaredCidrs 93.184.216.0/24 declares port 25, which the ruleset drops ahead of every accept
+
+# declaredCidrs overlapping on a shared port
+{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.128/25","ports":[443]}]}
+declaredCidrs 93.184.216.128/25 overlaps 93.184.216.0/24 on a shared port; nft rejects overlapping elements of an interval set
+
+# declaredCidrs overlapping on disjoint ports
+{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.128/25","ports":[8443]}]}
+accepted: egress=Public allowAll=false allowedNames=[] declaredCidrs=[93.184.216.0/24 ports [443]; 93.184.216.128/25 ports [8443]] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# declaredCidrs repeating a prefix
+{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.0/24","ports":[8443,443]}]}
+accepted: egress=Public allowAll=false allowedNames=[] declaredCidrs=[93.184.216.0/24 ports [443, 8443]] connectionsPerMinute=None distinctDestinationsPerMinute=None ttl=90..3600
+
+# declaredCidrs repeating a prefix into an overlap, repeat last
+{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.0/25","ports":[8443]},{"cidr":"93.184.216.0/24","ports":[8443]}]}
+declaredCidrs 93.184.216.0/25 overlaps 93.184.216.0/24 on a shared port; nft rejects overlapping elements of an interval set
+
+# declaredCidrs repeating a prefix into an overlap, repeat first
+{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.0/24","ports":[8443]},{"cidr":"93.184.216.0/25","ports":[8443]}]}
+declaredCidrs 93.184.216.0/25 overlaps 93.184.216.0/24 on a shared port; nft rejects overlapping elements of an interval set
+
+# declaredCidrs private (RFC1918)
+{"egress":"public","declaredCidrs":[{"cidr":"10.2.0.0/16","ports":[5432]}]}
+declaredCidrs 10.2.0.0/16 overlaps the baseline exclusion 10.0.0.0/8, which the ruleset drops ahead of every accept
+
+# declaredCidrs cloud metadata
+{"egress":"public","declaredCidrs":[{"cidr":"169.254.169.254/32","ports":[80]}]}
+declaredCidrs 169.254.169.254/32 overlaps the baseline exclusion 169.254.0.0/16, which the ruleset drops ahead of every accept
+
+# declaredCidrs loopback
+{"egress":"public","declaredCidrs":[{"cidr":"127.0.0.1/32","ports":[8080]}]}
+declaredCidrs 127.0.0.1/32 overlaps the baseline exclusion 127.0.0.0/8, which the ruleset drops ahead of every accept
+
+# declaredCidrs shared address space (CGNAT)
+{"egress":"public","declaredCidrs":[{"cidr":"100.100.0.0/16","ports":[443]}]}
+declaredCidrs 100.100.0.0/16 overlaps the baseline exclusion 100.64.0.0/10, which the ruleset drops ahead of every accept
+
+# declaredCidrs IETF protocol assignments
+{"egress":"public","declaredCidrs":[{"cidr":"192.0.0.170/32","ports":[443]}]}
+declaredCidrs 192.0.0.170/32 overlaps the baseline exclusion 192.0.0.0/24, which the ruleset drops ahead of every accept
+
+# declaredCidrs the tap subnet (TEST-NET-1)
+{"egress":"public","declaredCidrs":[{"cidr":"192.0.2.0/30","ports":[443]}]}
+declaredCidrs 192.0.2.0/30 overlaps the baseline exclusion 192.0.2.0/24, which the ruleset drops ahead of every accept
+
+# declaredCidrs benchmarking
+{"egress":"public","declaredCidrs":[{"cidr":"198.18.0.0/15","ports":[443]}]}
+declaredCidrs 198.18.0.0/15 overlaps the baseline exclusion 198.18.0.0/15, which the ruleset drops ahead of every accept
+
+# declaredCidrs documentation (TEST-NET-3)
+{"egress":"public","declaredCidrs":[{"cidr":"203.0.113.0/24","ports":[443]}]}
+declaredCidrs 203.0.113.0/24 overlaps the baseline exclusion 203.0.113.0/24, which the ruleset drops ahead of every accept
+
+# declaredCidrs multicast
+{"egress":"public","declaredCidrs":[{"cidr":"224.0.0.1/32","ports":[443]}]}
+declaredCidrs 224.0.0.1/32 overlaps the baseline exclusion 224.0.0.0/4, which the ruleset drops ahead of every accept
+
+# declaredCidrs reserved
+{"egress":"public","declaredCidrs":[{"cidr":"240.0.0.0/4","ports":[443]}]}
+declaredCidrs 240.0.0.0/4 overlaps the baseline exclusion 240.0.0.0/4, which the ruleset drops ahead of every accept
+
+# declaredCidrs the VMM's own bridge
+{"egress":"public","declaredCidrs":[{"cidr":"10.89.0.0/24","ports":[443]}]}
+declaredCidrs 10.89.0.0/24 overlaps the baseline exclusion 10.0.0.0/8, which the ruleset drops ahead of every accept
+
+# declaredCidrs a VMM subnet on public space
+{"egress":"public","declaredCidrs":[{"cidr":"172.104.9.0/24","ports":[443]}]}
+declaredCidrs 172.104.9.0/24 overlaps the baseline exclusion 172.104.0.0/16, which the ruleset drops ahead of every accept
+
+# allowAll does not rescue a private destination
+{"egress":"public","allowAll":true,"declaredCidrs":[{"cidr":"10.2.0.0/16","ports":[5432]}]}
+declaredCidrs 10.2.0.0/16 overlaps the baseline exclusion 10.0.0.0/8, which the ruleset drops ahead of every accept

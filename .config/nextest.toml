@@ -13,8 +13,10 @@ slow-timeout = { period = "30s", terminate-after = 4 }
 # Exclude e2e tests from Dekaf by default because they require special setup.
 # See mise/tasks/ci/dekaf-e2e-run for details. The materialization consistency
 # scenarios are excluded for the same reason: each one publishes tasks to a
-# running local stack. See mise/tasks/ci/consistency.
-default-filter = 'not binary_id(/dekaf::e2e/) and not binary_id(/materialize-consistency::scenarios/)'
+# running local stack. See mise/tasks/ci/consistency. The connector VMM's KVM
+# suite needs KVM, sudo and rootful podman, and runs only under
+# mise/tasks/ci/connector-vmm-kvm; its harness's own unit tests stay here.
+default-filter = 'not binary_id(/dekaf::e2e/) and not binary_id(/materialize-consistency::scenarios/) and not binary_id(/connector-vmm-tests::kvm/)'
 
 [profile.dekaf-e2e]
 # Migration tests excluded due to 8-minute timeout; run them with the
@@ -68,6 +70,14 @@ filter = '''
     + test(crash_in_split_leader) + test(crash_in_split_non_leader)
 '''
 test-group = 'capped-shard-reconfiguration'
+
+[profile.connector-vmm-kvm]
+default-filter = 'binary_id(/connector-vmm-tests::kvm/)'
+# Backstop for a hung test; the task's resource list handles cleanup.
+slow-timeout = { period = "60s", terminate-after = 3 }
+# Each test boots a guest costing about 1 GiB of host memory.
+test-threads = 4
+success-output = "final"
 
 [[profile.default.overrides]]
 filter = 'package(agent) and (test(discovers::) + test(directives::) + test(integration_tests::))'

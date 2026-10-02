@@ -1,0 +1,71 @@
+---
+source: crates/guest-init/src/cli.rs
+expression: table
+---
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=None run_as_root=false as_root_exec=None argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
+
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --persistent-disk /acmeCo/state -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=Some("/acmeCo/state") run_as_root=false as_root_exec=None argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
+
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --run-as-root --as-root-exec "sysctl -w vm.drop_caches=3" -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=None run_as_root=true as_root_exec=Some("sysctl -w vm.drop_caches=3") argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
+
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --persistent-disk state -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+flow-guest-init: error: invalid value 'state' for '--persistent-disk <GUEST_PATH>': expected an absolute guest path
+flow-guest-init:
+flow-guest-init: For more information, try '--help'.
+
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --persistent-disk / -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+flow-guest-init: error: invalid value '/' for '--persistent-disk <GUEST_PATH>': the guest root is not a mount point for this share
+flow-guest-init:
+flow-guest-init: For more information, try '--help'.
+
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --venv-dax -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+flow-guest-init: error: unexpected argument '--venv-dax' found
+flow-guest-init:
+flow-guest-init:   tip: to pass '--venv-dax' as a value, use '-- --venv-dax'
+flow-guest-init:
+flow-guest-init: Usage: flow-guest-init --guest-ip <A.B.C.D/N> --gateway <A.B.C.D> --nameserver <A.B.C.D> --uid <UID> --gid <GID> --connector-mount <GUEST_PATH> -- <ARGV>...
+flow-guest-init:
+flow-guest-init: For more information, try '--help'.
+
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+flow-guest-init: error: the following required arguments were not provided:
+flow-guest-init:   --connector-mount <GUEST_PATH>
+flow-guest-init:
+flow-guest-init: Usage: flow-guest-init --guest-ip <A.B.C.D/N> --gateway <A.B.C.D> --nameserver <A.B.C.D> --uid <UID> --gid <GID> --connector-mount <GUEST_PATH> -- <ARGV>...
+flow-guest-init:
+flow-guest-init: For more information, try '--help'.
+
+$ flow-guest-init --guest-ip 192.0.2.2 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+flow-guest-init: error: invalid value '192.0.2.2' for '--guest-ip <A.B.C.D/N>': expected A.B.C.D/N
+flow-guest-init:
+flow-guest-init: For more information, try '--help'.
+
+$ flow-guest-init --guest-ip 192.0.2.2/33 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+flow-guest-init: error: invalid value '192.0.2.2/33' for '--guest-ip <A.B.C.D/N>': prefix length 33 is not in 1..=32
+flow-guest-init:
+flow-guest-init: For more information, try '--help'.
+
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme
+flow-guest-init: error: the following required arguments were not provided:
+flow-guest-init:   <ARGV>...
+flow-guest-init:
+flow-guest-init: Usage: flow-guest-init --guest-ip <A.B.C.D/N> --gateway <A.B.C.D> --nameserver <A.B.C.D> --uid <UID> --gid <GID> --connector-mount <GUEST_PATH> -- <ARGV>...
+flow-guest-init:
+flow-guest-init: For more information, try '--help'.
+
+$ flow-guest-init
+flow-guest-init: error: the following required arguments were not provided:
+flow-guest-init:   --guest-ip <A.B.C.D/N>
+flow-guest-init:   --gateway <A.B.C.D>
+flow-guest-init:   --nameserver <A.B.C.D>
+flow-guest-init:   --uid <UID>
+flow-guest-init:   --gid <GID>
+flow-guest-init:   --connector-mount <GUEST_PATH>
+flow-guest-init:   <ARGV>...
+flow-guest-init:
+flow-guest-init: Usage: flow-guest-init --guest-ip <A.B.C.D/N> --gateway <A.B.C.D> --nameserver <A.B.C.D> --uid <UID> --gid <GID> --connector-mount <GUEST_PATH> -- <ARGV>...
+flow-guest-init:
+flow-guest-init: For more information, try '--help'.

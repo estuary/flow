@@ -1,0 +1,5 @@
+---
+source: crates/connector-vmm/src/resolver/mod.rs
+expression: rendered
+---
+name=a\nartifacts.acmeco.example qtype=1 outcome=dropped=upstream answered\n a different question addresses=[93.184.216.40/200] targets=[as\rsets.acmeco.example/90] refreshed=[93.184.216.40]
