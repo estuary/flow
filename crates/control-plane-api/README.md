@@ -6,6 +6,10 @@ capability mask or prefix scope, because the new credential would not preserve
 those restrictions. Tenant creation in `server/public/graphql/tenant.rs` also
 rejects either restriction before provisioning a tenant.
 
+Tenant creation accepts optional Reddit and LinkedIn signup click IDs, normalizes
+them in `SignupAttributionInput::normalize`, and stores them alongside the survey
+in `tenants.metadata.signupAttribution` within the provisioning transaction.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.
