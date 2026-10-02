@@ -637,6 +637,7 @@ pub struct StorageMapping {
     /// Optional description of this storage mapping.
     pub detail: Option<String>,
     /// The storage definition containing stores and data plane assignments.
+    #[graphql(deprecation = "Deprecated in favor of `dataPlanes` and `fragmentStores` fields.")]
     pub spec: async_graphql::Json<models::StorageDef>,
     /// The current user's capability to this storage mapping's prefix.
     pub user_capability: models::Capability,
