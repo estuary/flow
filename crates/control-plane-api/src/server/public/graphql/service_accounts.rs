@@ -747,37 +747,6 @@ impl ServiceAccountsMutation {
     }
 }
 
-/// Verify that `user_id` is not a service-account identity, erroring if it is.
-///
-/// Service-account credentials are administered through createApiKey /
-/// revokeApiKey. The self-service refresh-token mutations reject a
-/// service-account caller: a valid key could otherwise mint replacement
-/// credentials for its own account — sidestepping the CreateApiKey gate and
-/// the admin-chosen expiry — or revoke keys outside the admin-facing flow.
-pub(super) async fn verify_not_service_account(
-    pg_pool: &sqlx::PgPool,
-    user_id: uuid::Uuid,
-) -> async_graphql::Result<()> {
-    let is_service_account = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS(
-            SELECT 1 FROM internal.service_accounts WHERE user_id = $1
-        ) AS "is_service_account!"
-        "#,
-        user_id,
-    )
-    .fetch_one(pg_pool)
-    .await?;
-
-    if is_service_account {
-        return Err(async_graphql::Error::new(
-            "service accounts cannot manage refresh tokens: their API keys are \
-             administered via createApiKey and revokeApiKey",
-        ));
-    }
-    Ok(())
-}
-
 /// Rewrite a terminal permission-denied authorization error into the generic
 /// "service account API key not found" error, so a denial is indistinguishable
 /// from a missing token id.

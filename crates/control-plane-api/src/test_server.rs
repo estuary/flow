@@ -70,6 +70,7 @@ pub async fn snapshot(pg_pool: sqlx::PgPool, gate: bool) -> Arc<dyn tokens::Watc
 pub struct TestServer {
     pub addr: std::net::SocketAddr,
     pub encoding_key: tokens::jwt::EncodingKey,
+    pub decoding_keys: Vec<tokens::jwt::DecodingKey>,
     _shutdown_tx: tokio::sync::oneshot::Sender<()>,
 }
 
@@ -148,6 +149,7 @@ impl TestServer {
             Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();
+        let decoding_keys = app.control_plane_jwt_decode_keys.clone();
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -169,6 +171,7 @@ impl TestServer {
         TestServer {
             addr,
             encoding_key,
+            decoding_keys,
             _shutdown_tx: shutdown_tx,
         }
     }
@@ -184,7 +187,10 @@ impl TestServer {
         self.make_restricted_access_token(user_id, email, None, None)
     }
 
-    /// Like `make_access_token`, with optional capability and prefix restrictions.
+    /// Like `make_access_token`, with optional capability and prefix
+    /// restrictions. Unlike a token from the real mint, it keeps the
+    /// `authenticated` role, so it exercises restriction enforcement in
+    /// isolation from the PostgREST-rejecting role.
     pub fn make_restricted_access_token(
         &self,
         user_id: uuid::Uuid,
@@ -193,7 +199,7 @@ impl TestServer {
         prefix_scope: Option<String>,
     ) -> String {
         let now = tokens::now();
-        let claims = models::authorizations::ControlClaims {
+        self.sign_claims(&models::authorizations::ControlClaims {
             iat: now.timestamp() as u64,
             exp: (now + chrono::Duration::hours(1)).timestamp() as u64,
             sub: user_id,
@@ -202,14 +208,27 @@ impl TestServer {
             email: email.map(String::from),
             capability_mask,
             prefix_scope,
-        };
+        })
+    }
 
-        jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
-            &claims,
-            &self.encoding_key,
-        )
-        .expect("failed to encode JWT")
+    /// Sign arbitrary claims with the server's key. Tests use this to forge
+    /// bearers that the `make_access_token*` helpers deliberately never
+    /// produce, such as a non-`authenticated` Postgres role or an unusual
+    /// expiry.
+    pub fn sign_claims(&self, claims: &models::authorizations::ControlClaims) -> String {
+        jsonwebtoken::encode(&jsonwebtoken::Header::default(), claims, &self.encoding_key)
+            .expect("failed to encode JWT")
+    }
+
+    /// Verify an access token the server minted, using the same keys the
+    /// server verifies bearers with, and return its claims. Panics on a bad
+    /// signature or expired token, since a test holding such a token has
+    /// already failed.
+    pub fn verify_access_token(&self, token: &str) -> crate::ControlClaims {
+        tokens::jwt::verify::<crate::ControlClaims>(token.as_bytes(), 0, &self.decoding_keys)
+            .expect("server-minted access token must verify")
+            .claims()
+            .clone()
     }
 
     /// Create a fixed user token PendingWatch (immutable).

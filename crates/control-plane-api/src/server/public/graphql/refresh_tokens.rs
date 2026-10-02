@@ -142,7 +142,12 @@ impl RefreshTokensMutation {
                 "tokens with a prefix scope set cannot create refresh tokens.",
             ));
         }
-        super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
+        if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
+            return Err(async_graphql::Error::new(
+                "service accounts cannot manage refresh tokens: their API keys are \
+             administered via createApiKey and revokeApiKey",
+            ));
+        }
 
         // ISO 8601 durations begin with 'P'; considering this cheap and good enough validation for now.
         if !valid_for.starts_with('P') {
@@ -220,7 +225,12 @@ impl RefreshTokensMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
+        if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
+            return Err(async_graphql::Error::new(
+                "service accounts cannot manage refresh tokens: their API keys are \
+             administered via createApiKey and revokeApiKey",
+            ));
+        }
 
         let result = sqlx::query!(
             "UPDATE refresh_tokens SET valid_for = interval '0' \
@@ -339,10 +349,12 @@ mod test {
     /// JWT — is intentionally not exercised here: it reads `app.jwt_secret` from
     /// `vault.decrypted_secrets` and calls pgjwt's `sign()`, neither of which
     /// exists in the sqlx::test DB (only `auth`/`stripe` are polyfilled). That
-    /// signing path is covered by the pgTAP `test_generate_access_token`. The
-    /// assertions here all fail inside `generate_access_token` *before* signing
-    /// (bad secret, expired/revoked token, or an unknown grant), so they're
-    /// deterministic without the vault/pgjwt setup.
+    /// signing path is covered by the pgTAP `test_generate_access_token`, and by
+    /// `token_exchange::test_refresh_grant_ignores_authorization_header` under
+    /// the `jwt_sign_polyfill` fixture. The assertions here all fail inside
+    /// `generate_access_token` *before* signing (bad secret, expired/revoked
+    /// token, or an unknown grant), so they're deterministic without the
+    /// vault/pgjwt setup.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
