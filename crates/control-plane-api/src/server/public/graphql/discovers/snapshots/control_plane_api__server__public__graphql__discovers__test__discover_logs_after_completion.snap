@@ -1,0 +1,23 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers/test.rs
+expression: "serde_json::json!({\n    \"status\": later[\"data\"][\"discover\"][\"status\"], \"logs\":\n    later[\"data\"][\"discover\"][\"logs\"],\n})"
+---
+{
+  "logs": {
+    "edges": [
+      {
+        "cursor": "[cursor]",
+        "node": {
+          "line": "late line",
+          "loggedAt": "[ts]",
+          "stream": "test"
+        }
+      }
+    ],
+    "pageInfo": {
+      "endCursor": "[cursor]",
+      "hasNextPage": false
+    }
+  },
+  "status": "SUCCESS"
+}

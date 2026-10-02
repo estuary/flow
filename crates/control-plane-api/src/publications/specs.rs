@@ -910,8 +910,9 @@ pub async fn resolve_live_specs(
     tenant_names.sort();
     tenant_names.dedup();
 
-    let storage_rows = db::resolve_storage_mappings(tenant_names, db).await?;
-    let (storage_mappings, mapping_planes) = join_storage_mappings(storage_rows)?;
+    let storage_rows = crate::storage_mappings::resolve_storage_mappings(tenant_names, db).await?;
+    let (storage_mappings, mapping_planes) =
+        crate::storage_mappings::join_storage_mappings(storage_rows)?;
     live.storage_mappings = storage_mappings;
 
     resolve_inferred_schemas(draft, &mut live, db).await?;
@@ -920,47 +921,6 @@ pub async fn resolve_live_specs(
         live,
         mapping_planes,
     })
-}
-
-/// Build `tables::StorageMappings` from fetched `storage_mappings` rows, where
-/// each row pairs the partition and recovery stores of a prefix. Also returns
-/// the ordered data-plane names of each mapping, which are used for placement.
-///
-/// A spec which doesn't deserialize, or a mapping without its `recovery/` twin,
-/// is an internal error: both are control-plane invariants which users can't
-/// provoke.
-fn join_storage_mappings(
-    rows: Vec<db::StorageRow>,
-) -> anyhow::Result<(
-    tables::StorageMappings,
-    BTreeMap<models::Prefix, Vec<String>>,
-)> {
-    let mut mappings = tables::StorageMappings::default();
-    let mut mapping_planes = BTreeMap::new();
-
-    for db::StorageRow {
-        id,
-        catalog_prefix,
-        spec,
-        recovery_spec,
-    } in rows
-    {
-        let spec: models::StorageDef = serde_json::from_value(spec)
-            .with_context(|| format!("deserializing storage mapping {catalog_prefix}"))?;
-        let recovery_spec = recovery_spec.ok_or_else(|| {
-            anyhow::anyhow!(
-                "storage mapping {catalog_prefix} has no paired recovery/{catalog_prefix} mapping"
-            )
-        })?;
-        let recovery: models::StorageDef = serde_json::from_value(recovery_spec)
-            .with_context(|| format!("deserializing storage mapping recovery/{catalog_prefix}"))?;
-        let prefix = models::Prefix::new(catalog_prefix);
-
-        mappings.insert_row(&prefix, id, spec.stores, recovery.stores);
-        mapping_planes.insert(prefix, spec.data_planes);
-    }
-
-    Ok((mappings, mapping_planes))
 }
 
 /// Returns an option because `catalog_name` is from a drafted spec, and we've yet to
@@ -1139,75 +1099,5 @@ mod test {
                 panic!("expected success for example: {example}, but got error: {error:?}");
             }
         }
-    }
-
-    #[sqlx::test(migrations = "../../supabase/migrations")]
-    async fn test_resolve_and_join_storage_mappings(pool: sqlx::PgPool) {
-        sqlx::query(
-            r#"
-            insert into storage_mappings (id, catalog_prefix, spec) values
-              ('00:00:00:00:00:00:00:01', 'aliceCo/', '{"stores":[{"provider":"S3","bucket":"alice"}]}'),
-              ('00:00:00:00:00:00:00:02', 'recovery/aliceCo/', '{"stores":[{"provider":"S3","bucket":"alice"}]}'),
-              ('00:00:00:00:00:00:00:03', 'bobCo/', '{"stores":[{"provider":"S3","bucket":"bob","prefix":"collection-data/"}],"data_planes":["ops/dp/public/one"]}'),
-              ('00:00:00:00:00:00:00:04', 'recovery/bobCo/', '{"stores":[{"provider":"S3","bucket":"bob"}]}'),
-              ('00:00:00:00:00:00:00:05', 'daveCo/', '{"stores":[{"provider":"S3","bucket":"dave"}]}'),
-              ('00:00:00:00:00:00:00:06', 'recovery/orphanCo/', '{"stores":[{"provider":"S3","bucket":"orphan"}]}'),
-              ('00:00:00:00:00:00:00:07', 'carolCo/', '{"stores":[{"provider":"S3","bucket":"carol"}]}'),
-              ('00:00:00:00:00:00:00:08', 'recovery/carolCo/', '{"stores":42}');
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        // A drafted `recovery/...` name yields a `recovery/` tenant, which must
-        // not select the recovery mappings of other tenants.
-        let rows = db::resolve_storage_mappings(vec!["bobCo/", "recovery/"], &pool)
-            .await
-            .unwrap();
-        insta::assert_debug_snapshot!(join_storage_mappings(rows).unwrap(), @r#"
-        (
-            [
-                StorageMapping {
-                    catalog_prefix: bobCo/,
-                    control_id: "0000000000000003",
-                    stores: [
-                      {
-                        "provider": "S3",
-                        "bucket": "bob",
-                        "prefix": "collection-data/",
-                        "region": null
-                      }
-                    ],
-                    recovery_stores: [
-                      {
-                        "provider": "S3",
-                        "bucket": "bob",
-                        "prefix": null,
-                        "region": null
-                      }
-                    ],
-                },
-            ],
-            {
-                Prefix(
-                    "bobCo/",
-                ): [
-                    "ops/dp/public/one",
-                ],
-            },
-        )
-        "#);
-
-        let rows = db::resolve_storage_mappings(vec!["carolCo/"], &pool)
-            .await
-            .unwrap();
-        insta::assert_snapshot!(format!("{:#}", join_storage_mappings(rows).unwrap_err()), @"deserializing storage mapping recovery/carolCo/: invalid type: integer `42`, expected a sequence");
-
-        // A mapping without its `recovery/` twin is an error.
-        let rows = db::resolve_storage_mappings(vec!["daveCo/"], &pool)
-            .await
-            .unwrap();
-        insta::assert_snapshot!(format!("{:#}", join_storage_mappings(rows).unwrap_err()), @"storage mapping daveCo/ has no paired recovery/daveCo/ mapping");
     }
 }

@@ -29,6 +29,7 @@ mod authorized_prefixes;
 pub(crate) mod billing;
 mod catalog_stats;
 mod data_planes;
+mod discovers;
 mod drafts;
 mod filters;
 pub(crate) use data_planes::parse_data_plane_name;
@@ -131,6 +132,7 @@ pub struct QueryRoot(
     secrets::SecretsQuery,
     drafts::DraftsQuery,
     catalog_stats::CatalogStatsQuery,
+    discovers::DiscoversQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
@@ -147,6 +149,7 @@ pub struct MutationRoot(
     service_accounts::ServiceAccountsMutation,
     secrets::SecretsMutation,
     drafts::DraftsMutation,
+    discovers::DiscoversMutation,
 );
 
 pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {

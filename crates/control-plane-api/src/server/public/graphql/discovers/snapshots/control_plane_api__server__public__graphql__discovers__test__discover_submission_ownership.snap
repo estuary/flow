@@ -1,0 +1,18 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers/test.rs
+expression: "[(\"foreign draft\", foreign_create), (\"missing draft\", missing_create),\n(\"unauthenticated\",\nunauthenticated),].map(|(case, response)|\nserde_json::json!({\n    \"case\": case, \"message\": response[\"errors\"][0][\"message\"],\n}))"
+---
+[
+  {
+    "case": "foreign draft",
+    "message": "draft not found"
+  },
+  {
+    "case": "missing draft",
+    "message": "draft not found"
+  },
+  {
+    "case": "unauthenticated",
+    "message": "status: 'The request does not have valid authentication credentials', self: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\""
+  }
+]

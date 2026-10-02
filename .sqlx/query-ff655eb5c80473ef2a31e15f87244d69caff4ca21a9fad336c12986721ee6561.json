@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT l.logged_at, l.stream, l.log_line\n                    FROM internal.log_lines l\n                    JOIN discovers di ON di.logs_token = l.token\n                    JOIN drafts d ON d.id = di.draft_id\n                    WHERE di.id = $1 AND d.user_id = $2\n                      AND ($3::timestamptz IS NULL OR l.logged_at > $3)\n                    ORDER BY l.logged_at ASC\n                    LIMIT $4\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "logged_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.log_lines",
+            "name": "logged_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "stream",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.log_lines",
+            "name": "stream"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "log_line",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.log_lines",
+            "name": "log_line"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Uuid",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ff655eb5c80473ef2a31e15f87244d69caff4ca21a9fad336c12986721ee6561"
+}
