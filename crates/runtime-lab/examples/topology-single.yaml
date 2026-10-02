@@ -16,3 +16,5 @@ tasks:
     shards: [h1]
   acmeCo/lab/identity:
     shards: [h1]
+  acmeCo/lab/pg:
+    shards: [h1]
