@@ -1331,6 +1331,55 @@ type FileRead {
 	utf8: String!
 }
 
+"""
+A flattened fragment store. Fields which don't apply to the
+store's `provider` are null.
+"""
+type FragmentStore {
+	"""
+	Storage provider of this store.
+	"""
+	provider: FragmentStoreProvider!
+	"""
+	Optional prefix of keys written to the store.
+	"""
+	prefix: String
+	"""
+	Bucket into which data is stored. Null for Azure stores.
+	"""
+	bucket: String
+	"""
+	AWS region of the bucket. Null for GCS, Azure, and Custom stores.
+	"""
+	region: String
+	"""
+	Azure storage account name. Null for non-Azure stores.
+	"""
+	storageAccountName: String
+	"""
+	Azure container name. Null for non-Azure stores.
+	"""
+	containerName: String
+	"""
+	Azure tenant ID which owns the storage account. Null for non-Azure stores.
+	"""
+	accountTenantId: String
+	"""
+	Address of the S3-compatible storage endpoint. Null for non-Custom stores.
+	"""
+	endpoint: String
+}
+
+"""
+Storage provider of a fragment store.
+"""
+enum FragmentStoreProvider {
+	S3
+	GCS
+	AZURE
+	CUSTOM
+}
+
 type GCPPrivateServiceConnect {
 	serviceAttachment: String!
 	region: String!
@@ -3074,6 +3123,14 @@ type StorageMapping {
 	The current user's capability to this storage mapping's prefix.
 	"""
 	userCapability: Capability!
+	"""
+	Data planes which may be used by tasks or collections under this mapping.
+	"""
+	dataPlanes: [StorageMappingDataPlane!]!
+	"""
+	Stores for journal fragments under this mapping.
+	"""
+	fragmentStores: [FragmentStore!]!
 }
 
 type StorageMappingConnection {
@@ -3085,6 +3142,28 @@ type StorageMappingConnection {
 	A list of edges.
 	"""
 	edges: [StorageMappingEdge!]!
+}
+
+"""
+A data plane which may be used under a storage mapping.
+"""
+type StorageMappingDataPlane {
+	"""
+	Name of this data-plane under the catalog namespace.
+	"""
+	name: String!
+	"""
+	Cloud provider where this data-plane is hosted.
+	"""
+	cloudProvider: DataPlaneCloudProvider!
+	"""
+	Cloud region where this data-plane is hosted.
+	"""
+	region: String!
+	"""
+	Whether this is a public data-plane.
+	"""
+	isPublic: Boolean!
 }
 
 """
