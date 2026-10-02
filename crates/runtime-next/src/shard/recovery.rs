@@ -1800,7 +1800,7 @@ mod test {
                     pf(0xaa, 0, 5 * GIB),           // old clock AND 15 GiB behind -> prune
                     pf(0xbb, 0, 8 * GIB),           // old clock AND 12 GiB behind -> prune
                     pf(0xcc, 0, 13 * GIB), // old clock but only 7 GiB behind (< 8 GiB) -> retain
-                    pf(0xdd, 999_000, 0),  // 20 GiB behind but only 1000s old (< 48h) -> retain
+                    pf(0xdd, 999_000, 0),  // 20 GiB behind but only 1000s old (< horizon) -> retain
                     pf(0xee, 0, GIB),      // old + 19 GiB behind, but FH-protected -> retain
                 ],
             ),
@@ -1876,7 +1876,7 @@ mod test {
                     pf(0xff, 1_000_000, -20 * GIB), // Group clock & offset leader.
                     pf(0xaa, 1_000_000 - horizon, -2 * GIB), // Exactly at the horizon.
                     pf(0xbb, 500_000, -GIB),        // Far past it.
-                    pf(0xcc, 900_000, -3 * GIB),    // Inside it: retained.
+                    pf(0xcc, 1_000_000 - horizon + 1, -3 * GIB), // Just inside it: retained.
                 ],
             ),
             jf(

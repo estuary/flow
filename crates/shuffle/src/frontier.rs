@@ -802,7 +802,7 @@ impl Frontier {
     ///    dwarfing intra-cohort source-clock skew, which is bounded by the Slice
     ///    read heap and Log append leveling — both order by priority and then by
     ///    adjusted clock, so a cohort's journals advance in near-lockstep and
-    ///    never drift 48 hours apart.
+    ///    never drift a horizon apart.
     /// 4. Hints, never commits, below the binding's gap floor. A read-start
     ///    byte gap left such a hint's ACK unreachable, so holding the boundary
     ///    for it gains nothing and may stall forever. A byte gap says nothing
@@ -2248,6 +2248,18 @@ mod test {
         );
     }
 
+    // Gazette's V1 `message.Sequencer` prunes a producer whose newest raw clock
+    // is below `LastAck - ((24h / 100ns) << 4)`. The largest such clock must be
+    // horizon-stale against that `LastAck`.
+    #[test]
+    fn test_horizon_covers_gazette_prune() {
+        let last_ack = from_secs(HORIZON_SECS + 100_000).as_u64() | 0xf;
+        let dropped = last_ack - ((24 * 60 * 60 * 10_000_000) << 4) - 1;
+        let mut completed = Completed::new(vec![0]);
+        completed.binding_max[0] = Clock::from_u64(last_ack);
+        assert!(completed.is_horizon_stale(0, Clock::from_u64(dropped)));
+    }
+
     #[test]
     fn test_prune_hints() {
         // Binding 0's promoted progress sits at `leader`; binding 1 shares its
@@ -2311,7 +2323,7 @@ mod test {
                 [
                     (
                         10000,
-                        272799,
+                        186399,
                         -500,
                     ),
                 ],

@@ -95,8 +95,12 @@ pub use service::{DEFAULT_SHUFFLE_DISK_LIMIT_BYTES, Service};
 /// of the two, such hints would instead stall until
 /// [`CAUSAL_HINT_RESOLUTION_TIMEOUT`] tore the session down — and the next
 /// session would resume before the hinting ACK and repeat, forever.
+///
+/// The same argument applies to checkpoints migrated from V1, which Gazette's
+/// `message.Sequencer` pruned by clock alone at 24 hours. That, and not any
+/// need of V2 itself, is why this horizon is 24 hours.
 pub const PRODUCER_STALENESS_HORIZON: std::time::Duration =
-    std::time::Duration::from_secs(48 * 60 * 60);
+    std::time::Duration::from_secs(24 * 60 * 60);
 
 /// Margin added to the clock sampled by
 /// [`slice::read::ReadState::sample_gap_floor`].
