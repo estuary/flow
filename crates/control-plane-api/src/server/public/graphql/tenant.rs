@@ -98,13 +98,6 @@ mod tests {
 #[derive(Debug, Default)]
 pub struct TenantMutation;
 
-#[derive(async_graphql::InputObject)]
-pub struct TenantCreateInput {
-    /// Organization name as a single catalog token, without a trailing slash.
-    pub name: String,
-    pub survey: Option<async_graphql::Json<serde_json::Value>>,
-}
-
 #[async_graphql::Object]
 impl TenantMutation {
     /// Create a tenant for the authenticated user. Users with an existing direct
@@ -112,7 +105,11 @@ impl TenantMutation {
     async fn tenant_create(
         &self,
         ctx: &async_graphql::Context<'_>,
-        input: TenantCreateInput,
+        #[graphql(desc = "Organization name as a single catalog token, without a trailing slash.")]
+        name: String,
+        #[graphql(desc = "ID of the latest MSA terms the submitting user has read and accepts.")]
+        submitting_user_agrees_to_terms_id: models::Id,
+        survey: Option<async_graphql::Json<serde_json::Value>>,
     ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env
@@ -125,7 +122,19 @@ impl TenantMutation {
                 "Restricted tokens cannot create tenants",
             ));
         }
+        let terms_id = submitting_user_agrees_to_terms_id;
         let mut txn = env.pg_pool.begin().await?;
+        let latest_msa_id: Option<models::Id> = sqlx::query_scalar(
+            "SELECT id FROM internal.legal_terms WHERE type = 'msa'
+             ORDER BY version DESC LIMIT 1",
+        )
+        .fetch_optional(&mut *txn)
+        .await?;
+        if latest_msa_id != Some(terms_id) {
+            return Err(async_graphql::Error::new(
+                "You must accept the latest MSA terms",
+            ));
+        }
         let is_service_account = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM internal.service_accounts WHERE user_id = $1) AS \"exists!\"",
             claims.sub,
@@ -140,10 +149,22 @@ impl TenantMutation {
 
         let tenant_name = create_tenant(
             claims.sub,
-            &input.name,
-            input.survey.map(|v| v.0).unwrap_or(serde_json::Value::Null),
+            &name,
+            survey.map(|v| v.0).unwrap_or(serde_json::Value::Null),
             &mut txn,
         )
+        .await?;
+        // Record consent atomically with provisioning, using the stored user identity.
+        sqlx::query(
+            "INSERT INTO internal.tenant_consent
+                (user_id, user_email, terms_id, tenant_name, tenant_id)
+             VALUES ($1, (SELECT email FROM auth.users WHERE id = $1), $2::flowid,
+                     $3::catalog_tenant, (SELECT id FROM public.tenants WHERE tenant = $3))",
+        )
+        .bind(claims.sub)
+        .bind(terms_id)
+        .bind(&tenant_name)
+        .execute(&mut *txn)
         .await?;
         txn.commit().await?;
 
@@ -240,12 +261,18 @@ async fn create_tenant(
 mod test {
     use crate::test_server::TestServer;
 
+    const TERMS_ID: &str = "00:00:00:00:00:00:00:01";
+    const STALE_ID: &str = "00:00:00:00:00:00:00:04";
+    const PRIVACY_ID: &str = "00:00:00:00:00:00:00:02";
+
     const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
     const BOB: uuid::Uuid = uuid::Uuid::from_bytes([0x22; 16]);
 
     async fn server(pool: &sqlx::PgPool) -> TestServer {
         sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'alice@example.test'), ($2, 'bob@example.test')")
             .bind(ALICE).bind(BOB).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO internal.legal_terms (id, type, version, text) VALUES ($1::flowid, 'msa', 99, 'Test terms'), ($2::flowid, 'privacy_policy', 99, 'Test privacy policy'), ($3::flowid, 'msa', 98, 'Old test MSA terms')")
+            .bind(TERMS_ID).bind(PRIVACY_ID).bind(STALE_ID).execute(pool).await.unwrap();
         TestServer::start(
             pool.clone(),
             crate::test_server::snapshot(pool.clone(), false).await,
@@ -255,11 +282,12 @@ mod test {
 
     fn request(tenant: &str) -> serde_json::Value {
         serde_json::json!({
-            "query": "mutation($input: TenantCreateInput!) { tenantCreate(input: $input) }",
-            "variables": { "input": {
+            "query": "mutation($name: String!, $submittingUserAgreesToTermsId: Id!, $survey: JSON) { tenantCreate(name: $name, submittingUserAgreesToTermsId: $submittingUserAgreesToTermsId, survey: $survey) }",
+            "variables": {
                 "name": tenant,
+                "submittingUserAgreesToTermsId": TERMS_ID,
                 "survey": { "origin": "search", "details": "testing" },
-            }}
+            }
         })
     }
 
@@ -280,6 +308,28 @@ mod test {
         }
         "#);
 
+        let consent: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object(
+                'userId', c.user_id, 'userEmail', c.user_email,
+                'termsId', c.terms_id, 'tenantName', c.tenant_name,
+                'tenantMatches', c.tenant_id = t.id)
+             FROM internal.tenant_consent c JOIN tenants t ON t.tenant = c.tenant_name ORDER BY c.terms_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        insta::assert_json_snapshot!(consent, @r#"
+        [
+          {
+            "tenantMatches": true,
+            "tenantName": "acmeCo/",
+            "termsId": "00:00:00:00:00:00:00:01",
+            "userEmail": "alice@example.test",
+            "userId": "11111111-1111-1111-1111-111111111111"
+          }
+        ]
+        "#);
+
         let state: serde_json::Value = sqlx::query_scalar(r#"SELECT jsonb_build_object(
             'creator', created_by,
             'metadata', metadata,
@@ -298,6 +348,62 @@ mod test {
           }
         }
         "#);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_requires_latest_terms(pool: sqlx::PgPool) {
+        let server = server(&pool).await;
+        let token = server.make_access_token(ALICE, None);
+        let mut req = request("acmeCo");
+        for invalid_id in ["00:00:00:00:00:00:00:03", STALE_ID, PRIVACY_ID] {
+            req["variables"]["submittingUserAgreesToTermsId"] = serde_json::json!(invalid_id);
+            let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
+            insta::allow_duplicates! {
+                insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""You must accept the latest MSA terms""#);
+            }
+        }
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
+                    (SELECT count(*) FROM internal.tenant_consent WHERE user_id = $1)",
+        )
+        .bind(ALICE)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (0, 0));
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_rolls_back_when_consent_fails(pool: sqlx::PgPool) {
+        let server = server(&pool).await;
+        sqlx::query("UPDATE auth.users SET email = NULL WHERE id = $1")
+            .bind(ALICE)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let token = server.make_access_token(ALICE, Some("untrusted@example.test"));
+        let response: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
+        assert!(
+            response["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty())
+        );
+        let counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
+                    (SELECT count(*) FROM internal.tenant_consent WHERE user_id = $1),
+                    (SELECT count(*) FROM user_grants WHERE user_id = $1)",
+        )
+        .bind(ALICE)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (0, 0, 0));
     }
 
     #[sqlx::test(
@@ -361,7 +467,7 @@ mod test {
         }
 
         let mut without_survey = request("acmeCo");
-        without_survey["variables"]["input"]
+        without_survey["variables"]
             .as_object_mut()
             .unwrap()
             .remove("survey");
@@ -425,7 +531,7 @@ mod test {
     async fn tenant_create_rollback(pool: sqlx::PgPool) {
         let server = server(&pool).await;
         let token = server.make_access_token(ALICE, None);
-        // Fail the last write, after provisioning has populated every table.
+        // Fail the metadata write after provisioning has populated every table.
         sqlx::raw_sql("CREATE FUNCTION internal.reject_signup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test failure'; END $$; CREATE TRIGGER reject_signup BEFORE UPDATE OF metadata ON public.tenants FOR EACH ROW EXECUTE FUNCTION internal.reject_signup();")
             .execute(&pool).await.unwrap();
         let req = request("acmeCo");

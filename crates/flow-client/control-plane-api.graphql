@@ -1515,6 +1515,19 @@ type JobStatus {
 	lockFailures: [LockFailure!]!
 }
 
+type LegalTerms {
+	id: Id!
+	text: String!
+}
+
+enum LegalTermsType {
+	"""
+	Master Services Agreement.
+	"""
+	MSA
+	PRIVACY_POLICY
+}
+
 type LiveSpec {
 	liveSpecId: Id!
 	catalogName: String!
@@ -1717,7 +1730,16 @@ type MutationRoot {
 	Create a tenant for the authenticated user. Users with an existing direct
 	tenant-admin grant cannot provision another tenant.
 	"""
-	tenantCreate(input: TenantCreateInput!): Boolean!
+	tenantCreate(
+		"""
+		Organization name as a single catalog token, without a trailing slash.
+		"""
+		name: String!,
+		"""
+		ID of the latest MSA terms the submitting user has read and accepts.
+		"""
+		submittingUserAgreesToTermsId: Id!,		survey: JSON
+	): Boolean!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	setBillingContact(tenant: String!, email: String!, name: String!, address: BillingAddressInput!): SetBillingContactPayload!
@@ -2443,6 +2465,10 @@ type QueryRoot {
 	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
 	tenant(name: String!): Tenant
 	"""
+	Returns the latest legal terms of the given type.
+	"""
+	legalTerms(type: LegalTermsType!): LegalTerms
+	"""
 	List refresh tokens owned by the authenticated user.
 	"""
 	refreshTokens(after: String, first: Int): RefreshTokenInfoConnection!
@@ -3054,14 +3080,6 @@ type TenantBilling {
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
 	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!
-}
-
-input TenantCreateInput {
-	"""
-	Organization name as a single catalog token, without a trailing slash.
-	"""
-	name: String!
-	survey: JSON
 }
 
 """
