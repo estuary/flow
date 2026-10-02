@@ -66,8 +66,10 @@ where
     }
 }
 
-// A no-op outside of the lab (as when `flowctl` validates the catalog).
-fn enter_cgroup() -> anyhow::Result<()> {
+/// Move this process into its host's connectors cgroup, as `serve` does first.
+/// A connector with a serving loop of its own calls it before any work.
+/// It's a no-op outside of the lab (as when `flowctl` validates the catalog).
+pub fn enter_cgroup() -> anyhow::Result<()> {
     let Some(cgroup) = std::env::var_os(CGROUP_ENV) else {
         return Ok(());
     };
