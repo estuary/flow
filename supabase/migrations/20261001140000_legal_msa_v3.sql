@@ -1,6 +1,5 @@
 begin;
 
--- Source: estuary/ui public/terms.html (effective March 12, 2026).
 insert into internal.legal_terms (type, version, text) values (
     'msa',
     3,

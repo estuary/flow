@@ -1516,6 +1516,7 @@ type JobStatus {
 }
 
 type LegalTerms {
+	id: Id!
 	text: String!
 }
 
