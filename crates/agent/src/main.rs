@@ -49,6 +49,9 @@ struct Args {
     #[derivative(Debug = "ignore")]
     #[clap(long = "stripe-webhook-secret", env = "STRIPE_WEBHOOK_SECRET")]
     stripe_webhook_secret: Option<String>,
+    #[derivative(Debug = "ignore")]
+    #[clap(flatten)]
+    signup_attribution: agent::tenant_controller::signup_attribution::Config,
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
@@ -438,6 +441,9 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             ))
             .register(agent::tenant_controller::TenantController::new(
                 tenant_controller_billing_provider,
+                agent::tenant_controller::signup_attribution::Reporter::new(
+                    args.signup_attribution,
+                )?,
             ));
 
         if args.serve_alert_notifications {

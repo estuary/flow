@@ -1,6 +1,7 @@
 mod billing_contact;
 mod outcome;
 mod quotas;
+pub mod signup_attribution;
 
 use crate::tenant_controller::outcome::Outcome;
 use anyhow::Context;
@@ -40,6 +41,8 @@ pub enum Message {
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TenantControllerState {
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub signup_attribution: signup_attribution::State,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub billing_contact: Option<TaskStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -48,11 +51,18 @@ pub struct TenantControllerState {
 
 pub struct TenantController {
     billing_provider: Option<Arc<dyn BillingProvider>>,
+    signup_reporter: signup_attribution::Reporter,
 }
 
 impl TenantController {
-    pub fn new(billing_provider: Option<Arc<dyn BillingProvider>>) -> Self {
-        Self { billing_provider }
+    pub fn new(
+        billing_provider: Option<Arc<dyn BillingProvider>>,
+        signup_reporter: signup_attribution::Reporter,
+    ) -> Self {
+        Self {
+            billing_provider,
+            signup_reporter,
+        }
     }
 }
 
@@ -126,6 +136,15 @@ impl Executor for TenantController {
             billing_contact::reconcile(billing_status, &tenant, &self.billing_provider).await?;
         let result = result.combine(
             quotas::update_quotas(quota_status, pool, &tenant, &self.billing_provider).await?,
+        );
+        let result = result.combine(
+            signup_attribution::reconcile(
+                &mut state.signup_attribution,
+                pool,
+                task_id,
+                &self.signup_reporter,
+            )
+            .await?,
         );
 
         match result {
