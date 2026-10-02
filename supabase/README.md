@@ -94,6 +94,9 @@ deno test --allow-all supabase/functions/tests/
 - **`tenants`** - Top-level organizational units with quotas and billing configuration
 - **`user_grants`** - User permissions for catalog prefixes (read, write, admin)
 - **`role_grants`** - Role-based authorization model for scalable permission management
+- **`internal.legal_terms`** - Append-only, versioned legal text
+- **`internal.tenant_consent`** - Append-only consent records;
+  user and tenant IDs are required and retained without foreign keys so records survive account deletion
 
 ### Connector Infrastructure
 - **`connectors`** - Registry of available connector images implementing Flow protocols
