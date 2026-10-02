@@ -3,15 +3,15 @@ begin;
 create table public.tenant_consent (
     user_id uuid not null references auth.users (id),
     user_email text not null,
-    terms_version integer not null check (terms_version > 0),
+    terms_id public.flowid not null references internal.legal_terms (id),
     timestamp timestamptz not null default now(),
     tenant_name public.catalog_tenant not null,
     tenant_id public.flowid not null references public.tenants (id),
-    primary key (tenant_id, user_id, terms_version)
+    primary key (tenant_id, user_id, terms_id)
 );
 
 comment on table public.tenant_consent is
-    'Records the user and tenant associated with acceptance of a version of the terms.';
+    'Records the user and tenant associated with acceptance of specific legal terms.';
 comment on column public.tenant_consent.user_email is
     'User email at the time consent was recorded.';
 comment on column public.tenant_consent.tenant_name is

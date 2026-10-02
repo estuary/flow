@@ -3079,11 +3079,9 @@ input TenantCreateInput {
 	"""
 	name: String!
 	"""
-	Version of the terms the submitting user has read and accepts, including the
-	[Privacy Policy](https://www.estuary.dev/privacy-policy/) and
-	[Terms of Service](https://dashboard.estuary.dev/terms.html). Must be a positive integer to create a tenant.
+	ID of the legal terms the submitting user has read and accepts.
 	"""
-	submittingUserAgreesToTermsVersion: Int!
+	submittingUserAgreesToTermsId: Id!
 	survey: JSON
 }
 

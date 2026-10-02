@@ -102,10 +102,8 @@ pub struct TenantMutation;
 pub struct TenantCreateInput {
     /// Organization name as a single catalog token, without a trailing slash.
     pub name: String,
-    /// Version of the terms the submitting user has read and accepts, including the
-    /// [Privacy Policy](https://www.estuary.dev/privacy-policy/) and
-    /// [Terms of Service](https://dashboard.estuary.dev/terms.html). Must be a positive integer to create a tenant.
-    pub submitting_user_agrees_to_terms_version: i32,
+    /// ID of the legal terms the submitting user has read and accepts.
+    pub submitting_user_agrees_to_terms_id: models::Id,
     pub survey: Option<async_graphql::Json<serde_json::Value>>,
 }
 
@@ -129,12 +127,17 @@ impl TenantMutation {
                 "Restricted tokens cannot create tenants",
             ));
         }
-        if input.submitting_user_agrees_to_terms_version <= 0 {
+        let mut txn = env.pg_pool.begin().await?;
+        let terms_exist: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM internal.legal_terms WHERE id = $1)")
+                .bind(input.submitting_user_agrees_to_terms_id)
+                .fetch_one(&mut *txn)
+                .await?;
+        if !terms_exist {
             return Err(async_graphql::Error::new(
-                "You must provide a positive integer version of the policies and terms you accept to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html",
+                "The accepted legal terms do not exist",
             ));
         }
-        let mut txn = env.pg_pool.begin().await?;
         let is_service_account = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM internal.service_accounts WHERE user_id = $1) AS \"exists!\"",
             claims.sub,
@@ -157,12 +160,12 @@ impl TenantMutation {
         // Record consent atomically with provisioning, using the stored user identity.
         sqlx::query(
             "INSERT INTO public.tenant_consent
-                (user_id, user_email, terms_version, tenant_name, tenant_id)
+                (user_id, user_email, terms_id, tenant_name, tenant_id)
              VALUES ($1, (SELECT email FROM auth.users WHERE id = $1), $2,
                      $3::catalog_tenant, (SELECT id FROM public.tenants WHERE tenant = $3))",
         )
         .bind(claims.sub)
-        .bind(input.submitting_user_agrees_to_terms_version)
+        .bind(input.submitting_user_agrees_to_terms_id)
         .bind(&tenant_name)
         .execute(&mut *txn)
         .await?;
@@ -261,12 +264,16 @@ async fn create_tenant(
 mod test {
     use crate::test_server::TestServer;
 
+    const TERMS_ID: &str = "00:00:00:00:00:00:00:01";
+
     const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
     const BOB: uuid::Uuid = uuid::Uuid::from_bytes([0x22; 16]);
 
     async fn server(pool: &sqlx::PgPool) -> TestServer {
         sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'alice@example.test'), ($2, 'bob@example.test')")
             .bind(ALICE).bind(BOB).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO internal.legal_terms (id, type, version, text) VALUES ($1::flowid, 'msa', 99, 'Test terms')")
+            .bind(TERMS_ID).execute(pool).await.unwrap();
         TestServer::start(
             pool.clone(),
             crate::test_server::snapshot(pool.clone(), false).await,
@@ -279,7 +286,7 @@ mod test {
             "query": "mutation($input: TenantCreateInput!) { tenantCreate(input: $input) }",
             "variables": { "input": {
                 "name": tenant,
-                "submittingUserAgreesToTermsVersion": 2,
+                "submittingUserAgreesToTermsId": TERMS_ID,
                 "survey": { "origin": "search", "details": "testing" },
             }}
         })
@@ -305,7 +312,7 @@ mod test {
         let consent: serde_json::Value = sqlx::query_scalar(
             "SELECT jsonb_build_object(
                 'userId', c.user_id, 'userEmail', c.user_email,
-                'termsVersion', c.terms_version, 'tenantName', c.tenant_name,
+                'termsId', c.terms_id, 'tenantName', c.tenant_name,
                 'tenantMatches', c.tenant_id = t.id,
                 'hasTimestamp', c.timestamp IS NOT NULL)
              FROM tenant_consent c JOIN tenants t ON t.tenant = c.tenant_name",
@@ -318,7 +325,7 @@ mod test {
           "hasTimestamp": true,
           "tenantMatches": true,
           "tenantName": "acmeCo/",
-          "termsVersion": 2,
+          "termsId": "00:00:00:00:00:00:00:01",
           "userEmail": "alice@example.test",
           "userId": "11111111-1111-1111-1111-111111111111"
         }
@@ -348,18 +355,14 @@ mod test {
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes"))
     )]
-    async fn tenant_create_requires_consent_version(pool: sqlx::PgPool) {
+    async fn tenant_create_requires_existing_terms(pool: sqlx::PgPool) {
         let server = server(&pool).await;
         let token = server.make_access_token(ALICE, None);
         let mut req = request("acmeCo");
-        for version in [0, -1] {
-            req["variables"]["input"]["submittingUserAgreesToTermsVersion"] = version.into();
-            let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
-            assert_eq!(
-                response["errors"][0]["message"],
-                "You must provide a positive integer version of the policies and terms you accept to create an organization. https://www.estuary.dev/privacy-policy/ and https://dashboard.estuary.dev/terms.html"
-            );
-        }
+        req["variables"]["input"]["submittingUserAgreesToTermsId"] =
+            "00:00:00:00:00:00:00:02".into();
+        let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
+        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""The accepted legal terms do not exist""#);
         let counts: (i64, i64) = sqlx::query_as(
             "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
                     (SELECT count(*) FROM tenant_consent WHERE user_id = $1)",
