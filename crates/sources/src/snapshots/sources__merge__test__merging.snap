@@ -21,6 +21,22 @@ DraftCatalog {
             is_touch: 0,
         },
         DraftCapture {
+            capture: acmeCo/captures/exists-too,
+            scope: test://example/catalog.yaml#/captures/acmeCo~1captures~1exists-too,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "an/image",
+                  "config": "test://example/path/to/sibling/config"
+                }
+              },
+              "bindings": []
+            },
+            is_touch: 0,
+        },
+        DraftCapture {
             capture: acmeCo/one/new,
             scope: test://example/acmeCo/one/flow.yaml#/captures/acmeCo~1one~1new,
             expect_pub_id: NULL,
@@ -136,6 +152,10 @@ DraftCatalog {
             depth: 2,
             resource: test://example/path/to/old/schema,
         },
+        Fetch {
+            depth: 2,
+            resource: test://example/path/to/sibling/config,
+        },
     ],
     imports: [
         Import {
@@ -145,6 +165,10 @@ DraftCatalog {
         Import {
             scope: test://example/acmeCo/flow.yaml#/import/-,
             to_resource: test://example/acmeCo/two/flow.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1captures~1exists-too/endpoint/connector/config,
+            to_resource: test://example/path/to/sibling/config,
         },
         Import {
             scope: test://example/catalog.yaml#/import/-,
@@ -178,7 +202,7 @@ DraftCatalog {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["acmeCo/flow.yaml"],"captures":{"acmeCo/captures/exists":{"endpoint":{"connector":{"image":"an/image","config":["updated"]}},"bindings":[],"expectPubId":"8866775533009900"}},"collections":{"acmeCo/collections/exists":{"schema":{"const":["updated-value"]},"key":["/int"],"expectPubId":"1100220033004400"}},"materializations":{"acmeCo/materializations/exists":{"endpoint":{"connector":{"image":"an/image","config":["also-updated"]}},"bindings":[]}},"tests":{"acmeCo/tests/exists":{"steps":[]}}},
+            content_dom: {"import":["acmeCo/flow.yaml"],"captures":{"acmeCo/captures/exists":{"endpoint":{"connector":{"image":"an/image","config":["updated"]}},"bindings":[],"expectPubId":"8866775533009900"},"acmeCo/captures/exists-too":{"endpoint":{"connector":{"image":"an/image","config":"test://example/path/to/sibling/config"}},"bindings":[]}},"collections":{"acmeCo/collections/exists":{"schema":{"const":["updated-value"]},"key":["/int"],"expectPubId":"1100220033004400"}},"materializations":{"acmeCo/materializations/exists":{"endpoint":{"connector":{"image":"an/image","config":["also-updated"]}},"bindings":[]}},"tests":{"acmeCo/tests/exists":{"steps":[]}}},
         },
         Resource {
             resource: test://example/path/to/old/config,
@@ -191,6 +215,12 @@ DraftCatalog {
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"const":"old-value"},
+        },
+        Resource {
+            resource: test://example/path/to/sibling/config,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: "[\"sibling\"]",
         },
     ],
 }
