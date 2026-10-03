@@ -138,11 +138,18 @@ impl Publisher {
         let appender = self.appenders.activate(&journal, client);
 
         // Enqueue the serialization to the Appender's buffer, then checkpoint.
+        // serde_json emits many tiny writes, which are cheap only while the
+        // buffer has spare capacity. Reserve for a similar next document;
+        // this one will be split off by checkpoint().
+        let begin = appender.buffer.len();
         let mut writer = std::mem::take(&mut appender.buffer).writer();
         serde_json::to_writer(&mut writer, &doc::SerPolicy::noop().on(&doc))
             .expect("serialization of json::AsNode cannot fail");
         appender.buffer = writer.into_inner();
         appender.buffer.put_u8(b'\n');
+        appender
+            .buffer
+            .reserve(((appender.buffer.len() - begin) * 3) / 2);
         appender.checkpoint().await?;
 
         // Clear and reclaim buffers for reuse.
@@ -191,6 +198,7 @@ impl Publisher {
         let appender = self.appenders.activate(&journal, client);
 
         // Enqueue the serialization to the Appender's buffer, then checkpoint.
+        // Reserve for a next document (see enqueue).
         let buffer_len = appender.buffer.len();
         let mut writer = std::mem::take(&mut appender.buffer).writer();
         serde_json::to_writer(&mut writer, &doc::SerPolicy::noop().on_owned(&doc))
@@ -198,6 +206,7 @@ impl Publisher {
         appender.buffer = writer.into_inner();
         let bytes_written = appender.buffer.len() - buffer_len;
         appender.buffer.put_u8(b'\n');
+        appender.buffer.reserve((3 * bytes_written) / 2);
         appender.checkpoint().await?;
 
         // Clear and reclaim buffers for reuse.
