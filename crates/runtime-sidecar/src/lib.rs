@@ -178,7 +178,10 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
         .with_context(|| format!("binding TCP {addr}"))?;
     tracing::info!(%addr, tls = tls_identity.is_some(), "runtime-sidecar listening on TCP");
 
-    let mut builder = tonic::transport::Server::builder();
+    // Every shuffle Slice -> Log stream from a peer sidecar shares one HTTP/2
+    // connection. Only streams may back-pressure, never the connection.
+    let mut builder =
+        tonic::transport::Server::builder().initial_connection_window_size(i32::MAX as u32);
     if let Some(identity) = tls_identity {
         builder = builder
             .tls_config(tonic::transport::ServerTlsConfig::new().identity(identity))

@@ -75,9 +75,9 @@ their request streams, and each Slice in turn to its Logs. Each actor observes
 the EOF, then drains its downstream peers' EOFs before exiting.
 
 This interacts subtly with disk back-pressure. When a Log engages back-pressure
-(§8), it stops draining a Slice's `Append`s, which parks that Slice's request
+(§8), it stops merging a Slice's `Append`s, which parks that Slice's request
 stream — so the Log no longer polls it and cannot observe its EOF. A Slice whose
-`Append` is parked at a back-pressured Log therefore can't drain that Log to EOF,
+`Append`s are parked at a back-pressured Log therefore can't drain that Log to EOF,
 and shutdown wedges from the Log upward. Back-pressure normally releases only as
 the downstream coordinator consumes the local log and reclaims segments — which
 stops happening once the coordinator is shutting down.
@@ -333,7 +333,8 @@ arrives, all pending reads are tailing, and no read still probes its write head.
 No unstarted read and no unresolved read can then preempt the heap top.
 
 A single non-tailing read therefore head-of-line-blocks the whole Slice's
-drain, so I/O stalls on individual journals matter. A read is only
+drain — and, once peers fill their receive windows (§8), every Log's
+merge — so I/O stalls on individual journals matter. A read is only
 (re-)parked into `pending_reads` after a now-or-never poll fails to yield
 its next batch (`park_or_process`); a read with content already buffered is
 processed immediately rather than counted as blocked. Reads that genuinely
@@ -350,8 +351,8 @@ Each dequeue also records the document's clock on the
 `shuffle_slice_last_source_published_at_time_seconds` gauge, labeled by
 cohort: how far this shard's shuffled read has progressed in source
 published-at time. `time() - gauge` is the shard's read lag, and max - min
-across sibling shards is their skew — the measure of how tightly remapped
-routing (§7) actually couples shards. Clocks are only comparable within a
+across sibling shards is their skew — the measure of how tightly Log merge
+constraints (§8) actually couple shards. Clocks are only comparable within a
 cohort: bindings of differing priority or read delay legitimately diverge.
 
 ### 6. Document Sequencing
@@ -380,44 +381,91 @@ computes its hash, and routes to target Log shard(s) using
 `filter_r_clocks` additionally filters by the rotated clock value,
 distributing reads across shards in the r_clock dimension.
 
-Key routing is deliberately "mostly solid": within `route_to_shards()`, a
-small fixed fraction of keys (`routing::REMAP_THRESHOLD / REMAP_BUCKETS`,
-selected by the key hash's low bits) route by a remapped hash — the hash's
-16-bit halves swapped — landing them across the key space rather than in
-their own range. This puts a
-trickle of every Slice's documents into every Log, so a lagging Log's
-clock-ordered merge (§8) back-pressures a Slice that has raced ahead,
-bounding how far shards' wall-clocks can diverge within a transaction. The
-remap is a pure function of the key hash, so every Slice agrees on it, and
-it is internal to routing: the key hash that connectors and log entries
-observe is always the true hash of the packed key.
+The document, its packed key, metadata, and journal context are queued
+as an `Append` to each target Log. Journal names are delta-encoded across
+consecutive Appends to minimize wire overhead.
 
-The document, its packed key, metadata, and journal context are sent
-as an `Append` message to each target Log. Journal names are
-delta-encoded across consecutive sends to minimize wire overhead.
+#### Rounds and Merge Constraints
+
+A Slice sends to Logs in **rounds** (`slice::rounds::Rounds`). A round queues
+Appends for each Log, and closes when the Slice would otherwise wait — a
+target's window is full, or the heap is `Blocked`, empty, or clock-delayed —
+or after `merge::MAX_DEQUEUES` dequeues. Closing sends each Log one
+`LogRequest` with its Appends, the Slice's merge constraint, and any ready
+`Flush`, which the LogActor applies in one event-loop iteration.
+
+Each Slice-to-Log channel is flow-controlled by windows of
+`proto_grpc::CHANNEL_BUFFER` rounds, cumulatively capped at `APPEND_WINDOW_BYTES`
+of Appends, acked implicitly as the receiver takes rounds (`slice::rounds::LogChannel`).
+A round goes only to the Logs it has Appends for, unless its constraint
+changed or it carries a flush, in which case it goes to every Log.
+
+A Slice's **merge constraint** (`merge::Constraint`, from
+`slice::state::ConstraintState`) must exceed every Append which a Log may not
+yet have merged, for liveness (below). But it must also be able to fall: a
+constraint far above the Slice's actual position no longer constrains Logs,
+and faster peers race ahead without bound — for example, a burst of fresh
+high-priority documents overtaking a slower Slice's historical backlog. The
+resulting skew holds back checkpoints on unresolved causal hints, fills the
+shuffle disk, and can time out the session (`CAUSAL_HINT_RESOLUTION_TIMEOUT`).
+A Slice's position also jumps backwards on a replay or a newly-started read.
+
+A completed flush cycle proves that the Appends before it merged at every Log.
+The constraint is therefore computed from a running max of Appends sent since
+the last *completed* flush, by `slice::state::HeapState`:
+
+- `Ready`: `max(running max + 1, heap top)`. The heap top lets Logs merge
+  peers' Appends up to it, but isn't ratcheted: a heap top read-delayed far
+  into the future mustn't release an unbounded burst of undelayed documents.
+- `Blocked` (a read could yet preempt the heap top): `running max + 1`, or the
+  last-sent position + 1 if there is no running max, so that a momentary read
+  stall doesn't halt every Log's merge.
+- `Tailing`: places no constraint on Logs.
+
+**Liveness:** a Slice never awaits a Log without first having told every Log a
+constraint beyond all its un-merged Appends. Take the least entry across all
+Logs' read-aheads and constraints. If it's an Append, its Log merges it. If
+it's Slice S's constraint, S can't be blocked on a Log L', which would hold
+an earlier un-merged Append of S. So S is progressing, awaiting journal I/O,
+or tailing.
 
 ### 8. Log Merge and Output
 
-Each LogActor receives Append messages from all Slices. Received
-appends are placed in a min-heap ordered by (priority DESC,
-adjusted_clock ASC). The actor pops entries one at a time, writing
-documents to its on-disk log files in a globally-merged order.
+Each Log merges every Slice's Appends into the shard's processing order
+(priority DESC, adjusted clock ASC) and writes it to on-disk log segments.
+The merge is strict. A Log merges its least Append only once no peer's
+advertised constraint (above) allows a lesser one. Otherwise it awaits that
+peer's next round rather than merge ahead of it, which liveness (also above)
+guarantees will come. The exception is an Append below its own Slice's
+constraint (a replay or newly-started read), which merges on arrival.
 
-Back-pressure is enforced through HTTP/2 flow control: when the Log actor
-can't drain fast enough, Slice sends block, which blocks journal reads,
-creating system-wide priority enforcement. High-priority, earlier-clock
-documents flow through first.
+Read-ahead within each Slice's receive window absorbs journal I/O stalls
+of upstream Slices without immediately stalling Log merge. A Slice that leads
+by more than about three windows (send, receive, and an overfilling round)
+blocks, as does every Slice while a Log's disk backlog is over its limit.
+Back-pressure falls on later and lower-priority documents.
+
+Mechanics are documented on `log::actor::LogActor` and
+`log::read_ahead::next_merge`.
+
+Metrics:
+- `shuffle_log_constrained_micros{slice}`: time a Log's merge awaited each Slice.
+- `shuffle_slice_log_blocked_micros{log}`: time a Slice awaited each Log's window.
+- `shuffle_slice_rounds` / `shuffle_log_rounds`: rounds closed by Slices, and
+  received by Logs. `shuffle_log_appends / shuffle_slice_rounds` is roughly
+  the mean round size.
 
 ### 9. Flush Cycle
 
 When the Slice observes a commit (ACK or OUTSIDE_TXN), it marks the
-flush as ready. On the next event loop iteration (if no flush is already
+flush as ready. When its round next closes (if no flush is already
 in-flight), the Slice:
 
 1. Builds a `Frontier` from unreported producer state and accumulated
    causal hints, then drains `unreported` into `reported`.
-2. Sends `Flush { cycle }` to all Log shards.
-3. Each Log performs its durability IO and responds `Flushed { cycle }`.
+2. Sends the round to all Log shards, with `Flush { cycle }`.
+3. Each Log, once it has merged the Slice's Appends which preceded the flush,
+   performs its durability IO and responds `Flushed { cycle }`.
 4. When all Logs respond, the flush cycle completes and the frontier
    is reduced into the Slice's accumulated progress.
 
@@ -591,8 +639,13 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
     restart recovery.
   - `routing.rs`: Clock rotation and shard routing.
   - `heap.rs`: Priority heap for ready reads.
-- `log/`: Log actor, append merge heap, flush IO.
+  - `rounds.rs`: Rounds of Appends to Logs, their per-Log windows, and the
+    merge constraint which closes each round.
+- `log/`: Log actor, per-Slice read-ahead and merge, flush IO.
+  - `read_ahead.rs`: Per-Slice read-ahead of rounds, flush barriers, and the
+    strict merge step across Slices (`next_merge`).
   - `log/block/`: Zero-copy types for working with segmented log blocks.
+- `merge.rs`: Merge order (`Position`), constraints (`Constraint`), and flow control.
 - `frontier.rs`: Frontier types, reduction, causal hint resolution,
   chunked encode/decode, and drain.
 - `binding.rs`: Binding and Source configuration, partition filtering.

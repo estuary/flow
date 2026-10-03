@@ -7,6 +7,7 @@ mod listing;
 mod producer;
 pub mod read;
 mod replay;
+mod rounds;
 pub mod routing;
 mod state;
 
@@ -67,10 +68,14 @@ pub(crate) struct Metrics {
     /// their skew. Clocks are only comparable within a cohort (bindings of
     /// differing priority or read delay legitimately diverge), hence the label.
     last_source_published_at: Vec<metrics::Gauge>,
+    /// Total rounds sent to Log shards.
+    rounds: metrics::Counter,
+    /// Time spent awaiting capacity of each Log channel, indexed by Log shard.
+    log_blocked_micros: Vec<metrics::Counter>,
 }
 
 impl Metrics {
-    fn new(shard_id: &str, num_cohorts: usize) -> Self {
+    fn new(shard_id: &str, num_cohorts: usize, num_logs: usize) -> Self {
         static DESCRIBE: std::sync::Once = std::sync::Once::new();
         DESCRIBE.call_once(|| {
             metrics::describe_counter!(
@@ -118,6 +123,16 @@ impl Metrics {
                 metrics::Unit::Seconds,
                 "unix time of the last document dequeued from the ready-read heap, by cohort",
             );
+            metrics::describe_counter!(
+                "shuffle_slice_rounds",
+                metrics::Unit::Count,
+                "rounds sent to Log shards",
+            );
+            metrics::describe_counter!(
+                "shuffle_slice_log_blocked_micros",
+                metrics::Unit::Microseconds,
+                "time spent awaiting capacity of a Log channel, by Log shard",
+            );
         });
 
         Self {
@@ -135,6 +150,16 @@ impl Metrics {
                         "shuffle_slice_last_source_published_at_time_seconds",
                         "shard_id" => shard_id.to_string(),
                         "cohort" => cohort.to_string(),
+                    )
+                })
+                .collect(),
+            rounds: metrics::counter!("shuffle_slice_rounds", "shard_id" => shard_id.to_string()),
+            log_blocked_micros: (0..num_logs)
+                .map(|log| {
+                    metrics::counter!(
+                        "shuffle_slice_log_blocked_micros",
+                        "shard_id" => shard_id.to_string(),
+                        "log" => log.to_string(),
                     )
                 })
                 .collect(),
