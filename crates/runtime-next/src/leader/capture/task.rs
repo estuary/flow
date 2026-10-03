@@ -220,8 +220,8 @@ impl Task {
         };
 
         let mut close_policy = close_policy::Policy::new(min_txn_duration, max_txn_duration);
-        // Cap combiner usage at 64MB to favor small transactions.
-        close_policy.combiner_usage_bytes = 0..(64 * 1024 * 1024);
+        // Bound to avoid combiner spills and to favor small transactions.
+        close_policy.read_bytes = 0..(64 * 1024 * 1024);
 
         Ok(Self {
             bindings,
