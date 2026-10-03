@@ -631,15 +631,148 @@ pub struct StorageMappingsFilter {
 
 /// A storage mapping that defines where collection data is stored.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
+#[graphql(complex)]
 pub struct StorageMapping {
     /// The catalog prefix this storage mapping applies to.
     pub catalog_prefix: models::Prefix,
     /// Optional description of this storage mapping.
     pub detail: Option<String>,
     /// The storage definition containing stores and data plane assignments.
+    #[graphql(deprecation = "Deprecated in favor of `dataPlanes` and `fragmentStores` fields.")]
     pub spec: async_graphql::Json<models::StorageDef>,
     /// The current user's capability to this storage mapping's prefix.
     pub user_capability: models::Capability,
+}
+
+#[async_graphql::ComplexObject]
+impl StorageMapping {
+    /// Data planes which may be used by tasks or collections under this mapping.
+    async fn data_planes(&self) -> Vec<StorageMappingDataPlane> {
+        self.spec
+            .data_planes
+            .iter()
+            .filter_map(|name| {
+                let dp = StorageMappingDataPlane::from_name(name);
+                if dp.is_some() {
+                    return dp;
+                }
+
+                tracing::warn!(data_plane_name = %name, "skipping data plane with unparseable name");
+                None
+            })
+            .collect()
+    }
+
+    /// Stores for journal fragments under this mapping.
+    async fn fragment_stores(&self) -> Vec<FragmentStore> {
+        self.spec.stores.iter().map(FragmentStore::from).collect()
+    }
+}
+
+/// A data plane which may be used under a storage mapping.
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct StorageMappingDataPlane {
+    /// Name of this data-plane under the catalog namespace.
+    pub name: String,
+    /// Cloud provider where this data-plane is hosted.
+    pub cloud_provider: super::data_planes::DataPlaneCloudProvider,
+    /// Cloud region where this data-plane is hosted.
+    pub region: String,
+    /// Whether this is a public data-plane.
+    pub is_public: bool,
+}
+
+impl StorageMappingDataPlane {
+    fn from_name(name: &str) -> Option<Self> {
+        let (cloud_provider, region, _tag, is_public) =
+            super::data_planes::parse_data_plane_name(name)?;
+        Some(Self {
+            name: name.to_string(),
+            cloud_provider,
+            region,
+            is_public,
+        })
+    }
+}
+
+/// Storage provider of a fragment store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
+pub enum FragmentStoreProvider {
+    S3,
+    Gcs,
+    Azure,
+    Custom,
+}
+
+/// A flattened fragment store. Fields which don't apply to the
+/// store's `provider` are null.
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct FragmentStore {
+    /// Storage provider of this store.
+    pub provider: FragmentStoreProvider,
+    /// Optional prefix of keys written to the store.
+    pub prefix: Option<String>,
+    /// Bucket into which data is stored. Null for Azure stores.
+    pub bucket: Option<String>,
+    /// AWS region of the bucket. Null for GCS, Azure, and Custom stores.
+    pub region: Option<String>,
+    /// Azure storage account name. Null for non-Azure stores.
+    pub storage_account_name: Option<String>,
+    /// Azure container name. Null for non-Azure stores.
+    pub container_name: Option<String>,
+    /// Azure tenant ID which owns the storage account. Null for non-Azure stores.
+    pub account_tenant_id: Option<String>,
+    /// Address of the S3-compatible storage endpoint. Null for non-Custom stores.
+    pub endpoint: Option<String>,
+}
+
+impl From<&models::Store> for FragmentStore {
+    fn from(store: &models::Store) -> Self {
+        let prefix = |p: &Option<models::Prefix>| p.as_ref().map(|p| p.to_string());
+
+        match store {
+            models::Store::S3(cfg) => Self {
+                provider: FragmentStoreProvider::S3,
+                prefix: prefix(&cfg.prefix),
+                bucket: Some(cfg.bucket.clone()),
+                region: cfg.region.clone(),
+                storage_account_name: None,
+                container_name: None,
+                account_tenant_id: None,
+                endpoint: None,
+            },
+            models::Store::Gcs(cfg) => Self {
+                provider: FragmentStoreProvider::Gcs,
+                prefix: prefix(&cfg.prefix),
+                bucket: Some(cfg.bucket.clone()),
+                region: None,
+                storage_account_name: None,
+                container_name: None,
+                account_tenant_id: None,
+                endpoint: None,
+            },
+            models::Store::Azure(cfg) => Self {
+                provider: FragmentStoreProvider::Azure,
+                prefix: prefix(&cfg.prefix),
+                bucket: None,
+                region: None,
+                storage_account_name: Some(cfg.storage_account_name.clone()),
+                container_name: Some(cfg.container_name.clone()),
+                account_tenant_id: Some(cfg.account_tenant_id.clone()),
+                endpoint: None,
+            },
+            models::Store::Custom(cfg) => Self {
+                provider: FragmentStoreProvider::Custom,
+                prefix: prefix(&cfg.prefix),
+                bucket: Some(cfg.bucket.clone()),
+                region: None,
+                storage_account_name: None,
+                container_name: None,
+                account_tenant_id: None,
+                endpoint: Some(cfg.endpoint.to_string()),
+            },
+        }
+    }
 }
 
 pub type PaginatedStorageMappings = Connection<
@@ -916,6 +1049,36 @@ async fn fetch_storage_mappings_before(
 #[cfg(test)]
 mod test {
     use crate::test_server;
+
+    #[test]
+    fn data_planes_from_names() {
+        let data_planes = [
+            "ops/dp/public/aws-us-east-1-c1",
+            "ops/dp/private/acmeCo/gcp-us-central1-c2",
+            "not-a-data-plane",
+        ]
+        .map(super::StorageMappingDataPlane::from_name);
+
+        insta::assert_debug_snapshot!(data_planes);
+    }
+
+    #[test]
+    fn fragment_stores_from_stores() {
+        let mut s3 = models::Store::example();
+        *s3.prefix_mut() = models::Prefix::new("collection-data/");
+
+        let fragment_stores = [
+            s3,
+            models::Store::Gcs(models::GcsBucketAndPrefix::example()),
+            models::Store::Azure(models::AzureStorageConfig::example()),
+            models::Store::Custom(models::CustomStore::example()),
+        ]
+        .iter()
+        .map(super::FragmentStore::from)
+        .collect::<Vec<_>>();
+
+        insta::assert_debug_snapshot!(fragment_stores);
+    }
 
     #[test]
     fn by_under_prefix_maps_to_starts_with() {
