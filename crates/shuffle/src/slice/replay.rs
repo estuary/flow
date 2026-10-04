@@ -111,11 +111,15 @@ impl SliceActor {
         let read_state = &mut self.reads[read_id];
         let binding = &self.topology.bindings[read_state.binding_index as usize];
 
-        // Start the bounded, non-blocking historical read.
+        // Start the bounded, blocking historical read. It's blocking because
+        // all of `[offset, end_offset)` is known to exist, but a lagging broker
+        // (e.g. a newly-assigned replica which hasn't yet listed a fragment
+        // persisted by its prior topology) may not yet index it. A non-blocking
+        // read would then fail, or end early at the broker's stale write head.
         let request = broker::ReadRequest {
             journal: format!("{};{}", read_state.journal, binding.journal_read_suffix),
             begin_mod_time: binding.not_before.to_unix().0 as i64,
-            block: false,
+            block: true,
             do_not_proxy: true,
             offset: producer_state.offset,
             end_offset: trigger.begin_offset,
