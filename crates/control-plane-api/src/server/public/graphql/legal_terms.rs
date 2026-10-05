@@ -51,7 +51,7 @@ mod test {
         assert!(seeded.get("errors").is_none(), "{seeded}");
         let terms = &seeded["data"]["legalTerms"];
         let expected_id: models::Id = sqlx::query_scalar(
-            "SELECT id FROM internal.legal_terms WHERE type = 'msa' AND version = 3",
+            "SELECT id FROM internal.legal_terms WHERE type = 'msa' AND version = 4",
         )
         .fetch_one(&pool)
         .await
