@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select catalog_name from internal.sandboxes where user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "catalog_name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3a1e0e8f6c66d868cbdc66fc499416bad86119ddfff116c5c526fec1191d8264"
+}

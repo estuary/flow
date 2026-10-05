@@ -48,6 +48,7 @@ async-stripe = { version = "0", default-features = false, features = [
     "runtime-tokio-hyper",
     "webhook-events",
 ] }
+async-stream = "0.3"
 async-trait = "0"
 atty = "0"
 # TODO: Add "xz" feature after next apache-avro release (>0.20.0)
@@ -212,6 +213,8 @@ tokio = { version = "1", features = [
     "sync",
     "time",
 ] }
+# Public API connections must not inherit the local stack's SSL_CERT_FILE override.
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 tokio-util = { version = "0", features = ["io", "compat", "rt"] }
 tokio-stream = { version = "0" }
 tonic = { version = "0", features = ["tls-native-roots"] }
