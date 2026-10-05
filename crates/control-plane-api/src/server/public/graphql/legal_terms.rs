@@ -6,7 +6,6 @@ pub struct LegalTermsQuery;
 pub enum LegalTermsType {
     /// Master Services Agreement.
     Msa,
-    PrivacyPolicy,
 }
 
 #[derive(async_graphql::SimpleObject)]
@@ -38,6 +37,20 @@ impl LegalTermsQuery {
 
 #[cfg(test)]
 mod test {
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn legal_terms_requires_type(pool: sqlx::PgPool) {
+        let server = crate::test_server::TestServer::start(
+            pool.clone(),
+            crate::test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let query = serde_json::json!({ "query": "{ legalTerms { id text } }" });
+
+        let response: serde_json::Value = server.graphql(&query, None).await;
+        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""Field \"legalTerms\" argument \"type\" of type \"QueryRoot\" is required but not provided""#);
+        assert!(response["data"].is_null());
+    }
+
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn legal_terms_unauthenticated(pool: sqlx::PgPool) {
         let server = crate::test_server::TestServer::start(

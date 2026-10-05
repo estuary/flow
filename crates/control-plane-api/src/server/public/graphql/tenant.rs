@@ -263,7 +263,6 @@ mod test {
 
     const TERMS_ID: &str = "00:00:00:00:00:00:00:01";
     const STALE_ID: &str = "00:00:00:00:00:00:00:04";
-    const PRIVACY_ID: &str = "00:00:00:00:00:00:00:02";
 
     const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
     const BOB: uuid::Uuid = uuid::Uuid::from_bytes([0x22; 16]);
@@ -271,8 +270,8 @@ mod test {
     async fn server(pool: &sqlx::PgPool) -> TestServer {
         sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'alice@example.test'), ($2, 'bob@example.test')")
             .bind(ALICE).bind(BOB).execute(pool).await.unwrap();
-        sqlx::query("INSERT INTO internal.legal_terms (id, type, version, text) VALUES ($1::flowid, 'msa', 99, 'Test terms'), ($2::flowid, 'privacy_policy', 99, 'Test privacy policy'), ($3::flowid, 'msa', 98, 'Old test MSA terms')")
-            .bind(TERMS_ID).bind(PRIVACY_ID).bind(STALE_ID).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO internal.legal_terms (id, type, version, text) VALUES ($1::flowid, 'msa', 99, 'Test terms'), ($2::flowid, 'msa', 98, 'Old test MSA terms')")
+            .bind(TERMS_ID).bind(STALE_ID).execute(pool).await.unwrap();
         TestServer::start(
             pool.clone(),
             crate::test_server::snapshot(pool.clone(), false).await,
@@ -358,7 +357,7 @@ mod test {
         let server = server(&pool).await;
         let token = server.make_access_token(ALICE, None);
         let mut req = request("acmeCo");
-        for invalid_id in ["00:00:00:00:00:00:00:03", STALE_ID, PRIVACY_ID] {
+        for invalid_id in ["00:00:00:00:00:00:00:03", STALE_ID] {
             req["variables"]["submittingUserAgreesToTermsId"] = serde_json::json!(invalid_id);
             let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
             insta::allow_duplicates! {
@@ -389,10 +388,9 @@ mod test {
             .unwrap();
         let token = server.make_access_token(ALICE, Some("untrusted@example.test"));
         let response: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
-        assert!(
-            response["errors"]
-                .as_array()
-                .is_some_and(|errors| !errors.is_empty())
+        insta::assert_json_snapshot!(
+            response["errors"][0]["message"],
+            @r#""error returned from database: null value in column \"user_email\" of relation \"tenant_consent\" violates not-null constraint""#
         );
         let counts: (i64, i64, i64) = sqlx::query_as(
             "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),

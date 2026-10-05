@@ -1,6 +1,6 @@
 begin;
 
-create type internal.legal_terms_type as enum ('msa', 'privacy_policy');
+create type internal.legal_terms_type as enum ('msa');
 
 create table internal.legal_terms (
     id public.flowid primary key not null default internal.id_generator(),
@@ -52,12 +52,14 @@ create table internal.tenant_consent (
     user_id uuid not null,
     user_email text not null,
     terms_id public.flowid not null references internal.legal_terms (id),
-    timestamp timestamptz not null default now(),
+    created_at timestamptz not null default now(),
     tenant_name public.catalog_tenant not null,
     -- `not null default null` overrides flowid's generated default:
     -- insert will fail unless a tenant ID is explicitly provided.
     tenant_id public.flowid not null default null
 );
+
+create index tenant_consent_tenant_id_idx on internal.tenant_consent (tenant_id);
 
 create function internal.tenant_consent_reject_mutation() returns trigger
 language plpgsql as $$

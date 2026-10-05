@@ -1525,7 +1525,6 @@ enum LegalTermsType {
 	Master Services Agreement.
 	"""
 	MSA
-	PRIVACY_POLICY
 }
 
 type LiveSpec {
