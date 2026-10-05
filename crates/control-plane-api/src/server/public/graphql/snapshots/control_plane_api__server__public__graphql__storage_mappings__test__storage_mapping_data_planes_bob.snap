@@ -1,0 +1,50 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/storage_mappings.rs
+expression: bob
+---
+{
+  "data": {
+    "storageMappings": {
+      "edges": [
+        {
+          "node": {
+            "catalogPrefix": "bobCo2/",
+            "dataPlanes": [
+              {
+                "awsIamUserArn": null,
+                "cidrBlocks": [
+                  "10.30.0.0/16"
+                ],
+                "closed": false,
+                "cloudProvider": "AWS",
+                "fqdn": "dp.private/bobCo2-one",
+                "gcpServiceAccountEmail": null,
+                "isPublic": false,
+                "name": "ops/dp/private/bobCo2/aws-us-east-1-c1",
+                "region": "us-east-1",
+                "tag": "c1",
+                "userCapability": "read"
+              },
+              {
+                "awsIamUserArn": "arn:aws:iam::123456789:user/test",
+                "cidrBlocks": [
+                  "10.0.0.0/16",
+                  "192.168.1.0/24"
+                ],
+                "closed": false,
+                "cloudProvider": "AWS",
+                "fqdn": "dp.one",
+                "gcpServiceAccountEmail": "test-gcp-one@estuary-test.iam.gserviceaccount.com",
+                "isPublic": true,
+                "name": "ops/dp/public/aws-us-west-2-c1",
+                "region": "us-west-2",
+                "tag": "c1",
+                "userCapability": "read"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

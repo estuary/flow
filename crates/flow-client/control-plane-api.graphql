@@ -3126,7 +3126,7 @@ type StorageMapping {
 	"""
 	Data planes which may be used by tasks or collections under this mapping.
 	"""
-	dataPlanes: [StorageMappingDataPlane!]!
+	dataPlanes: [DataPlane!]!
 	"""
 	Stores for journal fragments under this mapping.
 	"""
@@ -3142,28 +3142,6 @@ type StorageMappingConnection {
 	A list of edges.
 	"""
 	edges: [StorageMappingEdge!]!
-}
-
-"""
-A data plane which may be used under a storage mapping.
-"""
-type StorageMappingDataPlane {
-	"""
-	Name of this data-plane under the catalog namespace.
-	"""
-	name: String!
-	"""
-	Cloud provider where this data-plane is hosted.
-	"""
-	cloudProvider: DataPlaneCloudProvider!
-	"""
-	Cloud region where this data-plane is hosted.
-	"""
-	region: String!
-	"""
-	Whether this is a public data-plane.
-	"""
-	isPublic: Boolean!
 }
 
 """

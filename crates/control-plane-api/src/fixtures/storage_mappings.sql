@@ -9,6 +9,10 @@
 -- `aliceCo/private/` nests under `aliceCo/` and admits only plane two: the
 -- longest covering mapping decides alone, so under it plane one is denied
 -- despite the parent mapping, and plane two is admitted despite it.
+--
+-- `bobCo2/` admits its private plane (from `bob_co2.sql`), a public plane, and
+-- a plane which doesn't exist. Its users read different subsets of those
+-- planes, which exercises how `StorageMapping.dataPlanes` resolves them.
 insert into public.storage_mappings (catalog_prefix, spec) values (
   'aliceCo/',
   '{"stores":[{"provider":"S3","bucket":"alice-bucket"}],"data_planes":["ops/dp/public/aws-us-west-2-c1"]}'
@@ -18,4 +22,7 @@ insert into public.storage_mappings (catalog_prefix, spec) values (
 ), (
   'bobCo/',
   '{"stores":[{"provider":"S3","bucket":"bob-bucket"}],"data_planes":["ops/dp/public/gcp-us-central1-c2"]}'
+), (
+  'bobCo2/',
+  '{"stores":[{"provider":"S3","bucket":"bob2-bucket"}],"data_planes":["ops/dp/private/bobCo2/aws-us-east-1-c1","ops/dp/public/aws-us-west-2-c1","ops/dp/private/bobCo2/gcp-us-unknown-c1"]}'
 );
