@@ -35,6 +35,7 @@ pub(crate) use data_planes::parse_data_plane_name;
 mod connectors;
 pub mod id;
 mod invite_links;
+mod legal_terms;
 mod live_spec_refs;
 mod live_specs;
 mod prefixes;
@@ -126,6 +127,7 @@ pub struct QueryRoot(
     invite_links::InviteLinksQuery,
     connectors::ConnectorsQuery,
     tenant::TenantQuery,
+    legal_terms::LegalTermsQuery,
     refresh_tokens::RefreshTokensQuery,
     service_accounts::ServiceAccountsQuery,
     secrets::SecretsQuery,
