@@ -63,6 +63,26 @@ type ActivationStatus {
 }
 
 """
+Advertising platform that supplied a signup click identifier.
+"""
+enum AdAttributionProvider {
+	REDDIT
+	LINKEDIN
+}
+
+input AdClickInput {
+	provider: AdAttributionProvider!
+	"""
+	Opaque platform click identifier. Blank IDs and IDs over 256 bytes are ignored.
+	"""
+	clickId: String!
+	"""
+	When the ad click occurred, as recorded by the client. Not the signup time.
+	"""
+	clickedAt: DateTime
+}
+
+"""
 An alert from the alert_history table
 """
 type Alert {
@@ -1319,6 +1339,17 @@ input GCPPrivateServiceConnectInput {
 	allPorts: Boolean! = false
 }
 
+input GoogleAnalyticsAttributionInput {
+	"""
+	Client ID from the Google tag, not a user or tenant identifier.
+	"""
+	clientId: String!
+	"""
+	Session ID from the Google tag, encoded as a positive decimal string.
+	"""
+	sessionId: String!
+}
+
 scalar Id
 
 input IdFilter {
@@ -1738,7 +1769,7 @@ type MutationRoot {
 		"""
 		ID of the latest MSA terms the submitting user has read and accepts.
 		"""
-		submittingUserAgreesToTermsId: Id!,		survey: JSON
+		submittingUserAgreesToTermsId: Id!,		survey: JSON,		attribution: SignupAttributionInput
 	): Boolean!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
@@ -2793,6 +2824,21 @@ enum ShardsStatus {
 	FAILED
 }
 
+input SignupAttributionInput {
+	"""
+	At most the first 16 entries are considered; the first valid ID per provider is kept.
+	"""
+	adClicks: [AdClickInput!]! = []
+	"""
+	Client-recorded UTM parameters from the signup journey, independent of ad clicks.
+	"""
+	utm: UtmAttributionInput
+	"""
+	Browser Analytics context. Omit when Analytics collection is disabled.
+	"""
+	googleAnalytics: GoogleAnalyticsAttributionInput
+}
+
 """
 Status information about the `sourceCapture`
 """
@@ -3156,6 +3202,18 @@ A user_grant to seed a service account with at creation time.
 input UserGrantInput {
 	prefix: Prefix!
 	capability: Capability!
+}
+
+"""
+UTM values are case-sensitive. Blank values and values over 256 bytes are ignored.
+"""
+input UtmAttributionInput {
+	source: String
+	medium: String
+	campaign: String
+	term: String
+	content: String
+	id: String
 }
 
 """

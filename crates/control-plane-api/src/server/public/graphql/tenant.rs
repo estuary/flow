@@ -95,6 +95,116 @@ mod tests {
     }
 }
 
+/// Advertising platform that supplied a signup click identifier.
+#[derive(async_graphql::Enum, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AdAttributionProvider {
+    Reddit,
+    Linkedin,
+}
+
+#[derive(async_graphql::InputObject, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdClickInput {
+    pub provider: AdAttributionProvider,
+    /// Opaque platform click identifier. Blank IDs and IDs over 256 bytes are ignored.
+    pub click_id: String,
+    /// When the ad click occurred, as recorded by the client. Not the signup time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clicked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(async_graphql::InputObject, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignupAttributionInput {
+    /// At most the first 16 entries are considered; the first valid ID per provider is kept.
+    #[graphql(default)]
+    pub ad_clicks: Vec<AdClickInput>,
+    /// Client-recorded UTM parameters from the signup journey, independent of ad clicks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub utm: Option<UtmAttributionInput>,
+    /// Browser Analytics context. Omit when Analytics collection is disabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_analytics: Option<GoogleAnalyticsAttributionInput>,
+}
+
+#[derive(async_graphql::InputObject, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleAnalyticsAttributionInput {
+    /// Client ID from the Google tag, not a user or tenant identifier.
+    pub client_id: String,
+    /// Session ID from the Google tag, encoded as a positive decimal string.
+    pub session_id: String,
+}
+
+/// UTM values are case-sensitive. Blank values and values over 256 bytes are ignored.
+#[derive(async_graphql::InputObject, serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UtmAttributionInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub campaign: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub term: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+impl UtmAttributionInput {
+    fn normalize(mut self) -> Option<Self> {
+        let mut has_value = false;
+        for field in [
+            &mut self.source,
+            &mut self.medium,
+            &mut self.campaign,
+            &mut self.term,
+            &mut self.content,
+            &mut self.id,
+        ] {
+            *field = field
+                .take()
+                .filter(|value| !value.trim().is_empty() && value.len() <= 256);
+            has_value |= field.is_some();
+        }
+        has_value.then_some(self)
+    }
+}
+
+impl SignupAttributionInput {
+    fn normalize(self) -> Option<Self> {
+        // Advertising data must not prevent provisioning. Bound stored data while
+        // keeping IDs opaque, and allow each platform to attribute independently.
+        let mut ad_clicks: Vec<AdClickInput> = Vec::new();
+        for click in self.ad_clicks.into_iter().take(16) {
+            if click.click_id.trim().is_empty()
+                || click.click_id.len() > 256
+                || ad_clicks.iter().any(|kept| kept.provider == click.provider)
+            {
+                continue;
+            }
+            ad_clicks.push(click);
+        }
+        let utm = self.utm.and_then(UtmAttributionInput::normalize);
+        let google_analytics = self.google_analytics.filter(|ga| {
+            !ga.client_id.trim().is_empty()
+                && ga.client_id.len() <= 256
+                && ga.session_id.len() <= 20
+                && ga.session_id.bytes().all(|b| b.is_ascii_digit())
+                && ga.session_id.parse::<u64>().is_ok_and(|id| id > 0)
+        });
+        (!ad_clicks.is_empty() || utm.is_some() || google_analytics.is_some()).then_some(Self {
+            ad_clicks,
+            utm,
+            google_analytics,
+        })
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct TenantMutation;
 
@@ -110,6 +220,7 @@ impl TenantMutation {
         #[graphql(desc = "ID of the latest MSA terms the submitting user has read and accepts.")]
         submitting_user_agrees_to_terms_id: models::Id,
         survey: Option<async_graphql::Json<serde_json::Value>>,
+        attribution: Option<SignupAttributionInput>,
     ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env
@@ -151,6 +262,7 @@ impl TenantMutation {
             claims.sub,
             &name,
             survey.map(|v| v.0).unwrap_or(serde_json::Value::Null),
+            attribution.and_then(SignupAttributionInput::normalize),
             &mut txn,
         )
         .await?;
@@ -179,6 +291,7 @@ async fn create_tenant(
     user_id: uuid::Uuid,
     name: &str,
     survey: serde_json::Value,
+    attribution: Option<SignupAttributionInput>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> async_graphql::Result<String> {
     models::Token::new(name)
@@ -236,11 +349,15 @@ async fn create_tenant(
         }
         err.into()
     })?;
-    let metadata = if survey.is_null() {
+    let mut metadata = if survey.is_null() {
         serde_json::json!({})
     } else {
         serde_json::json!({ "onboardingSurvey": survey })
     };
+
+    if let Some(attribution) = attribution {
+        metadata["signupAttribution"] = serde_json::to_value(attribution)?;
+    }
 
     sqlx::query!(
         r#"UPDATE public.tenants
@@ -289,6 +406,79 @@ mod test {
                 "survey": { "origin": "search", "details": "testing" },
             }
         })
+    }
+
+    fn attributed_request(tenant: &str, attribution: serde_json::Value) -> serde_json::Value {
+        let mut req = request(tenant);
+        req["query"] = serde_json::json!(
+            "mutation($name: String!, $submittingUserAgreesToTermsId: Id!, $survey: JSON, $attribution: SignupAttributionInput) { tenantCreate(name: $name, submittingUserAgreesToTermsId: $submittingUserAgreesToTermsId, survey: $survey, attribution: $attribution) }"
+        );
+        req["variables"]["attribution"] = attribution;
+        req
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_attribution(pool: sqlx::PgPool) {
+        let server = server(&pool).await;
+        let token = server.make_access_token(ALICE, Some("alice@example.test"));
+        let req = attributed_request(
+            "acmeCo",
+            serde_json::json!({"adClicks": [
+                {"provider": "REDDIT", "clickId": " "},
+                {"provider": "LINKEDIN", "clickId": "x".repeat(257)},
+                {"provider": "REDDIT", "clickId": "reddit-click", "clickedAt": "2026-09-30T14:30:00-04:00"},
+                {"provider": "REDDIT", "clickId": "duplicate-click"},
+                {"provider": "LINKEDIN", "clickId": "linkedin-click"}
+            ], "utm": {"source": "LinkedIn", "medium": "paid_social", "campaign": "fall_launch",
+                "term": "data pipelines", "content": "banner", "id": "campaign-123"},
+                "googleAnalytics": {"clientId": "123456789.1790000000", "sessionId": "1790000000"}}),
+        );
+        let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
+        assert_eq!(
+            response,
+            serde_json::json!({"data": {"tenantCreate": true}})
+        );
+        let metadata: serde_json::Value =
+            sqlx::query_scalar("SELECT metadata FROM tenants WHERE tenant = 'acmeCo/'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        insta::assert_json_snapshot!(metadata, @r#"
+        {
+          "onboardingSurvey": {
+            "details": "testing",
+            "origin": "search"
+          },
+          "signupAttribution": {
+            "adClicks": [
+              {
+                "clickId": "reddit-click",
+                "clickedAt": "2026-09-30T18:30:00Z",
+                "provider": "REDDIT"
+              },
+              {
+                "clickId": "linkedin-click",
+                "provider": "LINKEDIN"
+              }
+            ],
+            "googleAnalytics": {
+              "clientId": "123456789.1790000000",
+              "sessionId": "1790000000"
+            },
+            "utm": {
+              "campaign": "fall_launch",
+              "content": "banner",
+              "id": "campaign-123",
+              "medium": "paid_social",
+              "source": "LinkedIn",
+              "term": "data pipelines"
+            }
+          }
+        }
+        "#);
     }
 
     #[sqlx::test(
@@ -388,7 +578,13 @@ mod test {
             .await
             .unwrap();
         let token = server.make_access_token(ALICE, Some("untrusted@example.test"));
-        let response: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
+        let req = attributed_request(
+            "acmeCo",
+            serde_json::json!({"adClicks": [
+                {"provider": "REDDIT", "clickId": "rollback-click"}
+            ]}),
+        );
+        let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
         assert!(
             response["errors"]
                 .as_array()
