@@ -1813,6 +1813,7 @@ impl TestHarness {
             self.publisher.clone(),
             snapshot_watch.clone(),
             None,
+            None,
         ));
 
         self.control_plane_app = Some(app);

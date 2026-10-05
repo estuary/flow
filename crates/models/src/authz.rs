@@ -68,6 +68,7 @@ pub enum Capability {
     DecryptSecret,
     Delegate,
     Assume,
+    CreateSandbox,
 }
 
 impl std::fmt::Display for Capability {
@@ -164,6 +165,7 @@ impl CapabilityBundle {
                     | Self::TeamAdmin.capabilities()
                     | Self::Billing.capabilities()
                     | Self::ManageDataPlane.capabilities()
+                    | CreateSandbox
             }
             Self::Billing => ViewBilling | EditBilling,
             Self::ManageServiceAccounts => {
