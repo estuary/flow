@@ -165,7 +165,11 @@ impl TenantMutation {
         .bind(terms_id)
         .bind(&tenant_name)
         .execute(&mut *txn)
-        .await?;
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, user_id = %claims.sub, %terms_id, "Failed to record consent");
+            async_graphql::Error::new("Failed to record consent")
+        })?;
         txn.commit().await?;
 
         tracing::info!(user_id = %claims.sub, tenant = %tenant_name, "created tenant");
@@ -388,10 +392,7 @@ mod test {
             .unwrap();
         let token = server.make_access_token(ALICE, Some("untrusted@example.test"));
         let response: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
-        insta::assert_json_snapshot!(
-            response["errors"][0]["message"],
-            @r#""error returned from database: null value in column \"user_email\" of relation \"tenant_consent\" violates not-null constraint""#
-        );
+        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""Failed to record consent""#);
         let counts: (i64, i64, i64) = sqlx::query_as(
             "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
                     (SELECT count(*) FROM internal.tenant_consent WHERE user_id = $1),
