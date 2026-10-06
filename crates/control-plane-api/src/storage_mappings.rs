@@ -100,6 +100,23 @@ pub async fn fetch_storage_mappings(
     .await
 }
 
+/// Select a permitted explicit plane, or the matched mapping's first plane.
+/// The exact `ops/` mapping permits any explicit plane: platform infrastructure
+/// is provisioned across data planes without enumerating the fleet in its mapping.
+pub(crate) fn select_data_plane<'a>(
+    prefix: &str,
+    planes: &'a [String],
+    explicit: Option<&'a str>,
+) -> anyhow::Result<&'a str> {
+    match explicit {
+        Some(name) if prefix == "ops/" || planes.iter().any(|plane| plane == name) => Ok(name),
+        Some(name) => anyhow::bail!("storage mapping {prefix} doesn't permit data plane {name}"),
+        None => planes.first().map(String::as_str).ok_or_else(|| {
+            anyhow::anyhow!("storage mapping {prefix} is missing associated data planes")
+        }),
+    }
+}
+
 const COLLECTION_DATA_SUFFIX: &str = "collection-data/";
 
 /// Returns true if `prefix` ends with `collection-data/` as a distinct trailing
