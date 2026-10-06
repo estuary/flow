@@ -1,6 +1,8 @@
 use async_graphql::{Context, Result, SimpleObject};
 use validator::Validate;
 
+mod storage;
+
 const TENANT_UNAVAILABLE_MESSAGE: &str = "The organization name is already in use, \
     please choose a different one or contact support@estuary.dev.";
 
@@ -110,6 +112,11 @@ impl TenantMutation {
         #[graphql(desc = "ID of the latest MSA terms the submitting user has read and accepts.")]
         submitting_user_agrees_to_terms_id: models::Id,
         survey: Option<async_graphql::Json<serde_json::Value>>,
+        #[graphql(
+            desc = "Full catalog name of an open public data plane to use by default.",
+            validator(max_length = 256)
+        )]
+        data_plane: String,
     ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env
@@ -148,8 +155,10 @@ impl TenantMutation {
         }
 
         let tenant_name = create_tenant(
+            env.snapshot(),
             claims.sub,
             &name,
+            &data_plane,
             survey.map(|v| v.0).unwrap_or(serde_json::Value::Null),
             &mut txn,
         )
@@ -180,8 +189,10 @@ impl TenantMutation {
 }
 
 async fn create_tenant(
+    snapshot: &crate::Snapshot,
     user_id: uuid::Uuid,
     name: &str,
+    data_plane: &str,
     survey: serde_json::Value,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> async_graphql::Result<String> {
@@ -220,6 +231,22 @@ async fn create_tenant(
         return Err(async_graphql::Error::new(TENANT_UNAVAILABLE_MESSAGE));
     }
 
+    let mut public_planes: Vec<String> = sqlx::query_scalar(
+        "SELECT data_plane_name FROM data_planes
+         WHERE starts_with(data_plane_name, 'ops/dp/public/') AND NOT closed
+         ORDER BY id DESC",
+    )
+    .fetch_all(&mut **txn)
+    .await?;
+    // Match publicDataPlanes: managed planes are registered before their HMAC
+    // material is ready, and cannot receive tenants until they can sign claims.
+    public_planes.retain(|name| {
+        snapshot
+            .data_plane_by_catalog_name(name)
+            .is_some_and(|plane| plane.can_sign())
+    });
+    let (tenant_storage, recovery_storage) = storage::specs(public_planes, data_plane)?;
+
     crate::directives::beta_onboard::provision_tenant(
         // TODO: remove unused email param when retiring betaOnboard directive
         "",
@@ -240,6 +267,19 @@ async fn create_tenant(
         }
         err.into()
     })?;
+    // Keep the legacy directive's provisioning behavior unchanged. Its initial
+    // mappings and these replacements are committed atomically with the tenant.
+    sqlx::query(
+        "UPDATE storage_mappings SET spec = CASE WHEN catalog_prefix = $1 THEN $2::json ELSE $3::json END
+         WHERE catalog_prefix = $1 OR catalog_prefix = $4",
+    )
+    .bind(&tenant_name)
+    .bind(tenant_storage)
+    .bind(recovery_storage)
+    .bind(format!("recovery/{tenant_name}"))
+    .execute(&mut **txn)
+    .await?;
+
     let metadata = if survey.is_null() {
         serde_json::json!({})
     } else {
@@ -285,9 +325,10 @@ mod test {
 
     fn request(tenant: &str) -> serde_json::Value {
         serde_json::json!({
-            "query": "mutation($name: String!, $submittingUserAgreesToTermsId: Id!, $survey: JSON) { tenantCreate(name: $name, submittingUserAgreesToTermsId: $submittingUserAgreesToTermsId, survey: $survey) }",
+            "query": "mutation($name: String!, $submittingUserAgreesToTermsId: Id!, $survey: JSON, $dataPlane: String!) { tenantCreate(name: $name, submittingUserAgreesToTermsId: $submittingUserAgreesToTermsId, survey: $survey, dataPlane: $dataPlane) }",
             "variables": {
                 "name": tenant,
+                "dataPlane": "ops/dp/public/aws-us-west-2-c1",
                 "submittingUserAgreesToTermsId": TERMS_ID,
                 "survey": { "origin": "search", "details": "testing" },
             }
@@ -351,6 +392,185 @@ mod test {
           }
         }
         "#);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_requires_data_plane(pool: sqlx::PgPool) {
+        let server = server(&pool).await;
+        let token = server.make_access_token(ALICE, None);
+        for null in [false, true] {
+            let mut req = request("acmeCo");
+            if null {
+                req["variables"]["dataPlane"] = serde_json::Value::Null;
+            } else {
+                req["variables"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("dataPlane");
+            }
+            let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
+            let message = response["errors"][0]["message"].as_str().unwrap();
+            assert!(message.contains("dataPlane"), "{message}");
+        }
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_data_plane_selection(pool: sqlx::PgPool) {
+        // Fixtures are inserted after migrations, so explicitly close this plane.
+        sqlx::query("UPDATE data_planes SET closed = true WHERE data_plane_name = 'ops/dp/public/gcp-us-central1-c2'")
+            .execute(&pool).await.unwrap();
+        sqlx::query("UPDATE data_planes SET data_plane_name = 'ops/dp/private/acmeCo/az-westeurope-c3' WHERE data_plane_name = 'ops/dp/public/az-westeurope-c3'")
+            .execute(&pool).await.unwrap();
+        let server = server(&pool).await;
+        let token = server.make_access_token(ALICE, None);
+        for plane in [
+            "ops/dp/public/missing",
+            "ops/dp/private/acmeCo/az-westeurope-c3",
+            "ops/dp/public/gcp-us-central1-c2",
+        ] {
+            let mut req = request("acmeCo");
+            req["variables"]["dataPlane"] = plane.into();
+            let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
+            assert_eq!(
+                response["errors"][0]["message"],
+                format!("{plane} is not a selectable public data-plane")
+            );
+        }
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM user_grants WHERE user_id = $1")
+            .bind(ALICE)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+
+        let mut req = request("acmeCo");
+        req["variables"]["dataPlane"] = "ops/dp/public/aws-us-west-2-c1".into();
+        let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "tenantCreate": true
+          }
+        }
+        "#);
+        let planes: serde_json::Value = sqlx::query_scalar(
+            "SELECT spec->'data_planes' FROM storage_mappings WHERE catalog_prefix = 'acmeCo/'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        insta::assert_json_snapshot!(planes, @r#"
+        [
+          "ops/dp/public/aws-us-west-2-c1"
+        ]
+        "#);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_rejects_unprovisioned_plane(pool: sqlx::PgPool) {
+        let server = server(&pool).await;
+        let token = server.make_access_token(ALICE, None);
+        let mut req = request("acmeCo");
+        req["variables"]["dataPlane"] = "ops/dp/public/az-westeurope-c3".into();
+        let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
+        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""ops/dp/public/az-westeurope-c3 is not a selectable public data-plane""#);
+        let counts: (i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
+                    (SELECT count(*) FROM storage_mappings WHERE catalog_prefix IN ('acmeCo/', 'recovery/acmeCo/')),
+                    (SELECT count(*) FROM user_grants WHERE user_id = $1),
+                    (SELECT count(*) FROM internal.tenant_consent WHERE user_id = $1)",
+        ).bind(ALICE).fetch_one(&pool).await.unwrap();
+        assert_eq!(counts, (0, 0, 0, 0));
+
+        let response: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "tenantCreate": true
+          }
+        }
+        "#);
+        let planes: serde_json::Value = sqlx::query_scalar(
+            "SELECT spec->'data_planes' FROM storage_mappings WHERE catalog_prefix = 'acmeCo/'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        insta::assert_json_snapshot!(planes, @r#"
+        [
+          "ops/dp/public/aws-us-west-2-c1",
+          "ops/dp/public/gcp-us-central1-c2"
+        ]
+        "#);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_no_open_planes(pool: sqlx::PgPool) {
+        sqlx::query("UPDATE data_planes SET closed = true")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let server = server(&pool).await;
+        let token = server.make_access_token(ALICE, None);
+        let response: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
+        assert_eq!(
+            response["errors"][0]["message"],
+            "there are no open public data-planes to place a new tenant on"
+        );
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_colocated_storage(pool: sqlx::PgPool) {
+        let server = server(&pool).await;
+        let token = server.make_access_token(ALICE, None);
+        let response: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "tenantCreate": true
+          }
+        }
+        "#);
+        let specs: Vec<serde_json::Value> = sqlx::query_scalar("SELECT spec FROM storage_mappings WHERE catalog_prefix IN ('acmeCo/', 'recovery/acmeCo/') ORDER BY catalog_prefix")
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0]["stores"][0]["provider"], "S3");
+        assert_eq!(specs[0]["stores"][0]["region"], "us-west-2");
+        assert_eq!(
+            specs[0]["stores"][0]["bucket"],
+            specs[1]["stores"][0]["bucket"]
+        );
+        assert_eq!(specs[0]["stores"][0]["prefix"], "collection-data/");
+        assert!(specs[1]["stores"][0].get("prefix").is_none());
+        assert_eq!(specs[0]["data_planes"][0], "ops/dp/public/aws-us-west-2-c1");
+        assert!(specs[1].get("data_planes").is_none());
     }
 
     #[sqlx::test(

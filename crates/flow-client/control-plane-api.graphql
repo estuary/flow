@@ -1814,7 +1814,11 @@ type MutationRoot {
 		"""
 		ID of the latest MSA terms the submitting user has read and accepts.
 		"""
-		submittingUserAgreesToTermsId: Id!,		survey: JSON
+		submittingUserAgreesToTermsId: Id!,		survey: JSON,
+		"""
+		Full catalog name of an open public data plane to use by default.
+		"""
+		dataPlane: String!
 	): Boolean!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
