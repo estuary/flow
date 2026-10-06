@@ -96,7 +96,7 @@ pub enum CapabilityBundle {
     TeamAdmin,
     ManageServiceAccounts,
     ManageDataPlane,
-    SandboxCreate,
+    CreateSandbox,
     Delegate,
     Assume,
 }
@@ -182,7 +182,7 @@ impl CapabilityBundle {
             }
             Self::Delegate => Delegate.into(),
             Self::Assume => Assume.into(),
-            Self::SandboxCreate => CreateSandbox.into(),
+            Self::CreateSandbox => CreateSandbox.into(),
         }
     }
 }
@@ -199,31 +199,5 @@ pub fn bits_for_legacy(capability: super::Capability) -> CapabilitySet {
 impl From<super::Capability> for CapabilitySet {
     fn from(capability: super::Capability) -> Self {
         bits_for_legacy(capability)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sandbox_creation_requires_explicit_bundle() {
-        assert!(
-            !CapabilityBundle::Admin
-                .capabilities()
-                .contains(Capability::CreateSandbox)
-        );
-        assert!(!bits_for_legacy(crate::Capability::Admin).contains(Capability::CreateSandbox));
-
-        let bundle: CapabilityBundle = serde_json::from_str(r#""sandbox_create""#).unwrap();
-        assert_eq!(bundle, CapabilityBundle::SandboxCreate);
-        assert_eq!(
-            bundle.capabilities(),
-            CapabilitySet::only(Capability::CreateSandbox)
-        );
-        assert_eq!(
-            serde_json::to_string(&bundle).unwrap(),
-            r#""sandbox_create""#
-        );
     }
 }

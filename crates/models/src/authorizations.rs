@@ -524,7 +524,7 @@ mod test {
                     "exp": 1700003600,
                     "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
                     "role": "authenticated",
-                    "capability_mask": ["sandbox_create"]
+                    "capability_mask": ["create_sandbox"]
                 }"#,
                 Some(Capability::CreateSandbox.into()),
             ),

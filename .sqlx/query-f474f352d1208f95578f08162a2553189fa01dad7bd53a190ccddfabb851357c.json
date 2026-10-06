@@ -97,7 +97,7 @@
                       "assume",
                       "manage_data_plane",
                       "manage_service_accounts",
-                      "sandbox_create"
+                      "create_sandbox"
                     ]
                   }
                 }
