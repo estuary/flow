@@ -109,6 +109,7 @@
       "tgt_plane_id": "0101010101010101"
     }
   ],
+  "storage_mapping_data_planes": {},
   "role_grants": [
     {
       "subject_role": "acmeCo/",
