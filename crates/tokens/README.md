@@ -17,7 +17,7 @@ This crate provides abstractions for tokens that need periodic refreshing (JWTs,
 Three built-in source types:
 
 - **`jwt::SignedSource`** - Self-signs JWT tokens with configurable claims and duration.
-- **`RestSource`** - Fetches tokens from REST APIs with automatic retry on server errors.
+- **`RestSource`** - Fetches tokens from REST APIs with automatic retry on server errors and request timeouts.
 - **`StreamSource`** - Wraps a `futures::Stream` of tokens, coalescing immediately-ready items.
 
 ## Usage

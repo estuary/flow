@@ -1,5 +1,9 @@
 use crate::{DateTime, Source, TimeDelta};
 
+/// Bounds a REST token request. It exceeds the 30s that a secret decryption may
+/// spend upstream.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// RestSource is a trait fulfilling Source via REST API requests and responses.
 pub trait RestSource: Send + Sync {
     /// Model is the deserialized response type from the REST API.
@@ -8,7 +12,8 @@ pub trait RestSource: Send + Sync {
     type Token: Send + Sync + 'static;
 
     /// Build an API request whose 200 OK response is a JSON serialization of Model.
-    /// A server-side (5XX) error is logged and retried but is not client-facing.
+    /// A server-side (5XX) error or request timeout is logged and retried,
+    /// but is not client-facing.
     /// All other error statuses are mapped and surfaced as tonic::Status.
     fn build_request<'s>(
         &'s mut self,
@@ -35,7 +40,7 @@ where
         &mut self,
         started: DateTime,
     ) -> tonic::Result<Result<(Self::Token, TimeDelta, Self::Revoke), TimeDelta>> {
-        let request = self.build_request(started).await?;
+        let request = self.build_request(started).await?.timeout(REQUEST_TIMEOUT);
 
         // If we need to retry, it will be in range 5-15 seconds (mean of 10s).
         let retry = TimeDelta::milliseconds(rand::random_range(5000..15000));
