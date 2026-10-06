@@ -58,37 +58,30 @@ pub fn assign(
             .get(prefix)
             .expect("mapping_planes has every storage mapping");
 
-        if let Some((explicit_name, explicit_id)) = explicit {
-            // The `ops/` mapping lists no planes because ops catalogs are
-            // created into every plane, including one being created right now.
-            if prefix.as_str() == "ops/" || planes.iter().any(|p| p == explicit_name) {
-                return explicit_id;
+        let plane_name = match crate::storage_mappings::select_data_plane(
+            prefix.as_str(),
+            planes,
+            explicit.map(|(name, _)| name),
+        ) {
+            Ok(name) => name,
+            Err(err) => {
+                errors.push(tables::Error {
+                    scope: scope.clone(),
+                    error: anyhow::anyhow!("{entity} {name} {err}"),
+                });
+                return models::Id::zero();
             }
-            errors.push(tables::Error {
-                scope: scope.clone(),
-                error: anyhow::anyhow!(
-                    "{entity} {name} storage mapping {prefix} doesn't permit data plane {explicit_name}"
-                ),
-            });
-            return models::Id::zero();
+        };
+        if let Some((_, id)) = explicit {
+            return id;
         }
 
-        let Some(default_name) = planes.first() else {
-            errors.push(tables::Error {
-                scope: scope.clone(),
-                error: anyhow::anyhow!(
-                    "{entity} {name} storage mapping {prefix} is missing associated data planes"
-                ),
-            });
-            return models::Id::zero();
-        };
-
         let resolved = *defaults.entry(prefix).or_insert_with(|| {
-            let resolved = resolve(default_name);
+            let resolved = resolve(plane_name);
             if resolved.is_none() {
                 errors.push(tables::Error {
                     scope: mapping.scope(),
-                    error: anyhow::anyhow!("data plane '{default_name}' was not found"),
+                    error: anyhow::anyhow!("data plane '{plane_name}' was not found"),
                 });
             }
             resolved
