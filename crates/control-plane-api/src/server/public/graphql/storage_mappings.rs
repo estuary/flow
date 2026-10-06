@@ -1,14 +1,16 @@
+use super::data_planes;
 use super::filters;
 use crate::storage_mappings::{
     collection_and_recovery_spec_from, insert_storage_mapping, update_storage_mapping,
     upsert_storage_mapping,
 };
 use async_graphql::{
-    Context,
+    Context, dataloader,
     types::connection::{self, Connection},
 };
 use proto_gazette::broker;
 use validator::Validate;
+
 /// Result of testing storage health for a single data plane and store.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct StorageHealthItem {
@@ -631,15 +633,160 @@ pub struct StorageMappingsFilter {
 
 /// A storage mapping that defines where collection data is stored.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
+#[graphql(complex)]
 pub struct StorageMapping {
     /// The catalog prefix this storage mapping applies to.
     pub catalog_prefix: models::Prefix,
     /// Optional description of this storage mapping.
     pub detail: Option<String>,
     /// The storage definition containing stores and data plane assignments.
+    #[graphql(deprecation = "Deprecated in favor of `dataPlanes` and `fragmentStores` fields.")]
     pub spec: async_graphql::Json<models::StorageDef>,
     /// The current user's capability to this storage mapping's prefix.
     pub user_capability: models::Capability,
+}
+
+#[async_graphql::ComplexObject]
+impl StorageMapping {
+    /// Data planes which may be used by tasks or collections under this mapping.
+    async fn data_planes(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Vec<super::data_planes::DataPlane>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let subject = env.claims()?.subject();
+        let snapshot = env.snapshot();
+
+        let data_plane_names = self.spec.data_planes.iter();
+        let data_plane_detail_keys = data_plane_names
+            .clone()
+            .map(|name| data_planes::DataPlaneDetailsKey(name.clone()))
+            .collect::<Vec<_>>();
+
+        let loader = ctx.data::<dataloader::DataLoader<super::PgDataLoader>>()?;
+        let details_map = loader.load_many(data_plane_detail_keys).await?;
+
+        Ok(data_plane_names
+            .filter_map(|name| {
+                let snapshot_data_plane = snapshot.data_plane_by_catalog_name(name);
+                if snapshot_data_plane.is_none() {
+                    tracing::warn!(
+                        data_plane_name = %name,
+                        "skipping unknown data plane of storage mapping",
+                    );
+                };
+                snapshot_data_plane
+            })
+            .filter_map(|snapshot_data_plane| {
+                let name = snapshot_data_plane.data_plane_name.as_str();
+                let key = data_planes::DataPlaneDetailsKey(name.to_string());
+
+                // users that have access to the storage mapping are assumed to have read access
+                // to the associated data planes, even if they don't have an explicit grant
+                let capability = snapshot
+                    .user_capability(&subject, name)
+                    .unwrap_or(models::Capability::None);
+
+                let details = details_map.get(&key);
+                let data_plane =
+                    data_planes::DataPlane::build(snapshot_data_plane, capability, details);
+
+                if data_plane.is_none() {
+                    tracing::warn!(
+                        data_plane_name = %snapshot_data_plane.data_plane_name,
+                        "skipping data plane with unknown details",
+                    );
+                }
+
+                data_plane
+            })
+            .collect())
+    }
+
+    /// Stores for journal fragments under this mapping.
+    async fn fragment_stores(&self) -> Vec<FragmentStore> {
+        self.spec.stores.iter().map(FragmentStore::from).collect()
+    }
+}
+
+/// Storage provider of a fragment store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
+pub enum FragmentStoreProvider {
+    S3,
+    Gcs,
+    Azure,
+    Custom,
+}
+
+/// A flattened fragment store. Fields which don't apply to the
+/// store's `provider` are null.
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct FragmentStore {
+    /// Storage provider of this store.
+    pub provider: FragmentStoreProvider,
+    /// Optional prefix of keys written to the store.
+    pub prefix: Option<String>,
+    /// Bucket into which data is stored. Null for Azure stores.
+    pub bucket: Option<String>,
+    /// AWS region of the bucket. Null for GCS, Azure, and Custom stores.
+    pub region: Option<String>,
+    /// Azure storage account name. Null for non-Azure stores.
+    pub storage_account_name: Option<String>,
+    /// Azure container name. Null for non-Azure stores.
+    pub container_name: Option<String>,
+    /// Azure tenant ID which owns the storage account. Null for non-Azure stores.
+    pub account_tenant_id: Option<String>,
+    /// Address of the S3-compatible storage endpoint. Null for non-Custom stores.
+    pub endpoint: Option<String>,
+}
+
+impl From<&models::Store> for FragmentStore {
+    fn from(store: &models::Store) -> Self {
+        let prefix = |p: &Option<models::Prefix>| p.as_ref().map(|p| p.to_string());
+
+        match store {
+            models::Store::S3(cfg) => Self {
+                provider: FragmentStoreProvider::S3,
+                prefix: prefix(&cfg.prefix),
+                bucket: Some(cfg.bucket.clone()),
+                region: cfg.region.clone(),
+                storage_account_name: None,
+                container_name: None,
+                account_tenant_id: None,
+                endpoint: None,
+            },
+            models::Store::Gcs(cfg) => Self {
+                provider: FragmentStoreProvider::Gcs,
+                prefix: prefix(&cfg.prefix),
+                bucket: Some(cfg.bucket.clone()),
+                region: None,
+                storage_account_name: None,
+                container_name: None,
+                account_tenant_id: None,
+                endpoint: None,
+            },
+            models::Store::Azure(cfg) => Self {
+                provider: FragmentStoreProvider::Azure,
+                prefix: prefix(&cfg.prefix),
+                bucket: None,
+                region: None,
+                storage_account_name: Some(cfg.storage_account_name.clone()),
+                container_name: Some(cfg.container_name.clone()),
+                account_tenant_id: Some(cfg.account_tenant_id.clone()),
+                endpoint: None,
+            },
+            models::Store::Custom(cfg) => Self {
+                provider: FragmentStoreProvider::Custom,
+                prefix: prefix(&cfg.prefix),
+                bucket: Some(cfg.bucket.clone()),
+                region: None,
+                storage_account_name: None,
+                container_name: None,
+                account_tenant_id: None,
+                endpoint: Some(cfg.endpoint.to_string()),
+            },
+        }
+    }
 }
 
 pub type PaginatedStorageMappings = Connection<
@@ -918,6 +1065,24 @@ mod test {
     use crate::test_server;
 
     #[test]
+    fn fragment_stores_from_stores() {
+        let mut s3 = models::Store::example();
+        *s3.prefix_mut() = models::Prefix::new("collection-data/");
+
+        let fragment_stores = [
+            s3,
+            models::Store::Gcs(models::GcsBucketAndPrefix::example()),
+            models::Store::Azure(models::AzureStorageConfig::example()),
+            models::Store::Custom(models::CustomStore::example()),
+        ]
+        .iter()
+        .map(super::FragmentStore::from)
+        .collect::<Vec<_>>();
+
+        insta::assert_debug_snapshot!(fragment_stores);
+    }
+
+    #[test]
     fn by_under_prefix_maps_to_starts_with() {
         let filter = super::StorageMappingsBy {
             exact_prefixes: None,
@@ -975,6 +1140,56 @@ mod test {
             err.message,
             "provide exactly one of `exactPrefixes` or `underPrefix`, or omit `by` entirely"
         );
+    }
+
+    // The `sso_tenant` fixture is loaded only for the user records which `bob_co2` grants to.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("sso_tenant", "data_planes", "bob_co2", "storage_mappings")
+        )
+    )]
+    async fn storage_mapping_data_planes_have_details(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), snapshot).await;
+        let bob_token = server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), None);
+        let carol_token = server.make_access_token(uuid::Uuid::from_bytes([0x33; 16]), None);
+
+        let query = serde_json::json!({
+            "query": r#"
+                query {
+                    storageMappings(filter: { catalogPrefix: { in: ["bobCo2/"] } }) {
+                        edges { node {
+                            catalogPrefix
+                            dataPlanes {
+                                name
+                                fqdn
+                                userCapability
+                                cloudProvider
+                                region
+                                tag
+                                isPublic
+                                closed
+                                cidrBlocks
+                                awsIamUserArn
+                                gcpServiceAccountEmail
+                            }
+                        } }
+                    }
+                }
+            "#,
+        });
+
+        // Bob reads both known planes. The unknown plane is skipped.
+        let bob: serde_json::Value = server.graphql(&query, Some(&bob_token)).await;
+        insta::assert_json_snapshot!("storage_mapping_data_planes_bob", bob);
+        // Carol holds no grant to the private plane, but still sees it through
+        // the mapping, with a `read` capability.
+        let carol: serde_json::Value = server.graphql(&query, Some(&carol_token)).await;
+        insta::assert_json_snapshot!("storage_mapping_data_planes_carol", carol);
     }
 
     #[sqlx::test(

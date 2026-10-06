@@ -183,6 +183,40 @@ pub struct DataPlane {
     raw_gcp_psc_endpoints: Vec<serde_json::Value>,
 }
 
+impl DataPlane {
+    /// Builds a DataPlane from its snapshot row and optional database details.
+    /// Returns None if the data plane's name cannot be parsed.
+    pub(crate) fn build(
+        dp: &crate::snapshot::DataPlane,
+        user_capability: models::Capability,
+        details: Option<&DataPlaneDetails>,
+    ) -> Option<Self> {
+        let (cloud_provider, region, tag, is_public) = parse_data_plane_name(&dp.data_plane_name)?;
+        let details = details.cloned().unwrap_or_default();
+
+        Some(Self {
+            id: dp.control_id,
+            name: dp.data_plane_name.clone(),
+            fqdn: dp.data_plane_fqdn.clone(),
+            reactor_address: dp.reactor_address.clone(),
+            user_capability,
+            cloud_provider,
+            region,
+            tag,
+            is_public,
+            closed: dp.closed,
+            cidr_blocks: details.cidr_blocks,
+            gcp_service_account_email: details.gcp_service_account_email,
+            aws_iam_user_arn: details.aws_iam_user_arn,
+            azure_application_name: details.azure_application_name,
+            azure_application_client_id: details.azure_application_client_id,
+            raw_aws_link_endpoints: details.aws_link_endpoints,
+            raw_azure_link_endpoints: details.azure_link_endpoints,
+            raw_gcp_psc_endpoints: details.gcp_psc_endpoints,
+        })
+    }
+}
+
 #[ComplexObject]
 impl DataPlane {
     /// Configured private links for this data-plane, each with its
@@ -322,7 +356,34 @@ async fn fetch_data_plane_details(
         .collect())
 }
 
-struct DataPlaneDetails {
+/// Keys the request-scoped loader by data plane name, so that resolvers
+/// returning data planes (such as `StorageMapping.dataPlanes`) collapse
+/// into one batch query.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct DataPlaneDetailsKey(pub String);
+
+impl async_graphql::dataloader::Loader<DataPlaneDetailsKey> for super::PgDataLoader {
+    type Value = DataPlaneDetails;
+    type Error = String;
+
+    async fn load(
+        &self,
+        keys: &[DataPlaneDetailsKey],
+    ) -> Result<HashMap<DataPlaneDetailsKey, Self::Value>, Self::Error> {
+        let names: Vec<String> = keys.iter().map(|key| key.0.clone()).collect();
+        let details = fetch_data_plane_details(&self.0, &names)
+            .await
+            .map_err(|err| err.message)?;
+
+        Ok(details
+            .into_iter()
+            .map(|(name, details)| (DataPlaneDetailsKey(name), details))
+            .collect())
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DataPlaneDetails {
     cidr_blocks: Vec<String>,
     gcp_service_account_email: Option<String>,
     aws_iam_user_arn: Option<String>,
@@ -585,40 +646,13 @@ impl DataPlanesQuery {
         let edges = rows
             .into_iter()
             .map(|dp| {
-                let data_plane_name = dp.data_plane_name.clone();
-                let user_capability = snapshot.user_capability(&subject, &data_plane_name);
-                let details = details_map.get(&data_plane_name);
-                let (cloud_provider, region, tag, is_public) =
-                    parse_data_plane_name(&data_plane_name).expect("name validated by pre-filter");
-                let node = DataPlane {
-                    id: dp.control_id,
-                    name: data_plane_name.clone(),
-                    fqdn: dp.data_plane_fqdn.clone(),
-                    reactor_address: dp.reactor_address.clone(),
-                    user_capability: user_capability.expect("capability guaranteed by pre-filter"),
-                    cloud_provider,
-                    region,
-                    tag,
-                    is_public,
-                    closed: dp.closed,
-                    cidr_blocks: details.map(|d| d.cidr_blocks.clone()).unwrap_or_default(),
-                    gcp_service_account_email: details
-                        .and_then(|d| d.gcp_service_account_email.clone()),
-                    aws_iam_user_arn: details.and_then(|d| d.aws_iam_user_arn.clone()),
-                    azure_application_name: details.and_then(|d| d.azure_application_name.clone()),
-                    azure_application_client_id: details
-                        .and_then(|d| d.azure_application_client_id.clone()),
-                    raw_aws_link_endpoints: details
-                        .map(|d| d.aws_link_endpoints.clone())
-                        .unwrap_or_default(),
-                    raw_azure_link_endpoints: details
-                        .map(|d| d.azure_link_endpoints.clone())
-                        .unwrap_or_default(),
-                    raw_gcp_psc_endpoints: details
-                        .map(|d| d.gcp_psc_endpoints.clone())
-                        .unwrap_or_default(),
-                };
-                connection::Edge::new(data_plane_name, node)
+                let user_capability = snapshot
+                    .user_capability(&subject, &dp.data_plane_name)
+                    .expect("capability guaranteed by pre-filter");
+                let node =
+                    DataPlane::build(dp, user_capability, details_map.get(&dp.data_plane_name))
+                        .expect("name validated by pre-filter");
+                connection::Edge::new(dp.data_plane_name.clone(), node)
             })
             .collect();
 
