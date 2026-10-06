@@ -20,6 +20,7 @@ impl Client {
     ) -> impl futures::Stream<Item = crate::RetryResult<broker::ReadResponse>> + Send + 'static
     {
         coroutines::coroutine(move |mut co| async move {
+            let metadata_only = req.metadata_only;
             let mut attempt = 0;
             let mut write_head = i64::MAX;
             let metrics = Metrics::new(&req.journal);
@@ -37,9 +38,16 @@ impl Client {
                 }
 
                 let err = match self
-                    .read_some(&mut co, metrics.clone(), &mut req, &mut write_head)
+                    .read_some(
+                        &mut co,
+                        metrics.clone(),
+                        &mut req,
+                        &mut write_head,
+                        metadata_only,
+                    )
                     .await
                 {
+                    Ok(()) if metadata_only => return,
                     Ok(()) => {
                         attempt = 0;
 
@@ -79,6 +87,7 @@ impl Client {
         metrics: Metrics,
         req: &mut broker::ReadRequest,
         write_head: &mut i64,
+        metadata_only: bool,
     ) -> crate::Result<()> {
         let mut client = self
             .subclient(&mut req.header, router::Mode::Replica)
@@ -88,16 +97,19 @@ impl Client {
         req.metadata_only = true;
 
         let mut stream = client.read(req.clone()).await?.into_inner();
-        let mut metadata = stream.try_next().await?.ok_or(Error::UnexpectedEof)?;
+        let metadata = stream.try_next().await?.ok_or(Error::UnexpectedEof)?;
         let _eof = stream.try_next().await?; // Broker sends EOF.
-        std::mem::drop(stream);
+
+        // The `client` Channel may be a different broker than the content read
+        // `client` below. Drop to avoid pinning it for the life of this RPC.
+        std::mem::drop((stream, client));
 
         tracing::trace!(req=?ops::DebugJson(&req), meta=?ops::DebugJson(&metadata), "fetched read metadata");
 
         // Use routing topology from the metadata response for subsequent
         // requests, dispatching to a broker that serves this journal rather
         // than the default broker we initially dialed for the metadata request.
-        req.header = metadata.header.take();
+        req.header = metadata.header.clone();
 
         // OFFSET_NOT_YET_AVAILABLE means there's no content at our requested
         // offset. The broker reports, via `metadata.offset`, the offset it
@@ -105,54 +117,50 @@ impl Client {
         // *fast-forwarded* offset when fragments were skipped because they fall
         // before `begin_mod_time` or sit beyond a hole in the offset space. When
         // that resolved offset equals the write head, the read is definitively
-        // caught up: there's no content between it and the head. Yield the
-        // metadata so the caller observes `offset` and `write_head`, then return.
-        // Setting both `*write_head` and `req.offset` to the write head causes
-        // the outer read() loop to exit for non-blocking reads.
-        if metadata.status() == broker::Status::OffsetNotYetAvailable
-            && metadata.offset == metadata.write_head
-        {
-            *write_head = metadata.write_head;
-            req.offset = metadata.write_head;
+        // caught up: there's no content between it and the head.
+        let status = metadata.status();
+        let caught_up = status == broker::Status::OffsetNotYetAvailable
+            && metadata.offset == metadata.write_head;
 
-            () = co.yield_(Ok(metadata)).await;
-            metrics.tick(req.offset, *write_head);
-
-            return Ok(());
-        } else if metadata.status() != broker::Status::Ok {
-            // Note: we used to fall through and retry below on !Ok. That was
-            // subtly wrong, because we may have a transient error here that
-            // resolves before the Read RPC below, where that RPC then fails
-            // with an OffsetNotYetAvailable not having our above handling.
-            return Err(Error::BrokerStatus(metadata.status()));
+        if status != broker::Status::Ok && !caught_up {
+            return Err(Error::BrokerStatus(status));
         }
 
         // Can we directly read the fragment from cloud storage?
-        if let (broker::Status::Ok, false, Some(fragment)) = (
-            metadata.status(),
-            metadata.fragment_url.is_empty() || metadata.fragment_url.starts_with("file://"),
-            &metadata.fragment,
-        ) {
+        let is_file_url = metadata.fragment_url.starts_with("file://");
+        let direct = match &metadata.fragment {
+            Some(fragment) if !metadata.fragment_url.is_empty() && !is_file_url => {
+                Some((fragment.clone(), metadata.fragment_url.clone()))
+            }
+            _ => None,
+        };
+
+        // The read is complete with its metadata response if it's caught up,
+        // if it's metadata-only, or if a fragment hole fast-forwarded it to or
+        // past a bounded read's `end_offset`.
+        let complete = caught_up
+            || metadata_only
+            || (req.end_offset != 0 && metadata.offset >= req.end_offset);
+
+        // Yield the metadata so the caller observes the resolved `offset` and
+        // `write_head` (and the fragment of a direct read). For a complete
+        // non-blocking read, `req.offset == *write_head` or reaching
+        // `end_offset` causes the outer read() loop to exit.
+        if complete || direct.is_some() {
             if req.offset != metadata.offset {
                 tracing::info!(req.journal, req.offset, metadata.offset, "offset jump");
                 req.offset = metadata.offset;
             }
             *write_head = metadata.write_head;
 
-            // A fragment hole may have fast-forwarded `req.offset` to or past a
-            // bounded read's `end_offset`. The requested range is then fully
-            // covered; yield the metadata (so the caller observes the resolved
-            // offset) and terminate.
-            if req.end_offset != 0 && req.offset >= req.end_offset {
-                () = co.yield_(Ok(metadata)).await;
-                metrics.tick(req.offset, *write_head);
-                return Ok(());
-            }
-
-            let (fragment, fragment_url) = (fragment.clone(), metadata.fragment_url.clone());
             () = co.yield_(Ok(metadata)).await;
             metrics.tick(req.offset, *write_head);
+        }
+        if complete {
+            return Ok(());
+        }
 
+        if let Some((fragment, fragment_url)) = direct {
             return read_fragment_url(
                 co,
                 metrics,
@@ -171,7 +179,7 @@ impl Client {
         // we must ask the broker to proxy. With `do_not_proxy=true` and no
         // open spool file, `serveRead` short-circuits after sending only the
         // fragment metadata, EOFs the stream, and the outer loop spins.
-        if metadata.fragment_url.starts_with("file://") {
+        if is_file_url {
             req.do_not_proxy = false;
         }
 
@@ -213,7 +221,10 @@ impl Client {
                     metrics.tick(req.offset, *write_head);
                 }
                 // All other statuses end the stream, and are handled by the caller.
-                (status, _, _) => return Err(Error::BrokerStatus(status)),
+                (status, _, _) => {
+                    let _eof = stream.try_next().await; // Broker sends EOF.
+                    return Err(Error::BrokerStatus(status));
+                }
             }
         }
 

@@ -302,8 +302,6 @@ pub fn extract_metas(
 /// a stale `offset` below the head is both correct — the skipped bytes precede
 /// `begin_mod_time` and would be filtered by the read regardless — and necessary
 /// to classify a caught-up read as tailing rather than stalled.
-///
-/// Note that `client.read()` controls `ReadRequest::metadata_only` internally.
 pub async fn probe_read_start(
     client: gazette::journal::Client,
     journal: &str,
@@ -322,16 +320,22 @@ pub async fn probe_read_start(
         block: false,
         do_not_proxy: true,
         header,
+        metadata_only: true,
         min_etcd_revision: journal_create_revision,
         ..Default::default()
     });
     tokio::pin!(stream);
 
+    let mut metadata: Option<broker::ReadResponse> = None;
+
     loop {
         match stream.next().await {
-            None => anyhow::bail!(
-                "probe stream ended unexpectedly for {journal} (binding {binding_state_key})",
-            ),
+            None => {
+                let Some(resp) = metadata else {
+                    panic!("metadata-only read of {journal} ended without a response")
+                };
+                return Ok((resp.offset, resp.write_head, resp.header));
+            }
             Some(Err(gazette::RetryError {
                 attempt,
                 inner: err,
@@ -366,7 +370,13 @@ pub async fn probe_read_start(
                     ));
                 }
             }
-            Some(Ok(resp)) => return Ok((resp.offset, resp.write_head, resp.header)),
+            Some(Ok(resp)) => {
+                assert!(
+                    metadata.is_none(),
+                    "metadata-only read of {journal} yielded more than one response",
+                );
+                metadata = Some(resp);
+            }
         }
     }
 }
