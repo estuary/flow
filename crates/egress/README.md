@@ -56,7 +56,9 @@ them.
 
 ## Task egress
 
-A task may declare `egress: {hosts: [...]}` beside `vmm`.
+A task may declare `egress: {hosts: [...]}` beside `vmm`; see
+[`docs/connector-vmm/tasks.md`](../../docs/connector-vmm/tasks.md) for the
+user-facing description.
 
 - Declared hosts add to those of the connector and its image; they never
   remove one. An empty list adds nothing, and is still a declaration.

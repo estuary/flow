@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Run the connector VMM's KVM integration suite (needs /dev/kvm, passwordless sudo, rootful podman and docker buildx)"
-#USAGE arg "[filter]" help="Run only suite tests whose names match. The run is then partial: connector-init's vsock test is skipped."
+#MISE description="Run the connector VMM's KVM integration suite, or with --platform its local-platform proof (needs /dev/kvm, passwordless sudo, rootful podman and docker buildx)"
+#USAGE arg "[filter]" help="Run only tests whose names match, of the suite or, with --platform, of the platform tests. The run is then partial; for the suite, connector-init's vsock test is skipped."
 #USAGE flag "--allow-missing-vsock-loopback" help="Let connector-init's vsock test skip where vsock_loopback cannot load. The suite's own guest still proves connector-init serving over vsock."
+#USAGE flag "--platform" help="Instead of the suite, start this checkout's stack with its reactor launching VMMs, run the platform tests through flowctl and the reactor (a Python derivation, killed launchers, mount replacement, refused launches beside ordinary tasks), and stop the stack. Refused while the stack is running."
 
 # Must match `run::ROOT` in crates/connector-vmm-tests/src/run.rs.
 ROOT=/var/tmp/connector-vmm-kvm
@@ -36,10 +37,35 @@ DECOYS=(198.18.255.241)
 
 FILTER="${usage_filter:-}"
 ALLOW_MISSING_VSOCK="${usage_allow_missing_vsock_loopback:-false}"
+PLATFORM="${usage_platform:-false}"
 
 fail() {
     echo "ci:connector-vmm-kvm: $*" >&2
     exit 1
+}
+
+# record, boundary, stack_units and release.
+source "$(dirname "$0")/connector-vmm-kvm-lib.sh"
+
+# The platform run starts this checkout's stack and stops it when done, so it
+# must not find one already running, whose state is somebody else's.
+require_stopped_stack() {
+    local units
+    units=$(stack_units "${FLOW_STACK_NAME}" "${FLOW_CLUSTER}") \
+        || fail "could not list stack '${FLOW_STACK_NAME}''s systemd units"
+    [ -z "${units}" ] || fail "stack '${FLOW_STACK_NAME}' is running, and --platform starts and stops its own; stop it with mise run local:stop first:
+${units}"
+    # Masked units of the stack's own would fail its start, but only after
+    # everything else here has been built. list-unit-files exits 1, silently,
+    # when nothing matches.
+    local status=0
+    units=$(systemctl --user list-unit-files --no-legend --state=masked \
+        "flow-*@${FLOW_STACK_NAME}.*" "flow-*@${FLOW_CLUSTER}.*" "flow-*@${FLOW_CLUSTER}-*" 2>&1) || status=$?
+    if [ "${status}" -gt 1 ] || { [ "${status}" -eq 1 ] && [ -n "${units}" ]; }; then
+        fail "could not list stack '${FLOW_STACK_NAME}''s masked systemd units: ${units}"
+    fi
+    [ "${status}" -eq 1 ] || fail "units of stack '${FLOW_STACK_NAME}' are masked, so it cannot start; unmask them with systemctl --user unmask:
+${units}"
 }
 
 [ "$(uname -m)" = x86_64 ] || fail "the VMM image is linux/amd64 only, and this host is $(uname -m)"
@@ -51,6 +77,18 @@ command -v python3 >/dev/null || fail "python3 is unavailable (the inbound probe
 command -v x86_64-linux-musl-gcc >/dev/null || fail "x86_64-linux-musl-gcc is unavailable (install musl-tools to build the guest binaries)"
 sudo -n sh -c 'command -v conntrack' >/dev/null || fail "conntrack is unavailable (install conntrack to read a VMM's flow table)"
 
+if [ "${PLATFORM}" = true ]; then
+    : "${FLOW_STACK_NAME:?run this task under mise}" "${FLOW_CLUSTER:?}" "${FLOW_PLANE_BASE:?}" "${FLOW_STACK_DIR:?}"
+    docker info >/dev/null 2>&1 || fail "docker is unavailable (the stack runs ordinary connectors under it)"
+    require_stopped_stack
+    # Distinguish public network outages from VMM failures.
+    for host in pypi.org files.pythonhosted.org example.org example.com; do
+        getent ahostsv4 "${host}" >/dev/null || fail "the public network is unavailable: ${host} does not resolve on this host"
+    done
+    curl -fsS --max-time 30 -o /dev/null https://pypi.org/simple/humanize/ \
+        || fail "the public network is unavailable: PyPI does not answer this host"
+fi
+
 # One run per host: the endpoints and the fence are host-wide.
 sudo -n install -d -m 0755 "${ROOT}"
 for file in lock resources; do
@@ -60,67 +98,29 @@ exec 9>>"${ROOT}/lock"
 flock -n 9 || fail "another run holds ${ROOT}/lock"
 sudo -n chown "$(id -u):$(id -g)" "${ROOT}/resources"
 
-# Everything this run creates, the tests' containers and directories included,
-# is appended to ${ROOT}/resources before it exists, and removed exactly from
-# that list, newest first. Nothing is ever removed by age or by a name pattern.
-record() {
-    printf '%s %s\n' "$1" "$2" >>"${ROOT}/resources"
-}
-
-# `flow-connector-vmm boundary ACTION` from VMM image $1, in the host's network
-# namespace. Must match `launch::boundary` in crates/connector-vmm-tests.
-boundary() {
-    sudo -n podman run --rm --network=host --log-driver=none --read-only \
-        --cap-drop=all --cap-add=CAP_NET_ADMIN "$1" boundary "$2"
-}
-
-release() {
-    # One removal failing must not stop the rest.
-    local - kind value
-    set +e
-    while read -r kind value; do
-        case "${kind}" in
-        container) sudo -n podman rm -f --time 0 --ignore "${value}" >/dev/null ;;
-        image) sudo -n podman image rm "${value}" >/dev/null 2>&1 || true ;;
-        builder) docker buildx rm "${value}" >/dev/null 2>&1 || true ;;
-        network)
-            if sudo -n podman network exists "${value}"; then
-                sudo -n podman network rm "${value}" >/dev/null 2>&1 || echo "Left network ${value}: it is in use"
-            fi
-            ;;
-        netns) sudo -n ip netns del "${value}" 2>/dev/null || true ;;
-        # Refused while any VMM bridge remains, this run's or another owner's.
-        boundary) boundary "${value}" remove || echo "Left the host's ${TABLE} tables" ;;
-        link) sudo -n ip link del "${value}" 2>/dev/null || true ;;
-        # "blackhole <prefix> metric <n>", deliberately split.
-        route) sudo -n ip route del ${value} 2>/dev/null || true ;;
-        dir)
-            case "${value}" in
-            "${ROOT}"/state/fv_* | "${ROOT}"/connector-mounts-0/mount-* | "${ROOT}"/launcher-*)
-                sudo -n rm -rf --one-file-system "${value}"
-                ;;
-            *) echo "Not removing ${value}: it is outside ${ROOT}" >&2 ;;
-            esac
-            ;;
-        *) echo "Not removing unknown resource: ${kind} ${value}" >&2 ;;
-        esac
-    done < <(tac "${ROOT}/resources")
-    : >"${ROOT}/resources"
+# What may start a daemon (cargo, and so its sccache server) runs without fd
+# 9, so that nothing it leaves behind holds the lock past this run. Tests
+# still run holding it, so that a task killed outright leaves them holding it
+# until they have cleaned up after themselves: their build comes first.
+nextest() {
+    cargo nextest run --no-run "$@" 9>&- || return
+    cargo nextest run "$@"
 }
 
 if [ -s "${ROOT}/resources" ]; then
     echo "=== Removing what an interrupted run recorded ==="
     sed 's/^/  /' "${ROOT}/resources"
-    release
+    release || fail "what an interrupted run recorded is kept"
 fi
-trap release EXIT
+# A release which keeps the list fails the run, whatever else happened.
+trap 'release || exit 1' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 echo "=== Building flow-connector-vmm, flow-guest-init and flow-connector-init ==="
 rustup target add x86_64-unknown-linux-musl >/dev/null
-cargo build --locked --release -p connector-vmm
-cargo build --locked --release --target x86_64-unknown-linux-musl -p connector-init -p guest-init
+cargo build --locked --release -p connector-vmm 9>&-
+cargo build --locked --release --target x86_64-unknown-linux-musl -p connector-init -p guest-init 9>&-
 
 # The two files docker/connector-vmm.Dockerfile reads from a package directory.
 # Not ~/flow-package, which ci:package owns.
@@ -161,21 +161,6 @@ VMM_IMAGE=$(sudo -n podman load -q -i "${RUN_DIR}/connector-vmm.tar" | grep -oE 
 record image "${VMM_IMAGE}"
 rm -f "${RUN_DIR}/connector-vmm.tar"
 
-echo "=== Building the fake VMM image ==="
-cp crates/connector-vmm/fake-entrypoint.sh "${RUN_DIR}/package/amd64/connector-vmm-fake-entrypoint.sh"
-FAKE_IMAGE="localhost/connector-vmm-fake:kvm-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
-record image "${FAKE_IMAGE}"
-sudo -n podman build -q --platform linux/amd64 --build-arg TARGETARCH=amd64 -t "${FAKE_IMAGE}" \
-    -f docker/connector-vmm-fake.Dockerfile "${RUN_DIR}/package" >/dev/null
-
-echo "=== Pulling ${DERIVE_PYTHON} and ${HELLO_WORLD}, and building the test guest ==="
-sudo -n podman pull -q "${DERIVE_PYTHON}" >/dev/null
-sudo -n podman pull -q "${HELLO_WORLD}" >/dev/null
-FIXTURE_HASH=$(cat "${FIXTURES}/guest.Containerfile" "${FIXTURES}/probes.py" | sha256sum | cut -c1-16)
-GUEST_IMAGE="localhost/connector-vmm-test-guest:${FIXTURE_HASH}"
-record image "${GUEST_IMAGE}"
-sudo -n podman build -q -t "${GUEST_IMAGE}" -f "${FIXTURES}/guest.Containerfile" "${FIXTURES}" >/dev/null
-
 # Before any VMM network exists. Tables another owner installed are used and
 # left alone, if they are exactly this checkout's; any other tables are not
 # this run's to replace.
@@ -193,6 +178,105 @@ else
     record boundary "${VMM_IMAGE}"
     boundary "${VMM_IMAGE}" install
 fi
+
+if [ "${PLATFORM}" = true ]; then
+    echo "=== The platform: stack '${FLOW_STACK_NAME}', its reactor launching VMMs ==="
+    CHECKOUT=$(git rev-parse --show-toplevel)
+    # local:stack's one reactor, which counts down from the top of its block.
+    REACTOR="flow-reactor@${FLOW_CLUSTER}-$((FLOW_PLANE_BASE + 99)).service"
+    DROPIN="${HOME}/.config/systemd/user/${REACTOR}.d/connector-vmm.conf"
+    PLATFORM_DIR="${ROOT}/platform-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+    BIN="${RUN_DIR}/bin"
+
+    # Share state between flowctl and the reactor so each can recover the
+    # other's dead launches. The podman wrapper records resources for cleanup.
+    record dir "${PLATFORM_DIR}"
+    sudo -n install -d -o "$(id -u)" -g "$(id -g)" -m 0755 "${PLATFORM_DIR}"
+    mkdir "${PLATFORM_DIR}/state" "${PLATFORM_DIR}/tmp"
+    install -m 0755 "${FIXTURES}/podman.sh" "${PLATFORM_DIR}/podman"
+
+    # Launchers prefer flow-connector-init beside their executable, then PATH.
+    # Use the static build for guests, avoiding debug/'s dynamically linked one.
+    mkdir -p "${BIN}"
+    ln -f "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-connector-init" "${BIN}/"
+    {
+        echo "CONNECTOR_VMM_IMAGE=${VMM_IMAGE}"
+        echo "CONNECTOR_VMM_PODMAN=${PLATFORM_DIR}/podman"
+        echo "CONNECTOR_VMM_STATE_DIR=${PLATFORM_DIR}/state"
+        echo "TMPDIR=${PLATFORM_DIR}/tmp"
+        echo "PATH=\"${BIN}:${PATH}\""
+    } >"${PLATFORM_DIR}/reactor.env"
+    # Applied over local:reactor's own environment file when the stack starts
+    # the reactor. local:stop removes it along with the stack's other drop-ins.
+    record dropin "${DROPIN}"
+    mkdir -p "$(dirname "${DROPIN}")"
+    printf '[Service]\nEnvironmentFile=%s\n' "${PLATFORM_DIR}/reactor.env" >"${DROPIN}"
+
+    require_stopped_stack
+    record stack "${FLOW_STACK_NAME} ${FLOW_CLUSTER} ${CHECKOUT}"
+    STARTED=$(date +%s)
+    mise run local:stack 9>&-
+
+    systemctl --user show -p DropInPaths --value "${REACTOR}" | tr ' ' '\n' | grep -qxF "${DROPIN}" \
+        || fail "${REACTOR} did not load ${DROPIN}"
+    REACTOR_PID=$(systemctl --user show -p MainPID --value "${REACTOR}")
+    [ "${REACTOR_PID:-0}" -gt 0 ] || fail "${REACTOR} has no main process"
+    tr '\0' '\n' <"/proc/${REACTOR_PID}/environ" | grep -qxF "CONNECTOR_VMM_IMAGE=${VMM_IMAGE}" \
+        || fail "${REACTOR}'s process ${REACTOR_PID} lacks CONNECTOR_VMM_IMAGE"
+
+    mise run local:test-tenant --tenant acmeCo 9>&-
+    # shellcheck source=/dev/null
+    source "${FLOW_STACK_DIR}/test-tenant-acmeCo.env"
+    ln -f "${CARGO_TARGET_DIR}/debug/flowctl" "${BIN}/flowctl"
+
+    jq -n \
+        --arg runDir "${RUN_DIR}" \
+        --arg dir "${PLATFORM_DIR}" \
+        --arg vmmImage "${VMM_IMAGE}" \
+        --arg flowctl "${BIN}/flowctl" \
+        --arg connectorInit "${BIN}/flow-connector-init" \
+        --arg derivePythonImage "${DERIVE_PYTHON}" \
+        --arg reactorUnit "${REACTOR}" \
+        '{$runDir, $dir, $vmmImage, $flowctl, $connectorInit, $derivePythonImage, $reactorUnit}' \
+        | sudo -n tee "${ROOT}/platform.json" >/dev/null
+
+    if [ -n "${FILTER}" ]; then
+        echo "=== Partial run: platform tests matching '${FILTER}' only ==="
+    else
+        echo "=== The platform tests ==="
+    fi
+    status=0
+    SSL_CERT_FILE="${HOME}/flow-local/ca.crt" CONNECTOR_VMM_KVM=1 \
+        nextest --locked --profile connector-vmm-platform -p connector-vmm-tests \
+        ${FILTER:+"${FILTER}"} || status=$?
+
+    # Kept for a failure: the release removes the platform directory and the
+    # tests' own launcher directories, and local:stop the reactor's unit.
+    for calls in "${PLATFORM_DIR}/calls" "${ROOT}"/launcher-*/calls; do
+        if [ -e "${calls}" ]; then
+            cp "${calls}" "${RUN_DIR}/$(basename "$(dirname "${calls}")").calls" || true
+        fi
+    done
+    journalctl --user -u "${REACTOR}" --since "@${STARTED}" --no-pager >"${RUN_DIR}/reactor.journal" 2>&1 || true
+    echo "The static flow-connector-init: $(sha256sum "${BIN}/flow-connector-init")"
+    echo "flowctl's output, the podman calls and the reactor's journal: ${RUN_DIR}"
+    exit "${status}"
+fi
+
+echo "=== Building the fake VMM image ==="
+cp crates/connector-vmm/fake-entrypoint.sh "${RUN_DIR}/package/amd64/connector-vmm-fake-entrypoint.sh"
+FAKE_IMAGE="localhost/connector-vmm-fake:kvm-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+record image "${FAKE_IMAGE}"
+sudo -n podman build -q --platform linux/amd64 --build-arg TARGETARCH=amd64 -t "${FAKE_IMAGE}" \
+    -f docker/connector-vmm-fake.Dockerfile "${RUN_DIR}/package" >/dev/null
+
+echo "=== Pulling ${DERIVE_PYTHON} and ${HELLO_WORLD}, and building the test guest ==="
+sudo -n podman pull -q "${DERIVE_PYTHON}" >/dev/null
+sudo -n podman pull -q "${HELLO_WORLD}" >/dev/null
+FIXTURE_HASH=$(cat "${FIXTURES}/guest.Containerfile" "${FIXTURES}/probes.py" | sha256sum | cut -c1-16)
+GUEST_IMAGE="localhost/connector-vmm-test-guest:${FIXTURE_HASH}"
+record image "${GUEST_IMAGE}"
+sudo -n podman build -q -t "${GUEST_IMAGE}" -f "${FIXTURES}/guest.Containerfile" "${FIXTURES}" >/dev/null
 
 echo "=== Setting up the controlled endpoints in network namespace ${NETNS} ==="
 for fence in "${FENCE}" "${DECOY_FENCE}"; do
@@ -242,15 +326,21 @@ if [ -n "${FILTER}" ]; then
     echo "=== Partial run: suite tests matching '${FILTER}' only; connector-init's vsock test is skipped ==="
 elif [ "${ALLOW_MISSING_VSOCK}" = true ]; then
     echo "=== connector-init's vsock test may skip (--allow-missing-vsock-loopback); the suite's guest still proves vsock serving ==="
-    cargo nextest run --locked -p connector-init --lib -E 'test(=vsock_test::spec_rpc_over_vsock)' || status=$?
+    nextest --locked -p connector-init --lib -E 'test(=vsock_test::spec_rpc_over_vsock)' || status=$?
 else
-    CONNECTOR_VMM_KVM=1 cargo nextest run --locked -p connector-init --lib -E 'test(=vsock_test::spec_rpc_over_vsock)' || status=$?
+    CONNECTOR_VMM_KVM=1 nextest --locked -p connector-init --lib -E 'test(=vsock_test::spec_rpc_over_vsock)' || status=$?
 fi
 
 echo "=== The KVM suite ==="
 PATH="${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release:${PATH}" \
-CONNECTOR_VMM_KVM=1 cargo nextest run --locked --profile connector-vmm-kvm -p connector-vmm-tests \
-    --no-fail-fast ${FILTER:+"${FILTER}"} || status=$?
+CONNECTOR_VMM_KVM=1 nextest --locked --profile connector-vmm-kvm -p connector-vmm-tests \
+    ${FILTER:+"${FILTER}"} || status=$?
 
-echo "Every launch's stdout and stderr: ${RUN_DIR}"
+# Kept for a failure: the release removes the launcher tests' directories.
+for calls in "${ROOT}"/launcher-*/calls; do
+    if [ -e "${calls}" ]; then
+        cp "${calls}" "${RUN_DIR}/$(basename "$(dirname "${calls}")").calls" || true
+    fi
+done
+echo "Every launch's stdout and stderr, and the launcher tests' podman calls: ${RUN_DIR}"
 exit "${status}"

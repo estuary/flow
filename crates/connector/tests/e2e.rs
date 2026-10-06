@@ -5,6 +5,9 @@
 //! Every connector started here is either in-process (derive-sqlite, Dekaf) or
 //! a `/bin/sh` subprocess, so nothing needs Docker.
 
+#[path = "fixtures/execution.rs"]
+mod execution_fixture;
+
 use connector::proto;
 use futures::StreamExt;
 use proto_grpc::connector::{Router as _, SPEC_TASK_NAME};
@@ -989,8 +992,9 @@ fn task_update_router(refresh_interval: std::time::Duration) -> connector::Servi
 }
 
 mod execution {
+    use super::execution_fixture::*;
     use super::*;
-    use proto_flow::{capture, derive, flow, materialize};
+    use proto_flow::{derive, flow};
 
     fn vmm_fixture() -> connector::Vmm {
         connector::Vmm {
@@ -1020,27 +1024,9 @@ mod execution {
 
     fn derive_request(request: derive::Request) -> proto::Request {
         proto::Request {
-            start: Some(start("")),
+            start: None,
             kind: Some(proto::request::Kind::Derive(request)),
         }
-    }
-
-    const PYTHON_IMAGE: &str = "ghcr.io/estuary/derive-python:stable";
-
-    fn vmm_execution() -> Option<flow::ConnectorExecution> {
-        Some(flow::ConnectorExecution {
-            vmm: true,
-            egress: None,
-        })
-    }
-
-    fn egress_execution(vmm: bool, hosts: &[&str]) -> Option<flow::ConnectorExecution> {
-        Some(flow::ConnectorExecution {
-            vmm,
-            egress: Some(flow::connector_execution::Egress {
-                hosts: hosts.iter().map(ToString::to_string).collect(),
-            }),
-        })
     }
 
     fn start_with(execution: Option<flow::ConnectorExecution>) -> proto::request::Start {
@@ -1058,239 +1044,6 @@ mod execution {
             service_kit::Registry::new(),
             std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
         )
-    }
-
-    /// Every first-request shape of every protocol, as a connector whose endpoint
-    /// is `connector_type` and `config_json`. Requests which embed the task's
-    /// built spec (Apply and Open) carry `spec_execution` within it.
-    fn every_first_request(
-        connector_type: fn(ops::TaskType) -> i32,
-        config_json: &bytes::Bytes,
-        spec_execution: Option<flow::ConnectorExecution>,
-    ) -> Vec<(
-        &'static str,
-        ops::TaskType,
-        &'static str,
-        proto::request::Kind,
-    )> {
-        use ops::TaskType::{Capture, Derivation, Materialization};
-        let (task, spec_task) = ("acmeCo/task", SPEC_TASK_NAME);
-        let config_json = config_json.clone();
-
-        let capture_spec = flow::CaptureSpec {
-            name: task.to_string(),
-            connector_type: connector_type(Capture),
-            config_json: config_json.clone(),
-            execution: spec_execution.clone(),
-            shard_template: serde_json::from_value(super::shard_template()).unwrap(),
-            ..Default::default()
-        };
-        let collection_spec = flow::CollectionSpec {
-            name: task.to_string(),
-            derivation: Some(Box::new(flow::collection_spec::Derivation {
-                connector_type: connector_type(Derivation),
-                config_json: config_json.clone(),
-                execution: spec_execution.clone(),
-                shard_template: serde_json::from_value(super::shard_template()).unwrap(),
-                ..Default::default()
-            })),
-            ..Default::default()
-        };
-        let materialization_spec = flow::MaterializationSpec {
-            name: task.to_string(),
-            connector_type: connector_type(Materialization),
-            config_json: config_json.clone(),
-            execution: spec_execution.clone(),
-            shard_template: serde_json::from_value(super::shard_template()).unwrap(),
-            ..Default::default()
-        };
-
-        let capture = |kind| {
-            proto::request::Kind::Capture(capture::Request {
-                kind: Some(kind),
-                ..Default::default()
-            })
-        };
-        let derive = |kind| {
-            proto::request::Kind::Derive(derive::Request {
-                kind: Some(kind),
-                ..Default::default()
-            })
-        };
-        let materialize = |kind| {
-            proto::request::Kind::Materialize(materialize::Request {
-                kind: Some(kind),
-                ..Default::default()
-            })
-        };
-
-        vec![
-            (
-                "capture Spec",
-                Capture,
-                spec_task,
-                capture(capture::request::Kind::Spec(capture::request::Spec {
-                    connector_type: connector_type(Capture),
-                    config_json: config_json.clone(),
-                })),
-            ),
-            (
-                "capture Discover",
-                Capture,
-                task,
-                capture(capture::request::Kind::Discover(Box::new(
-                    capture::request::Discover {
-                        name: task.to_string(),
-                        connector_type: connector_type(Capture),
-                        config_json: config_json.clone(),
-                        ..Default::default()
-                    },
-                ))),
-            ),
-            (
-                "capture Validate",
-                Capture,
-                task,
-                capture(capture::request::Kind::Validate(Box::new(
-                    capture::request::Validate {
-                        name: task.to_string(),
-                        connector_type: connector_type(Capture),
-                        config_json: config_json.clone(),
-                        ..Default::default()
-                    },
-                ))),
-            ),
-            (
-                "capture Apply",
-                Capture,
-                task,
-                capture(capture::request::Kind::Apply(Box::new(
-                    capture::request::Apply {
-                        capture: Some(capture_spec.clone()),
-                        ..Default::default()
-                    },
-                ))),
-            ),
-            (
-                "capture Open",
-                Capture,
-                task,
-                capture(capture::request::Kind::Open(Box::new(
-                    capture::request::Open {
-                        capture: Some(capture_spec),
-                        ..Default::default()
-                    },
-                ))),
-            ),
-            (
-                "derive Spec",
-                Derivation,
-                spec_task,
-                derive(derive::request::Kind::Spec(derive::request::Spec {
-                    connector_type: connector_type(Derivation),
-                    config_json: config_json.clone(),
-                })),
-            ),
-            (
-                "derive Validate",
-                Derivation,
-                task,
-                derive(derive::request::Kind::Validate(Box::new(
-                    derive::request::Validate {
-                        connector_type: connector_type(Derivation),
-                        config_json: config_json.clone(),
-                        collection: Some(flow::CollectionSpec {
-                            name: task.to_string(),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    },
-                ))),
-            ),
-            (
-                "derive Open",
-                Derivation,
-                task,
-                derive(derive::request::Kind::Open(Box::new(
-                    derive::request::Open {
-                        collection: Some(collection_spec),
-                        ..Default::default()
-                    },
-                ))),
-            ),
-            (
-                "materialize Spec",
-                Materialization,
-                spec_task,
-                materialize(materialize::request::Kind::Spec(
-                    materialize::request::Spec {
-                        connector_type: connector_type(Materialization),
-                        config_json: config_json.clone(),
-                    },
-                )),
-            ),
-            (
-                "materialize Validate",
-                Materialization,
-                task,
-                materialize(materialize::request::Kind::Validate(Box::new(
-                    materialize::request::Validate {
-                        name: task.to_string(),
-                        connector_type: connector_type(Materialization),
-                        config_json: config_json.clone(),
-                        ..Default::default()
-                    },
-                ))),
-            ),
-            (
-                "materialize Apply",
-                Materialization,
-                task,
-                materialize(materialize::request::Kind::Apply(Box::new(
-                    materialize::request::Apply {
-                        materialization: Some(materialization_spec.clone()),
-                        ..Default::default()
-                    },
-                ))),
-            ),
-            (
-                "materialize Open",
-                Materialization,
-                task,
-                materialize(materialize::request::Kind::Open(Box::new(
-                    materialize::request::Open {
-                        materialization: Some(materialization_spec),
-                        ..Default::default()
-                    },
-                ))),
-            ),
-        ]
-    }
-
-    fn image_connector_type(task_type: ops::TaskType) -> i32 {
-        match task_type {
-            ops::TaskType::Capture => flow::capture_spec::ConnectorType::Image as i32,
-            ops::TaskType::Derivation => {
-                flow::collection_spec::derivation::ConnectorType::Image as i32
-            }
-            ops::TaskType::Materialization => {
-                flow::materialization_spec::ConnectorType::Image as i32
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    fn local_connector_type(task_type: ops::TaskType) -> i32 {
-        match task_type {
-            ops::TaskType::Capture => flow::capture_spec::ConnectorType::Local as i32,
-            ops::TaskType::Derivation => {
-                flow::collection_spec::derivation::ConnectorType::Local as i32
-            }
-            ops::TaskType::Materialization => {
-                flow::materialization_spec::ConnectorType::Local as i32
-            }
-            _ => unreachable!(),
-        }
     }
 
     async fn drive_each(
@@ -1821,186 +1574,16 @@ mod execution {
     egress [api]: Started(codec=Proto, container=false, process=false, spec=derive) | Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
     "#);
     }
-
-    fn with_previous_specs(
-        mut kind: proto::request::Kind,
-        execution: &Option<flow::ConnectorExecution>,
-    ) -> proto::request::Kind {
-        use proto::request::Kind;
-
-        let capture = || flow::CaptureSpec {
-            execution: execution.clone(),
-            ..Default::default()
-        };
-        let materialization = || flow::MaterializationSpec {
-            execution: execution.clone(),
-            ..Default::default()
-        };
-
-        match &mut kind {
-            Kind::Capture(capture::Request {
-                kind: Some(capture::request::Kind::Validate(validate)),
-                ..
-            }) => validate.last_capture = Some(capture()),
-            Kind::Capture(capture::Request {
-                kind: Some(capture::request::Kind::Apply(apply)),
-                ..
-            }) => apply.last_capture = Some(capture()),
-            Kind::Derive(derive::Request {
-                kind: Some(derive::request::Kind::Validate(validate)),
-                ..
-            }) => {
-                validate.last_collection = Some(flow::CollectionSpec {
-                    derivation: Some(Box::new(flow::collection_spec::Derivation {
-                        execution: execution.clone(),
-                        ..Default::default()
-                    })),
-                    ..Default::default()
-                })
+    fn local_connector_type(task_type: ops::TaskType) -> i32 {
+        match task_type {
+            ops::TaskType::Capture => flow::capture_spec::ConnectorType::Local as i32,
+            ops::TaskType::Derivation => {
+                flow::collection_spec::derivation::ConnectorType::Local as i32
             }
-            Kind::Materialize(materialize::Request {
-                kind: Some(materialize::request::Kind::Validate(validate)),
-                ..
-            }) => validate.last_materialization = Some(materialization()),
-            Kind::Materialize(materialize::Request {
-                kind: Some(materialize::request::Kind::Apply(apply)),
-                ..
-            }) => apply.last_materialization = Some(materialization()),
-            _ => {}
-        }
-        kind
-    }
-
-    /// Immediate connector EOF must not hide a ready request's execution mismatch.
-    async fn pump_later<P: connector::protocol::Protocol>(
-        execution: flow::ConnectorExecution,
-        request: proto::Request,
-    ) -> (usize, anyhow::Result<()>) {
-        let (connector_tx, mut connector_rx) = mpsc::channel(1);
-        let (response_tx, _response_rx) = mpsc::channel(1);
-        let started = connector::Started::<P> {
-            started: proto::Response::default(),
-            connector_tx,
-            connector_rx: futures::stream::empty().boxed(),
-            guard: None,
-            execution,
-        };
-
-        let requests = futures::stream::iter([Ok::<_, tonic::Status>(request)]);
-        let result = connector::serve::pump(requests, started, &response_tx).await;
-
-        let mut forwarded = 0;
-        while connector_rx.try_recv().is_ok() {
-            forwarded += 1;
-        }
-        (forwarded, result)
-    }
-
-    /// Drive `pump` directly to cover VMM sessions without launching a VMM.
-    #[tokio::test]
-    async fn later_requests_must_match_the_session_execution() {
-        const EMBEDS_SPEC: &[&str] = &[
-            "capture Apply",
-            "capture Open",
-            "derive Open",
-            "materialize Apply",
-            "materialize Open",
-        ];
-        let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
-        let config: bytes::Bytes = config.to_string().into();
-        let hosts = &["api.acmeco.example", "*.svc.acmeco.example"];
-        let previous = egress_execution(true, &["previous.acmeco.example"]);
-
-        let sessions = [
-            ("ordinary", None),
-            ("vmm", vmm_execution()),
-            ("vmm egress [api, *.svc]", egress_execution(true, hosts)),
-        ];
-        let laters = [
-            ("unset", None),
-            ("ordinary", Some(flow::ConnectorExecution::default())),
-            ("vmm", vmm_execution()),
-            ("egress []", egress_execution(false, &[])),
-            ("vmm egress []", egress_execution(true, &[])),
-            ("vmm egress [api, *.svc]", egress_execution(true, hosts)),
-            ("vmm egress [api]", egress_execution(true, &hosts[..1])),
-        ];
-
-        let mut rows = Vec::new();
-        for (session_name, session) in &sessions {
-            for (later_name, later) in &laters {
-                let mut refused = Vec::new();
-
-                for (label, task_type, _task_name, kind) in
-                    every_first_request(image_connector_type, &config, later.clone())
-                {
-                    let request = proto::Request {
-                        start: None,
-                        kind: Some(with_previous_specs(kind, &previous)),
-                    };
-                    let session = session.clone().unwrap_or_default();
-
-                    let (forwarded, result) = match task_type {
-                        ops::TaskType::Capture => {
-                            pump_later::<connector::capture::Capture>(session, request).await
-                        }
-                        ops::TaskType::Derivation => {
-                            pump_later::<connector::derive::Derive>(session, request).await
-                        }
-                        ops::TaskType::Materialization => {
-                            pump_later::<connector::materialize::Materialize>(session, request)
-                                .await
-                        }
-                        _ => unreachable!(),
-                    };
-                    match result {
-                        Ok(()) => assert_eq!(forwarded, 1, "{label}"),
-                        Err(err) => {
-                            assert_eq!(forwarded, 0, "{label}");
-                            let status = err.downcast_ref::<proto_grpc::StatusError>().unwrap();
-                            assert_eq!(status.code(), tonic::Code::InvalidArgument, "{label}");
-                            refused.push(label);
-                        }
-                    }
-                }
-
-                assert!(
-                    refused.is_empty() || refused == EMBEDS_SPEC,
-                    "session {session_name} later {later_name}: {refused:?}"
-                );
-                rows.push(format!(
-                    "session {session_name:<23} later {later_name:<23} => {}",
-                    if refused.is_empty() {
-                        "forwarded"
-                    } else {
-                        "refused"
-                    },
-                ));
+            ops::TaskType::Materialization => {
+                flow::materialization_spec::ConnectorType::Local as i32
             }
+            _ => unreachable!(),
         }
-
-        insta::assert_snapshot!(rows.join("\n"), @r"
-    session ordinary                later unset                   => forwarded
-    session ordinary                later ordinary                => forwarded
-    session ordinary                later vmm                     => refused
-    session ordinary                later egress []               => refused
-    session ordinary                later vmm egress []           => refused
-    session ordinary                later vmm egress [api, *.svc] => refused
-    session ordinary                later vmm egress [api]        => refused
-    session vmm                     later unset                   => refused
-    session vmm                     later ordinary                => refused
-    session vmm                     later vmm                     => forwarded
-    session vmm                     later egress []               => refused
-    session vmm                     later vmm egress []           => refused
-    session vmm                     later vmm egress [api, *.svc] => refused
-    session vmm                     later vmm egress [api]        => refused
-    session vmm egress [api, *.svc] later unset                   => refused
-    session vmm egress [api, *.svc] later ordinary                => refused
-    session vmm egress [api, *.svc] later vmm                     => refused
-    session vmm egress [api, *.svc] later egress []               => refused
-    session vmm egress [api, *.svc] later vmm egress []           => refused
-    session vmm egress [api, *.svc] later vmm egress [api, *.svc] => forwarded
-    session vmm egress [api, *.svc] later vmm egress [api]        => refused
-    ");
     }
 }

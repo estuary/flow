@@ -378,7 +378,7 @@ async fn run_vmm(
         return Err(abandoned());
     }
 
-    let mut child: async_process::Child = async_process::Command::new(&vmm.podman)
+    let mut child: async_process::Child = crate::container::engine_command(&vmm.podman)
         .args(["start", "--attach", created.as_str()])
         .stdin(async_process::Stdio::null())
         // The guest's console, which libkrun echoes onto stderr when it panics.
@@ -501,7 +501,7 @@ async fn fenced(podman: &str, args: &[String], record: &std::fs::File) -> anyhow
     let fence = record
         .try_clone()
         .context("duplicating the launch's record")?;
-    let mut child: async_process::Child = async_process::Command::new(podman)
+    let mut child: async_process::Child = crate::container::engine_command(podman)
         .args(args)
         .stdin(fence)
         .stdout(async_process::Stdio::piped())

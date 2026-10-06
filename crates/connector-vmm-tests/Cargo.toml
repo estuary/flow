@@ -14,6 +14,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+flow-client-next = { path = "../flow-client-next" }
 connector = { path = "../connector" }
 proto-flow = { path = "../proto-flow" }
 proto-grpc = { path = "../proto-grpc", features = ["capture_client", "connector_client", "derive_client"] }
@@ -25,6 +26,8 @@ base64 = { workspace = true }
 futures = { workspace = true }
 hyper-util = { workspace = true }
 insta = { workspace = true }
+regex = { workspace = true }
+serde_yaml = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }

@@ -1,0 +1,21 @@
+---
+source: crates/connector-vmm-tests/tests/wrapper.rs
+expression: report(&setup)
+---
+--- calls
+network create --driver=bridge --interface-name=fvm000000000001 --label=dev.estuary.vmm-owner=00000000000000000000000000000001 fv_0000000000000001
+run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN sha256:0000 boundary verify
+create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
+start --attach 0000000000000000000000000000000000000000000000000000000000000001
+--- resources
+network fv_0000000000000001
+container fv_0000000000000001
+--- ran
+sudo -n podman network create --driver=bridge --interface-name=fvm000000000001 --label=dev.estuary.vmm-owner=00000000000000000000000000000001 fv_0000000000000001
+podman network create --driver=bridge --interface-name=fvm000000000001 --label=dev.estuary.vmm-owner=00000000000000000000000000000001 fv_0000000000000001 (stdin <tmp>/fence)
+sudo -n podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN sha256:0000 boundary verify
+podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN sha256:0000 boundary verify (stdin <tmp>/fence)
+sudo -n podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
+podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json (stdin <tmp>/fence)
+sudo -n podman start --attach 0000000000000000000000000000000000000000000000000000000000000001
+podman start --attach 0000000000000000000000000000000000000000000000000000000000000001 (stdin <tmp>/fence)

@@ -171,7 +171,7 @@ where
 
     tracing::debug!(docker_args=?docker_args, "invoking docker");
 
-    let mut process: async_process::Child = async_process::Command::new(docker_cli())
+    let mut process: async_process::Child = engine_command(&docker_cli())
         .args(docker_args)
         .stdin(async_process::Stdio::null())
         .stdout(async_process::Stdio::null())
@@ -370,11 +370,28 @@ where
     engine_cmd(&docker_cli(), args).await
 }
 
+/// Engine clients and operator wrappers need their ambient configuration,
+/// but not the reactor's signing, decryption, or Flow login authority.
+pub(crate) fn engine_command(program: &str) -> async_process::Command {
+    let mut command = async_process::Command::new(program);
+    for name in [
+        "CONSUMER_AUTH_KEYS",
+        "BROKER_AUTH_KEYS",
+        "SOPS_AGE_KEY",
+        "FLOW_AUTH_TOKEN",
+    ] {
+        command.env_remove(name);
+    }
+    command
+}
+
+/// Run one command of the container engine `program` to completion,
+/// returning its stdout, or failing with its stderr.
 pub(crate) async fn engine_cmd<S>(program: &str, args: &[S]) -> anyhow::Result<Vec<u8>>
 where
     S: AsRef<std::ffi::OsStr> + std::fmt::Debug,
 {
-    let output = async_process::output(async_process::Command::new(program).args(args))
+    let output = async_process::output(engine_command(program).args(args))
         .await
         .with_context(|| format!("failed to run {program} command {args:?}"))?;
 
@@ -605,7 +622,79 @@ pub(crate) async fn pull_and_inspect(
 }
 
 #[cfg(test)]
+#[path = "container/engine_tests.rs"]
+mod engine_tests;
+
+#[cfg(test)]
 mod test {
+    /// What the pump makes of stderr which arrives all at once, as it does
+    /// when the VMM's diagnostics, connector-init's readiness byte and what
+    /// follows land in one read.
+    #[tokio::test]
+    async fn stderr_around_readiness() {
+        let cases: &[(&str, &str)] = &[
+            (
+                "libkrun diagnostics before and after readiness",
+                "[2026-10-01T00:00:00Z WARN  devices::virtio::fs::server] unhandled request\n \
+                 [2026-10-01T00:00:01Z ERROR vmm::worker] guest wrote too much\n\
+                 {\"level\":\"info\",\"message\":\"a connector log\"}\n",
+            ),
+            (
+                "raw lines on both sides of the marker, which they must not absorb",
+                "WARN libkrun: first\nWARN libkrun: second\n WARN after readiness\nmore raw\n",
+            ),
+            (
+                "an indented line after readiness is a log, not a second marker",
+                " Traceback (most recent call last):\n  File \"main.py\", line 1\n",
+            ),
+            (
+                "a panic, and no readiness",
+                "thread 'main' panicked at crates/connector-vmm/src/resolver/mod.rs:10:5:\n\
+                 resolver socket lost\n\
+                 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n",
+            ),
+            (
+                "the engine's own failure, and no readiness",
+                "Error: crun: error stat'ing file `/dev/kvm`: No such file or directory: OCI runtime attempted to invoke a command that was not found\n",
+            ),
+        ];
+
+        let mut table = String::new();
+        for (name, stderr) in cases {
+            let (response_tx, mut response_rx) = tokio::sync::mpsc::channel(64);
+            let (log_sink, _read_through) = crate::LogSink::response(response_tx);
+            let (ready_tx, ready_rx) = futures::channel::oneshot::channel();
+
+            super::pump_stderr(
+                tokio::io::BufReader::new(stderr.as_bytes()),
+                ready_tx,
+                log_sink,
+                "ghcr.io/estuary/derive-python:stable".to_string(),
+                |log| {
+                    crate::policy::sanitize_connector_log(
+                        &bytes::Bytes::from_static(b"\"acmeCo/anvils/derivation\""),
+                        log,
+                    )
+                },
+            )
+            .await;
+
+            table.push_str(&format!("# {name}\nready: {}\n", ready_rx.await.is_ok()));
+            while let Ok(response) = response_rx.try_recv() {
+                let Some(crate::proto::response::Kind::Log(log)) = response.unwrap().kind else {
+                    panic!("the pump sends only logs");
+                };
+                table.push_str(&format!(
+                    "{}: {:?}\n",
+                    log.level().as_str_name(),
+                    log.message
+                ));
+            }
+            table.push('\n');
+        }
+        insta::assert_snapshot!(table);
+    }
+
     use futures::StreamExt;
     use serde_json::json;
 

@@ -70,18 +70,78 @@ pub fn vmm_name(root: &Root) -> Option<String> {
     })
 }
 
-/// Holds `step` of the test's podman until dropped.
+/// Holds the first call of `step` of the test's podman until dropped. Other
+/// calls of the step pass, so that a hold catches only the launch awaited.
 pub struct Hold {
+    dir: String,
     path: String,
+    /// What each call of the step claims its ordinal by: this and a number.
+    taken: String,
 }
 
 pub fn hold(root: &Root, step: &str) -> Hold {
-    let path = format!("{}/hold-{step}", root.dir);
-    std::fs::write(&path, "").unwrap_or_else(|e| panic!("creating {path}: {e}"));
-    Hold { path }
+    hold_as(root, "hold", step, 1)
+}
+
+/// Holds the `nth` call of `step`, as `hold` does the first.
+pub fn hold_nth(root: &Root, step: &str, nth: u32) -> Hold {
+    hold_as(root, "hold", step, nth)
+}
+
+/// A hold whose waiting runs as root, beneath sudo: it, and the fence it
+/// keeps as its stdin, outlive the kill of everything its launcher's user
+/// can signal, as a rootful podman command does.
+pub fn root_hold(root: &Root, step: &str) -> Hold {
+    hold_as(root, "root-hold", step, 1)
+}
+
+fn hold_as(root: &Root, control: &str, step: &str, nth: u32) -> Hold {
+    let path = format!("{}/{control}-{step}", root.dir);
+    std::fs::write(&path, nth.to_string()).unwrap_or_else(|e| panic!("creating {path}: {e}"));
+    Hold {
+        dir: root.dir.clone(),
+        path,
+        taken: format!("taken-{control}-{step}-"),
+    }
 }
 
 impl Drop for Hold {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+        let Ok(entries) = std::fs::read_dir(&self.dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with(&self.taken) {
+                let _ = std::fs::remove_dir(entry.path());
+            }
+        }
+    }
+}
+
+/// While held, the test's podman creates VMM containers without `/dev/kvm`.
+pub fn no_kvm(root: &Root) -> Control {
+    control(root, "no-kvm", "")
+}
+
+/// While held, the test's podman runs the launcher's boundary verification
+/// in network namespace `netns`, in place of the host's.
+pub fn verify_in(root: &Root, netns: &str) -> Control {
+    control(root, "verify-netns", netns)
+}
+
+/// A control file of the test's podman, removed when dropped.
+pub struct Control {
+    path: String,
+}
+
+fn control(root: &Root, name: &str, content: &str) -> Control {
+    let path = format!("{}/{name}", root.dir);
+    std::fs::write(&path, content).unwrap_or_else(|e| panic!("creating {path}: {e}"));
+    Control { path }
+}
+
+impl Drop for Control {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
@@ -460,7 +520,7 @@ pub fn remaining(footprint: &Footprint) -> Vec<String> {
 
 /// A process's start time in clock ticks, field 22 of its `stat`, or None
 /// if it has gone. Any other failure to read it fails the test.
-fn start_time(pid: u32) -> Option<String> {
+pub fn start_time(pid: u32) -> Option<String> {
     let path = format!("/proc/{pid}/stat");
     let stat = match std::fs::read_to_string(&path) {
         Ok(stat) => stat,

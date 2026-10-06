@@ -1,0 +1,15 @@
+---
+source: crates/connector-vmm-tests/tests/wrapper.rs
+expression: report(&setup)
+---
+--- calls
+create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
+create --rm --name=fv_0000000000000002 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
+--- resources
+container fv_0000000000000001
+container fv_0000000000000002
+--- ran
+sudo -n podman create --rm --name=fv_0000000000000002 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
+podman create --rm --name=fv_0000000000000002 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json (stdin <tmp>/fence)
+sudo -n podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
+podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json (stdin <tmp>/fence)

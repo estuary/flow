@@ -7,6 +7,9 @@ use std::net::Ipv4Addr;
 use crate::sys::{self, Result};
 
 pub const SCRATCH: &str = "/scratch";
+/// Separate from `TMPDIR`: uv refuses projects inside its cache, and
+/// derive-python creates projects in `TMPDIR`.
+pub const UV_CACHE: &str = "/scratch/uv-cache";
 
 /// The virtiofs tag the VMM gives the task's persistent disk share.
 const PERSISTENT_DISK: &str = "persistent-disk";

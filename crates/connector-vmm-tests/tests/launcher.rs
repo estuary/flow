@@ -6,6 +6,9 @@
 //! running only `owner_process` (see `Owner`). Like the rest of the suite,
 //! these run only under `mise run ci:connector-vmm-kvm`.
 
+#[path = "common/rpc.rs"]
+mod rpc;
+
 use connector_vmm_tests::{dns, endpoint, launcher, netns, run};
 use proto_flow::{connector as proto, derive, flow, ops};
 use std::io::BufRead;
@@ -50,8 +53,12 @@ fn vmm_at(podman: &str, state_dir: &str, image: &str) -> connector::Vmm {
 }
 
 fn router(vmm: connector::Vmm) -> connector::ServiceRouter {
-    let (_service, router) =
-        connector::Service::new_local(String::new(), Some(vmm), service_kit::Registry::new());
+    let (_service, router) = connector::Service::new_local(
+        String::new(),
+        Some(vmm),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+    );
     router
 }
 
@@ -68,6 +75,8 @@ fn router_on(plane: connector::Plane, vmm: connector::Vmm) -> connector::Service
         ),
         None,
         service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        None,
     );
     let signer = proto_grpc::Signer::new(
         connector::LOCAL_ISSUER.to_string(),
@@ -167,6 +176,39 @@ fn open(
         request_rx,
     );
     (request_tx, response_rx)
+}
+
+/// Drain startup logs while awaiting the hold, so backpressure cannot stall
+/// startup and a failed launch ends the wait with its diagnostics.
+fn held(
+    root: &launcher::Root,
+    what: &str,
+    response_rx: &mut tokio::sync::mpsc::Receiver<tonic::Result<proto::Response>>,
+) -> Result<(), String> {
+    use tokio::sync::mpsc::error::TryRecvError;
+
+    let path = format!("{}/held-{what}", root.dir);
+    let mut logs = Vec::new();
+    run::eventually(&format!("podman to hold {what}"), STARTED, || {
+        loop {
+            let ended = match response_rx.try_recv() {
+                Ok(Ok(proto::Response {
+                    kind: Some(proto::response::Kind::Log(log)),
+                })) => {
+                    logs.push(format!("{}: {}", log.level().as_str_name(), log.message));
+                    continue;
+                }
+                Ok(Err(status)) => format!("failed: {status}"),
+                Ok(Ok(response)) => format!("sent {response:?}"),
+                Err(TryRecvError::Disconnected) => "ended".to_string(),
+                Err(TryRecvError::Empty) => break,
+            };
+            return Some(Err(format!(
+                "the session {ended} before podman held {what}\n{logs:#?}"
+            )));
+        }
+        launcher::path_exists(&path).then_some(Ok(()))
+    })
 }
 
 fn assert_started(started: &proto::response::Started) {
@@ -436,34 +478,17 @@ impl Owner {
     }
 }
 
-/// An RPC held open on the VMM of launch `name`, from this process, as a busy
-/// VMM serves one. connector-init ends a VMM which serves no RPC within
-/// seconds, which would race the release a test makes of it.
+/// An RPC held open on the VMM of launch `name`, from this process.
 fn hold_rpc(
     runtime: &tokio::runtime::Runtime,
     state_dir: &str,
     name: &str,
 ) -> tonic::Streaming<derive::Response> {
-    let socket = format!("{state_dir}/{name}/sock/init.sock");
-    runtime.block_on(async move {
-        let channel = tonic::transport::Endpoint::from_static("http://[::1]:0")
-            .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
-                let socket = socket.clone();
-                async move {
-                    let stream = tokio::net::UnixStream::connect(socket).await?;
-                    Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(stream))
-                }
-            }))
-            .await
-            .expect("connecting over init.sock");
-        let mut client = proto_grpc::derive::connector_client::ConnectorClient::new(channel);
-        let call = client.derive(futures::stream::pending::<derive::Request>());
-        tokio::time::timeout(STARTED, call)
-            .await
-            .expect("the RPC begins")
-            .expect("the RPC begins")
-            .into_inner()
-    })
+    rpc::hold(
+        runtime,
+        &format!("{state_dir}/{name}/sock/init.sock"),
+        STARTED,
+    )
 }
 
 fn removed(root: &launcher::Root, id: &str) -> bool {
@@ -496,7 +521,17 @@ fn spec_through_the_fake() {
 /// and the unprivileged test process dialed it.
 #[test]
 fn spec_through_the_vmm() {
+    for name in [
+        "CONSUMER_AUTH_KEYS",
+        "BROKER_AUTH_KEYS",
+        "SOPS_AGE_KEY",
+        "FLOW_AUTH_TOKEN",
+    ] {
+        // SAFETY: no other thread exists yet to read the environment.
+        unsafe { std::env::set_var(name, "synthetic-platform-secret") };
+    }
     let (run, root, runtime) = setup();
+    std::fs::write(format!("{}/require-clean-environment", root.dir), "").unwrap();
     // SAFETY: geteuid takes nothing and cannot fail.
     assert_ne!(unsafe { libc::geteuid() }, 0, "the suite runs unprivileged");
     let user = run::podman(&[
@@ -538,6 +573,11 @@ fn spec_through_the_vmm() {
             "network ls",
             "network rm",
         ]
+    );
+    assert_eq!(
+        std::fs::read_to_string(format!("{}/clean-environment", root.dir)).unwrap(),
+        std::fs::read_to_string(format!("{}/calls", root.dir)).unwrap(),
+        "every engine call was checked before sudo"
     );
 }
 
@@ -976,8 +1016,8 @@ fn abandoned_before_the_vmm_runs() {
     let router = router(vmm(&root, &run.fake_image));
 
     let hold = launcher::hold(&root, "network-create");
-    let (request_tx, response_rx) = open(&runtime, &router, spec(&run.derive_python_image));
-    launcher::wait_held(&root, "network-create", STARTED);
+    let (request_tx, mut response_rx) = open(&runtime, &router, spec(&run.derive_python_image));
+    held(&root, "network-create", &mut response_rx).unwrap_or_else(|err| panic!("{err}"));
     std::mem::drop((request_tx, response_rx));
     std::mem::drop(hold);
 
@@ -998,8 +1038,8 @@ fn abandoned_while_the_container_is_created() {
     let router = router(vmm(&root, &run.fake_image));
 
     let hold = launcher::hold(&root, "create");
-    let (request_tx, response_rx) = open(&runtime, &router, spec(&run.derive_python_image));
-    launcher::wait_held(&root, "create", STARTED);
+    let (request_tx, mut response_rx) = open(&runtime, &router, spec(&run.derive_python_image));
+    held(&root, "create", &mut response_rx).unwrap_or_else(|err| panic!("{err}"));
     std::mem::drop((request_tx, response_rx));
     std::mem::drop(hold);
 
@@ -1023,8 +1063,8 @@ fn abandoned_before_readiness() {
     let router = router(vmm(&root, &run.vmm_image));
 
     launcher::gate_readiness(&root);
-    let (request_tx, response_rx) = open(&runtime, &router, spec(&run.derive_python_image));
-    launcher::wait_held(&root, "readiness", STARTED);
+    let (request_tx, mut response_rx) = open(&runtime, &router, spec(&run.derive_python_image));
+    held(&root, "readiness", &mut response_rx).unwrap_or_else(|err| panic!("{err}"));
     std::mem::drop((request_tx, response_rx));
 
     let name = launcher::vmm_name(&root).expect("the launch created a network");
@@ -1034,6 +1074,31 @@ fn abandoned_before_readiness() {
     assert!(
         calls.iter().any(|call| call.starts_with("rm --force")),
         "the container was removed: {calls:#?}"
+    );
+}
+
+/// A failed start must end the readiness wait after teardown completes.
+#[test]
+fn a_failed_start_ends_the_wait_for_readiness() {
+    let (run, root, runtime) = setup();
+    let router = router(vmm(&root, &run.vmm_image));
+
+    launcher::gate_readiness(&root);
+    let _fault = launcher::fail(&root, "start", "");
+    let (request_tx, mut response_rx) = open(&runtime, &router, spec(&run.derive_python_image));
+    let err =
+        held(&root, "readiness", &mut response_rx).expect_err("a failed start is never ready");
+    assert!(
+        err.contains("the VMM exited before flow-connector-init started")
+            && err.contains("podman.sh: failing start, as the test asks"),
+        "{err}"
+    );
+    std::mem::drop((request_tx, response_rx));
+
+    let name = launcher::vmm_name(&root).expect("the launch created a network");
+    assert_eq!(
+        launcher::leftovers(&root, Some(&name)),
+        Vec::<String>::new()
     );
 }
 

@@ -33,7 +33,9 @@ the workload and becoming it. The VMM injects it into the guest root at
   container runtime's per-container layer over the image, served read-write
   over virtiofs. Writes to it are bounded by host disk and nothing else, which
   is why `TMPDIR` and `UV_CACHE_DIR` are pointed at the sized, disposable
-  scratch disk instead.
+  scratch disk instead: `TMPDIR` at its root, and uv's cache at a directory
+  of it, since uv refuses a project inside its cache and derive-python makes
+  its projects in `TMPDIR`.
 - **The connector mount is required, and mounted where the host has it.** Every
   connector run receives one, and `CONNECTOR_MOUNT` in the workload's
   environment names it by its host path, so `--connector-mount` is not optional:

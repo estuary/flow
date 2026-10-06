@@ -108,7 +108,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
     sealed_config: models::RawValue,
     policy: &crate::policy::Image,
     env: BTreeMap<String, String>,
-    mount: &std::path::Path,
+    mount: Option<&std::path::Path>,
     secrets: &std::collections::BTreeMap<String, String>,
     connector_type: i32,   // TODO(johnny): remove with V1 derivations.
     spec_on_own_rpc: bool, // TODO(johnny): remove.
@@ -116,6 +116,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
 ) -> anyhow::Result<crate::Transport<P>> {
     let (container, channel, process, vmm_guard, codec) = match execution {
         crate::vmm::Execution::Ordinary => {
+            let mount = mount.expect("ordinary execution has a connector mount");
             let inspected = crate::container::pull_and_inspect(&image, &ctx.log_sink).await?;
             let Declarations {
                 codec,

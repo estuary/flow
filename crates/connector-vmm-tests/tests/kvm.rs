@@ -428,6 +428,12 @@ fn storage() {
         "the scratch file holds {} bytes for {written} written",
         inode.bytes
     );
+    // Without this, the walk could miss the file and its freeing prove nothing.
+    let holders = host::inode_references(inode);
+    assert!(
+        holders.contains(&format!("/proc/{pid}/fd/3")),
+        "the walk misses the VMM's own scratch descriptor: {holders:?}"
+    );
 
     let mounts = probe(&mut guest, "mounts", "mounts", json!({}));
     assert!(

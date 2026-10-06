@@ -1,0 +1,57 @@
+---
+source: crates/connector-vmm-tests/tests/release.rs
+expression: "release_and_retry(&setup,\n\"1 ip netns list\\n2 sudo -n ip route del\\n1 sudo -n rm -rf\\n\")"
+---
+status: 1
+list: kept
+  route blackhole 192.31.196.240/28 metric 4000
+  netns connector-vmm-kvm
+  dir <tmp>/root/platform-0
+  dir <tmp>/root/launcher-0
+--- stderr
+sudo -n rm -rf --one-file-system <tmp>/root/launcher-0: failing, as the test asks
+ci:connector-vmm-kvm: could not remove dir <tmp>/root/launcher-0
+sudo -n rm -rf --one-file-system <tmp>/root/platform-0: failing, as the test asks
+ci:connector-vmm-kvm: could not remove dir <tmp>/root/platform-0
+ip netns list: failing, as the test asks
+ci:connector-vmm-kvm: could not tell whether netns connector-vmm-kvm exists
+ci:connector-vmm-kvm: could not remove netns connector-vmm-kvm
+sudo -n ip route del blackhole 192.31.196.240/28 metric 4000: failing, as the test asks
+ci:connector-vmm-kvm: could not remove route blackhole 192.31.196.240/28 metric 4000
+ci:connector-vmm-kvm: kept in <tmp>/root/resources what could not be shown removed, and what it may still use. Put right what failed, then run this task again to release:
+  route blackhole 192.31.196.240/28 metric 4000
+  netns connector-vmm-kvm
+  dir <tmp>/root/platform-0
+  dir <tmp>/root/launcher-0
+--- calls
+mise run local:stop
+  in <tmp>/checkout
+systemctl --user list-units --no-legend --plain --state=active,activating,deactivating,reloading,failed flow-*@acme.service flow-*@acme.target flow-*@local-acme-cluster.service flow-*@local-acme-cluster.target flow-*@local-acme-cluster-*.service flow-*@local-acme-cluster-*.target
+sudo -n podman rm -f --time 0 --ignore fv_0000000000000002
+sudo -n podman network ls --format {{.Name}}
+sudo -n rm -rf --one-file-system <tmp>/root/launcher-0
+sudo -n podman rm -f --time 0 --ignore fv_0000000000000001
+sudo -n podman network ls --format {{.Name}}
+sudo -n podman network rm fv_0000000000000001
+systemctl --user daemon-reload
+sudo -n rm -rf --one-file-system <tmp>/root/platform-0
+ip -o link show
+sudo -n ip link del vmm-kvm0
+ip netns list
+ip route show type blackhole
+sudo -n ip route del blackhole 192.31.196.240/28 metric 4000
+sudo -n podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN sha256:0000 boundary remove
+sudo -n podman image rm --ignore sha256:0000
+docker buildx ls --format {{.Name}}
+docker buildx rm connector-vmm-kvm-0
+=== retried
+status: 0
+list: emptied
+--- stderr
+--- calls
+sudo -n rm -rf --one-file-system <tmp>/root/launcher-0
+sudo -n rm -rf --one-file-system <tmp>/root/platform-0
+ip netns list
+sudo -n ip netns del connector-vmm-kvm
+ip route show type blackhole
+sudo -n ip route del blackhole 192.31.196.240/28 metric 4000

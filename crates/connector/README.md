@@ -23,6 +23,11 @@ All paths use the same served stream. Clients route through
 `runtime-next` depends on this crate, never the reverse. The `runtime` crate
 owns its container, image, and local-connector implementation independently.
 
+VMM execution's task fields are described for users in
+[`docs/connector-vmm/tasks.md`](../../docs/connector-vmm/tasks.md), and its
+host preparation, configuration, recovery and rollout for operators in
+[`docs/connector-vmm/operating.md`](../../docs/connector-vmm/operating.md).
+
 ## Protocol contract
 
 - The **first** request sets `start` **and** exactly one protocol request. That
@@ -151,7 +156,8 @@ src/
 ├── vmm/release.rs# Resource release and recovery
 └── container.rs  # Docker/Podman pull, inspect/run capabilities, dial
 tests/
-└── e2e.rs        # served streams: loopback gRPC, EndpointRouter, in-process
+├── e2e.rs        # served streams: loopback gRPC, EndpointRouter, in-process
+└── fixtures/execution.rs # request shapes shared with the pump unit tests
 ```
 
 ## Non-obvious details
@@ -232,6 +238,15 @@ EOF or status. A client which does not drain responses may park the handler.
   (`podman`, the rootful engine however this process reaches it) take
   defaults. A malformed value fails service construction. Whether the host
   can actually run a VMM is a question for each launch, not for configuration.
+
+- **Engine subprocesses omit platform authority.** `container::engine_command`
+  removes `CONSUMER_AUTH_KEYS`, `BROKER_AUTH_KEYS`, `SOPS_AGE_KEY` and
+  `FLOW_AUTH_TOKEN` from ordinary and VMM engine clients, including operator
+  wrappers. Other environment settings remain inherited for engine selection,
+  registry authentication, remote connections and wrapper configuration.
+  This reduces secret copies in subprocesses; it does not restrict rootful
+  engine authority or change VMM isolation. `container/engine_tests.rs` covers
+  invocation paths and creation fences.
 
 - **A VMM container gets an ordinary connector's limits.** `--memory` and
   `--cpus` are `CONNECTOR_MEMORY_LIMIT` and `CONNECTOR_CPU_LIMIT`, verbatim.
@@ -336,6 +351,16 @@ EOF or status. A client which does not drain responses may park the handler.
   If the task is dropped instead, with its runtime, nothing runs: its lock goes,
   and its record is recovered.
 
+- **A stopped shard's or exited flowctl's VMM waits for recovery.** A reactor
+  stops a shard by dropping its task service, and that service's runtime with
+  it; flowctl exits once a preview's session stops. Either way the launch's
+  task is dropped rather than torn down. The VMM ends within seconds of its
+  RPC (connector-init's idle watchdog) and `--rm` removes its container,
+  whose bridge goes with it, but its network definition, state, record and
+  connector mount wait for the next launch beneath the same `STATE_DIR`.
+  A Validate or Spec, whose session ends before its runtime, is torn down by
+  its owner.
+
 - **Every VMM launch first recovers its state directory.** Before its own
   claim, a launch tries the lock of every `fv_<16 hex>.owner` beneath
   `STATE_DIR`, skipping those held, by a live owner or another releaser, and
@@ -369,8 +394,10 @@ EOF or status. A client which does not drain responses may park the handler.
   holding `flow-connector-init` (0555) and `image-inspect.json` (0444), bound
   read-only at its own path into the container and the guest and named by
   `CONNECTOR_MOUNT`. TMPDIR, like the state directory, must therefore be the
-  same path for this process and the engine. Ordinary launches still mount two
-  temporaries.
+  same path for this process and the engine. Ordinary launches use the same
+  connector mount contract. When task-update
+  credentials are configured, the launch writes and rotates `task-update.json`
+  there until teardown starts.
 
 - **A VMM is reached only through `init.sock`.** Its `Container` has no
   address, ports or mapped ports, and carries the image's usage rate.
@@ -378,8 +405,9 @@ EOF or status. A client which does not drain responses may park the handler.
 - **Image admission identifies images by repository.** The public-plane
   refusal of Python derivations applies to every tag, digest, and bare
   spelling of `ghcr.io/estuary/derive-python`, for ordinary launches. A VMM
-  launch skips ordinary image admission: its eligibility is narrower, and the
-  VMM is the protection the refusal stands in for.
+  launch admits Python through VMM eligibility, and applies the same image
+  declarations, usage-rate validation, and task-secret checks as ordinary
+  execution.
 
 - **A response-stream error is terminal.** Panics in the spawned handler are
 converted into a terminal gRPC status rather than appearing as clean EOF.

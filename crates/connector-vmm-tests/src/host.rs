@@ -37,6 +37,8 @@ pub struct Element {
 pub struct Inode {
     pub dev: u64,
     pub ino: u64,
+    /// Birth time since the epoch disambiguates reused inode numbers.
+    pub born: std::time::Duration,
     pub links: u64,
     pub bytes: u64,
 }
@@ -95,25 +97,24 @@ pub fn resolved(name: &str) -> Vec<Element> {
 }
 
 pub fn fd_inode(pid: u32, fd: u32) -> Inode {
-    let stat = sudo(&[
-        "stat",
-        "-L",
-        "-c",
-        "%d %i %h %b %B",
-        &format!("/proc/{pid}/fd/{fd}"),
-    ]);
-    let fields: Vec<u64> = stat
-        .split_whitespace()
-        .map(|field| field.parse().expect("stat prints numbers"))
-        .collect();
-    let [dev, ino, links, blocks, block_size] = fields[..] else {
+    let path = format!("/proc/{pid}/fd/{fd}");
+    let stat = sudo(&["stat", "-L", "-c", "%d %i %.9W %h %b %B", &path]);
+    let fields: Vec<&str> = stat.split_whitespace().collect();
+    let [dev, ino, born, links, blocks, block_size] = fields[..] else {
         panic!("unexpected stat output {stat:?}");
     };
+    let number = |field: &str| -> u64 { field.parse().expect("stat prints numbers") };
+    let born = birth(born).unwrap_or_else(|| panic!("unexpected stat output {stat:?}"));
+    assert!(
+        !born.is_zero(),
+        "{path} has no birth time, so a later file given its inode number would pass for it"
+    );
     Inode {
-        dev,
-        ino,
-        links,
-        bytes: blocks * block_size,
+        dev: number(dev),
+        ino: number(ino),
+        born,
+        links: number(links),
+        bytes: number(blocks) * number(block_size),
     }
 }
 
@@ -126,16 +127,32 @@ pub fn inode_references(inode: Inode) -> Vec<String> {
         &[
             "sh",
             "-c",
-            "find -L /proc/[0-9]*/fd /proc/[0-9]*/map_files -mindepth 1 -maxdepth 1 \
-             -printf '%D %i %p\\n' 2>/dev/null",
+            "find /proc/[0-9]*/fd /proc/[0-9]*/map_files -mindepth 1 -maxdepth 1 \
+             -exec stat -L -c '%d %i %.9W %n' {} + 2>/dev/null",
         ],
         None,
     );
+    references(&String::from_utf8_lossy(&output.stdout), inode)
+}
+
+/// Paths from a `%d %i %.9W %n` listing matching `inode`.
+pub fn references(listing: &str, inode: Inode) -> Vec<String> {
     let wanted = format!("{} {} ", inode.dev, inode.ino);
-    String::from_utf8_lossy(&output.stdout)
+    listing
         .lines()
-        .filter_map(|line| line.strip_prefix(&wanted).map(str::to_string))
+        .filter_map(|line| line.strip_prefix(&wanted)?.split_once(' '))
+        .filter(|(born, _)| birth(born) == Some(inode.born))
+        .map(|(_, path)| path.to_string())
         .collect()
+}
+
+/// `stat`'s `%.9W`, which is zero where the filesystem records no birth time.
+fn birth(field: &str) -> Option<std::time::Duration> {
+    let (secs, nanos) = field.split_once('.')?;
+    Some(std::time::Duration::new(
+        secs.parse().ok()?,
+        nanos.parse().ok()?,
+    ))
 }
 
 pub fn parse_mountinfo(text: &str) -> Vec<Mount> {
@@ -338,6 +355,26 @@ mod tests {
             super::upperdir(&mounts, "/rootfs").as_deref(),
             Some("/var/lib/containers/storage/overlay/abc/diff")
         );
+    }
+
+    #[test]
+    fn inode_references() {
+        let scratch = super::Inode {
+            dev: 41,
+            ino: 101,
+            born: std::time::Duration::new(100, 25),
+            links: 0,
+            bytes: 0,
+        };
+        // Reusing an inode number must not count as retaining the original file.
+        let listing = "\
+41 101 100.000000025 /proc/2001/fd/3
+41 101 101.000000025 /proc/2002/fd/4
+41 102 100.000000025 /proc/2003/fd/5
+42 101 100.000000025 /proc/2004/fd/6
+41 101 0.000000000 /proc/2005/fd/7
+";
+        assert_eq!(super::references(listing, scratch), ["/proc/2001/fd/3"]);
     }
 
     #[test]

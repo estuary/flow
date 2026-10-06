@@ -182,7 +182,8 @@ pub(crate) async fn start<P: Protocol>(
         Endpoint::Image { image, .. } if one_request_per_invocation(image),
     );
 
-    // Apply image policy checks that don't require inspection (and registry I/O).
+    // VMM eligibility supplies the isolation ordinary public-plane Python
+    // admission requires. Both paths still validate image declarations and secrets.
     let image_policy = match &endpoint {
         Endpoint::Image { image, .. } => Some(crate::policy::Image::check(
             if matches!(execution, crate::vmm::Execution::Vmm { .. }) {
@@ -195,10 +196,16 @@ pub(crate) async fn start<P: Protocol>(
         Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
     };
 
-    let mount = create_connector_mount()?;
-    let env = connector_env(ctx.plane, ctx.log_level, mount.path())?;
+    let mount = match execution {
+        crate::vmm::Execution::Ordinary => Some(create_connector_mount()?),
+        crate::vmm::Execution::Vmm { .. } => None,
+    };
+    let env = match &mount {
+        Some(mount) => connector_env(ctx.plane, ctx.log_level, mount.path())?,
+        None => Default::default(),
+    };
 
-    let refresh = if matches!(execution, crate::vmm::Execution::Ordinary) {
+    let refresh = if let Some(mount) = &mount {
         start_task_update(
             ctx.task_update.as_ref(),
             P::TASK_TYPE,
@@ -243,7 +250,7 @@ pub(crate) async fn start<P: Protocol>(
                 sealed_config,
                 image_policy.as_ref().unwrap(),
                 env,
-                mount.path(),
+                mount.as_ref().map(tempfile::TempDir::path),
                 secrets,
                 connector_type,
                 spec_on_own_rpc,
@@ -352,7 +359,8 @@ pub(crate) async fn start<P: Protocol>(
                 token_restart_at,
                 process: ctx.process,
                 spec: Some(spec),
-                execution: Some(ctx.execution).filter(|execution| *execution != Default::default()),
+                execution: Some(ctx.execution.clone())
+                    .filter(|execution| *execution != Default::default()),
             })),
         },
         connector_tx,

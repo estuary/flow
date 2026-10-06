@@ -1,0 +1,34 @@
+import:
+  - greetings.flow.yaml
+
+collections:
+  acmeCo/vmm-python/numbers:
+    schema:
+      type: object
+      properties:
+        n: { type: integer }
+        ordinal: { type: string }
+        comma: { type: string }
+        humanize: { type: string }
+        resolved: { type: array, items: { type: string } }
+        unresolved: { type: array, items: { type: string } }
+      required: [n, ordinal, comma, humanize, resolved, unresolved]
+    key: [/n]
+    derive:
+      using:
+        python:
+          module: numbers.py
+          dependencies:
+            humanize: "==4.12.3"
+      vmm: true
+      # Declared even though a local plane would otherwise permit any public
+      # destination, so that the run is held to names as a public plane's is.
+      egress:
+        hosts: [example.org]
+      shards:
+        flags:
+          enable-runtime-v2: "true"
+      transforms:
+        - name: fromGreetings
+          source: { name: acmeCo/vmm-python/greetings }
+          shuffle: any

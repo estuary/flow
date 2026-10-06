@@ -60,7 +60,7 @@ fn exec_workload(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     // `getenv` while these are set.
     unsafe {
         std::env::set_var("TMPDIR", root::SCRATCH);
-        std::env::set_var("UV_CACHE_DIR", root::SCRATCH);
+        std::env::set_var("UV_CACHE_DIR", root::UV_CACHE);
     }
 
     if !args.run_as_root {

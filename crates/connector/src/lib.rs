@@ -33,6 +33,10 @@ mod serve;
 mod service;
 mod vmm;
 
+#[cfg(test)]
+#[path = "../tests/fixtures/execution.rs"]
+mod execution_fixture;
+
 pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify};
 pub use router::{LOCAL_ISSUER, ServiceRouter};
@@ -163,7 +167,7 @@ pub(crate) struct Guard {
     _process: Option<async_process::Child>,
     _vmm: Option<vmm::launch::Guard>,
     _refresh: Option<tokio::sync::oneshot::Sender<()>>,
-    _mount: tempfile::TempDir,
+    _mount: Option<tempfile::TempDir>,
 }
 
 /// Render one `ops::Log` of this crate's own reporting.

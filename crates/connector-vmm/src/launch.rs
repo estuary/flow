@@ -32,6 +32,11 @@ const SCRATCH_ID: &str = "scratch";
 
 const VSOCK_PORT: u32 = 49092;
 
+const KVM: &str = "/dev/kvm";
+/// `KVM_GET_API_VERSION`, `_IO(KVMIO, 0x00)`, and the one version KVM has.
+const KVM_GET_API_VERSION: libc::Ioctl = 0xAE00;
+const KVM_API_VERSION: libc::c_int = 12;
+
 /// Where the scratch descriptor lands, so that everything above it can be
 /// closed in one call and the name libkrun is given is a constant.
 const SCRATCH_FD: RawFd = 3;
@@ -115,6 +120,7 @@ pub struct Console {
 
 pub fn run(args: &Args) -> anyhow::Result<Infallible> {
     check_read_only(&args.connector_mount)?;
+    check_kvm(KVM)?;
 
     let policy = egress::load(&args.policy)?;
 
@@ -311,6 +317,32 @@ fn check_read_only(connector_mount: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// libkrun panics across its C boundary when it can't create a VM, and the
+/// backtrace it prints then has indented lines, which a launcher reads as
+/// connector-init's readiness. So a VMM without KVM says so, and exits,
+/// before libkrun is called.
+fn check_kvm(path: &str) -> anyhow::Result<()> {
+    let kvm = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|err| {
+            anyhow::anyhow!(err).context(format!("KVM is unavailable to this VMM: opening {path}"))
+        })?;
+    // SAFETY: an ioctl which takes no argument, on a descriptor open across it.
+    let version = unsafe { libc::ioctl(kvm.as_raw_fd(), KVM_GET_API_VERSION) };
+    if version < 0 {
+        return Err(anyhow::anyhow!(std::io::Error::last_os_error())
+            .context(format!("KVM is unavailable to this VMM: {path} is not KVM")));
+    }
+    if version != KVM_API_VERSION {
+        anyhow::bail!(
+            "KVM is unavailable to this VMM: {path} has API version {version}, not {KVM_API_VERSION}"
+        );
+    }
+    Ok(())
+}
+
 fn writable_mount(path: &str, flag: &str) -> String {
     format!("{path} is writable; the VMM container must be launched with `{flag}`")
 }
@@ -380,6 +412,22 @@ fn guest_path(raw: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn kvm_must_open_and_be_kvm() {
+        let missing = super::check_kvm("/nonexistent/kvm").unwrap_err();
+        assert_eq!(
+            format!("{missing:#}"),
+            "KVM is unavailable to this VMM: opening /nonexistent/kvm: \
+             No such file or directory (os error 2)"
+        );
+        let other = super::check_kvm("/dev/null").unwrap_err();
+        assert_eq!(
+            format!("{other:#}"),
+            "KVM is unavailable to this VMM: /dev/null is not KVM: \
+             Inappropriate ioctl for device (os error 25)"
+        );
+    }
+
     use super::{Console, Machine, Overlay};
     use std::convert::Infallible;
     use std::os::fd::{AsRawFd, RawFd};

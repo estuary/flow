@@ -11,7 +11,9 @@ into the nftables ruleset that the VM will run behind, without touching the
 kernel, so the policy can be reviewed and snapshot-tested on any machine.
 `boundary` installs, verifies and removes the host's tables around every VMM
 container's network; it runs on the host, not in a VMM container. See
-[The host boundary](#the-host-boundary).
+[The host boundary](#the-host-boundary), and
+[`docs/connector-vmm/operating.md`](../../docs/connector-vmm/operating.md)
+for when a host's provisioning runs it.
 
 ## Roadmap
 
@@ -48,6 +50,13 @@ container's network; it runs on the host, not in a VMM container. See
 before booting the guest, and sweeps inherited descriptors before starting any
 worker threads. `launch::sweep` retains stdio and the scratch disk at fd 3;
 `resolver::start` waits until DNS is listening before launch continues.
+
+`launch::check_kvm` opens `/dev/kvm` and asks its API version before libkrun
+is loaded, failing with `KVM is unavailable to this VMM`. Without KVM libkrun
+panics inside `krun_start_enter`, across its C boundary, and aborts with a
+backtrace whose indented lines a launcher's stderr framing reads as
+connector-init's readiness byte; the launch then fails dialing a socket that
+was never bound. Any other libkrun panic before readiness still does that.
 
 `launch::enter` disables implicit vsock networking to prevent TSI INET
 hijacking and configures separate workload stderr. See `image::guest_argv`
