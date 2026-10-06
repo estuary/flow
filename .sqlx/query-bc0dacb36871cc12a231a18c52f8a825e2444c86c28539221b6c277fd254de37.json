@@ -24,7 +24,8 @@
                       "delegate",
                       "assume",
                       "manage_data_plane",
-                      "manage_service_accounts"
+                      "manage_service_accounts",
+                      "create_sandbox"
                     ]
                   }
                 }
@@ -50,7 +51,8 @@
                       "delegate",
                       "assume",
                       "manage_data_plane",
-                      "manage_service_accounts"
+                      "manage_service_accounts",
+                      "create_sandbox"
                     ]
                   }
                 }

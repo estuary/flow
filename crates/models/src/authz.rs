@@ -96,6 +96,7 @@ pub enum CapabilityBundle {
     TeamAdmin,
     ManageServiceAccounts,
     ManageDataPlane,
+    CreateSandbox,
     Delegate,
     Assume,
 }
@@ -165,7 +166,6 @@ impl CapabilityBundle {
                     | Self::TeamAdmin.capabilities()
                     | Self::Billing.capabilities()
                     | Self::ManageDataPlane.capabilities()
-                    | CreateSandbox
             }
             Self::Billing => ViewBilling | EditBilling,
             Self::ManageServiceAccounts => {
@@ -182,6 +182,7 @@ impl CapabilityBundle {
             }
             Self::Delegate => Delegate.into(),
             Self::Assume => Assume.into(),
+            Self::CreateSandbox => CreateSandbox.into(),
         }
     }
 }
