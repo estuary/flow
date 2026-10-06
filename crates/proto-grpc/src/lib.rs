@@ -34,7 +34,7 @@ pub use status::{
 };
 
 mod dial;
-pub use dial::dial_channel;
+pub use dial::{CHANNEL_CACHE_MAX_AGE, dial_channel};
 
 /// Standard buffer depth of asynchronous protocol pipelines.
 ///

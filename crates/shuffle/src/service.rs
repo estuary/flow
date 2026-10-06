@@ -25,8 +25,12 @@ pub struct ServiceImpl {
     /// back-pressure, used for any task that doesn't set a per-shard override
     /// via the `estuary.dev/shuffle-disk-limit` label.
     pub(crate) shuffle_disk_limit_bytes: u64,
-    /// Transport channels to dialed peers.
-    pub(crate) channels: std::sync::Mutex<HashMap<String, tonic::transport::Channel>>,
+    /// Transport channels to dialed peers, and the Instant at which they were
+    /// last all dropped (see `dial_channel`).
+    pub(crate) channels: std::sync::Mutex<(
+        HashMap<String, tonic::transport::Channel>,
+        std::time::Instant,
+    )>,
     /// Shared state for coordinating Log RPCs from multiple Slices into a single LogActor.
     /// Keyed by (directory, session_id, log_shard_index). `session_id` scopes
     /// each rendezvous to its session so retries can't collide with a prior
@@ -50,7 +54,7 @@ impl Service {
             peer_endpoint,
             journal_client_factory,
             shuffle_disk_limit_bytes,
-            channels: std::sync::Mutex::new(HashMap::new()),
+            channels: std::sync::Mutex::new((HashMap::new(), std::time::Instant::now())),
             log_joins: std::sync::Mutex::new(HashMap::new()),
             registry,
             signer,
@@ -167,16 +171,26 @@ impl Service {
         }
     }
 
+    /// Map `endpoint` to its cached Channel, dialing as required. All Channels
+    /// are dropped every `proto_grpc::CHANNEL_CACHE_MAX_AGE` to be re-dialed
+    /// on next use, which rotates long-lived connections and releases those
+    /// of departed peers.
     pub(crate) fn dial_channel(&self, endpoint: &str) -> tonic::Result<tonic::transport::Channel> {
         let mut guard = self.channels.lock().unwrap();
+        let (channels, cleared_at) = &mut *guard;
 
-        if let Some(channel) = guard.get(endpoint) {
+        if cleared_at.elapsed() >= proto_grpc::CHANNEL_CACHE_MAX_AGE {
+            channels.clear();
+            *cleared_at = std::time::Instant::now();
+        }
+
+        if let Some(channel) = channels.get(endpoint) {
             return Ok(channel.clone());
         }
 
         let channel = proto_grpc::dial_channel(endpoint)
             .map_err(|err| tonic::Status::internal(err.to_string()))?;
-        guard.insert(endpoint.to_string(), channel.clone());
+        channels.insert(endpoint.to_string(), channel.clone());
         Ok(channel)
     }
 }

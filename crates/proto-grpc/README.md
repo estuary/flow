@@ -8,7 +8,9 @@ The crate root provides authentication and authorization (`Metadata`,
 `Signer`, `Authenticator`, `Authorizer`), bounded status conversion and
 protocol verification helpers, shared `CHANNEL_BUFFER` and `MAX_MESSAGE_SIZE`
 limits, and `dial_channel` with the workspace's HTTP, HTTPS, and Unix-socket
-defaults.
+defaults. Caches of dialed Channels drop them after `CHANNEL_CACHE_MAX_AGE`, to
+rotate long-lived HTTP/2 connections and release connections to peers that
+have left the topology.
 
 `status_to_anyhow` carries a status across an error chain as a `StatusError`,
 and `anyhow_to_status` maps one back: verbatim if the status *is* the error,

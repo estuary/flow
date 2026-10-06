@@ -31,3 +31,7 @@ pub fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel, tonic::
 
     Ok(endpoint.connect_lazy())
 }
+
+/// Maximum age of a cached Channel before its cache should drop it,
+/// to be re-dialed on next use.
+pub const CHANNEL_CACHE_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(300);
