@@ -468,6 +468,27 @@ With a single stack on the host you can omit `[stack]`. It:
 Use `--no-remap` to forward a second stack alongside (identity sets never
 collide; the classic remap set belongs to one stack).
 
+### Publishing the MCP adapter to a cloud client
+
+A port-forward reaches only clients whose transport runs on your machine.
+claude.ai's and chatgpt.com's connectors call the adapter from their vendor's
+cloud, so they need a public HTTPS origin instead: `mise run local:tunnel` opens a cloudflared quick
+tunnel to this stack's adapter (`base+22`) *and* restarts the adapter announcing
+the tunnel's URL, which is the part that matters — the adapter's OAuth issuer
+and redirects are built from `ESTUARY_MCP_PUBLIC_URL` and compared by exact
+string. Ctrl+C restores the loopback URL.
+
+`--provider ngrok` exists but is unusable on ngrok's free tier: its abuse
+interstitial answers the dashboard's cross-origin consent fetch with HTML and no
+CORS headers, which the browser reports only as `TypeError: Failed to fetch`.
+The task probes for exactly that and refuses to hand you a broken tunnel. See
+`mcp/README.md` for the full reasoning and for the dashboard's
+`VITE_MCP_ALLOWED_ADAPTER_ORIGINS` allowlist.
+
+Only the adapter is published — never the agent, the database, or the
+dashboard. The browser leg of the OAuth dance is your own browser, so the
+dashboard stays at `FLOW_DASHBOARD_ORIGIN` on your machine.
+
 ## Standalone helpers
 
 `local/ops-publication.sh <bundle>` emits the SQL that `local:stack` uses to

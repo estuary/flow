@@ -67,6 +67,7 @@ echo "  export SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt   # per-command; needed for br
 echo "  journalctl --user -u flow-reactor@${FLOW_CLUSTER}-${REACTOR_PORT} -f"
 echo "  mise run local:test-tenant && source ${FLOW_STACK_DIR}/test-tenant-test.env"
 echo "  claude mcp add --transport http estuary http://localhost:${FLOW_PORT_MCP}/mcp   # from the HOST, once forwarded"
+echo "  mise run local:tunnel                      # publish the MCP adapter on HTTPS, for cloud clients (Claude Desktop)"
 echo ""
 
 print_stack_card

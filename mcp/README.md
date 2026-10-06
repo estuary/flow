@@ -282,6 +282,54 @@ at `base+13`. Seeded users have no identities — sign up a fresh address, or ru
 Note that restarting Supabase resets the database, so users and refresh tokens
 created while testing vanish. Re-provision rather than debugging ghosts.
 
+### Cloud-originated clients: an HTTPS tunnel
+
+A port-forward only works for clients whose transport runs on the developer's
+machine. A cloud-originated one — claude.ai's connectors, chatgpt.com's — cannot
+see a loopback forward and rejects `http://` URLs outright. Which clients those
+are is not obvious from their packaging; see
+[Clients known to work](#clients-known-to-work). Such a client needs the adapter
+on a public HTTPS origin:
+
+```bash
+mise run local:tunnel                      # cloudflared quick tunnel
+```
+
+The tunnel itself is the easy half. What the task actually exists for is the
+*reconfiguration*: it learns the assigned URL, layers it over the adapter's
+`ESTUARY_MCP_PUBLIC_URL` (a systemd drop-in, so `local:stack` cannot regenerate
+it away and `local:stop` sweeps it), restarts the adapter, and then verifies
+through the tunnel that the announced issuer is the tunnel's own origin — the
+one mistake that surfaces as an opaque client-side "issuer mismatch". Ctrl+C
+restores the loopback URL. Quick-tunnel hostnames are assigned per run, so the
+URL must be re-pasted into the client and the UI's env on every restart.
+
+**The tunnel must not be browser-hostile.** ngrok's free tier answers
+browser-originated requests with an HTML abuse interstitial
+(`ERR_NGROK_6024`), and that breaks this flow structurally rather than
+cosmetically. The consent screen fetches `/oauth/consent-context` cross-origin;
+the interstitial's response carries no `Access-Control-Allow-Origin`, so the
+browser reports only `TypeError: Failed to fetch`. Neither escape works: the
+dashboard cannot send `ngrok-skip-browser-warning` without putting a tunnel
+vendor's name into product code, for a fetch that exists for a security reason;
+the cookie a human earns by clicking "Visit Site" does not ride on a
+credential-less cross-origin XHR; and a traffic policy that injects the header
+does not help, because the interstitial is applied at ngrok's edge *before*
+policy actions run. `--provider ngrok` is therefore only viable on a plan that
+drops the interstitial. The task probes for this directly — a browser-UA,
+cross-origin request to `/oauth/consent-context`, asserting the *adapter*
+answered — so a hostile edge fails at setup rather than mid-dance.
+
+Only the *adapter* is published. The dashboard stays on your machine, because
+the browser leg of the dance is your browser: the adapter still redirects to
+`FLOW_DASHBOARD_ORIGIN`, and the UI needs the tunnel's origin allowlisted in
+`VITE_MCP_ALLOWED_ADAPTER_ORIGINS` (see above). The control-plane agent is
+never exposed; the adapter calls it in-process inside the VM.
+
+While the tunnel is up, `/oauth/authorize` is world-reachable. It is not an open
+redirect (CIMD validation precedes every redirect), but it will steer anyone who
+finds it at your dashboard's login page. Close it when done.
+
 ## Tests
 
 ```bash
@@ -308,6 +356,49 @@ That test earned its keep immediately: Claude Code registers
 `http://localhost/callback` with *no port at all*, which only matches under
 RFC 8252 §7.3 port-agnostic comparison.
 
+## Clients known to work
+
+Verified by hand against a local stack behind an HTTPS tunnel. The column that
+matters is the third one: **every one of these selected CIMD, and not one
+attempted `POST /register`.** That is the evidence for betting the design on
+CIMD-only; before it, the bet was an argument.
+
+| Client | `client_id` document | `redirect_uri` | Transport from |
+|---|---|---|---|
+| Claude Code | `claude.ai/oauth/claude-code-client-metadata` | `http://localhost/callback` (no port) | your machine |
+| Claude (claude.ai in a browser) | `claude.ai/oauth/mcp-oauth-client-metadata` | `https://claude.ai/api/mcp/auth_callback` | Anthropic's cloud |
+| Codex (ChatGPT desktop app) | `chatgpt.com/oauth/codex/<opaque>/client.json` | `http://127.0.0.1:<ephemeral>/callback/<opaque>` | your machine |
+| ChatGPT (chatgpt.com in a browser) | `chatgpt.com/oauth/<opaque>/client.json` | `https://chatgpt.com/connector/oauth/<opaque>` | OpenAI's cloud |
+
+**The last column decides whether you need a tunnel at all**, and it is not
+"desktop app versus browser" — ChatGPT's desktop app calls `/mcp` from the
+developer's own machine (and redirects to loopback), so it works over
+`mise run vm:port-forward` against `http://localhost:<base+22>/mcp`, exactly like
+Claude Code. Only genuinely cloud-originated transports need
+`mise run local:tunnel`. Determine which you have by reading the source address
+of the `POST /mcp` lines in the adapter's log rather than by guessing from the
+client's packaging.
+
+Three more things that fall out of the table and are easy to get wrong:
+
+- **One vendor, several clients, several documents.** Anthropic publishes a
+  different document per product; the two are not interchangeable, and pinning
+  only Claude Code's (as `test_live_stack.py` does) tests one of them.
+- **OpenAI's documents are per-*connector*, not per-product.** The opaque path
+  segment is minted when a user adds the connector, so `client_id` is not a
+  stable product identity. The consequence lands on the token `detail`
+  (`auth/routes.py`), which records the `client_id` verbatim so a user can see
+  and revoke one client: for OpenAI clients that renders as an opaque
+  `https://chatgpt.com/oauth/pBqTePPCi2Zt/client.json`, which is not legible.
+  Recording `client_name` and `display_host` alongside it would fix that; the
+  metadata is already validated and in hand at mint time.
+- **ChatGPT probes `/.well-known/openid-configuration` and tolerates a 404.**
+  Expected noise, not a missing endpoint. It proceeds to RFC 8414 discovery.
+
+Codex is also the only client so far to present a loopback redirect with *both*
+an ephemeral port and a path (`/callback/<opaque>`), exercising §7.3 comparison
+in the shape that matters: port ignored, path matched exactly.
+
 ## Deferred
 
 Deliberately not built. Each is a real gap, not an oversight:
@@ -321,9 +412,13 @@ Deliberately not built. Each is a real gap, not an oversight:
   resolves it again when it connects; a DNS entry that flips between the two
   would slip past. Closing it means pinning the resolved address into the
   connection.
-- **Claude Desktop.** Its custom connectors originate from Anthropic's cloud
-  rather than the user's machine and reject `http://` URLs, so testing it needs a
-  public HTTPS tunnel. Config-driven URLs keep that a configuration change.
+- **Dynamic client registration (RFC 7591).** Not implemented, and not an
+  oversight: a client registry is durable state, which this component does not
+  get to have. The metadata document advertises
+  `client_id_metadata_document_supported` precisely so a client picks CIMD
+  instead. A client that speaks *only* DCR cannot connect at all — the design's
+  one hard compatibility edge. It has not been hit yet: see
+  [Clients known to work](#clients-known-to-work).
 - **A scope vocabulary.** Estuary authorization is a server-side grant graph.
   What an MCP scope should mean here — capability bits? `pg_role`? — is a real
   design conversation, and inventing scope strings that narrow nothing would be

@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Publish this stack's MCP adapter on a public HTTPS URL, for cloud MCP clients"
+#USAGE flag "--provider <provider>" help="cloudflared (default) or ngrok. See the note on ngrok's interstitial below." {
+#USAGE   choices "cloudflared" "ngrok"
+#USAGE }
+#USAGE flag "--url <url>" help="ngrok only: a reserved URL to claim (e.g. https://<name>.ngrok-free.dev). Ignored by cloudflared, whose quick tunnels are always randomly named."
+#USAGE flag "--keep" help="Leave the adapter pointed at the tunnel URL after Ctrl+C (default: restore the loopback URL)"
+
+# Why this exists: an MCP client whose transport originates in a vendor's cloud
+# rather than on the developer's machine (claude.ai's connectors, chatgpt.com's)
+# cannot reach an SSH port-forward, and rejects `http://` URLs outright. Note that
+# this does NOT follow from a client being a desktop app: ChatGPT's desktop app
+# calls the adapter from the developer's own machine, and works over a plain
+# port-forward. See mcp/README.md "Clients known to work".
+#
+# `vm:port-forward` is the right tool for local clients (Claude Code, Codex,
+# flowctl); this is the right tool for cloud ones, and the two compose.
+#
+# The load-bearing part is not the tunnel, it is the *reconfiguration*: the
+# adapter bakes `ESTUARY_MCP_PUBLIC_URL` into its OAuth issuer, its RFC 9728
+# resource identifier, and every redirect a browser follows. Those are compared
+# by exact string, so an adapter still announcing `http://localhost:<port>` while
+# being reached at `https://…` fails as an opaque client-side "issuer mismatch".
+# Hence: learn the URL, then restart the adapter under it.
+#
+# WHY THE DEFAULT IS CLOUDFLARED, AND NOT NGROK. ngrok's free tier answers
+# browser-originated requests with an HTML abuse interstitial (ERR_NGROK_6024)
+# unless they carry an `ngrok-skip-browser-warning` header. That breaks this flow
+# structurally, not cosmetically: the dashboard's consent screen fetches
+# `GET {adapter}/oauth/consent-context` cross-origin, and
+#
+#   * it cannot send that header — doing so would put a tunnel vendor's name
+#     into product code, for a fetch that exists for a security reason (see
+#     mcp/README.md "Dashboard handoff contract"); and
+#   * the cookie a human earns by clicking "Visit Site" does not ride on a
+#     credential-less cross-origin XHR anyway.
+#
+# The interstitial's response carries no `Access-Control-Allow-Origin`, so the
+# browser reports the useless `TypeError: Failed to fetch`. A traffic policy that
+# injects the header does NOT help — the interstitial is applied at ngrok's edge
+# before policy actions run (measured, not assumed). ngrok is therefore usable
+# here only on a plan that drops the interstitial, which is what `--provider
+# ngrok` is for. Cloudflare quick tunnels have no interstitial and need no
+# account; the price is a fresh random hostname on every run.
+
+source "$(dirname "$0")/lib.sh"
+ensure_stack_env
+prepare_dirs
+
+PROVIDER="${usage_provider:-cloudflared}"
+RESERVED_URL="${usage_url:-}"
+KEEP="${usage_keep:-false}"
+
+NAME="${FLOW_STACK_NAME}"
+UNIT="flow-mcp@${NAME}.service"
+DROPIN_DIR="${HOME}/.config/systemd/user/${UNIT}.d"
+OVERRIDE_ENV="${FLOW_ENV_DIR}/mcp-tunnel-${NAME}.env"
+TUNNEL_LOG="${FLOW_STACK_DIR}/tunnel-${PROVIDER}.log"
+
+case "${PROVIDER}" in
+cloudflared)
+    if ! command -v cloudflared >/dev/null; then
+        echo "error: cloudflared is not on PATH." >&2
+        echo "       Install it (no account needed for quick tunnels):" >&2
+        echo "         curl -sSfL -o ~/.local/bin/cloudflared \\" >&2
+        echo "           https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" >&2
+        echo "         chmod +x ~/.local/bin/cloudflared" >&2
+        exit 1
+    fi
+    if [ -n "${RESERVED_URL}" ]; then
+        echo "note: --url is ignored for cloudflared quick tunnels (the hostname is assigned)." >&2
+    fi
+    TUNNEL_CMD=(cloudflared tunnel --url "http://localhost:${FLOW_PORT_MCP}")
+    # The assigned hostname appears once, inside cloudflared's banner box.
+    URL_PATTERN='https://[a-z0-9-]+\.trycloudflare\.com'
+    ;;
+ngrok)
+    if ! command -v ngrok >/dev/null; then
+        echo "error: ngrok is not on PATH." >&2
+        echo "       Install the agent (it is not in mise's registry — ngrok ships its own):" >&2
+        echo "         curl -sSfL https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz \\" >&2
+        echo "           | tar -xz -C ~/.local/bin ngrok" >&2
+        echo "       Then authenticate once: ngrok config add-authtoken <token>" >&2
+        exit 1
+    fi
+    echo "warning: on ngrok's free tier the dashboard's consent screen cannot load —" >&2
+    echo "         its cross-origin fetch is answered by the abuse interstitial." >&2
+    echo "         See the comment at the top of this task. Proceeding anyway." >&2
+    TUNNEL_CMD=(ngrok http "${FLOW_PORT_MCP}" --log stdout --log-format logfmt)
+    if [ -n "${RESERVED_URL}" ]; then
+        TUNNEL_CMD+=(--url "${RESERVED_URL}")
+    fi
+    URL_PATTERN='https://[a-zA-Z0-9.-]+\.ngrok[a-z.-]*\.(dev|app|io)'
+    ;;
+*)
+    echo "error: unknown --provider '${PROVIDER}' (expected cloudflared or ngrok)" >&2
+    exit 1
+    ;;
+esac
+
+if ! systemctl --user is-active --quiet "${UNIT}"; then
+    echo "error: ${UNIT} is not running; nothing to publish." >&2
+    echo "       Start it first: mise run local:mcp" >&2
+    exit 1
+fi
+
+# A previous run that died on SIGKILL (a closed terminal, an OOM, an agent
+# teardown) never got to run its trap, leaving the adapter announcing a URL that
+# no longer reaches it — every client then fails on issuer mismatch, including
+# local ones. Say so rather than silently inheriting it; the override is rewritten
+# below regardless.
+if [ -f "${OVERRIDE_ENV}" ]; then
+    echo "note: found a stale tunnel override ($(sed -n 's/^ESTUARY_MCP_PUBLIC_URL=//p' "${OVERRIDE_ENV}"))" >&2
+    echo "      from a run that did not shut down cleanly. Replacing it." >&2
+fi
+
+# Restore the adapter to its loopback identity on the way out. A tunnel that has
+# stopped forwarding but left the adapter announcing its URL is the worst of both
+# worlds: local clients break too, and the failure looks like an OAuth bug.
+cleanup() {
+    local status=$?
+    trap - EXIT INT TERM
+
+    if [ -n "${TUNNEL_PID:-}" ]; then
+        kill "${TUNNEL_PID}" 2>/dev/null || true
+        wait "${TUNNEL_PID}" 2>/dev/null || true
+    fi
+
+    if [ "${KEEP}" = "true" ] && [ -f "${OVERRIDE_ENV}" ]; then
+        echo ""
+        echo "--keep: the adapter still announces ${PUBLIC_URL:-the tunnel URL}, which is now dead."
+        echo "        Restore it with: rm -rf ${DROPIN_DIR} ${OVERRIDE_ENV} &&"
+        echo "                         systemctl --user daemon-reload && systemctl --user restart ${UNIT}"
+    elif [ -d "${DROPIN_DIR}" ]; then
+        echo ""
+        echo "Tunnel closed; restoring the adapter to http://localhost:${FLOW_PORT_MCP}"
+        rm -rf "${DROPIN_DIR}"
+        rm -f "${OVERRIDE_ENV}"
+        systemctl --user daemon-reload
+        systemctl --user restart "${UNIT}" || true
+    fi
+    exit "${status}"
+}
+trap cleanup EXIT INT TERM
+
+: > "${TUNNEL_LOG}"
+"${TUNNEL_CMD[@]}" >> "${TUNNEL_LOG}" 2>&1 &
+TUNNEL_PID=$!
+
+# Both agents announce their assigned hostname on stdout/stderr. We read it from
+# the log rather than an agent's local API because those APIs bind fixed
+# machine-global ports (ngrok's :4040) that would collide between stacks, while
+# the log is per-stack.
+PUBLIC_URL=""
+for _ in $(seq 1 90); do
+    PUBLIC_URL="$(grep -oE "${URL_PATTERN}" "${TUNNEL_LOG}" | head -n1 || true)"
+    [ -n "${PUBLIC_URL}" ] && break
+    kill -0 "${TUNNEL_PID}" 2>/dev/null || break
+    sleep 0.5
+done
+
+if [ -z "${PUBLIC_URL}" ]; then
+    echo "error: ${PROVIDER} did not report a tunnel URL. Its log:" >&2
+    sed -n '1,40p' "${TUNNEL_LOG}" >&2
+    if [ "${PROVIDER}" = "ngrok" ]; then
+        echo "" >&2
+        echo "       A first run needs an authtoken: ngrok config add-authtoken <token>" >&2
+        echo "       Free accounts also allow only ONE agent session at a time." >&2
+    fi
+    exit 1
+fi
+
+# An override layered on top of the generated env file, rather than a rewrite of
+# it: `local:stack` regenerates that file and would silently drop the override
+# mid-tunnel. `local:stop` already sweeps both this stack's drop-ins and its
+# `*-${NAME}.env` files, so an abandoned tunnel cannot outlive its stack.
+#
+# It must be a second EnvironmentFile= and not an `Environment=` line: systemd
+# reads EnvironmentFile= *after* Environment= regardless of where each appears,
+# so an Environment= override loses to the unit's own file. Two environment
+# files, however, are read in declaration order — and a drop-in's directives are
+# parsed after the unit's — so this one wins.
+mkdir -p "${DROPIN_DIR}"
+cat > "${OVERRIDE_ENV}" <<EOF
+# Generated by 'mise run local:tunnel' — removed when the tunnel closes.
+ESTUARY_MCP_PUBLIC_URL=${PUBLIC_URL}
+EOF
+cat > "${DROPIN_DIR}/tunnel.conf" <<EOF
+# Generated by 'mise run local:tunnel' — removed when the tunnel closes.
+[Service]
+EnvironmentFile=%h/flow-local/env/mcp-tunnel-%i.env
+EOF
+systemctl --user daemon-reload
+systemctl --user restart "${UNIT}"
+
+# Prove the whole path end to end before printing instructions: through the
+# tunnel, the adapter must announce the tunnel's own origin as its OAuth issuer.
+#
+# The probe presents a browser User-Agent and a cross-origin `Origin` on purpose.
+# That is the shape of the request the dashboard's consent screen makes, and the
+# shape an abuse interstitial singles out — so this check is what catches an edge
+# that intercepts the dance instead of forwarding it. `|| true` is load-bearing
+# under `set -o pipefail`: while the adapter restarts the tunnel answers 502, and
+# curl's exit 22 would abort the very loop that exists to wait that window out.
+BROWSER_UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36'
+ISSUER=""
+for _ in $(seq 1 60); do
+    ISSUER="$(curl -sf -A "${BROWSER_UA}" -H "Origin: ${FLOW_DASHBOARD_ORIGIN}" \
+        "${PUBLIC_URL}/.well-known/oauth-authorization-server" 2>/dev/null \
+        | sed -n 's/.*"issuer" *: *"\([^"]*\)".*/\1/p' || true)"
+    [ -n "${ISSUER}" ] && break
+    sleep 0.5
+done
+
+if [ "${ISSUER}" != "${PUBLIC_URL}" ]; then
+    echo "error: the adapter announces issuer '${ISSUER:-<nothing parseable>}', not '${PUBLIC_URL}'." >&2
+    echo "       Clients compare this by exact string and will refuse to authorize." >&2
+    echo "       If the response was HTML, the tunnel's edge is intercepting browser" >&2
+    echo "       requests rather than forwarding them — see this task's header comment." >&2
+    echo "       Adapter log: journalctl --user -u ${UNIT} -n 50" >&2
+    exit 1
+fi
+
+# The consent screen's fetch is the hop that a browser-hostile edge breaks, and
+# it is not exercised by the metadata check above (which is same-origin-agnostic).
+# A 404 from a bogus state is the *success* case here: it means the adapter, not
+# the edge, answered — and that it answered with CORS headers a browser accepts.
+CORS_OK="$(curl -s -o /dev/null -w '%{http_code}' -A "${BROWSER_UA}" \
+    -H "Origin: ${FLOW_DASHBOARD_ORIGIN}" \
+    "${PUBLIC_URL}/oauth/consent-context?state=probe" || true)"
+CORS_HDR="$(curl -s -D - -o /dev/null -A "${BROWSER_UA}" -H "Origin: ${FLOW_DASHBOARD_ORIGIN}" \
+    "${PUBLIC_URL}/oauth/consent-context?state=probe" 2>/dev/null \
+    | grep -ci '^access-control-allow-origin:' || true)"
+if [ "${CORS_OK}" != "404" ] || [ "${CORS_HDR}" = "0" ]; then
+    echo "error: the consent-context probe returned HTTP ${CORS_OK} with" >&2
+    echo "       ${CORS_HDR} Access-Control-Allow-Origin header(s); expected 404 with 1." >&2
+    echo "       The dashboard's consent screen will fail with 'TypeError: Failed to fetch'." >&2
+    echo "       The tunnel's edge is answering browser requests itself — see this task's" >&2
+    echo "       header comment on ngrok's interstitial." >&2
+    exit 1
+fi
+
+echo ""
+echo "MCP adapter published at ${PUBLIC_URL}  (via ${PROVIDER})"
+echo "  MCP endpoint : ${PUBLIC_URL}/mcp"
+echo "  OAuth issuer : ${ISSUER}   (verified through the tunnel, as a browser would)"
+echo "  tunnel log   : ${TUNNEL_LOG}"
+echo ""
+echo "The dashboard (on your machine) must allow this origin — in estuary/ui/.env.local:"
+echo "  VITE_MCP_ALLOWED_ADAPTER_ORIGINS=${PUBLIC_URL}"
+echo "  VITE_SHOW_EMAIL_LOGIN=true"
+echo "...then restart the UI dev server (Vite reads .env.local only at startup)."
+echo "The browser leg of the OAuth dance runs on your machine, so the adapter"
+echo "still redirects to ${FLOW_DASHBOARD_ORIGIN}."
+echo ""
+if [ "${PROVIDER}" = "cloudflared" ]; then
+    echo "Quick-tunnel hostnames are assigned per run: re-paste this URL into the client"
+    echo "and into .env.local each time you restart the tunnel."
+    echo ""
+fi
+echo "While this is up, ${PUBLIC_URL}/oauth/authorize is world-reachable. It is not"
+echo "an open redirect (CIMD validation precedes every redirect), but it will steer"
+echo "anyone who finds it at your dashboard's login page. Ctrl+C when done."
+echo ""
+
+wait "${TUNNEL_PID}"
