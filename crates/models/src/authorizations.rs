@@ -517,6 +517,17 @@ mod test {
                 }"#,
                 Some(viewer | Capability::Delegate),
             ),
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": ["sandbox_create"]
+                }"#,
+                Some(Capability::CreateSandbox.into()),
+            ),
             // Unrelated claims that we don't model are tolerated.
             (
                 r#"{
