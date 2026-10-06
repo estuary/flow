@@ -313,11 +313,11 @@ impl AppenderGroup {
         self.idle.extend(self.active.drain());
     }
 
-    /// Take accumulated per-journal throttle samples for active journals
+    /// Take accumulated per-journal throttle samples of all journals appended to since the last call
     pub fn take_throttle_samples(&mut self) -> Vec<ThrottleSample<'_>> {
         let mut samples = Vec::new();
 
-        for (journal, appender) in self.active.iter_mut() {
+        for (journal, appender) in self.active.iter_mut().chain(self.idle.iter_mut()) {
             let total_chunks = appender.total_chunks;
             let delayed_chunks = appender.delayed_chunks;
             appender.total_chunks = 0;
@@ -450,6 +450,27 @@ mod test {
 
         // Activated (e.g. mapped) but never actually appended to.
         group.activate("journal/idle", &client);
+
+        assert!(group.take_throttle_samples().is_empty());
+    }
+
+    #[test]
+    fn test_take_throttle_samples_includes_swept_journals() {
+        let client = mock_journal_client();
+        let mut group = AppenderGroup::new();
+
+        {
+            let a = group.activate("journal/a", &client);
+            a.total_chunks += 4;
+            a.delayed_chunks += 1;
+        }
+        group.sweep();
+
+        let samples = group.take_throttle_samples();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].journal_name, "journal/a");
+        assert!(samples[0].throttled);
+        drop(samples);
 
         assert!(group.take_throttle_samples().is_empty());
     }
