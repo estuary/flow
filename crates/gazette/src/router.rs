@@ -24,7 +24,8 @@ pub struct Router {
     inner: Arc<Inner>,
 }
 struct Inner {
-    states: std::sync::Mutex<HashMap<MemberId, (Channel, bool)>>,
+    // Dialed Channels, and the Instant at which they were last all dropped.
+    channels: std::sync::Mutex<(HashMap<MemberId, Channel>, std::time::Instant)>,
     zone: String,
 }
 
@@ -36,7 +37,7 @@ impl Router {
 
         Self {
             inner: Arc::new(Inner {
-                states: Default::default(),
+                channels: std::sync::Mutex::new((HashMap::new(), std::time::Instant::now())),
                 zone,
             }),
         }
@@ -49,8 +50,10 @@ impl Router {
     /// `default.suffix` must be the dial-able endpoint of the service,
     /// while `default.zone` should be its zone (if known).
     ///
-    /// route() dials Channels as required, and users MUST call sweep()
-    /// to periodically clean up unused Channels.
+    /// route() dials Channels as required, and drops all of them every
+    /// `proto_grpc::CHANNEL_CACHE_MAX_AGE` to be re-dialed on next use.
+    /// This rotates long-lived connections, and releases Channels of
+    /// members which have left the topology.
     ///
     /// `header` is the field of a Request message type, where applicable.
     /// In some request contexts it's copied from a prior RPC Response
@@ -81,22 +84,24 @@ impl Router {
         let local = id.zone == self.inner.zone;
         tracing::debug!(?id, %local, "picked member");
 
-        let mut states = self.inner.states.lock().unwrap();
+        let mut guard = self.inner.channels.lock().unwrap();
+        let (channels, cleared_at) = &mut *guard;
 
-        let channel = match states.get_mut(id) {
-            // Channel already started.
-            Some((ch, mark)) => {
-                *mark = true;
-                ch.clone()
-            }
-            // Start dialing the endpoint.
+        if cleared_at.elapsed() >= proto_grpc::CHANNEL_CACHE_MAX_AGE {
+            tracing::debug!(n = channels.len(), "dropping all member Channels");
+            channels.clear();
+            *cleared_at = std::time::Instant::now();
+        }
+
+        let channel = match channels.get(id) {
+            Some(ch) => ch.clone(),
             None => {
                 let ch = proto_grpc::dial_channel(match index {
                     Some(index) => &route.unwrap().endpoints[index],
                     None => &default.suffix,
                 })
                 .map_err(super::Error::Transport)?;
-                states.insert(id.clone(), (ch.clone(), true));
+                channels.insert(id.clone(), ch.clone());
                 ch
             }
         };
@@ -105,23 +110,6 @@ impl Router {
         *header = None;
 
         Ok((channel, local))
-    }
-
-    // Identify Channels which have not been used since the preceding sweep, and close them.
-    // Membership changes can leave Channels unused.
-    // Call sweep() periodically to clear them out.
-    pub fn sweep(&self) {
-        let mut states = self.inner.states.lock().unwrap();
-
-        states.retain(|id, (_channel, mark)| {
-            // Drop entries which have not been used since the last sweep.
-            if !*mark {
-                tracing::debug!(?id, "dropping idle member connection");
-                return false;
-            }
-            *mark = false; // Mark for next sweep.
-            true
-        });
     }
 }
 
