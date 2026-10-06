@@ -220,8 +220,8 @@ impl Publisher {
     /// Snapshot this producer's contribution to the current transaction.
     ///
     /// Ticks the clock to obtain a commit timestamp and returns it alongside
-    /// the producer identity and the names of all journals that were actively
-    /// appended to. The caller aggregates these across all producers in the
+    /// the producer identity and the names of all journals appended to since
+    /// the prior call. The caller aggregates these across all producers in the
     /// transaction and passes them to `intents::build_transaction_intents()`.
     pub fn commit_intents(&mut self) -> (uuid::Producer, uuid::Clock, Vec<String>) {
         let clock = self.clock.tick();
@@ -231,6 +231,7 @@ impl Publisher {
             .active_set()
             .map(|(name, _)| name.to_string())
             .collect();
+        self.appenders.sweep();
 
         (self.producer, clock, journal_names)
     }
@@ -791,5 +792,25 @@ mod test {
             .expect_err("a bound journal must not fail-open");
 
         assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    }
+
+    #[tokio::test]
+    async fn test_commit_intents_reports_journals_once() {
+        let journal = "ops/current/stats/pivot=00";
+        let mut publisher = denied_publisher(journal);
+
+        publisher
+            .enqueue(
+                |uuid| Ok((0, serde_json::json!({"_meta": {"uuid": uuid.to_string()}}))),
+                uuid::Flags::CONTINUE_TXN,
+            )
+            .await
+            .unwrap();
+
+        let (_producer, _clock, journals) = publisher.commit_intents();
+        assert_eq!(journals, vec![journal.to_string()]);
+
+        let (_producer, _clock, journals) = publisher.commit_intents();
+        assert!(journals.is_empty(), "unexpected journals: {journals:?}");
     }
 }
