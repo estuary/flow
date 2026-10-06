@@ -97,14 +97,17 @@ pub(super) async fn run<
     // Open a Logger for runtime events, bound to the task.
     let logger = service.logger_factory.open(&task.shard_ref.name);
 
-    // Open a publisher for stats and ACK intents (no collection bindings).
+    // Open a publisher for stats and ACK intents. It has no bindings, but
+    // targets the derived collection so that ACK intents to its partitions
+    // share the target's Client, rather than each authorizing an ephemeral
+    // Client. The target's partitions watch goes unused.
     let publisher = service
         .publisher_factory
         .open(
             shard_ids[0].clone(), // Shard zero is AuthZ subject.
             crate::publish::producer_from_bytes(&publisher_id)?,
             &ops_stats_journal,
-            &[],
+            &[&spec],
             &[],
         )
         .context("opening publisher")?;

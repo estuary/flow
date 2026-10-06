@@ -108,7 +108,7 @@ journal IO, so `TestPublisher::write_intents` is repurposed as the commit
 signal — the seam's contract *is* the transaction lifecycle, and the leader's
 Tail FSM reaches `WriteIntents` once per transaction after every shard has
 drained. Only the *leader's stats-only* publisher signals, discriminated by the
-empty `collection_specs` that `PublisherFactory::open` documents for it. One
+empty `binding_targets` that `PublisherFactory::open` documents for it. One
 extra signal fires at session startup when the Tail replays recovered ACK
 intents; `DerivationSession::start` consumes it, or the first `read()` would
 take it for its own and run a transaction ahead of itself.
