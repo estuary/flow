@@ -4,7 +4,15 @@ Service-account API keys are minted by `server/public/graphql/service_accounts.r
 Like refresh-token creation, API-key creation rejects access tokens carrying a
 capability mask or prefix scope, because the new credential would not preserve
 those restrictions. Tenant creation in `server/public/graphql/tenant.rs` also
-rejects either restriction before provisioning a tenant.
+rejects either restriction before provisioning a tenant. Its `tenant/storage.rs`
+helper derives collection and recovery storage mappings. Tenant provisioning,
+those mappings, and MSA consent commit together.
+`dataPlane` is required and must name an open public plane with ready signing
+keys, matching `publicDataPlanes`. Keyless planes are excluded from the tenant
+storage mapping as well.
+Public AWS planes always use their derived colocated trial bucket; local and
+non-AWS planes use the GCS trial bucket. Provision the matching AWS bucket and
+permissions before opening a plane for signup.
 
 ## Development
 
