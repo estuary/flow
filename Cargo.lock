@@ -3578,6 +3578,7 @@ dependencies = [
  "axum",
  "build",
  "bytes",
+ "capture-python",
  "catalog-tests",
  "chrono",
  "clap",

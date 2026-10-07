@@ -31,6 +31,18 @@ pub(crate) async fn generate_files(
     ctx: &crate::CliContext,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
+    let errors = generate_files_quietly(ctx, sources).await?;
+    log_generate_errors(errors);
+    Ok(())
+}
+
+/// Generate connector files, returning (rather than logging) the errors of
+/// the specifications. Errors are expected where files are yet to be
+/// generated, so load errors about missing resources are not returned.
+pub(crate) async fn generate_files_quietly(
+    ctx: &crate::CliContext,
+    sources: tables::DraftCatalog,
+) -> anyhow::Result<tables::Errors> {
     let build::Output {
         mut draft, built, ..
     } = validate(ctx, true, false, true, sources, ops::tracing_log_handler).await;
@@ -50,16 +62,22 @@ pub(crate) async fn generate_files(
         })
         .collect();
 
-    if let Err(errors) = draft.into_result().and_then(|_| built.into_result()) {
-        for tables::Error { scope, error } in errors.iter() {
-            tracing::error!(%scope, ?error);
-        }
-        tracing::error!(
-            "I may not have generated all files because the Flow specifications have errors.",
-        );
+    match draft.into_result().and_then(|_| built.into_result()) {
+        Ok(_) => Ok(tables::Errors::new()),
+        Err(errors) => Ok(errors),
     }
+}
 
-    Ok(())
+pub(crate) fn log_generate_errors(errors: tables::Errors) {
+    if errors.is_empty() {
+        return;
+    }
+    for tables::Error { scope, error } in errors.iter() {
+        tracing::error!(%scope, ?error);
+    }
+    tracing::error!(
+        "I may not have generated all files because the Flow specifications have errors.",
+    );
 }
 
 pub(crate) async fn load(source: &url::Url) -> tables::DraftCatalog {

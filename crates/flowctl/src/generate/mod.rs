@@ -1,4 +1,6 @@
 use crate::{local_connector, local_specs};
+
+mod python;
 use anyhow::Context;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
@@ -45,7 +47,19 @@ impl Generate {
 
         build::write_files(&project_root, files)?;
 
-        let () = local_specs::generate_files(ctx, draft).await?;
+        let mut errors = local_specs::generate_files_quietly(ctx, draft).await?;
+
+        // Python projects may have been scaffolded, or have files which their
+        // specifications don't yet list. If so, adopt them and generate again,
+        // which resolves and type-checks the now-complete project. Errors of
+        // the first pass are superseded by those of the second.
+        if python::sync_projects(&source).await? {
+            let mut draft = local_specs::load(&source).await;
+            sources::inline_draft_catalog(&mut draft);
+            errors = local_specs::generate_files_quietly(ctx, draft).await?;
+        }
+        local_specs::log_generate_errors(errors);
+
         Ok(())
     }
 }
