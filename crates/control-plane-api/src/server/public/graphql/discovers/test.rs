@@ -695,20 +695,23 @@ async fn log_page_arguments(pool: sqlx::PgPool) {
         scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
     )
 )]
-async fn plane_gate_requests_refresh_without_waiting(pool: sqlx::PgPool) {
+async fn submission_redirects_stale_binding_and_data_plane_failures(pool: sqlx::PgPool) {
     let _guard = test_server::init();
     sqlx::query(
         "UPDATE live_specs SET spec = $1::json WHERE catalog_name = 'aliceCo/in/capture-foo'",
     )
-    .bind(MODEL)
+    .bind(model_with(serde_json::json!({
+        "bindings": [{ "resource": {}, "target": "aliceCo/other/foo" }]
+    })))
     .execute(&pool)
     .await
     .unwrap();
     let draft_id = insert_draft(&pool, ALICE).await;
-    let mut no_access = crate::snapshot::try_fetch(&pool, &mut Default::default())
+    let data = crate::snapshot::try_fetch(&pool, &mut Default::default())
         .await
         .unwrap();
-    let mut unlisted = no_access.clone();
+    let mut no_access = data.clone();
+    let mut unlisted = data.clone();
     no_access
         .role_grants
         .retain(|grant| grant.object_role.as_str() != "ops/dp/public/");
@@ -723,35 +726,45 @@ async fn plane_gate_requests_refresh_without_waiting(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    for (case, data) in [
-        ("access", no_access),
-        ("snapshot lookup", unlisted),
-        ("signing readiness", unsigned),
+    let http_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let before = draft_state(&pool, draft_id).await;
+
+    for (case, data, scope) in [
+        ("binding target", data, Some("aliceCo/in/".to_owned())),
+        ("data plane permission", no_access, None),
+        ("missing data plane", unlisted, None),
+        ("invalid signing key", unsigned, None),
     ] {
-        // A Snapshot taken before the request starts would make a provisional
-        // authorization failure await a refresh, which a fixed watch never serves.
         let (server, revoke) =
             start(&pool, data, tokens::now() - chrono::TimeDelta::minutes(1)).await;
-        let alice = server.make_access_token(ALICE, Some("alice@example.com"));
-        let response = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            submit(
-                &server,
+        let alice =
+            server.make_restricted_access_token(ALICE, Some("alice@example.com"), None, scope);
+        let client = flow_client_next::rest::Client {
+            base_url: server.base_url(),
+            http_client: http_client.clone(),
+        };
+        let response = client
+            .post(
+                "/api/graphql",
+                &serde_json::json!({
+                    "query": CREATE,
+                    "variables": { "draftId": draft_id, "captureName": "aliceCo/in/capture-foo" }
+                }),
                 Some(&alice),
-                draft_id,
-                "aliceCo/in/capture-foo",
-                None,
-            ),
-        )
-        .await
-        .expect("plane rejection must not await a new snapshot");
+            )
+            .send()
+            .await
+            .unwrap();
         assert_eq!(
-            response["errors"][0]["message"], "data plane not found or unauthorized",
+            response.status(),
+            reqwest::StatusCode::TEMPORARY_REDIRECT,
             "{case}"
         );
-        assert!(
-            revoke.is_cancelled(),
-            "{case} must request a background refresh"
-        );
+        assert!(revoke.is_cancelled(), "{case} must request a refresh");
+        assert_eq!(draft_state(&pool, draft_id).await, before, "{case}");
     }
 }

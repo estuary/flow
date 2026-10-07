@@ -177,7 +177,7 @@ impl DiscoversMutation {
         )
         .await?;
 
-        let row = crate::discovers::create(
+        let row = match crate::discovers::create(
             &env.pg_pool,
             env.snapshot(),
             &subject,
@@ -185,7 +185,14 @@ impl DiscoversMutation {
             capture_name.as_str(),
             data_plane.as_deref(),
         )
-        .await?;
+        .await
+        {
+            Ok(row) => row,
+            Err(error) => match error.downcast::<tonic::Status>() {
+                Ok(status) => env.authorization_outcome(Err(status)).await?.1,
+                Err(error) => return Err(error.into()),
+            },
+        };
         Ok(Discover {
             id: row.id,
             draft_id,

@@ -11,7 +11,7 @@ expression: outcomes
     "status": null
   },
   {
-    "error": "data plane not found or unauthorized",
+    "error": "NotFound: data plane not found or unauthorized",
     "mask": [
       "editor"
     ],
