@@ -223,6 +223,10 @@ export FLOW_PG_URL="postgresql://postgres:postgres@localhost:$(( _se_base + 11 )
 export DATABASE_URL="postgresql://postgres:postgres@localhost:$(( _se_base + 11 ))/postgres"
 export FLOW_AGENT_URL="http://agent.flow.localhost:$(( _se_base + 20 ))"
 export FLOWCTL_PROFILE="${_se_name}"
+# DROP BEFORE MERGE: the local agent runs its L2 reporting derivations on the
+# \`:local\` built-in images which \`local:stack\` builds, as the published
+# \`:stable\` images predate this branch's sentinels.
+export FLOW_BUILTIN_IMAGE_TAG="local"
 export FLOW_SUPABASE_PROJECT_ID="${_se_name}"
 export FLOW_NETWORK="supabase_network_${_se_name}"
 export CARGO_TARGET_DIR="${HOME}/cargo-target/${_se_name}"

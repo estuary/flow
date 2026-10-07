@@ -280,11 +280,21 @@ export class Derivation extends Types.IDerivation {"#
         l2_stats_new_module
     )));
 
+    // DROP BEFORE MERGE: a local stack runs its built-in connectors from
+    // `:local` images, as the published `:stable` images predate this branch.
+    let builtin_image_tag = std::env::var("FLOW_BUILTIN_IMAGE_TAG").unwrap_or_default();
+
     for shards in [l2_stats_shards, l2_stats_new_shards] {
         shards.flags.insert(
             models::Token::new(models::ENABLE_RUNTIME_V2),
             models::Token::new("true"),
         );
+        if !builtin_image_tag.is_empty() {
+            shards.flags.insert(
+                models::Token::new(validation::BUILTIN_IMAGE_TAG_FLAG),
+                models::Token::new(&builtin_image_tag),
+            );
+        }
     }
 
     let draft = tables::DraftCatalog {
