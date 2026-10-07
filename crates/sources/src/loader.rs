@@ -152,7 +152,8 @@ impl<F: Fetcher> Loader<F> {
         // We must map the raw `content` into a document object model.
         // * If we expect this resource is a document, parse it as such.
         // * If it's UTF8, then wrap it in a string.
-        // * Otherwise, record a LoadError for non-UTF8 content.
+        // * Otherwise, record a LoadError for non-UTF8 content, and wrap its
+        //   lossy text. The resource still exists, and mustn't look missing.
         let content_dom = if is_dom {
             // Parse YAML and JSON.
             let Some(mut content_dom) = self.fallible(scope, serde_yaml::from_slice(&content))
@@ -182,14 +183,15 @@ impl<F: Fetcher> Loader<F> {
             serde_transcode::transcode(content_dom, &mut serializer).expect("must transcode");
 
             RawValue::from_string(String::from_utf8(buf).unwrap()).unwrap()
-        } else if let Ok(content) = std::str::from_utf8(&content) {
-            RawValue::from_string(serde_json::to_string(&content).unwrap()).unwrap()
         } else {
-            self.tables_mut().errors.insert_row(
-                &scope.flatten(),
-                anyhow::anyhow!(LoadError::ResourceNotUTF8),
-            );
-            return;
+            if std::str::from_utf8(&content).is_err() {
+                self.tables_mut().errors.insert_row(
+                    &scope.flatten(),
+                    anyhow::anyhow!(LoadError::ResourceNotUTF8),
+                );
+            }
+            let content = String::from_utf8_lossy(&content);
+            RawValue::from_string(serde_json::to_string(&content).unwrap()).unwrap()
         };
 
         match content_type {
@@ -1141,6 +1143,59 @@ fn resolve_local_command(resource: &Url, command: &[String]) -> anyhow::Result<O
     };
 
     Ok(Some(resolved.to_string_lossy().into_owned()))
+}
+
+#[cfg(test)]
+mod not_utf8_test {
+    use futures::FutureExt;
+
+    struct NoFetcher;
+
+    impl super::Fetcher for NoFetcher {
+        fn fetch<'a>(
+            &'a self,
+            resource: &'a url::Url,
+            _content_type: proto_flow::flow::ContentType,
+        ) -> futures::future::BoxFuture<'a, anyhow::Result<bytes::Bytes>> {
+            panic!("unexpected fetch of {resource}")
+        }
+    }
+
+    #[test]
+    fn text_which_isnt_utf8_is_an_error_and_a_resource() {
+        let loader = super::Loader::new(Default::default(), NoFetcher);
+        let resource = url::Url::parse("test://example/regions.csv").unwrap();
+
+        loader
+            .load_resource_content(
+                json::Scope::new(&resource),
+                &resource,
+                bytes::Bytes::from_static(b"caf\xe9\n"),
+                proto_flow::flow::ContentType::Text,
+            )
+            .now_or_never()
+            .unwrap();
+
+        let tables = loader.into_tables();
+        insta::assert_debug_snapshot!((&tables.errors, &tables.resources), @r#"
+        (
+            [
+                Error {
+                    scope: test://example/regions.csv,
+                    error: resource content is not UTF-8,
+                },
+            ],
+            [
+                Resource {
+                    resource: test://example/regions.csv,
+                    content_type: "TEXT",
+                    content: ".. binary ..",
+                    content_dom: "caf�\n",
+                },
+            ],
+        )
+        "#);
+    }
 }
 
 #[cfg(test)]
