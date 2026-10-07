@@ -8,6 +8,7 @@ mod catalogs;
 pub mod collate;
 mod collections;
 mod connector;
+pub mod custom_connector;
 mod derivation;
 mod derive_python;
 mod derive_sqlite;

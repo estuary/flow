@@ -431,31 +431,86 @@ fn indirect_derivation(
                 );
             }
         }
-        models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module, .. }) => {
+        models::DeriveUsing::Typescript(models::DeriveUsingTypescript {
+            files,
+            config,
+            spec,
+            module,
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("derive");
+            let scope = scope.push_prop("using");
+            let scope = scope.push_prop("typescript");
+
+            if let Some(module) = module {
+                indirect(
+                    scope.push_prop("module"),
+                    module,
+                    &format!("{base}.ts"),
+                    ContentType::Config,
+                    imports,
+                    resources,
+                    0, // Always indirect.
+                );
+            }
             indirect(
-                Scope::new(scope)
-                    .push_prop("derive")
-                    .push_prop("using")
-                    .push_prop("typescript")
-                    .push_prop("module"),
-                module,
-                &format!("{base}.ts"),
+                scope.push_prop("config"),
+                config,
+                &format!("{base}.config.{ext}"),
                 ContentType::Config,
                 imports,
                 resources,
                 threshold,
             );
+            indirect_files(scope, files, imports, resources);
+            indirect_custom_spec(
+                scope.push_prop("spec"),
+                spec,
+                base,
+                ext,
+                imports,
+                resources,
+                threshold,
+            );
         }
-        models::DeriveUsing::Python(models::DeriveUsingPython { module, .. }) => {
+        models::DeriveUsing::Python(models::DeriveUsingPython {
+            files,
+            config,
+            spec,
+            module,
+            dependencies: _,
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("derive");
+            let scope = scope.push_prop("using");
+            let scope = scope.push_prop("python");
+
+            if let Some(module) = module {
+                indirect(
+                    scope.push_prop("module"),
+                    module,
+                    &format!("{base}.py"),
+                    ContentType::Config,
+                    imports,
+                    resources,
+                    0, // Always indirect.
+                );
+            }
             indirect(
-                Scope::new(scope)
-                    .push_prop("derive")
-                    .push_prop("using")
-                    .push_prop("python")
-                    .push_prop("module"),
-                module,
-                &format!("{base}.py"),
+                scope.push_prop("config"),
+                config,
+                &format!("{base}.config.{ext}"),
                 ContentType::Config,
+                imports,
+                resources,
+                threshold,
+            );
+            indirect_files(scope, files, imports, resources);
+            indirect_custom_spec(
+                scope.push_prop("spec"),
+                spec,
+                base,
+                ext,
                 imports,
                 resources,
                 threshold,
@@ -657,6 +712,101 @@ fn indirect(
     *value = models::RawValue::from_string(serde_json::to_string(filename).unwrap()).unwrap();
 }
 
+/// Indirect the schemas of a custom connector's `spec`, as is done for
+/// collection schemas.
+fn indirect_custom_spec(
+    scope: Scope,
+    spec: &mut models::custom_connector::Spec,
+    base: &str,
+    ext: &str,
+    imports: &mut tables::Imports,
+    resources: &mut tables::Resources,
+    threshold: usize,
+) {
+    let models::custom_connector::Spec {
+        config_schema,
+        resource_config_schema,
+        oauth2: _,
+    } = spec;
+
+    for (prop, schema, filename) in [
+        (
+            "configSchema",
+            config_schema,
+            format!("{base}.config.schema.{ext}"),
+        ),
+        (
+            "resourceConfigSchema",
+            resource_config_schema,
+            format!("{base}.resource.schema.{ext}"),
+        ),
+    ] {
+        let Some(schema) = schema else {
+            continue;
+        };
+        strip_file_id(schema);
+
+        indirect(
+            scope.push_prop(prop),
+            schema,
+            &filename,
+            ContentType::JsonSchema,
+            imports,
+            resources,
+            threshold,
+        );
+    }
+}
+
+/// Indirect an inline `files` object of the task at `scope` into the array
+/// form, writing each file as text at its path relative to the specification.
+/// Sibling tasks listing a common path write the same resource.
+///
+/// `files` having a path which validation rejects are left inline, so that
+/// they're never written outside of the specification's directory. A file
+/// without content (which failed to load) is listed, but not written.
+fn indirect_files(
+    scope: Scope,
+    files: &mut models::custom_connector::Files,
+    imports: &mut tables::Imports,
+    resources: &mut tables::Resources,
+) {
+    let models::custom_connector::Files::Inline(inline) = files else {
+        return;
+    };
+    if !inline
+        .keys()
+        .all(|path| models::custom_connector::Files::is_valid_path(path))
+    {
+        return;
+    }
+    let scope = scope.push_prop("files");
+    let mut paths = Vec::with_capacity(inline.len());
+
+    for (index, (path, content)) in std::mem::take(inline).into_iter().enumerate() {
+        let item = scope.push_item(index).flatten();
+        let resource = item
+            .join(&path)
+            .expect("valid project paths are relative URLs");
+
+        if let Some(content) = content {
+            resources.insert(tables::Resource {
+                resource: resource.clone(),
+                content_type: ContentType::Text,
+                content_dom: models::RawValue::from_string(
+                    serde_json::to_string(&content).unwrap(),
+                )
+                .unwrap(),
+                content: content.into(),
+            });
+
+            imports.insert_row(&item, resource);
+        }
+        paths.push(path);
+    }
+    *files = models::custom_connector::Files::Indirect(paths);
+}
+
 fn base_name(name: &impl AsRef<str>) -> &str {
     let name = name.as_ref();
 
@@ -668,7 +818,7 @@ fn base_name(name: &impl AsRef<str>) -> &str {
 
 #[cfg(test)]
 mod test {
-    use super::indirect;
+    use super::{indirect, indirect_files};
     use json::Scope;
     use proto_flow::flow::ContentType;
 
@@ -718,15 +868,26 @@ mod test {
 
     #[test]
     fn tasks_conflict_over_differing_resources() {
-        // Tasks of a flat layout share a directory. Collections named `orders`
-        // both write `orders.schema.yaml`, as do those named `customers`.
+        // Tasks of a flat layout share a directory. Both name `orders`, and
+        // so write the same schema file, and both list `pyproject.toml`.
+        let derive = |schema: &str, pyproject: &str| {
+            serde_json::json!({
+                "schema": {"const": schema},
+                "key": ["/id"],
+                "derive": {
+                    "using": {"python": {"files": {
+                        "pyproject.toml": pyproject,
+                        "shared.py": "SHARED = True\n",
+                    }}},
+                    "transforms": [],
+                },
+            })
+        };
         let fixture = serde_json::json!({
             "test://example/catalog.yaml": {
                 "collections": {
-                    "acmeCo/a/orders": {"schema": {"const": "a"}, "key": ["/id"]},
-                    "acmeCo/b/orders": {"schema": {"const": "b"}, "key": ["/id"]},
-                    "acmeCo/a/customers": {"schema": {"const": "same"}, "key": ["/id"]},
-                    "acmeCo/b/customers": {"schema": {"const": "same"}, "key": ["/id"]},
+                    "acmeCo/a/orders": derive("a", "[project]\nname = \"a\"\n"),
+                    "acmeCo/b/orders": derive("b", "[project]\nname = \"b\"\n"),
                 },
             },
         });
@@ -753,5 +914,66 @@ mod test {
             .collect();
 
         insta::assert_debug_snapshot!((errors, written));
+    }
+
+    #[test]
+    fn files_are_written_only_at_valid_paths() {
+        let scope = url::Url::parse("test://example/acmeCo/flow.yaml#/collections/acmeCo~1derived")
+            .unwrap();
+        let scope = Scope::new(&scope);
+        let mut imports = tables::Imports::new();
+        let mut resources = tables::Resources::new();
+
+        let mut valid = models::custom_connector::Files::Inline(
+            [
+                (
+                    "pyproject.toml".to_string(),
+                    Some("[project]\n".to_string()),
+                ),
+                ("derived/__init__.py".to_string(), None),
+            ]
+            .into(),
+        );
+        let mut escaping = models::custom_connector::Files::Inline(
+            [
+                (
+                    "pyproject.toml".to_string(),
+                    Some("[project]\n".to_string()),
+                ),
+                (
+                    "../escape.py".to_string(),
+                    Some("pwned = True\n".to_string()),
+                ),
+            ]
+            .into(),
+        );
+        indirect_files(scope, &mut valid, &mut imports, &mut resources);
+        indirect_files(scope, &mut escaping, &mut imports, &mut resources);
+
+        let written: Vec<String> = resources.iter().map(|r| r.resource.to_string()).collect();
+
+        insta::assert_debug_snapshot!((valid, escaping, written), @r#"
+        (
+            Indirect(
+                [
+                    "derived/__init__.py",
+                    "pyproject.toml",
+                ],
+            ),
+            Inline(
+                {
+                    "../escape.py": Some(
+                        "pwned = True\n",
+                    ),
+                    "pyproject.toml": Some(
+                        "[project]\n",
+                    ),
+                },
+            ),
+            [
+                "test://example/acmeCo/pyproject.toml",
+            ],
+        )
+        "#);
     }
 }

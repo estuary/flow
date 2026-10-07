@@ -1406,6 +1406,115 @@ test://example/int-string-tests:
 }
 
 #[test]
+fn test_custom_files_errors() {
+    // `testing/int-reverse` doesn't use the V2 runtime, so its `files` beyond
+    // its manifest and entry also fail the V2 guard. Without a legacy `module`,
+    // it can't have `dependencies`, and its `config` isn't an object.
+    // `testing/int-halve` lists neither its manifest nor its entry, which is
+    // how a project bootstraps, and its `config` has reserved properties.
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derive:
+        using:
+          typescript: null
+          python:
+            files:
+              pyproject.toml: ""
+              int-reverse/__init__.py: "class Derivation: pass\n"
+              lib//double.py: "x = 1"
+              ../escape.py: "x = 1"
+              .venv/lib.py: "x = 1"
+              flow_generated/sneaky.py: "x = 1"
+            dependencies: { httpx: ">=0.27" }
+            config: 42
+            # `spec` also requires the V2 runtime, and its schemas must compile.
+            spec:
+              configSchema: { type: object, properties: { a: { type: string, pattern: '(' } } }
+
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      derive:
+        using:
+          typescript:
+            module: null
+            files: {}
+            config: { _typescript: {}, sops: {} }
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_custom_legacy_modules_are_migrated() {
+    // A legacy `module` (with its `dependencies`) is migrated into `files`,
+    // and the V1 runtime's `dev` image is still given its module. A legacy
+    // `module` may not be mixed with `files`, `config`, or `spec`.
+    let outcome = common::run(
+        &MODEL_YAML,
+        r#"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derive:
+        using:
+          typescript: null
+          python:
+            module: "class Derivation: pass\n"
+            dependencies: { httpx: ">=0.27" }
+
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      derive:
+        using:
+          typescript: null
+          python:
+            module: "class Derivation: pass\n"
+            files: { pyproject.toml: "" }
+            config: { a: 1 }
+            spec: { configSchema: { type: object } }
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+
+driver:
+  derivations:
+    testing/int-reverse:
+      config:
+        image: ghcr.io/estuary/derive-python:dev
+        config:
+          module: "class Derivation: pass\n"
+"#,
+    );
+    let migrated = outcome
+        .built_collections
+        .iter()
+        .find(|row| row.collection.as_str() == "testing/int-reverse")
+        .unwrap();
+
+    insta::assert_debug_snapshot!((
+        &outcome.errors,
+        &migrated.model_fixes,
+        &migrated
+            .model
+            .as_ref()
+            .unwrap()
+            .derive
+            .as_ref()
+            .unwrap()
+            .using,
+    ));
+}
+
+#[test]
 fn test_invalid_generated_file_url() {
     let errors = common::run_errors(
         &MODEL_YAML,

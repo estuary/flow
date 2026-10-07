@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/indirect_specs_tests.rs
-assertion_line: 131
 expression: summary
 ---
 [

@@ -210,6 +210,18 @@ pub enum Error {
     #[error("{category} partition selector field {field} cannot be an empty string")]
     SelectorEmptyString { category: String, field: String },
     #[error(
+        "file {path} must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components, and can't be under {reserved}"
+    )]
+    CustomFilePath { path: String, reserved: String },
+    #[error("list {paths} in `files`: they're this task's manifest and entry point")]
+    CustomFilesMissing { paths: String },
+    #[error(
+        "a derivation cannot mix the legacy `module` and `dependencies` with `files`, `config`, or `spec`: move its module and dependencies into `files`"
+    )]
+    CustomLegacyMixed {},
+    #[error("`config` {detail}")]
+    CustomConfig { detail: String },
+    #[error(
         "cannot infer shuffle key types because all transforms use a computed `lambda` or `any`.\nFlow must know the key types that your computed shuffle lambda will output.\nPlease add an explicit `shuffleKeyTypes` to this derivation."
     )]
     ShuffleKeyCannotInfer {},

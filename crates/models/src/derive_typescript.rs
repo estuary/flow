@@ -1,22 +1,44 @@
+use super::{RawValue, custom_connector};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
-use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DeriveUsingTypescript {
-    /// # TypeScript module implementing this derivation.
-    /// Module is either a relative URL of a TypeScript module file,
-    /// or is an inline representation of a Typescript module.
-    /// The module must have a exported Derivation variable which
-    /// is an instance implementing the corresponding Derivation
-    /// interface.
+    /// # Deprecated: list the derivation's module in `files`.
+    /// A relative URL of a TypeScript module, or its inline content.
+    /// Publishing moves it into `files` as the derivation's `mod.ts`.
+    /// It can't be combined with `files`, `config`, or `spec`.
+    // It's serialized only if present, so that `flowctl` can send a local
+    // legacy model to the control plane, which migrates it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "DeriveUsingTypescript::module_schema")]
-    pub module: super::RawValue,
-    /// # Environment variables made available to the TypeScript module.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub environment: BTreeMap<String, String>,
+    pub module: Option<RawValue>,
+    /// # Files of this derivation's TypeScript project.
+    /// The derivation's code lives in a directory named for the last component
+    /// of the collection's name: `acmeCo/orders` has directory `orders/`.
+    /// Its `orders/mod.ts` exports a `Derivation` class, which extends the
+    /// generated `IDerivation`. The project's `deno.json` maps `flow/` to
+    /// `./flow_generated/typescript/`, from which your code imports its
+    /// generated types. If you list a `deno.lock`, it pins dependencies exactly.
+    /// Otherwise, they're resolved anew each time the derivation is published.
+    #[serde(default, skip_serializing_if = "custom_connector::Files::is_empty")]
+    pub files: custom_connector::Files,
+    /// # Configuration of this derivation.
+    /// An object described by `spec.configSchema`, which your `Derivation`
+    /// class receives. Supply sensitive values through the `secrets` stanza.
+    /// It can't be encrypted with `sops`, or have a `_typescript` property.
+    #[serde(
+        default = "custom_connector::empty_config",
+        skip_serializing_if = "custom_connector::is_empty_config"
+    )]
+    pub config: RawValue,
+    /// # Connector specification of this derivation.
+    /// Its `configSchema` describes the derivation's `config`, and its
+    /// `resourceConfigSchema` describes the `lambda` of each transform.
+    #[serde(default, skip_serializing_if = "custom_connector::Spec::is_empty")]
+    pub spec: custom_connector::Spec,
 }
 
 impl DeriveUsingTypescript {
@@ -30,7 +52,8 @@ impl DeriveUsingTypescript {
                     "type": "string",
                     "contentMediaType": "text/x.typescript",
                 }
-            ]
+            ],
+            "deprecated": true,
         }))
         .unwrap()
     }

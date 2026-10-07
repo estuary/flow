@@ -135,11 +135,11 @@ impl Protocol for Derive {
         } else if connector_type == ConnectorType::Typescript as i32
             || connector_type == ConnectorType::Python as i32
         {
-            // The runtime requires a built-in connector image to be resolved by the
+            // The runtime requires a custom connector's image to be resolved by the
             // control-plane build maps TypeScript / Python derivations to a concrete
             // image (selecting the tag from the task's feature flags) so that Validate
             // and the runtime agree on the connector interface. Encountering an
-            // unresolved built-in here means the spec was built without that mapping.
+            // unresolved custom connector here means the spec was built without that mapping.
             anyhow::bail!(
                 "derive connector type {connector_type} should have been resolved to an image at build time"
             );
