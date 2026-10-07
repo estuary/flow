@@ -1,30 +1,45 @@
 # derive-python
 
-Runs a Python derivation: a `derive` task whose `using.python` block carries a
-`module`, its `files`, its `config`, and a declared `spec`. The crate is both
+Runs a Python derivation: a `derive` task whose `using.python` block carries
+its project `files`, its `config`, and a declared `spec`. The crate is both
 the Spec / Validate connector and the runtime connector (which execs the user's
 code under `uv`). Shared machinery (project staging, uv locking, Pydantic and
-config codegen, the sentinel `spec`) lives in `python-connector`.
+config codegen, the entry point's loader, the sentinel `spec`) lives in
+`python-connector`.
 
 `validation::builtin` rewrites this block into an image connector whose config
-is the user's `config` plus a `_python` sentinel (`collection`, `module`,
-`files`, the resolved `spec`, and a baked `uv.lock`). The `:dev` tag is frozen,
-and receives only the legacy `{module}` shape.
+is the user's `config` plus a `_python` sentinel (`collection`, `files` with a
+baked `uv.lock`, and the declared `spec`). The `:dev` tag is frozen, and
+receives only the legacy `{module}` shape, filled from the entry file.
+
+## The project
+
+A project is its listed `files`. The derivation's directory is the final
+component of the derived collection's name, verbatim (`acmeCo/2024-orders` has
+`2024-orders/`), and its `__init__.py` exports a `Derivation`. A
+`pyproject.toml` declares its dependencies. Its modules import one another
+relatively: the platform loads the directory by path (see
+`python_connector::load_task_py`).
 
 ## Entry points
 
-- [`run`](src/lib.rs) — the protocol loop. An Open hands off to
-  `uv run main.py` and then only proxies stdin.
+- [`run`](src/lib.rs) — the protocol loop. Spec and Validate are answered in
+  process; an Open hands off to `uv run flow_generated/main.py` and then only
+  proxies stdin.
 - `spec_response` — answers Spec from the sentinel's `spec`, without staging
-  or running user code. Legacy configs (and a bare image Spec) answer `{}`.
+  or running user code. A schema it omits is this connector's default: any
+  `config`, and a transform `lambda` of `{readOnly: boolean}` (`resolve_spec`).
 - `validate_derivation` — generates types, stages and installs the project,
-  runs the project's own pyright (if its `dev` group has one), then
-  `main.py validate`, which calls the derivation's `validate` class method.
-  It returns that `Validated` with the types, a default `pyproject.toml`, and a
-  resolved `uv.lock` (unless the user lists one) as `generated_files`.
-- [`codegen`](src/codegen/mod.rs) — `main.py`, the typed module (documents,
-  `EndpointConfig` / `ResourceConfig`, protocol messages, and the generic
-  `IDerivation[C, R]` base class), and the `module` stub.
+  runs the project's own pyright (if its `dev` group has one) over its files
+  and the generated entry, then `main.py validate`, which calls the
+  derivation's `validate` class method. It returns that `Validated` with the
+  types and a resolved `uv.lock` (unless the user lists one) as
+  `generated_files`. A project having listed files which don't exist yet is
+  instead answered with starters of them (a working derivation as the entry,
+  a `pyproject.toml`, or else empty), without running user code.
+- [`codegen`](src/codegen/mod.rs) — the entry point (`main.py`), the typed
+  module (documents, `EndpointConfig` / `ResourceConfig`, protocol messages,
+  and the generic `IDerivation[C, R]` base class), and the entry starter.
 
 ## The user's interface
 
@@ -32,8 +47,11 @@ and receives only the legacy `{module}` shape.
   `ResourceConfig` (types of `spec.configSchema` and `spec.resourceConfigSchema`).
   `class Derivation(IDerivation[MyConfig, MyResource])` declares its own types
   instead (the escape hatch), whose equivalence to the declared schemas isn't
-  checked. `main.py` resolves `C` and `R` with `types.get_original_bases`, so
-  `Derivation` must subclass `IDerivation` directly.
+  checked.
+- **`Derivation` must directly subclass `IDerivation`**: `main.py` resolves `C`
+  and `R` with `types.get_original_bases`, and a Validate fails otherwise.
+  Production derivations all do, so this narrow contract is kept rather than
+  supporting deeper hierarchies.
 - `__init__(self, open: Request.Open[R], config: C)`; `open.resources` holds
   each transform's parsed resource configuration (its `lambda`).
 - `validate(cls, validate: Request.Validate[R], config: C) -> Response.Validated`
@@ -44,13 +62,14 @@ and receives only the legacy `{module}` shape.
 
 ```
 <temp>/
-├── main.py                  # generated; `Derivation(open, config)`, or `validate`
-├── module.py                # the user's `module`
-├── lib/geo.py               # a `files` entry, at its key
-├── pyproject.toml           # a `files` entry, or a generated default
-├── uv.lock                  # the user's, baked, or resolved by Validate
-└── flow_generated/python/
-    └── <collection path>/__init__.py
+├── pyproject.toml              # a `files` entry
+├── uv.lock                     # the user's, baked, or resolved by Validate
+├── 2024-orders/
+│   ├── __init__.py             # exports `Derivation`
+│   └── helpers.py              # a `files` entry, imported relatively
+└── flow_generated/
+    ├── main.py                 # generated entry; `Derivation(open, config)`, or `validate`
+    └── python/<collection path>/__init__.py
 ```
 
 ## Non-obvious details
@@ -63,10 +82,13 @@ and receives only the legacy `{module}` shape.
 - **Locks.** `python_connector::Install::of_request` picks the install mode:
   Validate resolves a lock (or checks the user's own), and Open installs the
   baked lock frozen.
-- **Project root.** Validation roots a Python derivation's project at its
+- **Project root.** Validation roots a derivation's project at its
   specification's directory, so generated types sit beside its `pyproject.toml`.
 - **Legacy configs.** Built specs predating `_python` (a top-level `module`,
-  `dependencies`) are still accepted until they're re-published: they declare
-  no spec, so `C` and `R` are the generated defaults and `config` is empty.
+  `dependencies`) are still accepted until they're re-published, as images roll
+  out before the control plane. They're staged as a project of the same shape:
+  the module as `module/__init__.py`, beside a `pyproject.toml` of their
+  `dependencies`. They declare no spec, so `C` and `R` are the generated
+  defaults and `config` is empty.
 - **No `deny_unknown_fields`.** A newer control plane must be able to talk to an
   older image.

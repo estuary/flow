@@ -11,7 +11,7 @@ collections:
 
     derive:
       using:
-        typescript: { module: join-outer.flow.ts }
+        typescript: { files: [deno.json, outer-join/mod.ts] }
       # Run this checkout's built-in connector images, which `ci:catalog-test`
       # builds as `:local`.
       shards:

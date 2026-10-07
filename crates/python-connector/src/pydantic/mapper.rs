@@ -176,9 +176,12 @@ impl Mapper {
         let mut nested = Vec::new();
         let mut fields: Vec<Field> = Vec::new();
 
-        for prop in properties {
-            let (name, alias) = field_name(&prop.name, self.is_config);
+        let names: Vec<(String, Option<String>)> = properties
+            .iter()
+            .map(|prop| field_name(&prop.name, self.is_config))
+            .collect();
 
+        for (prop, (name, alias)) in properties.iter().zip(names.iter().cloned()) {
             // Extract docstring from the property's shape
             let docstring = match (&prop.shape.title, &prop.shape.description) {
                 (Some(title), Some(description)) => Some(format!("{} {}", title, description)),
@@ -186,7 +189,13 @@ impl Mapper {
                 (None, None) => None,
             };
 
-            let type_ = self.to_ast(&prop.shape, &to_pascal_case(&name), &mut nested);
+            // A field rebinds its name within the class body, so a nested class
+            // which shares the name of a field is unreachable from annotations.
+            let mut nested_name = to_pascal_case(&name);
+            if names.iter().any(|(name, _)| *name == nested_name) {
+                nested_name.push('_');
+            }
+            let type_ = self.to_ast(&prop.shape, &nested_name, &mut nested);
 
             // A literal default of an optional configuration field is its
             // value when omitted. A default which doesn't validate against
@@ -614,6 +623,36 @@ mod test {
             .unwrap();
             m.map(m.schema(), "Document").render(&mut w);
         }
+
+        insta::assert_snapshot!(w);
+    }
+
+    #[test]
+    fn nested_classes_dont_collide_with_fields() {
+        // `Credentials` is a field, and would be the name of its nested class.
+        // `credentials` maps to the same class name, but no field is named so.
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "Credentials": {
+                    "type": "object",
+                    "properties": {"token": {"type": "string"}},
+                    "required": ["token"],
+                },
+                "account": {
+                    "type": "object",
+                    "properties": {"id": {"type": "integer"}},
+                },
+            },
+            "required": ["Credentials"],
+        })
+        .to_string();
+
+        let mut w = String::new();
+        let m = Mapper::new(schema.as_bytes(), "Doc").unwrap();
+        m.map(m.schema(), "Document").render(&mut w);
+        let m = Mapper::for_config(schema.as_bytes()).unwrap();
+        m.map(m.schema(), "EndpointConfig").render(&mut w);
 
         insta::assert_snapshot!(w);
     }

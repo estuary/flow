@@ -51,9 +51,9 @@ test://example/catalog.yaml:
         python:
           files:
             - pyproject.toml
-            - source_acme/__init__.py
-            - source_acme/__main__.py
-            - source_acme/missing.py
+            - source-acme/__init__.py
+            - source-acme/models.py
+            - source-acme/missing.py
           config:
             credentials:
               client_id: a-client-id
@@ -179,11 +179,11 @@ test://example/pyproject.toml: |
   name = "source-acme"
   dependencies = ["estuary-cdk"]
 
-test://example/source_acme/__init__.py: |
+test://example/source-acme/__init__.py: |
   from estuary_cdk.capture import BaseCaptureConnector
 
-test://example/source_acme/__main__.py: |
-  import asyncio
-  import source_acme
+  from .models import Greeting
 
-  asyncio.run(source_acme.Connector().serve())
+test://example/source-acme/models.py: |
+  class Greeting:
+      pass

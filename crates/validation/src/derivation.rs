@@ -250,7 +250,7 @@ async fn walk_derivation(
     };
 
     let models::Derivation {
-        using,
+        mut using,
         transforms: transforms_model,
         shuffle_key_types: shuffle_key_types_model,
         redact_salt: model_redact_salt,
@@ -258,13 +258,18 @@ async fn walk_derivation(
         shards,
     } = model;
 
-    walk_builtin_using(scope, &using, &shards, errors);
+    // Legacy models of built-in derivations are migrated from `module` to `files`.
+    if let Some(fix) = crate::builtin::migrate_legacy_module(collection, &mut using) {
+        model_fixes.push(fix);
+    }
+    walk_builtin_using(scope, collection, &using, &shards, errors);
 
-    // A Python derivation's project is rooted at its specification, alongside
-    // its `files`, so that its generated types and lock sit beside its
-    // `pyproject.toml`.
+    // A built-in derivation's project is rooted at its specification, alongside
+    // its `files`, so that its generated types and lock sit beside its manifest.
     let project_root = match &using {
-        models::DeriveUsing::Python(_) => crate::builtin::project_root(&scope.flatten()),
+        models::DeriveUsing::Python(_) | models::DeriveUsing::Typescript(_) => {
+            crate::builtin::project_root(&scope.flatten())
+        }
         _ => project_root.clone(),
     };
 
@@ -488,7 +493,7 @@ async fn walk_derivation(
     };
     linked::install_derive_validate(&mut validate_request, interner, indirect_specs);
 
-    let (validated_response, network_ports, config_schema_json) = super::validate_connector(
+    let (mut validated_response, network_ports, config_schema_json) = super::validate_connector(
         scope,
         connectors,
         noop_derivations || shards.disable,
@@ -517,6 +522,17 @@ async fn walk_derivation(
         &config_schema_json,
         errors,
     );
+
+    // A Python derivation's resolved lock is baked into its built spec.
+    let config_json = match &using {
+        models::DeriveUsing::Python(_) => crate::builtin::bake_generated_files(
+            &config_json,
+            crate::builtin::PYTHON_SENTINEL,
+            &project_root,
+            &mut validated_response.generated_files,
+        ),
+        _ => config_json,
+    };
 
     let derive::response::Validated {
         transforms: transforms_validated,
@@ -717,16 +733,6 @@ async fn walk_derivation(
         disable_wait_for_ack,
         &network_ports,
     );
-    let config_json = match &using {
-        models::DeriveUsing::Python(_) => crate::builtin::bake_generated_files(
-            &config_json,
-            crate::builtin::PYTHON_SENTINEL,
-            &project_root,
-            generated_files,
-        ),
-        _ => config_json,
-    };
-
     let mut spec = flow::collection_spec::Derivation {
         connector_type,
         config_json,
@@ -927,24 +933,28 @@ fn walk_derive_transform<'a>(
     (model, Some(validate))
 }
 
-/// Validate the `using` of a built-in Python or TypeScript derivation.
+/// Validate the `using` of a built-in Python or TypeScript derivation,
+/// which has been migrated from any legacy `module`.
 fn walk_builtin_using(
     scope: Scope,
+    collection: &models::Collection,
     using: &models::DeriveUsing,
     shards: &models::ShardTemplate,
     errors: &mut tables::Errors,
 ) {
+    use crate::builtin::Language;
+
     let (language, files, config, spec, sentinel) = match using {
         models::DeriveUsing::Python(python) => (
-            "python",
-            Some(&python.files),
+            Language::Python,
+            &python.files,
             &python.config,
             &python.spec,
             crate::builtin::PYTHON_SENTINEL,
         ),
         models::DeriveUsing::Typescript(typescript) => (
-            "typescript",
-            None,
+            Language::Typescript,
+            &typescript.files,
             &typescript.config,
             &typescript.spec,
             crate::builtin::TYPESCRIPT_SENTINEL,
@@ -952,9 +962,13 @@ fn walk_builtin_using(
         _ => return,
     };
     let scope = scope.push_prop("using");
-    let scope = scope.push_prop(language);
+    let scope = scope.push_prop(match language {
+        Language::Python => "python",
+        Language::Typescript => "typescript",
+    });
     let is_dev = crate::builtin::image_tag(shards, models::CatalogType::Collection) == "dev";
     let config_scope = scope.push_prop("config");
+    let files_scope = scope.push_prop("files");
     let has_config = config.get().trim() != "{}";
 
     if let models::DeriveUsing::Python(python) = using {
@@ -963,20 +977,17 @@ fn walk_builtin_using(
         }
     }
 
-    if let Some(files) = files {
-        let files_scope = scope.push_prop("files");
-
-        // The frozen `dev` image predates `files` and `config`.
-        if is_dev && !files.is_empty() {
-            Error::BuiltinFieldRequiresV2 { field: "files" }.push(files_scope, errors);
-        }
-        crate::builtin::walk_files(
-            files_scope,
-            files,
-            crate::builtin::is_reserved_derive_python_path,
-            errors,
-        );
+    // The frozen `dev` image runs only a single module, its entry file.
+    let entry = language.entry(crate::builtin::task_dir(collection));
+    if is_dev
+        && files
+            .paths()
+            .any(|path| path != language.manifest() && path != entry)
+    {
+        Error::BuiltinFieldRequiresV2 { field: "files" }.push(files_scope, errors);
     }
+    crate::builtin::walk_files(files_scope, language, collection, files, errors);
+
     if is_dev && has_config {
         Error::BuiltinFieldRequiresV2 { field: "config" }.push(config_scope, errors);
     }

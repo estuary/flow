@@ -8,13 +8,13 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = [
-    "pyright>=1.1",
-    "pytest>=8",
-]
+dev = ["pyright>=1.1"]
 
 [tool.uv]
 package = false
+# Packages uploaded within the past week aren't candidates for resolution,
+# as malicious uploads are typically yanked within days.
+exclude-newer = "7 days"
 
 [tool.uv.sources]
 estuary-cdk = { url = "CDK_URL", subdirectory = "estuary-cdk" }

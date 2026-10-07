@@ -15,9 +15,11 @@ use json::schema::types;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Resources {
     /// A capture's `ResourceConfig` extends the CDK's `BaseResourceConfig`,
-    /// and is importable as `common` (`estuary_cdk.capture.common`).
+    /// and is importable as `common` (`estuary_cdk.capture.common`). A spec
+    /// which doesn't declare one has the CDK's stock `ResourceConfig`.
     Capture,
-    /// A derivation's `ResourceConfig` is the `lambda` of a transform.
+    /// A derivation's `ResourceConfig` is the `lambda` of a transform. Its
+    /// connector resolves a spec which doesn't declare one to its default.
     Derivation,
 }
 
@@ -25,46 +27,62 @@ pub enum Resources {
 #[derive(Debug)]
 pub struct ConfigTypes {
     /// Python source of the `EndpointConfig` and `ResourceConfig` types.
-    /// It uses the `datetime`, `typing`, and `pydantic` modules, and for
-    /// captures, the CDK's `common` module.
+    /// It uses the `datetime`, `typing`, and `pydantic` modules, and if
+    /// `uses_common`, the CDK's `common` module.
     pub source: String,
-    /// Resource path pointers of a capture's `ResourceConfig`, if it has a
-    /// generated `path()`.
-    pub path_pointers: Option<Vec<String>>,
+    /// Does `source` use the CDK's `common` module?
+    pub uses_common: bool,
+    /// Does a capture's `ResourceConfig` have `PATH_POINTERS` (and `path()`)?
+    pub has_path: bool,
 }
 
 /// Generate the `EndpointConfig` and `ResourceConfig` types of `spec`.
 pub fn config_types_py(spec: &Spec, resources: Resources) -> anyhow::Result<ConfigTypes> {
     let mut source = String::new();
 
-    let (mapper, shape) = config_shape(&spec.config_schema).context("invalid `configSchema`")?;
+    let (mapper, shape) = config_shape(&spec.config_schema()).context("invalid `configSchema`")?;
     let mapping = mapper.map_shape(shape, ENDPOINT_CONFIG);
     source.push_str("# Generated for the endpoint configuration of `spec.configSchema`.\n");
     mapping.render(&mut source);
 
+    let resource_config_schema = match (resources, &spec.resource_config_schema) {
+        (_, Some(schema)) => schema.clone(),
+        (Resources::Capture, None) => {
+            source.push_str(
+                "# `spec.resourceConfigSchema` isn't declared, so each binding's resource\n\
+                 # configuration is the CDK's stock `ResourceConfig`.\n\
+                 ResourceConfig = common.ResourceConfig\n",
+            );
+            return Ok(ConfigTypes {
+                source,
+                uses_common: true,
+                has_path: true,
+            });
+        }
+        (Resources::Derivation, None) => serde_json::json!({}),
+    };
+
     let (mapper, shape) =
-        config_shape(&spec.resource_config_schema).context("invalid `resourceConfigSchema`")?;
+        config_shape(&resource_config_schema).context("invalid `resourceConfigSchema`")?;
     let path = match resources {
         Resources::Capture => resource_path(&shape),
         Resources::Derivation => None,
     };
-    let is_stock = is_stock_resource(&shape);
     let mut mapping = mapper.map_shape(shape, RESOURCE_CONFIG);
 
-    let path_pointers = match path {
-        Some(path) => {
-            extend_capture_resource(&mut mapping, &path, is_stock && path.schema.is_none())
-        }
-        None => None,
+    let (uses_common, has_path) = match resources {
+        Resources::Capture => extend_capture_resource(&mut mapping, path.as_ref()),
+        Resources::Derivation => (false, false),
     };
-    if resources == Resources::Capture && path_pointers.is_none() {
-        // The user writes `path()` of a resource configuration of their own
+    if uses_common && !has_path {
+        // The user writes `path()` of a subclass of the generated
+        // `ResourceConfig`, or of a resource configuration of their own
         // (the escape hatch).
         source.push_str(
             "# The resource schema doesn't have exactly one `x-collection-name` property\n\
              # (and at most one `x-schema-name`), each a required string, so\n\
-             # `ResourceConfig` has no `path()`: declare a subclass of the CDK's\n\
-             # `BaseResourceConfig` with a `path()` of its own.\n",
+             # `ResourceConfig` has no `path()`: declare a subclass having\n\
+             # `PATH_POINTERS` and a `path()` of its own.\n",
         );
     }
     source.push_str("# Generated for the resource configuration of `spec.resourceConfigSchema`.\n");
@@ -72,7 +90,8 @@ pub fn config_types_py(spec: &Spec, resources: Resources) -> anyhow::Result<Conf
 
     Ok(ConfigTypes {
         source,
-        path_pointers,
+        uses_common,
+        has_path,
     })
 }
 
@@ -126,38 +145,23 @@ fn resource_path(shape: &Shape) -> Option<ResourcePath> {
     })
 }
 
-/// Does a resource configuration have the fields of the CDK's stock
-/// `ResourceConfig`: a `name` (its path) and an update `interval`?
-fn is_stock_resource(shape: &Shape) -> bool {
-    let property = |name: &str| shape.object.properties.iter().find(|p| &*p.name == name);
-
-    let name = property("name").is_some_and(|prop| {
-        prop.shape.type_ == types::STRING
-            && prop.shape.annotations.get("x-collection-name") == Some(&serde_json::json!(true))
-    });
-    let interval = property("interval").is_some_and(|prop| {
-        prop.shape.type_ == types::STRING
-            && prop.shape.string.format == Some(json::schema::formats::Format::Duration)
-    });
-    name && interval
-}
-
 /// Extend the generated `ResourceConfig` class of a capture into a CDK
-/// `BaseResourceConfig` having a `path()`, returning its path pointers,
-/// or None if there's no class to extend.
-///
-/// A configuration having the fields of the CDK's stock `ResourceConfig`
-/// (`is_stock`) extends it instead, because CDK helpers such as
-/// `common.open_binding` are typed by it and read its `interval`.
-fn extend_capture_resource(
-    mapping: &mut Mapping,
-    path: &ResourcePath,
-    is_stock: bool,
-) -> Option<Vec<String>> {
-    let class = mapping
+/// `BaseResourceConfig`, having `PATH_POINTERS` and a `path()` of its
+/// resource `path` (if any). Returns whether there was a class to extend,
+/// and whether it has a path.
+fn extend_capture_resource(mapping: &mut Mapping, path: Option<&ResourcePath>) -> (bool, bool) {
+    let Some(class) = mapping
         .classes
         .iter_mut()
-        .find(|class| class.name == RESOURCE_CONFIG)?;
+        .find(|class| class.name == RESOURCE_CONFIG)
+    else {
+        return (false, false);
+    };
+    class.base = Some("common.BaseResourceConfig".to_string());
+
+    let Some(path) = path else {
+        return (true, false);
+    };
 
     let names: Vec<&String> = path.schema.iter().chain([&path.collection]).collect();
     let pointers: Vec<String> = names
@@ -169,14 +173,6 @@ fn extend_capture_resource(
         .map(|name| format!("self.{}", field_name(name, true).0))
         .collect();
 
-    class.base = Some(
-        if is_stock {
-            "common.ResourceConfig"
-        } else {
-            "common.BaseResourceConfig"
-        }
-        .to_string(),
-    );
     class.body = vec![
         String::new(),
         format!(
@@ -190,7 +186,7 @@ fn extend_capture_resource(
         format!("    return [{}]", attributes.join(", ")),
     ];
 
-    Some(pointers)
+    (true, true)
 }
 
 const ENDPOINT_CONFIG: &str = "EndpointConfig";
@@ -204,8 +200,8 @@ mod test {
         let spec: Spec = serde_json::from_value(spec).unwrap();
         let types = config_types_py(&spec, resources).unwrap();
         format!(
-            "{}\n# path_pointers: {:?}\n",
-            types.source, types.path_pointers
+            "{}\n# uses_common: {:?}, has_path: {:?}\n",
+            types.source, types.uses_common, types.has_path
         )
     }
 
@@ -290,6 +286,17 @@ mod test {
                     serde_json::json!({"table": {"type": ["string", "null"], "x-collection-name": true}}),
                     serde_json::json!(["table"]),
                 ),
+                // Fields of the CDK's stock `ResourceConfig` still extend
+                // `BaseResourceConfig`, so an optional `interval` is optional.
+                resource(
+                    serde_json::json!({
+                        "name": {"type": "string", "x-collection-name": true},
+                        "interval": {"type": "string", "format": "duration"},
+                    }),
+                    serde_json::json!(["name"]),
+                ),
+                // An absent schema is the CDK's stock `ResourceConfig`.
+                render(serde_json::json!({}), Resources::Capture),
             ]
             .join("\n=====\n")
         );

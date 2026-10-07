@@ -41,4 +41,4 @@ class ResourceConfig(common.BaseResourceConfig):
 
 
 
-# path_pointers: Some(["/namespace", "/stream"])
+# uses_common: true, has_path: true

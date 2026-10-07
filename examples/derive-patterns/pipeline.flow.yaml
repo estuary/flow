@@ -14,7 +14,7 @@ collections:
     derive:
       using:
         python:
-          module: pipeline.flow.py
+          files: [pyproject.toml, pipeline/__init__.py]
           # Parsed into the generated `EndpointConfig` of `spec.configSchema`.
           config: { multiplier: 2 }
           spec:

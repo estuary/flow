@@ -84,6 +84,17 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     };
     tracing::info!(%data_plane_name, "using data-plane for discovery");
 
+    // Upsert the capture's validated model, which documents the resource path
+    // of each binding at `/_meta/path` (as discover expects), rather than
+    // its model as written.
+    let validated = validations
+        .built_captures
+        .get_by_key(&models::Capture::new(needle))
+        .expect("capture validated")
+        .model
+        .clone();
+    draft_catalog.captures[capture_index].model = validated;
+
     draft::encrypt_configs(&mut draft_catalog, ctx)
         .await
         .context("encrypting endpoint configurations")?;

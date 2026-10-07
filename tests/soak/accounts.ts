@@ -24,10 +24,8 @@
 
 import {
   Document,
-  EndpointConfig,
   FlushResponse,
   IDerivation,
-  Open,
   SourceFromAlpha,
   SourceFromBeta,
   SourceFromGamma,
@@ -100,8 +98,13 @@ export class Derivation extends IDerivation {
   private lastMismatch: Map<number, Mismatch>;
   private lastOracle: Map<number, EventDoc["oracle"]>;
 
-  constructor(open: Open, config: EndpointConfig) {
-    super(open, config);
+  constructor(
+    open: {
+      state: unknown;
+      range?: { keyBegin?: number; keyEnd?: number };
+    },
+  ) {
+    super(open);
 
     this.accounts = new Map();
     const state = (open.state ?? {}) as { accounts?: { [id: string]: StoredAccount } };

@@ -142,7 +142,7 @@ async fn walk_capture(
     } = crate::builtin::capture_spec_request(capture, &endpoint, &shards);
 
     // A Python capture's project is rooted at its specification, and is always
-    // validated by its connector: validation scaffolds and locks the project.
+    // validated by its connector, which generates its types and locks it.
     let (project_root, noop_captures) = match &endpoint {
         models::CaptureEndpoint::Python(python) => {
             let scope = scope.push_prop("endpoint");
@@ -150,8 +150,9 @@ async fn walk_capture(
 
             crate::builtin::walk_files(
                 scope.push_prop("files"),
+                crate::builtin::Language::Python,
+                capture,
                 &python.files,
-                crate::builtin::is_reserved_python_path,
                 errors,
             );
             crate::builtin::walk_config(
@@ -284,7 +285,7 @@ async fn walk_capture(
     };
     linked::install_capture_validate(&mut validate_request, interner, indirect_specs);
 
-    let (validated_response, network_ports, config_schema_json) = super::validate_connector(
+    let (mut validated_response, network_ports, config_schema_json) = super::validate_connector(
         scope,
         connectors,
         noop_captures || shards.disable,
@@ -314,36 +315,23 @@ async fn walk_capture(
         errors,
     );
 
+    // A Python capture's resolved lock is baked into its built spec.
+    let config_json = match &project_root {
+        Some(project_root) => crate::builtin::bake_generated_files(
+            &config_json,
+            crate::builtin::PYTHON_SENTINEL,
+            project_root,
+            &mut validated_response.generated_files,
+        ),
+        None => config_json,
+    };
+
     let capture::response::Validated {
         bindings: bindings_validated,
         generated_files,
     } = &validated_response;
 
     super::validate_generated_file_urls(scope, generated_files, errors);
-
-    // The connector scaffolds a project which is missing required files,
-    // and those files must then be added to the capture's `files`.
-    let config_json = match (&endpoint, &project_root) {
-        (models::CaptureEndpoint::Python(python), Some(project_root)) => {
-            let package = crate::builtin::python_package(capture);
-            let files = scope.push_prop("endpoint");
-            let files = files.push_prop("python");
-            let files = files.push_prop("files");
-
-            for path in crate::builtin::required_capture_python_files(&package) {
-                if !python.files.paths().any(|p| p == path) {
-                    Error::ProjectFileMissing { path }.push(files, errors);
-                }
-            }
-            crate::builtin::bake_generated_files(
-                &config_json,
-                crate::builtin::PYTHON_SENTINEL,
-                project_root,
-                generated_files,
-            )
-        }
-        _ => config_json,
-    };
 
     if bindings_validate_len != bindings_validated.len() {
         Error::WrongConnectorBindings {

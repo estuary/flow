@@ -1,0 +1,37 @@
+---
+source: crates/python-connector/src/pydantic/mapper.rs
+expression: w
+---
+class Document(_pydantic.BaseModel):
+    class Credentials_(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        token: str
+
+    class Account(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        id: _typing.Optional[int] = None
+
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    Credentials: "Credentials_"
+    account: _typing.Optional["Account"] = None
+
+
+
+class EndpointConfig(_pydantic.BaseModel):
+    class Credentials_(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        token: str
+
+    class Account(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        id: _typing.Optional[int] = None
+
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    Credentials: "Credentials_"
+    account: _typing.Optional["Account"] = None

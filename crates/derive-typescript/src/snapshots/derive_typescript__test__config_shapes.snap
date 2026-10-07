@@ -1,42 +1,106 @@
 ---
 source: crates/derive-typescript/src/lib.rs
-expression: "[parse(json!({\n    \"apiKey\": \"hunter2\", \"module\": \"a user property\", \"_typescript\":\n    {\n        \"collection\": \"acmeCo/orders\", \"module\": \"export class Derivation {}\",\n        \"spec\": {\"configSchema\": {\"type\": \"object\"}},\n    },\n})), parse(json!({\"module\": \"export class Derivation {}\"})),\nparse(json!({\"module\": \"export class Derivation {}\", \"environment\": {}})),\nparse(json!({\"module\": \"export class Derivation {}\", \"environment\":\n    {\"KEY\": \"value\"}})),\nparse(json!({\"_typescript\":\n    {\"collection\": \"acmeCo/orders\", \"module\":\n        \"export class Derivation {}\"}})),\nparse(json!({\"_typescript\": {\"collection\": \"acmeCo/orders\"}})),\nparse(json!({\"apiKey\": \"hunter2\"})), parse(json!([\"not\", \"an\", \"object\"])),]"
+expression: "[parse(json!({\n    \"apiKey\": \"hunter2\", \"module\": \"a user property\", \"_typescript\":\n    {\n        \"collection\": \"acmeCo/orders\", \"files\":\n        {\"deno.json\": \"{}\", \"orders/mod.ts\": \"export class Derivation {}\",\n            \"orders/missing.ts\": null}, \"spec\":\n        {\"configSchema\": {\"type\": \"object\"}},\n    },\n})), parse(json!({\"module\": \"export class Derivation {}\"})),\nparse(json!({\"module\": \"export class Derivation {}\", \"environment\": {}})),\nparse(json!({\"module\": \"export class Derivation {}\", \"environment\":\n    {\"KEY\": \"value\"}})), parse(json!({\"_typescript\": {\"files\": {}}})),\nparse(json!({\"apiKey\": \"hunter2\"})), parse(json!([\"not\", \"an\", \"object\"])),]"
 ---
 [
     Ok(
         Config {
-            module: "export class Derivation {}",
+            files: {
+                "deno.json": Some(
+                    "{}",
+                ),
+                "orders/missing.ts": None,
+                "orders/mod.ts": Some(
+                    "export class Derivation {}",
+                ),
+            },
+            dir: "orders",
             user: {
                 "apiKey": String("hunter2"),
                 "module": String("a user property"),
             },
             spec: Spec {
-                config_schema: Object {
-                    "type": String("object"),
-                },
-                resource_config_schema: Object {},
+                config_schema: Some(
+                    Object {
+                        "type": String("object"),
+                    },
+                ),
+                resource_config_schema: Some(
+                    Object {
+                        "properties": Object {
+                            "readOnly": Object {
+                                "default": Bool(false),
+                                "description": String("Does this transform never publish documents?"),
+                                "type": String("boolean"),
+                            },
+                        },
+                        "type": String("object"),
+                    },
+                ),
                 oauth2: None,
             },
         },
     ),
     Ok(
         Config {
-            module: "export class Derivation {}",
+            files: {
+                "deno.json": Some(
+                    "{\n  \"imports\": {\n    \"flow/\": \"./flow_generated/typescript/\"\n  }\n}\n",
+                ),
+                "module/mod.ts": Some(
+                    "export class Derivation {}",
+                ),
+            },
+            dir: "module",
             user: {},
             spec: Spec {
-                config_schema: Object {},
-                resource_config_schema: Object {},
+                config_schema: Some(
+                    Object {},
+                ),
+                resource_config_schema: Some(
+                    Object {
+                        "properties": Object {
+                            "readOnly": Object {
+                                "default": Bool(false),
+                                "description": String("Does this transform never publish documents?"),
+                                "type": String("boolean"),
+                            },
+                        },
+                        "type": String("object"),
+                    },
+                ),
                 oauth2: None,
             },
         },
     ),
     Ok(
         Config {
-            module: "export class Derivation {}",
+            files: {
+                "deno.json": Some(
+                    "{\n  \"imports\": {\n    \"flow/\": \"./flow_generated/typescript/\"\n  }\n}\n",
+                ),
+                "module/mod.ts": Some(
+                    "export class Derivation {}",
+                ),
+            },
+            dir: "module",
             user: {},
             spec: Spec {
-                config_schema: Object {},
-                resource_config_schema: Object {},
+                config_schema: Some(
+                    Object {},
+                ),
+                resource_config_schema: Some(
+                    Object {
+                        "properties": Object {
+                            "readOnly": Object {
+                                "default": Bool(false),
+                                "description": String("Does this transform never publish documents?"),
+                                "type": String("boolean"),
+                            },
+                        },
+                        "type": String("object"),
+                    },
+                ),
                 oauth2: None,
             },
         },
@@ -44,19 +108,8 @@ expression: "[parse(json!({\n    \"apiKey\": \"hunter2\", \"module\": \"a user p
     Err(
         "environment is no longer supported; use `config` with a `secrets` stanza",
     ),
-    Ok(
-        Config {
-            module: "export class Derivation {}",
-            user: {},
-            spec: Spec {
-                config_schema: Object {},
-                resource_config_schema: Object {},
-                oauth2: None,
-            },
-        },
-    ),
     Err(
-        "invalid `_typescript`: missing field `module`",
+        "invalid `_typescript`: missing field `collection`",
     ),
     Err(
         "config has neither `_typescript` nor a legacy `module`: missing field `module`",

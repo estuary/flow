@@ -709,24 +709,23 @@
           "$ref": "#/$defs/Value"
         },
         "dependencies": {
-          "title": "Removed: declare dependencies in a `pyproject.toml` listed in `files`.",
-          "description": "Models of derivations which predate `files` always serialized an empty\n`dependencies`, which is accepted (only) while empty. It's never\nserialized, so a re-published model drops it.",
+          "title": "Deprecated: declare dependencies in a `pyproject.toml` listed in `files`.",
+          "description": "Validation migrates the dependencies of a model having a `module` into\nits `pyproject.toml`, so a validated model never has them.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
           },
-          "deprecated": true,
-          "maxProperties": 0,
-          "writeOnly": true
+          "deprecated": true
         },
         "files": {
-          "title": "Additional files of this derivation.",
-          "description": "Files are placed alongside the module. A `pyproject.toml` declares the\nproject's dependencies, and a default is used if it's absent.\nA `uv.lock` pins its dependencies exactly, and is otherwise resolved\nwhen the derivation is published.\n`module.py`, `module/__init__.py`, `main.py`, `.venv/`,\nand `flow_generated/` are reserved.",
+          "title": "Files of this Python project.",
+          "description": "The derivation's directory is named for the final component of the\nderived collection's name (`acmeCo/orders` has directory `orders/`),\nand its `orders/__init__.py` exports a `Derivation` class which directly\nsubclasses the generated `IDerivation`. A `pyproject.toml` declaring the\nproject's dependencies is also required. A `uv.lock` pins its\ndependencies exactly, and is otherwise resolved when the derivation is\npublished. `.venv/` and `flow_generated/` are reserved.",
           "$ref": "#/$defs/ProjectFiles"
         },
         "module": {
-          "title": "Python module implementing this derivation.",
-          "description": "Module is either a relative URL of a Python module file,\nor is an inline representation of a Python module.\nThe module must have an exported Derivation class which\nextends the generated IDerivation base class.",
+          "title": "Deprecated: list the derivation's module in `files`.",
+          "description": "A relative URL of a Python module, or its inline content. Validation\nmigrates it into `files`, so a validated model never has one.",
+          "deprecated": true,
           "oneOf": [
             {
               "description": "A URL identifying a resource, which may be a relative local path\nwith respect to the current resource (i.e, ../path/to/flow.yaml),\nor may be an external absolute URL (i.e., http://example/flow.yaml).",
@@ -748,10 +747,7 @@
           "$ref": "#/$defs/BuiltinSpec"
         }
       },
-      "additionalProperties": false,
-      "required": [
-        "module"
-      ]
+      "additionalProperties": false
     },
     "DeriveUsingSqlite": {
       "type": "object",
@@ -788,9 +784,15 @@
           "description": "The configuration is described by `spec.configSchema`, and is delivered\nto the Derivation class. It may not have a `_typescript` property.",
           "$ref": "#/$defs/Value"
         },
+        "files": {
+          "title": "Files of this TypeScript project.",
+          "description": "The derivation's directory is named for the final component of the\nderived collection's name (`acmeCo/orders` has directory `orders/`),\nand its `orders/mod.ts` exports a `Derivation` class which extends the\ngenerated `IDerivation`. A `deno.json` is also required, which maps\n`flow/` to `./flow_generated/typescript/` so that modules may import\ntheir generated types. `flow_generated/` is reserved.",
+          "$ref": "#/$defs/ProjectFiles"
+        },
         "module": {
-          "title": "TypeScript module implementing this derivation.",
-          "description": "Module is either a relative URL of a TypeScript module file,\nor is an inline representation of a Typescript module.\nThe module must have an exported Derivation class which\nextends the generated IDerivation base class.",
+          "title": "Deprecated: list the derivation's module in `files`.",
+          "description": "A relative URL of a TypeScript module, or its inline content.\nValidation migrates it into `files`, so a validated model never has one.",
+          "deprecated": true,
           "oneOf": [
             {
               "description": "A URL identifying a resource, which may be a relative local path\nwith respect to the current resource (i.e, ../path/to/flow.yaml),\nor may be an external absolute URL (i.e., http://example/flow.yaml).",
@@ -812,10 +814,7 @@
           "$ref": "#/$defs/BuiltinSpec"
         }
       },
-      "additionalProperties": false,
-      "required": [
-        "module"
-      ]
+      "additionalProperties": false
     },
     "Field": {
       "description": "Field names a projection of a document location. They may include '/',\nbut cannot begin or end with one.\nMany Fields are automatically inferred by Flow from a collection JSON Schema,\nand are the JSON Pointer of the document location with the leading '/' removed.\nUser-provided Fields which act as a logical partitions are restricted to\nUnicode letters, numbers, '-', '_', or '.'",

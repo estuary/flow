@@ -1,13 +1,8 @@
----
-source: crates/python-connector/src/project.rs
-expression: "default_pyproject(\"acmeCo-orders\", &dependencies)"
----
 [project]
-name = "acmeCo-orders"
+name = "derive-patterns"
 version = "0.1.0"
 requires-python = ">=3.14,<4"
 dependencies = [
-    "httpx>=0.27",
     "pydantic>=2",
 ]
 
@@ -16,8 +11,11 @@ dev = ["pyright>=1.1"]
 
 [tool.uv]
 package = false
+# Packages uploaded within the past week aren't candidates for resolution,
+# as malicious uploads are typically yanked within days.
 exclude-newer = "7 days"
 
 [tool.pyright]
 typeCheckingMode = "strict"
+# Types generated from the derivations' collections and declared `spec`s.
 extraPaths = ["flow_generated/python"]

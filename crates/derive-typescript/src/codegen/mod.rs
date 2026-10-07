@@ -59,7 +59,8 @@ export type {source_name} = "#,
         generate_anchors(&mut w, &w_mapper, r_mapper.as_ref(), &source_name);
     }
 
-    // Generate configuration types of the declared spec.
+    // Generate configuration types of the declared spec, which is resolved
+    // with the connector's defaults.
     for (type_name, schema, prop) in [
         ("EndpointConfig", &spec.config_schema, "configSchema"),
         (
@@ -68,6 +69,7 @@ export type {source_name} = "#,
             "resourceConfigSchema",
         ),
     ] {
+        let schema = schema.as_ref().expect("spec is resolved");
         let mapper = Mapper::for_config(schema.to_string().as_bytes())
             .with_context(|| format!("invalid `{prop}`"))?;
 
@@ -149,9 +151,18 @@ export type Validated = {{
 // the derivation's `spec`, and are not validated at runtime.
 export abstract class IDerivation<C = EndpointConfig, R = ResourceConfig> {{
     // Construct a new Derivation instance from a Request.Open message and the
-    // derivation's `config`. `config` is optional so that modules written
-    // before it existed, which call `super(open)`, still type-check.
-    constructor(_open: Open<R>, _config?: C) {{ }}
+    // derivation's `config`. Its `open` is a structural supertype of `Open<R>`,
+    // and `config` is optional, so that modules written before they existed,
+    // whose constructors take `open: {{ state, range }}` and call `super(open)`,
+    // still type-check.
+    constructor(
+        _open: {{
+            state: unknown,
+            range?: {{ keyBegin?: number, keyEnd?: number, rClockBegin?: number, rClockEnd?: number }},
+            resources?: R[],
+        }},
+        _config?: C,
+    ) {{ }}
 
     // validate the derivation as it's published, throwing to fail validation.
     // No instance exists until the derivation is opened. The default marks a
@@ -199,7 +210,9 @@ export abstract class IDerivation<C = EndpointConfig, R = ResourceConfig> {{
     w.push_str("\n}\n");
 }
 
-pub fn main_ts(transforms: &[(&str, &flow::CollectionSpec)]) -> String {
+/// Generate the entry point of a derivation, which imports the module of its
+/// directory at the relative URL `entry`.
+pub fn main_ts(transforms: &[(&str, &flow::CollectionSpec)], entry: &str) -> String {
     let w = include_str!("main.ts.template").to_string();
 
     let transforms = transforms
@@ -211,9 +224,12 @@ pub fn main_ts(transforms: &[(&str, &flow::CollectionSpec)]) -> String {
         .join("\n");
 
     w.replace("TRANSFORMS", &transforms)
+        .replace("ENTRY_MODULE", &serde_json::to_string(entry).unwrap())
 }
 
-pub fn stub_ts(
+/// Generate the starter entry of a derivation: a working derivation whose
+/// transforms publish nothing, as a starting point.
+pub fn starter_ts(
     collection: &flow::CollectionSpec,
     transforms: &[(&str, &flow::CollectionSpec)],
 ) -> String {
@@ -235,11 +251,15 @@ pub fn stub_ts(
 
     write!(
         w,
-        r#"import {{ IDerivation, Document, EndpointConfig, Open, {transform_sources} }} from 'flow/{name}.ts';
+        r#"// Derivation of collection {name}.
+//
+// The platform runs the `Derivation` class which this module exports. Modules
+// of this directory import one another relatively (`./helpers.ts`), and import
+// their generated types through the `flow/` mapping of the project's deno.json.
+import {{ IDerivation, Document, EndpointConfig, Open, {transform_sources} }} from 'flow/{name}.ts';
 
-// Implementation for derivation {name}.
-// `EndpointConfig` is generated from the derivation's `spec.configSchema`.
 export class Derivation extends IDerivation {{
+    // `EndpointConfig` is generated from the derivation's `spec.configSchema`.
     constructor(open: Open, readonly config: EndpointConfig) {{
         super(open, config);
     }}
@@ -255,7 +275,10 @@ export class Derivation extends IDerivation {{
             "    {method_name}(_read: {{ doc: {source_name} }}): Document[] {{"
         )
         .unwrap();
-        w.push_str("        throw new Error(\"Not implemented\");\n    }\n");
+        w.push_str(
+            "        // Return each `Document` derived from `_read.doc`.\n        \
+             // This starter publishes nothing.\n        return [];\n    }\n",
+        );
     }
     w.push_str("}\n");
 

@@ -14,8 +14,9 @@ DraftCatalog {
                 "python": {
                   "files": {
                     "pyproject.toml": "[project]\nname = \"source-acme\"\ndependencies = [\"estuary-cdk\"]\n",
-                    "source_acme/__init__.py": "from estuary_cdk.capture import BaseCaptureConnector\n",
-                    "source_acme/__main__.py": "import asyncio\nimport source_acme\n\nasyncio.run(source_acme.Connector().serve())\n"
+                    "source-acme/__init__.py": "from estuary_cdk.capture import BaseCaptureConnector\n\nfrom .models import Greeting\n",
+                    "source-acme/missing.py": null,
+                    "source-acme/models.py": "class Greeting:\n    pass\n"
                   },
                   "config": {"credentials":{"client_id":"a-client-id"}},
                   "spec": {
@@ -310,7 +311,7 @@ DraftCatalog {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme/endpoint/python/files/3,
-            to_resource: test://example/source_acme/missing.py,
+            to_resource: test://example/source-acme/missing.py,
         },
         Import {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,

@@ -4,16 +4,8 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-captures#/captures/testing~1source-other,
-        error: project file test://example/pyproject.toml has different content than it does in the task at test://example/int-string-captures#/captures/testing~1source-acme, which also lists it,
-    },
-    Error {
-        scope: test://example/int-string-captures#/captures/testing~1source-other,
-        error: this task shares the Python project at test://example/ with the task at test://example/int-string-captures#/captures/testing~1source-acme, which lists its `uv.lock`: tasks sharing a project must all list its `uv.lock`, or none of them may,
-    },
-    Error {
         scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files/..~1escape.py,
-        error: project file ../escape.py cannot have a `.` or `..` path component,
+        error: project file ../escape.py must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files/.venv~1lib.py,
@@ -26,6 +18,10 @@ expression: errors
     Error {
         scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files/flow_generated~1python~1sneaky.py,
         error: project file flow_generated/python/sneaky.py uses a name which is reserved by the connector,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files,
+        error: list `source-acme/__init__.py` in `files`: a project lists its manifest and the entry file of each task, and `flowctl generate` writes a starter of each listed file which doesn't exist yet,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/config,
@@ -45,6 +41,10 @@ expression: errors
     Error {
         scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/spec/resourceConfigSchema,
         error: at test://example/int-string-captures?ptr=/captures/testing~1source-acme/endpoint/python/spec/resourceConfigSchema#/type: invalid type name: 'not-a-type',
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-other/endpoint/python/files,
+        error: list `pyproject.toml` and `source-other/__init__.py` in `files`: a project lists its manifest and the entry file of each task, and `flowctl generate` writes a starter of each listed file which doesn't exist yet,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1source-other/endpoint/python/config,

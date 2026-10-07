@@ -16,7 +16,7 @@ collections:
 
     derive:
       using:
-        typescript: { module: summer.flow.ts }
+        typescript: { files: [deno.json, sums-reductions/mod.ts] }
       # Run this checkout's built-in connector images, which `ci:catalog-test`
       # builds as `:local`.
       shards:
@@ -34,7 +34,7 @@ collections:
 
     derive:
       using:
-        python: { module: summer.flow.py }
+        python: { files: [pyproject.toml, sums-python/__init__.py] }
       # Run this checkout's built-in connector images, which `ci:catalog-test`
       # builds as `:local`.
       shards:

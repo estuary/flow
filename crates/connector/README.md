@@ -153,8 +153,8 @@ to leave it running.
   `Started` carries the `Spec` response so the client can use it as well.
   The internal Spec carries the *sealed* configuration: built-in connectors
   (capture-python, derive-python, derive-typescript) answer Spec from the `spec` their task model
-  declares, carried in the sealed configuration's sentinel. They don't run user
-  code to answer it.
+  declares, carried in the sealed configuration's sentinel, and resolve a schema
+  it omits to their own default. They don't run user code to answer it.
 
 - **Unsealed configurations are checked against the Spec, as a warning.**
   Right after unsealing, the endpoint configuration and each binding's

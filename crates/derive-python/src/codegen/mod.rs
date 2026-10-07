@@ -181,7 +181,10 @@ class Response(pydantic.BaseModel):
     configuration (`lambda`) of each transform. They default to the types
     generated from the derivation's `spec`. A derivation may instead declare
     types of its own, as `class Derivation(IDerivation[MyConfig])`, and is
-    then responsible for keeping them equivalent to its declared `spec`."""
+    then responsible for keeping them equivalent to its declared `spec`.
+
+    `Derivation` must directly subclass `IDerivation`, from which its types
+    `C` and `R` are resolved: a validation of the derivation fails otherwise."""
 
     def __init__(self, open: Request.Open[R], config: C):
         """Initialize the derivation with an Open message, and its `config`."""
@@ -263,11 +266,12 @@ const PROTOCOL_IMPORTS: &[&str] = &[
     "import pydantic",
 ];
 
-/// Generate the main.py runtime wrapper from template.
+/// Generate the entry point of a derivation from template, which runs the
+/// `Derivation` exported by its directory `dir`.
 pub fn main_py(
     collection: &flow::CollectionSpec,
     transforms: &[(&str, &flow::CollectionSpec)],
-    module_name: &str,
+    dir: &str,
 ) -> String {
     let template = include_str!("main.py.template");
 
@@ -293,11 +297,12 @@ pub fn main_py(
         .replace("READ_TYPE", &read_type)
         .replace("DISPATCH", &dispatch)
         .replace("MODULE_PATH", &module_path)
-        .replace("MODULE_NAME", module_name)
+        .replace("LOAD_TASK", &python_connector::load_task_py(dir))
 }
 
-/// Generate a stub implementation for a missing module.
-pub fn stub_py(
+/// Generate the starter entry of a derivation: a working derivation whose
+/// transforms publish nothing, as a starting point.
+pub fn starter_py(
     collection: &flow::CollectionSpec,
     transforms: &[(&str, &flow::CollectionSpec)],
 ) -> String {
@@ -306,14 +311,20 @@ pub fn stub_py(
 
     write!(
         w,
-        r#""""Derivation implementation for {name}."""
+        r#""""Derivation of collection {name}.
+
+The platform runs the `Derivation` class which this directory exports. It must
+directly subclass the generated `IDerivation`: as `class Derivation(IDerivation)`,
+or `class Derivation(IDerivation[MyConfig, MyResourceConfig])` to parse its
+configurations into types of its own. Modules of this directory import one
+another relatively (`from .helpers import ...`).
+"""
 from collections.abc import AsyncIterator
 from {module_path} import IDerivation, Document, EndpointConfig, Request
 
 
-# Implementation for derivation {name}.
-# `EndpointConfig` is generated from the derivation's `spec.configSchema`.
 class Derivation(IDerivation):
+    # `EndpointConfig` is generated from the derivation's `spec.configSchema`.
     def __init__(self, open: Request.Open, config: EndpointConfig):
         super().__init__(open, config)
         self.config = config
@@ -330,9 +341,10 @@ class Derivation(IDerivation):
         write!(
             w,
             r#"    async def {method_name}(self, read: Request.Read{class_name}) -> AsyncIterator[Document]:
-        raise NotImplementedError("{method_name} not implemented")
+        # Yield each `Document` derived from `read.doc`, such as
+        # `yield Document(...)`. This starter publishes nothing.
         if False:
-            yield  # Mark as a generator.
+            yield
 
 "#,
         )
@@ -515,9 +527,9 @@ mod test {
         let types_output = types_py(&sums_spec, &transforms, &spec).unwrap();
         insta::assert_snapshot!("types_py", types_output);
 
-        // Test stub_py generation
-        let stub_output = stub_py(&sums_spec, &transforms);
-        insta::assert_snapshot!("stub_py", stub_output);
+        // Test starter_py generation
+        let starter_output = starter_py(&sums_spec, &transforms);
+        insta::assert_snapshot!("starter_py", starter_output);
     }
 
     #[test]
@@ -545,7 +557,7 @@ mod test {
 
         let transforms = vec![("fromInts", &ints_spec), ("process-strings", &strings_spec)];
 
-        let output = main_py(&sums_spec, &transforms, "my_module");
+        let output = main_py(&sums_spec, &transforms, "sums");
         insta::assert_snapshot!(output);
     }
 }

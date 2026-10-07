@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/indirect_specs_tests.rs
-assertion_line: 105
 expression: summarize_all(&outcome)
 ---
 capture acmeCo/capture:

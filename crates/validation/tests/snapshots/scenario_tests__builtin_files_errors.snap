@@ -4,13 +4,21 @@ expression: errors
 ---
 [
     Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/using/typescript/files,
+        error: list `deno.json` and `int-halve/mod.ts` in `files`: a project lists its manifest and the entry file of each task, and `flowctl generate` writes a starter of each listed file which doesn't exist yet,
+    },
+    Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files,
         error: `files` requires the V2 runtime, which this derivation does not use.
         Please add `shards.flags.enable-runtime-v2: "true"` to this derivation.,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/..~1escape.py,
-        error: project file ../escape.py cannot have a `.` or `..` path component,
+        error: project file ../escape.py must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/.venv~1lib.py,
+        error: project file .venv/lib.py uses a name which is reserved by the connector,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/flow_generated~1sneaky.py,
@@ -18,15 +26,7 @@ expression: errors
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/lib~1~1double.py,
-        error: lib//double.py cannot be used as name for project file ("//double.py" is invalid),
-    },
-    Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/main.py,
-        error: project file main.py uses a name which is reserved by the connector,
-    },
-    Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/module~1__init__.py,
-        error: project file module/__init__.py uses a name which is reserved by the connector,
+        error: project file lib//double.py must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/spec,

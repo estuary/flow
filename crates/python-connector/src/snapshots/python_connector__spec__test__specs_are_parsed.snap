@@ -1,0 +1,49 @@
+---
+source: crates/python-connector/src/spec.rs
+expression: "(Spec::of_sentinel(&declared).unwrap(),\nSpec::of_sentinel(&serde_json::json!({\"capture\":\n    \"acmeCo/source-acme\"})).unwrap(),\nSpec::of_sentinel(&serde_json::json!({\"spec\":\n    {\"configSchema\": {\"type\": \"object\"}}})).unwrap(),\nSpec::of_sentinel(&serde_json::json!({\"spec\": {}})).unwrap().config_schema(),\nSpec::of_sentinel(&serde_json::json!({\"spec\":\n    {\"newerProperty\": true}})).unwrap(),\nSpec::of_sentinel(&serde_json::json!({\"spec\":\n    \"not an object\"})).unwrap_err().to_string(),)"
+---
+(
+    Spec {
+        config_schema: Some(
+            Object {
+                "type": String("object"),
+            },
+        ),
+        resource_config_schema: Some(
+            Object {
+                "properties": Object {
+                    "name": Object {
+                        "type": String("string"),
+                    },
+                },
+                "type": String("object"),
+            },
+        ),
+        oauth2: Some(
+            Object {
+                "provider": String("acme"),
+            },
+        ),
+    },
+    Spec {
+        config_schema: None,
+        resource_config_schema: None,
+        oauth2: None,
+    },
+    Spec {
+        config_schema: Some(
+            Object {
+                "type": String("object"),
+            },
+        ),
+        resource_config_schema: None,
+        oauth2: None,
+    },
+    Object {},
+    Spec {
+        config_schema: None,
+        resource_config_schema: None,
+        oauth2: None,
+    },
+    "invalid sentinel `spec`",
+)

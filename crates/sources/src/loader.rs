@@ -764,17 +764,19 @@ impl<F: Fetcher> Loader<F> {
                 }
             }
             models::DeriveUsing::Typescript(models::DeriveUsingTypescript {
-                module,
+                files,
                 config,
                 spec,
+                module,
             }) => {
                 tasks.push(
                     async move {
                         let scope = scope.push_prop("using");
                         let scope = scope.push_prop("typescript");
                         futures::join!(
-                            self.load_config(scope.push_prop("module"), module),
+                            self.load_module(scope.push_prop("module"), module.as_ref()),
                             self.load_config(scope.push_prop("config"), config),
+                            self.load_files(scope.push_prop("files"), files),
                             self.load_builtin_spec(scope.push_prop("spec"), spec),
                         );
                     }
@@ -782,10 +784,10 @@ impl<F: Fetcher> Loader<F> {
                 );
             }
             models::DeriveUsing::Python(models::DeriveUsingPython {
-                module,
                 files,
                 config,
                 spec,
+                module,
                 dependencies: _,
             }) => {
                 tasks.push(
@@ -793,7 +795,7 @@ impl<F: Fetcher> Loader<F> {
                         let scope = scope.push_prop("using");
                         let scope = scope.push_prop("python");
                         futures::join!(
-                            self.load_config(scope.push_prop("module"), module),
+                            self.load_module(scope.push_prop("module"), module.as_ref()),
                             self.load_config(scope.push_prop("config"), config),
                             self.load_files(scope.push_prop("files"), files),
                             self.load_builtin_spec(scope.push_prop("spec"), spec),
@@ -1091,6 +1093,13 @@ impl<F: Fetcher> Loader<F> {
             flow::ContentType::Config,
         )
         .await;
+    }
+
+    // Load the deprecated `module` of a built-in derivation, if it has one.
+    async fn load_module<'s>(&'s self, scope: Scope<'s>, module: Option<&RawValue>) {
+        if let Some(module) = module {
+            self.load_config(scope, module).await;
+        }
     }
 
     // Load the schemas of a built-in connector's `spec`. Like collection

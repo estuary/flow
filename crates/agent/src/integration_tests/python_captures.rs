@@ -12,8 +12,7 @@ const CAPTURE: &str = "pythons/source-acme";
 fn python_files() -> serde_json::Value {
     json!({
         "pyproject.toml": "[project]\nname = \"source-acme\"\n",
-        "source_acme/__init__.py": "",
-        "source_acme/__main__.py": "print('hello')\n",
+        "source-acme/__init__.py": "class Connector: pass\n",
     })
 }
 

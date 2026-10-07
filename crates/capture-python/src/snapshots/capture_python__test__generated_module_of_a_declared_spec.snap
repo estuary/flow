@@ -15,14 +15,12 @@ class EndpointConfig(_pydantic.BaseModel):
     model_config = _pydantic.ConfigDict(extra='allow')
 
     count: int = 10
-    """Count Number of greetings to capture"""
     greeting: str = "Hello"
-    """Greeting Greeting of each captured document"""
 
 
 
 # Generated for the resource configuration of `spec.resourceConfigSchema`.
-class ResourceConfig(common.ResourceConfig):
+class ResourceConfig(common.BaseResourceConfig):
     model_config = _pydantic.ConfigDict(extra='allow')
 
     interval: _datetime.timedelta = _pydantic.Field(default="PT0S", validate_default=True)
@@ -42,7 +40,7 @@ class ResourceConfig(common.ResourceConfig):
 # capture's model and not by this connector, so `spec()` returns it only so
 # that the connector is complete.
 SPEC = ConnectorSpec(
-    configSchema={"properties": {"count": {"default": 10, "description": "Number of greetings to capture", "minimum": 0, "title": "Count", "type": "integer"}, "greeting": {"default": "Hello", "description": "Greeting of each captured document", "title": "Greeting", "type": "string"}}, "type": "object"},
+    configSchema={"properties": {"count": {"default": 10, "minimum": 0, "type": "integer"}, "greeting": {"default": "Hello", "type": "string"}}, "type": "object"},
     resourceConfigSchema={"properties": {"interval": {"default": "PT0S", "format": "duration", "type": "string"}, "name": {"type": "string", "x-collection-name": True}}, "required": ["name"], "type": "object"},
     documentationUrl="https://docs.estuary.dev",
     resourcePathPointers=ResourceConfig.PATH_POINTERS,

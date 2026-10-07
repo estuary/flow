@@ -62,7 +62,8 @@ connector/
     ├── rotation.py               # the three HTTP calls, and nothing else
     └── __main__.py               # serve loop, migration, rotation
 flow.yaml                         # the catalog, pre-migration
-probe.py                          # the derivation module
+pyproject.toml                    # the derivation's Python project
+probe/__init__.py                 # the derivation's `Derivation`
 events.fixture.jsonl              # source documents for `flowctl preview --fixture`
 ```
 

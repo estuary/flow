@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme,
+        error: this task's project directory `source-acme/` is also that of testing/nested/source-acme, which shares its project: tasks of a project must have distinct final name components,
+    },
+]

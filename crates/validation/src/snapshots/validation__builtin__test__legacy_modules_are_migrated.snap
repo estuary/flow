@@ -1,0 +1,110 @@
+---
+source: crates/validation/src/builtin.rs
+expression: "(fixes, python, typescript, listed, current)"
+---
+(
+    [
+        Some(
+            "migrated `module` into `files` as orders/__init__.py, with a default pyproject.toml",
+        ),
+        Some(
+            "migrated `module` into `files` as orders/mod.ts, with a default deno.json",
+        ),
+        Some(
+            "migrated `module` into `files` as orders/__init__.py",
+        ),
+        None,
+    ],
+    Python(
+        DeriveUsingPython {
+            module: None,
+            files: Inline(
+                {
+                    "orders/__init__.py": Some(
+                        "class Derivation(IDerivation):\n    pass\n",
+                    ),
+                    "pyproject.toml": Some(
+                        "[project]\nname = \"acmeCo-nested-orders\"\nversion = \"0.1.0\"\nrequires-python = \">=3.14,<4\"\ndependencies = [\n    \"httpx>=0.27\",\n    \"pydantic>=2\",\n]\n\n[dependency-groups]\ndev = [\"pyright>=1.1\"]\n\n[tool.uv]\npackage = false\nexclude-newer = \"7 days\"\n\n[tool.pyright]\ntypeCheckingMode = \"strict\"\nextraPaths = [\"flow_generated/python\"]\n",
+                    ),
+                },
+            ),
+            config: RawValue(
+                {},
+            ),
+            spec: BuiltinSpec {
+                config_schema: None,
+                resource_config_schema: None,
+                oauth2: None,
+            },
+            dependencies: {},
+        },
+    ),
+    Typescript(
+        DeriveUsingTypescript {
+            module: None,
+            files: Inline(
+                {
+                    "deno.json": Some(
+                        "{\n  \"imports\": {\n    \"flow/\": \"./flow_generated/typescript/\"\n  }\n}\n",
+                    ),
+                    "orders/mod.ts": Some(
+                        "export class Derivation extends IDerivation {}\n",
+                    ),
+                },
+            ),
+            config: RawValue(
+                {},
+            ),
+            spec: BuiltinSpec {
+                config_schema: None,
+                resource_config_schema: None,
+                oauth2: None,
+            },
+        },
+    ),
+    Python(
+        DeriveUsingPython {
+            module: None,
+            files: Inline(
+                {
+                    "orders/__init__.py": Some(
+                        "file:///project/orders.py",
+                    ),
+                    "pyproject.toml": Some(
+                        "[project]\n",
+                    ),
+                },
+            ),
+            config: RawValue(
+                {},
+            ),
+            spec: BuiltinSpec {
+                config_schema: None,
+                resource_config_schema: None,
+                oauth2: None,
+            },
+            dependencies: {},
+        },
+    ),
+    Python(
+        DeriveUsingPython {
+            module: None,
+            files: Inline(
+                {
+                    "pyproject.toml": Some(
+                        "[project]\n",
+                    ),
+                },
+            ),
+            config: RawValue(
+                {},
+            ),
+            spec: BuiltinSpec {
+                config_schema: None,
+                resource_config_schema: None,
+                oauth2: None,
+            },
+            dependencies: {},
+        },
+    ),
+)

@@ -6,19 +6,19 @@ expression: "[derive_typescript_connector(&derived, &typescript, &v1),\nderive_t
     ConnectorConfig {
         image: "ghcr.io/estuary/derive-typescript:dev",
         config: RawValue(
-            {"module":"mod.ts"},
+            {"module":"export class Derivation {}"},
         ),
     },
     ConnectorConfig {
         image: "ghcr.io/estuary/derive-typescript:stable",
         config: RawValue(
-            {"_typescript":{"collection":"acmeCo/derived","module":"mod.ts","spec":{"configSchema":{},"resourceConfigSchema":{"properties":{"readOnly":{"default":false,"description":"Does this transform never publish documents?","type":"boolean"}},"type":"object"}}},"apiKey":"secret"},
+            {"_typescript":{"collection":"acmeCo/derived","files":{"deno.json":"{}","derived/mod.ts":"export class Derivation {}"},"spec":{}},"apiKey":"secret"},
         ),
     },
     ConnectorConfig {
         image: "ghcr.io/estuary/derive-typescript:local",
         config: RawValue(
-            {"_typescript":{"collection":"acmeCo/derived","module":"mod.ts","spec":{"configSchema":{},"resourceConfigSchema":{"properties":{"readOnly":{"default":false,"description":"Does this transform never publish documents?","type":"boolean"}},"type":"object"}}},"apiKey":"secret"},
+            {"_typescript":{"collection":"acmeCo/derived","files":{"deno.json":"{}","derived/mod.ts":"export class Derivation {}"},"spec":{}},"apiKey":"secret"},
         ),
     },
     ConnectorConfig {
@@ -30,19 +30,19 @@ expression: "[derive_typescript_connector(&derived, &typescript, &v1),\nderive_t
     ConnectorConfig {
         image: "ghcr.io/estuary/derive-python:stable",
         config: RawValue(
-            {"_python":{"collection":"acmeCo/derived","files":{"pyproject.toml":"[project]\n"},"module":"class Derivation: pass\n","spec":{"configSchema":{},"resourceConfigSchema":{"properties":{"readOnly":{"default":false,"description":"Does this transform never publish documents?","type":"boolean"}},"type":"object"}}},"region":"north"},
+            {"_python":{"collection":"acmeCo/derived","files":{"derived/__init__.py":"class Derivation: pass\n","pyproject.toml":"[project]\n"},"spec":{}},"region":"north"},
         ),
     },
     ConnectorConfig {
         image: "ghcr.io/estuary/capture-python:stable",
         config: RawValue(
-            {"_python":{"capture":"acmeCo/sources/source-acme","files":{"source_acme/__init__.py":""},"package":"source_acme","spec":{"configSchema":{"properties":{"credentials":{"type":"object"}},"type":"object"},"oauth2":{"accessTokenUrlTemplate":"https://acme.example/token","authUrlTemplate":"https://acme.example/authorize","provider":"acme"},"resourceConfigSchema":{"properties":{"interval":{"default":"PT0S","description":"Interval between updates for this resource","format":"duration","nonsensitive":true,"type":"string"},"name":{"description":"Name of this resource","type":"string","x-collection-name":true}},"required":["name"],"type":"object"}}},"credentials":{"client_id":"an-id"}},
+            {"_python":{"capture":"acmeCo/sources/source-acme","files":{"pyproject.toml":null,"source-acme/__init__.py":""},"spec":{"configSchema":{"properties":{"credentials":{"type":"object"}},"type":"object"},"oauth2":{"accessTokenUrlTemplate":"https://acme.example/token","authUrlTemplate":"https://acme.example/authorize","provider":"acme"}}},"credentials":{"client_id":"an-id"}},
         ),
     },
     ConnectorConfig {
         image: "ghcr.io/estuary/capture-python:local",
         config: RawValue(
-            {"_python":{"capture":"acmeCo/sources/source-acme","files":{"source_acme/__init__.py":""},"package":"source_acme","spec":{"configSchema":{"properties":{"credentials":{"type":"object"}},"type":"object"},"oauth2":{"accessTokenUrlTemplate":"https://acme.example/token","authUrlTemplate":"https://acme.example/authorize","provider":"acme"},"resourceConfigSchema":{"properties":{"interval":{"default":"PT0S","description":"Interval between updates for this resource","format":"duration","nonsensitive":true,"type":"string"},"name":{"description":"Name of this resource","type":"string","x-collection-name":true}},"required":["name"],"type":"object"}}},"credentials":{"client_id":"an-id"}},
+            {"_python":{"capture":"acmeCo/sources/source-acme","files":{"pyproject.toml":null,"source-acme/__init__.py":""},"spec":{"configSchema":{"properties":{"credentials":{"type":"object"}},"type":"object"},"oauth2":{"accessTokenUrlTemplate":"https://acme.example/token","authUrlTemplate":"https://acme.example/authorize","provider":"acme"}}},"credentials":{"client_id":"an-id"}},
         ),
     },
 ]

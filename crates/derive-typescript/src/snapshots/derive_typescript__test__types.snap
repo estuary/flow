@@ -24,7 +24,9 @@ export type EndpointConfig = {
 
 // Generated for `spec.resourceConfigSchema`. It's not validated at runtime, and fields
 // having a `default` are optional: their default is the derivation's to apply.
-export type ResourceConfig = Record<string, unknown>;
+export type ResourceConfig = {
+    readOnly?: /* Does this transform never publish documents? */ boolean;
+};
 
 // Mirror of Estuary protocol's flow.ConnectorState.
 export type ConnectorState = {
@@ -77,9 +79,18 @@ export type Validated = {
 // the derivation's `spec`, and are not validated at runtime.
 export abstract class IDerivation<C = EndpointConfig, R = ResourceConfig> {
     // Construct a new Derivation instance from a Request.Open message and the
-    // derivation's `config`. `config` is optional so that modules written
-    // before it existed, which call `super(open)`, still type-check.
-    constructor(_open: Open<R>, _config?: C) { }
+    // derivation's `config`. Its `open` is a structural supertype of `Open<R>`,
+    // and `config` is optional, so that modules written before they existed,
+    // whose constructors take `open: { state, range }` and call `super(open)`,
+    // still type-check.
+    constructor(
+        _open: {
+            state: unknown,
+            range?: { keyBegin?: number, keyEnd?: number, rClockBegin?: number, rClockEnd?: number },
+            resources?: R[],
+        },
+        _config?: C,
+    ) { }
 
     // validate the derivation as it's published, throwing to fail validation.
     // No instance exists until the derivation is opened. The default marks a

@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 8
 expression: outcome
 ---
 Outcome {
@@ -2621,7 +2620,10 @@ Outcome {
               "derive": {
                 "using": {
                   "typescript": {
-                    "module": "another typescript placeholder\n"
+                    "files": {
+                      "deno.json": "{\n  \"imports\": {\n    \"flow/\": \"./flow_generated/typescript/\"\n  }\n}\n",
+                      "int-halve/mod.ts": "another typescript placeholder\n"
+                    }
                   }
                 },
                 "transforms": [
@@ -2667,7 +2669,9 @@ Outcome {
                 ]
               }
             },
-            model_fixes: [],
+            model_fixes: [
+              "migrated `module` into `files` as int-halve/mod.ts, with a default deno.json"
+            ],
             validated: Validated {
                 transforms: [
                     Transform {
@@ -4308,7 +4312,10 @@ Outcome {
               "derive": {
                 "using": {
                   "typescript": {
-                    "module": "typescript module placeholder"
+                    "files": {
+                      "deno.json": "{\n  \"imports\": {\n    \"flow/\": \"./flow_generated/typescript/\"\n  }\n}\n",
+                      "int-reverse/mod.ts": "typescript module placeholder"
+                    }
                   }
                 },
                 "transforms": [
@@ -4322,7 +4329,9 @@ Outcome {
                 ]
               }
             },
-            model_fixes: [],
+            model_fixes: [
+              "migrated `module` into `files` as int-reverse/mod.ts, with a default deno.json"
+            ],
             validated: Validated {
                 transforms: [
                     Transform {

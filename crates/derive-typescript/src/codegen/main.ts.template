@@ -27,13 +27,14 @@ async function emit(response: {
     }
 }
 
-// Fixup console to not write to stdout. The module is imported dynamically,
-// after this fixup, so that its console output at import cannot corrupt stdout.
+// Fixup console to not write to stdout. The derivation's directory is imported
+// dynamically, after this fixup, so that its console output at import cannot
+// corrupt stdout.
 console.log = console.error;
 console.debug = console.error;
 console.info = console.error;
 
-const module = await import('./module.ts');
+const module = await import(ENTRY_MODULE);
 const { Derivation } = module;
 type Derivation = InstanceType<typeof Derivation>;
 

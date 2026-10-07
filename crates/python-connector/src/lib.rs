@@ -8,12 +8,12 @@ mod project;
 pub mod pydantic;
 mod spec;
 
-pub use config::{SENTINEL, split_sentinel, strip_sentinel_at, text_files, without_sentinel};
-pub use config_types::{ConfigTypes, Resources, config_types_py};
-pub use generated::{imports_py, module_files, module_parts};
-pub use project::{
-    GENERATED_PREFIX, Install, LOCK_FILE, PYPROJECT, Project, default_pyproject, relative_to,
+pub use config::{
+    Files, SENTINEL, split_sentinel, strip_sentinel_at, text_files, without_sentinel,
 };
+pub use config_types::{ConfigTypes, Resources, config_types_py};
+pub use generated::{ENTRY, TASK_PACKAGE, imports_py, load_task_py, module_files, module_parts};
+pub use project::{GENERATED_PREFIX, Install, LOCK_FILE, PYPROJECT, Project, Use, relative_to};
 pub use spec::Spec;
 
 /// Protocol version of connector Spec responses.

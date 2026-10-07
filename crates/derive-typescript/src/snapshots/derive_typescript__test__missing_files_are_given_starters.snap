@@ -1,0 +1,10 @@
+---
+source: crates/derive-typescript/src/lib.rs
+expression: "validated.generated_files.keys().collect::<Vec<_>>()"
+---
+[
+    "file:///project/deno.json",
+    "file:///project/flow_generated/typescript/acmeCo/orders.ts",
+    "file:///project/orders/helpers.ts",
+    "file:///project/orders/mod.ts",
+]

@@ -196,24 +196,28 @@ fn inline_derivation(
             }
         }
         models::DeriveUsing::Typescript(models::DeriveUsingTypescript {
-            module,
+            files,
             config,
             spec,
+            module,
         }) => {
             let scope = Scope::new(scope);
             let scope = scope.push_prop("derive");
             let scope = scope.push_prop("using");
             let scope = scope.push_prop("typescript");
 
-            inline_config(scope.push_prop("module"), module, imports, resources);
+            if let Some(module) = module {
+                inline_config(scope.push_prop("module"), module, imports, resources);
+            }
             inline_config(scope.push_prop("config"), config, imports, resources);
+            inline_files(scope.push_prop("files"), files, imports, resources);
             inline_builtin_spec(scope.push_prop("spec"), spec, imports, resources);
         }
         models::DeriveUsing::Python(models::DeriveUsingPython {
-            module,
             files,
             config,
             spec,
+            module,
             dependencies: _,
         }) => {
             let scope = Scope::new(scope);
@@ -221,7 +225,9 @@ fn inline_derivation(
             let scope = scope.push_prop("using");
             let scope = scope.push_prop("python");
 
-            inline_config(scope.push_prop("module"), module, imports, resources);
+            if let Some(module) = module {
+                inline_config(scope.push_prop("module"), module, imports, resources);
+            }
             inline_config(scope.push_prop("config"), config, imports, resources);
             inline_files(scope.push_prop("files"), files, imports, resources);
             inline_builtin_spec(scope.push_prop("spec"), spec, imports, resources);
@@ -431,8 +437,12 @@ fn inline_builtin_spec(
 }
 
 /// Inline an indirect `files` list into the object form, mapping each
-/// path to its text content. A file which failed to load is left out:
-/// its load error has already been recorded.
+/// path to its text content. A file which failed to load maps to `None`:
+/// its load error has already been recorded, and its connector may offer
+/// starter content for it.
+///
+/// Content is the resource's own bytes, whatever its content type, as a
+/// listed file may also be loaded as (say) a schema or a configuration.
 fn inline_files(
     scope: Scope,
     files: &mut models::ProjectFiles,
@@ -446,14 +456,19 @@ fn inline_files(
 
     for (index, path) in paths.iter().enumerate() {
         let scope = scope.push_item(index).flatten();
-        let Ok(resource) = scope.join(path) else {
+        let resource = scope
+            .join(path)
+            .ok()
+            .and_then(|resource| tables::Resource::fetch(resources, &resource));
+
+        let Some(resource) = resource else {
+            inline.insert(path.clone(), None);
             continue;
         };
-        let Some(resource) = tables::Resource::fetch(resources, &resource) else {
-            continue;
-        };
-        let content = serde_json::from_str::<String>(resource.content_dom.get())
-            .expect("text resources are loaded as a JSON string");
+        // A load error was recorded for content which isn't UTF-8.
+        let content = std::str::from_utf8(&resource.content)
+            .ok()
+            .map(str::to_string);
         inline.insert(path.clone(), content);
 
         let rng = imports.equal_range_by(|import| {
@@ -465,4 +480,56 @@ fn inline_files(
         imports.drain(rng);
     }
     *files = models::ProjectFiles::Inline(inline);
+}
+
+#[cfg(test)]
+mod test {
+    use json::Scope;
+
+    #[test]
+    fn files_are_inlined_as_text_whatever_their_content_type() {
+        let scope =
+            url::Url::parse("test://example/flow.yaml#/captures/acmeCo~1source-acme").unwrap();
+        let mut imports = tables::Imports::new();
+        let mut resources = tables::Resources::new();
+
+        // A listed file which was also loaded as a schema has a parsed DOM.
+        resources.insert_row(
+            url::Url::parse("test://example/config.schema.yaml").unwrap(),
+            proto_flow::flow::ContentType::JsonSchema,
+            bytes::Bytes::from_static(b"type: object\n"),
+            models::RawValue::from_str(r#"{"type":"object"}"#).unwrap(),
+        );
+        resources.insert_row(
+            url::Url::parse("test://example/pyproject.toml").unwrap(),
+            proto_flow::flow::ContentType::Text,
+            bytes::Bytes::from_static(b"[project]\n"),
+            models::RawValue::from_str(r#""[project]\n""#).unwrap(),
+        );
+        let mut files = models::ProjectFiles::Indirect(vec![
+            "pyproject.toml".to_string(),
+            "config.schema.yaml".to_string(),
+            "missing.py".to_string(),
+        ]);
+        super::inline_files(
+            Scope::new(&scope).push_prop("files"),
+            &mut files,
+            &mut imports,
+            &resources,
+        );
+
+        insta::assert_debug_snapshot!(files, @r#"
+        Inline(
+            {
+                "config.schema.yaml": Some(
+                    "type: object\n",
+                ),
+                "missing.py": None,
+                "pyproject.toml": Some(
+                    "[project]\n",
+                ),
+            },
+        )
+        "#);
+    }
 }

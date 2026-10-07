@@ -86,7 +86,7 @@ fn resource_path(
     // there's no path to be had.
     if resource_path_pointers.is_empty() {
         anyhow::bail!(
-            "resource config has no resource path: it has no `/_meta/path`, and the connector declares no resource path pointers"
+            "resource config has no resource path at `/_meta/path` (and the connector declares no resource path pointers): run `flowctl discover` to write the resource path of each binding"
         );
     }
     Ok((path, true))

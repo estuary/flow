@@ -1,19 +1,19 @@
 # A capture implemented by a user-authored Python connector, written with the
-# Estuary CDK. `flowctl generate` scaffolded this project (and its starter
-# `spec.configSchema`) from a spec having only `endpoint: { python: {} }`, and
-# `flowctl raw discover` wrote its bindings and collection from the connector's
-# models.
+# Estuary CDK. It's a multi-file reference: the capture's directory is named for
+# the final component of its name (`source-hello/`), and its `__init__.py`
+# exports the `Connector` which the platform runs. Its modules import one
+# another relatively. `flowctl raw discover` wrote its bindings and collection
+# from the connector's models.
 captures:
   examples/source-hello:
     endpoint:
       python:
         files:
           - pyproject.toml
-          - source_hello/__init__.py
-          - source_hello/__main__.py
-          - source_hello/api.py
-          - source_hello/models.py
-          - source_hello/resources.py
+          - source-hello/__init__.py
+          - source-hello/api.py
+          - source-hello/models.py
+          - source-hello/resources.py
         # Parsed by the connector's EndpointConfig model, which is generated
         # from `spec.configSchema`.
         config:
@@ -38,8 +38,11 @@ captures:
                 minimum: 0
     bindings:
       - resource:
-          name: greetings
+          # Discover documents each binding's resource path.
+          _meta:
+            path: [greetings]
           interval: PT30S
+          name: greetings
         target: examples/greetings
     shards:
       flags:

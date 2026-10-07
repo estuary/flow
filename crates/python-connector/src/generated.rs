@@ -23,6 +23,43 @@ pub fn imports_py(source: &str, imports: &[&str]) -> String {
         .join("\n")
 }
 
+/// Generated entry point of a project, which its connector runs. It's within
+/// the project's generated files, so that the user's own paths are their own.
+pub const ENTRY: &str = "flow_generated/main.py";
+
+/// Fixed import name of a task's directory, which is loaded as a package of
+/// this name. It's not a valid distribution name, and can't collide with
+/// a dependency of the project.
+pub const TASK_PACKAGE: &str = "__flow_task__";
+
+/// Python source which loads the task's directory `dir` by its path, as the
+/// package `TASK_PACKAGE`, and binds it to `task`. The directory may have any
+/// name (such as `source-acme`), and its modules import one another relatively.
+/// It uses the `importlib.util`, `pathlib`, `sys`, and `typing` modules, and
+/// must be run from `ENTRY`.
+pub fn load_task_py(dir: &str) -> String {
+    format!(
+        r#"def load_task() -> typing.Any:
+    """Load the task's directory, its `__init__.py`, as package `{TASK_PACKAGE}`."""
+    directory = pathlib.Path(__file__).resolve().parent.parent / {dir}
+    spec = importlib.util.spec_from_file_location(
+        "{TASK_PACKAGE}",
+        directory / "__init__.py",
+        submodule_search_locations=[str(directory)],
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+task: typing.Any = load_task()
+"#,
+        dir = crate::pydantic::python_literal(&serde_json::json!(dir)),
+    )
+}
+
 /// Components of the Python module generated for a catalog `name`, such as
 /// a derived collection or a capture: each `/`-separated component of the
 /// name, sanitized into a Python identifier.

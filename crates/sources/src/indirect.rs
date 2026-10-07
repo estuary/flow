@@ -389,24 +389,27 @@ fn indirect_derivation(
             }
         }
         models::DeriveUsing::Typescript(models::DeriveUsingTypescript {
-            module,
+            files,
             config,
             spec,
+            module,
         }) => {
             let scope = Scope::new(scope);
             let scope = scope.push_prop("derive");
             let scope = scope.push_prop("using");
             let scope = scope.push_prop("typescript");
 
-            indirect(
-                scope.push_prop("module"),
-                module,
-                &format!("{base}.ts"),
-                ContentType::Config,
-                imports,
-                resources,
-                0, // Always indirect.
-            );
+            if let Some(module) = module {
+                indirect(
+                    scope.push_prop("module"),
+                    module,
+                    &format!("{base}.ts"),
+                    ContentType::Config,
+                    imports,
+                    resources,
+                    0, // Always indirect.
+                );
+            }
             indirect(
                 scope.push_prop("config"),
                 config,
@@ -416,6 +419,7 @@ fn indirect_derivation(
                 resources,
                 threshold,
             );
+            indirect_files(scope, files, imports, resources);
             indirect_builtin_spec(
                 scope.push_prop("spec"),
                 spec,
@@ -427,10 +431,10 @@ fn indirect_derivation(
             );
         }
         models::DeriveUsing::Python(models::DeriveUsingPython {
-            module,
             files,
             config,
             spec,
+            module,
             dependencies: _,
         }) => {
             let scope = Scope::new(scope);
@@ -438,15 +442,17 @@ fn indirect_derivation(
             let scope = scope.push_prop("using");
             let scope = scope.push_prop("python");
 
-            indirect(
-                scope.push_prop("module"),
-                module,
-                &format!("{base}.py"),
-                ContentType::Config,
-                imports,
-                resources,
-                0, // Always indirect.
-            );
+            if let Some(module) = module {
+                indirect(
+                    scope.push_prop("module"),
+                    module,
+                    &format!("{base}.py"),
+                    ContentType::Config,
+                    imports,
+                    resources,
+                    0, // Always indirect.
+                );
+            }
             indirect(
                 scope.push_prop("config"),
                 config,
@@ -712,8 +718,12 @@ fn indirect_builtin_spec(
 
 /// Indirect an inline `files` object of the task at `scope` into the array
 /// form, writing each file as text at its path relative to the specification.
-/// Sibling tasks listing a common path write the same resource, which
-/// validation requires to have identical content.
+/// Sibling tasks listing a common path write the same resource (and keeping
+/// its content consistent is the user's responsibility).
+///
+/// `files` having a path which validation rejects are left inline, so that
+/// they're never written outside of the specification's directory. A file
+/// without content (which failed to load) is listed, but not written.
 fn indirect_files(
     scope: Scope,
     files: &mut models::ProjectFiles,
@@ -723,25 +733,35 @@ fn indirect_files(
     let models::ProjectFiles::Inline(inline) = files else {
         return;
     };
+    if !inline
+        .keys()
+        .all(|path| models::ProjectFiles::is_valid_path(path))
+    {
+        return;
+    }
     let scope = scope.push_prop("files");
     let mut paths = Vec::with_capacity(inline.len());
 
     for (index, (path, content)) in std::mem::take(inline).into_iter().enumerate() {
         let item = scope.push_item(index).flatten();
-        let Ok(resource) = item.join(&path) else {
-            continue;
-        };
+        let resource = item
+            .join(&path)
+            .expect("valid project paths are relative URLs");
 
-        tables::Resource {
-            resource: resource.clone(),
-            content_type: ContentType::Text,
-            content_dom: models::RawValue::from_string(serde_json::to_string(&content).unwrap())
+        if let Some(content) = content {
+            tables::Resource {
+                resource: resource.clone(),
+                content_type: ContentType::Text,
+                content_dom: models::RawValue::from_string(
+                    serde_json::to_string(&content).unwrap(),
+                )
                 .unwrap(),
-            content: content.into(),
-        }
-        .upsert_if_changed(resources);
+                content: content.into(),
+            }
+            .upsert_if_changed(resources);
 
-        imports.insert_row(&item, resource);
+            imports.insert_row(&item, resource);
+        }
         paths.push(path);
     }
     *files = models::ProjectFiles::Indirect(paths);
@@ -758,7 +778,7 @@ fn base_name(name: &impl AsRef<str>) -> &str {
 
 #[cfg(test)]
 mod test {
-    use super::indirect;
+    use super::{indirect, indirect_files};
     use json::Scope;
     use proto_flow::flow::ContentType;
 
@@ -804,5 +824,67 @@ mod test {
             .collect();
 
         insta::assert_debug_snapshot!((values, written, imports));
+    }
+
+    #[test]
+    fn files_are_written_only_at_valid_paths() {
+        let scope =
+            url::Url::parse("test://example/acmeCo/flow.yaml#/captures/acmeCo~1source-acme")
+                .unwrap();
+        let scope = Scope::new(&scope);
+        let mut imports = tables::Imports::new();
+        let mut resources = tables::Resources::new();
+
+        let mut valid = models::ProjectFiles::Inline(
+            [
+                (
+                    "pyproject.toml".to_string(),
+                    Some("[project]\n".to_string()),
+                ),
+                ("source-acme/__init__.py".to_string(), None),
+            ]
+            .into(),
+        );
+        let mut escaping = models::ProjectFiles::Inline(
+            [
+                (
+                    "pyproject.toml".to_string(),
+                    Some("[project]\n".to_string()),
+                ),
+                (
+                    "../escape.py".to_string(),
+                    Some("pwned = True\n".to_string()),
+                ),
+            ]
+            .into(),
+        );
+        indirect_files(scope, &mut valid, &mut imports, &mut resources);
+        indirect_files(scope, &mut escaping, &mut imports, &mut resources);
+
+        let written: Vec<String> = resources.iter().map(|r| r.resource.to_string()).collect();
+
+        insta::assert_debug_snapshot!((valid, escaping, written), @r#"
+        (
+            Indirect(
+                [
+                    "pyproject.toml",
+                    "source-acme/__init__.py",
+                ],
+            ),
+            Inline(
+                {
+                    "../escape.py": Some(
+                        "pwned = True\n",
+                    ),
+                    "pyproject.toml": Some(
+                        "[project]\n",
+                    ),
+                },
+            ),
+            [
+                "test://example/acmeCo/pyproject.toml",
+            ],
+        )
+        "#);
     }
 }

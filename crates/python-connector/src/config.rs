@@ -39,12 +39,18 @@ pub fn strip_sentinel_at(value: &mut serde_json::Value, pointer: &str) {
     }
 }
 
-/// Parse the `files` of a sentinel, which map project paths to their text.
-pub fn text_files(files: Option<&serde_json::Value>) -> anyhow::Result<BTreeMap<String, String>> {
+/// Files of a project, keyed on their path relative to the project root.
+/// A listed file which failed to load is `None`, and is given starter content.
+pub type Files = BTreeMap<String, Option<String>>;
+
+/// Parse the `files` of a sentinel, which map project paths to their text
+/// (or `null`, for a listed file which failed to load).
+pub fn text_files(files: Option<&serde_json::Value>) -> anyhow::Result<Files> {
     let Some(files) = files else {
         return Ok(BTreeMap::new());
     };
-    serde_json::from_value(files.clone()).context("project `files` must map paths to their text")
+    serde_json::from_value(files.clone())
+        .context("project `files` must map paths to their text, or null")
 }
 
 #[cfg(test)]
@@ -53,7 +59,7 @@ mod test {
 
     #[test]
     fn sentinels_are_split_and_stripped() {
-        let config = br#"{"credentials":{"token":"secret"},"_python":{"package":"p","files":{"a.py":"x = 1\n"}}}"#;
+        let config = br#"{"credentials":{"token":"secret"},"_python":{"capture":"p","files":{"a.py":"x = 1\n","b.py":null}}}"#;
 
         let (user, sentinel) = split_sentinel(config).unwrap();
         let sentinel = sentinel.unwrap();

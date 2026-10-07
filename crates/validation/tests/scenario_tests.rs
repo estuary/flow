@@ -1406,9 +1406,10 @@ test://example/int-string-tests:
 }
 
 #[test]
-fn test_python_files_errors() {
-    // `testing/int-reverse` doesn't use the V2 runtime, so its `files` also
-    // fail the V2 guard.
+fn test_builtin_files_errors() {
+    // `testing/int-reverse` doesn't use the V2 runtime, so its `files` beyond
+    // its manifest and entry also fail the V2 guard. `testing/int-halve` lists
+    // neither its manifest nor its entry, which is how a project bootstraps.
     let errors = common::run_errors(
         &MODEL_YAML,
         r#"
@@ -1419,27 +1420,39 @@ test://example/int-reverse:
         using:
           typescript: null
           python:
-            module: "class Derivation: pass\n"
             files:
+              pyproject.toml: ""
+              int-reverse/__init__.py: "class Derivation: pass\n"
               lib//double.py: "x = 1"
               ../escape.py: "x = 1"
-              main.py: "x = 1"
-              module/__init__.py: "x = 1"
+              .venv/lib.py: "x = 1"
               flow_generated/sneaky.py: "x = 1"
-              lib/missing.py: lib/missing.py
             # `spec` also requires the V2 runtime, and its schemas must compile.
             spec:
               configSchema: { type: object, properties: { a: { type: string, pattern: '(' } } }
+
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      derive:
+        using:
+          typescript:
+            module: null
+            files: {}
+        shards:
+          flags:
+            enable-runtime-v2: "true"
 "#,
     );
     insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
-fn test_python_dependencies_are_removed() {
-    // An empty `dependencies` (as master's models always serialized) is
-    // accepted, while a non-empty one is an error.
-    let errors = common::run_errors(
+fn test_builtin_legacy_modules_are_migrated() {
+    // A legacy `module` (with its `dependencies`) is migrated into `files`,
+    // and the V1 runtime's `dev` image is still given its module. A model of
+    // `files` may not have `dependencies`.
+    let outcome = common::run(
         &MODEL_YAML,
         r#"
 test://example/int-reverse:
@@ -1451,17 +1464,54 @@ test://example/int-reverse:
           python:
             module: "class Derivation: pass\n"
             dependencies: { httpx: ">=0.27" }
+
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      derive:
+        using:
+          typescript: null
+          python:
+            files: { pyproject.toml: "", int-halve/__init__.py: "" }
+            dependencies: { httpx: ">=0.27" }
         shards:
           flags:
             enable-runtime-v2: "true"
+
+driver:
+  derivations:
+    testing/int-reverse:
+      config:
+        image: ghcr.io/estuary/derive-python:dev
+        config:
+          module: "class Derivation: pass\n"
 "#,
     );
-    insta::assert_debug_snapshot!(errors);
+    let migrated = outcome
+        .built_collections
+        .iter()
+        .find(|row| row.collection.as_str() == "testing/int-reverse")
+        .unwrap();
+
+    insta::assert_debug_snapshot!((
+        &outcome.errors,
+        &migrated.model_fixes,
+        &migrated
+            .model
+            .as_ref()
+            .unwrap()
+            .derive
+            .as_ref()
+            .unwrap()
+            .using,
+    ));
 }
 
 #[test]
 fn test_python_capture_builds() {
-    // The connector's generated lock is baked into the built configuration.
+    // The connector's generated lock is baked into the built configuration,
+    // and isn't returned to be written into the user's project. An absent
+    // `resourceConfigSchema` is the connector's to default.
     let outcome = common::run(
         &MODEL_YAML,
         r#"
@@ -1472,8 +1522,7 @@ test://example/int-string-captures:
         python:
           files:
             pyproject.toml: "[project]\n"
-            source_acme/__init__.py: "class Connector: pass\n"
-            source_acme/__main__.py: "import source_acme\n"
+            source-acme/__init__.py: "class Connector: pass\n"
           config:
             greeting: Hello
           spec:
@@ -1495,23 +1544,20 @@ driver:
           greeting: Hello
           _python:
             capture: testing/source-acme
-            package: source_acme
             files:
               pyproject.toml: "[project]\n"
-              source_acme/__init__.py: "class Connector: pass\n"
-              source_acme/__main__.py: "import source_acme\n"
+              source-acme/__init__.py: "class Connector: pass\n"
             spec:
               configSchema:
                 $id: test://example/int-string-captures?ptr=/captures/testing~1source-acme/endpoint/python/spec/configSchema
                 type: object
                 properties:
                   greeting: { type: string, default: Howdy }
-              resourceConfigSchema: { type: object, required: [name], properties: { name: { type: string, description: Name of this resource, x-collection-name: true }, interval: { type: string, format: duration, default: PT0S, description: Interval between updates for this resource, nonsensitive: true } } }
       bindings:
         - resourcePath: [greetings]
       generatedFiles:
         test://example/uv.lock: "version = 1\n"
-        test://example/other.py: not baked
+        test://example/flow_generated/python/testing/source_acme/__init__.py: "generated"
 "#,
     );
     assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
@@ -1523,16 +1569,24 @@ driver:
         .unwrap();
     let config: serde_json::Value =
         serde_json::from_slice(&built.spec.as_ref().unwrap().config_json).unwrap();
+    let generated: Vec<&String> = built
+        .validated
+        .as_ref()
+        .unwrap()
+        .generated_files
+        .keys()
+        .collect();
 
-    insta::assert_json_snapshot!(config);
+    insta::assert_json_snapshot!((config, generated));
 }
 
 #[test]
-fn test_python_shared_locks() {
-    // Tasks sharing a project root share its lock: listing it in only some of
-    // them is an error. A lock which a task lists is never overwritten by a
-    // generated one, even if a connector returns one.
-    let outcome = common::run(
+fn test_builtin_task_dirs_collide() {
+    // Built-in tasks of one project root must have distinct directories, but
+    // may list common files of differing content: their agreement is the
+    // user's responsibility. Disabled tasks aren't validated by a connector.
+    // Legacy derivations, which have no directory, are not considered.
+    let errors = common::run_errors(
         &MODEL_YAML,
         r#"
 test://example/int-string-captures:
@@ -1540,57 +1594,32 @@ test://example/int-string-captures:
     testing/source-acme:
       endpoint:
         python:
-          files:
-            pyproject.toml: "[project]\n"
-            uv.lock: "version = 1\n"
-            source_acme/__init__.py: ""
-            source_acme/__main__.py: ""
+          files: { pyproject.toml: "[project]\n", source-acme/__init__.py: "" }
+      shards: { disable: true }
+      bindings: []
+    testing/nested/source-acme:
+      endpoint:
+        python:
+          files: { pyproject.toml: "[project]\nname = 'other'\n", source-acme/__init__.py: "" }
+      shards: { disable: true }
       bindings: []
     testing/source-other:
       endpoint:
         python:
-          files:
-            pyproject.toml: "[project]\n"
-            source_other/__init__.py: ""
-            source_other/__main__.py: ""
+          files: { pyproject.toml: "[project]\nname = 'other'\n", source-other/__init__.py: "" }
+      shards: { disable: true }
       bindings: []
-
-driver:
-  captures:
-    testing/source-acme:
-      connectorType: IMAGE
-      config:
-        image: ghcr.io/estuary/capture-python:stable
-        config:
-          _python:
-            capture: testing/source-acme
-            package: source_acme
-            files:
-              pyproject.toml: "[project]\n"
-              uv.lock: "version = 1\n"
-              source_acme/__init__.py: ""
-              source_acme/__main__.py: ""
-            spec:
-              configSchema: {}
-              resourceConfigSchema: { type: object, required: [name], properties: { name: { type: string, description: Name of this resource, x-collection-name: true }, interval: { type: string, format: duration, default: PT0S, description: Interval between updates for this resource, nonsensitive: true } } }
+    # Shares the project root and final name of the legacy derivation
+    # testing/int-reverse, which has no directory of its own.
+    testing/nested/int-reverse:
+      endpoint:
+        python:
+          files: { pyproject.toml: "", int-reverse/__init__.py: "" }
+      shards: { disable: true }
       bindings: []
-      generatedFiles:
-        test://example/uv.lock: "version = 2\n"
-        test://example/other.txt: "kept"
 "#,
     );
-
-    let generated = &outcome
-        .built_captures
-        .iter()
-        .find(|row| row.capture.as_str() == "testing/source-acme")
-        .unwrap()
-        .validated
-        .as_ref()
-        .unwrap()
-        .generated_files;
-
-    insta::assert_debug_snapshot!((&outcome.errors, generated));
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
@@ -1612,7 +1641,7 @@ test://example/int-string-captures:
             flow_generated: "x = 1"
             ../escape.py: "x = 1"
           config:
-            _python: { package: sneaky }
+            _python: { capture: sneaky }
             sops: { mac: whoops }
           spec:
             configSchema: { type: object, properties: { a: { type: string, pattern: '(' } } }
@@ -1621,50 +1650,8 @@ test://example/int-string-captures:
     testing/source-other:
       endpoint:
         python:
-          files:
-            # Conflicts with the content of testing/source-acme.
-            pyproject.toml: "[project]\nname = 'other'\n"
           config: [not, an, object]
       bindings: []
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_python_capture_missing_package() {
-    // The connector scaffolds a project which is missing its package,
-    // which must then be added to the capture's `files`.
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-test://example/int-string-captures:
-  captures:
-    testing/source-acme:
-      endpoint:
-        python:
-          files:
-            pyproject.toml: "[project]\n"
-      bindings: []
-
-driver:
-  captures:
-    testing/source-acme:
-      connectorType: IMAGE
-      config:
-        image: ghcr.io/estuary/capture-python:stable
-        config:
-          _python:
-            capture: testing/source-acme
-            package: source_acme
-            files:
-              pyproject.toml: "[project]\n"
-            spec:
-              configSchema: {}
-              resourceConfigSchema: { type: object, required: [name], properties: { name: { type: string, description: Name of this resource, x-collection-name: true }, interval: { type: string, format: duration, default: PT0S, description: Interval between updates for this resource, nonsensitive: true } } }
-      bindings: []
-      generatedFiles:
-        test://example/source_acme/__init__.py: "scaffolded = True\n"
 "#,
     );
     insta::assert_debug_snapshot!(errors);

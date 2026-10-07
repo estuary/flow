@@ -9,7 +9,10 @@ expression: "(serde_json::Value::Object(user), files, request,\nString::from_utf
         },
     },
     {
-        "a.py": "x = 1\n",
+        "a.py": Some(
+            "x = 1\n",
+        ),
+        "b.py": None,
     },
     Object {
         "validate": Object {

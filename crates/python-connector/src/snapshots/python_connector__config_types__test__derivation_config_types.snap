@@ -18,4 +18,4 @@ class ResourceConfig(_pydantic.BaseModel):
 
 
 
-# path_pointers: None
+# uses_common: false, has_path: false

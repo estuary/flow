@@ -17,8 +17,22 @@ expression: "serde_json::to_string_pretty(&responses).unwrap()"
     "protocol": 3032023,
     "resourceConfigSchema": {
       "properties": {
+        "window": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "configSchema": {},
+    "documentationUrl": "https://docs.estuary.dev",
+    "protocol": 3032023,
+    "resourceConfigSchema": {
+      "properties": {
         "readOnly": {
           "default": false,
+          "description": "Does this transform never publish documents?",
           "type": "boolean"
         }
       },
@@ -29,18 +43,45 @@ expression: "serde_json::to_string_pretty(&responses).unwrap()"
     "configSchema": {},
     "documentationUrl": "https://docs.estuary.dev",
     "protocol": 3032023,
-    "resourceConfigSchema": {}
+    "resourceConfigSchema": {
+      "properties": {
+        "readOnly": {
+          "default": false,
+          "description": "Does this transform never publish documents?",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
   },
   {
     "configSchema": {},
     "documentationUrl": "https://docs.estuary.dev",
     "protocol": 3032023,
-    "resourceConfigSchema": {}
+    "resourceConfigSchema": {
+      "properties": {
+        "readOnly": {
+          "default": false,
+          "description": "Does this transform never publish documents?",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
   },
   {
     "configSchema": {},
     "documentationUrl": "https://docs.estuary.dev",
     "protocol": 3032023,
-    "resourceConfigSchema": {}
+    "resourceConfigSchema": {
+      "properties": {
+        "readOnly": {
+          "default": false,
+          "description": "Does this transform never publish documents?",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
   }
 ]

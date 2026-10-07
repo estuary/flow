@@ -209,20 +209,20 @@ pub enum Error {
     },
     #[error("{category} partition selector field {field} cannot be an empty string")]
     SelectorEmptyString { category: String, field: String },
-    #[error("project file {path} cannot have a `.` or `..` path component")]
-    ProjectFileDotSegment { path: String },
+    #[error(
+        "project file {path} must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components"
+    )]
+    ProjectFilePath { path: String },
     #[error("project file {path} uses a name which is reserved by the connector")]
     ProjectFileReserved { path: String },
-    #[error("project files must include {path}")]
-    ProjectFileMissing { path: String },
     #[error(
-        "project file {resource} has different content than it does in the task at {other}, which also lists it"
+        "list {paths} in `files`: a project lists its manifest and the entry file of each task, and `flowctl generate` writes a starter of each listed file which doesn't exist yet"
     )]
-    ProjectFileConflict { resource: Url, other: Url },
+    ProjectFilesMissing { paths: String },
     #[error(
-        "this task shares the Python project at {root} with the task at {with}, which lists its `uv.lock`: tasks sharing a project must all list its `uv.lock`, or none of them may"
+        "this task's project directory `{dir}/` is also that of {other}, which shares its project: tasks of a project must have distinct final name components"
     )]
-    ProjectLockMismatch { root: Url, with: Url },
+    ProjectDirCollision { dir: String, other: String },
     #[error(
         "`dependencies` is no longer supported: declare dependencies in a `pyproject.toml` listed in the derivation's `files`"
     )]

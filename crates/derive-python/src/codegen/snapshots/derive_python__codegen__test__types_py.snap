@@ -159,7 +159,10 @@ class IDerivation[C = EndpointConfig, R = ResourceConfig](ABC):
     configuration (`lambda`) of each transform. They default to the types
     generated from the derivation's `spec`. A derivation may instead declare
     types of its own, as `class Derivation(IDerivation[MyConfig])`, and is
-    then responsible for keeping them equivalent to its declared `spec`."""
+    then responsible for keeping them equivalent to its declared `spec`.
+
+    `Derivation` must directly subclass `IDerivation`, from which its types
+    `C` and `R` are resolved: a validation of the derivation fails otherwise."""
 
     def __init__(self, open: Request.Open[R], config: C):
         """Initialize the derivation with an Open message, and its `config`."""

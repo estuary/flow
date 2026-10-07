@@ -17,6 +17,9 @@ dev = [
 package = false
 
 [tool.uv.sources]
+# TODO(before merge): this pins commit e89e2c34 of the unmerged
+# `johnny/capture-python-cdk` branch of estuary/connectors. Repin it to a
+# commit of `main` once that branch merges.
 estuary-cdk = { url = "https://github.com/estuary/connectors/archive/e89e2c34426d37cd5bc503e8f623fca001f3b98d.tar.gz", subdirectory = "estuary-cdk" }
 
 [tool.pyright]

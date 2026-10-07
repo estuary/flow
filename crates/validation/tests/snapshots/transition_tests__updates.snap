@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/transition_tests.rs
-assertion_line: 8
 expression: outcome
 ---
 Outcome {

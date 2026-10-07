@@ -1,10 +1,14 @@
 //! Built-in connectors: user-authored Python captures, and Python and
 //! TypeScript derivations. Each is rewritten at build time into an ordinary
 //! image connector, whose configuration is the user's `config` with a pushed-down
-//! sentinel property carrying the user's code and its declared `spec`.
+//! sentinel property carrying the task's name, its project `files`, and its
+//! declared `spec`.
 //!
-//! A built-in connector answers Spec from the sentinel's `spec`, which has its
-//! defaults applied here, and never runs user code to do so.
+//! A project is its listed `files`. Each task has one directory of the project,
+//! named verbatim for the final component of the task's name, which holds its
+//! entry file. A built-in connector answers Spec from the sentinel's `spec`
+//! (resolving a schema it omits to the connector's own default), and never
+//! runs user code to do so.
 
 use super::{Error, Scope};
 use proto_flow::{capture, flow};
@@ -24,6 +28,49 @@ pub const LOCK_FILE: &str = "uv.lock";
 pub const CAPTURE_PYTHON_IMAGE: &str = "ghcr.io/estuary/capture-python";
 pub const DERIVE_PYTHON_IMAGE: &str = "ghcr.io/estuary/derive-python";
 pub const DERIVE_TYPESCRIPT_IMAGE: &str = "ghcr.io/estuary/derive-typescript";
+
+/// Language of a built-in connector's project.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Language {
+    Python,
+    Typescript,
+}
+
+impl Language {
+    /// Manifest of a project, at its root.
+    pub fn manifest(self) -> &'static str {
+        match self {
+            Self::Python => "pyproject.toml",
+            Self::Typescript => "deno.json",
+        }
+    }
+
+    /// Entry file of a task, within its directory `dir`.
+    pub fn entry(self, dir: &str) -> String {
+        match self {
+            Self::Python => format!("{dir}/__init__.py"),
+            Self::Typescript => format!("{dir}/mod.ts"),
+        }
+    }
+
+    /// Is `path` reserved within a project? Generated files are written
+    /// under `flow_generated/`, and Python's virtual environment is `.venv/`.
+    pub fn is_reserved(self, path: &str) -> bool {
+        let reserved: &[&str] = match self {
+            Self::Python => &[".venv", "flow_generated"],
+            Self::Typescript => &["flow_generated"],
+        };
+        reserved
+            .iter()
+            .any(|r| path == *r || path.strip_prefix(r).is_some_and(|p| p.starts_with('/')))
+    }
+}
+
+/// Directory of a built-in task within its project: the final component of
+/// its name, verbatim (`acmeCo/source-acme` has directory `source-acme`).
+pub fn task_dir(name: &str) -> &str {
+    name.rsplit('/').next().unwrap()
+}
 
 /// Image tag of a built-in connector: an explicit `builtin-image-tag` flag, or
 /// else `stable`. Derivations of the V1 runtime instead use the frozen `dev`
@@ -68,7 +115,7 @@ pub fn capture_spec_request(
 }
 
 /// Resolve a Python capture into its image connector.
-/// The `capture` names the module of its generated types.
+/// The `capture` names its directory and its generated module.
 pub fn capture_python_connector(
     capture: &models::Capture,
     python: &models::CapturePython,
@@ -90,147 +137,105 @@ pub fn capture_python_connector(
             PYTHON_SENTINEL,
             serde_json::json!({
                 "capture": capture,
-                "package": python_package(capture),
-                "files": inline_files(files),
-                "spec": resolve_spec(spec, capture_resource_config_schema),
+                "files": sentinel_files(files),
+                "spec": spec,
             }),
         ),
     }
 }
 
 /// Resolve a Python derivation into its image connector.
-/// The derived `collection` names the module of its generated types.
+/// The derived `collection` names its directory and its generated module.
 pub fn derive_python_connector(
     collection: &models::Collection,
     python: &models::DeriveUsingPython,
     shards: &models::ShardTemplate,
 ) -> models::ConnectorConfig {
     let models::DeriveUsingPython {
-        module,
         files,
         config,
         spec,
+        module: _,
         dependencies: _,
     } = python;
-    let tag = image_tag(shards, models::CatalogType::Collection);
 
-    // The frozen `dev` image understands only its original configuration.
-    let config = if tag == "dev" {
-        models::RawValue::from_value(&serde_json::json!({"module": module}))
-    } else {
-        with_sentinel(
-            config,
-            PYTHON_SENTINEL,
-            serde_json::json!({
-                "collection": collection,
-                "module": module,
-                "files": inline_files(files),
-                "spec": resolve_spec(spec, derive_resource_config_schema),
-            }),
-        )
-    };
-    models::ConnectorConfig {
-        image: format!("{DERIVE_PYTHON_IMAGE}:{tag}"),
+    derive_connector(
+        DERIVE_PYTHON_IMAGE,
+        Language::Python,
+        PYTHON_SENTINEL,
+        collection,
+        files,
         config,
-    }
+        spec,
+        shards,
+    )
 }
 
 /// Resolve a TypeScript derivation into its image connector.
+/// The derived `collection` names its directory and its generated module.
 pub fn derive_typescript_connector(
     collection: &models::Collection,
     typescript: &models::DeriveUsingTypescript,
     shards: &models::ShardTemplate,
 ) -> models::ConnectorConfig {
     let models::DeriveUsingTypescript {
-        module,
+        files,
         config,
         spec,
+        module: _,
     } = typescript;
+
+    derive_connector(
+        DERIVE_TYPESCRIPT_IMAGE,
+        Language::Typescript,
+        TYPESCRIPT_SENTINEL,
+        collection,
+        files,
+        config,
+        spec,
+        shards,
+    )
+}
+
+fn derive_connector(
+    image: &str,
+    language: Language,
+    sentinel: &str,
+    collection: &models::Collection,
+    files: &models::ProjectFiles,
+    config: &models::RawValue,
+    spec: &models::BuiltinSpec,
+    shards: &models::ShardTemplate,
+) -> models::ConnectorConfig {
     let tag = image_tag(shards, models::CatalogType::Collection);
 
+    // The frozen `dev` image understands only its original configuration,
+    // a single module, which is the derivation's entry file.
     let config = if tag == "dev" {
-        models::RawValue::from_value(&serde_json::json!({"module": module}))
+        let entry = language.entry(task_dir(collection));
+        let module = files
+            .inline()
+            .and_then(|files| files.get(&entry))
+            .cloned()
+            .flatten()
+            .unwrap_or_default();
+
+        models::RawValue::from_value(&serde_json::json!({ "module": module }))
     } else {
         with_sentinel(
             config,
-            TYPESCRIPT_SENTINEL,
+            sentinel,
             serde_json::json!({
                 "collection": collection,
-                "module": module,
-                "spec": resolve_spec(spec, derive_resource_config_schema),
+                "files": sentinel_files(files),
+                "spec": spec,
             }),
         )
     };
     models::ConnectorConfig {
-        image: format!("{DERIVE_TYPESCRIPT_IMAGE}:{tag}"),
+        image: format!("{image}:{tag}"),
         config,
     }
-}
-
-/// Resolve the `spec` of a built-in connector into the `spec` of its sentinel,
-/// which mirrors the connector's Spec response and has its defaults applied.
-fn resolve_spec(
-    spec: &models::BuiltinSpec,
-    default_resource_config_schema: fn() -> serde_json::Value,
-) -> serde_json::Value {
-    let models::BuiltinSpec {
-        config_schema,
-        resource_config_schema,
-        oauth2,
-    } = spec;
-
-    let mut resolved = serde_json::json!({
-        "configSchema": config_schema
-            .as_ref()
-            .map(|schema| schema.to_value())
-            .unwrap_or_else(|| serde_json::json!({})),
-        "resourceConfigSchema": resource_config_schema
-            .as_ref()
-            .map(|schema| schema.to_value())
-            .unwrap_or_else(default_resource_config_schema),
-    });
-    if let Some(oauth2) = oauth2 {
-        resolved["oauth2"] = serde_json::to_value(oauth2).unwrap();
-    }
-    resolved
-}
-
-/// Default resource configuration schema of a Python capture: the CDK's stock
-/// `ResourceConfig`, with its `name` annotated as the binding's resource path.
-pub fn capture_resource_config_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "properties": {
-            "name": {
-                "type": "string",
-                "description": "Name of this resource",
-                "x-collection-name": true,
-            },
-            "interval": {
-                "type": "string",
-                "format": "duration",
-                "default": "PT0S",
-                "description": "Interval between updates for this resource",
-                "nonsensitive": true,
-            },
-        },
-        "required": ["name"],
-    })
-}
-
-/// Default resource configuration schema of a built-in derivation, which is
-/// the `lambda` of each of its transforms.
-pub fn derive_resource_config_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "properties": {
-            "readOnly": {
-                "type": "boolean",
-                "default": false,
-                "description": "Does this transform never publish documents?",
-            },
-        },
-    })
 }
 
 /// Validate the `spec` of a built-in connector. Each declared schema must
@@ -260,22 +265,6 @@ pub fn walk_spec(scope: Scope, spec: &models::BuiltinSpec, errors: &mut tables::
     }
 }
 
-/// Python package of a capture: the final component of its name, sanitized
-/// into a Python identifier (`acmeCo/source-acme` => `source_acme`).
-pub fn python_package(capture: &models::Capture) -> String {
-    let base = capture.rsplit('/').next().unwrap();
-
-    let mut package: String = base
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
-
-    if package.starts_with(|c: char| c.is_ascii_digit()) {
-        package.insert(0, '_');
-    }
-    package
-}
-
 /// Root of a user-authored project: the directory of the specification
 /// which lists its `files`, and relative to which they're resolved.
 pub fn project_root(scope: &url::Url) -> url::Url {
@@ -300,12 +289,14 @@ fn with_sentinel(
     models::RawValue::from_value(&serde_json::Value::Object(config))
 }
 
-fn inline_files(files: &models::ProjectFiles) -> BTreeMap<&str, &str> {
+/// Files of a sentinel. A listed file which failed to load is `null`,
+/// for which the connector returns starter content.
+fn sentinel_files(files: &models::ProjectFiles) -> BTreeMap<&str, Option<&str>> {
     files
         .inline()
         .into_iter()
         .flatten()
-        .map(|(path, content)| (path.as_str(), content.as_str()))
+        .map(|(path, content)| (path.as_str(), content.as_deref()))
         .collect()
 }
 
@@ -337,11 +328,15 @@ pub fn walk_config(
     }
 }
 
-/// Validate the `files` of a user-authored project.
+/// Validate the `files` of the project of a built-in task `name`. Each path
+/// must be well-formed and not reserved, and its manifest and entry file must
+/// be listed: their absence is how a new project is bootstrapped, by an error
+/// which names the files to list.
 pub fn walk_files(
     scope: Scope,
+    language: Language,
+    name: &str,
     files: &models::ProjectFiles,
-    is_reserved: impl Fn(&str) -> bool,
     errors: &mut tables::Errors,
 ) {
     for (index, path) in files.paths().enumerate() {
@@ -349,64 +344,155 @@ pub fn walk_files(
             models::ProjectFiles::Indirect(_) => scope.push_item(index),
             models::ProjectFiles::Inline(_) => scope.push_prop(path),
         };
-        super::indexed::walk_name(scope, "project file", path, models::Name::regex(), errors);
-
-        if path
-            .split('/')
-            .any(|segment| segment == "." || segment == "..")
-        {
-            Error::ProjectFileDotSegment {
+        if !models::ProjectFiles::is_valid_path(path) {
+            Error::ProjectFilePath {
                 path: path.to_string(),
             }
             .push(scope, errors);
         }
-        if is_reserved(path) {
+        if language.is_reserved(path) {
             Error::ProjectFileReserved {
                 path: path.to_string(),
             }
             .push(scope, errors);
         }
     }
-}
 
-/// Paths reserved within the `files` of every Python project: its virtual
-/// environment, and the modules generated from its declared spec.
-/// A listed `uv.lock` is allowed: it's the user's own pin of the project's
-/// dependencies, which is used verbatim.
-pub fn is_reserved_python_path(path: &str) -> bool {
-    matches!(path, ".venv" | "flow_generated")
-        || path.starts_with(".venv/")
-        || path.starts_with("flow_generated/")
-}
-
-/// Paths reserved within the `files` of a Python derivation.
-pub fn is_reserved_derive_python_path(path: &str) -> bool {
-    is_reserved_python_path(path) || matches!(path, "main.py" | "module.py" | "module/__init__.py")
-}
-
-/// Files which the `files` of a Python capture must include.
-pub fn required_capture_python_files(package: &str) -> [String; 3] {
-    [
-        "pyproject.toml".to_string(),
-        format!("{package}/__init__.py"),
-        format!("{package}/__main__.py"),
+    let missing: Vec<String> = [
+        language.manifest().to_string(),
+        language.entry(task_dir(name)),
     ]
+    .into_iter()
+    .filter(|required| !files.paths().any(|path| path == required))
+    .map(|path| format!("`{path}`"))
+    .collect();
+
+    if !missing.is_empty() {
+        Error::ProjectFilesMissing {
+            paths: missing.join(" and "),
+        }
+        .push(scope, errors);
+    }
 }
 
-/// Bake generated files of a Validated response which the platform owns
-/// (the dependency lock) into the `sentinel` files of a built image
-/// connector configuration. A lock which the user's `files` list is theirs,
+/// Migrate a derivation model having a legacy `module` into the form of
+/// `files`, returning a description of the fix. Its module becomes the
+/// derivation's entry file, and a project which doesn't list its manifest is
+/// given the manifest which legacy derivations ran with.
+pub fn migrate_legacy_module(
+    collection: &models::Collection,
+    using: &mut models::DeriveUsing,
+) -> Option<String> {
+    let (language, module, files, manifest) = match using {
+        models::DeriveUsing::Python(python) => {
+            let module = python.module.take()?;
+            let manifest = legacy_pyproject(collection, &python.dependencies);
+            python.dependencies.clear();
+            (Language::Python, module, &mut python.files, manifest)
+        }
+        models::DeriveUsing::Typescript(typescript) => {
+            let module = typescript.module.take()?;
+            (
+                Language::Typescript,
+                module,
+                &mut typescript.files,
+                LEGACY_DENO_JSON.to_string(),
+            )
+        }
+        _ => return None,
+    };
+    let entry = language.entry(task_dir(collection));
+
+    // A module which failed to load is its unresolved URL, and its load error
+    // has already been reported. It's migrated verbatim, as legacy connectors
+    // received it: a migrated model may be stored, and must never have a `null`.
+    let content = match serde_json::from_str::<String>(module.get()) {
+        Ok(content) => content,
+        Err(_) => module.get().to_string(),
+    };
+
+    let mut inline = match std::mem::take(files) {
+        models::ProjectFiles::Inline(inline) => inline,
+        // Validated models have inline files, but they're not required to.
+        models::ProjectFiles::Indirect(paths) => paths.into_iter().map(|p| (p, None)).collect(),
+    };
+
+    let mut fix = format!("migrated `module` into `files` as {entry}");
+    inline.insert(entry, Some(content));
+
+    if !inline.contains_key(language.manifest()) {
+        fix.push_str(&format!(", with a default {}", language.manifest()));
+        inline.insert(language.manifest().to_string(), Some(manifest));
+    }
+    *files = models::ProjectFiles::Inline(inline);
+
+    Some(fix)
+}
+
+/// `pyproject.toml` of a migrated legacy Python derivation. It's frozen to
+/// reproduce what legacy derivations ran with, and isn't a starter project.
+fn legacy_pyproject(
+    collection: &models::Collection,
+    dependencies: &BTreeMap<String, String>,
+) -> String {
+    let mut dependencies = dependencies.clone();
+    dependencies
+        .entry("pydantic".to_string())
+        .or_insert_with(|| ">=2".to_string());
+
+    let dependencies: String = dependencies
+        .iter()
+        .map(|(package, version)| format!("    \"{package}{version}\",\n"))
+        .collect();
+
+    LEGACY_PYPROJECT
+        .replace("NAME", &collection.replace('/', "-"))
+        .replace("DEPENDENCIES", &dependencies)
+}
+
+const LEGACY_PYPROJECT: &str = r#"[project]
+name = "NAME"
+version = "0.1.0"
+requires-python = ">=3.14,<4"
+dependencies = [
+DEPENDENCIES]
+
+[dependency-groups]
+dev = ["pyright>=1.1"]
+
+[tool.uv]
+package = false
+exclude-newer = "7 days"
+
+[tool.pyright]
+typeCheckingMode = "strict"
+extraPaths = ["flow_generated/python"]
+"#;
+
+/// `deno.json` of a migrated legacy TypeScript derivation, which maps the
+/// `flow/` imports of legacy modules to their generated types.
+const LEGACY_DENO_JSON: &str = r#"{
+  "imports": {
+    "flow/": "./flow_generated/typescript/"
+  }
+}
+"#;
+
+/// Bake the dependency lock of a Validated response into the `sentinel`
+/// files of a built image connector configuration, and remove it from the
+/// generated files: a lock is part of the built task, and is never written
+/// into the user's project. A lock which the user's `files` list is theirs,
 /// and is never replaced.
 pub fn bake_generated_files(
     config_json: &bytes::Bytes,
     sentinel: &str,
     project_root: &url::Url,
-    generated_files: &BTreeMap<String, String>,
+    generated_files: &mut BTreeMap<String, String>,
 ) -> bytes::Bytes {
     let Ok(lock_url) = project_root.join(LOCK_FILE) else {
         return config_json.clone();
     };
-    let Some(lock) = generated_files.get(lock_url.as_str()) else {
+    let Some(lock) = generated_files.remove(lock_url.as_str()) else {
         return config_json.clone();
     };
     let mut config: serde_json::Value =
@@ -422,95 +508,51 @@ pub fn bake_generated_files(
     if files.contains_key(LOCK_FILE) {
         return config_json.clone();
     }
-    files.insert(
-        LOCK_FILE.to_string(),
-        serde_json::Value::String(lock.clone()),
-    );
+    files.insert(LOCK_FILE.to_string(), serde_json::Value::String(lock));
 
     serde_json::to_vec(&config).unwrap().into()
 }
 
-/// Python projects of the draft: the scope of each task, and its `files`.
-fn python_projects(
-    draft: &tables::DraftCatalog,
-) -> impl Iterator<Item = (&url::Url, &models::ProjectFiles)> {
+/// Built-in tasks of the draft which have a directory of their project:
+/// the scope and name of each. A legacy derivation having a `module` has no
+/// directory of its own until it's migrated, which happens only as it's built.
+fn builtin_tasks(draft: &tables::DraftCatalog) -> impl Iterator<Item = (&url::Url, &str)> {
     let captures = draft.captures.iter().filter_map(|row| {
-        let models::CaptureEndpoint::Python(python) = &row.model.as_ref()?.endpoint else {
+        let models::CaptureEndpoint::Python(_) = &row.model.as_ref()?.endpoint else {
             return None;
         };
-        Some((&row.scope, &python.files))
+        Some((&row.scope, row.capture.as_str()))
     });
     let derivations = draft.collections.iter().filter_map(|row| {
-        let models::DeriveUsing::Python(python) = &row.model.as_ref()?.derive.as_ref()?.using
-        else {
-            return None;
+        let is_legacy = match &row.model.as_ref()?.derive.as_ref()?.using {
+            models::DeriveUsing::Python(python) => python.module.is_some(),
+            models::DeriveUsing::Typescript(typescript) => typescript.module.is_some(),
+            _ => return None,
         };
-        Some((&row.scope, &python.files))
+        (!is_legacy).then(|| (&row.scope, row.collection.as_str()))
     });
     captures.chain(derivations)
 }
 
-/// Walk the `files` of all Python projects of the draft, requiring that files
-/// which resolve to a common URL, as sibling tasks sharing a `pyproject.toml`
-/// do, also have identical content. Tasks which share a project root also
-/// share its `uv.lock`, so either all of them list it, or none do.
-pub fn walk_shared_files(draft: &tables::DraftCatalog, errors: &mut tables::Errors) {
-    let mut seen: BTreeMap<url::Url, (&str, &url::Url)> = BTreeMap::new();
-    // Project roots, and a task scope which does and doesn't list its lock.
-    let mut locks: BTreeMap<url::Url, (Option<&url::Url>, Option<&url::Url>)> = BTreeMap::new();
+/// Require that built-in tasks of the draft which share a project root have
+/// distinct directories. Tasks of the control plane each have their own root,
+/// so only those of local specifications may collide.
+pub fn walk_task_dirs(draft: &tables::DraftCatalog, errors: &mut tables::Errors) {
+    let mut seen: BTreeMap<(url::Url, &str), &str> = BTreeMap::new();
 
-    for (scope, files) in python_projects(draft) {
-        let Some(files) = files.inline() else {
-            continue;
-        };
-        let root = project_root(scope);
+    for (scope, name) in builtin_tasks(draft) {
+        let key = (project_root(scope), task_dir(name));
 
-        let entry = locks.entry(root.clone()).or_default();
-        if files.contains_key(LOCK_FILE) {
-            entry.0.get_or_insert(scope);
-        } else {
-            entry.1.get_or_insert(scope);
-        }
-
-        for (path, content) in files {
-            let Ok(resource) = root.join(path) else {
-                continue;
-            };
-            match seen.get(&resource) {
-                Some((other, _)) if *other == content.as_str() => {}
-                Some((_, other_scope)) => Error::ProjectFileConflict {
-                    resource: resource.clone(),
-                    other: (*other_scope).clone(),
-                }
-                .push(Scope::new(scope), errors),
-                None => {
-                    seen.insert(resource, (content.as_str(), scope));
-                }
+        if let Some(other) = seen.get(&key) {
+            Error::ProjectDirCollision {
+                dir: key.1.to_string(),
+                other: other.to_string(),
             }
+            .push(Scope::new(scope), errors);
+        } else {
+            seen.insert(key, name);
         }
     }
-
-    for (root, scopes) in locks {
-        let (Some(with), Some(without)) = scopes else {
-            continue;
-        };
-        Error::ProjectLockMismatch {
-            root,
-            with: with.clone(),
-        }
-        .push(Scope::new(without), errors);
-    }
-}
-
-/// URLs of the `uv.lock` files which Python projects of the draft list.
-/// A generated lock is never written at such a URL: the listed lock is the
-/// user's own.
-pub fn listed_locks(draft: &tables::DraftCatalog) -> std::collections::BTreeSet<String> {
-    python_projects(draft)
-        .filter(|(_, files)| files.paths().any(|path| path == LOCK_FILE))
-        .filter_map(|(scope, _)| project_root(scope).join(LOCK_FILE).ok())
-        .map(|url| url.to_string())
-        .collect()
 }
 
 #[cfg(test)]
@@ -529,19 +571,18 @@ mod test {
 
     #[test]
     fn image_tags_and_built_configs() {
-        let typescript = models::DeriveUsingTypescript {
-            module: models::RawValue::from_str("\"mod.ts\"").unwrap(),
-            config: models::RawValue::from_str(r#"{"apiKey":"secret"}"#).unwrap(),
-            spec: Default::default(),
-        };
+        let typescript: models::DeriveUsingTypescript = serde_json::from_value(serde_json::json!({
+            "files": {"deno.json": "{}", "derived/mod.ts": "export class Derivation {}"},
+            "config": {"apiKey": "secret"},
+        }))
+        .unwrap();
         let python: models::DeriveUsingPython = serde_json::from_value(serde_json::json!({
-            "module": "class Derivation: pass\n",
-            "files": {"pyproject.toml": "[project]\n"},
+            "files": {"pyproject.toml": "[project]\n", "derived/__init__.py": "class Derivation: pass\n"},
             "config": {"region": "north"},
         }))
         .unwrap();
-        let capture: models::CapturePython = serde_json::from_value(serde_json::json!({
-            "files": {"source_acme/__init__.py": ""},
+        let mut capture: models::CapturePython = serde_json::from_value(serde_json::json!({
+            "files": {"source-acme/__init__.py": ""},
             "config": {"credentials": {"client_id": "an-id"}},
             "spec": {
                 "configSchema": {
@@ -556,6 +597,10 @@ mod test {
             },
         }))
         .unwrap();
+        // A listed file which failed to load is `null`.
+        if let models::ProjectFiles::Inline(files) = &mut capture.files {
+            files.insert("pyproject.toml".to_string(), None);
+        }
         let name = models::Capture::new("acmeCo/sources/source-acme");
         let derived = models::Collection::new("acmeCo/derived");
 
@@ -583,23 +628,112 @@ mod test {
     }
 
     #[test]
-    fn python_packages() {
-        let packages: Vec<_> = [
-            "acmeCo/source-acme",
-            "acmeCo/nested/Widgets.v2",
-            "acmeCo/9lives",
+    fn task_dirs_and_paths() {
+        let cases: Vec<_> = ["acmeCo/source-acme", "acmeCo/nested/2024-orders", "single"]
+            .into_iter()
+            .map(|name| {
+                (
+                    task_dir(name),
+                    Language::Python.entry(task_dir(name)),
+                    Language::Typescript.entry(task_dir(name)),
+                )
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!(cases, @r#"
+        [
+            (
+                "source-acme",
+                "source-acme/__init__.py",
+                "source-acme/mod.ts",
+            ),
+            (
+                "2024-orders",
+                "2024-orders/__init__.py",
+                "2024-orders/mod.ts",
+            ),
+            (
+                "single",
+                "single/__init__.py",
+                "single/mod.ts",
+            ),
+        ]
+        "#);
+
+        let reserved: Vec<_> = [
+            ".venv",
+            ".venv/lib",
+            ".venvy",
+            "flow_generated/x",
+            "a/.venv",
         ]
         .into_iter()
-        .map(|name| python_package(&models::Capture::new(name)))
+        .map(|path| {
+            (
+                path,
+                Language::Python.is_reserved(path),
+                Language::Typescript.is_reserved(path),
+            )
+        })
         .collect();
-        assert_eq!(packages, ["source_acme", "Widgets_v2", "_9lives"]);
+        assert_eq!(
+            reserved,
+            [
+                (".venv", true, false),
+                (".venv/lib", true, false),
+                (".venvy", false, false),
+                ("flow_generated/x", true, true),
+                ("a/.venv", false, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn legacy_modules_are_migrated() {
+        let collection = models::Collection::new("acmeCo/nested/orders");
+
+        let mut python = models::DeriveUsing::Python(
+            serde_json::from_value(serde_json::json!({
+                "module": "class Derivation(IDerivation):\n    pass\n",
+                "dependencies": {"httpx": ">=0.27"},
+            }))
+            .unwrap(),
+        );
+        let mut typescript = models::DeriveUsing::Typescript(
+            serde_json::from_value(serde_json::json!({
+                "module": "export class Derivation extends IDerivation {}\n",
+            }))
+            .unwrap(),
+        );
+        // A listed manifest is kept, and an unresolved module is migrated as-is.
+        let mut listed = models::DeriveUsing::Python(
+            serde_json::from_value(serde_json::json!({
+                "module": "file:///project/orders.py",
+                "files": {"pyproject.toml": "[project]\n"},
+            }))
+            .unwrap(),
+        );
+        let mut current = models::DeriveUsing::Python(
+            serde_json::from_value(serde_json::json!({
+                "files": {"pyproject.toml": "[project]\n"},
+            }))
+            .unwrap(),
+        );
+
+        let fixes = [
+            migrate_legacy_module(&collection, &mut python),
+            migrate_legacy_module(&collection, &mut typescript),
+            migrate_legacy_module(&collection, &mut listed),
+            migrate_legacy_module(&collection, &mut current),
+        ];
+        insta::assert_debug_snapshot!((fixes, python, typescript, listed, current));
     }
 
     #[test]
     fn generated_lock_is_baked() {
         let root = url::Url::parse("file:///project/acmeCo/").unwrap();
         let config: bytes::Bytes =
-            r#"{"image":"i","config":{"a":1,"_python":{"package":"p","files":{"pyproject.toml":"x"}}}}"#.into();
+            r#"{"image":"i","config":{"a":1,"_python":{"capture":"p","files":{"pyproject.toml":"x"}}}}"#.into();
 
         let generated = BTreeMap::from([
             (
@@ -611,18 +745,26 @@ mod test {
                 "not baked".to_string(),
             ),
         ]);
-        let baked = bake_generated_files(&config, PYTHON_SENTINEL, &root, &generated);
+        let mut files = generated.clone();
+        let baked = bake_generated_files(&config, PYTHON_SENTINEL, &root, &mut files);
 
         assert_eq!(
             std::str::from_utf8(&baked).unwrap(),
-            r#"{"config":{"_python":{"files":{"pyproject.toml":"x","uv.lock":"lock"},"package":"p"},"a":1},"image":"i"}"#
+            r#"{"config":{"_python":{"capture":"p","files":{"pyproject.toml":"x","uv.lock":"lock"}},"a":1},"image":"i"}"#
+        );
+        // The lock is never written into the user's project.
+        assert_eq!(
+            files.keys().collect::<Vec<_>>(),
+            ["file:///project/acmeCo/other.py"]
         );
 
         // A lock which the user lists is never replaced.
         let config: bytes::Bytes =
-            r#"{"image":"i","config":{"_python":{"package":"p","files":{"uv.lock":"mine"}}}}"#
+            r#"{"image":"i","config":{"_python":{"capture":"p","files":{"uv.lock":"mine"}}}}"#
                 .into();
-        let baked = bake_generated_files(&config, PYTHON_SENTINEL, &root, &generated);
+        let mut files = generated.clone();
+        let baked = bake_generated_files(&config, PYTHON_SENTINEL, &root, &mut files);
         assert_eq!(baked, config);
+        assert_eq!(files.len(), 1);
     }
 }

@@ -4,8 +4,11 @@ const SECRETS_YAML: &str = include_str!("secrets.yaml");
 
 #[test]
 fn secrets_publish_with_builtin_configs() {
-    let actual = [("python", "py"), ("typescript", "ts")].map(|(language, extension)| {
-        let files = if language == "python" { ", files: {}" } else { "" };
+    let actual = [
+        ("python", "pyproject.toml", "rollups/__init__.py"),
+        ("typescript", "deno.json", "rollups/mod.ts"),
+    ]
+    .map(|(language, manifest, entry)| {
         let outcome = common::run(
             SECRETS_YAML,
             &format!(
@@ -17,15 +20,13 @@ test://example/catalog.yaml:
         using:
           connector: null
           {language}:
-            module: rollups.{extension}
+            files: {{ {manifest}: "", {entry}: {language} module placeholder }}
             config: {{ region: us-east-1 }}
         secrets:
           acmeCo/api-token: /api_token
         shards:
           flags:
             enable-runtime-v2: "true"
-
-test://example/rollups.{extension}: {language} module placeholder
 
 driver:
   derivations:
@@ -35,7 +36,7 @@ driver:
         config:
           address: null
           region: us-east-1
-          _{language}: {{ collection: acmeCo/rollups, module: {language} module placeholder{files}, spec: {{ configSchema: {{}}, resourceConfigSchema: {{ type: object, properties: {{ readOnly: {{ type: boolean, default: false, description: "Does this transform never publish documents?" }} }} }} }} }}
+          _{language}: {{ collection: acmeCo/rollups, files: {{ {manifest}: "", {entry}: {language} module placeholder }}, spec: {{}} }}
 "#
             ),
         );
@@ -63,12 +64,11 @@ driver:
 /// as a raw connector configuration.
 #[test]
 fn secrets_reject_plaintext_values_of_builtin_configs() {
-    let outcomes = [("python", "py"), ("typescript", "ts")].map(|(language, extension)| {
-        let files_block = if language == "python" {
-            "\n            files: {}"
-        } else {
-            ""
-        };
+    let outcomes = [
+        ("python", "pyproject.toml", "rollups/__init__.py"),
+        ("typescript", "deno.json", "rollups/mod.ts"),
+    ]
+    .map(|(language, manifest, entry)| {
         common::run_errors(
             SECRETS_YAML,
             &format!(
@@ -80,7 +80,7 @@ test://example/catalog.yaml:
         using:
           connector: null
           {language}:
-            module: rollups.{extension}
+            files: {{ {manifest}: "", {entry}: {language} module placeholder }}
             config: {{ api_token: plaintext-token }}
             spec:
               configSchema:
@@ -90,8 +90,6 @@ test://example/catalog.yaml:
         shards:
           flags:
             enable-runtime-v2: "true"
-
-test://example/rollups.{extension}: {language} module placeholder
 
 driver:
   derivations:
@@ -103,14 +101,13 @@ driver:
           api_token: plaintext-token
           _{language}:
             collection: acmeCo/rollups
-            module: {language} module placeholder{files_block}
+            files: {{ {manifest}: "", {entry}: {language} module placeholder }}
             spec:
               configSchema:
                 $id: test://example/catalog.yaml?ptr=/collections/acmeCo~1rollups/derive/using/{language}/spec/configSchema
                 type: object
                 properties:
                   api_token: {{ type: string, secret: true }}
-              resourceConfigSchema: {{ type: object, properties: {{ readOnly: {{ type: boolean, default: false, description: "Does this transform never publish documents?" }} }} }}
       # The connector answers Spec with the model's declared schema.
       configSchema:
         type: object
@@ -447,7 +444,7 @@ test://example/catalog.yaml:
     acmeCo/source-python:
       endpoint:
         python:
-          files: { pyproject.toml: "", source_python/__init__.py: "", source_python/__main__.py: "" }
+          files: { pyproject.toml: "", source-python/__init__.py: "" }
       secrets:
         # Named for the image a Python capture actually runs.
         vendorCo/oauth/connectors/ghcr.io/estuary/capture-python/oauth-client: /credentials

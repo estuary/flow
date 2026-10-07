@@ -1,6 +1,6 @@
 ---
 source: crates/capture-python/src/lib.rs
-expression: "[spec_response(&declared.spec), generic_spec()]"
+expression: "[spec_response(&declared.spec), spec_response(&Spec::default())]"
 ---
 [
   {
@@ -36,7 +36,26 @@ expression: "[spec_response(&declared.spec), generic_spec()]"
       "configSchema": {},
       "documentationUrl": "https://docs.estuary.dev",
       "protocol": 3032023,
-      "resourceConfigSchema": {}
+      "resourceConfigSchema": {
+        "properties": {
+          "interval": {
+            "default": "PT0S",
+            "description": "Interval between updates for this resource",
+            "format": "duration",
+            "nonsensitive": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of this resource",
+            "type": "string",
+            "x-collection-name": true
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
     }
   }
 ]

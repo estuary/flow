@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/transition_tests.rs
-assertion_line: 471
 expression: outcome.built_materializations
 ---
 [

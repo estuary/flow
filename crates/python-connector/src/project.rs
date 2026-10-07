@@ -1,5 +1,4 @@
 use anyhow::Context;
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Lockfile of a project. A project which doesn't list its own has one
@@ -13,8 +12,23 @@ pub const GENERATED_PREFIX: &str = "flow_generated/python";
 /// A Python project staged into a temporary directory.
 pub struct Project {
     dir: tempfile::TempDir,
+    // How the project's dependencies are installed, once they are.
+    installed: Option<Install>,
     // Lock of the project's dependencies, once they're installed.
     lock: Option<String>,
+}
+
+/// The use to which a staged project is put, which decides how its
+/// dependencies must be installed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Use {
+    /// A Validate, which runs the project's `dev` tooling (such as pyright).
+    Validate,
+    /// Another unary request, such as a Discover or Apply,
+    /// which is indifferent to whether the `dev` group is installed.
+    Unary,
+    /// An Open of a running task, which must not have the `dev` group.
+    Open,
 }
 
 /// How a project's dependencies are installed.
@@ -47,6 +61,15 @@ impl Install {
             (false, true) => Self::Frozen,
         }
     }
+
+    /// Does this mode install the `dev` dependency group?
+    pub fn has_dev(self) -> bool {
+        match self {
+            Self::Resolve { dev } => dev,
+            Self::Check => true,
+            Self::Frozen => false,
+        }
+    }
 }
 
 impl Project {
@@ -54,7 +77,11 @@ impl Project {
     /// Each path must be relative to the project, which validation enforces.
     pub fn stage<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> anyhow::Result<Self> {
         let dir = tempfile::TempDir::new().context("creating temporary project directory")?;
-        let project = Self { dir, lock: None };
+        let project = Self {
+            dir,
+            installed: None,
+            lock: None,
+        };
 
         for (path, content) in files {
             project.write(path, content)?;
@@ -91,6 +118,27 @@ impl Project {
         self.lock.as_deref()
     }
 
+    /// Install the project's dependencies for `use_`, if they're not already
+    /// installed in a suitable shape. A project is staged once per session, and
+    /// its requests may differ in their needs: a Validate installs the `dev`
+    /// group, which is removed before an Open, while an install of another
+    /// request is already of the shape which an Open needs.
+    pub fn prepare(&mut self, use_: Use, has_lock: bool) -> anyhow::Result<()> {
+        match (self.installed, use_) {
+            (None, use_) => self.install(Install::of_request(use_ == Use::Validate, has_lock)),
+            (Some(installed), Use::Validate) if !installed.has_dev() => {
+                self.install(Install::of_request(true, has_lock))
+            }
+            (Some(installed), Use::Open) if installed.has_dev() => {
+                self.uv(&["sync", "--frozen", "--no-dev"])
+                    .context("failed to remove the project's `dev` dependencies")?;
+                self.installed = Some(Install::Frozen);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Install the project's dependencies into its virtual environment.
     /// `Check` and `Frozen` require that the project has a lock.
     ///
@@ -125,6 +173,7 @@ impl Project {
         }
         let lock = std::fs::read_to_string(self.root().join(LOCK_FILE))
             .context("reading the project's lock")?;
+        self.installed = Some(install);
         self.lock = Some(lock);
 
         Ok(())
@@ -213,50 +262,9 @@ pub fn relative_to(text: &str, root: &Path) -> String {
     text.replace(url.as_str(), "").replace(&path, "")
 }
 
-/// Default `pyproject.toml` of a project which doesn't have its own.
-/// `dependencies` are added to the default dependency on pydantic.
-///
-/// Its `exclude-newer` is a supply-chain safeguard of the garden path:
-/// packages uploaded within the past week are not candidates for resolution,
-/// as malicious uploads are typically yanked within days. A project with its
-/// own `pyproject.toml` decides its own cooldown.
-pub fn default_pyproject(name: &str, dependencies: &BTreeMap<String, String>) -> String {
-    let mut dependencies = dependencies.clone();
-    dependencies
-        .entry("pydantic".to_string())
-        .or_insert_with(|| ">=2".to_string());
-
-    let dependencies: String = dependencies
-        .iter()
-        .map(|(package, version)| format!("    \"{package}{version}\",\n"))
-        .collect();
-
-    format!(
-        r#"[project]
-name = "{name}"
-version = "0.1.0"
-requires-python = ">=3.14,<4"
-dependencies = [
-{dependencies}]
-
-[dependency-groups]
-dev = ["pyright>=1.1"]
-
-[tool.uv]
-package = false
-exclude-newer = "7 days"
-
-[tool.pyright]
-typeCheckingMode = "strict"
-extraPaths = ["{GENERATED_PREFIX}"]
-"#
-    )
-}
-
 #[cfg(test)]
 mod test {
-    use super::{default_pyproject, relative_to};
-    use std::collections::BTreeMap;
+    use super::relative_to;
 
     #[test]
     fn stderr_paths_are_relative_to_the_project() {
@@ -286,11 +294,15 @@ mod test {
                 Install::Resolve { dev: false },
             ]
         );
-    }
-
-    #[test]
-    fn default_pyproject_includes_dependencies() {
-        let dependencies = BTreeMap::from([("httpx".to_string(), ">=0.27".to_string())]);
-        insta::assert_snapshot!(default_pyproject("acmeCo-orders", &dependencies));
+        assert_eq!(
+            [
+                Install::Resolve { dev: true },
+                Install::Resolve { dev: false },
+                Install::Check,
+                Install::Frozen,
+            ]
+            .map(Install::has_dev),
+            [true, false, true, false]
+        );
     }
 }

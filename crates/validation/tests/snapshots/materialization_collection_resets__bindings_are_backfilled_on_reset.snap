@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/materialization_collection_resets.rs
-assertion_line: 12
 expression: outcome.built_materializations
 ---
 [

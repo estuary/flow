@@ -1,6 +1,7 @@
 use anyhow::Context;
 use proto_flow::{derive, flow};
 use serde_json::json;
+use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::process::Stdio;
 
@@ -41,7 +42,7 @@ pub fn run() -> anyhow::Result<()> {
     };
 
     // User code reads only its own configuration,
-    // and needn't be re-sent the module's own code.
+    // and needn't be re-sent the project's own files.
     let config = {
         let Some(derive::request::Kind::Open(open_kind)) = &mut open.kind else {
             unreachable!("loop breaks only on an Open request");
@@ -74,9 +75,9 @@ pub fn run() -> anyhow::Result<()> {
 
     stage_project(
         temp_dir,
+        &config,
         &collection.name,
         &codegen::types_ts(collection, &transforms, &config.spec)?,
-        &config.module,
         &transforms,
     )?;
 
@@ -109,50 +110,78 @@ pub fn run() -> anyhow::Result<()> {
 /// Connector configuration, parsed from either of its shapes:
 ///
 /// * The user's `config` with a pushed-down `_typescript` sentinel property
-///   of the derived collection, its module, and its declared spec.
+///   of the derived collection, its project `files`, and its declared spec.
 /// * The legacy `{module}` shape of built specs which predate the sentinel,
-///   which has no user configuration and declares no spec.
+///   which has no user configuration and declares no spec. It's staged as a
+///   project of the same shape.
 #[derive(Debug)]
 struct Config {
-    module: String,
+    /// Files of the project, keyed on their path relative to the project root.
+    /// A listed file which failed to load is None.
+    files: BTreeMap<String, Option<String>>,
+    /// Directory of the derivation within its project, whose `mod.ts`
+    /// exports its `Derivation`.
+    dir: String,
     // User configuration, less the sentinel.
     user: serde_json::Map<String, serde_json::Value>,
     spec: Spec,
 }
 
+impl Config {
+    /// Listed files which failed to load (as they don't exist yet).
+    fn missing(&self) -> Vec<&str> {
+        self.files
+            .iter()
+            .filter(|(_, content)| content.is_none())
+            .map(|(path, _)| path.as_str())
+            .collect()
+    }
+}
+
 /// Declared connector spec of a derivation, which mirrors its Spec response.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+/// A schema which the model doesn't declare is resolved to the connector's
+/// default by `resolve`.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Spec {
-    #[serde(default = "empty_schema")]
-    config_schema: serde_json::Value,
-    #[serde(default = "empty_schema")]
-    resource_config_schema: serde_json::Value,
+    #[serde(default)]
+    config_schema: Option<serde_json::Value>,
+    #[serde(default)]
+    resource_config_schema: Option<serde_json::Value>,
     #[serde(default)]
     oauth2: Option<serde_json::Value>,
 }
 
-impl Default for Spec {
-    fn default() -> Self {
-        Self {
-            config_schema: empty_schema(),
-            resource_config_schema: empty_schema(),
-            oauth2: None,
-        }
+impl Spec {
+    /// Resolve absent schemas to the defaults of this connector: any
+    /// configuration, and a transform `lambda` of `{readOnly: boolean}`.
+    fn resolve(mut self) -> Self {
+        self.config_schema.get_or_insert_with(|| json!({}));
+        self.resource_config_schema.get_or_insert_with(|| {
+            json!({
+                "type": "object",
+                "properties": {
+                    "readOnly": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Does this transform never publish documents?",
+                    },
+                },
+            })
+        });
+        self
     }
 }
 
-fn empty_schema() -> serde_json::Value {
-    json!({})
-}
-
-/// The `_typescript` sentinel. Its `collection` is not read, as a Validate
-/// or Open also carries its collection.
+/// The `_typescript` sentinel. Its `collection` names the derivation's
+/// directory.
 #[derive(serde::Deserialize)]
 struct Sentinel {
-    module: String,
+    collection: String,
     #[serde(default)]
-    spec: Option<Spec>,
+    files: BTreeMap<String, Option<String>>,
+    #[serde(default)]
+    spec: Spec,
 }
 
 fn parse_config(config_json: &[u8]) -> anyhow::Result<Config> {
@@ -160,13 +189,17 @@ fn parse_config(config_json: &[u8]) -> anyhow::Result<Config> {
         serde_json::from_slice(config_json).context("config is not a JSON object")?;
 
     if let Some(sentinel) = user.remove(SENTINEL) {
-        let Sentinel { module, spec } =
-            serde_json::from_value(sentinel).with_context(|| format!("invalid `{SENTINEL}`"))?;
+        let Sentinel {
+            collection,
+            files,
+            spec,
+        } = serde_json::from_value(sentinel).with_context(|| format!("invalid `{SENTINEL}`"))?;
 
         return Ok(Config {
-            module,
+            files,
+            dir: collection.rsplit('/').next().unwrap().to_string(),
             user,
-            spec: spec.unwrap_or_default(),
+            spec: spec.resolve(),
         });
     }
 
@@ -187,9 +220,14 @@ fn parse_config(config_json: &[u8]) -> anyhow::Result<Config> {
     }
 
     Ok(Config {
-        module,
+        files: [
+            (DENO_NAME.to_string(), Some(deno_json())),
+            (format!("{LEGACY_DIR}/{ENTRY_NAME}"), Some(module)),
+        ]
+        .into(),
+        dir: LEGACY_DIR.to_string(),
         user: serde_json::Map::new(),
-        spec: Spec::default(),
+        spec: Spec::default().resolve(),
     })
 }
 
@@ -210,13 +248,18 @@ fn spec_response(config_json: &[u8]) -> anyhow::Result<derive::response::Spec> {
             .sentinel
     };
     let spec = sentinel
-        .and_then(|sentinel| sentinel.spec)
-        .unwrap_or_default();
+        .map(|sentinel| sentinel.spec)
+        .unwrap_or_default()
+        .resolve();
 
     Ok(derive::response::Spec {
         protocol: 3032023,
-        config_schema_json: spec.config_schema.to_string().into(),
-        resource_config_schema_json: spec.resource_config_schema.to_string().into(),
+        config_schema_json: spec.config_schema.unwrap_or_default().to_string().into(),
+        resource_config_schema_json: spec
+            .resource_config_schema
+            .unwrap_or_default()
+            .to_string()
+            .into(),
         documentation_url: "https://docs.estuary.dev".to_string(),
         oauth2: spec
             .oauth2
@@ -238,6 +281,7 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
     } = validate;
 
     let collection = collection.as_ref().unwrap();
+    let project_root = project_root.trim_end_matches('/');
 
     let config = parse_config(config_json).context("invalid derivation configuration")?;
 
@@ -253,34 +297,34 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    let types_path = types_path(&collection.name);
-    let types_url = format!("{project_root}/{types_path}");
     let types_content = codegen::types_ts(collection, &transforms, &config.spec)?;
     tracing::debug!(%types_content, "generated TS types");
 
-    let generated_files: Vec<(String, String)> = vec![
-        (types_url.clone(), types_content.clone()),
-        (
-            format!("{project_root}/{DENO_NAME}"),
-            serde_json::to_string_pretty(
-                &json!({"imports": {"flow/": format!("./{GENERATED_PREFIX}/")}}),
-            )
-            .unwrap(),
-        ),
-    ];
+    let mut generated_files: BTreeMap<String, String> = [(
+        format!("{project_root}/{}", types_path(&collection.name)),
+        types_content.clone(),
+    )]
+    .into();
 
-    // Do we need to generate a module stub? There's no further validation we
-    // can do, and no code to decide whether its transforms are read-only.
-    if is_unresolved(&config.module) {
-        let mut generated_files = generated_files;
-        generated_files.push((
-            config.module.clone(),
-            codegen::stub_ts(collection, &transforms),
-        ));
-
+    // A project having listed files which don't exist yet can't be run.
+    // They're given starters, and there's no code to decide whether its
+    // transforms are read-only. Its missing files are load errors, and it
+    // can't be published.
+    let missing = config.missing();
+    if !missing.is_empty() {
+        for path in missing {
+            let content = if path == format!("{}/{ENTRY_NAME}", config.dir) {
+                codegen::starter_ts(collection, &transforms)
+            } else if path == DENO_NAME {
+                deno_json()
+            } else {
+                String::new()
+            };
+            generated_files.insert(format!("{project_root}/{path}"), content);
+        }
         return Ok(derive::response::Validated {
             transforms: vec![Default::default(); transforms.len()],
-            generated_files: generated_files.into_iter().collect(),
+            generated_files,
         });
     }
 
@@ -289,9 +333,9 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
 
     stage_project(
         temp_dir,
+        &config,
         &collection.name,
         &types_content,
-        &config.module,
         &transforms,
     )?;
 
@@ -306,13 +350,12 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
         anyhow::bail!(rewrite_deno_stderr(
             &String::from_utf8_lossy(&output.stderr),
             temp_dir,
-            &types_path,
         ));
     }
 
     // The derivation's own `validate` decides whether each transform is
     // read-only, and may fail validation outright.
-    let validated = deno_validate(temp_dir, &types_path, &validate_input(&config, validate))
+    let validated = deno_validate(temp_dir, &validate_input(&config, validate))
         .context("derivation validation failed")?;
     let mut validated: derive::response::Validated = serde_json::from_slice(&validated)
         .context("failed to parse the derivation's Validated response")?;
@@ -324,7 +367,7 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
             transforms.len(),
         );
     }
-    validated.generated_files = generated_files.into_iter().collect();
+    validated.generated_files = generated_files;
 
     Ok(validated)
 }
@@ -361,43 +404,56 @@ fn resource_config(lambda_config_json: &[u8]) -> serde_json::Value {
     serde_json::from_slice(lambda_config_json).unwrap_or(serde_json::Value::Null)
 }
 
-/// A module without whitespace is a relative URL which the catalog couldn't
-/// resolve, rather than inline code.
-fn is_unresolved(module: &str) -> bool {
-    !module.chars().any(char::is_whitespace)
-}
-
+/// Path of the generated types of a derived `collection`, which its module
+/// imports as `flow/{collection}.ts` through the project's `deno.json`.
 fn types_path(collection: &str) -> String {
     format!("{GENERATED_PREFIX}/{collection}.ts")
 }
 
-/// Stage a Deno project of the derivation's `module`, its `types` (which the
-/// module imports as `flow/{collection}.ts`), and its `main.ts`.
+/// `deno.json` of a starter or legacy project, which maps `flow/` imports
+/// to the project's generated types.
+fn deno_json() -> String {
+    let mut deno = serde_json::to_string_pretty(
+        &json!({"imports": {"flow/": format!("./{GENERATED_PREFIX}/")}}),
+    )
+    .unwrap();
+    deno.push('\n');
+    deno
+}
+
+/// Stage a Deno project of the derivation's `files`, its generated `types`,
+/// and its generated entry point, which imports the derivation's `mod.ts`.
 fn stage_project(
     dir: &std::path::Path,
+    config: &Config,
     collection: &str,
     types: &str,
-    module: &str,
     transforms: &[(&str, &flow::CollectionSpec)],
 ) -> anyhow::Result<()> {
-    std::fs::write(dir.join(TYPES_NAME), types)?;
-    std::fs::write(
-        dir.join(DENO_NAME),
-        json!({"imports": {format!("flow/{collection}.ts"): format!("./{TYPES_NAME}")}})
-            .to_string(),
-    )?;
-    std::fs::write(dir.join(MODULE_NAME), module)?;
-    std::fs::write(dir.join(MAIN_NAME), codegen::main_ts(transforms))?;
+    let entry = format!("../{}/{ENTRY_NAME}", config.dir);
+    let main = codegen::main_ts(transforms, &entry);
+    let types_path = types_path(collection);
+
+    let files = config
+        .files
+        .iter()
+        .filter_map(|(path, content)| Some((path.as_str(), content.as_deref()?)))
+        .chain([(types_path.as_str(), types), (MAIN_NAME, main.as_str())]);
+
+    for (path, content) in files {
+        let target = dir.join(path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create directory of file {path}"))?;
+        }
+        std::fs::write(&target, content).with_context(|| format!("failed to write file {path}"))?;
+    }
     Ok(())
 }
 
 /// Run `main.ts validate` of the staged project under the permissions of a
 /// derivation, returning the Validated response it prints.
-fn deno_validate(
-    dir: &std::path::Path,
-    types_path: &str,
-    input: &serde_json::Value,
-) -> anyhow::Result<Vec<u8>> {
+fn deno_validate(dir: &std::path::Path, input: &serde_json::Value) -> anyhow::Result<Vec<u8>> {
     let mut child = deno_command(dir)
         .args(DENO_RUN_ARGS)
         .args([MAIN_NAME, "validate"])
@@ -417,25 +473,22 @@ fn deno_validate(
         anyhow::bail!(rewrite_deno_stderr(
             &String::from_utf8_lossy(&output.stderr),
             dir,
-            types_path,
         ));
     }
     Ok(output.stdout)
 }
 
-/// Rewrite paths of the temp project to be relative to it, and map its
-/// types to their `types_path` within the user's project.
-fn rewrite_deno_stderr(stderr: &str, temp_dir: &std::path::Path, types_path: &str) -> String {
+/// Rewrite paths of the temp project to be relative to it, which mirrors
+/// the layout of the user's own project.
+fn rewrite_deno_stderr(stderr: &str, temp_dir: &std::path::Path) -> String {
     let url = url::Url::from_directory_path(temp_dir).expect("temp_dir is absolute");
     let path = format!("{}/", temp_dir.display());
 
     // The URL goes first, because it contains the path.
-    stderr
-        .replace(url.join(TYPES_NAME).unwrap().as_str(), types_path)
-        .replace(url.as_str(), "")
-        .replace(&path, "")
+    stderr.replace(url.as_str(), "").replace(&path, "")
 }
 
+/// A `deno` command run within the project, under its `deno.json`.
 fn deno_command(project_dir: &std::path::Path) -> std::process::Command {
     let mut command = std::process::Command::new("deno");
     command.current_dir(project_dir);
@@ -449,14 +502,13 @@ mod test {
     #[test]
     fn stderr_paths_are_relative_to_the_project() {
         let stderr = concat!(
-            "error: TS2322 at file:///tmp/.tmpABC/module.ts:12:5\n",
-            "    at file:///tmp/.tmpABC/types.ts:40:3\n",
-            "    at /tmp/.tmpABC/main.ts:7:1\n",
+            "error: TS2322 at file:///tmp/.tmpABC/orders/mod.ts:12:5\n",
+            "    at file:///tmp/.tmpABC/flow_generated/typescript/acmeCo/orders.ts:40:3\n",
+            "    at /tmp/.tmpABC/flow_generated/main.ts:7:1\n",
         );
         insta::assert_snapshot!(rewrite_deno_stderr(
             stderr,
             std::path::Path::new("/tmp/.tmpABC"),
-            "flow_generated/typescript/acmeCo/orders.ts",
         ));
     }
 
@@ -473,7 +525,7 @@ mod test {
                 "module": "a user property",
                 "_typescript": {
                     "collection": "acmeCo/orders",
-                    "module": "export class Derivation {}",
+                    "files": {"deno.json": "{}", "orders/mod.ts": "export class Derivation {}", "orders/missing.ts": null},
                     "spec": {"configSchema": {"type": "object"}},
                 },
             })),
@@ -481,12 +533,8 @@ mod test {
             parse(json!({"module": "export class Derivation {}"})),
             parse(json!({"module": "export class Derivation {}", "environment": {}})),
             parse(json!({"module": "export class Derivation {}", "environment": {"KEY": "value"}})),
-            // A sentinel without a spec declares the default.
-            parse(
-                json!({"_typescript": {"collection": "acmeCo/orders", "module": "export class Derivation {}"}})
-            ),
             // Errors.
-            parse(json!({"_typescript": {"collection": "acmeCo/orders"}})),
+            parse(json!({"_typescript": {"files": {}}})),
             parse(json!({"apiKey": "hunter2"})),
             parse(json!(["not", "an", "object"])),
         ]);
@@ -498,7 +546,6 @@ mod test {
             "apiKey": "hunter2",
             "_typescript": {
                 "collection": "acmeCo/orders",
-                "module": "export class Derivation {}",
                 "spec": {
                     "configSchema": {
                         "type": "object",
@@ -506,13 +553,15 @@ mod test {
                     },
                     "resourceConfigSchema": {
                         "type": "object",
-                        "properties": {"readOnly": {"type": "boolean", "default": false}},
+                        "properties": {"window": {"type": "string"}},
                     },
                 },
             },
         });
         let responses = serde_json::to_value([
             spec_response(declared.to_string().as_bytes()).unwrap(),
+            // A sentinel which declares nothing has the connector's defaults.
+            spec_response(br#"{"_typescript": {"collection": "acmeCo/orders"}}"#).unwrap(),
             // Legacy configurations (and a bare image Spec) declare no spec.
             spec_response(br#"{"module": "export class Derivation {}"}"#).unwrap(),
             spec_response(b"{}").unwrap(),
@@ -535,8 +584,8 @@ mod test {
         };
         let transforms = [("fromOrders", &source), ("from-refunds", &source)];
 
-        insta::assert_snapshot!("main", codegen::main_ts(&transforms));
-        insta::assert_snapshot!("stub", codegen::stub_ts(&derived, &transforms));
+        insta::assert_snapshot!("main", codegen::main_ts(&transforms, "../orders/mod.ts"));
+        insta::assert_snapshot!("starter", codegen::starter_ts(&derived, &transforms));
 
         // Types of documents and of the declared spec.
         let source = flow::CollectionSpec {
@@ -562,16 +611,17 @@ mod test {
             ..Default::default()
         };
         let spec = Spec {
-            config_schema: json!({
+            config_schema: Some(json!({
                 "type": "object",
                 "properties": {
                     "apiKey": {"type": "string", "secret": true},
                     "limit": {"type": "integer", "default": 3},
                 },
                 "required": ["apiKey"],
-            }),
+            })),
             ..Default::default()
-        };
+        }
+        .resolve();
         insta::assert_snapshot!(
             "types",
             codegen::types_ts(&derived, &[("fromOrders", &source)], &spec).unwrap()
@@ -592,24 +642,36 @@ mod test {
 
     const MODULE: &str = r#"
 import { IDerivation, Document, EndpointConfig, Open, SourceFromOrders, Validate, Validated } from 'flow/acmeCo/orders.ts';
+import { limitOf } from './helpers.ts';
 
 export class Derivation extends IDerivation {
     constructor(open: Open, readonly config: EndpointConfig) {
         super(open, config);
     }
     static override validate(validate: Validate, config: EndpointConfig): Validated {
-        if (config.limit !== undefined && config.limit > 100) {
+        if (limitOf(config) > 100) {
             throw new Error("limit is too large");
         }
         return super.validate(validate, config);
     }
     fromOrders(read: { doc: SourceFromOrders }): Document[] {
-        return [{ id: read.doc.id, limit: this.config.limit ?? 3 }];
+        return [{ id: read.doc.id, limit: limitOf(this.config) }];
     }
 }
 "#;
 
-    fn validate_request(module: &str, user: serde_json::Value) -> derive::request::Validate {
+    const HELPERS: &str = r#"
+import { EndpointConfig } from 'flow/acmeCo/orders.ts';
+
+export function limitOf(config: EndpointConfig): number {
+    return config.limit ?? 3;
+}
+"#;
+
+    fn validate_request(
+        files: serde_json::Value,
+        user: serde_json::Value,
+    ) -> derive::request::Validate {
         let collection = |name: &str, schema: serde_json::Value| {
             json!({
                 "name": name,
@@ -621,7 +683,7 @@ export class Derivation extends IDerivation {
         let mut config = user;
         config[SENTINEL] = json!({
             "collection": "acmeCo/orders",
-            "module": module,
+            "files": files,
             "spec": {
                 "configSchema": {
                     "type": "object",
@@ -629,11 +691,7 @@ export class Derivation extends IDerivation {
                         "apiKey": {"type": "string", "secret": true},
                         "limit": {"type": "integer", "default": 3},
                     },
-                    "required": ["apiKey", "limit"],
-                },
-                "resourceConfigSchema": {
-                    "type": "object",
-                    "properties": {"readOnly": {"type": "boolean", "default": false}},
+                    "required": ["apiKey"],
                 },
             },
         });
@@ -663,19 +721,57 @@ export class Derivation extends IDerivation {
         .unwrap()
     }
 
+    fn project(module: &str) -> serde_json::Value {
+        json!({
+            "deno.json": deno_json(),
+            "orders/mod.ts": module,
+            "orders/helpers.ts": HELPERS,
+        })
+    }
+
+    #[test]
+    fn missing_files_are_given_starters() {
+        let request = validate_request(
+            json!({"deno.json": null, "orders/mod.ts": null, "orders/helpers.ts": null}),
+            json!({"apiKey": "k"}),
+        );
+        let validated = validate(&request).unwrap();
+
+        insta::assert_debug_snapshot!(validated.generated_files.keys().collect::<Vec<_>>());
+
+        if !has_deno() {
+            return;
+        }
+        // The starters are a working derivation.
+        let files: serde_json::Map<String, serde_json::Value> = validated
+            .generated_files
+            .into_iter()
+            .map(|(url, content)| {
+                let path = url.strip_prefix("file:///project/").unwrap().to_string();
+                (path, json!(content))
+            })
+            .collect();
+        let validated = validate(&validate_request(
+            serde_json::Value::Object(files),
+            json!({"apiKey": "k"}),
+        ))
+        .unwrap();
+        assert_eq!(validated.transforms.len(), 1);
+    }
+
     #[test]
     fn modules_which_predate_config_still_check() {
         if !has_deno() {
             return;
         }
-        // A module written for the V1 interface, whose constructor
-        // takes only `open`.
+        // A module written for the V1 interface, whose constructor takes only
+        // `open`, typed by its master-era shape.
         const LEGACY: &str = r#"
 import { IDerivation, Document, SourceFromOrders } from 'flow/acmeCo/orders.ts';
 
 export class Derivation extends IDerivation {
-    constructor(open: { state: unknown }) {
-        super(open as never);
+    constructor(open: { state: unknown; range?: { keyBegin?: number; keyEnd?: number } }) {
+        super(open);
     }
     fromOrders(read: { doc: SourceFromOrders }): Document[] {
         return [{ id: read.doc.id, limit: 1 }];
@@ -695,7 +791,8 @@ export class Derivation extends IDerivation {
 }
 "#;
         for module in [LEGACY, UNTYPED] {
-            let validated = validate(&validate_request(module, json!({"apiKey": "k"}))).unwrap();
+            let validated =
+                validate(&validate_request(project(module), json!({"apiKey": "k"}))).unwrap();
             assert_eq!(validated.transforms.len(), 1);
         }
     }
@@ -705,59 +802,7 @@ export class Derivation extends IDerivation {
         if !has_deno() {
             return;
         }
-        let collection = |name: &str, schema: serde_json::Value| {
-            json!({
-                "name": name,
-                "writeSchema": schema,
-                "key": ["/id"],
-                "uuidPtr": "/_meta/uuid",
-            })
-        };
-        let request = |user: serde_json::Value| -> derive::request::Validate {
-            let mut config = user;
-            config[SENTINEL] = json!({
-                "collection": "acmeCo/orders",
-                "module": MODULE,
-                "spec": {
-                    "configSchema": {
-                        "type": "object",
-                        "properties": {
-                            "apiKey": {"type": "string", "secret": true},
-                            "limit": {"type": "integer", "default": 3},
-                        },
-                        "required": ["apiKey"],
-                    },
-                    "resourceConfigSchema": {
-                        "type": "object",
-                        "properties": {"readOnly": {"type": "boolean", "default": false}},
-                    },
-                },
-            });
-            // Parse from text, as raw JSON fields don't deserialize from a Value.
-            serde_json::from_str(
-                &json!({
-                    "connectorType": "TYPESCRIPT",
-                    "config": config,
-                    "collection": collection("acmeCo/orders", json!({
-                        "type": "object",
-                        "properties": {"id": {"type": "string"}, "limit": {"type": "integer"}},
-                        "required": ["id", "limit"],
-                    })),
-                    "transforms": [{
-                        "name": "fromOrders",
-                        "collection": collection("acmeCo/source", json!({
-                            "type": "object",
-                            "properties": {"id": {"type": "string"}},
-                            "required": ["id"],
-                        })),
-                        "lambdaConfig": {"readOnly": true},
-                    }],
-                    "projectRoot": "file:///project",
-                })
-                .to_string(),
-            )
-            .unwrap()
-        };
+        let request = |user: serde_json::Value| validate_request(project(MODULE), user);
 
         let validated = validate(&request(json!({"apiKey": "hunter2"}))).unwrap();
         assert_eq!(validated.transforms.len(), 1);
@@ -765,6 +810,14 @@ export class Derivation extends IDerivation {
 
         let err = validate(&request(json!({"apiKey": "hunter2", "limit": 500}))).unwrap_err();
         assert!(format!("{err:#}").contains("limit is too large"), "{err:#}");
+
+        // A type error is reported at its path within the project.
+        let err = validate(&validate_request(
+            project(&MODULE.replace("limitOf(this.config)", "\"not a number\"")),
+            json!({"apiKey": "hunter2"}),
+        ))
+        .unwrap_err();
+        assert!(format!("{err:#}").contains("orders/mod.ts"), "{err:#}");
     }
 }
 
@@ -773,8 +826,11 @@ const DENO_MISSING: &str = "The Deno runtime is a prerequisite for TypeScript bu
 // whether validating or running.
 const DENO_RUN_ARGS: [&str; 2] = ["run", "--allow-net=api.openai.com"];
 const DENO_NAME: &str = "deno.json";
+// Entry file of a derivation, within its directory.
+const ENTRY_NAME: &str = "mod.ts";
 const GENERATED_PREFIX: &str = "flow_generated/typescript";
-const MAIN_NAME: &str = "main.ts";
-const MODULE_NAME: &str = "module.ts";
+// Directory of the module of a legacy configuration.
+const LEGACY_DIR: &str = "module";
+// Generated entry point of the project, beside its generated types.
+const MAIN_NAME: &str = "flow_generated/main.ts";
 const SENTINEL: &str = "_typescript";
-const TYPES_NAME: &str = "types.ts";

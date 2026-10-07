@@ -1,6 +1,6 @@
 ---
 source: crates/derive-typescript/src/lib.rs
-expression: "codegen::main_ts(&transforms)"
+expression: "codegen::main_ts(&transforms, \"../orders/mod.ts\")"
 ---
 import { BufWriter } from "https://deno.land/std@0.178.0/io/buf_writer.ts";
 import { readLines } from "https://deno.land/std@0.178.0/io/mod.ts";
@@ -31,13 +31,14 @@ async function emit(response: {
     }
 }
 
-// Fixup console to not write to stdout. The module is imported dynamically,
-// after this fixup, so that its console output at import cannot corrupt stdout.
+// Fixup console to not write to stdout. The derivation's directory is imported
+// dynamically, after this fixup, so that its console output at import cannot
+// corrupt stdout.
 console.log = console.error;
 console.debug = console.error;
 console.info = console.error;
 
-const module = await import('./module.ts');
+const module = await import("../orders/mod.ts");
 const { Derivation } = module;
 type Derivation = InstanceType<typeof Derivation>;
 

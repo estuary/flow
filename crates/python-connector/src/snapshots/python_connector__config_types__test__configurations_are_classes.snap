@@ -26,7 +26,7 @@ class ResourceConfig(common.BaseResourceConfig):
 
 
 
-# path_pointers: Some(["/name"])
+# uses_common: true, has_path: true
 
 =====
 # Generated for the endpoint configuration of `spec.configSchema`.
@@ -36,13 +36,9 @@ class EndpointConfig(_pydantic.BaseModel):
 
 
 
-# The resource schema doesn't have exactly one `x-collection-name` property
-# (and at most one `x-schema-name`), each a required string, so
-# `ResourceConfig` has no `path()`: declare a subclass of the CDK's
-# `BaseResourceConfig` with a `path()` of its own.
 # Generated for the resource configuration of `spec.resourceConfigSchema`.
 ResourceConfig: _typing.TypeAlias = str
 
 
 
-# path_pointers: None
+# uses_common: false, has_path: false
