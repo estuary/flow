@@ -1,6 +1,5 @@
 use anyhow::Context;
 use itertools::Itertools;
-use models::Capability;
 use std::future::Future;
 
 /// Initialize a draft prior to build/validation. This may add additional specs to the draft.
@@ -81,7 +80,7 @@ impl Initialize for ExpandDraft<'_> {
         let all_drafted_specs = draft.all_spec_names().collect::<Vec<_>>();
 
         let capability_filter = if self.filter_user_has_admin {
-            Some(Capability::Admin)
+            Some(models::authz::Capability::SpecEdit)
         } else {
             None
         };
