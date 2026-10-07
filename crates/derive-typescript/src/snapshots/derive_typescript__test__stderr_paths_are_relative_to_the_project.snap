@@ -1,0 +1,7 @@
+---
+source: crates/derive-typescript/src/lib.rs
+expression: "rewrite_deno_stderr(stderr, std::path::Path::new(\"/tmp/.tmpABC\"),\n\"flow_generated/typescript/acmeCo/orders.ts\",)"
+---
+error: TS2322 at module.ts:12:5
+    at flow_generated/typescript/acmeCo/orders.ts:40:3
+    at main.ts:7:1

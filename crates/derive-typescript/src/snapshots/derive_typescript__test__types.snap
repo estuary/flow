@@ -1,0 +1,114 @@
+---
+source: crates/derive-typescript/src/lib.rs
+expression: "codegen::types_ts(&derived, &[(\"fromOrders\", &source)], &spec).unwrap()"
+---
+// Generated for published documents of derived collection acmeCo/orders.
+export type Document = {
+    id: string;
+    limit: number;
+};
+
+
+// Generated for read documents of sourced collection acmeCo/source.
+export type SourceFromOrders = {
+    id: string;
+};
+
+
+// Generated for `spec.configSchema`. It's not validated at runtime, and fields
+// having a `default` are optional: their default is the derivation's to apply.
+export type EndpointConfig = {
+    apiKey: string;
+    limit?: number;
+};
+
+// Generated for `spec.resourceConfigSchema`. It's not validated at runtime, and fields
+// having a `default` are optional: their default is the derivation's to apply.
+export type ResourceConfig = Record<string, unknown>;
+
+// Mirror of Estuary protocol's flow.ConnectorState.
+export type ConnectorState = {
+    // An updated state, or patch thereof.
+    updated: unknown,
+    // When true, `updated` is a RFC 7396 JSON Merge Patch rather than a full replacement.
+    mergePatch?: boolean,
+};
+
+// Result type of a derivation flush().
+export type FlushResponse = {
+    // Documents to publish, if any.
+    published?: Document[],
+    // Connector state update to contribute. It is aggregated across all shards
+    // and, if `more` is set, broadcast to shard's next flush() via `statePatches`.
+    state?: ConnectorState,
+    // Request a further Flush iteration this transaction. The runtime ends the
+    // Flush phase once every shard returns `more: false` (the default). Use this
+    // to drive a multi-stage scatter/gather across shards; it is independent of
+    // `state`.
+    more?: boolean,
+};
+
+// Request.Open message from which a Derivation is constructed.
+// `range` is the shard's assigned key/r-clock range (camelCase, with zero
+// components omitted), present at runtime and useful for shards that namespace
+// cooperative state by their key range. `resources` are the resource
+// configurations (`lambda`) of each transform, in order.
+export type Open<R = ResourceConfig> = {
+    state: unknown,
+    range?: { keyBegin?: number, keyEnd?: number, rClockBegin?: number, rClockEnd?: number },
+    resources: R[],
+};
+
+// Request.Validate of a derivation of collection `name` which is being
+// published, having `transforms` and the resource configuration of each.
+export type Validate<R = ResourceConfig> = {
+    name: string,
+    transforms: { name: string, resourceConfig: R }[],
+};
+
+// Response.Validated of a derivation, with each of its transforms in the order
+// of Validate. A `readOnly` transform never publishes documents.
+export type Validated = {
+    transforms: { readOnly?: boolean }[],
+};
+
+// `C` is the type of the derivation's `config`, and `R` of the resource
+// configuration of each transform. They default to the types generated from
+// the derivation's `spec`, and are not validated at runtime.
+export abstract class IDerivation<C = EndpointConfig, R = ResourceConfig> {
+    // Construct a new Derivation instance from a Request.Open message and the
+    // derivation's `config`. `config` is optional so that modules written
+    // before it existed, which call `super(open)`, still type-check.
+    constructor(_open: Open<R>, _config?: C) { }
+
+    // validate the derivation as it's published, throwing to fail validation.
+    // No instance exists until the derivation is opened. The default marks a
+    // transform as read-only if its resource configuration has a true `readOnly`.
+    // Parameters are `unknown` so that an override may narrow them.
+    static validate(validate: Validate<unknown>, _config: unknown): Validated {
+        return {
+            transforms: validate.transforms.map(({ resourceConfig }) => ({
+                readOnly: (resourceConfig as { readOnly?: unknown } | null)?.readOnly === true,
+            })),
+        };
+    }
+
+    // flush completes any deferred work for the current transaction, publishing
+    // all documents derived from prior reads. It may be called more than once per
+    // transaction: returning `more: true` asks the runtime for a further
+    // iteration, forming a scatter/gather round across the derivation's shards.
+    // On each call `statePatches` holds the aggregated `state` updates returned by
+    // all participating shards in the previous iteration (empty on the first).
+    // Return a `FlushResponse` to publish documents, contribute a `state` update,
+    // and/or request another iteration with `more: true`; or a bare `Document[]`
+    // to publish and end participation for this transaction.
+    // deno-lint-ignore require-await
+    async flush(_statePatches?: unknown[]): Promise<FlushResponse | Document[]> {
+        return {};
+    }
+
+    // reset is called only when running catalog tests, and must reset any internal state.
+    async reset() { }
+
+    abstract fromOrders(read: { doc: SourceFromOrders }): Document[];
+}

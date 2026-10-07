@@ -1,0 +1,67 @@
+---
+source: crates/derive-typescript/src/lib.rs
+expression: "[parse(json!({\n    \"apiKey\": \"hunter2\", \"module\": \"a user property\", \"_typescript\":\n    {\n        \"collection\": \"acmeCo/orders\", \"module\": \"export class Derivation {}\",\n        \"spec\": {\"configSchema\": {\"type\": \"object\"}},\n    },\n})), parse(json!({\"module\": \"export class Derivation {}\"})),\nparse(json!({\"module\": \"export class Derivation {}\", \"environment\": {}})),\nparse(json!({\"module\": \"export class Derivation {}\", \"environment\":\n    {\"KEY\": \"value\"}})),\nparse(json!({\"_typescript\":\n    {\"collection\": \"acmeCo/orders\", \"module\":\n        \"export class Derivation {}\"}})),\nparse(json!({\"_typescript\": {\"collection\": \"acmeCo/orders\"}})),\nparse(json!({\"apiKey\": \"hunter2\"})), parse(json!([\"not\", \"an\", \"object\"])),]"
+---
+[
+    Ok(
+        Config {
+            module: "export class Derivation {}",
+            user: {
+                "apiKey": String("hunter2"),
+                "module": String("a user property"),
+            },
+            spec: Spec {
+                config_schema: Object {
+                    "type": String("object"),
+                },
+                resource_config_schema: Object {},
+                oauth2: None,
+            },
+        },
+    ),
+    Ok(
+        Config {
+            module: "export class Derivation {}",
+            user: {},
+            spec: Spec {
+                config_schema: Object {},
+                resource_config_schema: Object {},
+                oauth2: None,
+            },
+        },
+    ),
+    Ok(
+        Config {
+            module: "export class Derivation {}",
+            user: {},
+            spec: Spec {
+                config_schema: Object {},
+                resource_config_schema: Object {},
+                oauth2: None,
+            },
+        },
+    ),
+    Err(
+        "environment is no longer supported; use `config` with a `secrets` stanza",
+    ),
+    Ok(
+        Config {
+            module: "export class Derivation {}",
+            user: {},
+            spec: Spec {
+                config_schema: Object {},
+                resource_config_schema: Object {},
+                oauth2: None,
+            },
+        },
+    ),
+    Err(
+        "invalid `_typescript`: missing field `module`",
+    ),
+    Err(
+        "config has neither `_typescript` nor a legacy `module`: missing field `module`",
+    ),
+    Err(
+        "config is not a JSON object: invalid type: sequence, expected a map at line 1 column 0",
+    ),
+]

@@ -1,3 +1,7 @@
+---
+source: crates/derive-typescript/src/lib.rs
+expression: "codegen::main_ts(&transforms)"
+---
 import { BufWriter } from "https://deno.land/std@0.178.0/io/buf_writer.ts";
 import { readLines } from "https://deno.land/std@0.178.0/io/mod.ts";
 
@@ -90,7 +94,8 @@ const derivation: Derivation = new DerivationOf(
 // Index transformation lambdas of the derivation instance.
 type Lambda = (source: unknown) => unknown[];
 const transforms: Array<Lambda> = [
-TRANSFORMS
+    derivation.fromOrders.bind(derivation) as Lambda,
+    derivation.fromRefunds.bind(derivation) as Lambda,
 ];
 
 await emit({ opened: {} });

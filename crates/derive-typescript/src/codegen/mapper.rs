@@ -1,4 +1,5 @@
 use super::ast::{AST, ASTProperty, ASTTuple};
+use anyhow::Context;
 use doc::shape::{ArrayShape, ObjShape, Provenance, Shape};
 use json::schema::types;
 use regex::Regex;
@@ -8,12 +9,17 @@ pub struct Mapper {
     pub top_level: BTreeMap<url::Url, String>,
     validator: doc::Validator,
     anchor_prefix: String,
+    // Map a configuration rather than a document: a property having a
+    // `default` is optional even if required, as its default is the
+    // derivation's to apply (the runtime never fills it).
+    is_config: bool,
 }
 
 impl Mapper {
-    pub fn new(bundle: &[u8], anchor_prefix: &str) -> Self {
-        let schema = doc::validation::build_bundle(bundle).unwrap();
-        let validator = doc::validation::Validator::new(schema).unwrap();
+    pub fn new(bundle: &[u8], anchor_prefix: &str) -> anyhow::Result<Self> {
+        let schema = doc::validation::build_bundle(bundle).context("invalid JSON schema")?;
+        let validator =
+            doc::validation::Validator::new(schema).context("invalid JSON schema references")?;
 
         let mut top_level = BTreeMap::new();
 
@@ -41,11 +47,20 @@ impl Mapper {
         // We don't verify index references, as validation is handled
         // elsewhere and this is a best-effort attempt.
 
-        Mapper {
+        Ok(Mapper {
             validator,
             top_level,
             anchor_prefix: anchor_prefix.to_string(),
-        }
+            is_config: false,
+        })
+    }
+
+    /// Build a Mapper of a configuration of the schema `bundle`.
+    pub fn for_config(bundle: &[u8]) -> anyhow::Result<Self> {
+        Ok(Self {
+            is_config: true,
+            ..Self::new(bundle, "")?
+        })
     }
 
     /// Access the root schema of this Mapper.
@@ -168,7 +183,7 @@ impl Mapper {
             props.push(ASTProperty {
                 field,
                 value: self.to_ast(&prop.shape),
-                is_required: prop.is_required,
+                is_required: prop.is_required && !(self.is_config && prop.shape.default.is_some()),
             });
         }
 
@@ -292,7 +307,7 @@ mod test {
                 .get()
                 .as_bytes();
 
-            let m = Mapper::new(bundle, "Doc");
+            let m = Mapper::new(bundle, "Doc").unwrap();
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi} with anchors:",
@@ -303,7 +318,7 @@ mod test {
             m.map(m.schema()).render(&mut Context::new(&mut w));
             w.push_str("\n\n");
 
-            let m = Mapper::new(bundle, "");
+            let m = Mapper::new(bundle, "").unwrap();
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi} without anchors:",

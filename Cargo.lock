@@ -2088,13 +2088,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "connector-environment"
-version = "0.0.0"
-dependencies = [
- "thiserror 2.0.20",
-]
-
-[[package]]
 name = "connector-init"
 version = "0.0.0"
 dependencies = [
@@ -2989,7 +2982,6 @@ name = "derive-typescript"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "connector-environment",
  "doc",
  "insta",
  "itertools 0.14.0",

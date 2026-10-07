@@ -1,0 +1,46 @@
+---
+source: crates/derive-typescript/src/lib.rs
+expression: "serde_json::to_string_pretty(&responses).unwrap()"
+---
+[
+  {
+    "configSchema": {
+      "properties": {
+        "apiKey": {
+          "secret": true,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "documentationUrl": "https://docs.estuary.dev",
+    "protocol": 3032023,
+    "resourceConfigSchema": {
+      "properties": {
+        "readOnly": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "configSchema": {},
+    "documentationUrl": "https://docs.estuary.dev",
+    "protocol": 3032023,
+    "resourceConfigSchema": {}
+  },
+  {
+    "configSchema": {},
+    "documentationUrl": "https://docs.estuary.dev",
+    "protocol": 3032023,
+    "resourceConfigSchema": {}
+  },
+  {
+    "configSchema": {},
+    "documentationUrl": "https://docs.estuary.dev",
+    "protocol": 3032023,
+    "resourceConfigSchema": {}
+  }
+]

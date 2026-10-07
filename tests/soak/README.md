@@ -155,7 +155,7 @@ Design points worth keeping in mind:
   self-contained. Exercising a mid-run split is deferred validation.
 - **Built-in connector image is resolved at build time**, so Validate and the runtime
   compile against the same interface. An `enable-runtime-v2` task resolves to `:stable`
-  (a V1 task to `:dev`); a `derive-image-tag` flag overrides it, e.g. `local` for a
+  (a V1 task to `:dev`); a `builtin-image-tag` flag overrides it, e.g. `local` for a
   locally-built `:local` (`crates/validation/src/derivation.rs`).
 
 ## Downstream: the PostgreSQL materialization (`test/soak/views`)
