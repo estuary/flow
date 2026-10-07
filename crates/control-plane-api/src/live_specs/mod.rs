@@ -1,7 +1,6 @@
 mod db;
 
 use anyhow::Context;
-use models::Capability;
 use std::ops::Deref;
 
 pub use db::{
@@ -118,7 +117,7 @@ pub async fn get_connected_live_specs(
     subject: &models::authz::Subject,
     collection_names: &[&str],
     exclude_names: &[&str],
-    filter_capability: Option<Capability>,
+    filter_capability: Option<impl Into<models::authz::CapabilitySet> + Copy>,
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
@@ -126,10 +125,7 @@ pub async fn get_connected_live_specs(
     let mut live = tables::LiveCatalog::default();
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
-            if !snapshot
-                .user_capability(subject, &exp.catalog_name)
-                .is_some_and(|c| c >= minimum_capability)
-            {
+            if !snapshot.is_user_authorized(subject, &exp.catalog_name, minimum_capability) {
                 continue;
             }
         }
