@@ -1,6 +1,6 @@
 import { IDerivation, Document, SourceFromInts } from 'flow/patterns/sums-reductions.ts';
 
-// Implementation for derivation examples/derive-patterns/summer.flow.yaml#/collections/patterns~1sums-db/derivation.
+// Implementation of derivation patterns/sums-reductions.
 export class Derivation extends IDerivation {
     fromInts(read: { doc: SourceFromInts }): Document[] {
         return [{ Key: read.doc.Key, Sum: read.doc.Int }];
