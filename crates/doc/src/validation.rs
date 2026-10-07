@@ -131,6 +131,44 @@ impl Validator {
         }
     }
 
+    /// Validate the given document, returning the locations of its errors
+    /// (which are empty if it's valid). Use it to describe an invalid document
+    /// which may hold sensitive values, such as a connector configuration:
+    /// unlike a FailedValidation, locations never include document values.
+    pub fn error_locations<N: json::AsNode>(&mut self, doc: &N) -> Vec<ErrorLocation> {
+        let (valid, outcomes) = self.inner.validate(self.schema_static, doc, error_filter);
+        if valid {
+            return Vec::new();
+        }
+
+        outcomes
+            .iter()
+            .map(
+                |json::validator::ScopedOutcome {
+                     outcome,
+                     schema_curi,
+                     tape_index,
+                 }| ErrorLocation {
+                    instance_location: json::location::find_tape_index(
+                        doc,
+                        *tape_index,
+                        |location, _node| location.pointer_str().to_string(),
+                    )
+                    .unwrap_or_else(|| "<unknown location>".to_string()),
+                    keyword: outcome.keyword(),
+                    property: match outcome {
+                        // Packed property names are prefixed by a flag byte.
+                        json::validator::Outcome::MissingRequiredProperty(property) => {
+                            Some((&***property as &str)[1..].to_string())
+                        }
+                        _ => None,
+                    },
+                    schema_location: (&***schema_curi as &str).to_string(),
+                },
+            )
+            .collect()
+    }
+
     #[cold]
     #[inline(never)]
     fn build_failed_validation<N: json::AsNode>(&mut self, doc: &N) -> FailedValidation {
@@ -153,6 +191,23 @@ impl Validator {
             basic_output,
         }
     }
+}
+
+/// Location of a validation error, which (unlike a FailedValidation)
+/// carries nothing of the document's values.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorLocation {
+    /// JSON pointer of the invalid document location. That of a `required`
+    /// error is its object, or a present property which follows the missing one.
+    pub instance_location: String,
+    /// JSON Schema keyword which failed.
+    pub keyword: &'static str,
+    /// Missing property of a `required` error, as named by the schema.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub property: Option<String>,
+    /// Canonical URI of the (sub-)schema having the keyword.
+    pub schema_location: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]

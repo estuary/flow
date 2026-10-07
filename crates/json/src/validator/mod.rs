@@ -42,6 +42,43 @@ pub enum Outcome<'s, A: Annotation> {
     XStrMinimumNotMet,
 }
 
+impl<'s, A: Annotation> Outcome<'s, A> {
+    /// JSON Schema keyword which produced this Outcome.
+    pub fn keyword(&self) -> &'static str {
+        match self {
+            Outcome::Annotation(_) => "annotation",
+            Outcome::AnyOfNotMatched => "anyOf",
+            Outcome::ConstNotMatched => "const",
+            Outcome::EnumNotMatched => "enum",
+            Outcome::ExclusiveMaximumExceeded => "exclusiveMaximum",
+            Outcome::ExclusiveMinimumNotMet => "exclusiveMinimum",
+            Outcome::False => "false",
+            Outcome::FormatNotMatched(_) => "format",
+            Outcome::ItemsNotUnique => "uniqueItems",
+            Outcome::MaxContainsExceeded(_, _) => "maxContains",
+            Outcome::MaxItemsExceeded(_, _) => "maxItems",
+            Outcome::MaxLengthExceeded(_, _) => "maxLength",
+            Outcome::MaxPropertiesExceeded(_, _) => "maxProperties",
+            Outcome::MaximumExceeded => "maximum",
+            Outcome::MinContainsNotMet(_, _) => "minContains",
+            Outcome::MinItemsNotMet(_, _) => "minItems",
+            Outcome::MinLengthNotMet(_, _) => "minLength",
+            Outcome::MinPropertiesNotMet(_, _) => "minProperties",
+            Outcome::MinimumNotMet => "minimum",
+            Outcome::MissingRequiredProperty(_) => "required",
+            Outcome::MultipleOfNotMet => "multipleOf",
+            Outcome::NotIsValid => "not",
+            Outcome::OneOfMultipleMatched | Outcome::OneOfNotMatched => "oneOf",
+            Outcome::PatternNotMatched => "pattern",
+            Outcome::RecursionDepthExceeded => "recursionDepth",
+            Outcome::ReferenceNotFound(_) => "$ref",
+            Outcome::TypeNotMet(_) => "type",
+            Outcome::XStrMaximumExceeded => "x-str-maximum",
+            Outcome::XStrMinimumNotMet => "x-str-minimum",
+        }
+    }
+}
+
 /// ScopedOutcome is an Outcome with its tape index and schema URI.
 #[derive(Debug)]
 pub struct ScopedOutcome<'s, A: Annotation> {
