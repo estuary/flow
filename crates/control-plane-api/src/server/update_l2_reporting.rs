@@ -98,12 +98,14 @@ pub async fn update_l2_reporting(
     let models::Derivation {
         transforms: l2_stats_transforms,
         using: l2_stats_using,
+        shards: l2_stats_shards,
         ..
     } = &mut l2_stats.model.as_mut().unwrap().derive.as_mut().unwrap();
 
     let models::Derivation {
         transforms: l2_stats_new_transforms,
         using: l2_stats_new_using,
+        shards: l2_stats_new_shards,
         ..
     } = &mut l2_stats_new
         .model
@@ -277,6 +279,19 @@ export class Derivation extends Types.IDerivation {"#
     *l2_stats_new_module_raw = Some(models::RawValue::from_value(&serde_json::json!(
         l2_stats_new_module
     )));
+
+    // DROP BEFORE MERGE: a local stack runs its custom connectors from
+    // `:local` images, as the published `:stable` images predate this branch.
+    let custom_image_tag = std::env::var("FLOW_CUSTOM_IMAGE_TAG").unwrap_or_default();
+
+    if !custom_image_tag.is_empty() {
+        for shards in [l2_stats_shards, l2_stats_new_shards] {
+            shards.flags.insert(
+                models::Token::new(validation::CUSTOM_IMAGE_TAG_FLAG),
+                models::Token::new(&custom_image_tag),
+            );
+        }
+    }
 
     let draft = tables::DraftCatalog {
         collections: tables::DraftCollections::from_iter([
