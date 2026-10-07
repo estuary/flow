@@ -15,6 +15,7 @@ mod inferred_schemas;
 mod locking_retries;
 mod null_bytes;
 mod periodic_publications;
+mod python_captures;
 mod quotas;
 mod republish;
 mod shard_failures;

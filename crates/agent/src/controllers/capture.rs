@@ -75,8 +75,11 @@ pub async fn update<C: ControlPlane>(
                     // Overwrite the connector's config with the updated config.
                     connector.config = updated_config;
                 }
-                _ => {
-                    anyhow::bail!("expected Connector endpoint for config update event");
+                CaptureEndpoint::Python(python) => {
+                    python.config = config_update::python_config(config_update, updated_config)?;
+                }
+                CaptureEndpoint::Local(_) => {
+                    anyhow::bail!("local endpoints cannot apply a config update event");
                 }
             }
             updated_model.secrets = updated_secrets;

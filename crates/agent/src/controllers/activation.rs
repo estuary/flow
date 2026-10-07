@@ -673,11 +673,15 @@ async fn do_activate<C: ControlPlane>(
 pub(super) fn has_task_shards(state: &ControllerState) -> bool {
     match state.live_spec.as_ref() {
         Some(&AnySpec::Capture(ref cap)) if !cap.shards.disable => {
-            // There's currently no such thing as a dekaf capture, but it seemed best to handle captures and materializations
-            matches!(
-                &cap.endpoint,
-                &models::CaptureEndpoint::Connector(ref conn) if !conn.image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX)
-            )
+            match &cap.endpoint {
+                // There's currently no such thing as a dekaf capture, but it seemed best to handle captures and materializations
+                models::CaptureEndpoint::Connector(conn) => {
+                    !conn.image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX)
+                }
+                // A python capture runs as the capture-python image connector.
+                models::CaptureEndpoint::Python(_) => true,
+                models::CaptureEndpoint::Local(_) => false,
+            }
         }
         Some(&AnySpec::Collection(ref coll)) => coll
             .derive

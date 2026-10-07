@@ -18,12 +18,12 @@ DraftCatalog {
               },
               "bindings": [
                 {
-                  "resource": {"id": "acorns"},
+                  "resource": {"_meta":{"path":["acorns"]},"id":"acorns"},
                   "disable": true,
                   "target": "squirrels/acorns"
                 },
                 {
-                  "resource": {"id": "hickory-nuts"},
+                  "resource": {"_meta":{"path":["hickory-nuts"]},"id":"hickory-nuts"},
                   "disable": true,
                   "target": "squirrels/hickory_nuts"
                 },

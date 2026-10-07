@@ -41,6 +41,38 @@ pub fn extract_update(
     Ok((config, secrets))
 }
 
+/// Map the configuration of an update onto the user `config` of a python
+/// task. Only updates of `/task/update-config` are accepted: a legacy update
+/// has no `secrets` stanza, and is a `sops` document, which cannot be the
+/// `config` of a python task because its build injects the `_python`
+/// sentinel. The update is of the user's configuration, but a connector may
+/// have echoed the built configuration it was given, so `_python` is removed.
+pub fn python_config(
+    update: &ConfigUpdate,
+    update_config: models::RawValue,
+) -> anyhow::Result<models::RawValue> {
+    if !update.fields.contains_key("secrets") {
+        anyhow::bail!(
+            "python tasks cannot apply a legacy `configUpdate` event, which is sops-encrypted; \
+             a python connector must update its configuration through /task/update-config"
+        );
+    }
+    let serde_json::Value::Object(mut config) =
+        serde_json::from_str(update_config.get()).context("decoding config of config update")?
+    else {
+        anyhow::bail!("the config of a config update must be an object");
+    };
+    if config.contains_key("sops") {
+        anyhow::bail!("the config of a python task cannot be sops-encrypted");
+    }
+    if config.remove(validation::PYTHON_SENTINEL).is_none() {
+        return Ok(update_config); // Preserve its exact rendering.
+    }
+    Ok(models::RawValue::from_value(&serde_json::Value::Object(
+        config,
+    )))
+}
+
 pub async fn updated_config_publish<C: ControlPlane, F>(
     state: &ControllerState,
     config_update_status: &mut Option<PendingConfigUpdateStatus>,

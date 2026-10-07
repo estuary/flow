@@ -16,13 +16,14 @@ use crate::{
 };
 use control_plane_api::discovers::DiscoverOutput;
 
+/// Auto-discover interval of python captures, which have no `connector_tags`
+/// row. It matches the default of `connector_tags.auto_discover_interval`.
+const PYTHON_AUTO_DISCOVER_INTERVAL: chrono::Duration = chrono::Duration::hours(2);
+
 async fn try_connector_spec<C: ControlPlane>(
-    model: &models::CaptureDef,
+    cfg: &models::ConnectorConfig,
     control_plane: &C,
 ) -> anyhow::Result<ConnectorSpec> {
-    let models::CaptureEndpoint::Connector(cfg) = &model.endpoint else {
-        anyhow::bail!("only connector endpoints are supported for auto-discovery");
-    };
     let spec = control_plane
         .get_connector_spec(cfg.image.clone())
         .await
@@ -189,9 +190,19 @@ async fn get_auto_discover_interval<C: ControlPlane>(
     if let Some(interval) = status.interval {
         return Ok(chrono::Duration::from_std(interval)?);
     }
+    let cfg = match &model.endpoint {
+        models::CaptureEndpoint::Connector(cfg) => cfg,
+        // A python capture has no `connector_tags` row. Its connector
+        // declares no resource path pointers: discovered bindings carry
+        // their own paths, and existing ones their `/_meta/path`.
+        models::CaptureEndpoint::Python(_) => return Ok(PYTHON_AUTO_DISCOVER_INTERVAL),
+        models::CaptureEndpoint::Local(_) => {
+            anyhow::bail!("only connector and python endpoints are supported for auto-discovery")
+        }
+    };
     // If there's no `connector_tags` row for this capture connector
     // then we cannot discover, so this is an error.
-    let connector_spec = try_connector_spec(model, control_plane)
+    let connector_spec = try_connector_spec(cfg, control_plane)
         .await
         .context("fetching connector spec")?;
     Ok(connector_spec.auto_discover_interval)

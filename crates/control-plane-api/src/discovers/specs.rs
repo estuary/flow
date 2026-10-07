@@ -56,6 +56,10 @@ pub fn parse_response(
 /// a string value, null, or undefined. Null and undefined values are _not_
 /// included in the resulting path, and are thus treated as equivalent. Resource
 /// path values other than strings will result in an error.
+///
+/// A resource config having no path from any source is an error. A connector
+/// may declare no pointers at all (as built-in connectors don't), in which
+/// case every resource config must carry `/_meta/path`.
 fn resource_path(
     resource_path_pointers: &[json::Pointer],
     resource_config_json: &[u8],
@@ -76,6 +80,14 @@ fn resource_path(
                 "resource config includes non-string value at resource path pointer location '{pointer}'"
             ),
         }
+    }
+    // Pointers which resolve to nothing yield an empty path, which is a valid
+    // (if unusual) path of a connector's sole binding. Without any pointers,
+    // there's no path to be had.
+    if resource_path_pointers.is_empty() {
+        anyhow::bail!(
+            "resource config has no resource path: it has no `/_meta/path`, and the connector declares no resource path pointers"
+        );
     }
     Ok((path, true))
 }
@@ -134,10 +146,6 @@ pub fn update_capture_bindings(
     update_only: bool,
     resource_path_pointers: &[json::Pointer],
 ) -> anyhow::Result<(Vec<Binding>, Changes, Changes)> {
-    assert!(
-        !resource_path_pointers.is_empty(),
-        "expected resource_path_pointers to be non-empty"
-    );
     let capture_prefix = capture_name.rsplit_once("/").unwrap().0;
 
     let mut existing_bindings_by_path =
@@ -158,12 +166,21 @@ pub fn update_capture_bindings(
             disable: _,
         } = discovered_binding;
 
-        let resource_path = if discovered_path.is_empty() {
-            resource_path(resource_path_pointers, &resource_config_json)
-                .context("extracting resource path from discovered binding")?
-                .0
-        } else {
+        // A discovered path takes precedence. The connector's pointers (if
+        // any) are a deprecated fallback for connectors which don't return one.
+        let resource_path = if !discovered_path.is_empty() {
             discovered_path
+        } else if resource_path_pointers.is_empty() {
+            anyhow::bail!(
+                "the connector's Discovered binding {recommended_name} has no `resourcePath`, \
+                 and the connector declares no resource path pointers"
+            );
+        } else {
+            resource_path(resource_path_pointers, &resource_config_json)
+                .with_context(|| {
+                    format!("extracting resource path from discovered binding {recommended_name}")
+                })?
+                .0
         };
         if !discovered_resource_paths.insert(resource_path.clone()) {
             anyhow::bail!(
@@ -187,7 +204,13 @@ pub fn update_capture_bindings(
                     reason: None,
                 },
             );
-            let resource = serde_json::from_slice::<models::RawValue>(&resource_config_json)?;
+            // Record the path of a new binding, as validation would, so that a
+            // later discover (or a second discover of the same draft) matches it
+            // even if its connector declares no resource path pointers.
+            let resource = validation::store_resource_meta(
+                &serde_json::from_slice::<models::RawValue>(&resource_config_json)?,
+                &resource_path,
+            );
             models::CaptureBinding {
                 target,
                 disable,
@@ -1078,6 +1101,190 @@ mod tests {
     }
 
     #[test]
+    fn test_capture_merge_without_pointers() {
+        // A built-in connector declares no resource path pointers. Existing
+        // bindings are matched by their `/_meta/path`, and discovered ones by
+        // their returned `resourcePath`, which is stored as the `/_meta/path`
+        // of a binding which the discover adds.
+        let discovered_bindings = serde_json::from_value::<Vec<discovered::Binding>>(json!([
+            { "recommendedName": "greetings", "resourceConfig": { "name": "greetings", "interval": "PT1M" }, "documentSchema": { "const": "discovered" }, "resourcePath": ["greetings"] },
+            { "recommendedName": "farewells", "resourceConfig": { "name": "farewells" }, "documentSchema": false, "resourcePath": ["farewells"] },
+        ]))
+        .unwrap();
+        let mut fetched_capture = serde_json::from_value::<models::CaptureDef>(json!({
+            "bindings": [
+                { "resource": { "name": "greetings", "interval": "PT30S", "_meta": { "path": ["greetings"] } }, "target": "acmeCo/renamed-greetings" },
+                { "resource": { "name": "removed", "_meta": { "path": ["removed"] } }, "target": "acmeCo/removed" },
+            ],
+            "endpoint": { "python": { "config": { "greeting": "Howdy" } } },
+        }))
+        .unwrap();
+
+        let out = super::update_capture_bindings(
+            "acmeCo/source-hello",
+            &mut fetched_capture,
+            discovered_bindings.clone(),
+            false,
+            &[],
+        )
+        .unwrap();
+
+        // The existing binding keeps its configuration and target, a new
+        // binding is added with its path, and the removed binding is dropped.
+        insta::assert_json_snapshot!(serde_json::to_value(&fetched_capture.bindings).unwrap(), @r#"
+        [
+          {
+            "resource": {
+              "_meta": {
+                "path": [
+                  "greetings"
+                ]
+              },
+              "interval": "PT30S",
+              "name": "greetings"
+            },
+            "target": "acmeCo/renamed-greetings"
+          },
+          {
+            "resource": {
+              "_meta": {
+                "path": [
+                  "farewells"
+                ]
+              },
+              "name": "farewells"
+            },
+            "target": "acmeCo/farewells"
+          }
+        ]
+        "#);
+        insta::assert_debug_snapshot!((&out.1, &out.2), @r#"
+        (
+            {
+                [
+                    "farewells",
+                ]: Changed {
+                    target: Collection(
+                        "acmeCo/farewells",
+                    ),
+                    disable: false,
+                    reason: None,
+                },
+            },
+            {
+                [
+                    "removed",
+                ]: Changed {
+                    target: Collection(
+                        "acmeCo/removed",
+                    ),
+                    disable: false,
+                    reason: None,
+                },
+            },
+        )
+        "#);
+
+        // Discovering again against the same (updated) draft matches every
+        // binding, and changes nothing.
+        let before = fetched_capture.clone();
+        let out = super::update_capture_bindings(
+            "acmeCo/source-hello",
+            &mut fetched_capture,
+            discovered_bindings,
+            false,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(before, fetched_capture);
+        assert!(out.1.is_empty() && out.2.is_empty(), "{out:?}");
+
+        // A discovered binding which has no path from any source is an error.
+        let discovered_bindings = serde_json::from_value::<Vec<discovered::Binding>>(json!([
+            { "recommendedName": "greetings", "resourceConfig": { "name": "greetings" }, "documentSchema": false },
+        ]))
+        .unwrap();
+        let mut fetched_capture = serde_json::from_value::<models::CaptureDef>(json!({
+            "bindings": [], "endpoint": { "python": {} },
+        }))
+        .unwrap();
+
+        let err = super::update_capture_bindings(
+            "acmeCo/source-hello",
+            &mut fetched_capture,
+            discovered_bindings,
+            false,
+            &[],
+        )
+        .unwrap_err();
+        insta::assert_snapshot!(format!("{err:#}"), @"the connector's Discovered binding greetings has no `resourcePath`, and the connector declares no resource path pointers");
+    }
+
+    #[test]
+    fn test_resource_path_of_unresolved_pointers_is_empty() {
+        // Pointers which resolve to nothing yield an empty path, as they always
+        // have, rather than an error: it's a valid path of a sole binding.
+        let pointers = [json::Pointer::from_str("/stream")];
+        assert_eq!(
+            super::resource_path(&pointers, br#"{"path": "/hook"}"#).unwrap(),
+            (Vec::<String>::new(), true),
+        );
+        assert!(super::resource_path(&[], br#"{"stream": "s"}"#).is_err());
+    }
+
+    #[test]
+    fn test_capture_merge_update_only_without_pointers() {
+        // Under `update_only`, added bindings are disabled. They still carry
+        // their path, so a re-discover matches rather than re-adds them.
+        let discovered_bindings = serde_json::from_value::<Vec<discovered::Binding>>(json!([
+            { "recommendedName": "greetings", "resourceConfig": { "name": "greetings" }, "documentSchema": false, "resourcePath": ["greetings"] },
+        ]))
+        .unwrap();
+        let mut fetched_capture = serde_json::from_value::<models::CaptureDef>(json!({
+            "bindings": [], "endpoint": { "python": {} },
+        }))
+        .unwrap();
+
+        let out = super::update_capture_bindings(
+            "acmeCo/source-hello",
+            &mut fetched_capture,
+            discovered_bindings.clone(),
+            true,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(out.1.len(), 1);
+        insta::assert_json_snapshot!(serde_json::to_value(&fetched_capture.bindings).unwrap(), @r#"
+        [
+          {
+            "disable": true,
+            "resource": {
+              "_meta": {
+                "path": [
+                  "greetings"
+                ]
+              },
+              "name": "greetings"
+            },
+            "target": "acmeCo/greetings"
+          }
+        ]
+        "#);
+
+        let before = fetched_capture.clone();
+        let out = super::update_capture_bindings(
+            "acmeCo/source-hello",
+            &mut fetched_capture,
+            discovered_bindings,
+            true,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(before, fetched_capture);
+        assert!(out.1.is_empty() && out.2.is_empty(), "{out:?}");
+    }
+
+    #[test]
     fn test_capture_merge_create() {
         let discovered_bindings  =
             serde_json::from_value::<Vec<discovered::Binding>>(json!([
@@ -1104,7 +1311,7 @@ mod tests {
         .unwrap();
 
         insta::assert_debug_snapshot!(path_merge_out);
-        insta::assert_json_snapshot!(model, @r###"
+        insta::assert_json_snapshot!(model, @r#"
         {
           "endpoint": {
             "connector": {
@@ -1117,20 +1324,20 @@ mod tests {
           "bindings": [
             {
               "resource": {
-                "$serde_json::private::RawValue": "{\"stream\":\"foo\"}"
+                "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"foo\"]},\"stream\":\"foo\"}"
               },
               "target": "acmeCo/my/foo"
             },
             {
               "resource": {
-                "$serde_json::private::RawValue": "{\"stream\":\"bar\"}"
+                "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"bar\"]},\"stream\":\"bar\"}"
               },
               "disable": true,
               "target": "acmeCo/my/bar"
             }
           ]
         }
-        "###);
+        "#);
     }
 
     #[test]
@@ -1245,7 +1452,7 @@ mod tests {
             &pointers,
         )
         .expect_err("should fail because stream is not a string");
-        insta::assert_snapshot!(format!("{err:#}"), @"extracting resource path from discovered binding: resource config includes non-string value at resource path pointer location '/stream'");
+        insta::assert_snapshot!(format!("{err:#}"), @"extracting resource path from discovered binding foo: resource config includes non-string value at resource path pointer location '/stream'");
 
         // now assert that an existing invalid binding also results in an error
         let err = super::update_capture_bindings(

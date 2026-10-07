@@ -1314,6 +1314,51 @@ impl TestHarness {
         .await
         .expect("querying for connector_tags id");
 
+        self.insert_discover(
+            Some(connector_tag.id),
+            capture_name,
+            data_plane_name,
+            draft_id,
+            endpoint_config,
+            update_only,
+            mock_discover_resp,
+        )
+        .await
+    }
+
+    /// Inserts a queued discover of a python capture, which has no connector
+    /// tag, and registers the mock connector response. `endpoint_config` is
+    /// the `endpoint.python.config` of the capture.
+    pub async fn queue_python_discover(
+        &mut self,
+        capture_name: &str,
+        draft_id: Id,
+        endpoint_config: &str,
+        update_only: bool,
+        mock_discover_resp: connectors::MockDiscover,
+    ) -> Id {
+        self.insert_discover(
+            None,
+            capture_name,
+            "ops/dp/public/test",
+            draft_id,
+            endpoint_config,
+            update_only,
+            mock_discover_resp,
+        )
+        .await
+    }
+
+    async fn insert_discover(
+        &mut self,
+        connector_tag_id: Option<Id>,
+        capture_name: &str,
+        data_plane_name: &str,
+        draft_id: Id,
+        endpoint_config: &str,
+        update_only: bool,
+        mock_discover_resp: connectors::MockDiscover,
+    ) -> Id {
         let config_json = TextJson(models::RawValue::from_str(endpoint_config).unwrap());
         let disco = sqlx::query!(
             r##"insert into discovers (
@@ -1326,7 +1371,7 @@ impl TestHarness {
             ) values ($1, $2, $3, $4, $5, $6)
             returning id as "id: Id";"##,
             capture_name as &str,
-            connector_tag.id as Id,
+            connector_tag_id as Option<Id>,
             draft_id as Id,
             config_json as TextJson<models::RawValue>,
             update_only,

@@ -5,7 +5,7 @@ use crate::connectors::ConnectorFactory;
 
 use anyhow::Context;
 use models::discovers::{Changed, Changes};
-use proto_flow::{capture, connector, flow::capture_spec};
+use proto_flow::{capture, connector};
 use sqlx::{PgPool, types::Uuid};
 use std::collections::HashSet;
 
@@ -173,41 +173,49 @@ impl DiscoverHandler {
             filter_user_authz,
             update_only,
             reset_on_key_change,
-            mut draft,
+            draft,
             created_at,
             snapshot,
         } = req;
 
-        let Some(capture_def) = draft.captures.get_mut_by_key(&capture_name) else {
+        let Some(capture_def) = draft.captures.get_by_key(&capture_name) else {
             return Ok(DiscoverOutput::failed(
                 capture_name.clone(),
                 anyhow::anyhow!("missing capture: '{capture_name}' in draft"),
             ));
         };
 
-        let Some(models::CaptureEndpoint::Connector(connector_cfg)) =
-            capture_def.model.as_ref().map(|m| &m.endpoint)
-        else {
-            // TODO: better error message if drafted model is None
-            anyhow::bail!("only connector endpoints are supported");
+        let Some(model) = capture_def.model.as_ref() else {
+            anyhow::bail!(
+                "capture '{capture_name}' is drafted for deletion and cannot be discovered"
+            );
         };
-        tracing::Span::current().record("image", &connector_cfg.image);
+        let image = match &model.endpoint {
+            models::CaptureEndpoint::Connector(config) => config.image.as_str(),
+            models::CaptureEndpoint::Python(_) => validation::CAPTURE_PYTHON_IMAGE,
+            models::CaptureEndpoint::Local(_) => {
+                anyhow::bail!("only connector and python endpoints are supported");
+            }
+        };
+        tracing::Span::current().record("image", image);
+
+        // Discover dials the same image connector, with the same configuration,
+        // which validation will: for a python capture, that's the capture-python
+        // image with its `files` pushed down into the configuration.
+        let capture_spec_request =
+            validation::capture_spec_request(&capture_name, &model.endpoint, &model.shards);
 
         // A discover runs before any built spec exists, so the drafted model is
         // the only source of the secrets which the data plane must resolve
         // before dialing the connector.
-        let secrets = capture_def
-            .model
-            .as_ref()
-            .map(|model| assemble::secrets(&model.secrets))
-            .unwrap_or_default();
+        let secrets = assemble::secrets(&model.secrets);
 
         // INFO is a good default since these are not shown in the UI, so if we're looking then
         // there's already a problem.
-        let log_level = capture_def
-            .model
-            .as_ref()
-            .and_then(|m| m.shards.log_level.as_deref())
+        let log_level = model
+            .shards
+            .log_level
+            .as_deref()
             .and_then(ops::LogLevel::from_str_name)
             .unwrap_or(ops::LogLevel::Info);
 
@@ -224,8 +232,8 @@ impl DiscoverHandler {
                 kind: Some(capture::request::Kind::Discover(Box::new(
                     capture::request::Discover {
                         name: capture_name.to_string(),
-                        connector_type: capture_spec::ConnectorType::Image as i32,
-                        config_json: serde_json::to_string(connector_cfg).unwrap().into(),
+                        connector_type: capture_spec_request.connector_type,
+                        config_json: capture_spec_request.config_json,
                         created_at,
                         secrets,
                     },
@@ -331,13 +339,18 @@ impl DiscoverHandler {
             .iter()
             .map(|p| json::Pointer::from_str(p.as_str()))
             .collect::<Vec<_>>();
-        let (used_bindings, added_bindings, removed_bindings) = specs::update_capture_bindings(
+        // Bindings without a resource path, or with conflicting ones,
+        // are a failure of the connector's discover.
+        let (used_bindings, added_bindings, removed_bindings) = match specs::update_capture_bindings(
             capture_name.as_str(),
             capture_model,
             discovered_bindings,
             update_only,
             &pointers,
-        )?;
+        ) {
+            Ok(bindings) => bindings,
+            Err(err) => return Ok(DiscoverOutput::failed(capture_name, err)),
+        };
 
         let collection_names = capture_model
             .bindings

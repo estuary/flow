@@ -145,28 +145,43 @@ impl DiscoverExecutor {
     ) -> anyhow::Result<(JobStatus, ProcessResult)> {
         tracing::info!(
             %row.capture_name,
-            %row.connector_tag_id,
-            %row.connector_tag_job_success,
+            ?row.connector_tag_id,
+            ?row.connector_tag_job_success,
             %row.created_at,
             %row.data_plane_name,
             %row.draft_id,
-            %row.image_name,
-            %row.image_tag,
+            ?row.image_name,
+            ?row.image_tag,
             %row.logs_token,
-            %row.protocol,
+            ?row.protocol,
             %row.updated_at,
             %row.user_id,
             "processing discover",
         );
 
-        // Various pre-flight checks.
-        if !row.connector_tag_job_success {
-            return Ok(precheck_failed(JobStatus::TagFailed));
-        } else if row.protocol != "capture" {
-            return Ok(precheck_failed(JobStatus::WrongProtocol));
-        } else if !connector_tags::does_connector_exist(&row.image_name, pool).await? {
-            return Ok(precheck_failed(JobStatus::ImageForbidden));
-        }
+        // Various pre-flight checks of a connector tag. A discover having no
+        // connector tag is of a python capture, whose image is a built-in.
+        let connector_image = match &row {
+            Row {
+                connector_tag_id: None,
+                ..
+            } => None,
+            Row {
+                connector_tag_job_success: Some(true),
+                protocol: Some(protocol),
+                image_name: Some(image_name),
+                image_tag: Some(image_tag),
+                ..
+            } => {
+                if protocol != "capture" {
+                    return Ok(precheck_failed(JobStatus::WrongProtocol));
+                } else if !connector_tags::does_connector_exist(image_name, pool).await? {
+                    return Ok(precheck_failed(JobStatus::ImageForbidden));
+                }
+                Some(format!("{image_name}{image_tag}"))
+            }
+            _ => return Ok(precheck_failed(JobStatus::TagFailed)),
+        };
         let subject = models::authz::Subject::unrestricted(row.user_id);
         // A discover validates and edits the capture's spec, so the user must
         // hold SpecEdit to the capture's name -- without it they could never
@@ -221,7 +236,6 @@ impl DiscoverExecutor {
             return Ok(precheck_failed(JobStatus::NoDataPlane));
         };
 
-        let image_composed = format!("{}{}", row.image_name, row.image_tag);
         let prepared = prepare_discover(
             subject,
             row.draft_id,
@@ -229,7 +243,7 @@ impl DiscoverExecutor {
             row.endpoint_config.0.clone().into(),
             row.update_only,
             row.logs_token,
-            image_composed,
+            connector_image,
             data_plane.control_id,
             snapshot,
             pool,
@@ -280,6 +294,10 @@ impl DiscoverExecutor {
 /// row, even if it differs from the endpoint on the drafted or live spec. All
 /// other specs in the given draft will be loaded as they are and used as the
 /// base for the merge after the discover completes.
+///
+/// A `connector_image` of None is a discover of a python capture, which must
+/// already be drafted or live: the `discovers` row carries only its `config`,
+/// and its `files` are taken from the drafted or live model.
 async fn prepare_discover<'a>(
     subject: models::authz::Subject,
     draft_id: Id,
@@ -287,7 +305,7 @@ async fn prepare_discover<'a>(
     endpoint_config: models::RawValue,
     update_only: bool,
     logs_token: uuid::Uuid,
-    image_composed: String,
+    connector_image: Option<String>,
     data_plane_id: models::Id,
     snapshot: &'a control_plane_api::Snapshot,
     pool: &sqlx::PgPool,
@@ -295,11 +313,6 @@ async fn prepare_discover<'a>(
     let mut draft = draft::load_draft(draft_id, pool)
         .await
         .context("loading draft")?;
-
-    let endpoint = models::CaptureEndpoint::Connector(models::ConnectorConfig {
-        image: image_composed,
-        config: endpoint_config,
-    });
 
     // Fetch any live capture up-front: an existing task's creation date —
     // embedded in its control-plane Id — is carried on the Discover request,
@@ -329,7 +342,8 @@ async fn prepare_discover<'a>(
 
     if let Some(drafted) = draft.captures.get_mut_by_key(&capture_name) {
         if let Some(model) = drafted.model.as_mut() {
-            model.endpoint = endpoint;
+            model.endpoint =
+                discover_endpoint(connector_image, endpoint_config, Some(&model.endpoint))?;
         }
     } else {
         // See if there's an existing live capture with this name
@@ -340,7 +354,8 @@ async fn prepare_discover<'a>(
             ..
         }) = live_capture
         {
-            model.endpoint = endpoint;
+            model.endpoint =
+                discover_endpoint(connector_image, endpoint_config, Some(&model.endpoint))?;
             draft.captures.insert(tables::DraftCapture {
                 capture: capture.clone(),
                 model: Some(model),
@@ -352,7 +367,7 @@ async fn prepare_discover<'a>(
         } else {
             // There's no existing live or draft spec, so insert a starter spec.
             let new_model = models::CaptureDef {
-                endpoint,
+                endpoint: discover_endpoint(connector_image, endpoint_config, None)?,
                 auto_discover: Some(models::AutoDiscover {
                     add_new_bindings: true,
                     evolve_incompatible_collections: true,
@@ -396,6 +411,33 @@ async fn prepare_discover<'a>(
         created_at,
         snapshot,
     })
+}
+
+/// Map the endpoint of a `discovers` row onto the capture's `base` endpoint.
+/// A connector discover replaces the endpoint outright. A python discover
+/// replaces only the `config` of a python `base`, and keeps its `files`
+/// and declared `spec`.
+fn discover_endpoint(
+    connector_image: Option<String>,
+    config: models::RawValue,
+    base: Option<&models::CaptureEndpoint>,
+) -> anyhow::Result<models::CaptureEndpoint> {
+    match (connector_image, base) {
+        (Some(image), _) => Ok(models::CaptureEndpoint::Connector(
+            models::ConnectorConfig { image, config },
+        )),
+        (None, Some(models::CaptureEndpoint::Python(python))) => {
+            Ok(models::CaptureEndpoint::Python(models::CapturePython {
+                files: python.files.clone(),
+                config,
+                spec: python.spec.clone(),
+            }))
+        }
+        (None, _) => anyhow::bail!(
+            "a discover without a connector tag must be of a python capture, \
+             which must be drafted or already published"
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -484,7 +526,7 @@ mod test {
             endpoint_config,
             false, // !update_only
             logs_token,
-            image_composed.clone(),
+            Some(image_composed.clone()),
             data_plane_id,
             snapshot.result().unwrap(),
             &harness.pool,
