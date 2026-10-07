@@ -5,6 +5,46 @@ expression: tables
 DraftCatalog {
     captures: [
         DraftCapture {
+            capture: acmeCo/source-acme,
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "endpoint": {
+                "python": {
+                  "files": {
+                    "pyproject.toml": "[project]\nname = \"source-acme\"\ndependencies = [\"estuary-cdk\"]\n",
+                    "source_acme/__init__.py": "from estuary_cdk.capture import BaseCaptureConnector\n",
+                    "source_acme/__main__.py": "import asyncio\nimport source_acme\n\nasyncio.run(source_acme.Connector().serve())\n"
+                  },
+                  "config": {"credentials":{"client_id":"a-client-id"}},
+                  "spec": {
+                    "configSchema": {"$defs":{"__flowInline1":{"$id":"test://example/credentials.schema.yaml","properties":{"client_id":{"type":"string"},"client_secret":{"secret":true,"type":"string"}},"type":"object"}},"$id":"test://example/source-acme.config.schema.yaml","properties":{"credentials":{"$ref":"credentials.schema.yaml"}},"required":["credentials"],"type":"object"},
+                    "resourceConfigSchema": {"$id":"test://example/catalog.yaml?ptr=/captures/acmeCo~1source-acme/endpoint/python/spec/resourceConfigSchema","properties":{"name":{"type":"string","x-collection-name":true}},"required":["name"],"type":"object"},
+                    "oauth2": {
+                      "provider": "acme",
+                      "authUrlTemplate": "https://acme.example/authorize?client_id={{{ client_id }}}",
+                      "accessTokenUrlTemplate": "https://acme.example/token",
+                      "accessTokenResponseMap": {
+                        "access_token": "/access_token"
+                      }
+                    }
+                  }
+                }
+              },
+              "secrets": {
+                "acmeCo/source-acme/client-secret": "/credentials/client_secret"
+              },
+              "bindings": [
+                {
+                  "resource": {"name":"widgets"},
+                  "target": "a/collection"
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCapture {
             capture: capture/config-missing,
             scope: test://example/catalog.yaml#/captures/capture~1config-missing,
             expect_pub_id: NULL,
@@ -269,6 +309,10 @@ DraftCatalog {
     ],
     imports: [
         Import {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme/endpoint/python/files/3,
+            to_resource: test://example/source_acme/missing.py,
+        },
+        Import {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
             to_resource: test://example/resource/not/found.yaml,
         },
@@ -287,6 +331,10 @@ DraftCatalog {
         Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
             to_resource: test://example/referenced/config.yaml#/bad/fragment,
+        },
+        Import {
+            scope: test://example/source-acme.config.schema.yaml#/properties/credentials/$ref,
+            to_resource: test://example/credentials.schema.yaml,
         },
     ],
 }

@@ -1,0 +1,52 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: config
+---
+{
+  "config": {
+    "_python": {
+      "capture": "testing/source-acme",
+      "files": {
+        "pyproject.toml": "[project]\n",
+        "source_acme/__init__.py": "class Connector: pass\n",
+        "source_acme/__main__.py": "import source_acme\n",
+        "uv.lock": "version = 1\n"
+      },
+      "package": "source_acme",
+      "spec": {
+        "configSchema": {
+          "$id": "test://example/int-string-captures?ptr=/captures/testing~1source-acme/endpoint/python/spec/configSchema",
+          "properties": {
+            "greeting": {
+              "default": "Howdy",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "resourceConfigSchema": {
+          "properties": {
+            "interval": {
+              "default": "PT0S",
+              "description": "Interval between updates for this resource",
+              "format": "duration",
+              "nonsensitive": true,
+              "type": "string"
+            },
+            "name": {
+              "description": "Name of this resource",
+              "type": "string",
+              "x-collection-name": true
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        }
+      }
+    },
+    "greeting": "Hello"
+  },
+  "image": "ghcr.io/estuary/capture-python:stable"
+}

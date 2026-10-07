@@ -3,6 +3,8 @@ use std::collections::BTreeSet;
 mod alert_config;
 pub mod authorizations;
 pub mod authz;
+mod builtin_spec;
+mod capture_python;
 mod captures;
 mod catalogs;
 pub mod collate;
@@ -19,6 +21,7 @@ mod journals;
 mod labels;
 mod materializations;
 mod private_links;
+mod project_files;
 pub mod publications;
 mod raw_value;
 mod references;
@@ -38,6 +41,8 @@ pub use crate::alert_config::{
     TaskIdleCondition, TaskIdleConfig,
 };
 pub use crate::labels::{Label, LabelSelector, LabelSet};
+pub use builtin_spec::{BuiltinSpec, OAuth2};
+pub use capture_python::CapturePython;
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
@@ -60,6 +65,7 @@ pub use materializations::{
     RecommendedDepth, TargetNamingStrategy,
 };
 pub use private_links::{AWSPrivateLink, AzurePrivateLink, GCPPrivateServiceConnect, PrivateLink};
+pub use project_files::ProjectFiles;
 pub use raw_value::RawValue;
 pub use references::{
     CATALOG_PREFIX_RE, Capture, Collection, CompositeKey, Field, JsonPointer, Materialization,

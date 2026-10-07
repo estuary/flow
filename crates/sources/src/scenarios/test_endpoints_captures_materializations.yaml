@@ -46,6 +46,37 @@ test://example/catalog.yaml:
           config: raw-config.foo
       bindings: []
 
+    acmeCo/source-acme:
+      endpoint:
+        python:
+          files:
+            - pyproject.toml
+            - source_acme/__init__.py
+            - source_acme/__main__.py
+            - source_acme/missing.py
+          config:
+            credentials:
+              client_id: a-client-id
+          # Spec schemas are inline or imported, and are bundled.
+          spec:
+            configSchema: source-acme.config.schema.yaml
+            resourceConfigSchema:
+              type: object
+              properties:
+                name: { type: string, x-collection-name: true }
+              required: [name]
+            oauth2:
+              provider: acme
+              authUrlTemplate: "https://acme.example/authorize?client_id={{{ client_id }}}"
+              accessTokenUrlTemplate: https://acme.example/token
+              accessTokenResponseMap:
+                access_token: /access_token
+      secrets:
+        acmeCo/source-acme/client-secret: /credentials/client_secret
+      bindings:
+        - target: a/collection
+          resource: { name: widgets }
+
     capture/local:
       endpoint:
         local:
@@ -129,3 +160,30 @@ test://example/raw-config.foo: |
     do_the_thing();
     do_another_really_long_thing_that_does_stuff_boy_this_is_running_on_huh()?;
   }
+
+test://example/source-acme.config.schema.yaml:
+  type: object
+  properties:
+    credentials:
+      $ref: credentials.schema.yaml
+  required: [credentials]
+
+test://example/credentials.schema.yaml:
+  type: object
+  properties:
+    client_id: { type: string }
+    client_secret: { type: string, secret: true }
+
+test://example/pyproject.toml: |
+  [project]
+  name = "source-acme"
+  dependencies = ["estuary-cdk"]
+
+test://example/source_acme/__init__.py: |
+  from estuary_cdk.capture import BaseCaptureConnector
+
+test://example/source_acme/__main__.py: |
+  import asyncio
+  import source_acme
+
+  asyncio.run(source_acme.Connector().serve())

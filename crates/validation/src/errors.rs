@@ -209,6 +209,36 @@ pub enum Error {
     },
     #[error("{category} partition selector field {field} cannot be an empty string")]
     SelectorEmptyString { category: String, field: String },
+    #[error("project file {path} cannot have a `.` or `..` path component")]
+    ProjectFileDotSegment { path: String },
+    #[error("project file {path} uses a name which is reserved by the connector")]
+    ProjectFileReserved { path: String },
+    #[error("project files must include {path}")]
+    ProjectFileMissing { path: String },
+    #[error(
+        "project file {resource} has different content than it does in the task at {other}, which also lists it"
+    )]
+    ProjectFileConflict { resource: Url, other: Url },
+    #[error(
+        "this task shares the Python project at {root} with the task at {with}, which lists its `uv.lock`: tasks sharing a project must all list its `uv.lock`, or none of them may"
+    )]
+    ProjectLockMismatch { root: Url, with: Url },
+    #[error(
+        "`dependencies` is no longer supported: declare dependencies in a `pyproject.toml` listed in the derivation's `files`"
+    )]
+    BuiltinDependenciesRemoved {},
+    #[error("`config` must be an object")]
+    ConfigNotObject {},
+    #[error("`config` cannot have the property `{property}`, which is reserved by the connector")]
+    ConfigReservedProperty { property: String },
+    #[error(
+        "`config` cannot be sealed with `sops`: use a plaintext configuration with a `secrets` stanza instead"
+    )]
+    BuiltinConfigSops {},
+    #[error(
+        "`{field}` requires the V2 runtime, which this derivation does not use.\nPlease add `shards.flags.enable-runtime-v2: \"true\"` to this derivation."
+    )]
+    BuiltinFieldRequiresV2 { field: &'static str },
     #[error(
         "cannot infer shuffle key types because all transforms use a computed `lambda` or `any`.\nFlow must know the key types that your computed shuffle lambda will output.\nPlease add an explicit `shuffleKeyTypes` to this derivation."
     )]

@@ -176,7 +176,15 @@ DraftCatalog {
                 "using": {
                   "python": {
                     "module": "a python module placeholder that's fairly \"long\", at least long enough to not be inline\n",
-                    "dependencies": {}
+                    "files": {
+                      "data/config.yaml": "# A comment which is preserved, as files are text.\nretries: 3\n",
+                      "data/regions.json": "{\"regions\": [{\"name\": \"north\", \"code\": 1}]}\n",
+                      "lib/shared.py": "def shared_helper(doc):\n    return doc[\"py-key\"] + \"-shared\"\n"
+                    },
+                    "config": {"region":"north"},
+                    "spec": {
+                      "configSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/d5~1python/derive/using/python/spec/configSchema","properties":{"region":{"default":"south","type":"string"}},"type":"object"}
+                    }
                   }
                 },
                 "transforms": [
@@ -191,6 +199,64 @@ DraftCatalog {
                     "lambda": "def transform(source):\n    return source\n"
                   }
                 ]
+              }
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: d6/py-shared,
+            scope: test://example/catalog.yaml#/collections/d6~1py-shared,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
+              "key": [
+                "/py-key"
+              ],
+              "derive": {
+                "using": {
+                  "python": {
+                    "module": "a python module placeholder that's fairly \"long\", at least long enough to not be inline\n",
+                    "files": {
+                      "lib/__init__.py": "",
+                      "lib/inline.py": "def inline_helper(doc):\n    return doc[\"py-key\"]\n",
+                      "lib/shared.py": "def shared_helper(doc):\n    return doc[\"py-key\"] + \"-shared\"\n"
+                    }
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "python-transform",
+                    "source": "src/collection",
+                    "shuffle": "any"
+                  }
+                ]
+              }
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: d7/typescript-config,
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
+              "key": [
+                "/ts-key"
+              ],
+              "derive": {
+                "using": {
+                  "typescript": {
+                    "module": "a typescript module placeholder that's fairly \"long\", at least long enough to not be inline\n",
+                    "config": {"apiKey":"a-fairly-long-api-key-value-which-is-indirected"},
+                    "spec": {
+                      "configSchema": {"$id":"test://example/typescript.config.schema.yaml","properties":{"apiKey":{"secret":true,"type":"string"}},"required":["apiKey"],"type":"object"},
+                      "resourceConfigSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/d7~1typescript-config/derive/using/typescript/spec/resourceConfigSchema","properties":{"readOnly":{"type":"boolean"}},"type":"object"}
+                    }
+                  }
+                },
+                "transforms": []
               }
             },
             is_touch: 0,

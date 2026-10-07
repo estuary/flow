@@ -176,7 +176,15 @@ DraftCatalog {
                 "using": {
                   "python": {
                     "module": "catalog.py",
-                    "dependencies": {}
+                    "files": [
+                      "lib/shared.py",
+                      "data/regions.json",
+                      "data/config.yaml"
+                    ],
+                    "config": {"region":"north"},
+                    "spec": {
+                      "configSchema": {"properties":{"region":{"default":"south","type":"string"}},"type":"object"}
+                    }
                   }
                 },
                 "transforms": [
@@ -191,6 +199,64 @@ DraftCatalog {
                     "lambda": "python/transform.py"
                   }
                 ]
+              }
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: d6/py-shared,
+            scope: test://example/catalog.yaml#/collections/d6~1py-shared,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "schema": "a-schema.json",
+              "key": [
+                "/py-key"
+              ],
+              "derive": {
+                "using": {
+                  "python": {
+                    "module": "catalog.py",
+                    "files": {
+                      "lib/__init__.py": "",
+                      "lib/inline.py": "def inline_helper(doc):\n    return doc[\"py-key\"]\n",
+                      "lib/shared.py": "def shared_helper(doc):\n    return doc[\"py-key\"] + \"-shared\"\n"
+                    }
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "python-transform",
+                    "source": "src/collection",
+                    "shuffle": "any"
+                  }
+                ]
+              }
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: d7/typescript-config,
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "schema": "a-schema.json",
+              "key": [
+                "/ts-key"
+              ],
+              "derive": {
+                "using": {
+                  "typescript": {
+                    "module": "catalog.ts",
+                    "config": "typescript.config.yaml",
+                    "spec": {
+                      "configSchema": "typescript.config.schema.yaml",
+                      "resourceConfigSchema": {"properties":{"readOnly":{"type":"boolean"}},"type":"object"}
+                    }
+                  }
+                },
+                "transforms": []
               }
             },
             is_touch: 0,
@@ -215,6 +281,18 @@ DraftCatalog {
         },
         Fetch {
             depth: 2,
+            resource: test://example/data/config.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/data/regions.json,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/lib/shared.py,
+        },
+        Fetch {
+            depth: 2,
             resource: test://example/other-schema.json,
         },
         Fetch {
@@ -228,6 +306,14 @@ DraftCatalog {
         Fetch {
             depth: 2,
             resource: test://example/sql/shuffle_lambda.sql,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/typescript.config.schema.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/typescript.config.yaml,
         },
     ],
     imports: [
@@ -268,11 +354,47 @@ DraftCatalog {
             to_resource: test://example/python/transform.py,
         },
         Import {
+            scope: test://example/catalog.yaml#/collections/d5~1python/derive/using/python/files/0,
+            to_resource: test://example/lib/shared.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d5~1python/derive/using/python/files/1,
+            to_resource: test://example/data/regions.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d5~1python/derive/using/python/files/2,
+            to_resource: test://example/data/config.yaml,
+        },
+        Import {
             scope: test://example/catalog.yaml#/collections/d5~1python/derive/using/python/module,
             to_resource: test://example/catalog.py,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d5~1python/schema,
+            to_resource: test://example/a-schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d6~1py-shared/derive/using/python/module,
+            to_resource: test://example/catalog.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d6~1py-shared/schema,
+            to_resource: test://example/a-schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config/derive/using/typescript/config,
+            to_resource: test://example/typescript.config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config/derive/using/typescript/module,
+            to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config/derive/using/typescript/spec/configSchema,
+            to_resource: test://example/typescript.config.schema.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config/schema,
             to_resource: test://example/a-schema.json,
         },
     ],
@@ -299,7 +421,25 @@ DraftCatalog {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"d1/collection":{"derive":{"transforms":[{"name":"some-name","priority":32,"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","notAfter":"2019-03-06T09:30:02Z","notBefore":"2017-03-03T03:02:01Z","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}}}}],"using":{"typescript":{"module":"catalog.ts"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derive":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transforms":[{"backfill":2,"lambda":42,"name":"do-the-thing","shuffle":"any","source":"src/collection"}],"using":{"connector":{"config":{"remote":"https://example/api"},"image":"some/image:tag"}}},"expectPubId":"00:11:22:33:44:55:66:77","journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derive":{"shuffleKeyTypes":["string","integer"],"transforms":[{"lambda":"select 'a long string which makes this a larger lambda' * from foo;\n","name":"frob","shuffle":{"lambda":"sql/shuffle_lambda.sql"},"source":"src/collection"}],"using":{"sqlite":{"migrations":["create table foo(bar int);\n","sql/migration_two.sql"]}}},"key":["/some/key"],"readSchema":"other-schema.json","writeSchema":"a-schema.json"},"d4/local":{"derive":{"transforms":[],"using":{"local":{"command":["some-command","--with-args"],"config":{"some-local":"config"}}}},"key":["/key"],"schema":"a-schema.json"},"d5/python":{"derive":{"transforms":[{"lambda":"python/transform.py","name":"python-transform","shuffle":{"key":["/shuffle"]},"source":"src/collection"}],"using":{"python":{"module":"catalog.py"}}},"key":["/py-key"],"schema":"a-schema.json"}}},
+            content_dom: {"collections":{"d1/collection":{"derive":{"transforms":[{"name":"some-name","priority":32,"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","notAfter":"2019-03-06T09:30:02Z","notBefore":"2017-03-03T03:02:01Z","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}}}}],"using":{"typescript":{"module":"catalog.ts"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derive":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transforms":[{"backfill":2,"lambda":42,"name":"do-the-thing","shuffle":"any","source":"src/collection"}],"using":{"connector":{"config":{"remote":"https://example/api"},"image":"some/image:tag"}}},"expectPubId":"00:11:22:33:44:55:66:77","journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derive":{"shuffleKeyTypes":["string","integer"],"transforms":[{"lambda":"select 'a long string which makes this a larger lambda' * from foo;\n","name":"frob","shuffle":{"lambda":"sql/shuffle_lambda.sql"},"source":"src/collection"}],"using":{"sqlite":{"migrations":["create table foo(bar int);\n","sql/migration_two.sql"]}}},"key":["/some/key"],"readSchema":"other-schema.json","writeSchema":"a-schema.json"},"d4/local":{"derive":{"transforms":[],"using":{"local":{"command":["some-command","--with-args"],"config":{"some-local":"config"}}}},"key":["/key"],"schema":"a-schema.json"},"d5/python":{"derive":{"transforms":[{"lambda":"python/transform.py","name":"python-transform","shuffle":{"key":["/shuffle"]},"source":"src/collection"}],"using":{"python":{"config":{"region":"north"},"files":["lib/shared.py","data/regions.json","data/config.yaml"],"module":"catalog.py","spec":{"configSchema":{"properties":{"region":{"default":"south","type":"string"}},"type":"object"}}}}},"key":["/py-key"],"schema":"a-schema.json"},"d6/py-shared":{"derive":{"transforms":[{"name":"python-transform","shuffle":"any","source":"src/collection"}],"using":{"python":{"files":{"lib/__init__.py":"","lib/inline.py":"def inline_helper(doc):\n    return doc[\"py-key\"]\n","lib/shared.py":"def shared_helper(doc):\n    return doc[\"py-key\"] + \"-shared\"\n"},"module":"catalog.py"}}},"key":["/py-key"],"schema":"a-schema.json"},"d7/typescript-config":{"derive":{"transforms":[],"using":{"typescript":{"config":"typescript.config.yaml","module":"catalog.ts","spec":{"configSchema":"typescript.config.schema.yaml","resourceConfigSchema":{"properties":{"readOnly":{"type":"boolean"}},"type":"object"}}}}},"key":["/ts-key"],"schema":"a-schema.json"}}},
+        },
+        Resource {
+            resource: test://example/data/config.yaml,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "# A comment which is preserved, as files are text.\nretries: 3\n",
+        },
+        Resource {
+            resource: test://example/data/regions.json,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "{\"regions\": [{\"name\": \"north\", \"code\": 1}]}\n",
+        },
+        Resource {
+            resource: test://example/lib/shared.py,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "def shared_helper(doc):\n    return doc[\"py-key\"] + \"-shared\"\n",
         },
         Resource {
             resource: test://example/other-schema.json,
@@ -324,6 +464,18 @@ DraftCatalog {
             content_type: "CONFIG",
             content: ".. binary ..",
             content_dom: "select a whole bunch of fields and stuff from source documents to shuffle upon;\n",
+        },
+        Resource {
+            resource: test://example/typescript.config.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"properties":{"apiKey":{"secret":true,"type":"string"}},"required":["apiKey"],"type":"object"},
+        },
+        Resource {
+            resource: test://example/typescript.config.yaml,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: {"apiKey":"a-fairly-long-api-key-value-which-is-indirected"},
         },
     ],
 }

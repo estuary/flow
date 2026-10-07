@@ -1,0 +1,43 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files,
+        error: `files` requires the V2 runtime, which this derivation does not use.
+        Please add `shards.flags.enable-runtime-v2: "true"` to this derivation.,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/..~1escape.py,
+        error: project file ../escape.py cannot have a `.` or `..` path component,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/flow_generated~1sneaky.py,
+        error: project file flow_generated/sneaky.py uses a name which is reserved by the connector,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/lib~1~1double.py,
+        error: lib//double.py cannot be used as name for project file ("//double.py" is invalid),
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/main.py,
+        error: project file main.py uses a name which is reserved by the connector,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/module~1__init__.py,
+        error: project file module/__init__.py uses a name which is reserved by the connector,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/spec,
+        error: `spec` requires the V2 runtime, which this derivation does not use.
+        Please add `shards.flags.enable-runtime-v2: "true"` to this derivation.,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/spec/configSchema,
+        error: at test://example/int-reverse?ptr=/collections/testing~1int-reverse/derive/using/python/spec/configSchema#/properties/a/pattern: regex parse error:
+            (
+            ^
+        error: unclosed group,
+    },
+]

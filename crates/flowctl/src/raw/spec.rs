@@ -1,6 +1,6 @@
 use crate::{local_connector, local_specs};
 use anyhow::Context;
-use proto_flow::{capture, flow, materialize};
+use proto_flow::{flow, materialize};
 use tables::DraftCatalog;
 
 #[derive(Debug, clap::Args)]
@@ -93,16 +93,8 @@ async fn get_spec_response(
 
         let model = row.model.as_ref().expect("not a capture");
 
-        let request = match &model.endpoint {
-            models::CaptureEndpoint::Connector(config) => capture::request::Spec {
-                connector_type: flow::capture_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(&config).unwrap().into(),
-            },
-            models::CaptureEndpoint::Local(config) => capture::request::Spec {
-                connector_type: flow::capture_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-        };
+        let request =
+            validation::capture_spec_request(&row.capture, &model.endpoint, &model.shards);
         let response =
             local_connector::spec_capture(router, model.shards.log_level.as_deref(), request)
                 .await?;
@@ -122,7 +114,7 @@ async fn get_spec_response(
             model.unwrap()
         };
 
-        let request = validation::derive_spec_request(&model.using, &model.shards);
+        let request = validation::derive_spec_request(&row.collection, &model.using, &model.shards);
         let response =
             local_connector::spec_derive(router, model.shards.log_level.as_deref(), request)
                 .await?;

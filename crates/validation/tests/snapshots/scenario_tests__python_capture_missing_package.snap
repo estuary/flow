@@ -1,0 +1,14 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files,
+        error: project files must include source_acme/__init__.py,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files,
+        error: project files must include source_acme/__main__.py,
+    },
+]

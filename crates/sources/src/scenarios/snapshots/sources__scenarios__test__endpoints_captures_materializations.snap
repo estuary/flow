@@ -5,6 +5,47 @@ expression: tables
 DraftCatalog {
     captures: [
         DraftCapture {
+            capture: acmeCo/source-acme,
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "endpoint": {
+                "python": {
+                  "files": [
+                    "pyproject.toml",
+                    "source_acme/__init__.py",
+                    "source_acme/__main__.py",
+                    "source_acme/missing.py"
+                  ],
+                  "config": {"credentials":{"client_id":"a-client-id"}},
+                  "spec": {
+                    "configSchema": "source-acme.config.schema.yaml",
+                    "resourceConfigSchema": {"properties":{"name":{"type":"string","x-collection-name":true}},"required":["name"],"type":"object"},
+                    "oauth2": {
+                      "provider": "acme",
+                      "authUrlTemplate": "https://acme.example/authorize?client_id={{{ client_id }}}",
+                      "accessTokenUrlTemplate": "https://acme.example/token",
+                      "accessTokenResponseMap": {
+                        "access_token": "/access_token"
+                      }
+                    }
+                  }
+                }
+              },
+              "secrets": {
+                "acmeCo/source-acme/client-secret": "/credentials/client_secret"
+              },
+              "bindings": [
+                {
+                  "resource": {"name":"widgets"},
+                  "target": "a/collection"
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCapture {
             capture: capture/config-missing,
             scope: test://example/catalog.yaml#/captures/capture~1config-missing,
             expect_pub_id: NULL,
@@ -273,6 +314,10 @@ DraftCatalog {
             error: failed to fetch resource test://example/referenced/config.yaml#/bad/fragment: resources cannot have fragments,
         },
         Error {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme/endpoint/python/files/3,
+            error: failed to fetch resource test://example/source_acme/missing.py: fixture not found,
+        },
+        Error {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/endpoint/connector/config,
             error: failed to fetch resource test://example/config/not/found.yaml: fixture not found,
         },
@@ -296,6 +341,10 @@ DraftCatalog {
         },
         Fetch {
             depth: 2,
+            resource: test://example/pyproject.toml,
+        },
+        Fetch {
+            depth: 2,
             resource: test://example/raw-config.foo,
         },
         Fetch {
@@ -314,8 +363,48 @@ DraftCatalog {
             depth: 2,
             resource: test://example/resource/not/found.yaml,
         },
+        Fetch {
+            depth: 2,
+            resource: test://example/source-acme.config.schema.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/source_acme/__init__.py,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/source_acme/__main__.py,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/source_acme/missing.py,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/credentials.schema.yaml,
+        },
     ],
     imports: [
+        Import {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme/endpoint/python/files/0,
+            to_resource: test://example/pyproject.toml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme/endpoint/python/files/1,
+            to_resource: test://example/source_acme/__init__.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme/endpoint/python/files/2,
+            to_resource: test://example/source_acme/__main__.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme/endpoint/python/files/3,
+            to_resource: test://example/source_acme/missing.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme/endpoint/python/spec/configSchema,
+            to_resource: test://example/source-acme.config.schema.yaml,
+        },
         Import {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
             to_resource: test://example/resource/not/found.yaml,
@@ -356,13 +445,29 @@ DraftCatalog {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config/endpoint/connector/config,
             to_resource: test://example/referenced/config.yaml,
         },
+        Import {
+            scope: test://example/source-acme.config.schema.yaml#/properties/credentials/$ref,
+            to_resource: test://example/credentials.schema.yaml,
+        },
     ],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"capture/config-missing":{"bindings":[{"backfill":2,"resource":"resource/not/found.yaml","target":"some/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"another/image"}}},"capture/config-raw":{"bindings":[],"endpoint":{"connector":{"config":"raw-config.foo","image":"another/image"}}},"capture/local":{"bindings":[],"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}}},"capture/second":{"bindings":[{"resource":"referenced/resource.yaml","target":"third/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"another/image"}},"expectPubId":"00:11:22:33:44:55:66:77","interval":"3m","shards":{"logLevel":"debug","maxTxnDuration":"30s"}},"first/capture":{"bindings":[{"resource":{"stream":"contents"},"target":"a/collection"},{"backfill":1,"resource":{"extra":"stuff"},"target":"other/collection"}],"endpoint":{"connector":{"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image"}}}},"materializations":{"a/materialization":{"bindings":[{"resource":{"table":"table_one"},"source":"source/collection"},{"fields":{"exclude":["del"],"recommended":true,"require":{"add":{}}},"resource":{"table":"table_two"},"source":{"name":"other/source/collection","partitions":{"exclude":{"other":[42]},"include":{"a_field":["some-val"]}}}}],"endpoint":{"connector":{"config":{"its":"config"},"image":"materialization/image"}},"expectPubId":"00:11:22:33:44:55:66:77","sourceCapture":"a/capture"},"materialization/local":{"bindings":[{"resource":{"table":"table_three"},"source":"final/source/collection"}],"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}},"shards":{"ringBufferSize":12345}},"materialization/missing-config":{"bindings":[{"resource":"referenced/not/found.yaml","source":"other/source/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"materialization/image"}}},"materialization/with-config":{"bindings":[{"backfill":3,"resource":"referenced/resource.yaml","source":"some/source/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"materialization/another:image"}}},"materialization/with-config-fragment":{"bindings":[],"endpoint":{"connector":{"config":"referenced/config.yaml#/bad/fragment","image":"materialization/another:image"}}}}},
+            content_dom: {"captures":{"acmeCo/source-acme":{"bindings":[{"resource":{"name":"widgets"},"target":"a/collection"}],"endpoint":{"python":{"config":{"credentials":{"client_id":"a-client-id"}},"files":["pyproject.toml","source_acme/__init__.py","source_acme/__main__.py","source_acme/missing.py"],"spec":{"configSchema":"source-acme.config.schema.yaml","oauth2":{"accessTokenResponseMap":{"access_token":"/access_token"},"accessTokenUrlTemplate":"https://acme.example/token","authUrlTemplate":"https://acme.example/authorize?client_id={{{ client_id }}}","provider":"acme"},"resourceConfigSchema":{"properties":{"name":{"type":"string","x-collection-name":true}},"required":["name"],"type":"object"}}}},"secrets":{"acmeCo/source-acme/client-secret":"/credentials/client_secret"}},"capture/config-missing":{"bindings":[{"backfill":2,"resource":"resource/not/found.yaml","target":"some/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"another/image"}}},"capture/config-raw":{"bindings":[],"endpoint":{"connector":{"config":"raw-config.foo","image":"another/image"}}},"capture/local":{"bindings":[],"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}}},"capture/second":{"bindings":[{"resource":"referenced/resource.yaml","target":"third/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"another/image"}},"expectPubId":"00:11:22:33:44:55:66:77","interval":"3m","shards":{"logLevel":"debug","maxTxnDuration":"30s"}},"first/capture":{"bindings":[{"resource":{"stream":"contents"},"target":"a/collection"},{"backfill":1,"resource":{"extra":"stuff"},"target":"other/collection"}],"endpoint":{"connector":{"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image"}}}},"materializations":{"a/materialization":{"bindings":[{"resource":{"table":"table_one"},"source":"source/collection"},{"fields":{"exclude":["del"],"recommended":true,"require":{"add":{}}},"resource":{"table":"table_two"},"source":{"name":"other/source/collection","partitions":{"exclude":{"other":[42]},"include":{"a_field":["some-val"]}}}}],"endpoint":{"connector":{"config":{"its":"config"},"image":"materialization/image"}},"expectPubId":"00:11:22:33:44:55:66:77","sourceCapture":"a/capture"},"materialization/local":{"bindings":[{"resource":{"table":"table_three"},"source":"final/source/collection"}],"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}},"shards":{"ringBufferSize":12345}},"materialization/missing-config":{"bindings":[{"resource":"referenced/not/found.yaml","source":"other/source/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"materialization/image"}}},"materialization/with-config":{"bindings":[{"backfill":3,"resource":"referenced/resource.yaml","source":"some/source/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"materialization/another:image"}}},"materialization/with-config-fragment":{"bindings":[],"endpoint":{"connector":{"config":"referenced/config.yaml#/bad/fragment","image":"materialization/another:image"}}}}},
+        },
+        Resource {
+            resource: test://example/credentials.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"properties":{"client_id":{"type":"string"},"client_secret":{"secret":true,"type":"string"}},"type":"object"},
+        },
+        Resource {
+            resource: test://example/pyproject.toml,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "[project]\nname = \"source-acme\"\ndependencies = [\"estuary-cdk\"]\n",
         },
         Resource {
             resource: test://example/raw-config.foo,
@@ -381,6 +486,24 @@ DraftCatalog {
             content_type: "CONFIG",
             content: ".. binary ..",
             content_dom: {"referenced":"resource that's fairly long and does not inline"},
+        },
+        Resource {
+            resource: test://example/source-acme.config.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"properties":{"credentials":{"$ref":"credentials.schema.yaml"}},"required":["credentials"],"type":"object"},
+        },
+        Resource {
+            resource: test://example/source_acme/__init__.py,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "from estuary_cdk.capture import BaseCaptureConnector\n",
+        },
+        Resource {
+            resource: test://example/source_acme/__main__.py,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "import asyncio\nimport source_acme\n\nasyncio.run(source_acme.Connector().serve())\n",
         },
     ],
 }

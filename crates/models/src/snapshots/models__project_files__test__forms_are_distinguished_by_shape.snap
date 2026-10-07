@@ -1,0 +1,26 @@
+---
+source: crates/models/src/project_files.rs
+assertion_line: 95
+expression: "(&indirect, indirect.paths().collect::<Vec<_>>(), &inline,\ninline.paths().collect::<Vec<_>>(), serde_json::to_string(&inline).unwrap(),)"
+---
+(
+    Indirect(
+        [
+            "pyproject.toml",
+            "source_acme/__init__.py",
+        ],
+    ),
+    [
+        "pyproject.toml",
+        "source_acme/__init__.py",
+    ],
+    Inline(
+        {
+            "pyproject.toml": "[project]\n",
+        },
+    ),
+    [
+        "pyproject.toml",
+    ],
+    "{\"pyproject.toml\":\"[project]\\n\"}",
+)

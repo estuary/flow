@@ -112,31 +112,27 @@ async fn generate_missing_capture_configs(
     connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftCapture {
-        model: Some(models::CaptureDef {
-            endpoint, bindings, ..
-        }),
+        capture: name,
+        model:
+            Some(models::CaptureDef {
+                endpoint,
+                bindings,
+                shards,
+                ..
+            }),
         ..
     } = capture
     else {
         return Ok(Vec::new());
     };
 
-    let (spec, missing_config_url) = match endpoint {
-        models::CaptureEndpoint::Connector(config) => (
-            capture::request::Spec {
-                connector_type: flow::capture_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
-        models::CaptureEndpoint::Local(config) => (
-            capture::request::Spec {
-                connector_type: flow::capture_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
+    let config = match endpoint {
+        models::CaptureEndpoint::Connector(config) => &config.config,
+        models::CaptureEndpoint::Local(config) => &config.config,
+        models::CaptureEndpoint::Python(python) => &python.config,
     };
+    let missing_config_url = serde_json::from_str::<url::Url>(config.get()).ok();
+    let spec = validation::capture_spec_request(name, endpoint, shards);
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings
         .iter()
         .filter_map(
@@ -174,6 +170,7 @@ async fn generate_missing_collection_configs(
     connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftCollection {
+        collection: name,
         model: Some(models::CollectionDef { derive, .. }),
         ..
     } = collection
@@ -206,7 +203,7 @@ async fn generate_missing_collection_configs(
             return Ok(Vec::new());
         }
     };
-    let spec = validation::derive_spec_request(using, shards);
+    let spec = validation::derive_spec_request(name, using, shards);
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = transforms
         .iter()
         .filter_map(|models::TransformDef { lambda, source, .. }| {

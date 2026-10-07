@@ -2,6 +2,7 @@ use itertools::Itertools;
 use json::Scope;
 use tables::EitherOrBoth as EOB;
 
+mod builtin;
 mod capture;
 pub mod collection;
 mod derivation;
@@ -17,6 +18,11 @@ mod secrets;
 mod storage_mapping;
 mod test_step;
 
+pub use builtin::{
+    CAPTURE_PYTHON_IMAGE, IMAGE_TAG_FLAG as BUILTIN_IMAGE_TAG_FLAG, PYTHON_SENTINEL,
+    TYPESCRIPT_SENTINEL, capture_spec_request, project_root as builtin_project_root,
+    python_package,
+};
 pub use derivation::derive_spec_request;
 pub use errors::Error;
 
@@ -74,6 +80,7 @@ pub async fn validate(
     let mut errors = tables::Errors::new();
 
     storage_mapping::walk_all_storage_mappings(&live.storage_mappings, &mut errors);
+    builtin::walk_shared_files(draft, &mut errors);
 
     // Build all local collections.
     let mut built_collections = collection::walk_all_collections(
@@ -172,7 +179,7 @@ pub async fn validate(
     );
 
     // Concurrently validate all tasks.
-    let (built_captures, built_derivations, built_materializations) =
+    let (mut built_captures, built_derivations, built_materializations) =
         futures::join!(built_captures, built_derivations, built_materializations);
 
     errors.extend(capture_errors.into_iter());
@@ -190,6 +197,22 @@ pub async fn validate(
         row.model_fixes.extend(model_fixes.into_iter());
         row.spec.as_mut().unwrap().derivation = Some(Box::new(derivation));
         row.validated = Some(validated);
+    }
+
+    // A generated lock is never written over a lock which a task lists.
+    let listed_locks = builtin::listed_locks(draft);
+    for generated_files in built_captures
+        .iter_mut()
+        .filter_map(|row| row.validated.as_mut())
+        .map(|validated| &mut validated.generated_files)
+        .chain(
+            built_collections
+                .iter_mut()
+                .filter_map(|row| row.validated.as_mut())
+                .map(|validated| &mut validated.generated_files),
+        )
+    {
+        generated_files.retain(|url, _| !listed_locks.contains(url));
     }
 
     // Look for name collisions among all top-level catalog entities.
@@ -462,7 +485,7 @@ pub fn load_resource_meta_path(resource_config_json: &[u8]) -> Vec<String> {
 }
 
 // Store `resource_path` under /_meta/path of `resource`, returning an updated clone.
-fn store_resource_meta(resource: &models::RawValue, path: &[String]) -> models::RawValue {
+pub fn store_resource_meta(resource: &models::RawValue, path: &[String]) -> models::RawValue {
     type Skim = std::collections::BTreeMap<String, models::RawValue>;
 
     let Ok(mut resource) = serde_json::from_str::<Skim>(resource.get()) else {

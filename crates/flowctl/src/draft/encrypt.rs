@@ -32,6 +32,9 @@ pub async fn encrypt_configs(
         // manufacture the mixed state that publication then rejects.
         let uses_secrets = !model.secrets.is_empty();
 
+        // A python capture's config is never sealed: its build injects the
+        // `_python` sentinel into it, which would break a sops MAC.
+        // It's plaintext, drawing any secrets from its `secrets` stanza.
         if let models::CaptureEndpoint::Connector(connector) = &mut model.endpoint {
             if !uses_secrets && !is_encrypted(&connector.config) {
                 let maybe_schema =

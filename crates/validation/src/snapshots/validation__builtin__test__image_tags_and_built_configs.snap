@@ -1,0 +1,48 @@
+---
+source: crates/validation/src/builtin.rs
+expression: "[derive_typescript_connector(&derived, &typescript, &v1),\nderive_typescript_connector(&derived, &typescript, &v2),\nderive_typescript_connector(&derived, &typescript, &local),\nderive_python_connector(&derived, &python, &v1),\nderive_python_connector(&derived, &python, &v2),\ncapture_python_connector(&name, &capture,\n&shards(&[(models::ENABLE_RUNTIME_V2, \"false\")])),\ncapture_python_connector(&name, &capture, &local),]"
+---
+[
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-typescript:dev",
+        config: RawValue(
+            {"module":"mod.ts"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-typescript:stable",
+        config: RawValue(
+            {"_typescript":{"collection":"acmeCo/derived","module":"mod.ts","spec":{"configSchema":{},"resourceConfigSchema":{"properties":{"readOnly":{"default":false,"description":"Does this transform never publish documents?","type":"boolean"}},"type":"object"}}},"apiKey":"secret"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-typescript:local",
+        config: RawValue(
+            {"_typescript":{"collection":"acmeCo/derived","module":"mod.ts","spec":{"configSchema":{},"resourceConfigSchema":{"properties":{"readOnly":{"default":false,"description":"Does this transform never publish documents?","type":"boolean"}},"type":"object"}}},"apiKey":"secret"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-python:dev",
+        config: RawValue(
+            {"module":"class Derivation: pass\n"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-python:stable",
+        config: RawValue(
+            {"_python":{"collection":"acmeCo/derived","files":{"pyproject.toml":"[project]\n"},"module":"class Derivation: pass\n","spec":{"configSchema":{},"resourceConfigSchema":{"properties":{"readOnly":{"default":false,"description":"Does this transform never publish documents?","type":"boolean"}},"type":"object"}}},"region":"north"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/capture-python:stable",
+        config: RawValue(
+            {"_python":{"capture":"acmeCo/sources/source-acme","files":{"source_acme/__init__.py":""},"package":"source_acme","spec":{"configSchema":{"properties":{"credentials":{"type":"object"}},"type":"object"},"oauth2":{"accessTokenUrlTemplate":"https://acme.example/token","authUrlTemplate":"https://acme.example/authorize","provider":"acme"},"resourceConfigSchema":{"properties":{"interval":{"default":"PT0S","description":"Interval between updates for this resource","format":"duration","nonsensitive":true,"type":"string"},"name":{"description":"Name of this resource","type":"string","x-collection-name":true}},"required":["name"],"type":"object"}}},"credentials":{"client_id":"an-id"}},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/capture-python:local",
+        config: RawValue(
+            {"_python":{"capture":"acmeCo/sources/source-acme","files":{"source_acme/__init__.py":""},"package":"source_acme","spec":{"configSchema":{"properties":{"credentials":{"type":"object"}},"type":"object"},"oauth2":{"accessTokenUrlTemplate":"https://acme.example/token","authUrlTemplate":"https://acme.example/authorize","provider":"acme"},"resourceConfigSchema":{"properties":{"interval":{"default":"PT0S","description":"Interval between updates for this resource","format":"duration","nonsensitive":true,"type":"string"},"name":{"description":"Name of this resource","type":"string","x-collection-name":true}},"required":["name"],"type":"object"}}},"credentials":{"client_id":"an-id"}},
+        ),
+    },
+]

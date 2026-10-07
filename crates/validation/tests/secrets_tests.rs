@@ -3,13 +3,9 @@ mod common;
 const SECRETS_YAML: &str = include_str!("secrets.yaml");
 
 #[test]
-fn secrets_publish_with_builtin_environments() {
+fn secrets_publish_with_builtin_configs() {
     let actual = [("python", "py"), ("typescript", "ts")].map(|(language, extension)| {
-        let dependencies = if language == "python" {
-            "dependencies: {}"
-        } else {
-            ""
-        };
+        let files = if language == "python" { ", files: {}" } else { "" };
         let outcome = common::run(
             SECRETS_YAML,
             &format!(
@@ -22,9 +18,9 @@ test://example/catalog.yaml:
           connector: null
           {language}:
             module: rollups.{extension}
-            environment: &environment {{ REGION: us-east-1 }}
+            config: {{ region: us-east-1 }}
         secrets:
-          acmeCo/api-token: /environment/API_TOKEN
+          acmeCo/api-token: /api_token
         shards:
           flags:
             enable-runtime-v2: "true"
@@ -38,9 +34,8 @@ driver:
         image: ghcr.io/estuary/derive-{language}:stable
         config:
           address: null
-          module: {language} module placeholder
-          {dependencies}
-          environment: *environment
+          region: us-east-1
+          _{language}: {{ collection: acmeCo/rollups, module: {language} module placeholder{files}, spec: {{ configSchema: {{}}, resourceConfigSchema: {{ type: object, properties: {{ readOnly: {{ type: boolean, default: false, description: "Does this transform never publish documents?" }} }} }} }} }}
 "#
             ),
         );
@@ -57,20 +52,20 @@ driver:
             .unwrap();
 
         // The mock checks the Validate configuration; also check that the
-        // built spec retains the environment and secrets for runtime startup.
+        // built spec retains the config and secrets for runtime startup.
         let config: serde_json::Value = serde_json::from_slice(&derivation.config_json).unwrap();
         (language, outcome.errors, config, derivation.secrets.clone())
     });
     insta::assert_debug_snapshot!(actual);
 }
 
-/// Typed built-in configurations are serialized for the same plaintext check
-/// as raw connector configurations.
+/// A built-in derivation's `config` is subject to the same plaintext check
+/// as a raw connector configuration.
 #[test]
-fn secrets_reject_plaintext_values_of_builtin_environments() {
+fn secrets_reject_plaintext_values_of_builtin_configs() {
     let outcomes = [("python", "py"), ("typescript", "ts")].map(|(language, extension)| {
-        let dependencies = if language == "python" {
-            "dependencies: {}"
+        let files_block = if language == "python" {
+            "\n            files: {}"
         } else {
             ""
         };
@@ -86,7 +81,12 @@ test://example/catalog.yaml:
           connector: null
           {language}:
             module: rollups.{extension}
-            environment: &environment {{ API_TOKEN: plaintext-token }}
+            config: {{ api_token: plaintext-token }}
+            spec:
+              configSchema:
+                type: object
+                properties:
+                  api_token: {{ type: string, secret: true }}
         shards:
           flags:
             enable-runtime-v2: "true"
@@ -100,16 +100,22 @@ driver:
         image: ghcr.io/estuary/derive-{language}:stable
         config:
           address: null
-          module: {language} module placeholder
-          {dependencies}
-          environment: *environment
+          api_token: plaintext-token
+          _{language}:
+            collection: acmeCo/rollups
+            module: {language} module placeholder{files_block}
+            spec:
+              configSchema:
+                $id: test://example/catalog.yaml?ptr=/collections/acmeCo~1rollups/derive/using/{language}/spec/configSchema
+                type: object
+                properties:
+                  api_token: {{ type: string, secret: true }}
+              resourceConfigSchema: {{ type: object, properties: {{ readOnly: {{ type: boolean, default: false, description: "Does this transform never publish documents?" }} }} }}
+      # The connector answers Spec with the model's declared schema.
       configSchema:
         type: object
         properties:
-          environment:
-            type: object
-            properties:
-              API_TOKEN: {{ type: string, secret: true }}
+          api_token: {{ type: string, secret: true }}
 "#,
             ),
         )
@@ -129,7 +135,7 @@ fn secrets_publish_across_task_types() {
 
 /// A stanza requires the V2 runtime, whose default differs by task type: a
 /// capture opts out only by pinning the flag false, while a derivation or
-/// materialization must opt in. `environment` of a built-in derivation
+/// materialization must opt in. `config` of a built-in derivation
 /// requires it in its own right.
 #[test]
 fn secrets_require_the_v2_runtime() {
@@ -147,7 +153,7 @@ test://example/catalog.yaml:
           connector: null
           python:
             module: rollups.py
-            environment: &environment { REGION: us-east-1 }
+            config: { region: us-east-1 }
         shards: { flags: null }
   materializations:
     acmeCo/dest-widgets:
@@ -164,8 +170,6 @@ driver:
         config:
           address: null
           module: python module placeholder
-          dependencies: {}
-          environment: *environment
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -440,6 +444,14 @@ test://example/catalog.yaml:
           config: { address: db.example.com }
       secrets:
         vendorCo/oauth/connectors/source/image/oauth-client: /credentials/token
+    acmeCo/source-python:
+      endpoint:
+        python:
+          files: { pyproject.toml: "", source_python/__init__.py: "", source_python/__main__.py: "" }
+      secrets:
+        # Named for the image a Python capture actually runs.
+        vendorCo/oauth/connectors/ghcr.io/estuary/capture-python/oauth-client: /credentials
+      bindings: []
   collections:
     acmeCo/rollups:
       derive:
@@ -449,7 +461,7 @@ test://example/catalog.yaml:
             module: rollups.py
         secrets:
           # Named for the image a built-in derivation actually runs.
-          vendorCo/oauth/connectors/ghcr.io/estuary/derive-python/oauth-client: /environment/TOKEN
+          vendorCo/oauth/connectors/ghcr.io/estuary/derive-python/oauth-client: /token
   materializations:
     acmeCo/dest-widgets:
       endpoint:

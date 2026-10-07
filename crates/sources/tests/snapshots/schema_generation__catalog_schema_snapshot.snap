@@ -181,6 +181,48 @@ expression: "&schema"
       },
       "additionalProperties": false
     },
+    "BuiltinSpec": {
+      "description": "Connector specification of a user-authored (built-in) connector,\nwhich mirrors a connector's Spec response.\n\nThe connector answers Spec from this declaration, without running user\ncode, and generates `EndpointConfig` and `ResourceConfig` types of its\nschemas. User code may instead parse into types of its own, in which case\nkeeping them equivalent to these schemas is the user's responsibility.",
+      "type": "object",
+      "properties": {
+        "configSchema": {
+          "title": "JSON schema of the task's endpoint `config`.",
+          "description": "It's an inline schema, or a relative URL of one.\nMark sensitive locations with `secret: true`, and supply their values\nthrough the task's `secrets` stanza. Defaults to `{}`, which allows any\nconfiguration.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "oauth2": {
+          "title": "OAuth2 provider of the connector, if it supports OAuth2.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OAuth2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resourceConfigSchema": {
+          "title": "JSON schema of the resource configuration of each binding.",
+          "description": "It's an inline schema, or a relative URL of one. Captures default to\nthe CDK's `ResourceConfig` (a `name` and an update `interval`), and\nderivations to the `lambda` of each transform (`{readOnly: boolean}`).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "Capture": {
       "description": "Capture names are paths of Unicode letters, numbers, '-', '_', or '.'.\nEach path component is separated by a slash '/',\nand a name may not begin or end in a '/'.",
       "type": "string",
@@ -314,6 +356,19 @@ expression: "&schema"
           ]
         },
         {
+          "title": "A Python connector.",
+          "type": "object",
+          "properties": {
+            "python": {
+              "$ref": "#/$defs/CapturePython"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "python"
+          ]
+        },
+        {
           "title": "A local command (development only).",
           "type": "object",
           "properties": {
@@ -327,6 +382,28 @@ expression: "&schema"
           ]
         }
       ]
+    },
+    "CapturePython": {
+      "description": "A capture implemented by a user-authored Python connector,\nwritten with the Estuary connector development kit (CDK).",
+      "type": "object",
+      "properties": {
+        "config": {
+          "title": "Endpoint configuration of the connector.",
+          "description": "The configuration is described by `spec.configSchema`, and is parsed\nby the connector's endpoint configuration model.\nIt may not have a `_python` property.",
+          "$ref": "#/$defs/Value"
+        },
+        "files": {
+          "title": "Files of this Python project.",
+          "description": "The project's package is named for the final component of the capture\nname (`acmeCo/source-acme` has package `source_acme`), and must have\n`<package>/__init__.py` and `<package>/__main__.py` files.\nA `pyproject.toml` declaring the project's dependencies is also required.\nA `uv.lock` pins its dependencies exactly, and is otherwise resolved\nwhen the capture is published. `.venv/` and `flow_generated/` are reserved.",
+          "$ref": "#/$defs/ProjectFiles"
+        },
+        "spec": {
+          "title": "Connector specification of this capture.",
+          "description": "Its schemas describe the capture's `config` and the resource\nconfiguration of each binding, and generate the `EndpointConfig`\nand `ResourceConfig` types of the connector.",
+          "$ref": "#/$defs/BuiltinSpec"
+        }
+      },
+      "additionalProperties": false
     },
     "Collection": {
       "description": "Collection names are paths of Unicode letters, numbers, '-', '_', or '.'.\nEach path component is separated by a slash '/',\nand a name may not begin or end in a '/'.",
@@ -630,21 +707,26 @@ expression: "&schema"
     "DeriveUsingPython": {
       "type": "object",
       "properties": {
+        "config": {
+          "title": "Configuration of this derivation.",
+          "description": "The configuration is described by `spec.configSchema`, and is delivered\nto the Derivation class. It may not have a `_python` property.",
+          "$ref": "#/$defs/Value"
+        },
         "dependencies": {
-          "title": "Python package dependencies.",
-          "description": "Map of package name to version specifier (e.g., {\"httpx\": \">=0.27\", \"pydantic\": \">=2.0\"}).\nThese dependencies will be included in the generated pyproject.toml.",
+          "title": "Removed: declare dependencies in a `pyproject.toml` listed in `files`.",
+          "description": "Models of derivations which predate `files` always serialized an empty\n`dependencies`, which is accepted (only) while empty. It's never\nserialized, so a re-published model drops it.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
           },
-          "default": {}
+          "deprecated": true,
+          "maxProperties": 0,
+          "writeOnly": true
         },
-        "environment": {
-          "title": "Environment variables made available to the Python module.",
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
+        "files": {
+          "title": "Additional files of this derivation.",
+          "description": "Files are placed alongside the module. A `pyproject.toml` declares the\nproject's dependencies, and a default is used if it's absent.\nA `uv.lock` pins its dependencies exactly, and is otherwise resolved\nwhen the derivation is published.\n`module.py`, `module/__init__.py`, `main.py`, `.venv/`,\nand `flow_generated/` are reserved.",
+          "$ref": "#/$defs/ProjectFiles"
         },
         "module": {
           "title": "Python module implementing this derivation.",
@@ -663,6 +745,11 @@ expression: "&schema"
               "contentMediaType": "text/x.python"
             }
           ]
+        },
+        "spec": {
+          "title": "Connector specification of this derivation.",
+          "description": "Its schemas describe the derivation's `config` and the `lambda`\nof each transform, and generate the types delivered to the module.",
+          "$ref": "#/$defs/BuiltinSpec"
         }
       },
       "additionalProperties": false,
@@ -700,16 +787,14 @@ expression: "&schema"
     "DeriveUsingTypescript": {
       "type": "object",
       "properties": {
-        "environment": {
-          "title": "Environment variables made available to the TypeScript module.",
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
+        "config": {
+          "title": "Configuration of this derivation.",
+          "description": "The configuration is described by `spec.configSchema`, and is delivered\nto the Derivation class. It may not have a `_typescript` property.",
+          "$ref": "#/$defs/Value"
         },
         "module": {
           "title": "TypeScript module implementing this derivation.",
-          "description": "Module is either a relative URL of a TypeScript module file,\nor is an inline representation of a Typescript module.\nThe module must have a exported Derivation variable which\nis an instance implementing the corresponding Derivation\ninterface.",
+          "description": "Module is either a relative URL of a TypeScript module file,\nor is an inline representation of a Typescript module.\nThe module must have an exported Derivation class which\nextends the generated IDerivation base class.",
           "oneOf": [
             {
               "description": "A URL identifying a resource, which may be a relative local path\nwith respect to the current resource (i.e, ../path/to/flow.yaml),\nor may be an external absolute URL (i.e., http://example/flow.yaml).",
@@ -724,6 +809,11 @@ expression: "&schema"
               "contentMediaType": "text/x.typescript"
             }
           ]
+        },
+        "spec": {
+          "title": "Connector specification of this derivation.",
+          "description": "Its schemas describe the derivation's `config` and the `lambda`\nof each transform, and generate the types delivered to the module.",
+          "$ref": "#/$defs/BuiltinSpec"
         }
       },
       "additionalProperties": false,
@@ -1163,6 +1253,79 @@ expression: "&schema"
         "recommended"
       ]
     },
+    "OAuth2": {
+      "description": "OAuth2 provider of a connector, which mirrors the OAuth2 of a connector's\nSpec response (and the CDK's `OAuth2Spec`).\n\nHeader and response-map values are strings, as the CDK's `OAuth2Spec`\nrequires. Templates are mustache templates. Every template may use `client_id` and\n`redirect_uri`. The authorization URL may also use `state`, the access\ntoken request may use `code` and `client_secret`, and the refresh token\nrequest may use `refresh_token` and `client_secret`.",
+      "type": "object",
+      "properties": {
+        "accessTokenBody": {
+          "title": "Template of the body of the access token request.",
+          "type": "string"
+        },
+        "accessTokenHeaders": {
+          "title": "Headers of the access token request.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "accessTokenMethod": {
+          "title": "HTTP method of the access token request (default POST).",
+          "type": "string"
+        },
+        "accessTokenResponseMap": {
+          "title": "Mapping of the access token response into standard names.",
+          "description": "Keys are the standard RFC 6749 names (`access_token`, `refresh_token`,\nand `access_token_expires_at`), and values locate them in the\nprovider's response. Without a mapping, response keys are used as-is.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "accessTokenUrlTemplate": {
+          "title": "Template of the URL from which an access token is requested.",
+          "type": "string"
+        },
+        "authUrlTemplate": {
+          "title": "Template of the URL to which a user is sent to authorize access.",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Machine-readable name of the OAuth2 provider.",
+          "type": "string"
+        },
+        "refreshTokenBody": {
+          "title": "Template of the body of the refresh token request.",
+          "type": "string"
+        },
+        "refreshTokenHeaders": {
+          "title": "Headers of the refresh token request.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "refreshTokenMethod": {
+          "title": "HTTP method of the refresh token request (default POST).",
+          "type": "string"
+        },
+        "refreshTokenResponseMap": {
+          "title": "Mapping of the refresh token response into standard names.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "refreshTokenUrlTemplate": {
+          "title": "Template of the URL from which an access token is refreshed.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "authUrlTemplate",
+        "accessTokenUrlTemplate"
+      ]
+    },
     "OnIncompatibleSchemaChange": {
       "description": "Determines how to handle incompatible schema changes for a given binding.",
       "examples": [
@@ -1228,6 +1391,23 @@ expression: "&schema"
               "A",
               "B"
             ]
+          }
+        }
+      ]
+    },
+    "ProjectFiles": {
+      "description": "Files of the project. An array lists paths of files relative to the specification, which are read as text. An object maps each such path to its content. Paths are `/`-separated names of letters, numbers, `-`, `_`, and `.`, and cannot have `.` or `..` components.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
           }
         }
       ]

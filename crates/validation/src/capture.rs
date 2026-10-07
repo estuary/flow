@@ -136,15 +136,34 @@ async fn walk_capture(
     }
 
     // Unwrap `endpoint` into a connector type and configuration.
-    let (connector_type, config_json): (i32, bytes::Bytes) = match &endpoint {
-        models::CaptureEndpoint::Connector(config) => (
-            flow::capture_spec::ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::CaptureEndpoint::Local(config) => (
-            flow::capture_spec::ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
+    let capture::request::Spec {
+        connector_type,
+        config_json,
+    } = crate::builtin::capture_spec_request(capture, &endpoint, &shards);
+
+    // A Python capture's project is rooted at its specification, and is always
+    // validated by its connector: validation scaffolds and locks the project.
+    let (project_root, noop_captures) = match &endpoint {
+        models::CaptureEndpoint::Python(python) => {
+            let scope = scope.push_prop("endpoint");
+            let scope = scope.push_prop("python");
+
+            crate::builtin::walk_files(
+                scope.push_prop("files"),
+                &python.files,
+                crate::builtin::is_reserved_python_path,
+                errors,
+            );
+            crate::builtin::walk_config(
+                scope.push_prop("config"),
+                &python.config,
+                crate::builtin::PYTHON_SENTINEL,
+                errors,
+            );
+            crate::builtin::walk_spec(scope.push_prop("spec"), &python.spec, errors);
+            (Some(crate::builtin::project_root(&scope.flatten())), false)
+        }
+        _ => (None, noop_captures),
     };
 
     let secrets_spec = assemble::secrets(&secrets);
@@ -258,7 +277,10 @@ async fn walk_capture(
         },
         linked_collections: Vec::new(),
         secrets: secrets_spec.clone(),
-        project_root: String::new(),
+        project_root: project_root
+            .as_ref()
+            .map(url::Url::to_string)
+            .unwrap_or_default(),
     };
     linked::install_capture_validate(&mut validate_request, interner, indirect_specs);
 
@@ -298,6 +320,30 @@ async fn walk_capture(
     } = &validated_response;
 
     super::validate_generated_file_urls(scope, generated_files, errors);
+
+    // The connector scaffolds a project which is missing required files,
+    // and those files must then be added to the capture's `files`.
+    let config_json = match (&endpoint, &project_root) {
+        (models::CaptureEndpoint::Python(python), Some(project_root)) => {
+            let package = crate::builtin::python_package(capture);
+            let files = scope.push_prop("endpoint");
+            let files = files.push_prop("python");
+            let files = files.push_prop("files");
+
+            for path in crate::builtin::required_capture_python_files(&package) {
+                if !python.files.paths().any(|p| p == path) {
+                    Error::ProjectFileMissing { path }.push(files, errors);
+                }
+            }
+            crate::builtin::bake_generated_files(
+                &config_json,
+                crate::builtin::PYTHON_SENTINEL,
+                project_root,
+                generated_files,
+            )
+        }
+        _ => config_json,
+    };
 
     if bindings_validate_len != bindings_validated.len() {
         Error::WrongConnectorBindings {

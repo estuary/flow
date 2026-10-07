@@ -89,6 +89,12 @@ pub async fn start<L: LogHandler>(
             )?
             .boxed()
         }
+        models::CaptureEndpoint::Python(_) => {
+            return Err(tonic::Status::invalid_argument(
+                "Python captures should have been resolved to an image at build time",
+            )
+            .into());
+        }
     };
 
     // Send an initial Spec request, carrying the sealed configuration so that

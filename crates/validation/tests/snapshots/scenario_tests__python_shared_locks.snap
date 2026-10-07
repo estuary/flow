@@ -1,0 +1,19 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: "(&outcome.errors, generated)"
+---
+(
+    [
+        Error {
+            scope: test://example/int-string-captures#/captures/testing~1source-other,
+            error: this task shares the Python project at test://example/ with the task at test://example/int-string-captures#/captures/testing~1source-acme, which lists its `uv.lock`: tasks sharing a project must all list its `uv.lock`, or none of them may,
+        },
+        Error {
+            scope: test://example/int-string-captures#/captures/testing~1source-other,
+            error: driver fixture not found: testing/source-other,
+        },
+    ],
+    {
+        "test://example/other.txt": "kept",
+    },
+)

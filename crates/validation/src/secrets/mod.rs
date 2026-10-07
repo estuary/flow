@@ -32,6 +32,9 @@ impl<'a> Context<'a> {
         let (config, image) = match endpoint {
             models::CaptureEndpoint::Connector(config) => (&config.config, Some(&config.image)),
             models::CaptureEndpoint::Local(config) => (&config.config, None),
+            // A user-authored connector has no image identity, and secrets
+            // are merged into its `config`.
+            models::CaptureEndpoint::Python(python) => (&python.config, None),
         };
         Self {
             secrets,
@@ -60,25 +63,28 @@ impl<'a> Context<'a> {
     }
 
     pub fn of_derivation(secrets: &'a Stanza, using: &'a models::DeriveUsing) -> Self {
-        // Built-in derivations run frozen first-party images which will never
-        // have first-party secrets, so only an explicit image opts in.
-        let image = match using {
-            models::DeriveUsing::Connector(config) => {
-                Some(models::split_image_tag(&config.image).0)
+        // Built-in derivations run first-party images which will never have
+        // first-party secrets, so only an explicit image opts in. Their
+        // secrets are merged into their `config`.
+        let (config, image) = match using {
+            models::DeriveUsing::Connector(config) => (
+                std::borrow::Cow::Borrowed(&config.config),
+                Some(models::split_image_tag(&config.image).0),
+            ),
+            models::DeriveUsing::Local(config) => {
+                (std::borrow::Cow::Borrowed(&config.config), None)
             }
-            _ => None,
-        };
-        let config = match using {
-            models::DeriveUsing::Connector(config) => std::borrow::Cow::Borrowed(&config.config),
-            models::DeriveUsing::Local(config) => std::borrow::Cow::Borrowed(&config.config),
-            models::DeriveUsing::Typescript(config) => std::borrow::Cow::Owned(
-                models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
-            ),
-            models::DeriveUsing::Python(config) => std::borrow::Cow::Owned(
-                models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
-            ),
-            models::DeriveUsing::Sqlite(config) => std::borrow::Cow::Owned(
-                models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
+            models::DeriveUsing::Typescript(config) => {
+                (std::borrow::Cow::Borrowed(&config.config), None)
+            }
+            models::DeriveUsing::Python(config) => {
+                (std::borrow::Cow::Borrowed(&config.config), None)
+            }
+            models::DeriveUsing::Sqlite(config) => (
+                std::borrow::Cow::Owned(
+                    models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
+                ),
+                None,
             ),
         };
         Self {

@@ -66,6 +66,19 @@ pub fn inline_capture(
             imports,
             resources,
         ),
+        models::CaptureEndpoint::Python(models::CapturePython {
+            files,
+            config,
+            spec,
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("endpoint");
+            let scope = scope.push_prop("python");
+
+            inline_config(scope.push_prop("config"), config, imports, resources);
+            inline_files(scope.push_prop("files"), files, imports, resources);
+            inline_builtin_spec(scope.push_prop("spec"), spec, imports, resources);
+        }
     }
 
     for (index, models::CaptureBinding { resource, .. }) in bindings.iter_mut().enumerate() {
@@ -182,29 +195,36 @@ fn inline_derivation(
                 );
             }
         }
-        models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module, .. }) => {
-            inline_config(
-                Scope::new(scope)
-                    .push_prop("derive")
-                    .push_prop("using")
-                    .push_prop("typescript")
-                    .push_prop("module"),
-                module,
-                imports,
-                resources,
-            );
+        models::DeriveUsing::Typescript(models::DeriveUsingTypescript {
+            module,
+            config,
+            spec,
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("derive");
+            let scope = scope.push_prop("using");
+            let scope = scope.push_prop("typescript");
+
+            inline_config(scope.push_prop("module"), module, imports, resources);
+            inline_config(scope.push_prop("config"), config, imports, resources);
+            inline_builtin_spec(scope.push_prop("spec"), spec, imports, resources);
         }
-        models::DeriveUsing::Python(models::DeriveUsingPython { module, .. }) => {
-            inline_config(
-                Scope::new(scope)
-                    .push_prop("derive")
-                    .push_prop("using")
-                    .push_prop("python")
-                    .push_prop("module"),
-                module,
-                imports,
-                resources,
-            );
+        models::DeriveUsing::Python(models::DeriveUsingPython {
+            module,
+            files,
+            config,
+            spec,
+            dependencies: _,
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("derive");
+            let scope = scope.push_prop("using");
+            let scope = scope.push_prop("python");
+
+            inline_config(scope.push_prop("module"), module, imports, resources);
+            inline_config(scope.push_prop("config"), config, imports, resources);
+            inline_files(scope.push_prop("files"), files, imports, resources);
+            inline_builtin_spec(scope.push_prop("spec"), spec, imports, resources);
         }
     }
 
@@ -384,4 +404,65 @@ fn inline_config(
         // that we *would* have loaded if we could.
         *config = models::RawValue::from_string(serde_json::json!(resource).to_string()).unwrap();
     }
+}
+
+/// Inline the schemas of a built-in connector's `spec` into self-contained
+/// bundles, as is done for collection schemas.
+fn inline_builtin_spec(
+    scope: Scope,
+    spec: &mut models::BuiltinSpec,
+    imports: &mut tables::Imports,
+    resources: &[tables::Resource],
+) {
+    let models::BuiltinSpec {
+        config_schema,
+        resource_config_schema,
+        oauth2: _,
+    } = spec;
+
+    for (prop, schema) in [
+        ("configSchema", config_schema),
+        ("resourceConfigSchema", resource_config_schema),
+    ] {
+        if let Some(schema) = schema {
+            inline_schema(scope.push_prop(prop), schema, imports, resources);
+        }
+    }
+}
+
+/// Inline an indirect `files` list into the object form, mapping each
+/// path to its text content. A file which failed to load is left out:
+/// its load error has already been recorded.
+fn inline_files(
+    scope: Scope,
+    files: &mut models::ProjectFiles,
+    imports: &mut tables::Imports,
+    resources: &[tables::Resource],
+) {
+    let models::ProjectFiles::Indirect(paths) = files else {
+        return;
+    };
+    let mut inline = std::collections::BTreeMap::new();
+
+    for (index, path) in paths.iter().enumerate() {
+        let scope = scope.push_item(index).flatten();
+        let Ok(resource) = scope.join(path) else {
+            continue;
+        };
+        let Some(resource) = tables::Resource::fetch(resources, &resource) else {
+            continue;
+        };
+        let content = serde_json::from_str::<String>(resource.content_dom.get())
+            .expect("text resources are loaded as a JSON string");
+        inline.insert(path.clone(), content);
+
+        let rng = imports.equal_range_by(|import| {
+            import
+                .scope
+                .cmp(&scope)
+                .then(import.to_resource.cmp(&resource.resource))
+        });
+        imports.drain(rng);
+    }
+    *files = models::ProjectFiles::Inline(inline);
 }
