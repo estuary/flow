@@ -17,7 +17,7 @@ expression: outcomes
   },
   {
     "capture": "aliceCo/in/unreadable",
-    "error": "not authorized to read binding target aliceCo/other/foo",
+    "error": "PermissionDenied: not authorized to read binding target aliceCo/other/foo",
     "status": null,
     "token": "scoped"
   },

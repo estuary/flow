@@ -23,6 +23,8 @@ pub struct CreatedDiscover {
 /// Queues discovery using the capture's staged definition, or its live definition
 /// when no draft entry exists and `subject` can read it.
 /// The executor writes discovery results to the draft.
+/// Permission denials and data-plane failures carry a `tonic::Status` so
+/// request handlers can return HTTP 307 for provisional failures.
 pub async fn create(
     pool: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
@@ -87,8 +89,9 @@ pub async fn create(
             !snapshot.is_user_authorized(subject, target, models::authz::Capability::CatalogRead)
         })
     {
-        snapshot.request_refresh();
-        anyhow::bail!("not authorized to read binding target {target}");
+        anyhow::bail!(tonic::Status::permission_denied(format!(
+            "not authorized to read binding target {target}"
+        )));
     }
     let (connector_config, image_name, image_tag) = extract_discovery_endpoint(&model)?;
 
@@ -106,10 +109,7 @@ pub async fn create(
     .await?
     .ok_or_else(|| anyhow::anyhow!("capture connector tag is not ready"))?;
 
-    let data_plane_error = || {
-        snapshot.request_refresh();
-        anyhow::anyhow!("data plane not found or unauthorized")
-    };
+    let data_plane_error = || tonic::Status::not_found("data plane not found or unauthorized");
     let data_plane_name = if let Some(live) = live_capture {
         let current_data_plane_name = &snapshot
             .data_plane_by_id(live.data_plane_id)
@@ -186,15 +186,16 @@ fn select_capture_model(
         }
         spec.ok_or_else(|| anyhow::anyhow!("draft entry is a deletion"))?
     } else {
-        let spec = live_spec.ok_or_else(|| anyhow::anyhow!("capture not found"))?;
+        // Check permission independently of existence so a provisional denial
+        // cannot reveal whether an unreadable live capture exists.
         if !snapshot.is_user_authorized(
             subject,
             capture_name,
             models::authz::Capability::CatalogRead,
         ) {
-            anyhow::bail!("capture not found");
+            anyhow::bail!(tonic::Status::not_found("capture not found"));
         }
-        spec
+        live_spec.ok_or_else(|| anyhow::anyhow!("capture not found"))?
     };
     serde_json::from_str(spec).map_err(|_| anyhow::anyhow!("invalid capture model"))
 }
