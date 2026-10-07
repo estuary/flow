@@ -1,0 +1,50 @@
+---
+source: crates/capture-python/src/lib.rs
+expression: "generated_module_py(\"acmeCo/source-acme\", &spec).unwrap()"
+---
+"""Generated types of capture acmeCo/source-acme, from its declared `spec`."""
+import datetime as _datetime
+import typing as _typing
+import pydantic as _pydantic
+from estuary_cdk.capture import common
+from estuary_cdk.flow import ConnectorSpec, OAuth2Spec
+
+
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    count: int = 10
+    """Count Number of greetings to capture"""
+    greeting: str = "Hello"
+    """Greeting Greeting of each captured document"""
+
+
+
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(common.ResourceConfig):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    interval: _datetime.timedelta = _pydantic.Field(default="PT0S", validate_default=True)
+    name: str
+
+    PATH_POINTERS: _typing.ClassVar[list[str]] = ["/name"]
+
+    def path(self) -> list[str]:
+        """Resource path of this binding: its `x-schema-name` (if any),
+        followed by its `x-collection-name`."""
+        return [self.name]
+
+
+
+
+# The connector specification of the capture. A Spec is answered from the
+# capture's model and not by this connector, so `spec()` returns it only so
+# that the connector is complete.
+SPEC = ConnectorSpec(
+    configSchema={"properties": {"count": {"default": 10, "description": "Number of greetings to capture", "minimum": 0, "title": "Count", "type": "integer"}, "greeting": {"default": "Hello", "description": "Greeting of each captured document", "title": "Greeting", "type": "string"}}, "type": "object"},
+    resourceConfigSchema={"properties": {"interval": {"default": "PT0S", "format": "duration", "type": "string"}, "name": {"type": "string", "x-collection-name": True}}, "required": ["name"], "type": "object"},
+    documentationUrl="https://docs.estuary.dev",
+    resourcePathPointers=ResourceConfig.PATH_POINTERS,
+    oauth2=OAuth2Spec.model_validate({"accessTokenBody": "", "accessTokenHeaders": {}, "accessTokenResponseMap": {}, "accessTokenUrlTemplate": "https://acme.example/token", "authUrlTemplate": "https://acme.example/authorize", "provider": "acme"}),
+)

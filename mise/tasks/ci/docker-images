@@ -63,10 +63,10 @@ for DOCKERFILE in docker/*.Dockerfile; do
     # Per-image tags begin with the version tags from ${TAGS_FILE}.
     IMAGE_TAG_NAMES=("${TAGS[@]}")
 
-    # The V2 derivation runtime maps built-in TypeScript/Python derivations
-    # to the `:stable` image, while the legacy V1 runtime keeps using a frozen `:dev`
-    # image (no longer rebuilt here). Publish `:stable` for these two connectors.
-    if [[ "${IMAGE_NAME}" == "derive-python" || "${IMAGE_NAME}" == "derive-typescript" ]]; then
+    # Built-in connectors (Python captures, and TypeScript/Python derivations)
+    # resolve to the `:stable` image, while legacy V1 derivations keep using a
+    # frozen `:dev` image (no longer rebuilt here). Publish `:stable` for these.
+    if [[ "${IMAGE_NAME}" == "capture-python" || "${IMAGE_NAME}" == "derive-python" || "${IMAGE_NAME}" == "derive-typescript" ]]; then
         IMAGE_TAG_NAMES+=("stable")
     fi
 

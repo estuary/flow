@@ -1,0 +1,55 @@
+---
+source: crates/capture-python/src/lib.rs
+expression: "[session(vec![serde_json::json!({\"spec\": {\"config\": {}}})]),\nsession(vec![serde_json::json!({\"spec\": {\"config\": {\"_python\": with_lock}}}),\nserde_json::json!({\"spec\": {\"config\": {\"_python\": with_lock}}}),\nserde_json::json!({\"open\": {\"capture\": {\"config\": {\"_python\": with_lock}}}}),\nserde_json::json!({\"acknowledge\": {}}),]),\nsession(vec![serde_json::json!({\"spec\": {\"config\": {\"_python\": with_lock}}}),\nserde_json::json!({\"validate\": {\"config\": {\"_python\": with_lock}}}),]),\nsession(vec![serde_json::json!({\"spec\":\n    {\"config\": {\"_python\": without_lock}}}),\nserde_json::json!({\"validate\": {\"config\": {\"_python\": without_lock}}}),]),\nsession(vec![serde_json::json!({\"discover\":\n    {\"config\": {\"_python\": without_lock}}})]),]"
+---
+[
+    (
+        1,
+        None,
+        false,
+    ),
+    (
+        2,
+        Some(
+            (
+                "open",
+                Frozen,
+            ),
+        ),
+        true,
+    ),
+    (
+        1,
+        Some(
+            (
+                "validate",
+                Check,
+            ),
+        ),
+        false,
+    ),
+    (
+        1,
+        Some(
+            (
+                "validate",
+                Resolve {
+                    dev: true,
+                },
+            ),
+        ),
+        false,
+    ),
+    (
+        0,
+        Some(
+            (
+                "discover",
+                Resolve {
+                    dev: false,
+                },
+            ),
+        ),
+        false,
+    ),
+]

@@ -1,0 +1,42 @@
+---
+source: crates/capture-python/src/lib.rs
+expression: "[spec_response(&declared.spec), generic_spec()]"
+---
+[
+  {
+    "spec": {
+      "configSchema": {
+        "properties": {
+          "token": {
+            "secret": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "documentationUrl": "https://docs.estuary.dev",
+      "oauth2": {
+        "authUrlTemplate": "https://acme.example/authorize",
+        "provider": "acme"
+      },
+      "protocol": 3032023,
+      "resourceConfigSchema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "x-collection-name": true
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "spec": {
+      "configSchema": {},
+      "documentationUrl": "https://docs.estuary.dev",
+      "protocol": 3032023,
+      "resourceConfigSchema": {}
+    }
+  }
+]

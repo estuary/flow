@@ -1,0 +1,25 @@
+[project]
+name = "PROJECT_NAME"
+version = "0.1.0"
+requires-python = ">=3.14,<4"
+dependencies = [
+    "estuary-cdk",
+    "pydantic>=2",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1",
+    "pytest>=8",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+estuary-cdk = { url = "CDK_URL", subdirectory = "estuary-cdk" }
+
+[tool.pyright]
+typeCheckingMode = "standard"
+# Types generated from the capture's declared `spec`.
+extraPaths = ["flow_generated/python"]

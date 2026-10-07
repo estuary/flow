@@ -8,6 +8,7 @@ cargo build \
     --locked \
     --release \
     --target $(uname -m)-unknown-linux-musl \
+    -p capture-python \
     -p connector-init \
     -p derive-python \
     -p derive-typescript \
