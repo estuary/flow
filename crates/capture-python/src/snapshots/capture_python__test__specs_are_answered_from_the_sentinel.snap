@@ -1,0 +1,64 @@
+---
+source: crates/capture-python/src/lib.rs
+expression: "[spec_response(&declared.spec), spec_response(&Spec::default())]"
+---
+[
+  {
+    "spec": {
+      "configSchema": {
+        "properties": {
+          "token": {
+            "secret": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "documentationUrl": "https://docs.estuary.dev",
+      "oauth2": {
+        "authUrlTemplate": "https://acme.example/authorize",
+        "provider": "acme"
+      },
+      "protocol": 3032023,
+      "resourceConfigSchema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "x-collection-name": true
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "spec": {
+      "configSchema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "documentationUrl": "https://docs.estuary.dev",
+      "protocol": 3032023,
+      "resourceConfigSchema": {
+        "properties": {
+          "interval": {
+            "default": "PT0S",
+            "description": "Interval between updates for this resource",
+            "format": "duration",
+            "nonsensitive": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of this resource",
+            "type": "string",
+            "x-collection-name": true
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    }
+  }
+]

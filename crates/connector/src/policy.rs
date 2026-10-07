@@ -36,6 +36,9 @@ impl Image {
         if matches!(plane, crate::Plane::Public) && repository == "ghcr.io/estuary/derive-python" {
             anyhow::bail!("Python derivations may only run in private data-planes");
         }
+        if matches!(plane, crate::Plane::Public) && repository == "ghcr.io/estuary/capture-python" {
+            anyhow::bail!("Python captures may only run in private data-planes");
+        }
 
         Ok(Self {
             image: image.to_string(),
@@ -389,6 +392,19 @@ mod test {
             "ghcr.io/estuary/derive-python-tools:v1",
         )
         .unwrap();
+
+        for image in [
+            "ghcr.io/estuary/capture-python:stable",
+            "ghcr.io/estuary/capture-python:v1@sha256:abc",
+        ] {
+            assert_eq!(
+                Image::check(crate::Plane::Public, image)
+                    .unwrap_err()
+                    .to_string(),
+                "Python captures may only run in private data-planes"
+            );
+            Image::check(crate::Plane::Private, image).unwrap();
+        }
     }
 
     #[test]
