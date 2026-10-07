@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use itertools::Itertools;
 use proto_flow::flow;
 use std::fmt::Write;
@@ -5,17 +6,17 @@ use std::fmt::Write;
 mod ast;
 mod mapper;
 
-use super::LambdaConfig;
-use ast::Context;
+use ast::{AST, Context};
 use mapper::Mapper;
 
 pub fn types_ts(
     collection: &flow::CollectionSpec,
-    transforms: &[(&str, &flow::CollectionSpec, LambdaConfig)],
-) -> String {
+    transforms: &[(&str, &flow::CollectionSpec)],
+    spec: &super::Spec,
+) -> anyhow::Result<String> {
     let mut w = String::with_capacity(4096);
 
-    let (w_mapper, r_mapper) = collection_mappers(collection, "Document");
+    let (w_mapper, r_mapper) = collection_mappers(collection, "Document")?;
 
     // Generate Document* types.
     write!(
@@ -35,9 +36,9 @@ export type Document = "#,
     generate_anchors(&mut w, &w_mapper, r_mapper.as_ref(), "Document");
 
     // Generate Source{name} collection types for each transform.
-    for (name, collection, _config) in transforms {
+    for (name, collection) in transforms {
         let source_name = format!("Source{}", camel_case(name, true));
-        let (w_mapper, r_mapper) = collection_mappers(collection, &source_name);
+        let (w_mapper, r_mapper) = collection_mappers(collection, &source_name)?;
         let source_mapper = r_mapper.as_ref().unwrap_or(&w_mapper);
 
         // Generate Source{name}* types.
@@ -58,7 +59,44 @@ export type {source_name} = "#,
         generate_anchors(&mut w, &w_mapper, r_mapper.as_ref(), &source_name);
     }
 
-    // Generate the IDerivation abstract class.
+    // Generate configuration types of the declared spec, which is resolved
+    // with the connector's defaults.
+    for (type_name, schema, prop) in [
+        ("EndpointConfig", &spec.config_schema, "configSchema"),
+        (
+            "ResourceConfig",
+            &spec.resource_config_schema,
+            "resourceConfigSchema",
+        ),
+    ] {
+        let schema = schema.as_ref().expect("spec is resolved");
+        let mapper = Mapper::for_config(schema.to_string().as_bytes())
+            .with_context(|| format!("invalid `{prop}`"))?;
+
+        write!(
+            w,
+            r#"
+// Generated for `spec.{prop}`. It's not validated at runtime, and fields
+// having a `default` are optional: their default is the derivation's to apply.
+export type {type_name} = "#,
+        )
+        .unwrap();
+
+        // A trivial schema (`{}`) is an object which allows any properties.
+        match mapper.map(mapper.schema()) {
+            AST::Unknown => w.push_str("Record<string, unknown>"),
+            ast => ast.render(&mut Context::new(&mut w)),
+        }
+        write!(w, ";\n").unwrap();
+    }
+
+    write_interface(&mut w, transforms);
+    Ok(w)
+}
+
+// Write protocol types and the IDerivation abstract class, having an abstract
+// method for each of `transforms`.
+fn write_interface(w: &mut String, transforms: &[(&str, &flow::CollectionSpec)]) {
     write!(
         w,
         r#"
@@ -84,12 +122,59 @@ export type FlushResponse = {{
     more?: boolean,
 }};
 
-export abstract class IDerivation {{
-    // Construct a new Derivation instance from a Request.Open message.
-    // `range` is the shard's assigned key/r-clock range (camelCase, with zero
-    // components omitted), present at runtime and useful for shards that namespace
-    // cooperative state by their key range.
-    constructor(_open: {{ state: unknown, range?: {{ keyBegin?: number, keyEnd?: number, rClockBegin?: number, rClockEnd?: number }} }}) {{ }}
+// Request.Open message from which a Derivation is constructed.
+// `range` is the shard's assigned key/r-clock range (camelCase, with zero
+// components omitted), present at runtime and useful for shards that namespace
+// cooperative state by their key range. `resources` are the resource
+// configurations (`lambda`) of each transform, in order.
+export type Open<R = ResourceConfig> = {{
+    state: unknown,
+    range?: {{ keyBegin?: number, keyEnd?: number, rClockBegin?: number, rClockEnd?: number }},
+    resources: R[],
+}};
+
+// Request.Validate of a derivation of collection `name` which is being
+// published, having `transforms` and the resource configuration of each.
+export type Validate<R = ResourceConfig> = {{
+    name: string,
+    transforms: {{ name: string, resourceConfig: R }}[],
+}};
+
+// Response.Validated of a derivation, with each of its transforms in the order
+// of Validate. A `readOnly` transform never publishes documents.
+export type Validated = {{
+    transforms: {{ readOnly?: boolean }}[],
+}};
+
+// `C` is the type of the derivation's `config`, and `R` of the resource
+// configuration of each transform. They default to the types generated from
+// the derivation's `spec`, and are not validated at runtime.
+export abstract class IDerivation<C = EndpointConfig, R = ResourceConfig> {{
+    // Construct a new Derivation instance from a Request.Open message and the
+    // derivation's `config`. Its `open` is a structural supertype of `Open<R>`,
+    // and `config` is optional, so that modules written before they existed,
+    // whose constructors take `open: {{ state, range }}` and call `super(open)`,
+    // still type-check.
+    constructor(
+        _open: {{
+            state: unknown,
+            range?: {{ keyBegin?: number, keyEnd?: number, rClockBegin?: number, rClockEnd?: number }},
+            resources?: R[],
+        }},
+        _config?: C,
+    ) {{ }}
+
+    // validate the derivation as it's published, throwing to fail validation.
+    // No instance exists until the derivation is opened. The default marks a
+    // transform as read-only if its resource configuration has a true `readOnly`.
+    // Parameters are `unknown` so that an override may narrow them.
+    static validate(validate: Validate<unknown>, _config: unknown): Validated {{
+        return {{
+            transforms: validate.transforms.map(({{ resourceConfig }}) => ({{
+                readOnly: (resourceConfig as {{ readOnly?: unknown }} | null)?.readOnly === true,
+            }})),
+        }};
+    }}
 
     // flush completes any deferred work for the current transaction, publishing
     // all documents derived from prior reads. It may be called more than once per
@@ -111,7 +196,7 @@ export abstract class IDerivation {{
     )
     .unwrap();
 
-    for (name, _, _) in transforms {
+    for (name, _) in transforms {
         let method_name = camel_case(name, false);
         let source_name = format!("Source{}", camel_case(name, true));
 
@@ -123,35 +208,36 @@ export abstract class IDerivation {{
         .unwrap();
     }
     w.push_str("\n}\n");
-
-    w
 }
 
-pub fn main_ts(transforms: &[(&str, &flow::CollectionSpec, LambdaConfig)]) -> String {
+/// Generate the entry point of a derivation, which imports the module of its
+/// directory at the relative URL `entry`.
+pub fn main_ts(transforms: &[(&str, &flow::CollectionSpec)], entry: &str) -> String {
     let w = include_str!("main.ts.template").to_string();
 
     let transforms = transforms
         .iter()
-        .map(|(name, _, _)| {
+        .map(|(name, _)| {
             let method_name = camel_case(name, false);
             format!("    derivation.{method_name}.bind(derivation) as Lambda,")
         })
         .join("\n");
 
-    let w = w.replace("TRANSFORMS", &transforms);
-
-    w
+    w.replace("TRANSFORMS", &transforms)
+        .replace("ENTRY_MODULE", &serde_json::to_string(entry).unwrap())
 }
 
-pub fn stub_ts(
+/// Generate the starter entry of a derivation: a working derivation whose
+/// transforms publish nothing, as a starting point.
+pub fn starter_ts(
     collection: &flow::CollectionSpec,
-    transforms: &[(&str, &flow::CollectionSpec, LambdaConfig)],
+    transforms: &[(&str, &flow::CollectionSpec)],
 ) -> String {
     let mut w = String::with_capacity(4096);
 
     let transforms = transforms
         .iter()
-        .map(|(name, _, _)| {
+        .map(|(name, _)| {
             let method_name = camel_case(name, false);
             let source_name = format!("Source{}", camel_case(name, true));
             (method_name, source_name)
@@ -163,18 +249,21 @@ pub fn stub_ts(
         .map(|(_, source_name)| source_name)
         .join(", ");
 
-    writeln!(
-        w,
-        "import {{ IDerivation, Document, {transform_sources} }} from 'flow/{name}.ts';",
-        name = &collection.name,
-    )
-    .unwrap();
-
     write!(
         w,
-        r#"
-// Implementation for derivation {name}.
+        r#"// Derivation of collection {name}.
+//
+// The platform runs the `Derivation` class which this module exports. Modules
+// of this directory import one another relatively (`./helpers.ts`), and import
+// their generated types through the `flow/` mapping of the project's deno.json.
+import {{ IDerivation, Document, EndpointConfig, Open, {transform_sources} }} from 'flow/{name}.ts';
+
 export class Derivation extends IDerivation {{
+    // `EndpointConfig` is generated from the derivation's `spec.configSchema`.
+    constructor(open: Open, readonly config: EndpointConfig) {{
+        super(open, config);
+    }}
+
 "#,
         name = &collection.name,
     )
@@ -186,7 +275,10 @@ export class Derivation extends IDerivation {{
             "    {method_name}(_read: {{ doc: {source_name} }}): Document[] {{"
         )
         .unwrap();
-        w.push_str("        throw new Error(\"Not implemented\");\n    }\n");
+        w.push_str(
+            "        // Return each `Document` derived from `_read.doc`.\n        \
+             // This starter publishes nothing.\n        return [];\n    }\n",
+        );
     }
     w.push_str("}\n");
 
@@ -216,17 +308,25 @@ export type {prefix}{anchor_name} = "#,
     }
 }
 
-fn collection_mappers(c: &flow::CollectionSpec, anchor_prefix: &str) -> (Mapper, Option<Mapper>) {
+fn collection_mappers(
+    c: &flow::CollectionSpec,
+    anchor_prefix: &str,
+) -> anyhow::Result<(Mapper, Option<Mapper>)> {
+    let context = || format!("invalid schema of collection {}", c.name);
+
     // We extract anchors from just one schema:
     // * The write schema, if there is no read schema.
     // * Otherwise the read schema and not the write schema.
     if c.read_schema_json.is_empty() {
-        (Mapper::new(&c.write_schema_json, anchor_prefix), None)
+        Ok((
+            Mapper::new(&c.write_schema_json, anchor_prefix).with_context(context)?,
+            None,
+        ))
     } else {
-        (
-            Mapper::new(&c.write_schema_json, ""),
-            Some(Mapper::new(&c.read_schema_json, anchor_prefix)),
-        )
+        Ok((
+            Mapper::new(&c.write_schema_json, "").with_context(context)?,
+            Some(Mapper::new(&c.read_schema_json, anchor_prefix).with_context(context)?),
+        ))
     }
 }
 

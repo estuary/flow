@@ -1,0 +1,9 @@
+{
+  // Packages published within the past week aren't candidates for resolution,
+  // as malicious uploads are typically yanked within days.
+  "minimumDependencyAge": "P7D",
+  "imports": {
+    // Types generated from the derivation's collections and declared `spec`.
+    "flow/": "./flow_generated/typescript/"
+  }
+}

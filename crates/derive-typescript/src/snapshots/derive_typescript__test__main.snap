@@ -1,0 +1,178 @@
+---
+source: crates/derive-typescript/src/lib.rs
+assertion_line: 638
+expression: "codegen::main_ts(&transforms, \"../orders/mod.ts\")"
+---
+// This entry point must never import a remote module. A project's lock pins
+// the whole module graph, and a running task uses its lock as-is, so a remote
+// import added here would fail every task built before it.
+
+// Lines of stdout are buffered, and written upon a flush or once they're large.
+const stdout = Deno.stdout.writable.getWriter();
+const encoder = new TextEncoder();
+let pending: string[] = [];
+let pendingLength = 0;
+
+async function writeLine(line: string, flush: boolean) {
+    pending.push(line, "\n");
+    pendingLength += line.length + 1;
+
+    if (flush || pendingLength >= 1 << 16) {
+        await stdout.write(encoder.encode(pending.join("")));
+        pending = [];
+        pendingLength = 0;
+    }
+}
+
+async function* readLines(readable: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+    let buffer = "";
+    for await (const chunk of readable.pipeThrough(new TextDecoderStream())) {
+        buffer += chunk;
+        let begin = 0;
+        for (let end = buffer.indexOf("\n"); end != -1; end = buffer.indexOf("\n", begin)) {
+            yield buffer.slice(begin, end);
+            begin = end + 1;
+        }
+        buffer = buffer.slice(begin);
+    }
+    if (buffer.length != 0) {
+        yield buffer;
+    }
+}
+
+// Build a helper for emitting protocol responses.
+async function emit(response: {
+    opened?: {
+    }
+    published?: {
+        doc: unknown,
+    }
+    flushed?: {
+        state?: {
+            updated: unknown,
+            mergePatch: boolean,
+        },
+        more: boolean,
+    }
+}) {
+    await writeLine(JSON.stringify(response), response.opened !== undefined || response.flushed !== undefined);
+}
+
+// Fixup console to not write to stdout. The derivation's directory is imported
+// dynamically, after this fixup, so that its console output at import cannot
+// corrupt stdout.
+console.log = console.error;
+console.debug = console.error;
+console.info = console.error;
+
+const module = await import("../orders/mod.ts");
+const { Derivation } = module;
+type Derivation = InstanceType<typeof Derivation>;
+
+// `main.ts validate` validates the derivation as it's published: it reads its
+// configuration and Validate request from stdin, and writes its Validated.
+if (Deno.args[0] === "validate") {
+    const input = JSON.parse(await new Response(Deno.stdin.readable).text()) as {
+        config: unknown,
+        validate: unknown,
+    };
+    type ValidateArgs = Parameters<typeof Derivation.validate>;
+    const validated = Derivation.validate(
+        input.validate as ValidateArgs[0],
+        input.config as ValidateArgs[1],
+    );
+
+    await writeLine(JSON.stringify(validated), true);
+    Deno.exit(0);
+}
+
+const stdin = readLines(Deno.stdin.readable);
+
+const open = JSON.parse((await stdin.next()).value as string) as {
+    open: {
+        collection: {
+            derivation: {
+                // The connector has reduced this to the user's own configuration.
+                config?: unknown,
+                transforms?: { lambdaConfig?: unknown }[],
+            },
+        },
+        state: unknown,
+        range?: { keyBegin?: number, keyEnd?: number, rClockBegin?: number, rClockEnd?: number },
+    },
+};
+const { config, transforms: openTransforms } = open.open.collection.derivation;
+
+// Configurations are typed as the Derivation declares, but aren't validated
+// at runtime. The resource configuration of a transform is its `lambda`.
+// A constructor may take only `open`, as modules which predate `config` do,
+// so it's called through a type which accepts both forms.
+const DerivationOf = Derivation as unknown as new (open: unknown, config: unknown) => Derivation;
+const derivation: Derivation = new DerivationOf(
+    {
+        state: open.open.state,
+        range: open.open.range,
+        resources: (openTransforms ?? []).map(({ lambdaConfig }) => lambdaConfig ?? {}),
+    },
+    config ?? {},
+);
+
+// Index transformation lambdas of the derivation instance.
+type Lambda = (source: unknown) => unknown[];
+const transforms: Array<Lambda> = [
+    derivation.fromOrders.bind(derivation) as Lambda,
+    derivation.fromRefunds.bind(derivation) as Lambda,
+];
+
+await emit({ opened: {} });
+
+for await (const line of stdin) {
+    const request = JSON.parse(line) as {
+        read?: {
+            transform: number,
+            shuffleHash: number,
+            doc: unknown,
+        },
+        flush?: {
+            statePatches?: unknown[],
+        },
+        reset?: {}
+    };
+
+    if (request.read) {
+        let transform = request.read.transform || 0;
+
+        if (transform >= transforms.length) {
+            throw new Error(`lambda index ${transform} is not valid`);
+        }
+        const published = transforms[transform](request.read)
+
+        for (let i = 0; i != published.length; i++) {
+            await emit({ published: { doc: published[i] } });
+        }
+    } else if (request.flush) {
+        const result = await derivation.flush(request.flush.statePatches);
+
+        // flush() returns either a Document[] (publish only) or a FlushResponse
+        // { published, state, more }. Duck-type to support both shapes.
+        const published = Array.isArray(result) ? result : (result.published ?? []);
+        const state = Array.isArray(result) ? undefined : result.state;
+        const more = Array.isArray(result) ? false : (result.more ?? false);
+
+        for (let i = 0; i != published.length; i++) {
+            await emit({ published: { doc: published[i] } });
+        }
+        await emit({
+            flushed: {
+                ...(state !== undefined
+                    ? { state: { updated: state.updated, mergePatch: state.mergePatch ?? false } }
+                    : {}),
+                more,
+            },
+        });
+    } else if (request.reset) {
+        await derivation.reset();
+    } else {
+        throw new Error(`unexpected request: ${JSON.stringify(request)}`);
+    }
+}
