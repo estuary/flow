@@ -8,20 +8,24 @@ use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 
 // Row is the dequeued task shape of a discover operation.
+//
+// Connector-tag columns are None for a discover of a python capture, which
+// has no connector tag. Its `endpoint_config` is the `endpoint.python.config`
+// of the capture, whose `files` are resolved from its drafted or live model.
 #[derive(Debug)]
 pub struct Row {
     pub capture_name: String,
-    pub connector_tag_id: Id,
-    pub connector_tag_job_success: bool,
+    pub connector_tag_id: Option<Id>,
+    pub connector_tag_job_success: Option<bool>,
     pub created_at: DateTime<Utc>,
     pub data_plane_name: String,
     pub draft_id: Id,
     pub endpoint_config: Json<Box<RawValue>>,
     pub id: Id,
-    pub image_name: String,
-    pub image_tag: String,
+    pub image_name: Option<String>,
+    pub image_tag: Option<String>,
     pub logs_token: Uuid,
-    pub protocol: String,
+    pub protocol: Option<String>,
     pub update_only: bool,
     pub updated_at: DateTime<Utc>,
     pub user_id: Uuid,
@@ -33,23 +37,23 @@ pub async fn fetch_discover(id: Id, db: &sqlx::PgPool) -> sqlx::Result<Row> {
         r#"select
             discovers.capture_name,
             discovers.connector_tag_id as "connector_tag_id: Id",
-            connector_tags.job_status->>'type' = 'success' as "connector_tag_job_success!",
+            connector_tags.job_status->>'type' = 'success' as "connector_tag_job_success?",
             discovers.created_at,
             discovers.data_plane_name,
             discovers.draft_id as "draft_id: Id",
             discovers.endpoint_config as "endpoint_config: Json<Box<RawValue>>",
             discovers.id as "id: Id",
-            connectors.image_name,
-            connector_tags.image_tag,
+            connectors.image_name as "image_name?",
+            connector_tags.image_tag as "image_tag?",
             discovers.logs_token,
-            connector_tags.protocol as "protocol!",
+            connector_tags.protocol as "protocol?",
             discovers.update_only,
             discovers.updated_at,
             drafts.user_id
         from discovers
         join drafts on discovers.draft_id = drafts.id
-        join connector_tags on discovers.connector_tag_id = connector_tags.id
-        join connectors on connectors.id = connector_tags.connector_id
+        left join connector_tags on discovers.connector_tag_id = connector_tags.id
+        left join connectors on connectors.id = connector_tags.connector_id
         where discovers.id = $1::flowid;
         "#,
         id as Id

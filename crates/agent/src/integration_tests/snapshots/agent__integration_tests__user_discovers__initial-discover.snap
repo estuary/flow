@@ -22,16 +22,16 @@ DraftCatalog {
               },
               "bindings": [
                 {
-                  "resource": {"id": "acorns"},
+                  "resource": {"_meta":{"path":["acorns"]},"id":"acorns"},
                   "target": "squirrels/acorns"
                 },
                 {
-                  "resource": {"id": "crab apples"},
+                  "resource": {"_meta":{"path":["crab apples"]},"id":"crab apples"},
                   "disable": true,
                   "target": "squirrels/crab_apples"
                 },
                 {
-                  "resource": {"id": "walnuts"},
+                  "resource": {"_meta":{"path":["walnuts"]},"id":"walnuts"},
                   "target": "squirrels/walnuts"
                 }
               ]

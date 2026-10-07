@@ -63,6 +63,11 @@ expression: published_specs
                     Object {
                         "disable": Bool(true),
                         "resource": Object {
+                            "_meta": Object {
+                                "path": Array [
+                                    String("crab apples"),
+                                ],
+                            },
                             "id": String("crab apples"),
                         },
                         "target": String("squirrels/crab_apples"),

@@ -535,7 +535,7 @@ async fn test_config_update_publication_backoff() {
 }
 
 // Upserts a config update event into the config_updates table.
-async fn upsert_config_update(
+pub(super) async fn upsert_config_update(
     harness: &mut TestHarness,
     shard: &ShardRef,
     updated_config: serde_json::Value,
