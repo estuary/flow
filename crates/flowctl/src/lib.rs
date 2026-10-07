@@ -13,6 +13,7 @@ mod generate;
 mod graphql;
 mod local_connector;
 mod local_specs;
+mod migrate_target_naming;
 mod ops;
 mod output;
 mod poll;
