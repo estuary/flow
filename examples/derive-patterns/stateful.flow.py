@@ -3,22 +3,17 @@
 This example shows how to:
 1. Load persisted state on initialization
 2. Maintain in-memory state during transaction
-3. Persist partial state updates via start_commit()
+3. Persist partial state updates via `flushed.state` of flush()
 4. Handle state recovery across task restarts
 
 In addition to catalog tests, be sure to test your stateful derivation using
 `flowctl preview` with multiple `--sessions` to exercise end-to-end restarts
 of your derivation.
-
-NOTE: This example still uses the V1 `start_commit()` lifecycle method, because
-ci:catalog-test currently runs derivations on the V1 runtime. When that suite
-moves to the V2 runtime, this will be ported to contribute state via `flushed.state`
-inside `flush()` (see https://docs.estuary.dev/concepts/derivations/);
-`start_commit` and `Response.StartedCommit` do not exist in V2-generated code.
 """
 
+import typing
 from collections.abc import AsyncIterator
-from patterns.stateful import IDerivation, Document, Request, Response
+from patterns.stateful import ConnectorState, EndpointConfig, IDerivation, Document, Request, Response
 from pydantic import BaseModel, Field
 
 
@@ -35,13 +30,15 @@ class State(BaseModel):
 class Derivation(IDerivation):
     """Derivation that maintains persistent state across transactions."""
 
-    def __init__(self, open: Request.Open):
+    def __init__(self, open: Request.Open, config: EndpointConfig):
         """Initialize and load persisted state.
 
         The runtime passes previous state via open.state. This allows
         the derivation to recover its state after restarts or failures.
+        This derivation declares no `spec.configSchema`, so its `config`
+        is an empty EndpointConfig.
         """
-        super().__init__(open)
+        super().__init__(open, config)
 
         # Load persisted state from previous transaction.
         # `open.state` is an empty dict on the first run.
@@ -56,7 +53,7 @@ class Derivation(IDerivation):
         """Update in-memory state and emit current counts.
 
         State updates happen in-memory during the transaction.
-        They are persisted to durable storage in start_commit().
+        They are persisted to durable storage in flush().
         """
 
         state = self.state.keys.setdefault(read.doc.Key, State.KeyState(count=0, sum=0))
@@ -68,31 +65,24 @@ class Derivation(IDerivation):
         # Mark this key as "touched" during this transaction.
         self.touched.keys[read.doc.Key] = state
 
-    def start_commit(self, start_commit: Request.StartCommit) -> Response.StartedCommit:
+    async def flush(
+        self, state_patches: list[typing.Any], flushed: Response.Flushed
+    ) -> AsyncIterator[Document]:
         """Persist state updates for recovery after failures.
 
-        The runtime calls this at the end of each transaction. Returned state
-        is durably persisted and will be passed back via open.state on the
-        next Open message (e.g., after a restart).
+        The runtime calls this at the end of each transaction. The state set
+        on `flushed` is durably persisted and will be passed back via
+        open.state on the next Open message (e.g., after a restart).
 
-        Args:
-            start_commit: Metadata about the commit (includes runtime checkpoint)
-
-        Returns:
-            StartedCommit with state to persist. Setting merge_patch=True means
-            the state we emit is merged with the prior state, as a JSON merge patch.
-            If it were False, the prior state would be completely replaced.
+        Setting merge_patch=True means the state we emit is merged with the
+        prior state, as a JSON merge patch. If it were False, the prior state
+        would be completely replaced.
         """
-
-        updated = self.touched.model_dump()
+        flushed.state = ConnectorState(updated=self.touched.model_dump(), merge_patch=True)
         self.touched = State()
 
-        return Response.StartedCommit(
-            state=Response.StartedCommit.State(
-                updated=updated,
-                merge_patch=True,
-            )
-        )
+        if False:
+            yield  # Mark as a generator.
 
     async def reset(self):
         """Reset state for catalog tests.

@@ -13,3 +13,6 @@ class Derivation(IDerivation):
 
     async def from_ints(self, read: Request.ReadFromInts) -> AsyncIterator[Document]:
         yield Document(Key=read.doc.Key, Sum=read.doc.Int)
+
+    async def from_strings(self, read: Request.ReadFromStrings) -> AsyncIterator[Document]:
+        yield Document(Key=read.doc.Key, Sum=len(read.doc.String))

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Build `:local` images of built-in connectors from this checkout"
+#MISE depends=["ci:musl-dev"]
+
+# Specifications select these images with the `builtin-image-tag: local` shard flag.
+#
+# The runtime runs every connector as linux/amd64, so the images are built for
+# it regardless of the host. A statically-linked musl binary of the host's own
+# architecture still runs natively within the (emulated) amd64 userland, much
+# as a mounted flow-connector-init does.
+ARCH=$(uname -m)
+CONTEXT=$(mktemp -d)
+trap "rm -rf ${CONTEXT}" EXIT
+mkdir -p ${CONTEXT}/amd64
+
+for IMAGE in capture-python derive-python derive-typescript; do
+    cp ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/debug/${IMAGE} ${CONTEXT}/amd64/
+    docker build --quiet \
+        --platform linux/amd64 \
+        --file docker/${IMAGE}.Dockerfile \
+        --tag ghcr.io/estuary/${IMAGE}:local \
+        ${CONTEXT}
+done

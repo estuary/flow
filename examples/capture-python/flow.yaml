@@ -1,0 +1,53 @@
+# A capture implemented by a user-authored Python connector, written with the
+# Estuary CDK. `flowctl generate` scaffolded this project (and its starter
+# `spec.configSchema`) from a spec having only `endpoint: { python: {} }`, and
+# `flowctl raw discover` wrote its bindings and collection from the connector's
+# models.
+captures:
+  examples/source-hello:
+    endpoint:
+      python:
+        files:
+          - pyproject.toml
+          - source_hello/__init__.py
+          - source_hello/__main__.py
+          - source_hello/api.py
+          - source_hello/models.py
+          - source_hello/resources.py
+        # Parsed by the connector's EndpointConfig model, which is generated
+        # from `spec.configSchema`.
+        config:
+          greeting: Howdy
+          count: 3
+        # The connector's Spec. Its resource configuration is the default:
+        # the CDK's `ResourceConfig`, of a `name` and an update `interval`.
+        spec:
+          configSchema:
+            type: object
+            properties:
+              greeting:
+                type: string
+                title: Greeting
+                description: Greeting of each captured document
+                default: Hello
+              count:
+                type: integer
+                title: Count
+                description: Number of greetings to capture
+                default: 10
+                minimum: 0
+    bindings:
+      - resource:
+          name: greetings
+          interval: PT30S
+        target: examples/greetings
+    shards:
+      flags:
+        # Run this checkout's capture-python image, which `ci:catalog-test`
+        # builds as `:local`.
+        builtin-image-tag: local
+
+collections:
+  examples/greetings:
+    schema: greetings.schema.yaml
+    key: [/id]

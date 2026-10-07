@@ -17,6 +17,12 @@ collections:
     derive:
       using:
         typescript: { module: summer.flow.ts }
+      # Run this checkout's built-in connector images, which `ci:catalog-test`
+      # builds as `:local`.
+      shards:
+        flags:
+          enable-runtime-v2: "true"
+          builtin-image-tag: local
       transforms:
         - name: fromInts
           source: { name: patterns/ints }
@@ -29,9 +35,19 @@ collections:
     derive:
       using:
         python: { module: summer.flow.py }
+      # Run this checkout's built-in connector images, which `ci:catalog-test`
+      # builds as `:local`.
+      shards:
+        flags:
+          enable-runtime-v2: "true"
+          builtin-image-tag: local
+      # Two transforms, each of which the derivation dispatches by type.
       transforms:
         - name: fromInts
           source: { name: patterns/ints }
+          shuffle: { key: [/Key] }
+        - name: fromStrings
+          source: { name: patterns/strings }
           shuffle: { key: [/Key] }
 
   patterns/sums-stateful:
@@ -93,3 +109,10 @@ tests:
           description: Expect we can do sums within registers
           collection: patterns/sums-stateful
           documents: [{ Key: key, Sum: 12 }]
+      - ingest:
+          collection: patterns/strings
+          documents: [{ Key: key, String: abc }]
+      - verify:
+          description: The Python derivation also sums the lengths of strings
+          collection: patterns/sums-python
+          documents: [{ Key: key, Sum: 15 }]

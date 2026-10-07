@@ -2,8 +2,11 @@
 set -euo pipefail
 
 #MISE description="Run catalog tests over the derivation examples"
-#MISE depends=["ci:musl-dev"]
+#MISE depends=["ci:builtin-images"]
 
+# Example derivations run `:local` images of built-in connectors (see
+# `ci:builtin-images`), selected by their `builtin-image-tag` shard flag.
+#
 # `flowctl raw test` runs the catalog's tests locally on the runtime-next stack:
 # no Gazette broker, no etcd, no Go consumer. Image derivations still run as
 # connector containers, so Docker is required.
@@ -13,3 +16,9 @@ set -euo pipefail
 # covers for ${CARGO_TARGET_DIR}/debug but not the musl dir.
 PATH=${PATH}:${CARGO_TARGET_DIR}/debug:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug \
 cargo run --quiet -p flowctl -- raw test --source examples/flow.yaml
+
+# Catalog tests don't run captures, so the capture-python example is checked
+# by previewing it: its connector captures a fixed set of documents.
+PATH=${PATH}:${CARGO_TARGET_DIR}/debug:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug \
+cargo run --quiet -p flowctl -- preview --source examples/capture-python/flow.yaml --timeout 60s \
+    | diff - examples/capture-python/expected.jsonl

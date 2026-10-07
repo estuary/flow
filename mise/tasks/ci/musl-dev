@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Build musl targets (debug): flow-connector-init"
+#MISE description="Build musl targets (debug): flow-connector-init and built-in connectors"
 
 rustup target add $(uname -m)-unknown-linux-musl
 
 cargo build \
     --locked \
     --target $(uname -m)-unknown-linux-musl \
-    -p connector-init
+    -p capture-python \
+    -p connector-init \
+    -p derive-python \
+    -p derive-typescript
