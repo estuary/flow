@@ -54,16 +54,16 @@ pub async fn create(
     // cannot be disclosed to this caller or the draft contains edits.
     let live_capture = sqlx::query!(
         r#"
-        SELECT ls.spec::text AS spec, ls.spec_type::text AS spec_type,
+        SELECT ls.spec::text AS spec,
                ls.data_plane_id AS "data_plane_id: models::Id"
         FROM live_specs ls
-        WHERE ls.catalog_name = $1
+        WHERE ls.catalog_name = $1 AND ls.spec_type = 'capture'
+          AND ls.spec IS NOT NULL
         "#,
         capture_name,
     )
     .fetch_optional(pool)
-    .await?
-    .filter(|row| row.spec_type.as_deref() == Some("capture") && row.spec.is_some());
+    .await?;
 
     let model = select_capture_model(
         capture_name,
