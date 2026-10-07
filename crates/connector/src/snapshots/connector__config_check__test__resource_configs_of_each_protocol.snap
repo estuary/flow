@@ -1,0 +1,77 @@
+---
+source: crates/connector/src/config_check.rs
+expression: "[(\"capture validate\",\nlabels(crate::capture::Capture::resource_configs(&capture_validate))),\n(\"capture open\",\nlabels(crate::capture::Capture::resource_configs(&capture_open))),\n(\"capture apply\",\nlabels(crate::capture::Capture::resource_configs(&capture_apply))),\n(\"capture discover\",\nlabels(crate::capture::Capture::resource_configs(&capture_discover))),\n(\"materialize validate\",\nlabels(crate::materialize::Materialize::resource_configs(&materialize_validate))),\n(\"materialize open\",\nlabels(crate::materialize::Materialize::resource_configs(&materialize_open))),\n(\"derive validate\",\nlabels(crate::derive::Derive::resource_configs(&derive_validate))),\n(\"derive open\",\nlabels(crate::derive::Derive::resource_configs(&derive_open))),]"
+---
+[
+    (
+        "capture validate",
+        [
+            (
+                "acmeCo/a",
+                "{\"name\":\"a\"}",
+            ),
+            (
+                "#1",
+                "{\"name\":\"b\"}",
+            ),
+        ],
+    ),
+    (
+        "capture open",
+        [
+            (
+                "acmeCo/a",
+                "{\"name\":\"a\"}",
+            ),
+        ],
+    ),
+    (
+        "capture apply",
+        [
+            (
+                "acmeCo/a",
+                "{\"name\":\"a\"}",
+            ),
+        ],
+    ),
+    (
+        "capture discover",
+        [],
+    ),
+    (
+        "materialize validate",
+        [
+            (
+                "acmeCo/a",
+                "{\"table\":\"a\"}",
+            ),
+        ],
+    ),
+    (
+        "materialize open",
+        [
+            (
+                "acmeCo/a",
+                "{\"table\":\"a\"}",
+            ),
+        ],
+    ),
+    (
+        "derive validate",
+        [
+            (
+                "withLambda",
+                "{\"readOnly\":true}",
+            ),
+        ],
+    ),
+    (
+        "derive open",
+        [
+            (
+                "withLambda",
+                "{\"readOnly\":true}",
+            ),
+        ],
+    ),
+]

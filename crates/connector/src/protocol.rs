@@ -89,6 +89,10 @@ pub(crate) trait Protocol: Sized + 'static {
     where
         S: futures::Stream<Item = Self::Request> + Send + 'static;
 
+    /// Resource configurations of the bindings (or transforms) of a request,
+    /// each labeled for diagnostics by its collection (or transform) name.
+    fn resource_configs(request: &Self::Request) -> Vec<(String, bytes::Bytes)>;
+
     /// Locate the endpoint configuration of a request and normalize its
     /// endpoint. `sqlite_vfs_uri` is the client's recorded recovery-log VFS,
     /// which only derive-sqlite may accept (all others reject it).
@@ -142,6 +146,10 @@ pub(crate) async fn start<P: Protocol>(
     sqlite_vfs_uri: Option<String>,
     mut initial: P::Request,
 ) -> anyhow::Result<crate::Started<P>> {
+    // Gathered before the endpoint is extracted (which borrows the request),
+    // to check against the Spec once the configuration is unsealed.
+    let resource_configs = P::resource_configs(&initial);
+
     let Extracted {
         build,
         connector_type,
@@ -268,10 +276,16 @@ pub(crate) async fn start<P: Protocol>(
         Some(spec) => spec,
         None => unwrap_spec_response::<P>(connector_rx.next().await)?,
     };
-    let config_schema: &[u8] = match &spec {
-        proto::response::started::Spec::Capture(spec) => &spec.config_schema_json,
-        proto::response::started::Spec::Derive(spec) => &spec.config_schema_json,
-        proto::response::started::Spec::Materialize(spec) => &spec.config_schema_json,
+    let (config_schema, resource_config_schema): (&[u8], &[u8]) = match &spec {
+        proto::response::started::Spec::Capture(spec) => {
+            (&spec.config_schema_json, &spec.resource_config_schema_json)
+        }
+        proto::response::started::Spec::Derive(spec) => {
+            (&spec.config_schema_json, &spec.resource_config_schema_json)
+        }
+        proto::response::started::Spec::Materialize(spec) => {
+            (&spec.config_schema_json, &spec.resource_config_schema_json)
+        }
     };
 
     let inject_iam: bool;
@@ -303,6 +317,22 @@ pub(crate) async fn start<P: Protocol>(
 
         (resolved.into(), true)
     };
+
+    // Warn of an unsealed configuration which doesn't match the connector's
+    // own schemas, as context for a user debugging the connector's behavior.
+    // It's checked before IAM authentication, which may fail because of it.
+    // A Spec has no unsealed configuration to check.
+    if inject_iam {
+        let invalid = crate::config_check::check(
+            config_schema,
+            resource_config_schema,
+            initial_config_slot,
+            &resource_configs,
+        );
+        for log in crate::config_check::warnings(&ctx.task_name, invalid) {
+            ctx.log_sink.send(log).await;
+        }
+    }
 
     // If IAM token injection is configured, fetch and inject tokens.
     if let Some(iam_config) = inject_iam

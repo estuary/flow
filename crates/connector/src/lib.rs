@@ -22,6 +22,7 @@ pub use proto_flow::connector as proto;
 pub use proto_flow::runtime::{Container, Plane};
 
 mod capture;
+mod config_check;
 mod container;
 mod derive;
 mod image;

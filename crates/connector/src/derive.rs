@@ -68,6 +68,32 @@ impl Protocol for Derive {
         .boxed()
     }
 
+    /// The resource configuration of a transform is its `lambda`, which
+    /// is omitted (`null`) by transforms which don't need one.
+    fn resource_configs(request: &Request) -> Vec<(String, bytes::Bytes)> {
+        let transforms: Vec<(&str, &bytes::Bytes)> = match &request.kind {
+            Some(request::Kind::Validate(validate)) => validate
+                .transforms
+                .iter()
+                .map(|transform| (transform.name.as_str(), &transform.lambda_config_json))
+                .collect(),
+            Some(request::Kind::Open(open)) => open
+                .collection
+                .iter()
+                .flat_map(|collection| collection.derivation.iter())
+                .flat_map(|derivation| derivation.transforms.iter())
+                .map(|transform| (transform.name.as_str(), &transform.lambda_config_json))
+                .collect(),
+            _ => Vec::new(),
+        };
+
+        transforms
+            .into_iter()
+            .filter(|(_name, lambda)| !lambda.is_empty() && lambda.as_ref() != b"null")
+            .map(|(name, lambda)| (name.to_string(), lambda.clone()))
+            .collect()
+    }
+
     fn extract_endpoint<'r>(
         request: &'r mut Request,
         sqlite_vfs_uri: Option<String>,

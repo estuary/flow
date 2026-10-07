@@ -128,6 +128,7 @@ src/
 ├── router.rs     # ServiceRouter and the local bearer issuer
 ├── serve.rs      # per-stream: authn/authz, extract, start, pump, teardown
 ├── protocol.rs   # Protocol trait, StartContext, start pipeline, connector mount
+├── config_check.rs # warnings of unsealed configs which don't match the Spec schemas
 ├── policy.rs     # pure product policy: image/secret admission, usage, token lifetimes
 ├── image.rs      # Estuary image declarations and image-endpoint connection
 ├── capture.rs    # Protocol impl: capture endpoints and RPC
@@ -151,9 +152,19 @@ to leave it running.
   subsequent client requests pass directly to the transport.
   `Started` carries the `Spec` response so the client can use it as well.
   The internal Spec carries the *sealed* configuration: built-in connectors
-  (capture-python, derive-python) answer Spec from the `spec` their task model
+  (capture-python, derive-python, derive-typescript) answer Spec from the `spec` their task model
   declares, carried in the sealed configuration's sentinel. They don't run user
   code to answer it.
+
+- **Unsealed configurations are checked against the Spec, as a warning.**
+  Right after unsealing, the endpoint configuration and each binding's
+  resource configuration are validated against the Spec's schemas, for every
+  connector. A mismatch is logged as a warning and never fails the start:
+  connectors may advertise a stricter schema than they accept. Warnings carry
+  only error locations (`doc::validation::ErrorLocation`), never values, since
+  configurations hold merged secrets: don't log a `FailedValidation` or its
+  `basic_output`. Built-in sentinels (`_python`, `_typescript`) and a resource
+  config's `_meta` are not checked.
 
 - **A local data plane's `*.localhost` services get a host-gateway mapping.**
   A `.localhost` name denotes the loopback of whoever resolves it, which inside

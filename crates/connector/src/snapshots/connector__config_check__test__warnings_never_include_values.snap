@@ -1,0 +1,63 @@
+---
+source: crates/connector/src/config_check.rs
+expression: rendered
+---
+[
+  {
+    "fields": {
+      "errors": [
+        {
+          "instanceLocation": "/credentials/client_secret",
+          "keyword": "required",
+          "property": "client_id",
+          "schemaLocation": "schema://bundle#/properties/credentials"
+        },
+        {
+          "instanceLocation": "/credentials/client_secret",
+          "keyword": "maxLength",
+          "schemaLocation": "schema://bundle#/properties/credentials/properties/client_secret"
+        },
+        {
+          "instanceLocation": "/credentials/token",
+          "keyword": "const",
+          "schemaLocation": "schema://bundle#/properties/credentials/properties/token"
+        },
+        {
+          "instanceLocation": "/host",
+          "keyword": "pattern",
+          "schemaLocation": "schema://bundle#/properties/host"
+        }
+      ],
+      "task": "acmeCo/source-acme",
+      "total_errors": 4
+    },
+    "level": 2,
+    "message": "endpoint configuration doesn't match the connector's schema"
+  },
+  {
+    "fields": {
+      "bindings": [
+        {
+          "binding": "acmeCo/gadgets",
+          "errors": [
+            {
+              "instanceLocation": "/name",
+              "keyword": "type",
+              "schemaLocation": "schema://bundle#/properties/name"
+            },
+            {
+              "instanceLocation": "/secret",
+              "keyword": "false",
+              "schemaLocation": "schema://bundle#/additionalProperties"
+            }
+          ],
+          "total_errors": 2
+        }
+      ],
+      "invalid_bindings": 1,
+      "task": "acmeCo/source-acme"
+    },
+    "level": 2,
+    "message": "resource configurations don't match the connector's schema"
+  }
+]

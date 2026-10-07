@@ -2056,6 +2056,7 @@ dependencies = [
  "connector-init",
  "dekaf-connector",
  "derive-sqlite",
+ "doc",
  "flow-client-next",
  "futures",
  "iam-auth",

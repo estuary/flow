@@ -68,6 +68,40 @@ impl Protocol for Materialize {
         .boxed()
     }
 
+    fn resource_configs(request: &Request) -> Vec<(String, bytes::Bytes)> {
+        let label = crate::config_check::binding_label;
+        let of_spec = |spec: Option<&flow::MaterializationSpec>| -> Vec<(String, bytes::Bytes)> {
+            spec.iter()
+                .flat_map(|spec| spec.bindings.iter().enumerate())
+                .map(|(index, b)| {
+                    (
+                        label(b.collection.as_deref(), index),
+                        b.resource_config_json.clone(),
+                    )
+                })
+                .collect()
+        };
+
+        // Each binding is labeled by its collection, as the indices of a
+        // Validate (which omits disabled bindings) differ from the model's.
+        match &request.kind {
+            Some(request::Kind::Validate(validate)) => validate
+                .bindings
+                .iter()
+                .enumerate()
+                .map(|(index, b)| {
+                    (
+                        label(b.collection.as_deref(), index),
+                        b.resource_config_json.clone(),
+                    )
+                })
+                .collect(),
+            Some(request::Kind::Apply(apply)) => of_spec(apply.materialization.as_ref()),
+            Some(request::Kind::Open(open)) => of_spec(open.materialization.as_ref()),
+            _ => Vec::new(),
+        }
+    }
+
     fn extract_endpoint<'r>(
         request: &'r mut Request,
         sqlite_vfs_uri: Option<String>,
