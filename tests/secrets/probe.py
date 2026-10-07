@@ -1,9 +1,8 @@
 """Compares the secret-supplied token against the plaintext expectation.
 
-`ACTUAL_TOKEN` reaches this process only because the runtime resolved the
-`test/secrets/token` secret and merged it into `/environment/ACTUAL_TOKEN` of
-the derivation's configuration. `EXPECTED_TOKEN` is published in the clear
-beside it. Every read publishes the verdict, so the derived collection is the
+`actual_token` reaches this process only because the runtime resolved the
+`test/secrets/token` secret and merged it into `/actual_token` of the
+derivation's `config`. `expected_token` is published in the clear beside it. Every read publishes the verdict, so the derived collection is the
 test's assertion.
 
 The source document's own `generation` and `source` are echoed through, so one
@@ -12,13 +11,10 @@ whether this derivation's own secret resolved.
 """
 
 import hashlib
-import os
 from collections.abc import AsyncIterator
 
-from test.secrets.probe import Document, IDerivation, Request
-
-ACTUAL = os.environ.get("ACTUAL_TOKEN")
-EXPECTED = os.environ.get("EXPECTED_TOKEN")
+# `EndpointConfig` is generated from the derivation's `spec.configSchema`.
+from test.secrets.probe import Document, EndpointConfig, IDerivation, Request
 
 
 def _fingerprint(value: str | None) -> str:
@@ -29,8 +25,13 @@ def _fingerprint(value: str | None) -> str:
 
 
 class Derivation(IDerivation):
+    def __init__(self, open: Request.Open, config: EndpointConfig):
+        super().__init__(open, config)
+        self.actual = config.actual_token
+        self.expected = config.expected_token
+
     async def from_events(self, read: Request.ReadFromEvents) -> AsyncIterator[Document]:
-        if ACTUAL is not None and ACTUAL == EXPECTED:
+        if self.actual is not None and self.actual == self.expected:
             yield Document(
                 ts=read.doc.ts,
                 generation=read.doc.generation,
@@ -43,5 +44,5 @@ class Derivation(IDerivation):
                 generation=read.doc.generation,
                 source=read.doc.source,
                 ok=False,
-                detail=f"actual({_fingerprint(ACTUAL)}) != expected({_fingerprint(EXPECTED)})",
+                detail=f"actual({_fingerprint(self.actual)}) != expected({_fingerprint(self.expected)})",
             )

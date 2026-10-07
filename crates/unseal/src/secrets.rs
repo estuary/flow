@@ -69,8 +69,8 @@ mod test {
             "acmeCo/password-three": "p4ssw0rd",
             "acmeCo/token": "t0ken",
             "acmeCo/credentials": {"user": "alice", "password": "p4ssw0rd"},
-            "acmeCo/oauth-client": {"clientId": "client-id", "clientSecret": "client-secret", "method": "client"},
-            "acmeCo/oauth-tokens": {"accessToken": "access-token", "refreshToken": "refresh-token", "method": "tokens"},
+            "acmeCo/oauth-client": {"client_id": "client-id", "client_secret": "client-secret", "method": "client"},
+            "acmeCo/oauth-tokens": {"access_token": "access-token", "refresh_token": "refresh-token", "access_token_expires_at": "2026-01-01T00:00:00Z", "method": "tokens"},
             "acmeCo/array": [1, 2, 3],
             "acmeCo/tombstone": null,
             "acmeCo/tombstone-two": null,
@@ -168,11 +168,12 @@ mod test {
         insta::assert_json_snapshot!(config, @r###"
         {
           "credentials": {
-            "accessToken": "access-token",
-            "clientId": "client-id",
-            "clientSecret": "client-secret",
+            "access_token": "access-token",
+            "access_token_expires_at": "2026-01-01T00:00:00Z",
+            "client_id": "client-id",
+            "client_secret": "client-secret",
             "method": "tokens",
-            "refreshToken": "refresh-token"
+            "refresh_token": "refresh-token"
           }
         }
         "###);

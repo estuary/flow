@@ -301,9 +301,9 @@ mise exec -- flowctl collections read --collection test/secrets/probe --since 10
 {"ts":"...:51Z","generation":1,"source":"sibling","ok":true,"detail":null}
 ```
 
-`ok: true` is the derivation's own secret resolving: `ACTUAL_TOKEN` exists in
-its environment only as the merged value of `test/secrets/token`, and
-`EXPECTED_TOKEN` sits beside it in the clear.
+`ok: true` is the derivation's own secret resolving: `actual_token` exists in
+its `config` only as the merged value of `test/secrets/token`, and
+`expected_token` sits beside it in the clear.
 
 Reads of a live data plane need the stack's CA on `SSL_CERT_FILE`; see
 `mise run local:stack-info`.
@@ -360,7 +360,7 @@ That is a supported mode, and it is why `rotation.py` distinguishes
 ### 8. Rotate the probe's secret, and see the lazy pickup
 
 A running task keeps the value it resolved at start; a new one picks up the
-current secret. Rotate the token without updating `EXPECTED_TOKEN`:
+current secret. Rotate the token without updating `expected_token`:
 
 ```bash
 echo -n "rotated-t0ken" | mise exec -- flowctl secret set test/secrets/token
@@ -390,7 +390,7 @@ mise exec -- flowctl secret delete test/secrets/token
 ```
 
 ```
-resolving `secrets` stanza: failed to resolve secret 'test/secrets/token', used at configuration location /environment/ACTUAL_TOKEN: control-plane API responded 404: secret 'test/secrets/token' does not exist
+resolving `secrets` stanza: failed to resolve secret 'test/secrets/token', used at configuration location /actual_token: control-plane API responded 404: secret 'test/secrets/token' does not exist
 ```
 
 The published `test/secrets/probe` fails the same way at its next restart, so
@@ -406,7 +406,8 @@ Each of these is rejected before the task is published. Copy `flow.yaml` aside
 and edit it to see them. All but one are decided from the model alone, before
 any connector runs; the plaintext check is the exception, because it needs the
 `config_schema` of the connector's `Spec` response and so rejects only after
-the connector has started and answered.
+the connector has started and answered. The probe's connector answers with the
+`spec.configSchema` its model declares.
 
 | Edit | Rejected by | Error |
 | --- | --- | --- |
