@@ -2958,7 +2958,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
- "connector-environment",
  "doc",
  "insta",
  "itertools 0.14.0",
@@ -2970,9 +2969,9 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sources",
  "tables",
- "tempfile",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -6752,14 +6751,18 @@ dependencies = [
 name = "python-connector"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "doc",
  "insta",
  "json",
  "lazy_static",
  "regex",
+ "serde",
  "serde_json",
  "sources",
  "tables",
+ "tempfile",
+ "tracing",
  "url",
 ]
 

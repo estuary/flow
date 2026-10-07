@@ -1,0 +1,27 @@
+---
+source: crates/python-connector/src/config.rs
+expression: "(serde_json::Value::Object(user), files, request,\nString::from_utf8(without_sentinel(config).unwrap()).unwrap(),)"
+---
+(
+    Object {
+        "credentials": Object {
+            "token": String("secret"),
+        },
+    },
+    {
+        "a.py": Some(
+            "x = 1\n",
+        ),
+        "b.py": None,
+    },
+    Object {
+        "validate": Object {
+            "config": Object {
+                "credentials": Object {
+                    "token": String("secret"),
+                },
+            },
+        },
+    },
+    "{\"credentials\":{\"token\":\"secret\"}}",
+)
