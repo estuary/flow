@@ -1,0 +1,32 @@
+---
+source: crates/python-connector/src/config_types.rs
+expression: "render(spec, Resources::Derivation)"
+---
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    """Ends with a quote\""""
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    choice: _typing.Optional[_typing.Literal["a\nb", "c\"d", "e\\f"]] = None
+    datetime: _typing.Optional[_datetime.datetime] = None
+    m_json: _typing.Optional[bool] = _pydantic.Field(default=None, alias="json")
+    m_model_config: _typing.Optional[str] = _pydantic.Field(default=None, alias="model_config")
+    m_path: _typing.Optional[str] = _pydantic.Field(default=None, alias="path")
+    """A Windows path like C:\\Users\\me"""
+    quoted: _typing.Optional[str] = None
+    """Has \"\"\" inside, and a \x00 NUL"""
+    m_schema: _typing.Optional[str] = _pydantic.Field(default=None, alias="schema")
+    trailing_: _typing.Optional[str] = _pydantic.Field(default=None, alias="trailing\"")
+    typing: int = 10
+
+
+
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+
+
+
+
+# path_pointers: None

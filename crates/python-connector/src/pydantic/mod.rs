@@ -3,8 +3,8 @@
 mod ast;
 mod mapper;
 
-pub use ast::Mapping;
-pub use mapper::{Mapper, sanitize_python_identifier};
+pub use ast::{Class, Mapping, python_literal};
+pub use mapper::{Mapper, field_name, sanitize_python_identifier};
 
 /// Map `name` into a PascalCase identifier, as used for generated classes.
 pub fn to_pascal_case(name: &str) -> String {

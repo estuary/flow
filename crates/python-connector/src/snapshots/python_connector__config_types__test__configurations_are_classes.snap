@@ -1,0 +1,48 @@
+---
+source: crates/python-connector/src/config_types.rs
+expression: "[render(spec, Resources::Capture),\nrender(non_object, Resources::Capture),].join(\"\\n=====\\n\")"
+---
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    a: _typing.Optional[str] = None
+
+
+
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(common.BaseResourceConfig):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    name: str
+
+    PATH_POINTERS: _typing.ClassVar[list[str]] = ["/name"]
+
+    def path(self) -> list[str]:
+        """Resource path of this binding: its `x-schema-name` (if any),
+        followed by its `x-collection-name`."""
+        return [self.name]
+
+
+
+
+# path_pointers: Some(["/name"])
+
+=====
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+
+
+
+# The resource schema doesn't have exactly one `x-collection-name` property
+# (and at most one `x-schema-name`), each a required string, so
+# `ResourceConfig` has no `path()`: declare a subclass of the CDK's
+# `BaseResourceConfig` with a `path()` of its own.
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+ResourceConfig: _typing.TypeAlias = str
+
+
+
+# path_pointers: None

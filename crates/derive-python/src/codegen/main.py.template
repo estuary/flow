@@ -1,9 +1,12 @@
 import asyncio
+import collections.abc
+import json
 import pydantic
 import sys
+import types
 import typing
 
-from MODULE_PATH import (Request, Response)
+from MODULE_PATH import Document, IDerivation, Request, Response
 from MODULE_NAME import Derivation
 
 
@@ -20,38 +23,99 @@ def emit(field: str, message: pydantic.BaseModel, flush: bool) -> None:
     print(f'{{"{field}":{message.model_dump_json(by_alias=True)}}}', flush=flush)
 
 
-async def stdin_requests() -> typing.AsyncGenerator[Request, None]:
+async def stdin_lines() -> typing.AsyncGenerator[bytes, None]:
     loop = asyncio.get_event_loop()
     reader = asyncio.StreamReader(limit=1 << 27)  # 128 MiB.
     protocol = asyncio.StreamReaderProtocol(reader)
     await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
     while line := await reader.readline():
-        yield Request.model_validate_json(line)
+        yield line
 
 
-async def main() -> None:
-    """Main event loop for Python derivation runtime."""
+def type_arguments() -> tuple[typing.Any, typing.Any]:
+    """Resolve the types `C` (of `config`) and `R` (of each transform's
+    resource configuration) which Derivation declares by subclassing
+    IDerivation, falling back to IDerivation's defaults for those it omits.
 
-    requests = stdin_requests()
-    open = await requests.__anext__()
+    The derivation's configurations are always parsed into the types it
+    declares, which may differ from the generated types."""
+    defaults: list[typing.Any] = [param.__default__ for param in IDerivation.__type_params__]
 
-    if not open.open:
-        print("Error: Expected open message", file=sys.stderr)
+    for base in types.get_original_bases(Derivation):
+        if base is IDerivation:
+            return defaults[0], defaults[1]
+        if typing.get_origin(base) is IDerivation:
+            args: list[typing.Any] = [*typing.get_args(base), *defaults[len(typing.get_args(base)):]]
+            return args[0], args[1]
+
+    raise TypeError(
+        "Derivation must directly subclass IDerivation, as `class Derivation(IDerivation)` "
+        "or `class Derivation(IDerivation[MyConfig, MyResourceConfig])`"
+    )
+
+
+def parse_config(config_type: typing.Any, config: typing.Any) -> typing.Any:
+    """Parse the derivation's `config` into its declared type. Configurations
+    carry merged secrets, so errors are reported without their input values."""
+    try:
+        return pydantic.TypeAdapter(config_type).validate_python(config)
+    except pydantic.ValidationError as err:
+        details = err.errors(include_input=False, include_url=False)
+        lines = [f"  /{'/'.join(str(loc) for loc in detail['loc'])}: {detail['msg']}" for detail in details]
+        print("derivation `config` is invalid:\n" + "\n".join(lines), file=sys.stderr)
         sys.exit(1)
 
-    # Instantiate user's Derivation class
-    derivation = Derivation(open.open)
 
-    # Build array of transform methods
-    transforms = [TRANSFORMS]
+def validate(config_type: typing.Any, resource_type: typing.Any) -> None:
+    """Validate the derivation, reading its configuration and Request.Validate
+    from stdin, and printing its Response.Validated."""
+    request = json.loads(sys.stdin.buffer.read())
+
+    config = parse_config(config_type, request["config"])
+    validate = Request.Validate[resource_type].model_validate(request["validate"])
+    validated = Derivation.validate(validate, config)
+
+    print(validated.model_dump_json(by_alias=True))
+
+
+async def main(config_type: typing.Any, resource_type: typing.Any) -> None:
+    """Main event loop for Python derivation runtime."""
+
+    lines = stdin_lines()
+    open: dict[str, typing.Any] = json.loads(await lines.__anext__())["open"]
+    derivation_spec: dict[str, typing.Any] = open["collection"]["derivation"]
+
+    # The connector has reduced `config` to the derivation's own configuration.
+    config = parse_config(config_type, derivation_spec.get("config", {}))
+
+    # The resource configuration of a transform is its `lambda`, if any.
+    resource_adapter = pydantic.TypeAdapter(resource_type)
+    resources = [
+        resource_adapter.validate_python(transform_spec.get("lambdaConfig") or {})
+        for transform_spec in derivation_spec.get("transforms", [])
+    ]
+
+    # Instantiate user's Derivation class
+    derivation = Derivation(
+        Request.Open[resource_type].model_construct(state=open.get("state", {}), resources=resources),
+        config,
+    )
+
+    # Dispatch each read to the transform method of its type. A match (unlike
+    # indexing a list of methods) type-checks, as each method takes its own type.
+    def transform(read: READ_TYPE) -> collections.abc.AsyncIterator[Document]:
+        match read:
+DISPATCH
 
     emit("opened", Response.Opened(), flush=True)
 
     # Main protocol loop
-    async for request in requests:
+    async for line in lines:
+        request = Request.model_validate_json(line)
+
         if request.read:
-            async for doc in transforms[request.read.transform](request.read):
+            async for doc in transform(request.read):
                 emit("published", Response.Published(doc=doc), flush=False)
 
         elif request.flush:
@@ -70,7 +134,12 @@ async def main() -> None:
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        config_type, resource_type = type_arguments()
+
+        if sys.argv[1:] == ["validate"]:
+            validate(config_type, resource_type)
+        else:
+            asyncio.run(main(config_type, resource_type))
     except Exception as e:
         print(f"Fatal error: {e}", file=sys.stderr)
         import traceback

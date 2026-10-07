@@ -1,0 +1,52 @@
+---
+source: crates/derive-python/src/lib.rs
+expression: "(&current, current.python_sources(), &legacy,\nConfig::parse(b\"{}\").unwrap().is_none(),\nConfig::parse(b\"\").unwrap().is_none(),\nConfig::parse(br#\"{\"module\": \"m.py\", \"environment\": {\"A\": \"b\"}}\"#).unwrap_err().to_string(),)"
+---
+(
+    Config {
+        user: {
+            "region": String("north"),
+        },
+        collection: Some(
+            "acmeCo/orders",
+        ),
+        module: "class Derivation: pass\n",
+        files: {
+            "lib/geo.py": "def region_for(doc):\n    return doc\n",
+        },
+        dependencies: {},
+        spec: Spec {
+            config_schema: Object {
+                "type": String("object"),
+            },
+            resource_config_schema: Object {},
+            oauth2: None,
+        },
+    },
+    [
+        "module.py",
+        "main.py",
+        "lib/geo.py",
+    ],
+    Config {
+        user: {},
+        collection: None,
+        module: "class Derivation: pass\n",
+        files: {
+            "data/config.yaml": "retries: 3\n",
+            "data/regions.json": "{\n  \"north\": 1\n}",
+            "lib/geo.py": "def region_for(doc):\n    return doc\n",
+        },
+        dependencies: {
+            "httpx": ">=0.27",
+        },
+        spec: Spec {
+            config_schema: Object {},
+            resource_config_schema: Object {},
+            oauth2: None,
+        },
+    },
+    true,
+    true,
+    "derivation `environment` is no longer supported: use `config` with a `secrets` stanza",
+)

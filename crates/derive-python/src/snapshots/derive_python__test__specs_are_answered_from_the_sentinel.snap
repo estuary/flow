@@ -1,0 +1,48 @@
+---
+source: crates/derive-python/src/lib.rs
+expression: responses
+---
+[
+  {
+    "configSchema": {
+      "properties": {
+        "apiKey": {
+          "secret": true,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "documentationUrl": "https://docs.estuary.dev",
+    "oauth2": {
+      "accessTokenResponseMap": {
+        "access_token": "/access_token"
+      },
+      "accessTokenUrlTemplate": "https://acme.example/token",
+      "authUrlTemplate": "https://acme.example/authorize",
+      "provider": "acme"
+    },
+    "protocol": 3032023,
+    "resourceConfigSchema": {
+      "properties": {
+        "readOnly": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "configSchema": {},
+    "documentationUrl": "https://docs.estuary.dev",
+    "protocol": 3032023,
+    "resourceConfigSchema": {}
+  },
+  {
+    "configSchema": {},
+    "documentationUrl": "https://docs.estuary.dev",
+    "protocol": 3032023,
+    "resourceConfigSchema": {}
+  }
+]

@@ -1,0 +1,7 @@
+---
+source: crates/python-connector/src/project.rs
+expression: "relative_to(stderr, std::path::Path::new(\"/tmp/.tmpABC\"))"
+---
+lib/geo.py:4:5 - error: "x" is not defined
+  File "module.py", line 12
+flow_generated/python/acmeCo/orders/__init__.py:9:1 - error

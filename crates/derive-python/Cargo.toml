@@ -8,7 +8,7 @@ name = "derive-python"
 path = "src/main.rs"
 
 [dependencies]
-connector-environment = { path = "../connector-environment" }
+bytes = { workspace = true }
 doc = { path = "../doc" }
 json = { path = "../json" }
 proto-flow = { path = "../proto-flow" }
@@ -20,7 +20,7 @@ lazy_static = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tempfile = { workspace = true }
+serde_yaml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
@@ -30,5 +30,4 @@ models = { path = "../models" }
 sources = { path = "../sources" }
 tables = { path = "../tables" }
 
-bytes = { workspace = true }
 insta = { workspace = true }

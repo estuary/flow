@@ -1,31 +1,20 @@
+use anyhow::Context;
 use itertools::Itertools;
 use proto_flow::flow;
-use std::fmt::Write;
-
-use super::LambdaConfig;
+use python_connector::Spec;
 use python_connector::pydantic::{Mapper, to_pascal_case};
+use std::fmt::Write;
 
 /// Generate Pydantic models and protocol types for a Python derivation.
 pub fn types_py(
     collection: &flow::CollectionSpec,
-    transforms: &[(&str, &flow::CollectionSpec, LambdaConfig)],
-) -> String {
+    transforms: &[(&str, &flow::CollectionSpec)],
+    spec: &Spec,
+) -> anyhow::Result<String> {
     let mut w = String::with_capacity(4096);
 
-    // Add imports
-    write!(
-        w,
-        r#"from abc import ABC, abstractmethod
-import typing
-import collections.abc
-import pydantic
-
-
-"#
-    )
-    .unwrap();
-
-    let mapper = Mapper::new(&collection.write_schema_json, "Document");
+    let mapper = Mapper::new(&collection.write_schema_json, "Document")
+        .with_context(|| format!("invalid schema of collection {}", collection.name))?;
     writeln!(
         w,
         "# Generated for published documents of derived collection {}",
@@ -35,14 +24,15 @@ import pydantic
     mapper.map(mapper.schema(), "Document").render(&mut w);
 
     // Generate Source{Transform} collection types for each transform
-    for (name, collection, _config) in transforms {
+    for (name, collection) in transforms {
         let source_name = format!("Source{}", to_pascal_case(name));
 
         let mapper = if collection.read_schema_json.is_empty() {
             Mapper::new(&collection.write_schema_json, &source_name)
         } else {
             Mapper::new(&collection.read_schema_json, &source_name)
-        };
+        }
+        .with_context(|| format!("invalid schema of collection {}", collection.name))?;
 
         writeln!(
             w,
@@ -52,6 +42,11 @@ import pydantic
         .unwrap();
         mapper.map(mapper.schema(), &source_name).render(&mut w);
     }
+
+    // Generate configuration types of the declared spec.
+    let config_types =
+        python_connector::config_types_py(spec, python_connector::Resources::Derivation)?;
+    w.push_str(&config_types.source);
 
     // Generate protocol message types
     write!(
@@ -67,8 +62,25 @@ import pydantic
 
 class Request(pydantic.BaseModel):
 
-    class Open(pydantic.BaseModel):
+    class Open[R = ResourceConfig](pydantic.BaseModel):
+        """Opens the derivation with its connector state."""
+
         state: dict[str, typing.Any]
+        # Resource configuration (`lambda`) of each transform, in order.
+        resources: list[R] = []
+
+    class Transform[R = ResourceConfig](pydantic.BaseModel):
+        """A transform of a derivation which is being validated."""
+
+        name: str
+        # Resource configuration of the transform, which is its `lambda`.
+        resource_config: R = pydantic.Field(alias='resourceConfig')
+
+    class Validate[R = ResourceConfig](pydantic.BaseModel):
+        """Validates the derivation of collection `name` as it's published."""
+
+        name: str
+        transforms: "list[Request.Transform[R]]"
 
     class Flush(pydantic.BaseModel):
         # Aggregated connector state patches contributed by all participating shards
@@ -79,7 +91,6 @@ class Request(pydantic.BaseModel):
     class Reset(pydantic.BaseModel):
         pass
 
-    open: typing.Optional[Open] = None
     flush: typing.Optional[Flush] = None
     reset: typing.Optional[Reset] = None
 
@@ -88,7 +99,7 @@ class Request(pydantic.BaseModel):
     .unwrap();
 
     // Generate Read{Transform} classes for each transform.
-    for (idx, (name, _, _)) in transforms.iter().enumerate() {
+    for (idx, (name, _)) in transforms.iter().enumerate() {
         let name = to_pascal_case(name);
 
         write!(
@@ -106,7 +117,7 @@ class Request(pydantic.BaseModel):
     // Generate discriminated union over all Read{Transform} types.
     let union_names = transforms
         .iter()
-        .map(|(name, _, _)| format!("Read{}", to_pascal_case(name)))
+        .map(|(name, _)| format!("Read{}", to_pascal_case(name)))
         .join(" | ");
 
     write!(
@@ -141,6 +152,17 @@ class Response(pydantic.BaseModel):
         # Request a further Flush iteration this transaction.
         more: bool = False
 
+    class Validated(pydantic.BaseModel):
+        """Outcome of validating the derivation."""
+
+        class Transform(pydantic.BaseModel):
+            # Does this transform never publish documents? A read-only
+            # transform needn't wait for prior transactions to commit.
+            read_only: bool = pydantic.Field(default=False, serialization_alias='readOnly')
+
+        # Validated transforms, in the order of `Request.Validate.transforms`.
+        transforms: "list[Response.Validated.Transform]"
+
     opened: typing.Optional[Opened] = None
     published: typing.Optional[Published] = None
     flushed: typing.Optional[Flushed] = None
@@ -152,19 +174,40 @@ class Response(pydantic.BaseModel):
     // Generate IDerivation base class
     write!(
         w,
-        r#"class IDerivation(ABC):
-    """Abstract base class for derivation implementations."""
+        r#"class IDerivation[C = EndpointConfig, R = ResourceConfig](ABC):
+    """Abstract base class for derivation implementations.
 
-    def __init__(self, open: Request.Open):
-        """Initialize the derivation with an Open message."""
+    `C` is the type of the derivation's `config`, and `R` of the resource
+    configuration (`lambda`) of each transform. They default to the types
+    generated from the derivation's `spec`. A derivation may instead declare
+    types of its own, as `class Derivation(IDerivation[MyConfig])`, and is
+    then responsible for keeping them equivalent to its declared `spec`."""
+
+    def __init__(self, open: Request.Open[R], config: C):
+        """Initialize the derivation with an Open message, and its `config`."""
         pass
+
+    @classmethod
+    def validate(cls, validate: Request.Validate[R], config: C) -> Response.Validated:
+        """Validate the derivation as it's published, raising to fail.
+
+        The default marks a transform as read-only if its resource
+        configuration has a true `readOnly`."""
+        return Response.Validated(
+            transforms=[
+                Response.Validated.Transform(
+                    read_only=bool(getattr(transform.resource_config, "readOnly", False))
+                )
+                for transform in validate.transforms
+            ]
+        )
 
 "#
     )
     .unwrap();
 
     // Generate abstract transform methods
-    for (name, _, _) in transforms {
+    for (name, _) in transforms {
         let method_name = to_snake_case(name);
         let class_name = to_pascal_case(name);
 
@@ -205,84 +248,82 @@ class Response(pydantic.BaseModel):
     )
     .unwrap();
 
-    w
+    Ok(format!(
+        "{}\n\n{w}",
+        python_connector::imports_py(&w, PROTOCOL_IMPORTS)
+    ))
 }
+
+/// Imports of the hand-written protocol types, beside the (aliased) modules
+/// which generated types use.
+const PROTOCOL_IMPORTS: &[&str] = &[
+    "from abc import ABC, abstractmethod",
+    "import collections.abc",
+    "import typing",
+    "import pydantic",
+];
 
 /// Generate the main.py runtime wrapper from template.
 pub fn main_py(
     collection: &flow::CollectionSpec,
-    transforms: &[(&str, &flow::CollectionSpec, LambdaConfig)],
+    transforms: &[(&str, &flow::CollectionSpec)],
     module_name: &str,
 ) -> String {
     let template = include_str!("main.py.template");
 
-    let transform_methods = transforms
+    let read_type = transforms
         .iter()
-        .map(|(name, _, _)| {
-            let method_name = to_snake_case(name);
-            format!("derivation.{method_name}")
-        })
-        .join(", ");
+        .map(|(name, _)| format!("Request.Read{}", to_pascal_case(name)))
+        .join(" | ");
 
-    let module_path = module_path_parts(&collection.name).join(".");
+    let dispatch = transforms
+        .iter()
+        .map(|(name, _)| {
+            format!(
+                "            case Request.Read{}():\n                return derivation.{}(read)",
+                to_pascal_case(name),
+                to_snake_case(name),
+            )
+        })
+        .join("\n");
+
+    let module_path = python_connector::module_parts(&collection.name).join(".");
 
     template
-        .replace("TRANSFORMS", &transform_methods)
+        .replace("READ_TYPE", &read_type)
+        .replace("DISPATCH", &dispatch)
         .replace("MODULE_PATH", &module_path)
         .replace("MODULE_NAME", module_name)
-}
-
-/// Generate __init__.py package files for a collection's directory hierarchy.
-/// Returns a map of file paths to their contents (empty for __init__.py files).
-///
-/// For example, "patterns/sums" generates:
-/// - "flow_generated/python/patterns/__init__.py" -> ""
-pub fn package_init_files(collection_name: &str, project_root: &str) -> Vec<(String, String)> {
-    let parts: Vec<&str> = collection_name.split('/').collect();
-
-    // Need at least one level of nesting to generate any __init__.py files
-    if parts.len() < 2 {
-        return vec![];
-    }
-
-    let mut files = Vec::new();
-
-    // Generate __init__.py for each parent directory
-    // For "a/b/c", generate: a/__init__.py, a/b/__init__.py
-    for i in 1..parts.len() {
-        let init_path = format!(
-            "{project_root}/{}/{}/__init__.py",
-            super::GENERATED_PREFIX,
-            parts[..i].join("/")
-        );
-        files.push((init_path, String::new())); // Empty __init__.py
-    }
-
-    files
 }
 
 /// Generate a stub implementation for a missing module.
 pub fn stub_py(
     collection: &flow::CollectionSpec,
-    transforms: &[(&str, &flow::CollectionSpec, LambdaConfig)],
+    transforms: &[(&str, &flow::CollectionSpec)],
 ) -> String {
     let mut w = String::with_capacity(2048);
-    let module_path = module_path_parts(&collection.name).join(".");
+    let module_path = python_connector::module_parts(&collection.name).join(".");
 
     write!(
         w,
         r#""""Derivation implementation for {name}."""
 from collections.abc import AsyncIterator
-from {module_path} import IDerivation, Document, Request
+from {module_path} import IDerivation, Document, EndpointConfig, Request
+
 
 # Implementation for derivation {name}.
+# `EndpointConfig` is generated from the derivation's `spec.configSchema`.
 class Derivation(IDerivation):
+    def __init__(self, open: Request.Open, config: EndpointConfig):
+        super().__init__(open, config)
+        self.config = config
+
 "#,
         name = &collection.name,
     )
     .unwrap();
 
-    for (name, _, _) in transforms {
+    for (name, _) in transforms {
         let method_name = to_snake_case(name);
         let class_name = to_pascal_case(name);
 
@@ -321,14 +362,6 @@ fn to_snake_case(name: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("_")
-}
-
-/// Sanitize a collection name to the components of its valid Python module path.
-/// Maps `/` to module hierarchy, and sanitizes each component to be a valid Python identifier.
-pub fn module_path_parts(collection_name: &str) -> impl Iterator<Item = String> {
-    collection_name
-        .split('/')
-        .map(python_connector::pydantic::sanitize_python_identifier)
 }
 
 #[cfg(test)]
@@ -459,39 +492,32 @@ mod test {
         };
 
         // Define transforms with different naming conventions to test case conversion
-        let transforms = vec![
-            ("fromInts", &ints_spec, LambdaConfig { read_only: true }),
-            (
-                "process-strings",
-                &strings_spec,
-                LambdaConfig { read_only: false },
-            ),
-        ];
+        let transforms = vec![("fromInts", &ints_spec), ("process-strings", &strings_spec)];
+
+        // A declared spec, whose types are generated alongside the documents.
+        let spec: python_connector::Spec = serde_json::from_value(serde_json::json!({
+            "configSchema": {
+                "type": "object",
+                "properties": {
+                    "multiplier": {"type": "integer", "default": 2},
+                    "apiKey": {"type": "string", "secret": true},
+                },
+                "required": ["apiKey"],
+            },
+            "resourceConfigSchema": {
+                "type": "object",
+                "properties": {"readOnly": {"type": "boolean", "default": false}},
+            },
+        }))
+        .unwrap();
 
         // Test types_py generation
-        let types_output = types_py(&sums_spec, &transforms);
+        let types_output = types_py(&sums_spec, &transforms, &spec).unwrap();
         insta::assert_snapshot!("types_py", types_output);
 
         // Test stub_py generation
         let stub_output = stub_py(&sums_spec, &transforms);
         insta::assert_snapshot!("stub_py", stub_output);
-    }
-
-    #[test]
-    fn test_package_files() {
-        let cases = vec![
-            ("patterns/sums", "/tmp/test"),
-            ("a/b/c/d", "/project"),
-            ("simple", "/tmp"),
-            ("dir/file", "/root"),
-        ];
-
-        let results: Vec<_> = cases
-            .iter()
-            .map(|(collection, root)| (*collection, *root, package_init_files(collection, root)))
-            .collect();
-
-        insta::assert_debug_snapshot!(results);
     }
 
     #[test]
@@ -517,14 +543,7 @@ mod test {
             ..Default::default()
         };
 
-        let transforms = vec![
-            ("fromInts", &ints_spec, LambdaConfig { read_only: true }),
-            (
-                "process-strings",
-                &strings_spec,
-                LambdaConfig { read_only: false },
-            ),
-        ];
+        let transforms = vec![("fromInts", &ints_spec), ("process-strings", &strings_spec)];
 
         let output = main_py(&sums_spec, &transforms, "my_module");
         insta::assert_snapshot!(output);

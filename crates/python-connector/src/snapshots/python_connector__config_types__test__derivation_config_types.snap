@@ -1,0 +1,21 @@
+---
+source: crates/python-connector/src/config_types.rs
+expression: "render(spec, Resources::Derivation)"
+---
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+
+
+
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    readOnly: bool = False
+
+
+
+
+# path_pointers: None

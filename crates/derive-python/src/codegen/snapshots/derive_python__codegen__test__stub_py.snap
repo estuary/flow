@@ -4,10 +4,16 @@ expression: stub_output
 ---
 """Derivation implementation for patterns/sums."""
 from collections.abc import AsyncIterator
-from patterns.sums import IDerivation, Document, Request
+from patterns.sums import IDerivation, Document, EndpointConfig, Request
+
 
 # Implementation for derivation patterns/sums.
+# `EndpointConfig` is generated from the derivation's `spec.configSchema`.
 class Derivation(IDerivation):
+    def __init__(self, open: Request.Open, config: EndpointConfig):
+        super().__init__(open, config)
+        self.config = config
+
     async def from_ints(self, read: Request.ReadFromInts) -> AsyncIterator[Document]:
         raise NotImplementedError("from_ints not implemented")
         if False:

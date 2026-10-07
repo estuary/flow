@@ -1,0 +1,100 @@
+---
+source: crates/python-connector/src/config_types.rs
+expression: "[resource(serde_json::json!({\n    \"schema\": {\"type\": \"string\", \"x-schema-name\": true}, \"_table\":\n    {\"type\": \"string\", \"x-collection-name\": true},\n}), serde_json::json!([\"schema\", \"_table\"]),),\nresource(serde_json::json!({\n    \"a\": {\"type\": \"string\", \"x-collection-name\": true}, \"b\":\n    {\"type\": \"string\", \"x-collection-name\": true},\n}), serde_json::json!([]),),\nresource(serde_json::json!({\n    \"schema\": {\"type\": \"string\", \"x-schema-name\": true}, \"table\":\n    {\"type\": \"string\", \"x-collection-name\": true},\n}), serde_json::json!([\"table\"]),),\nresource(serde_json::json!({\"table\":\n    {\"type\": [\"string\", \"null\"], \"x-collection-name\": true}}),\nserde_json::json!([\"table\"]),),].join(\"\\n=====\\n\")"
+---
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+
+
+
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(common.BaseResourceConfig):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    m_table: str = _pydantic.Field(alias="_table")
+    m_schema: str = _pydantic.Field(alias="schema")
+
+    PATH_POINTERS: _typing.ClassVar[list[str]] = ["/schema", "/_table"]
+
+    def path(self) -> list[str]:
+        """Resource path of this binding: its `x-schema-name` (if any),
+        followed by its `x-collection-name`."""
+        return [self.m_schema, self.m_table]
+
+
+
+
+# path_pointers: Some(["/schema", "/_table"])
+
+=====
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+
+
+
+# The resource schema doesn't have exactly one `x-collection-name` property
+# (and at most one `x-schema-name`), each a required string, so
+# `ResourceConfig` has no `path()`: declare a subclass of the CDK's
+# `BaseResourceConfig` with a `path()` of its own.
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    a: _typing.Optional[str] = None
+    b: _typing.Optional[str] = None
+
+
+
+
+# path_pointers: None
+
+=====
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+
+
+
+# The resource schema doesn't have exactly one `x-collection-name` property
+# (and at most one `x-schema-name`), each a required string, so
+# `ResourceConfig` has no `path()`: declare a subclass of the CDK's
+# `BaseResourceConfig` with a `path()` of its own.
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    m_schema: _typing.Optional[str] = _pydantic.Field(default=None, alias="schema")
+    table: str
+
+
+
+
+# path_pointers: None
+
+=====
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+
+
+
+# The resource schema doesn't have exactly one `x-collection-name` property
+# (and at most one `x-schema-name`), each a required string, so
+# `ResourceConfig` has no `path()`: declare a subclass of the CDK's
+# `BaseResourceConfig` with a `path()` of its own.
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    table: _typing.Union[str, None]
+
+
+
+
+# path_pointers: None

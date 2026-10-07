@@ -3,42 +3,60 @@ source: crates/derive-python/src/codegen/mod.rs
 expression: types_output
 ---
 from abc import ABC, abstractmethod
-import typing
 import collections.abc
+import typing
 import pydantic
-
+import typing as _typing
+import pydantic as _pydantic
 
 # Generated for published documents of derived collection patterns/sums
-class Document(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
+class Document(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
 
-    Count: typing.Optional[int] = None
+    Count: _typing.Optional[int] = None
     Key: str
     Sum: int
 
 
 
 # Generated for read documents of sourced collection patterns/ints
-class SourceFromIntsIntValue(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
+class SourceFromIntsIntValue(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
 
     Int: int
     Key: str
 
-SourceFromInts: typing.TypeAlias = "SourceFromIntsIntValue"
+SourceFromInts: _typing.TypeAlias = "SourceFromIntsIntValue"
 
 
 # Generated for read documents of sourced collection patterns/strings
-class SourceProcessStrings(pydantic.BaseModel):
-    class Metadata(pydantic.BaseModel):
-        model_config = pydantic.ConfigDict(extra='allow')
+class SourceProcessStrings(_pydantic.BaseModel):
+    class Metadata(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
 
 
-    model_config = pydantic.ConfigDict(extra='allow')
+    model_config = _pydantic.ConfigDict(extra='allow')
 
     id: str
-    metadata: typing.Optional["Metadata"] = None
+    metadata: _typing.Optional["Metadata"] = None
     text: str
+
+
+
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    apiKey: str
+    multiplier: int = 2
+
+
+
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    readOnly: bool = False
 
 
 
@@ -53,8 +71,25 @@ class ConnectorState(pydantic.BaseModel):
 
 class Request(pydantic.BaseModel):
 
-    class Open(pydantic.BaseModel):
+    class Open[R = ResourceConfig](pydantic.BaseModel):
+        """Opens the derivation with its connector state."""
+
         state: dict[str, typing.Any]
+        # Resource configuration (`lambda`) of each transform, in order.
+        resources: list[R] = []
+
+    class Transform[R = ResourceConfig](pydantic.BaseModel):
+        """A transform of a derivation which is being validated."""
+
+        name: str
+        # Resource configuration of the transform, which is its `lambda`.
+        resource_config: R = pydantic.Field(alias='resourceConfig')
+
+    class Validate[R = ResourceConfig](pydantic.BaseModel):
+        """Validates the derivation of collection `name` as it's published."""
+
+        name: str
+        transforms: "list[Request.Transform[R]]"
 
     class Flush(pydantic.BaseModel):
         # Aggregated connector state patches contributed by all participating shards
@@ -65,7 +100,6 @@ class Request(pydantic.BaseModel):
     class Reset(pydantic.BaseModel):
         pass
 
-    open: typing.Optional[Open] = None
     flush: typing.Optional[Flush] = None
     reset: typing.Optional[Reset] = None
 
@@ -103,16 +137,48 @@ class Response(pydantic.BaseModel):
         # Request a further Flush iteration this transaction.
         more: bool = False
 
+    class Validated(pydantic.BaseModel):
+        """Outcome of validating the derivation."""
+
+        class Transform(pydantic.BaseModel):
+            # Does this transform never publish documents? A read-only
+            # transform needn't wait for prior transactions to commit.
+            read_only: bool = pydantic.Field(default=False, serialization_alias='readOnly')
+
+        # Validated transforms, in the order of `Request.Validate.transforms`.
+        transforms: "list[Response.Validated.Transform]"
+
     opened: typing.Optional[Opened] = None
     published: typing.Optional[Published] = None
     flushed: typing.Optional[Flushed] = None
 
-class IDerivation(ABC):
-    """Abstract base class for derivation implementations."""
+class IDerivation[C = EndpointConfig, R = ResourceConfig](ABC):
+    """Abstract base class for derivation implementations.
 
-    def __init__(self, open: Request.Open):
-        """Initialize the derivation with an Open message."""
+    `C` is the type of the derivation's `config`, and `R` of the resource
+    configuration (`lambda`) of each transform. They default to the types
+    generated from the derivation's `spec`. A derivation may instead declare
+    types of its own, as `class Derivation(IDerivation[MyConfig])`, and is
+    then responsible for keeping them equivalent to its declared `spec`."""
+
+    def __init__(self, open: Request.Open[R], config: C):
+        """Initialize the derivation with an Open message, and its `config`."""
         pass
+
+    @classmethod
+    def validate(cls, validate: Request.Validate[R], config: C) -> Response.Validated:
+        """Validate the derivation as it's published, raising to fail.
+
+        The default marks a transform as read-only if its resource
+        configuration has a true `readOnly`."""
+        return Response.Validated(
+            transforms=[
+                Response.Validated.Transform(
+                    read_only=bool(getattr(transform.resource_config, "readOnly", False))
+                )
+                for transform in validate.transforms
+            ]
+        )
 
     @abstractmethod
     async def from_ints(self, read: Request.ReadFromInts) -> collections.abc.AsyncIterator[Document]:
