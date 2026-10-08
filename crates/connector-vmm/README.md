@@ -66,6 +66,19 @@ and `launch::Overlay` for the lifetime of memory handed to libkrun.
 libkrun is loaded at runtime so builds need no installed library. `src/krun.rs`
 records the header version used for its ABI bindings.
 
+## The image's user
+
+`image::load` resolves the image's `User` against the image's own
+`/etc/passwd` and `/etc/group`, opened with `openat2` and `RESOLVE_IN_ROOT`
+beneath `/rootfs`. Links and `..` resolve as they will in the guest, against
+the image root and never above it, and the kernel holds that through the whole
+walk, so no link reaches the VMM image's own files. There is no fallback: a
+host kernel without `openat2` (Linux 5.6) fails every launch with an error
+naming it. A missing file, or a link to nothing, reads as empty, as in a
+scratch image: numeric ids still resolve and names are refused. The lookup
+sees the image alone, so a link into something the guest mounts later, such as
+the connector mount or `/proc`, reads whatever the image has at that path.
+
 ## Disks and shares
 
 | mount | | what it is |

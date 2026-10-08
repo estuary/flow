@@ -4,6 +4,8 @@
 //! `image-inspect.json` is `podman inspect`'s output verbatim - a one-element
 //! array - written by the runtime into the connector mount.
 
+use std::io::Read;
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::path::Path;
 
 /// What the guest init needs to know about the workload before it execs it.
@@ -53,10 +55,12 @@ pub fn load(inspect_path: &Path, rootfs: &Path) -> anyhow::Result<ImageConfig> {
     let (Inspect { config },): (Inspect,) = serde_json::from_slice(&content)
         .map_err(|e| anyhow::anyhow!("parsing {}: {e}", inspect_path.display()))?;
 
+    let root = std::fs::File::open(rootfs)
+        .map_err(|e| anyhow::anyhow!("opening {}: {e}", rootfs.display()))?;
     let (uid, gid) = resolve_user(
         &config.user,
-        &read_db(&rootfs.join("etc/passwd"))?,
-        &read_db(&rootfs.join("etc/group"))?,
+        &read_db(&root, c"/etc/passwd")?,
+        &read_db(&root, c"/etc/group")?,
     )?;
 
     Ok(ImageConfig {
@@ -174,14 +178,61 @@ pub fn krun_config(config: &ImageConfig, cmd: &[String], overrides: &[(&str, Str
     .expect("a map of strings always serializes")
 }
 
-/// A missing passwd or group file is normal for a scratch-based image; it just
-/// means no name can resolve.
-fn read_db(path: &Path) -> anyhow::Result<String> {
-    match std::fs::read_to_string(path) {
-        Ok(content) => Ok(content),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        Err(e) => Err(anyhow::anyhow!("reading {}: {e}", path.display())),
-    }
+/// Read the image's account database at `path` as the guest will see it.
+/// `RESOLVE_IN_ROOT` resolves absolute links and `..` against `root` and never
+/// above it, so an image's `/etc/passwd -> /usr/share/...` reads the image's
+/// file and never this VMM's. The kernel enforces that on every step of the
+/// walk, which a check of the resolved path could not. There is no fallback
+/// without `openat2` (Linux 5.6): the error names it instead.
+///
+/// A missing passwd or group file, or a link to nothing, is normal for a
+/// scratch-based image; it just means no name can resolve.
+fn read_db(root: &std::fs::File, path: &std::ffi::CStr) -> anyhow::Result<String> {
+    // SAFETY: open_how is three integers, for which zero is valid.
+    let mut how: libc::open_how = unsafe { std::mem::zeroed() };
+    how.flags = (libc::O_RDONLY | libc::O_CLOEXEC) as u64;
+    // RESOLVE_IN_ROOT also refuses magic links today, but its documentation
+    // reserves the right to change that.
+    how.resolve = libc::RESOLVE_IN_ROOT | libc::RESOLVE_NO_MAGICLINKS;
+
+    // EAGAIN is the kernel declining to vouch for a `..` that raced a rename
+    // or mount anywhere on the host, and asking the caller to retry.
+    let mut tries = 0;
+    let fd = loop {
+        // SAFETY: `path` is NUL-terminated and `how` outlives the call, which
+        // is given its size.
+        let fd = unsafe {
+            libc::syscall(
+                libc::SYS_openat2,
+                root.as_raw_fd(),
+                path.as_ptr(),
+                &how,
+                std::mem::size_of::<libc::open_how>(),
+            )
+        };
+        if fd >= 0 {
+            break fd as RawFd;
+        }
+        let e = std::io::Error::last_os_error();
+        tries += 1;
+        if e.raw_os_error() == Some(libc::EAGAIN) && tries < 32 {
+            continue;
+        }
+        if e.kind() == std::io::ErrorKind::NotFound {
+            return Ok(String::new());
+        }
+        anyhow::bail!(
+            "opening the image's {} with openat2: {e}",
+            path.to_string_lossy()
+        );
+    };
+
+    let mut content = String::new();
+    // SAFETY: openat2 returned a descriptor nothing else owns.
+    unsafe { std::fs::File::from_raw_fd(fd) }
+        .read_to_string(&mut content)
+        .map_err(|e| anyhow::anyhow!("reading the image's {}: {e}", path.to_string_lossy()))?;
+    Ok(content)
 }
 
 /// The primary group of the passwd entry for `uid`, found by uid rather than
@@ -345,6 +396,141 @@ mod tests {
             table.push_str(&format!("{user:?} with no passwd file -> {outcome}\n"));
         }
         insta::assert_snapshot!(table);
+    }
+
+    /// `load` over real directory trees. `rootfs` is the image root, and
+    /// `{host}` in a path or link target is the test directory's absolute
+    /// path: inside the image it names a directory that exists only there.
+    /// Every decoy sits where a link would land if the host resolved it, and
+    /// holds different ids, so each outcome says which database was read.
+    #[test]
+    fn account_files_resolve_in_the_image_root() {
+        use Entry::{File, Link};
+
+        const PASSWD: &str = "root:x:0:0::/root:/bin/sh\nacmesvc:x:1000:1001::/:/bin/sh\n";
+        const GROUP: &str = "root:x:0:\nacmegrp:x:1002:\n";
+        const DECOY_PASSWD: &str = "acmesvc:x:6000:6001::/:/bin/sh\n";
+        const DECOY_GROUP: &str = "acmegrp:x:6002:\n";
+
+        let cases: &[(&str, &[(&str, Entry)], &[&str])] = &[
+            (
+                "plain files",
+                &[
+                    ("rootfs/etc/passwd", File(PASSWD)),
+                    ("rootfs/etc/group", File(GROUP)),
+                ],
+                &["acmesvc:acmegrp", "acmesvc", "1000", "nobody"],
+            ),
+            (
+                "absolute links",
+                &[
+                    ("rootfs/etc/passwd", Link("{host}/accounts/passwd")),
+                    ("rootfs/etc/group", Link("{host}/accounts/group")),
+                    ("rootfs{host}/accounts/passwd", File(PASSWD)),
+                    ("rootfs{host}/accounts/group", File(GROUP)),
+                    ("accounts/passwd", File(DECOY_PASSWD)),
+                    ("accounts/group", File(DECOY_GROUP)),
+                ],
+                &["acmesvc:acmegrp", "acmesvc"],
+            ),
+            (
+                "relative links climbing above the root",
+                &[
+                    ("rootfs/etc/passwd", Link("../../accounts/passwd")),
+                    ("rootfs/etc/group", Link("../../accounts/group")),
+                    ("rootfs/accounts/passwd", File(PASSWD)),
+                    ("rootfs/accounts/group", File(GROUP)),
+                    ("accounts/passwd", File(DECOY_PASSWD)),
+                    ("accounts/group", File(DECOY_GROUP)),
+                ],
+                &["acmesvc:acmegrp"],
+            ),
+            (
+                "/etc an absolute link",
+                &[
+                    ("rootfs/etc", Link("{host}/accounts")),
+                    ("rootfs{host}/accounts/passwd", File(PASSWD)),
+                    ("rootfs{host}/accounts/group", File(GROUP)),
+                    ("accounts/passwd", File(DECOY_PASSWD)),
+                    ("accounts/group", File(DECOY_GROUP)),
+                ],
+                &["acmesvc:acmegrp"],
+            ),
+            (
+                "/etc a relative link climbing above the root",
+                &[
+                    ("rootfs/etc", Link("../accounts")),
+                    ("rootfs/accounts/passwd", File(PASSWD)),
+                    ("rootfs/accounts/group", File(GROUP)),
+                    ("accounts/passwd", File(DECOY_PASSWD)),
+                    ("accounts/group", File(DECOY_GROUP)),
+                ],
+                &["acmesvc:acmegrp"],
+            ),
+            (
+                "links dangling in the image, whose targets exist on the host",
+                &[
+                    ("rootfs/etc/passwd", Link("{host}/accounts/passwd")),
+                    ("rootfs/etc/group", Link("{host}/accounts/group")),
+                    ("accounts/passwd", File(DECOY_PASSWD)),
+                    ("accounts/group", File(DECOY_GROUP)),
+                ],
+                &["acmesvc", "1000:acmegrp", "1000:1002"],
+            ),
+            (
+                "no account files, as in a scratch image",
+                &[("rootfs/bin/connector", File(""))],
+                &["", "1000", "1000:1002", "acmesvc"],
+            ),
+            (
+                "a link loop",
+                &[
+                    ("rootfs/etc/passwd", Link("passwd.d")),
+                    ("rootfs/etc/passwd.d", Link("/etc/passwd")),
+                    ("rootfs/etc/group", File(GROUP)),
+                ],
+                &["1000"],
+            ),
+        ];
+
+        let mut table = String::new();
+        for (name, layout, users) in cases {
+            table.push_str(&format!("## {name}\n"));
+            for user in *users {
+                let dir = tempfile::tempdir().unwrap();
+                let host = dir.path().to_str().unwrap();
+                for (path, entry) in *layout {
+                    let path = dir.path().join(path.replace("{host}", host));
+                    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    match entry {
+                        File(content) => std::fs::write(&path, content).unwrap(),
+                        Link(target) => {
+                            std::os::unix::fs::symlink(target.replace("{host}", host), &path)
+                                .unwrap()
+                        }
+                    }
+                }
+                let inspect = dir.path().join("image-inspect.json");
+                std::fs::write(
+                    &inspect,
+                    serde_json::json!([{"Config": {"User": user}}]).to_string(),
+                )
+                .unwrap();
+
+                let outcome = match super::load(&inspect, &dir.path().join("rootfs")) {
+                    Ok(config) => format!("{}:{}", config.uid, config.gid),
+                    Err(error) => format!("refused: {error:#}"),
+                };
+                table.push_str(&format!("{user:?} -> {outcome}\n"));
+            }
+            table.push('\n');
+        }
+        insta::assert_snapshot!(table);
+    }
+
+    enum Entry {
+        File(&'static str),
+        Link(&'static str),
     }
 
     fn base() -> Guest<'static> {

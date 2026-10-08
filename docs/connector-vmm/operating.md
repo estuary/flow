@@ -38,6 +38,9 @@ Required:
   `CAP_NET_ADMIN`, sysctls and bridge networking.
 - **nftables** in the host kernel with the `inet` and `bridge` families, for
   the [host boundary](#the-host-boundary).
+- **`openat2`** (Linux 5.6), allowed by the engine's seccomp profile, as
+  Podman 4.9.3's default allows it. `flow-connector-vmm` reads a connector
+  image's account files through it, and fails the launch without it.
 
 Not measured, so not claimed: Podman 5 or netavark's nftables driver; other
 distributions and kernels; hosts with IPv6 disabled; metadata services other

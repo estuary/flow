@@ -295,6 +295,78 @@ fn readiness() {
     run::assert_framing(&vmm, true);
 }
 
+/// An image whose `User` resolves only through links: `/etc/passwd` is an
+/// absolute link and `/etc/group` a relative one climbing above the root.
+/// Neither target exists in the VMM's own root, so the guest runs as that
+/// user and group only if both resolved in the image.
+#[test]
+fn image_user_through_linked_account_files() {
+    let run = run::load();
+    let image = format!(
+        "localhost/connector-vmm-kvm-linked-accounts:{}",
+        run::random_hex()
+    );
+    run::record("image", &image);
+    let containerfile = format!(
+        "FROM {}\n\
+         USER root\n\
+         RUN mkdir /usr/lib/acme && cp /etc/passwd /etc/group /usr/lib/acme/ \
+         && echo 'acmesvc:x:4321:4321::/:/usr/sbin/nologin' >> /usr/lib/acme/passwd \
+         && echo 'acmegrp:x:4322:' >> /usr/lib/acme/group \
+         && ln -sf /usr/lib/acme/passwd /etc/passwd \
+         && ln -sf ../../../usr/lib/acme/group /etc/group\n\
+         USER acmesvc:acmegrp\n",
+        run.guest_image
+    );
+    let context = run::fixture("");
+    let built = run::sudo_output(
+        &[
+            "podman",
+            "build",
+            "-q",
+            "-t",
+            &image,
+            "-f",
+            "-",
+            &context.to_string_lossy(),
+        ],
+        Some(containerfile.as_bytes()),
+    );
+    assert!(
+        built.status.success(),
+        "building {image}: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let spec = run::Spec {
+        connector_image: image.clone(),
+        ..run::Spec::probes(&run, "none.json")
+    };
+    let (vmm, mut guest) = start(&run, spec);
+    let status = probe(
+        &mut guest,
+        "status",
+        "read",
+        json!({"path": "/proc/self/status"}),
+    );
+    let ids: Vec<&str> = status["content"]
+        .as_str()
+        .unwrap_or_else(|| panic!("reading /proc/self/status: {status}"))
+        .lines()
+        .filter(|line| line.starts_with("Uid:") || line.starts_with("Gid:"))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "Uid:\t4321\t4321\t4321\t4321",
+            "Gid:\t4322\t4322\t4322\t4322"
+        ]
+    );
+
+    std::mem::drop((guest, vmm));
+    run::podman(&["image", "rm", &image]);
+}
+
 /// The default workload: connector-init from the connector mount,
 /// serving over vsock, answering a Spec RPC dialed unprivileged.
 #[test]
