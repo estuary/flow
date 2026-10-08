@@ -16,6 +16,8 @@ mod placement;
 mod quotas;
 mod retry;
 pub mod specs;
+#[cfg(test)]
+mod test_support;
 
 pub use self::commit::{ClearDraftErrors, NoopWithCommit, UpdatePublicationsRow, WithCommit};
 pub use self::db::{Row, create, delete_draft, fetch_publication, resolve};

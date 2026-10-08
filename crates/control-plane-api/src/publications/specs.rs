@@ -789,11 +789,12 @@ pub async fn resolve_live_specs(
             let (catalog_type, reads_from, writes_to) = spec_meta(draft, catalog_name);
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
-            // If the spec is included in the draft, then the user must have admin capability to it.
+            // If the spec is included in the draft, then the user must hold `SpecEdit` to it.
             if verify_user_authz
-                && !matches!(
-                    snapshot.user_capability(subject, catalog_name),
-                    Some(Capability::Admin)
+                && !snapshot.is_user_authorized(
+                    subject,
+                    catalog_name,
+                    models::authz::Capability::SpecEdit,
                 )
             {
                 snapshot.request_refresh();
@@ -854,15 +855,16 @@ pub async fn resolve_live_specs(
         // Ops collections are automatically injected, and the user does not need (or have) any
         // access capability to them as long as they are not drafted.
         } else if !ops_collection_names.contains(&spec_row.catalog_name) {
-            // This is a live spec that is not included in the draft.
-            // The user needs read capability to it because it was referenced by one of the specs
-            // in their draft. Note that the _user_ does not need `Capability::Write` as long as
-            // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
-            // know it exists.
+            // This is a live spec that is not included in the draft. The user must hold
+            // `CatalogRead` to it because a drafted spec references it. The _user_ needs no
+            // further bits, because the _spec_ is authorized separately for what it reads and
+            // writes; the user only needs to be allowed to know the spec exists.
             if verify_user_authz
-                && !snapshot
-                    .user_capability(subject, &spec_row.catalog_name)
-                    .is_some_and(|c| c >= Capability::Read)
+                && !snapshot.is_user_authorized(
+                    subject,
+                    &spec_row.catalog_name,
+                    models::authz::Capability::CatalogRead,
+                )
             {
                 snapshot.request_refresh();
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
@@ -1110,6 +1112,148 @@ pub async fn add_built_specs_to_draft_specs(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::publications::test_support::{
+        alice, role_grant, seed_alice_catalog, snapshot_with_grants, user_grant,
+    };
+    use models::authz::{Capability as Bit, CapabilityBundle, Subject};
+
+    /// A draft of a new materialization `aliceCo/out/mat` reading the live
+    /// collection `aliceCo/data/foo`, so that one resolution exercises both
+    /// the drafted-name (`SpecEdit`) and referenced-name (`CatalogRead`) rules.
+    fn draft_reading_foo() -> tables::DraftCatalog {
+        let mut model = models::MaterializationDef::example();
+        model.bindings[0].source =
+            models::Source::Collection(models::Collection::new("aliceCo/data/foo"));
+
+        let mut draft = tables::DraftCatalog::default();
+        draft.add_any_spec(
+            "aliceCo/out/mat",
+            tables::synthetic_scope(models::CatalogType::Materialization, "aliceCo/out/mat"),
+            None,
+            models::AnySpec::Materialization(model),
+            false,
+        );
+        draft
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_user_authorization_evaluates_effective_bits(pool: sqlx::PgPool) {
+        seed_alice_catalog(&pool).await;
+        let draft = draft_reading_foo();
+
+        // The spec-to-spec grant the drafted materialization needs, so that
+        // every denial below is attributable to the user rules alone.
+        let spec_grants = || {
+            vec![role_grant(
+                "aliceCo/out/",
+                "aliceCo/data/",
+                Capability::Read,
+            )]
+        };
+        let legacy_admin = || {
+            snapshot_with_grants(
+                vec![user_grant(alice(), "aliceCo/", Capability::Admin, &[])],
+                spec_grants(),
+            )
+        };
+        let editor_bundle_only = || {
+            snapshot_with_grants(
+                vec![user_grant(
+                    alice(),
+                    "aliceCo/",
+                    Capability::None,
+                    &[CapabilityBundle::Editor],
+                )],
+                spec_grants(),
+            )
+        };
+
+        let unrestricted = Subject::unrestricted(alice());
+        let viewer_mask = Subject {
+            capability_mask: Some(CapabilityBundle::Viewer.capabilities()),
+            ..unrestricted.clone()
+        };
+        let edit_only_mask = Subject {
+            capability_mask: Some(Bit::SpecEdit.into()),
+            ..unrestricted.clone()
+        };
+        let scoped_to_in = Subject {
+            prefix_scope: Some("aliceCo/in/".to_string()),
+            ..unrestricted.clone()
+        };
+
+        let cases: Vec<(&str, crate::Snapshot, &Subject, bool)> = vec![
+            (
+                "legacy admin, unrestricted",
+                legacy_admin(),
+                &unrestricted,
+                true,
+            ),
+            (
+                "legacy admin, viewer mask",
+                legacy_admin(),
+                &viewer_mask,
+                true,
+            ),
+            (
+                "legacy admin, SpecEdit-only mask",
+                legacy_admin(),
+                &edit_only_mask,
+                true,
+            ),
+            (
+                "legacy admin, scoped to aliceCo/in/",
+                legacy_admin(),
+                &scoped_to_in,
+                true,
+            ),
+            (
+                "legacy admin, viewer mask, user authz skipped",
+                legacy_admin(),
+                &viewer_mask,
+                false,
+            ),
+            (
+                "editor bundle without legacy capability",
+                editor_bundle_only(),
+                &unrestricted,
+                true,
+            ),
+        ];
+
+        let mut out = Vec::new();
+        for (label, snapshot, subject, verify_user_authz) in cases {
+            let resolved = resolve_live_specs(subject, &draft, &pool, &snapshot, verify_user_authz)
+                .await
+                .unwrap();
+            let live = resolved.live.all_spec_names().collect::<Vec<_>>();
+            let errors = resolved
+                .live
+                .errors
+                .iter()
+                .map(|e| format!("\n  {}: {:#}", e.scope, e.error))
+                .collect::<String>();
+            out.push(format!(
+                "{label}: live {live:?}, refresh requested {}{errors}",
+                snapshot.revoke.is_cancelled()
+            ));
+        }
+        insta::assert_snapshot!(out.join("\n"), @r#"
+        legacy admin, unrestricted: live ["aliceCo/data/foo"], refresh requested false
+        legacy admin, viewer mask: live ["aliceCo/data/foo"], refresh requested true
+          flow://materialization/aliceCo/out/mat: User is not authorized to create or change this catalog name
+        legacy admin, SpecEdit-only mask: live [], refresh requested true
+          flow://unauthorized/aliceCo/data/foo: User is not authorized to read this catalog name
+        legacy admin, scoped to aliceCo/in/: live [], refresh requested true
+          flow://unauthorized/aliceCo/data/foo: User is not authorized to read this catalog name
+          flow://materialization/aliceCo/out/mat: User is not authorized to create or change this catalog name
+        legacy admin, viewer mask, user authz skipped: live ["aliceCo/data/foo"], refresh requested false
+        editor bundle without legacy capability: live ["aliceCo/data/foo"], refresh requested false
+        "#);
+    }
 
     #[test]
     fn test_null_bytes_in_json() {
