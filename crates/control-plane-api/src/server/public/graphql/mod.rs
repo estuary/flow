@@ -39,6 +39,7 @@ mod invite_links;
 mod legal_terms;
 mod live_spec_refs;
 mod live_specs;
+mod logs;
 mod prefixes;
 mod publication_history;
 mod refresh_tokens;
