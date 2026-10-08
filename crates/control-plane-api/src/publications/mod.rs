@@ -6,6 +6,7 @@ use sqlx::Executor;
 use sqlx::types::Uuid;
 use tables::BuiltRow;
 
+pub mod authz;
 pub mod builds;
 mod catalog_test_router;
 mod commit;
