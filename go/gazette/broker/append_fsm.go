@@ -482,7 +482,6 @@ func (b *appendFSM) onValidatePreconditions() {
 
 	// Do journal registers match the request's expectation?
 	if b.req.CheckRegisters != nil &&
-		len(b.registers.Labels) != 0 &&
 		!b.req.CheckRegisters.Matches(b.registers) {
 
 		b.resolved.status = pb.Status_REGISTER_MISMATCH

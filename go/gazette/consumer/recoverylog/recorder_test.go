@@ -399,6 +399,7 @@ func (s *RecorderSuite) TestUpdatingRecordedLog(c *gc.C) {
 	// Initial recorder populates a fixture in first log.
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
 	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
+	rec.DisableRegisterChecks()
 	rec.RecordCreate("/strip/file1")
 	<-rec.Barrier(nil).Done()
 
@@ -452,6 +453,7 @@ func newBrokerLogAndReader(c *gc.C) (client.AsyncJournalClient, *client.Reader, 
 		ajc             = client.NewAppendService(context.Background(), rjc)
 		r               = client.NewReader(context.Background(), rjc, pb.ReadRequest{
 			Journal: aRecoveryLog,
+			Offset:  fenceLog(c, ajc, aRecoveryLog, anAuthor),
 			Block:   true,
 		})
 		br = bufio.NewReader(r)

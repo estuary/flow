@@ -17,6 +17,7 @@ func TestStoreWriteAndReadKeysAndOffsets(t *testing.T) {
 	var fsm, _ = recoverylog.NewFSM(recoverylog.FSMHints{Log: aRecoveryLog})
 	var rep = newTestReplica(t, bk)
 	var recorder = recoverylog.NewRecorder(aRecoveryLog, fsm, rep.author, rep.tmpdir, rep.client)
+	recorder.DisableRegisterChecks()
 	var store = NewStore(recorder)
 	require.NoError(t, store.Open())
 

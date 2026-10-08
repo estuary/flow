@@ -69,6 +69,7 @@ func TestStoreCommitAndRecover(t *testing.T) {
 		tmpdir,
 		ajc,
 	)
+	recorder.DisableRegisterChecks()
 	store, err := NewStore(recorder)
 	require.NoError(t, err)
 	require.NoError(t, store.Open(""))
@@ -179,6 +180,7 @@ func TestFileBindingCases(t *testing.T) {
 		tmpdir,
 		ajc,
 	)
+	recorder.DisableRegisterChecks()
 	store, err := NewStore(recorder)
 	require.NoError(t, err)
 	require.NoError(t, store.Open(""))

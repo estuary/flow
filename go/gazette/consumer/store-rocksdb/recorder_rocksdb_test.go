@@ -188,7 +188,8 @@ func TestSyncFailsWhenRecorderIsFenced(t *testing.T) {
 	replica.checkRegisters = true
 	defer replica.teardown()
 
-	replica.startWriting(aRecoveryLog)
+	replica.startReading(recoverylog.FSMHints{Log: aRecoveryLog})
+	replica.makeLive("")
 	replica.put("key one", "value one")
 
 	// Another author takes the log's registers, as a new primary does on hand-off.
@@ -219,7 +220,8 @@ func TestSyncFailsWhenRecorderIsCancelled(t *testing.T) {
 	replica.checkRegisters = true
 	defer replica.teardown()
 
-	replica.startWriting(aRecoveryLog)
+	replica.startReading(recoverylog.FSMHints{Log: aRecoveryLog})
+	replica.makeLive("")
 	replica.put("key one", "value one")
 
 	cancel()

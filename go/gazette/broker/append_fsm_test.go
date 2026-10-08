@@ -549,12 +549,14 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	require.True(t, fsm.runTo(stateStreamContent))
 	fsm.returnPipeline()
 
-	// Case: Register selector is not matched, but journal has no registers.
+	// Case: Register selector is not matched, and journal has no registers.
 	fsm = newFSM(broker, ctx, pb.AppendRequest{
 		Journal:        "a/journal",
 		CheckRegisters: &pb.LabelSelector{Include: pb.MustLabelSet("not", "matched")},
 	})
-	require.True(t, fsm.runTo(stateStreamContent))
+	require.True(t, fsm.runTo(stateValidatePreconditions))
+	fsm.onValidatePreconditions()
+	require.Equal(t, pb.Status_REGISTER_MISMATCH, fsm.resolved.status)
 
 	// Set fixture for next run.
 	fsm.pln.spool.Registers = pb.MustLabelSet("some", "register")

@@ -395,6 +395,7 @@ func (s *PlaybackSuite) TestPlayWithFinishAtWriteHead(c *gc.C) {
 
 	// Start a Recorder, and produce a set of initial hints.
 	var rec = NewRecorder(aRecoveryLog, recFSM, anAuthor, "/strip", ajc)
+	rec.DisableRegisterChecks()
 	var f = FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/foo/bar")}
 	var hints, _ = rec.BuildHints()
 
@@ -446,6 +447,7 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	// Start a Recorder, and two Players from initial Recorder hints.
+	fenceLog(c, ajc, aRecoveryLog, anAuthor)
 	var rec = NewRecorder(aRecoveryLog, recFSM, anAuthor, "/strip", ajc)
 	var f = FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/foo/bar")}
 	var hints, _ = rec.BuildHints()
@@ -538,6 +540,7 @@ func (s *PlaybackSuite) TestPlayWithUnusedHints(c *gc.C) {
 	// Record some writes of valid files. Build hints, and tweak them by adding
 	// an Fnode at an offset which was not actually recorded.
 	var rec = NewRecorder(aRecoveryLog, recFSM, anAuthor, "/strip", ajc)
+	rec.DisableRegisterChecks()
 	(&FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/foo")}).
 		RecordWrite([]byte("bar"))
 	(&FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/baz")}).
@@ -604,6 +607,7 @@ func (s *PlaybackSuite) TestPlayWithMultipleLogs(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	var rec = NewRecorder(oldLog, recFSM, authorA, "/strip", ajc)
+	rec.DisableRegisterChecks()
 	var f = FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/old/file")}
 	f.RecordWrite([]byte("old data"))
 	<-rec.Barrier(nil).Done() // Flush all recorded ops.
@@ -736,6 +740,16 @@ func writeToLog(c *gc.C, ctx context.Context, cl pb.RoutedJournalClient, b strin
 		err = w.Close()
 	}
 	c.Check(err, gc.IsNil)
+}
+
+// fenceLog fences |journal| to |author| as Player.InjectHandoff would, returning its write head.
+func fenceLog(c *gc.C, ajc client.AsyncJournalClient, journal pb.Journal, author Author) pb.Offset {
+	var frame, _ = message.EncodeFixedProtoFrame(&RecordedOp{}, nil) // Skipped by playback.
+	var txn = ajc.StartAppend(pb.AppendRequest{Journal: journal, UnionRegisters: author.Fence()}, nil)
+	_, _ = txn.Writer().Write(frame)
+	c.Assert(txn.Release(), gc.IsNil)
+	c.Assert(txn.Err(), gc.IsNil)
+	return txn.Response().Commit.End
 }
 
 func newBrokerAndLog(c *gc.C) (*brokertest.Broker, func()) {
