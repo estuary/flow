@@ -1,0 +1,144 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: responses
+---
+[
+  {
+    "data": {
+      "publication": {
+        "draftId": "[draft-id]",
+        "dryRun": false,
+        "errors": [],
+        "id": "[id]",
+        "logs": {
+          "edges": [],
+          "pageInfo": {
+            "endCursor": null,
+            "hasNextPage": false
+          }
+        },
+        "pubId": null,
+        "status": {
+          "lockFailures": [],
+          "type": "queued"
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "publication": {
+        "draftId": "[draft-id]",
+        "dryRun": false,
+        "errors": [],
+        "id": "[id]",
+        "logs": {
+          "edges": [],
+          "pageInfo": {
+            "endCursor": null,
+            "hasNextPage": false
+          }
+        },
+        "pubId": "0707070707070707",
+        "status": {
+          "lockFailures": [],
+          "type": "success"
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "publication": {
+        "draftId": "[draft-id]",
+        "dryRun": true,
+        "errors": [],
+        "id": "[id]",
+        "logs": {
+          "edges": [],
+          "pageInfo": {
+            "endCursor": null,
+            "hasNextPage": false
+          }
+        },
+        "pubId": "0808080808080808",
+        "status": {
+          "lockFailures": [],
+          "type": "success"
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "publication": {
+        "draftId": "[draft-id]",
+        "dryRun": false,
+        "errors": [],
+        "id": "[id]",
+        "logs": {
+          "edges": [],
+          "pageInfo": {
+            "endCursor": null,
+            "hasNextPage": false
+          }
+        },
+        "pubId": null,
+        "status": {
+          "lockFailures": [],
+          "type": "buildFailed"
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "publication": {
+        "draftId": "[draft-id]",
+        "dryRun": false,
+        "errors": [],
+        "id": "[id]",
+        "logs": {
+          "edges": [],
+          "pageInfo": {
+            "endCursor": null,
+            "hasNextPage": false
+          }
+        },
+        "pubId": null,
+        "status": {
+          "lockFailures": [
+            {
+              "actual": "0202020202020202",
+              "catalogName": "aliceCo/data/foo",
+              "expected": "0101010101010101"
+            }
+          ],
+          "type": "buildIdLockFailure"
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "publication": {
+        "draftId": "[draft-id]",
+        "dryRun": false,
+        "errors": [],
+        "id": "[id]",
+        "logs": {
+          "edges": [],
+          "pageInfo": {
+            "endCursor": null,
+            "hasNextPage": false
+          }
+        },
+        "pubId": null,
+        "status": {
+          "lockFailures": [],
+          "type": "emptyDraft"
+        }
+      }
+    }
+  }
+]

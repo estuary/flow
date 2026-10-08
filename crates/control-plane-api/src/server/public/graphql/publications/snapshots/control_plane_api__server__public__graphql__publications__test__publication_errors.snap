@@ -1,0 +1,43 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: "[first[\"data\"][\"publication\"][\"errors\"].clone(),\nreplaced[\"data\"][\"publication\"][\"errors\"].clone(),\ndeleted[\"data\"][\"publication\"].clone(),]"
+---
+[
+  [
+    {
+      "catalogName": "aliceCo/in/cap",
+      "detail": "first",
+      "scope": "flow://capture/aliceCo/in/cap"
+    },
+    {
+      "catalogName": "aliceCo/out/mat",
+      "detail": "second",
+      "scope": "flow://materialization/aliceCo/out/mat"
+    }
+  ],
+  [
+    {
+      "catalogName": "aliceCo/data/foo",
+      "detail": "later",
+      "scope": "flow://collection/aliceCo/data/foo"
+    }
+  ],
+  {
+    "draftId": "[draft-id]",
+    "dryRun": false,
+    "errors": [],
+    "id": "[id]",
+    "logs": {
+      "edges": [],
+      "pageInfo": {
+        "endCursor": null,
+        "hasNextPage": false
+      }
+    },
+    "pubId": null,
+    "status": {
+      "lockFailures": [],
+      "type": "buildFailed"
+    }
+  }
+]

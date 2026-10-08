@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT l.logged_at, l.stream, l.log_line\n                    FROM internal.log_lines l\n                    JOIN publications p ON p.logs_token = l.token\n                    WHERE p.id = $1 AND p.user_id = $2\n                      AND ($3::timestamptz IS NULL OR l.logged_at > $3)\n                    ORDER BY l.logged_at ASC\n                    LIMIT $4\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "logged_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.log_lines",
+            "name": "logged_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "stream",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.log_lines",
+            "name": "stream"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "log_line",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.log_lines",
+            "name": "log_line"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Uuid",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1ff89e9b7a9fbcc6e713b2291a76123a6ff9a3b6233f603700827eb455321ee3"
+}

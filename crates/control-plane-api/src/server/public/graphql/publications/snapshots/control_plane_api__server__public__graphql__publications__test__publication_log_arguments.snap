@@ -1,0 +1,18 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: rejected
+---
+[
+  {
+    "first": -1,
+    "message": "The \"first\" parameter must be a non-negative number"
+  },
+  {
+    "first": 1001,
+    "message": "first cannot exceed 1000"
+  },
+  {
+    "after": "invalid",
+    "message": "input contains invalid characters"
+  }
+]
