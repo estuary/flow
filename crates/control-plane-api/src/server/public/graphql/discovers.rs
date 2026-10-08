@@ -1,26 +1,10 @@
 use async_graphql::types::connection;
 
 use super::TimestampCursor;
+use super::logs::{LogLine, LogLineConnection};
 
 const DEFAULT_PAGE_SIZE: usize = 100;
 const MAX_PAGE_SIZE: usize = 1_000;
-
-#[derive(Debug, Clone, async_graphql::SimpleObject)]
-pub struct LogLine {
-    logged_at: chrono::DateTime<chrono::Utc>,
-    stream: String,
-    line: String,
-}
-
-pub type LogLineConnection = connection::Connection<
-    TimestampCursor,
-    LogLine,
-    connection::EmptyFields,
-    connection::EmptyFields,
-    connection::DefaultConnectionName,
-    connection::DefaultEdgeName,
-    connection::DisableNodesField,
->;
 
 /// An asynchronous capture discovery that merges its results into a draft.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
