@@ -81,38 +81,7 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
     };
 
     let sops = locate_bin::locate("sops").context("failed to locate sops")?;
-
-    // Note that input_output() pre-allocates an output buffer as large as its input buffer,
-    // and our decrypted result will never be larger than its input.
-    let async_process::Output {
-        stderr,
-        stdout,
-        status,
-    } = async_process::input_output(
-        async_process::Command::new(sops).args([
-            "--decrypt",
-            "--input-type",
-            "json",
-            "--output-type",
-            "json",
-            "/dev/stdin",
-        ]),
-        config.get().as_bytes(),
-    )
-    .await
-    .context("failed to run sops")?;
-
-    let mut stdout = Zeroizing::from(stdout);
-
-    // `sops` emits JSON with newlines and tabs. Remove them to not break JSONL.
-    stdout.retain(|c| *c != b'\n' && *c != b'\t');
-
-    if !status.success() {
-        anyhow::bail!(
-            "decrypting sops document failed: {}",
-            String::from_utf8_lossy(&stderr),
-        );
-    }
+    let stdout = run_sops(&sops, config.get().as_bytes()).await?;
 
     // If there is no encrypted suffix, then we're all done.
     let Some(encrypted_suffix) = encrypted_suffix else {
@@ -125,6 +94,74 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
     strip_encrypted_suffix(&mut dom, &encrypted_suffix);
 
     Ok(models::RawValue::from_value(&dom))
+}
+
+/// Exit code of `sops` when no master key could produce the data key.
+///
+/// A KMS request which fails transiently exits this way, so it is retried.
+/// A revoked key exits this way too, so attempts are bounded.
+const SOPS_COULD_NOT_RETRIEVE_KEY: i32 = 128;
+
+/// Number of times `sops` is run before a data-key failure is final.
+const SOPS_ATTEMPTS: u32 = 4;
+
+/// Delay before the next `sops` attempt following `attempt` (1-based), or
+/// `None` when `status` is not a retryable failure or attempts are exhausted.
+fn sops_retry_delay(status: std::process::ExitStatus, attempt: u32) -> Option<std::time::Duration> {
+    if status.code() != Some(SOPS_COULD_NOT_RETRIEVE_KEY) || attempt >= SOPS_ATTEMPTS {
+        return None;
+    }
+    Some(std::time::Duration::from_millis(500) * 2u32.pow(attempt - 1))
+}
+
+/// Run `sops` to decrypt the JSON document `input`, returning its stdout with
+/// JSONL-breaking whitespace removed.
+async fn run_sops(sops: &std::path::Path, input: &[u8]) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    for attempt in 1.. {
+        // Note that input_output() pre-allocates an output buffer as large as its input buffer,
+        // and our decrypted result will never be larger than its input.
+        let async_process::Output {
+            stderr,
+            stdout,
+            status,
+        } = async_process::input_output(
+            async_process::Command::new(sops).args([
+                "--decrypt",
+                "--input-type",
+                "json",
+                "--output-type",
+                "json",
+                "/dev/stdin",
+            ]),
+            input,
+        )
+        .await
+        .context("failed to run sops")?;
+
+        let mut stdout = Zeroizing::from(stdout);
+
+        // `sops` emits JSON with newlines and tabs. Remove them to not break JSONL.
+        stdout.retain(|c| *c != b'\n' && *c != b'\t');
+
+        if status.success() {
+            return Ok(stdout);
+        }
+
+        let Some(delay) = sops_retry_delay(status, attempt) else {
+            anyhow::bail!(
+                "decrypting sops document failed: {}",
+                String::from_utf8_lossy(&stderr),
+            );
+        };
+        tracing::warn!(
+            attempt,
+            retry_in = ?delay,
+            stderr = %String::from_utf8_lossy(&stderr),
+            "sops could not retrieve its data key; retrying",
+        );
+        tokio::time::sleep(delay).await;
+    }
+    unreachable!("the attempt loop returns or bails")
 }
 
 /// Remove `suffix` from the end of every object key within `dom`, at any depth.
@@ -234,6 +271,114 @@ mod resolve_test {
             format!("{:#}", anyhow::Error::from(err)),
             @"resolving `secrets` stanza: failed to resolve secret 'acmeCo/password', used at configuration location /password: service is down"
         );
+    }
+}
+
+#[cfg(test)]
+mod retry_test {
+    use super::{SOPS_ATTEMPTS, SOPS_COULD_NOT_RETRIEVE_KEY, run_sops, sops_retry_delay};
+    use std::os::unix::process::ExitStatusExt;
+
+    /// Write a stand-in `sops` which fails with `code` on its first `failures`
+    /// invocations and then echoes a fixed document. It counts invocations
+    /// in a sibling file, which the test reads back.
+    fn fake_sops(dir: &std::path::Path, failures: u32, code: i32) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let bin = dir.join("sops");
+        let counter = dir.join("count");
+        std::fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\n\
+                 n=$(cat {counter} 2>/dev/null || echo 0)\n\
+                 n=$((n + 1))\n\
+                 echo $n > {counter}\n\
+                 if [ $n -le {failures} ]; then\n\
+                   echo \"attempt $n: CANCELLED\" >&2\n\
+                   exit {code}\n\
+                 fi\n\
+                 printf '{{\\n\\t\"ok\": %s\\n}}' \"$n\"\n",
+                counter = counter.display(),
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        bin
+    }
+
+    fn invocations(dir: &std::path::Path) -> u32 {
+        std::fs::read_to_string(dir.join("count"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
+    }
+
+    #[test]
+    fn delay_policy() {
+        let could_not_retrieve_key =
+            std::process::ExitStatus::from_raw(SOPS_COULD_NOT_RETRIEVE_KEY << 8);
+        let other_failure = std::process::ExitStatus::from_raw(1 << 8);
+        // A raw wait status for termination by SIGKILL carries no exit code.
+        let killed = std::process::ExitStatus::from_raw(9);
+
+        let delays: Vec<_> = (1..=SOPS_ATTEMPTS)
+            .map(|attempt| sops_retry_delay(could_not_retrieve_key, attempt))
+            .collect();
+        insta::assert_debug_snapshot!(delays, @r###"
+        [
+            Some(
+                500ms,
+            ),
+            Some(
+                1s,
+            ),
+            Some(
+                2s,
+            ),
+            None,
+        ]
+        "###);
+
+        assert_eq!(sops_retry_delay(other_failure, 1), None);
+        assert_eq!(sops_retry_delay(killed, 1), None);
+    }
+
+    #[tokio::test]
+    async fn retries_a_data_key_failure_then_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_sops(dir.path(), 2, SOPS_COULD_NOT_RETRIEVE_KEY);
+
+        let out = run_sops(&bin, b"{}").await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out), r#"{"ok": 3}"#);
+        assert_eq!(invocations(dir.path()), 3);
+    }
+
+    #[tokio::test]
+    async fn gives_up_after_bounded_attempts_with_final_stderr() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_sops(dir.path(), u32::MAX, SOPS_COULD_NOT_RETRIEVE_KEY);
+
+        let err = run_sops(&bin, b"{}").await.unwrap_err();
+        insta::assert_snapshot!(
+            format!("{err:#}"),
+            @"decrypting sops document failed: attempt 4: CANCELLED"
+        );
+        assert_eq!(invocations(dir.path()), SOPS_ATTEMPTS);
+    }
+
+    #[tokio::test]
+    async fn other_exit_codes_fail_immediately() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_sops(dir.path(), u32::MAX, 1);
+
+        let err = run_sops(&bin, b"{}").await.unwrap_err();
+        insta::assert_snapshot!(
+            format!("{err:#}"),
+            @"decrypting sops document failed: attempt 1: CANCELLED"
+        );
+        assert_eq!(invocations(dir.path()), 1);
     }
 }
 
