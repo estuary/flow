@@ -1,6 +1,5 @@
 use anyhow::Context;
 use itertools::Itertools;
-use models::Capability;
 use std::future::Future;
 
 /// Initialize a draft prior to build/validation. This may add additional specs to the draft.
@@ -45,11 +44,11 @@ where
 
 /// An `Initialize` that expands the draft to touch live specs that read from or write to
 /// any drafted collections. This may optionally filter the specs based on whether the user
-/// has `admin` capability to them.
+/// holds `SpecEdit` to them.
 pub struct ExpandDraft<'a> {
     /// Whether to filter specs based on the user's capability. If true, then only specs for which
-    /// the user has `admin` capability will be added to the draft.
-    pub filter_user_has_admin: bool,
+    /// the user holds `SpecEdit` will be added to the draft.
+    pub filter_user_can_edit: bool,
     /// Authorization Snapshot pinned for the publication, against which the
     /// user-capability filter is evaluated. Held as a field — rather than
     /// threaded through `Initialize::initialize` — because this is the only
@@ -62,7 +61,7 @@ impl Initialize for ExpandDraft<'_> {
         level = "debug",
         skip_all,
         err,
-        fields(filter_user_has_admin = self.filter_user_has_admin)
+        fields(filter_user_can_edit = self.filter_user_can_edit)
     )]
     async fn initialize(
         &self,
@@ -80,8 +79,8 @@ impl Initialize for ExpandDraft<'_> {
             .collect::<Vec<_>>();
         let all_drafted_specs = draft.all_spec_names().collect::<Vec<_>>();
 
-        let capability_filter = if self.filter_user_has_admin {
-            Some(Capability::Admin)
+        let capability_filter = if self.filter_user_can_edit {
+            Some(models::authz::Capability::SpecEdit)
         } else {
             None
         };
@@ -244,5 +243,122 @@ impl Initialize for RuntimeV2Rollout {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::publications::test_support::{
+        alice, seed_alice_catalog, snapshot_with_grants, user_grant,
+    };
+    use models::authz::{CapabilityBundle, Subject};
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_expansion_filters_on_effective_bits(pool: sqlx::PgPool) {
+        seed_alice_catalog(&pool).await;
+
+        let legacy_admin = || {
+            snapshot_with_grants(
+                vec![user_grant(
+                    alice(),
+                    "aliceCo/",
+                    models::Capability::Admin,
+                    &[],
+                )],
+                Vec::new(),
+            )
+        };
+        let editor_bundle_on_out = || {
+            snapshot_with_grants(
+                vec![user_grant(
+                    alice(),
+                    "aliceCo/out/",
+                    models::Capability::None,
+                    &[CapabilityBundle::Editor],
+                )],
+                Vec::new(),
+            )
+        };
+
+        let unrestricted = Subject::unrestricted(alice());
+        let viewer_mask = Subject {
+            capability_mask: Some(CapabilityBundle::Viewer.capabilities()),
+            ..unrestricted.clone()
+        };
+        let scoped_to_in = Subject {
+            prefix_scope: Some("aliceCo/in/".to_string()),
+            ..unrestricted.clone()
+        };
+
+        let cases: Vec<(&str, crate::Snapshot, &Subject, bool)> = vec![
+            (
+                "legacy admin, unrestricted",
+                legacy_admin(),
+                &unrestricted,
+                true,
+            ),
+            (
+                "legacy admin, viewer mask",
+                legacy_admin(),
+                &viewer_mask,
+                true,
+            ),
+            (
+                "legacy admin, scoped to aliceCo/in/",
+                legacy_admin(),
+                &scoped_to_in,
+                true,
+            ),
+            (
+                "legacy admin, viewer mask, unfiltered",
+                legacy_admin(),
+                &viewer_mask,
+                false,
+            ),
+            (
+                "editor bundle on aliceCo/out/ only",
+                editor_bundle_on_out(),
+                &unrestricted,
+                true,
+            ),
+        ];
+
+        let mut out = Vec::new();
+        for (label, snapshot, subject, filter_user_can_edit) in cases {
+            let mut draft = tables::DraftCatalog::default();
+            draft.collections.insert(tables::DraftCollection {
+                collection: models::Collection::new("aliceCo/data/foo"),
+                scope: tables::synthetic_scope(models::CatalogType::Collection, "aliceCo/data/foo"),
+                expect_pub_id: None,
+                data_plane_id: models::Id::zero(),
+                model: Some(models::CollectionDef::example()),
+                is_touch: false,
+            });
+
+            ExpandDraft {
+                filter_user_can_edit,
+                snapshot: &snapshot,
+            }
+            .initialize(&pool, subject, &mut draft)
+            .await
+            .unwrap();
+
+            let names = draft.all_spec_names().collect::<Vec<_>>();
+            out.push(format!(
+                "{label}: {names:?}, refresh requested {}",
+                snapshot.revoke.is_cancelled()
+            ));
+        }
+        insta::assert_snapshot!(out.join("\n"), @r#"
+        legacy admin, unrestricted: ["aliceCo/in/capture-foo", "aliceCo/data/foo", "aliceCo/out/materialize-bar"], refresh requested false
+        legacy admin, viewer mask: ["aliceCo/data/foo"], refresh requested false
+        legacy admin, scoped to aliceCo/in/: ["aliceCo/in/capture-foo", "aliceCo/data/foo"], refresh requested false
+        legacy admin, viewer mask, unfiltered: ["aliceCo/in/capture-foo", "aliceCo/data/foo", "aliceCo/out/materialize-bar"], refresh requested false
+        editor bundle on aliceCo/out/ only: ["aliceCo/data/foo", "aliceCo/out/materialize-bar"], refresh requested false
+        "#);
     }
 }
