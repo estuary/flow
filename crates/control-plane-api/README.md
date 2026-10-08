@@ -14,6 +14,10 @@ Public AWS planes always use their derived colocated trial bucket; local and
 non-AWS planes use the GCS trial bucket. Provision the matching AWS bucket and
 permissions before opening a plane for signup.
 
+`server/public/graphql/billing/tenant.rs` exposes trial dates, payment provider,
+and Google Cloud Marketplace membership under `Tenant.billing`, protected by
+`ViewBilling`. Marketplace account identifiers remain private.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.

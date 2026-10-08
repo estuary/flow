@@ -2158,6 +2158,14 @@ type PaymentMethodBillingDetails {
 }
 
 """
+Provider used to process the tenant's payments.
+"""
+enum PaymentProvider {
+	STRIPE
+	EXTERNAL
+}
+
+"""
 Information on the config updates performed by the controller.
 This does not include any information on user-initiated config updates.
 """
@@ -3201,6 +3209,19 @@ type Tenant {
 }
 
 type TenantBilling {
+	"""
+	Date the tenant's free trial started, or null if it has not started.
+	"""
+	trialStart: NaiveDate
+	"""
+	Exclusive end date of the free trial, one calendar month after trialStart.
+	"""
+	trialEnd: NaiveDate
+	paymentProvider: PaymentProvider
+	"""
+	Whether the tenant is linked to a Google Cloud Marketplace account.
+	"""
+	isGcpMarketplace: Boolean!
 	contact: BillingContact!
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod

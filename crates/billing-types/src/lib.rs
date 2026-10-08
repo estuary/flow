@@ -170,7 +170,7 @@ impl InvoiceSearch<'_> {
     }
 }
 
-/// This represents the payment type that's used within our tenants table.
+/// Provider used to process the tenant's payments.
 #[derive(
     serde::Serialize,
     serde::Deserialize,
@@ -185,6 +185,7 @@ impl InvoiceSearch<'_> {
     sqlx::Type,
 )]
 #[sqlx(type_name = "payment_provider_type", rename_all = "lowercase")]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::Enum))]
 pub enum PaymentProvider {
     Stripe,
     External,
