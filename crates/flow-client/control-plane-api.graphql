@@ -3222,6 +3222,10 @@ type TenantBilling {
 	Whether the tenant is linked to a Google Cloud Marketplace account.
 	"""
 	isGcpMarketplace: Boolean!
+	"""
+	Stored preference for invoicing usage overages. Invoice collection does not yet use it.
+	"""
+	invoiceOverages: Boolean!
 	contact: BillingContact!
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod

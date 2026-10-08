@@ -20,11 +20,11 @@ impl Tenant {
         let env = ctx.data::<crate::Envelope>()?;
         verify_authorization(env, &self.name, models::authz::Capability::ViewBilling).await?;
         let provider = billing_provider(ctx)?;
-        let (trial_start, trial_end, payment_provider, is_gcp_marketplace) = sqlx::query_as::<
+        let (trial_start, trial_end, payment_provider, is_gcp_marketplace, invoice_overages) = sqlx::query_as::<
             _,
-            (Option<chrono::NaiveDate>, Option<chrono::NaiveDate>, Option<billing_types::PaymentProvider>, bool),
+            (Option<chrono::NaiveDate>, Option<chrono::NaiveDate>, Option<billing_types::PaymentProvider>, bool, bool),
         >(
-            "SELECT trial_start, (trial_start + INTERVAL '1 month')::date, payment_provider, gcm_account_id IS NOT NULL FROM tenants WHERE tenant = $1",
+            "SELECT trial_start, (trial_start + INTERVAL '1 month')::date, payment_provider, gcm_account_id IS NOT NULL, invoice_overages FROM tenants WHERE tenant = $1",
         )
         .bind(&self.name)
         .fetch_one(&env.pg_pool)
@@ -37,6 +37,7 @@ impl Tenant {
             trial_end,
             payment_provider,
             is_gcp_marketplace,
+            invoice_overages,
         })
     }
 }
@@ -55,6 +56,8 @@ pub struct TenantBilling {
     payment_provider: Option<billing_types::PaymentProvider>,
     /// Whether the tenant is linked to a Google Cloud Marketplace account.
     is_gcp_marketplace: bool,
+    /// Stored preference for invoicing usage overages. Invoice collection does not yet use it.
+    invoice_overages: bool,
 }
 
 #[ComplexObject]
@@ -171,7 +174,7 @@ mod tests {
         let query = json!({
             "query": r#"{
                 tenant(name: "billingmetadata/") {
-                    billing { trialStart trialEnd paymentProvider isGcpMarketplace }
+                    billing { trialStart trialEnd paymentProvider isGcpMarketplace invoiceOverages }
                 }
             }"#
         });
@@ -182,6 +185,7 @@ mod tests {
           "data": {
             "tenant": {
               "billing": {
+                "invoiceOverages": false,
                 "isGcpMarketplace": false,
                 "paymentProvider": "STRIPE",
                 "trialEnd": null,
@@ -199,7 +203,7 @@ mod tests {
             .await
             .unwrap();
         sqlx::query(
-            "UPDATE tenants SET trial_start = '2026-10-01', payment_provider = 'external', gcm_account_id = $1 WHERE tenant = 'billingmetadata/'",
+            "UPDATE tenants SET trial_start = '2026-10-01', payment_provider = 'external', gcm_account_id = $1, invoice_overages = true WHERE tenant = 'billingmetadata/'",
         )
         .bind(account_id)
         .execute(&pool)
@@ -212,6 +216,7 @@ mod tests {
           "data": {
             "tenant": {
               "billing": {
+                "invoiceOverages": true,
                 "isGcpMarketplace": true,
                 "paymentProvider": "EXTERNAL",
                 "trialEnd": "2026-11-01",
@@ -233,6 +238,10 @@ mod tests {
         );
         assert_eq!(
             nullable["data"]["tenant"]["billing"]["isGcpMarketplace"],
+            json!(true)
+        );
+        assert_eq!(
+            nullable["data"]["tenant"]["billing"]["invoiceOverages"],
             json!(true)
         );
         assert!(nullable.get("errors").is_none());

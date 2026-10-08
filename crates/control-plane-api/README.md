@@ -17,6 +17,8 @@ permissions before opening a plane for signup.
 `server/public/graphql/billing/tenant.rs` exposes trial dates, payment provider,
 and Google Cloud Marketplace membership under `Tenant.billing`, protected by
 `ViewBilling`. Marketplace account identifiers remain private.
+`invoiceOverages` reads the stored preference in `tenants.invoice_overages`;
+invoice collection does not yet use it.
 
 ## Development
 
