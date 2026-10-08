@@ -2452,6 +2452,39 @@ type PublicDataPlaneEdge {
 }
 
 """
+A user-initiated publication of a draft.
+"""
+type Publication {
+	id: Id!
+	draftId: Id!
+	dryRun: Boolean!
+	"""
+	Outcome so far. `type` is `queued` until the executor finishes.
+	`lockFailures` is non-empty only for `buildIdLockFailure`.
+	"""
+	status: JobStatus!
+	"""
+	Id of the publication's build. Null until success. On a committed
+	publication it becomes `lastPubId` on every live specification it
+	changed. A successful dry run records it too, but commits nothing,
+	so no live specification carries it.
+	"""
+	pubId: Id
+	"""
+	The draft's current errors. All jobs on a draft share them: they may
+	predate this publication, and a later job replaces them. Empty once
+	the draft has been deleted.
+	"""
+	errors: [Error!]!
+	"""
+	Publication logs in timestamp order. Pagination is best effort, and
+	logs may arrive after the publication completes. `first` controls
+	page size and cannot exceed 1000 log lines.
+	"""
+	logs(after: String, first: Int): LogLineConnection!
+}
+
+"""
 Summary of a publication that was attempted by a controller.
 """
 type PublicationInfo {
@@ -2675,6 +2708,12 @@ type QueryRoot {
 	Returns a discover visible to the caller, or null.
 	"""
 	discover(id: Id!): Discover
+	"""
+	Returns a publication initiated by the caller, or null when no such
+	publication exists or the caller did not initiate it; the two are
+	indistinguishable.
+	"""
+	publication(id: Id!): Publication
 }
 
 """
