@@ -325,8 +325,13 @@ impl Resolver {
 
     /// One query. `Err` is fatal and only ever comes from the set writer;
     /// every other failure is request-local and shows up as `Outcome::Dropped`.
-    pub fn handle(&mut self, query: &[u8], now: Instant) -> anyhow::Result<Handled> {
-        self.prune(now);
+    ///
+    /// `arrived` dates only pruning and the name gate. What the answer
+    /// authorizes is dated by reading the clock, never by adding elapsed time
+    /// to `arrived`: the query may have waited any length of time before it
+    /// was handled.
+    pub fn handle(&mut self, query: &[u8], arrived: Instant) -> anyhow::Result<Handled> {
+        self.prune(arrived);
 
         let header = match dns::header(query) {
             Ok(header) => header,
@@ -352,18 +357,13 @@ impl Resolver {
                 answer: Some(dns::respond(query, &question, dns::RCODE_NOERROR)),
             });
         }
-        if !self.allowed(&question.name, now) {
+        if !self.allowed(&question.name, arrived) {
             return Ok(Handled {
                 decision: decision(name, qtype, Outcome::RefusedName),
                 answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
             });
         }
 
-        // Elapsed work is measured from here, so an expiry is dated from when
-        // this answer was actually authorized rather than from when the query
-        // arrived. A slow upstream would otherwise backdate it by the whole
-        // lookup.
-        let started = Instant::now();
         let mut response = match self.forward(query, header.id, Some(&question)) {
             Ok(response) => response,
             Err(reason) => {
@@ -429,7 +429,7 @@ impl Resolver {
 
         // A CNAME-only answer, or one whose records were all of another
         // class, authorizes no address and so asks nothing of the kernel.
-        let (deletes, adds) = self.plan(&addresses, now + started.elapsed());
+        let (deletes, adds) = self.plan(&addresses, Instant::now());
         if !adds.is_empty() {
             self.writer.apply(&deletes, &adds)?;
         }
@@ -440,7 +440,7 @@ impl Resolver {
         // acknowledged, so every expiry recorded here is later than the
         // kernel's own. That ordering is what makes the insert in `plan` safe
         // to mark exclusive.
-        let authorized = now + started.elapsed();
+        let authorized = Instant::now();
         for add in &adds {
             self.addresses.insert(add.address, authorized + add.timeout);
         }
@@ -467,7 +467,9 @@ impl Resolver {
     /// whichever is longer, its outstanding time or this record's TTL, so a
     /// shorter answer never shortens a TTL the guest was already given.
     ///
-    /// `base` is when this answer was authorized. Every recorded expiry is
+    /// `base` is read from the clock just before the batch is sent, so it is no
+    /// later than any timer the batch starts: a remainder measured from it
+    /// lasts until at least the recorded expiry. Every recorded expiry is
     /// dated from after the kernel acknowledged the batch that set it, and the
     /// kernel started that element's timer before acknowledging, so the
     /// kernel's expiry is always the earlier of the two. An address this side
@@ -782,7 +784,9 @@ mod tests {
         address
     }
 
-    type Call = (Vec<Ipv4Addr>, Vec<nftset::Element>);
+    /// What was asked of the set, and when it was acknowledged: no element
+    /// of the call can have started its timer later than that.
+    type Call = (Vec<Ipv4Addr>, Vec<nftset::Element>, Instant);
 
     #[derive(Clone, Default)]
     struct Recorder {
@@ -798,10 +802,11 @@ mod tests {
 
     impl nftset::SetWriter for Recorder {
         fn apply(&mut self, deletes: &[Ipv4Addr], adds: &[nftset::Element]) -> anyhow::Result<()> {
-            self.calls
-                .lock()
-                .expect("recorder")
-                .push((deletes.to_vec(), adds.to_vec()));
+            self.calls.lock().expect("recorder").push((
+                deletes.to_vec(),
+                adds.to_vec(),
+                Instant::now(),
+            ));
 
             if *self.failing.lock().expect("recorder") {
                 anyhow::bail!("injected netlink failure");
@@ -824,6 +829,19 @@ mod tests {
             false,
         );
         Resolver::new(config, Box::new(writer))
+    }
+
+    /// Let `elapsed` pass for everything the resolver holds. The resolver
+    /// reads the clock to date what it authorizes, so a test moves its
+    /// records back rather than its queries forward.
+    fn age(resolver: &mut Resolver, elapsed: Duration) {
+        for expiry in resolver
+            .addresses
+            .values_mut()
+            .chain(resolver.targets.values_mut())
+        {
+            *expiry -= elapsed;
+        }
     }
 
     fn script() -> Vec<((&'static str, u16), Vec<Rr>)> {
@@ -954,7 +972,6 @@ mod tests {
     fn decisions() {
         let recorder = Recorder::default();
         let mut resolver = resolver(upstream(script()), recorder.clone());
-        let start = Instant::now();
 
         let steps: Vec<(&str, u64, Vec<u8>)> = vec![
             (
@@ -1106,11 +1123,13 @@ mod tests {
 
         let mut log = String::new();
         let mut seen = 0;
+        let mut elapsed = 0;
 
         for (label, offset, message) in steps {
-            let now = start + Duration::from_secs(offset);
+            age(&mut resolver, Duration::from_secs(offset - elapsed));
+            elapsed = offset;
             let handled = resolver
-                .handle(&message, now)
+                .handle(&message, Instant::now())
                 .expect("no step of this run fails fatally");
 
             log.push_str(&format!("# {label} (t+{offset}s)\n"));
@@ -1118,7 +1137,7 @@ mod tests {
             log.push_str(&format!("{}\n", summarize(&handled)));
 
             let calls = recorder.calls();
-            for (deletes, adds) in &calls[seen..] {
+            for (deletes, adds, _) in &calls[seen..] {
                 log.push_str(&format!("set: {}\n", render_call(deletes, adds)));
             }
             seen = calls.len();
@@ -1184,15 +1203,18 @@ mod tests {
     fn a_shorter_answer_does_not_shorten_an_outstanding_ttl() {
         let recorder = Recorder::default();
         let mut resolver = resolver(upstream(script()), recorder.clone());
-        let start = Instant::now();
 
         resolver
-            .handle(&query(1, "long.acmeco.example", dns::TYPE_A), start)
+            .handle(
+                &query(1, "long.acmeco.example", dns::TYPE_A),
+                Instant::now(),
+            )
             .expect("the long answer is accepted");
+        age(&mut resolver, Duration::from_secs(100));
         resolver
             .handle(
                 &query(2, "short.acmeco.example", dns::TYPE_A),
-                start + Duration::from_secs(100),
+                Instant::now(),
             )
             .expect("the short answer is accepted");
 
@@ -1200,8 +1222,8 @@ mod tests {
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].1[0].timeout, Duration::from_secs(3_600));
         // 3600 promised at t0 still has about 3500 to run at t0 + 100, which
-        // beats the 90 this answer asks for. Not exact: the remainder carries
-        // the real time the first answer spent being authorized.
+        // beats the 90 this answer asks for. Not exact: the remainder also
+        // loses the real time between the two answers.
         assert_eq!(
             calls[1].0,
             vec![public(50)],
@@ -1425,6 +1447,57 @@ mod tests {
         // earlier than the kernel's.
         let expiry = resolver.addresses[&public(42)];
         assert!(expiry >= arrived + DELAY + Duration::from_secs(1));
+    }
+
+    /// What an answer authorizes is dated from the kernel's acknowledgement,
+    /// however long its query waited before it was handled: this thread can be
+    /// descheduled anywhere between receiving the query and writing the set.
+    /// Dated any earlier, an address would be recorded as expiring before the
+    /// kernel's element, so a later answer for it would skip the delete and
+    /// insert exclusively over an element the kernel still holds, which fails
+    /// with EEXIST and is fatal.
+    #[test]
+    fn a_query_handled_late_does_not_backdate_authorization() {
+        // Longer than any TTL in the answer, so an expiry dated from arrival
+        // has already passed when it is recorded.
+        const LATE: Duration = Duration::from_secs(300);
+        let recorder = Recorder::default();
+        let mut resolver = resolver(upstream(script()), recorder.clone());
+
+        // A CNAME to assets.acmeco.example, clamped to 90s, and its address
+        // for 200s.
+        resolver
+            .handle(
+                &query(1, "artifacts.acmeco.example", dns::TYPE_A),
+                Instant::now() - LATE,
+            )
+            .expect("the late answer is accepted");
+        let (_, adds, acknowledged) = recorder.calls().remove(0);
+        assert!(
+            resolver.addresses[&public(40)] >= acknowledged + adds[0].timeout,
+            "the address was recorded as expiring before the kernel's element"
+        );
+        assert!(
+            resolver.targets["assets.acmeco.example"] >= acknowledged + Duration::from_secs(90),
+            "the target was remembered from before the answer was authorized"
+        );
+
+        // The kernel's element still has about 200s to run, so the next
+        // answer, however late, must delete it and measure what is
+        // outstanding from when the batch was planned.
+        resolver
+            .handle(
+                &query(2, "artifacts.acmeco.example", dns::TYPE_A),
+                Instant::now() - LATE,
+            )
+            .expect("the refresh is accepted");
+        let (deletes, adds, _) = recorder.calls().remove(1);
+        assert_eq!(deletes, vec![public(40)], "the held element is deleted");
+        assert_eq!(
+            adds[0].timeout,
+            Duration::from_secs(200),
+            "the outstanding time was measured from the query's arrival"
+        );
     }
 
     /// Only an address that may still be in the kernel is deleted, and a held

@@ -290,8 +290,8 @@ The query gate and TTL authorization rules are documented in
 remembered CNAME targets match exactly. Address and target counts share the
 ruleset's `RESOLVED_SIZE` cap.
 
-`Resolver::plan` preserves outstanding TTLs. An expiry is recorded only after
-the kernel acknowledged the batch that set it, and the kernel started that
+`Resolver::plan` preserves outstanding TTLs. An expiry is dated from the clock
+after the kernel acknowledged the batch that set it, and the kernel started that
 element's timer before acknowledging, so a recorded expiry is always later than
 the kernel's own. That ordering, rather than any bound on elapsed time, is what
 makes an exclusive insert safe: an address recorded as expired is certainly gone
