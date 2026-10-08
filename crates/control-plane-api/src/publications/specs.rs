@@ -1001,7 +1001,9 @@ async fn resolve_inferred_schemas(
     Ok(())
 }
 
-fn spec_meta(
+/// Returns the type of the drafted `catalog_name`, with the collections its
+/// model reads from and writes to. Panics if the draft has no such spec.
+pub(super) fn spec_meta(
     draft: &tables::DraftCatalog,
     catalog_name: &str,
 ) -> (
