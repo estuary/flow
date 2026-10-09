@@ -351,7 +351,7 @@ mod test {
             alice,
             Some("alice@example.test"),
             None,
-            Some("aliceCo/".to_string()),
+            Some(vec!["aliceCo/".to_string(), "bobCo/team".to_string()]),
         );
         let minted = server
             .rest_client()
@@ -370,8 +370,8 @@ mod test {
         let body: serde_json::Value = minted.json().await.unwrap();
         let claims = server.verify_access_token(body["access_token"].as_str().unwrap());
         assert_eq!(
-            claims.prefix_scope.as_deref(),
-            Some("aliceCo/"),
+            claims.prefix_scope,
+            Some(vec!["aliceCo/".to_string(), "bobCo/team".to_string()]),
             "the bearer's prefix_scope must survive the mint"
         );
         assert_eq!(claims.capability_mask, Some(vec!["viewer".to_string()]));

@@ -1172,17 +1172,27 @@ mod test {
             ),
             (
                 None,
-                Some("aliceCo/".to_string()),
+                Some(vec!["aliceCo/".to_string()]),
                 "tokens with a prefix scope set cannot create API keys.",
             ),
             (
                 None,
-                Some(String::new()),
+                Some(Vec::new()),
+                "tokens with a prefix scope set cannot create API keys.",
+            ),
+            (
+                None,
+                Some(vec![String::new()]),
+                "tokens with a prefix scope set cannot create API keys.",
+            ),
+            (
+                None,
+                Some(vec!["aliceCo/".to_string(), "acmeCo/team/".to_string()]),
                 "tokens with a prefix scope set cannot create API keys.",
             ),
             (
                 Some(vec!["admin".to_string()]),
-                Some("aliceCo/".to_string()),
+                Some(vec!["aliceCo/".to_string()]),
                 "tokens with a capability mask set cannot create API keys.",
             ),
         ] {

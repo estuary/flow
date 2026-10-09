@@ -160,17 +160,21 @@ impl super::UserGrant {
         })
         .skip(1);
 
-        let Some(scope) = subject.prefix_scope.as_deref() else {
+        let Some(scopes) = subject.prefix_scope.as_deref() else {
             return itertools::Either::Left(user_nodes);
         };
 
-        // Include the scope itself as well as reachable_nodes starting at the scope.
-        let mut scope_nodes = vec![super::NodeRef {
-            object_role: scope,
-            capabilities: EnumSet::all(),
-            legacy: models::Capability::None,
-        }];
-        scope_nodes.extend(super::RoleGrant::reachable_nodes(role_grants, scope));
+        // Each scope contributes its own graph traversal. Intersect each path
+        // with the user's authority before combining the resulting permissions.
+        let mut scope_nodes = Vec::new();
+        for scope in scopes {
+            scope_nodes.push(super::NodeRef {
+                object_role: scope.as_str(),
+                capabilities: EnumSet::all(),
+                legacy: models::Capability::None,
+            });
+            scope_nodes.extend(super::RoleGrant::reachable_nodes(role_grants, scope));
+        }
 
         itertools::Either::Right(
             itertools::Itertools::cartesian_product(user_nodes, scope_nodes).filter_map(
@@ -1854,7 +1858,7 @@ mod test {
             ("unknownCo/", vec![]),
         ] {
             let mut subject = Subject::unrestricted(user_id);
-            subject.prefix_scope = Some(scope.to_string());
+            subject.prefix_scope = Some(vec![scope.to_string()]);
             let reachable = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
             assert_eq!(reachable.keys().copied().collect::<Vec<_>>(), expected);
             for name in [
@@ -1882,8 +1886,87 @@ mod test {
         }
         // An empty token scope normalizes to `/`, not unrestricted authority.
         let mut empty = Subject::unrestricted(user_id);
-        empty.prefix_scope = Some("/".to_string());
+        empty.prefix_scope = Some(vec!["/".to_string()]);
         assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &empty).is_empty());
+    }
+
+    #[test]
+    fn test_prefix_scope_unions_scopes_without_widening_user_authority() {
+        let (role_grants, user_grants, user_id) = masked_walk_scenario();
+        for scopes in [
+            vec![],
+            vec!["unknownCo/"],
+            vec!["acmeCo/team/", "daveCo/team/", "unknownCo/"],
+            vec!["acmeCo/", "acmeCo/team/", "acmeCo/"],
+            vec!["bobCo/", "carolCo/upstream/team/"],
+        ] {
+            for mask in [
+                None,
+                Some(CapabilityBundle::Viewer.capabilities()),
+                Some(authz::CapabilitySet::empty()),
+            ] {
+                let mut subject = Subject::unrestricted(user_id);
+                subject.capability_mask = mask;
+                let mut expected = std::collections::BTreeMap::new();
+                for scope in &scopes {
+                    subject.prefix_scope = Some(vec![scope.to_string()]);
+                    for (prefix, (bits, legacy)) in
+                        UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject)
+                    {
+                        let entry = expected
+                            .entry(prefix.to_string())
+                            .or_insert((authz::CapabilitySet::empty(), models::Capability::None));
+                        entry.0 |= bits;
+                        entry.1 = entry.1.max(legacy);
+                    }
+                }
+                subject.prefix_scope = Some(scopes.iter().map(|s| s.to_string()).collect());
+                let actual: std::collections::BTreeMap<_, _> =
+                    UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject)
+                        .into_iter()
+                        .map(|(prefix, value)| (prefix.to_string(), value))
+                        .collect();
+                assert_eq!(actual, expected, "scopes {scopes:?}, mask {mask:?}");
+                for name in [
+                    "acmeCo/team/task",
+                    "acmeCo/teammate/task",
+                    "bobCo/shared/task",
+                    "carolCo/upstream/team/task",
+                    "daveCo/team/task",
+                    "unknownCo/task",
+                ] {
+                    assert_eq!(
+                        UserGrant::is_authorized(
+                            &role_grants,
+                            &user_grants,
+                            &subject,
+                            name,
+                            Capability::CatalogRead
+                        ),
+                        expected
+                            .iter()
+                            .any(|(prefix, (bits, _))| name.starts_with(prefix)
+                                && bits.contains(Capability::CatalogRead))
+                    );
+                    // Legacy checks must respect even an explicitly empty scope list.
+                    let mut expected_legacy = None;
+                    for scope in &scopes {
+                        let mut single = subject.clone();
+                        single.prefix_scope = Some(vec![scope.to_string()]);
+                        expected_legacy = expected_legacy.max(UserGrant::get_user_capability(
+                            &role_grants,
+                            &user_grants,
+                            &single,
+                            name,
+                        ));
+                    }
+                    assert_eq!(
+                        UserGrant::get_user_capability(&role_grants, &user_grants, &subject, name),
+                        expected_legacy
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -1905,7 +1988,7 @@ mod test {
             ],
         );
         let mut subject = Subject::unrestricted(user_id);
-        subject.prefix_scope = Some("acmeCo/b/".to_string());
+        subject.prefix_scope = Some(vec!["acmeCo/b/".to_string()]);
         assert_reachable(
             &role_grants,
             &user_grants,
@@ -1918,7 +2001,7 @@ mod test {
         // The scope reaches B with Viewer only, so it cannot reach C or
         // preserve the user's edit authority at B. Its other edge grants
         // nothing because the user cannot reach that destination.
-        subject.prefix_scope = Some("acmeCo/scope/".to_string());
+        subject.prefix_scope = Some(vec!["acmeCo/scope/".to_string()]);
         assert_reachable(
             &role_grants,
             &user_grants,
@@ -1942,7 +2025,7 @@ mod test {
             bundles: vec![],
         }]);
         let mut subject = Subject::unrestricted(user_id);
-        subject.prefix_scope = Some("acmeCo/team/".to_string());
+        subject.prefix_scope = Some(vec!["acmeCo/team/".to_string()]);
         assert_eq!(
             UserGrant::get_user_capability(&[], &user_grants, &subject, "acmeCo/team/task"),
             Some(models::Capability::Admin)
