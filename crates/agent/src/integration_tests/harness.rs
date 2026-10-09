@@ -1429,6 +1429,21 @@ impl TestHarness {
             .await
     }
 
+    /// Polls a publication which was queued by the API rather than by this
+    /// harness, such as through the `createPublication` mutation, and returns
+    /// its result.
+    pub async fn run_queued_publication(&mut self, publication_id: Id) -> ScenarioResult {
+        let task_id = self
+            .run_automation_task(automations::task_types::PUBLICATIONS)
+            .await
+            .expect("expected a publication task to have run");
+        assert_eq!(
+            task_id, publication_id,
+            "expected publication {publication_id} to have run, but {task_id} ran instead"
+        );
+        self.get_publication_result(publication_id).await
+    }
+
     /// Runs a publication by inserting into the `publications` table and
     /// waiting for the publications handler to process it. Returns
     /// a `ScenarioResult` (a hold over from the old publications tests, which
