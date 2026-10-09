@@ -29,17 +29,18 @@ async fn disk_pruning() {
     .await;
 
     fragments_below_the_stored_floor_can_be_deleted(&fixture, &daemon).await;
-    a_planted_floor_only_seeks_a_recovery(&fixture, &daemon).await;
+    a_planted_floor_seeks_a_recovery_or_is_refused(&fixture, &daemon).await;
 
     daemon.drain().await;
     fixture.stop().await;
 }
 
-/// Sustained traffic completes horizons, and the acknowledgement which completes one
-/// stores its floor on the journal. Every fragment below that floor can then be deleted
-/// and the disk still recovers from what remains. Twice, because the second tenure
-/// resumes the horizon its replay found open, so the floor advances across tenures
-/// and never moves back.
+/// The disk's first commit stores a floor of zero, which says its journal holds
+/// committed state. Sustained traffic then completes horizons, and the acknowledgement
+/// which completes one stores its floor on the journal. Every fragment below that floor
+/// can then be deleted and the disk still recovers from what remains. Twice, because
+/// the second tenure resumes the horizon its replay found open, so the floor advances
+/// across tenures and never moves back.
 async fn fragments_below_the_stored_floor_can_be_deleted(
     fixture: &support::Fixture,
     daemon: &support::Daemon,
@@ -55,9 +56,9 @@ async fn fragments_below_the_stored_floor_can_be_deleted(
 
     () = committed.write(&mount.join("data"));
     _ = support::commit(&mut disk).await;
-    assert_eq!(fixture.stored_floor(journal).await, None);
+    assert_eq!(fixture.stored_floor(journal).await, Some(0));
 
-    let mut floor = None;
+    let mut floor = Some(0);
 
     for _ in 0..2 {
         let mut advanced = None;
@@ -110,16 +111,19 @@ async fn fragments_below_the_stored_floor_can_be_deleted(
 }
 
 /// A floor the journal carries seeks a recovery and does nothing more. One which is
-/// absent, at zero, or above the head costs recovery work and rebuilds the same disk.
-/// The last is the dangerous one: a recovery which seeked from it would read nothing
-/// and call the disk fresh.
-async fn a_planted_floor_only_seeks_a_recovery(
+/// absent, as a converger which dropped the label leaves it, or at zero, costs
+/// recovery work and rebuilds the same disk. One above the head says records the disk
+/// committed are gone, so it is refused rather than recovered around: at `Open`, and
+/// at the claim of a standby which opened before it was planted. Correcting a label
+/// nothing has pruned below recovers the disk.
+async fn a_planted_floor_seeks_a_recovery_or_is_refused(
     fixture: &support::Fixture,
     daemon: &support::Daemon,
 ) {
     let journal = "acmeCo/disk/floored";
     let client = daemon.client().await;
     let committed = support::Tree::generation(1);
+    let above_the_head = Some(u64::MAX / 2);
 
     let (mut disk, mount) = client
         .open(fixture.open(journal).await, Vec::new())
@@ -130,10 +134,9 @@ async fn a_planted_floor_only_seeks_a_recovery(
     _ = support::commit(&mut disk).await;
     () = disk.close().await.unwrap();
 
-    for floor in [None, Some(0), Some(u64::MAX / 2)] {
-        if let Some(floor) = floor {
-            () = fixture.store_floor(journal, floor).await;
-        }
+    for floor in [None, Some(0)] {
+        () = fixture.plant_floor(journal, floor).await;
+
         let (disk, mount) = client
             .open(fixture.open(journal).await, Vec::new())
             .await
@@ -142,6 +145,40 @@ async fn a_planted_floor_only_seeks_a_recovery(
         () = committed.assert_matches(&mount.join("data"));
         () = disk.close().await.unwrap();
     }
+
+    () = fixture.plant_floor(journal, above_the_head).await;
+
+    let status =
+        support::expect_invalid(client.open(fixture.open(journal).await, Vec::new()).await).await;
+    assert!(
+        status.message().contains("recovery-floor label"),
+        "{status}"
+    );
+
+    // A standby opens under a sound floor, and the floor is planted above the head
+    // while it waits.
+    () = fixture.plant_floor(journal, Some(0)).await;
+
+    let mut standby = client.standby(fixture.open(journal).await).await.unwrap();
+    () = standby.ready().await.unwrap();
+
+    () = fixture.plant_floor(journal, above_the_head).await;
+
+    let status = support::expect_invalid(standby.promote(Vec::new()).await).await;
+    assert!(
+        status.message().contains("recovery-floor label"),
+        "{status}"
+    );
+
+    () = fixture.plant_floor(journal, Some(0)).await;
+
+    let (disk, mount) = client
+        .open(fixture.open(journal).await, Vec::new())
+        .await
+        .unwrap();
+
+    () = committed.assert_matches(&mount.join("data"));
+    () = disk.close().await.unwrap();
 }
 
 /// Fragments of `journal` which its brokers list. That listing is what a pruner of a

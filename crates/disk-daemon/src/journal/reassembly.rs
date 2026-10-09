@@ -7,15 +7,16 @@
 //! content the fragment store no longer holds. It does no I/O. `replay::read` feeds
 //! it each response, and applies each record it hands back.
 
-use super::replay::{Extent, Gap};
+use super::replay::Gap;
 use crate::proto;
 use anyhow::Context;
 use proto_gazette::fixed_framing;
 
 /// The records of one read, as its content arrives.
 pub(super) struct Reassembly {
-    /// Whether content skipped after the read began is a [`Gap`], as it is for a tail.
-    tail: bool,
+    /// Whether the read may begin past the offset it asked for. Only a pass's first
+    /// read may: see [`Reassembly::on_response`].
+    may_skip_start: bool,
     /// Journal offset at which `buf` begins. A record not yet decoded starts there.
     offset: i64,
     buf: bytes::BytesMut,
@@ -44,10 +45,12 @@ pub(super) struct Reassembled {
 }
 
 impl Reassembly {
-    pub fn new(extent: Extent) -> Self {
+    /// A read which asked for content from `offset`, and which may begin past it only
+    /// where `may_skip_start`.
+    pub fn new(offset: i64, may_skip_start: bool) -> Self {
         Self {
-            tail: matches!(extent, Extent::Tail),
-            offset: 0,
+            may_skip_start,
+            offset,
             buf: bytes::BytesMut::new(),
             begun: false,
         }
@@ -55,16 +58,16 @@ impl Reassembly {
 
     /// Take a response's `content`, which begins at journal offset `offset`.
     ///
-    /// Content the broker skipped drops any partial record held across the skip,
-    /// because no record can be finished across it. A bounded read may skip. It
-    /// seeks from the floor, and the floor says every allocated block has a copy at
-    /// or after it, so content the store no longer holds is content it does not
-    /// need. A tail may not skip once it has begun: see [`Gap`].
+    /// Only a pass's first read may skip, and only before its first content. It seeks
+    /// from the floor, and the floor says every allocated block has a copy at or after
+    /// it, so content the store no longer holds below the real floor is content the
+    /// pass does not need. Any other skip leaves records out of what the pass already
+    /// holds, and is a [`Gap`].
     pub fn on_response(&mut self, offset: i64, content: &[u8]) -> Result<Received, Gap> {
         let mut received = Received::Contiguous;
 
         if offset != self.offset + self.buf.len() as i64 {
-            if self.begun && self.tail {
+            if self.begun || !self.may_skip_start {
                 return Err(Gap { at: self.offset });
             }
             received = Received::Skipped {
@@ -118,7 +121,6 @@ impl Reassembly {
 #[cfg(test)]
 mod test {
     use super::{Reassembled, Reassembly};
-    use crate::journal::replay::Extent;
     use crate::proto;
     use proto_gazette::fixed_framing;
     use std::fmt::Write as _;
@@ -135,10 +137,11 @@ mod test {
         buf.freeze()
     }
 
-    /// Feed each `(offset, content)` in turn, and render what each response did and
-    /// the records it completed, as `tag@offset`, then what the read ended within.
-    fn trace(extent: Extent, responses: &[(i64, &[u8])]) -> String {
-        let mut reassembly = Reassembly::new(extent);
+    /// Feed each `(offset, content)` in turn to a read which asked to begin at `start`,
+    /// and render what each response did and the records it completed, as
+    /// `tag@offset`, then what the read ended within.
+    fn trace(start: i64, may_skip_start: bool, responses: &[(i64, &[u8])]) -> String {
+        let mut reassembly = Reassembly::new(start, may_skip_start);
         let mut out = String::new();
 
         for &(offset, content) in responses {
@@ -177,7 +180,8 @@ mod test {
         let (a, b, c) = (3, 40, 50);
 
         let trace = trace(
-            Extent::Bounded(journal.len() as i64),
+            0,
+            false,
             &[
                 (0, &journal[..a]),
                 (a as i64, &journal[a..b]),
@@ -194,48 +198,31 @@ mod test {
         ");
     }
 
-    /// A read's first response lands wherever its seek did. A bounded read may skip
-    /// later too, dropping the record it held a part of, because what the store no
-    /// longer holds is below its floor.
+    /// A pass's first read may begin past where it asked, because what the store no
+    /// longer holds is below the real floor. Content it skips after it has begun is a
+    /// gap, and so is any skip at the start of a read which continues a pass.
     #[test]
-    fn test_a_bounded_read_skips_what_the_store_no_longer_holds() {
+    fn test_only_a_pass_s_first_read_skips_at_its_start() {
         let (one, two) = (record(1, 20), record(2, 20));
+        let responses: [(i64, &[u8]); 3] = [
+            (100, &one),
+            (100 + one.len() as i64, &two[..10]),
+            (500, &one),
+        ];
 
-        let trace = trace(
-            Extent::Bounded(1000),
-            &[
-                (100, &one),
-                (100 + one.len() as i64, &two[..10]),
-                (500, &one),
-            ],
-        );
+        let trace = [
+            trace(40, true, &responses),
+            trace(40, false, &responses[..1]),
+        ]
+        .join("\n");
         insta::assert_snapshot!(trace, @"
-        at 100  Skipped { from: 0, to: 100 }        1@100
-        at 130  Contiguous
-        at 500  Skipped { from: 130, to: 500 }      1@500
-        ends within None
-        ");
-    }
-
-    /// A tail may land anywhere at first, but it holds a partial image, so content it
-    /// skips afterwards is a gap which it must not read past.
-    #[test]
-    fn test_a_tail_which_skips_finds_a_gap() {
-        let (one, two) = (record(1, 20), record(2, 20));
-
-        let trace = trace(
-            Extent::Tail,
-            &[
-                (100, &one),
-                (100 + one.len() as i64, &two[..10]),
-                (500, &one),
-            ],
-        );
-        insta::assert_snapshot!(trace, @"
-        at 100  Skipped { from: 0, to: 100 }        1@100
+        at 100  Skipped { from: 40, to: 100 }       1@100
         at 130  Contiguous
         at 500  content this read needed was deleted from the store, at offset 130
         ends within Some((130, 10))
+
+        at 100  content this read needed was deleted from the store, at offset 40
+        ends within None
         ");
     }
 
@@ -243,10 +230,7 @@ mod test {
     /// refused rather than skipped over.
     #[test]
     fn test_unframed_content_is_refused() {
-        let trace = trace(
-            Extent::Bounded(100),
-            &[(0, b"these bytes frame no record at all")],
-        );
+        let trace = trace(0, false, &[(0, b"these bytes frame no record at all")]);
         insta::assert_snapshot!(trace, @"
         at 0    Contiguous                          refused: 31 unframed bytes at offset 0, and this daemon frames every record it writes
         ends within Some((0, 3))

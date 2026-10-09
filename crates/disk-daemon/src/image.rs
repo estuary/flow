@@ -108,7 +108,7 @@ impl Image {
     /// Apply a journal chunk. This is how replay rebuilds an image.
     ///
     /// Discharging the horizon the chunk publishes belongs to whoever holds that
-    /// horizon, which is [`crate::journal::held::HeldDelta::drain`] here.
+    /// horizon, which is [`crate::journal::uncommitted::UncommittedDelta::drain`] here.
     pub fn apply(&mut self, chunk: &crate::proto::Chunk) -> std::io::Result<()> {
         crate::chunk::apply(chunk, &self.file, &mut self.allocated)
     }

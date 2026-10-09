@@ -2,10 +2,9 @@
 //!
 //! The files of this directory are:
 //!
-//! - `spec.rs` — the live journal specification a disk may be served from, and the
-//!   recovery-floor label the daemon stores on it.
-//! - `fence.rs` — the `author` register, and the claim which installs a tenure's
-//!   epoch in it.
+//! - `spec.rs` — the live journal specification a disk may be served from, the
+//!   recovery-floor label the daemon stores on it, and the write barrier which
+//!   confirms its head at `Open`.
 //! - `writer.rs` — the task which appends a tenure's deltas, and the [`Writer`]
 //!   handle its `Prepare` and `Acknowledge` reach it over.
 //! - `ledger.rs` — `Ledger`, what that writer owes and holds, as data: its state,
@@ -19,10 +18,10 @@
 //! - `sequencer.rs` — `Sequencer`, which delta a replay holds and what each record
 //!   does to it: holding, displacing, and committing, and which acknowledgements can
 //!   be honored. It does no I/O; `replay::Pass` carries out what it decides.
-//! - `held.rs` — `HeldDelta`, the unacknowledged delta a replay holds rather than
+//! - `uncommitted.rs` — `UncommittedDelta`, the unacknowledged delta a replay holds rather than
 //!   applies.
 //!
-//! This file is the phases a journal passes through. [`Opening`] is a journal which
+//! This file is the phases a journal passes through. [`Standby`] is a journal which
 //! is validated and being replayed, and which nothing has claimed. [`Claimed`] is one
 //! this tenure holds while its replay finishes. [`Promoted`] is one whose replay is
 //! done, and which a writer serves from the offsets it settled. [`Journal`] is what is
@@ -43,15 +42,32 @@
 //! never creates a journal, never deletes one, and writes exactly one field of a spec
 //! it did not create: the recovery-floor label.
 //!
-//! A tenure claims its journal exactly once, at [`Opening::claim_journal`]. Every
-//! append behind that claim checks the epoch it installed, so a writer serves only
-//! after the claim has landed.
+//! A tenure claims its journal exactly once, at [`Standby::claim_journal`], as a
+//! Gazette recovery log's recorder fences: it appends a fence record under a request
+//! which unions its epoch into the journal's `author` register (see [`author`]) and
+//! checks nothing, and every append after it under a request which checks for that
+//! epoch. A union replaces every value the journal held for a label it names, so the
+//! fence displaces whichever author came before, and Gazette orders it with every
+//! other append: an earlier writer's append ordered after it fails its author check.
+//! So a writer serves only after its claim has landed.
+//!
+//! The fence decides nothing about who should write. A recovery log leaves that to
+//! etcd's shard assignment, and a disk leaves it to its client: a client which
+//! promotes two tenures of one disk at once has the later fence win, and the earlier
+//! tenure fail at its next append. A displaced tenure cannot take its journal back,
+//! because it never claims again. Its client opens a new tenure, which is a new
+//! claimant.
+//!
+//! The register is not commit authority. Etcd can lose register state independently
+//! of journal contents, and an empty register set matches any selector, so a journal
+//! whose registers were lost is writable again while its committed records stay
+//! authoritative.
 
 use crate::failure;
 use crate::image::Image;
 use crate::proto;
 use anyhow::Context;
-use proto_gazette::{fixed_framing, uuid};
+use proto_gazette::{broker, fixed_framing, uuid};
 
 mod ledger;
 mod reassembly;
@@ -59,12 +75,11 @@ mod sequencer;
 mod spec;
 mod writer;
 
-pub mod fence;
-pub mod held;
 pub mod playback;
 pub mod replay;
+pub mod uncommitted;
 
-use spec::{Resolved, resolve};
+use spec::{Resolved, list, resolve};
 pub use writer::Writer;
 
 /// A tenure's journal before its disk exists.
@@ -72,7 +87,7 @@ pub use writer::Writer;
 /// Recovery is a step of its own. A disk with committed state must be rebuilt
 /// before a device can be created over it, and its journal must be claimed before
 /// it is read.
-pub struct Opening {
+pub struct Standby {
     journal: Journal,
     appender: publisher::Appender,
 }
@@ -80,7 +95,7 @@ pub struct Opening {
 /// A journal this tenure holds, while the replay of it finishes.
 ///
 /// The claim is a step of its own because it bounds a replay which is still
-/// running: see [`Opening::claim_journal`]. [`Claimed::promote`] then finishes that
+/// running: see [`Standby::claim_journal`]. [`Claimed::promote`] then finishes that
 /// replay.
 pub struct Claimed {
     journal: Journal,
@@ -118,11 +133,12 @@ pub struct Recovered {
     pub horizon: Option<crate::horizon::Horizon>,
 }
 
-impl Opening {
+impl Standby {
     /// Open `journal`, and read the head and recovery floor a replay of it starts
     /// from.
     ///
-    /// Nothing is created here, and nothing is appended beyond the zero-byte probe.
+    /// Nothing is created here, and nothing is appended beyond a zero-byte write
+    /// barrier.
     /// `ended` is the tenure's own cancellation, which every broker call of this
     /// journal gives up on: see `until_ended`.
     ///
@@ -137,15 +153,17 @@ impl Opening {
     ) -> anyhow::Result<Self> {
         let client = client.clone();
 
-        // The author this reports is not kept. A standby opens once and claims much
-        // later, and [`Opening::claim_journal`] reads the author of that moment.
-        let Resolved { head, floor, .. } = resolve(&client, &journal, &ended).await?;
+        let Resolved {
+            head,
+            floor,
+            marked,
+        } = resolve(&client, &journal, &ended).await?;
 
-        // The claim is an append of its own, and checks the *prior* author (see
-        // `fence`). Every record behind it checks the epoch that claim installed.
+        // Nothing is appended before the claim, which is what sets the registers this
+        // appender's requests carry, as a recovery log's recorder checks none until its
+        // fence: see [`Standby::claim_journal`].
         let epoch = random_producer();
-        let appender = publisher::Appender::new(client.clone(), journal.clone())
-            .with_check_registers(fence::held_by(epoch));
+        let appender = publisher::Appender::new(client.clone(), journal.clone());
 
         Ok(Self {
             journal: Journal {
@@ -155,6 +173,7 @@ impl Opening {
                 epoch,
                 head,
                 floor,
+                marked,
             },
             appender,
         })
@@ -166,19 +185,29 @@ impl Opening {
     /// The replay seeks from the recovery floor of the journal's label. Zero reads
     /// from the first fragment the store still holds. It is a seek and never a
     /// filter, so a floor which is absent or behind costs work and cannot change
-    /// what is rebuilt.
+    /// what is rebuilt. One at or above the head was refused at `Open`.
     ///
     /// This does not claim the journal, so another tenure may still be writing it.
-    /// That is what makes a standby possible, and [`Opening::claim_journal`] is what
+    /// That is what makes a standby possible, and [`Standby::claim_journal`] is what
     /// makes it safe.
-    pub fn play(&mut self, image: Image, held: held::HeldDelta) -> playback::Playback {
+    pub fn play(
+        &self,
+        image: Image,
+        uncommitted: uncommitted::UncommittedDelta,
+    ) -> playback::Playback {
         let reading = playback::Reading {
             client: self.journal.client.clone(),
             journal: self.journal.name.clone(),
             ended: self.journal.ended.clone(),
         };
 
-        playback::Playback::start(reading, self.seek(), self.journal.head, image, held)
+        playback::Playback::start(
+            reading,
+            self.journal.floor,
+            self.journal.head,
+            image,
+            uncommitted,
+        )
     }
 
     /// Take the journal from whoever holds it now, so that its head stops moving.
@@ -188,78 +217,104 @@ impl Opening {
     /// bounds that replay: a head no other writer can move is one the replay
     /// converges on rather than chases.
     ///
-    /// The journal is resolved again here, and nothing of what this tenure's own
-    /// `Open` saw is used: the author goes stale while a standby waits, for the
-    /// reasons the `fence` module gives.
+    /// A recovery log's player instead reads to the head before it injects its
+    /// handoff, because that no-op must chain onto the log as read so far. A fence
+    /// installs an epoch and chains onto nothing, so it can come first.
+    ///
+    /// The journal is listed again here, before the fence, so that a spec this
+    /// tenure would refuse is refused before it fences anyone: see [`spec::list`].
     ///
     /// Every journal is claimed, whether or not it holds anything. A tenure serves a
     /// disk only behind its claim, and a fresh disk's own `mkfs` is a delta like any
     /// other, so there is no disk a tenure may write without first excluding whoever
     /// wrote the journal before it.
     ///
-    /// A tenure claims once. The compare-and-swap is also the backstop for every
-    /// race the listing and the probe could have lost: whatever the journal was when
-    /// this tenure looked, only one epoch installs itself over the author it read.
+    /// The claim is an append through the tenure's own appender, as a recovery log's
+    /// recorder appends its fence through the same `AppendService` as everything
+    /// after it. The fence is written under a request which unions this tenure's
+    /// [`author`] into the journal's registers and checks nothing, and every
+    /// write after it under one which checks for that author. A failure of the
+    /// fence's append fails the tenure, as a failed handoff fails a recovery log's
+    /// playback.
+    ///
+    /// A tenure claims once. The fence is alone in its append, so the head its flush
+    /// learns is the one just past it, which [`Claimed::promote`] reads through.
     pub async fn claim_journal(self) -> anyhow::Result<Claimed> {
         let Self {
             mut journal,
-            appender,
+            mut appender,
         } = self;
 
-        let Resolved { prior, head, .. } =
-            resolve(&journal.client, &journal.name, &journal.ended).await?;
-        journal.head = head;
+        let listed = list(&journal.client, &journal.name, &journal.ended).await?;
+        journal.marked = listed.marked;
 
-        () = until_ended(&journal.ended, "claiming", async {
-            fence::claim(
-                &journal.client,
-                &journal.name,
-                prior.as_deref(),
-                journal.epoch,
-                fence::record(journal.epoch),
-            )
+        let author = author(journal.epoch);
+
+        () = appender
+            .set_request(broker::AppendRequest {
+                journal: journal.name.clone(),
+                union_registers: Some(author.clone()),
+                ..Default::default()
+            })
+            .await?;
+
+        // The fence installs the epoch, but its own producer differs from it. Were it
+        // the epoch, the fence's wall-clock stamp would become that producer's last
+        // commit, and a clock which stepped back before the tenure's first record would
+        // have replay drop that record as a duplicate. A transient retry re-sends these
+        // same bytes, and replay skips a repeat which landed as a duplicate of its UUID.
+        let fence = proto::DiskRecord {
+            uuid: uuid_bytes(
+                random_producer(),
+                uuid::Clock::from_time(std::time::SystemTime::now()),
+                uuid::Flags::OUTSIDE_TXN,
+            ),
+            installs_epoch: bytes::Bytes::copy_from_slice(journal.epoch.as_bytes()),
+            ..Default::default()
+        };
+        fixed_framing::encode(&fence, &mut appender.buffer);
+
+        () = journal
+            .flush(&mut appender)
             .await
-        })
-        .await?;
+            .with_context(|| format!("claiming {}", journal.name))?;
+
+        () = appender
+            .set_request(broker::AppendRequest {
+                journal: journal.name.clone(),
+                check_registers: Some(broker::LabelSelector {
+                    include: Some(author),
+                    exclude: None,
+                }),
+                ..Default::default()
+            })
+            .await?;
+
+        // A standby, and above all one parked over an empty journal, reads nothing of
+        // a head which regressed while it waited. Only this listing and the fence's
+        // head can show it.
+        () = spec::check_floor(&journal.name, &listed, journal.head)?;
 
         Ok(Claimed { journal, appender })
-    }
-
-    /// Offset a replay of this journal seeks from.
-    ///
-    /// A floor above the head is not a floor of this journal at all, so it is ignored
-    /// rather than trusted. Seeking past the records a disk needs loses them silently,
-    /// while seeking from zero only costs the replay work. The next completed horizon
-    /// writes the label again.
-    fn seek(&mut self) -> i64 {
-        if self.journal.floor <= self.journal.head {
-            return self.journal.floor;
-        }
-        tracing::warn!(
-            journal = self.journal.name,
-            floor = self.journal.floor,
-            head = self.journal.head,
-            "ignoring a recovery floor which is above the journal's head",
-        );
-        self.journal.floor = 0;
-
-        0
     }
 }
 
 impl Claimed {
     /// Stop `playback` at the head, finish the replay at the fenced head, and report
-    /// what it rebuilt. Each of `recovered_acks` is then appended, once the replay
-    /// can say it is one it could honor: see [`check_recovered_ack`].
+    /// what it rebuilt. Each of `recovered_acks` which commits the delta the replay
+    /// holds is then appended. One the journal already committed is not: see
+    /// [`sequencer::RecoveredAck`].
     ///
-    /// [`Opening::claim_journal`] runs first and holds the journal, so nobody else can
+    /// [`Standby::claim_journal`] runs first and holds the journal, so nobody else can
     /// append past what this reads.
     ///
     /// Fresh and recovered are told apart by what the replay applied, and not by
     /// what the journal holds: a journal of nothing but fences and orphaned deltas
-    /// is a disk which was never committed. A client holds a recovered
-    /// acknowledgement only for a journal whose data appends a broker confirmed, so
-    /// a replay which applies nothing alongside one is committed state which was
+    /// is a disk which was never committed. Two things say a disk has committed
+    /// state whatever its fragments hold: a recovered acknowledgement, which a
+    /// client holds only for a delta whose data appends a broker confirmed, and the
+    /// journal's floor label, which the writer stores once a delta first commits. A
+    /// replay which applies nothing alongside either is committed state which was
     /// destroyed. That is an error, and not a fresh disk which hides it.
     ///
     /// The claim comes before the read which finishes here and before the repair.
@@ -285,13 +340,13 @@ impl Claimed {
             applied,
         } = playback.stop().await?;
 
-        // The head is read after the claim, and from a broker which has just served
-        // an append. Its index therefore covers every fragment below it, and the
-        // claim means nobody else can append past it. That fixes the end of this
-        // read and makes it fresh.
-        let mut head = until_ended(&journal.ended, "promoting", async {
-            let head = fence::probe(&journal.client, &journal.name).await?.head;
+        // The head is where the claim's fence committed, as a broker which had just
+        // served that append confirmed it. Its index therefore covers every fragment
+        // below it, and only this epoch, or a later fence which displaces it, may
+        // append past it. That fixes the end of this read and makes it fresh.
+        let mut head = journal.head;
 
+        () = until_ended(&journal.ended, "promoting", async {
             _ = replay::read(
                 &journal.client,
                 &journal.name,
@@ -302,20 +357,41 @@ impl Claimed {
             )
             .await?;
 
-            anyhow::Ok(head)
+            anyhow::Ok(())
         })
         .await?;
 
-        // The pass has sequenced every delta any writer appended, so it can say which
-        // acknowledgements it could honor. One it could not would fail this replay and
-        // every later one, so it is refused before it is appended.
-        for ack in &recovered_acks {
-            () = check_recovered_ack(pass.sequencer(), ack)?;
-        }
-        let repaired = !recovered_acks.is_empty();
+        // The pass has sequenced every delta any writer appended, so it can say what
+        // each recovered acknowledgement does. Only one which commits the delta held is
+        // appended. One the journal already committed has nothing left to do, and any
+        // other would fail this replay and every later one, so it is refused.
+        let mut repairs = Vec::new();
 
-        if repaired {
-            for ack in recovered_acks {
+        for ack in &recovered_acks {
+            let (producer, clock) = check_recovered_ack(ack, &journal.name)?;
+
+            match pass.sequencer().recovered_ack(producer, clock) {
+                sequencer::RecoveredAck::Commits => repairs.push(ack.clone()),
+                sequencer::RecoveredAck::Committed { older: false } => (),
+                sequencer::RecoveredAck::Committed { older: true } => tracing::warn!(
+                    journal = journal.name,
+                    ?producer,
+                    ?clock,
+                    "a recovered acknowledgement is older than its writer's last commit, \
+                     so the client's own state is behind the disk",
+                ),
+                sequencer::RecoveredAck::Refused => {
+                    return Err(anyhow::Error::new(failure::Failure::Invalid(format!(
+                        "the recovered acknowledgement of {producer:?} at {clock:?} commits \
+                         a delta which journal {} does not hold whole",
+                        journal.name,
+                    ))));
+                }
+            }
+        }
+
+        if !repairs.is_empty() {
+            for ack in repairs {
                 () = journal
                     .append_ack(&mut appender, &ack)
                     .await
@@ -344,17 +420,17 @@ impl Claimed {
         }
 
         let (chunks, derived) = (pass.applied_chunks(), pass.derived_floor());
-        let (held, _floor, opened) = pass.into_parts();
+        let (uncommitted, _floor, opened) = pass.into_parts();
 
         let (horizon_at, horizon) = match opened {
             Some(replay::OpenHorizon { at, blocks }) => (Some(at), Some(blocks)),
             None => (None, None),
         };
 
-        if !held.is_empty() {
+        if !uncommitted.is_empty() {
             tracing::info!(
                 journal = journal.name,
-                bytes = held.len(),
+                bytes = uncommitted.len(),
                 "dropping the delta which the journal never acknowledged",
             );
         }
@@ -368,16 +444,21 @@ impl Claimed {
             "replayed a disk from its journal",
         );
 
-        // The acknowledgements repaired above prove a broker confirmed this
-        // disk's data appends. A replay which applied nothing means those
-        // records were destroyed, even though the journal's head outlived them.
-        // The acknowledged records are the newest the disk has, so no floor this
-        // daemon stored can seek past them.
+        // A recovered acknowledgement proves a broker confirmed this disk's data
+        // appends, and the floor label proves a delta of it committed. A replay which
+        // applied nothing alongside either means those records were destroyed, even
+        // though the journal outlived them. The acknowledged records are the newest
+        // the disk has, so no floor this daemon stored can seek past them.
         failure::ensure_valid!(
-            !repaired || chunks != 0,
-            "the tenure supplied recovered acknowledgements, but a replay of journal {} \
-             applied nothing: its committed state was destroyed",
+            chunks != 0 || (recovered_acks.is_empty() && !journal.marked),
+            "a replay of journal {} applied nothing, but {}: its committed state was \
+             destroyed",
             journal.name,
+            if recovered_acks.is_empty() {
+                "its recovery-floor label says the disk committed state"
+            } else {
+                "the tenure supplied recovered acknowledgements"
+            },
         );
 
         journal.head = head;
@@ -406,9 +487,13 @@ impl Claimed {
     }
 }
 
-/// Refuse a recovered acknowledgement which a replay could not honor, before it is
-/// appended. A journal which holds one fails every replay from then on.
-fn check_recovered_ack(sequencer: &sequencer::Sequencer, ack: &[u8]) -> anyhow::Result<()> {
+/// Refuse a recovered acknowledgement which is not one framed `ACK_TXN` record of
+/// `journal` that carries nothing else, and report whose it is and its clock.
+///
+/// An acknowledgement names the journal of the disk it commits a delta of, so one a
+/// client recovered for some other disk is refused rather than judged against this
+/// journal's writers, none of which it belongs to.
+fn check_recovered_ack(ack: &[u8], journal: &str) -> anyhow::Result<(uuid::Producer, uuid::Clock)> {
     let mut ack = bytes::BytesMut::from(ack);
     let record = match fixed_framing::unpack::<proto::DiskRecord>(&mut ack) {
         Ok(fixed_framing::Frame::Record { message, .. }) if ack.is_empty() => message,
@@ -437,22 +522,22 @@ fn check_recovered_ack(sequencer: &sequencer::Sequencer, ack: &[u8]) -> anyhow::
         "a recovered acknowledgement is not an ACK_TXN record which carries nothing else",
     );
     failure::ensure_valid!(
-        sequencer.can_acknowledge(producer, clock),
-        "the recovered acknowledgement of {producer:?} at {clock:?} commits a delta which later \
-         records of this journal displaced, or rolls back what they committed",
+        record.journal == journal,
+        "a recovered acknowledgement of journal {:?} was handed to journal {journal}",
+        record.journal,
     );
-    Ok(())
+    Ok((producer, clock))
 }
 
 /// The journal itself, and everything a tenure needs to append to it.
 ///
-/// One of these is carried from [`Opening::new`] through the claim and the
+/// One of these is carried from [`Standby::new`] through the claim and the
 /// promotion into the writer task which serves the disk. The epoch a tenure appends
 /// under, and the offsets a broker has confirmed to it, are the same facts at
 /// every one of those phases.
 struct Journal {
     name: String,
-    /// Claims, probes, and labels the journal. These are one-shot operations over
+    /// Claims, lists, and labels the journal. These are one-shot operations over
     /// the journal itself rather than appends of its content.
     client: gazette::journal::Client,
     /// Cancelled once the tenure is over, which stops this writer appending and
@@ -467,6 +552,9 @@ struct Journal {
     /// have to read.
     head: i64,
     floor: i64,
+    /// Whether the journal carries a recovery-floor label, which says the disk has
+    /// committed state. The writer stores one once a delta first commits.
+    marked: bool,
 }
 
 impl Journal {
@@ -548,14 +636,15 @@ impl Journal {
     /// it, and nothing else. Failing a tenure over that would trade a durable
     /// disk for a cheaper recovery, so this only warns. The next horizon stores a
     /// floor again, and a recovery which derives one stores it too.
-    async fn store_floor(&self, floor: i64) {
-        if let Err(err) = spec::advance_floor(&self.client, &self.name, floor).await {
-            tracing::warn!(
+    async fn store_floor(&mut self, floor: i64) {
+        match spec::advance_floor(&self.client, &self.name, floor).await {
+            Ok(()) => self.marked = true,
+            Err(err) => tracing::warn!(
                 journal = self.name,
                 floor,
                 ?err,
                 "could not store the disk's recovery floor",
-            );
+            ),
         }
     }
 }
@@ -592,12 +681,26 @@ fn uuid_bytes(producer: uuid::Producer, clock: uuid::Clock, flags: uuid::Flags) 
     bytes::Bytes::copy_from_slice(uuid::build(producer, clock, flags).as_bytes())
 }
 
+/// Registers which name `epoch` as a journal's `author`, as Go's `Author.Fence()`
+/// returns them. The value is the epoch's producer in hex. A claim unions them in,
+/// and every append after it checks them.
+pub(crate) fn author(epoch: uuid::Producer) -> broker::LabelSet {
+    let value: String = epoch
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+
+    labels::build_set([("author", value.as_str())])
+}
+
 #[cfg(test)]
 mod test {
-    use super::check_recovered_ack;
-    use super::sequencer::Sequencer;
+    use super::{author, check_recovered_ack};
     use crate::{failure, proto};
     use proto_gazette::{fixed_framing, uuid};
+
+    const JOURNAL: &str = "acmeCo/disk/one";
 
     fn producer(seed: u8) -> uuid::Producer {
         uuid::Producer::from_bytes([seed | 0x01, 0, 0, 0, 0, seed])
@@ -627,69 +730,63 @@ mod test {
         buf.freeze()
     }
 
-    /// A sequencer which has read `records`, each framing 100 bytes.
-    fn sequenced(records: &[proto::DiskRecord]) -> Sequencer {
-        let mut sequencer = Sequencer::default();
-        for (index, record) in records.iter().enumerate() {
-            _ = sequencer
-                .on_record(record, index as i64 * 100, 100)
-                .unwrap();
-        }
-        sequencer
+    #[test]
+    fn test_an_epoch_is_its_author_register_in_hex() {
+        let author = author(uuid::Producer([0x01, 0x23, 0x45, 0x67, 0x89, 0xab]));
+
+        assert_eq!(author.labels.len(), 1);
+        assert_eq!(author.labels[0].name, "author");
+        assert_eq!(author.labels[0].value, "0123456789ab");
     }
 
-    /// A recovered acknowledgement is appended only if it is exactly one framed
-    /// `ACK_TXN` record which carries nothing else, and one the replay could honor.
-    /// Anything else would fail every replay of the journal from then on, so it is
-    /// refused as invalid before it reaches the journal.
+    /// A recovered acknowledgement is judged against the journal only if it is exactly
+    /// one framed `ACK_TXN` record of that journal which carries nothing else.
+    /// Anything else is refused as invalid. Whether the journal already committed it,
+    /// or it commits the delta a replay holds, is the sequencer's to say.
     #[test]
-    fn test_only_an_acknowledgement_a_replay_can_honor_is_repaired() {
+    fn test_a_recovered_acknowledgement_is_one_ack_of_this_journal() {
         use uuid::Flags;
 
-        // The delta of producer 0x10 is held. Producer 0x30 then displaces it in the
-        // second journal.
-        let held = sequenced(&[record(0x10, 1, Flags::CONTINUE_TXN)]);
-        let displaced = sequenced(&[
-            record(0x10, 1, Flags::CONTINUE_TXN),
-            record(0x30, 2, Flags::CONTINUE_TXN),
-        ]);
-        let ack = record(0x10, 2, Flags::ACK_TXN);
+        let ack = proto::DiskRecord {
+            journal: JOURNAL.to_string(),
+            ..record(0x10, 2, Flags::ACK_TXN)
+        };
 
-        let cases: [(&str, &Sequencer, bytes::Bytes); 10] = [
-            ("the held delta's", &held, frame(std::slice::from_ref(&ack))),
+        let cases: [(&str, bytes::Bytes); 10] = [
+            ("an acknowledgement", frame(std::slice::from_ref(&ack))),
             (
-                "one committing nothing",
-                &held,
-                frame(&[record(0x50, 9, Flags::ACK_TXN)]),
+                "another journal's",
+                frame(&[proto::DiskRecord {
+                    journal: "acmeCo/disk/two".to_string(),
+                    ..ack.clone()
+                }]),
             ),
             (
-                "a displaced delta's",
-                &displaced,
-                frame(std::slice::from_ref(&ack)),
+                "one naming no journal",
+                frame(&[proto::DiskRecord {
+                    journal: String::new(),
+                    ..ack.clone()
+                }]),
             ),
-            (
-                "unframed bytes",
-                &held,
-                bytes::Bytes::from_static(b"not a record"),
-            ),
-            ("two records", &held, frame(&[ack.clone(), ack.clone()])),
-            ("no UUID", &held, frame(&[proto::DiskRecord::default()])),
+            ("unframed bytes", bytes::Bytes::from_static(b"not a record")),
+            ("two records", frame(&[ack.clone(), ack.clone()])),
+            ("no UUID", frame(&[proto::DiskRecord::default()])),
             (
                 "a malformed UUID",
-                &held,
                 frame(&[proto::DiskRecord {
                     uuid: bytes::Bytes::from_static(&[0; 16]),
-                    ..Default::default()
+                    ..ack.clone()
                 }]),
             ),
             (
                 "a data record",
-                &held,
-                frame(&[record(0x10, 2, Flags::CONTINUE_TXN)]),
+                frame(&[proto::DiskRecord {
+                    journal: JOURNAL.to_string(),
+                    ..record(0x10, 2, Flags::CONTINUE_TXN)
+                }]),
             ),
             (
                 "one carrying chunks",
-                &held,
                 frame(&[proto::DiskRecord {
                     chunks: crate::chunk::encode_write(0, &bytes::Bytes::from(vec![1; 4096])),
                     ..ack.clone()
@@ -697,7 +794,6 @@ mod test {
             ),
             (
                 "one opening a horizon",
-                &held,
                 frame(&[proto::DiskRecord {
                     opens_horizon: true,
                     ..ack.clone()
@@ -706,9 +802,9 @@ mod test {
         ];
 
         let mut out = Vec::new();
-        for (what, sequencer, ack) in cases {
-            let outcome = match check_recovered_ack(sequencer, &ack) {
-                Ok(()) => "repaired".to_string(),
+        for (what, ack) in cases {
+            let outcome = match check_recovered_ack(&ack, JOURNAL) {
+                Ok((producer, clock)) => format!("judged, of {producer:?} at {clock:?}"),
                 Err(err) => {
                     assert!(
                         matches!(
@@ -720,20 +816,20 @@ mod test {
                     format!("refused: {err:#}")
                 }
             };
-            out.push(format!("{what:<24}{outcome}"));
+            out.push(format!("{what:<22}{outcome}"));
         }
-        insta::assert_snapshot!(out.join("\n"), @"
-        the held delta's        repaired
-        one committing nothing  repaired
-        a displaced delta's     refused: the recovered acknowledgement of Producer(11:00:00:00:00:10) at Clock(0s 2000ns) commits a delta which later records of this journal displaced, or rolls back what they committed
-        unframed bytes          refused: a recovered acknowledgement is not one framed record
-        two records             refused: a recovered acknowledgement is not one framed record
-        no UUID                 refused: a recovered acknowledgement carries no message UUID: invalid length: expected 16 bytes, found 0
-        a malformed UUID        refused: a recovered acknowledgement carries a malformed UUID: UUID 00000000-0000-0000-0000-000000000000 is not a V1 UUID
-        a data record           refused: a recovered acknowledgement is not an ACK_TXN record which carries nothing else
-        one carrying chunks     refused: a recovered acknowledgement is not an ACK_TXN record which carries nothing else
-        one opening a horizon   refused: a recovered acknowledgement is not an ACK_TXN record which carries nothing else
-        ");
+        insta::assert_snapshot!(out.join("\n"), @r#"
+        an acknowledgement    judged, of Producer(11:00:00:00:00:10) at Clock(0s 2000ns)
+        another journal's     refused: a recovered acknowledgement of journal "acmeCo/disk/two" was handed to journal acmeCo/disk/one
+        one naming no journal refused: a recovered acknowledgement of journal "" was handed to journal acmeCo/disk/one
+        unframed bytes        refused: a recovered acknowledgement is not one framed record
+        two records           refused: a recovered acknowledgement is not one framed record
+        no UUID               refused: a recovered acknowledgement carries no message UUID: invalid length: expected 16 bytes, found 0
+        a malformed UUID      refused: a recovered acknowledgement carries a malformed UUID: UUID 00000000-0000-0000-0000-000000000000 is not a V1 UUID
+        a data record         refused: a recovered acknowledgement is not an ACK_TXN record which carries nothing else
+        one carrying chunks   refused: a recovered acknowledgement is not an ACK_TXN record which carries nothing else
+        one opening a horizon refused: a recovered acknowledgement is not an ACK_TXN record which carries nothing else
+        "#);
     }
 }
 
@@ -750,11 +846,11 @@ mod broker_test {
     //!
     //! What a client sees of all this is `tests/`, over the daemon as it ships.
 
+    use crate::BLOCK_SIZE;
     use crate::chunk::{covered_blocks, encode_punch, encode_write};
     use crate::proto;
     use crate::recording::Recorder;
     use crate::test_support::broker::Fixture;
-    use crate::{BLOCK_SIZE, journal::fence};
     use proto_gazette::broker;
 
     #[tokio::test]
@@ -764,6 +860,7 @@ mod broker_test {
         first_use_claims_the_journal(&fixture).await;
         a_replacement_writer_fences_the_first(&fixture).await;
         a_tenure_which_never_prepares_appends_only_its_fence(&fixture).await;
+        a_repeated_fence_replays_as_one(&fixture).await;
         a_committed_delta_reads_back_as_its_chunks(&fixture).await;
         mutations_offered_while_a_commit_is_outstanding_wait_for_it(&fixture).await;
         a_large_delta_carries_one_record_per_mutation(&fixture).await;
@@ -776,6 +873,9 @@ mod broker_test {
         a_recovered_acknowledgement_is_repaired(&fixture).await;
         a_stale_recovered_acknowledgement_is_refused(&fixture).await;
         an_orphaned_journal_recovers_nothing(&fixture).await;
+        an_acknowledgement_which_landed_before_a_pending_delta_is_recovered(&fixture).await;
+        a_first_commit_marks_the_floor_label(&fixture).await;
+        a_marked_journal_without_committed_state_is_refused(&fixture).await;
 
         fixture.stop().await;
     }
@@ -821,7 +921,7 @@ mod broker_test {
 
         assert_eq!(
             fixture.author(journal).await.as_deref(),
-            Some(fence::value(writer.epoch()).as_str()),
+            Some(super::author(writer.epoch()).labels[0].value.as_str()),
         );
     }
 
@@ -887,6 +987,42 @@ mod broker_test {
         let (_producer, _clock, flags) = records[0].0;
         assert!(flags.is_outside(), "a fence is outside a transaction");
         assert_eq!(records[0].1.installs_epoch, epoch.as_bytes()[..]);
+    }
+
+    /// A fence which lands twice, as a transient retry of one which had already landed
+    /// does, is harmless. The epoch holds the journal, and a later replay skips the
+    /// repeated fence as a duplicate.
+    async fn a_repeated_fence_replays_as_one(fixture: &Fixture) {
+        let journal = "acmeCo/disk/repeated-fence";
+        () = fixture.create_journal(fixture.spec(journal)).await.unwrap();
+
+        let epoch = super::random_producer();
+        let fence = proto::DiskRecord {
+            uuid: super::uuid_bytes(
+                super::random_producer(),
+                proto_gazette::uuid::Clock::from_time(std::time::SystemTime::now()),
+                proto_gazette::uuid::Flags::OUTSIDE_TXN,
+            ),
+            installs_epoch: bytes::Bytes::copy_from_slice(epoch.as_bytes()),
+            ..Default::default()
+        };
+
+        let first = fixture.append_fence(journal, epoch, &fence).await;
+        assert_eq!(first, fixture.head(journal).await);
+
+        let second = fixture.append_fence(journal, epoch, &fence).await;
+        assert_eq!(second, fixture.head(journal).await);
+        assert_eq!(second, 2 * first, "the same fence, appended again");
+
+        assert_eq!(
+            fixture.author(journal).await.as_deref(),
+            Some(super::author(epoch).labels[0].value.as_str()),
+        );
+
+        // The journal holds two copies of one fence and nothing else, so a replay of
+        // it is a fresh disk.
+        let (_promoted, blocks) = fixture.promote(journal, Vec::new()).await.unwrap();
+        assert_eq!(blocks, Vec::new());
     }
 
     /// A committed delta reads back as exactly the chunks which were recorded.
@@ -1164,7 +1300,7 @@ mod broker_test {
     async fn an_absent_journal_is_refused_at_open(fixture: &Fixture) {
         let journal = "acmeCo/disk/never-created";
 
-        let Err(err) = fixture.opening_uncreated(journal).await else {
+        let Err(err) = fixture.standby_uncreated(journal).await else {
             panic!("a journal which does not exist must not open");
         };
         assert!(format!("{err:#}").contains("does not exist"), "{err:#}");
@@ -1187,7 +1323,7 @@ mod broker_test {
 
         () = fixture.create_journal(staged).await.unwrap();
 
-        let Err(err) = fixture.opening_uncreated(journal).await else {
+        let Err(err) = fixture.standby_uncreated(journal).await else {
             panic!("a journal this daemon cannot append to must not open");
         };
         assert!(format!("{err:#}").contains("must be read-write"), "{err:#}");
@@ -1231,8 +1367,9 @@ mod broker_test {
 
         assert_eq!(blocks, vec![(4, 0x11)]);
 
-        // A second repair re-appends the same bytes, and Gazette de-duplicates those by
-        // UUID. A tenure which repeats a repair therefore recovers the same disk.
+        // A second repair hands back the same acknowledgement, which the journal now
+        // holds, so nothing is appended for it. A tenure which repeats a repair
+        // therefore recovers the same disk.
         let (_recorder, _writer, blocks) = fixture.recover(journal, vec![ack]).await.unwrap();
         assert_eq!(blocks, vec![(4, 0x11)]);
     }
@@ -1290,6 +1427,135 @@ mod broker_test {
 
         let (_recorder, _writer, blocks) = fixture.recover(journal, Vec::new()).await.unwrap();
         assert!(blocks.is_empty(), "{blocks:?}");
+    }
+
+    /// A client hands back the acknowledgement its checkpoint holds, which already
+    /// landed, after the next transaction's records reached the journal. That
+    /// acknowledgement is already committed, so the promotion appends nothing for it,
+    /// and the records after it are a delta nobody acknowledged.
+    async fn an_acknowledgement_which_landed_before_a_pending_delta_is_recovered(
+        fixture: &Fixture,
+    ) {
+        let journal = "acmeCo/disk/landed-ack";
+        let (mut recorder, writer) = fixture.open(journal).await.unwrap();
+
+        recorder.reserve().unwrap().send(write(1, 0xaa));
+        let ack = writer.prepare().await.unwrap().unwrap();
+        () = writer.acknowledge(ack.clone()).await.unwrap();
+
+        // The next transaction writes, and the writer appends that write at once.
+        let head = fixture.head(journal).await;
+        recorder.reserve().unwrap().send(write(2, 0xbb));
+        () = fixture.advances(journal, head).await;
+        drop((recorder, writer));
+
+        // The client failed before it committed the next transaction, so its checkpoint
+        // still holds the acknowledgement it last committed.
+        let (_recorder, _writer, blocks) = fixture.recover(journal, vec![ack]).await.unwrap();
+        assert_eq!(blocks, vec![(1, 0xaa)]);
+
+        let records = fixture.read(journal).await;
+        let ((_producer, _clock, flags), last) = records.last().unwrap();
+        assert!(
+            flags.is_outside() && !last.installs_epoch.is_empty(),
+            "the promotion appended nothing after its fence",
+        );
+    }
+
+    /// A disk's first commit marks its journal's recovery-floor label, which is how a
+    /// later promotion knows the disk holds committed state.
+    async fn a_first_commit_marks_the_floor_label(fixture: &Fixture) {
+        let journal = "acmeCo/disk/marked";
+        let (mut recorder, writer) = fixture.open(journal).await.unwrap();
+        assert_eq!(fixture.floor_label(journal).await, None);
+
+        recorder.reserve().unwrap().send(write(1, 0xaa));
+        let ack = writer.prepare().await.unwrap().unwrap();
+        assert_eq!(
+            fixture.floor_label(journal).await,
+            None,
+            "a prepared delta is not yet committed",
+        );
+        () = writer.acknowledge(ack).await.unwrap();
+
+        assert_eq!(
+            fixture.floor_label(journal).await.as_deref(),
+            Some(crate::recovery_floor_value(0).as_str()),
+        );
+    }
+
+    /// A journal whose label says the disk committed state, but which holds none, lost
+    /// that state: its fragments were deleted. One which holds nothing at all has no
+    /// head past its floor, and is refused at `Open`. One which still holds records,
+    /// none of them committed, is refused at promotion rather than formatted as a fresh
+    /// disk, whether or not the client hands back an acknowledgement.
+    async fn a_marked_journal_without_committed_state_is_refused(fixture: &Fixture) {
+        let journal = "acmeCo/disk/emptied";
+
+        let mut spec = fixture.spec(journal);
+        spec.labels = Some(labels::set_value(
+            spec.labels.take().unwrap_or_default(),
+            crate::DISK_RECOVERY_FLOOR,
+            &crate::recovery_floor_value(0),
+        ));
+        () = fixture.create_journal(spec).await.unwrap();
+
+        let Err(err) = fixture.recover(journal, Vec::new()).await else {
+            panic!("a disk whose committed state is gone must not be formatted");
+        };
+        assert!(
+            err.chain().any(|cause| matches!(
+                cause.downcast_ref::<crate::failure::Failure>(),
+                Some(crate::failure::Failure::Invalid(_)),
+            )),
+            "{err:#}",
+        );
+        assert!(
+            format!("{err:#}").contains("recovery-floor label"),
+            "{err:#}"
+        );
+
+        // A fence commits nothing, and puts the head past the floor.
+        let epoch = super::random_producer();
+        let fence = proto::DiskRecord {
+            uuid: super::uuid_bytes(
+                super::random_producer(),
+                proto_gazette::uuid::Clock::from_time(std::time::SystemTime::now()),
+                proto_gazette::uuid::Flags::OUTSIDE_TXN,
+            ),
+            installs_epoch: bytes::Bytes::copy_from_slice(epoch.as_bytes()),
+            ..Default::default()
+        };
+        _ = fixture.append_fence(journal, epoch, &fence).await;
+
+        // An acknowledgement of this journal, from a writer whose records are gone.
+        let mut ack = bytes::BytesMut::new();
+        proto_gazette::fixed_framing::encode(
+            &proto::DiskRecord {
+                uuid: super::uuid_bytes(
+                    super::random_producer(),
+                    proto_gazette::uuid::Clock::from_time(std::time::SystemTime::now()),
+                    proto_gazette::uuid::Flags::ACK_TXN,
+                ),
+                journal: journal.to_string(),
+                ..Default::default()
+            },
+            &mut ack,
+        );
+
+        for acks in [Vec::new(), vec![ack.freeze()]] {
+            let Err(err) = fixture.recover(journal, acks).await else {
+                panic!("a disk whose committed state is gone must not be formatted");
+            };
+            assert!(
+                err.chain().any(|cause| matches!(
+                    cause.downcast_ref::<crate::failure::Failure>(),
+                    Some(crate::failure::Failure::Invalid(_)),
+                )),
+                "{err:#}",
+            );
+            assert!(format!("{err:#}").contains("applied nothing"), "{err:#}");
+        }
     }
 
     /// One block of `fill`, as a device write of it encodes.

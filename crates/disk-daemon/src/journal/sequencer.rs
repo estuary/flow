@@ -22,10 +22,10 @@ pub(super) struct Sequencer {
     /// producer's records mean a delta whose commit order nothing states. It is
     /// `None` once a delta commits or is displaced.
     open: Option<uuid::Producer>,
-    /// Offset at which the held delta's first record opened a horizon. It goes with
+    /// Offset at which the uncommitted delta's first record opened a horizon. It goes with
     /// the delta: a horizon belongs to the delta which opened it.
     horizon_at: Option<i64>,
-    /// Offset through which committed records are applied. A held delta is not part
+    /// Offset through which committed records are applied. An uncommitted delta is not part
     /// of it, so this never runs ahead of what the client committed.
     applied: i64,
 }
@@ -40,7 +40,7 @@ struct Sequence {
 /// What one record does to the delta a pass holds.
 #[derive(Debug, PartialEq)]
 pub(super) struct Step {
-    /// Producer of a held delta which this record displaced, and which the pass must
+    /// Producer of an uncommitted delta which this record displaced, and which the pass must
     /// drop before anything else.
     pub displaced: Option<uuid::Producer>,
     pub action: Action,
@@ -57,6 +57,23 @@ pub(super) enum Action {
     /// Apply the delta held, which this acknowledgement commits. `opens_at` is the
     /// offset at which that delta's first record opened a horizon, if it opened one.
     Commit { opens_at: Option<i64> },
+}
+
+/// What a recovered acknowledgement does, judged against what a pass sequenced.
+#[derive(Debug, PartialEq)]
+pub(super) enum RecoveredAck {
+    /// What it acknowledges is already committed, so there is nothing to append. It
+    /// is at or below its writer's last commit, or the pass saw nothing of its writer:
+    /// a writer whose records are all below the floor committed what the floor's
+    /// horizon covers. `older` is an acknowledgement strictly below its writer's last
+    /// commit, which a client whose own state went back hands over.
+    Committed { older: bool },
+    /// It commits the delta the pass holds, so appending it commits that delta.
+    Commits,
+    /// It commits records this pass no longer holds: part of the delta held, or a
+    /// delta another producer displaced, or a delta whose records are not in the
+    /// journal. Appending it would fail every replay from then on.
+    Refused,
 }
 
 impl Sequencer {
@@ -190,13 +207,20 @@ impl Sequencer {
         }
     }
 
-    /// Whether an acknowledgement of `producer` at `clock` is one this pass can
-    /// honor: it commits the delta the pass holds, or it commits nothing. Any other
-    /// acknowledgement fails [`Sequencer::on_record`], and one which reaches the
-    /// journal fails every replay from then on, so a caller asks here before
-    /// appending one.
-    pub fn can_acknowledge(&self, producer: uuid::Producer, clock: uuid::Clock) -> bool {
-        let mut state = self.producers.get(&producer).copied().unwrap_or_default();
+    /// What a recovered acknowledgement of `producer` at `clock` does, given what
+    /// this pass sequenced. Any acknowledgement but one which commits the delta held
+    /// fails [`Sequencer::on_record`] if it is appended, and fails every replay from
+    /// then on, so a caller asks here before appending one.
+    ///
+    /// An acknowledgement which repeats its writer's last commit is the usual one: a
+    /// client hands back what its checkpoint holds, which may have landed before the
+    /// client failed, and the writer may have appended records of its next delta
+    /// since. Those records are a delta nobody acknowledged.
+    pub fn recovered_ack(&self, producer: uuid::Producer, clock: uuid::Clock) -> RecoveredAck {
+        let Some(mut state) = self.producers.get(&producer).copied() else {
+            return RecoveredAck::Committed { older: false };
+        };
+        let last_commit = state.last_commit;
 
         match uuid::sequence(
             uuid::Flags::ACK_TXN,
@@ -204,13 +228,23 @@ impl Sequencer {
             &mut state.last_commit,
             &mut state.max_continue,
         ) {
-            Ok(uuid::SequenceOutcome::AckCommit) => self.open == Some(producer),
-            Ok(uuid::SequenceOutcome::AckEmpty | uuid::SequenceOutcome::AckDuplicate) => true,
-            _ => false,
+            Ok(uuid::SequenceOutcome::AckCommit) if self.open == Some(producer) => {
+                RecoveredAck::Commits
+            }
+            Ok(
+                uuid::SequenceOutcome::AckDuplicate
+                | uuid::SequenceOutcome::AckCleanRollback
+                | uuid::SequenceOutcome::AckDeepRollback,
+            ) => RecoveredAck::Committed {
+                older: clock < last_commit,
+            },
+            // A writer the pass saw, whose delta records are not where its
+            // acknowledgement says, or are no longer held.
+            _ => RecoveredAck::Refused,
         }
     }
 
-    /// Give up the held delta, unless it is `producer`'s, and report whose it was.
+    /// Give up the uncommitted delta, unless it is `producer`'s, and report whose it was.
     ///
     /// A record of another producer is a delta which displaced the one held. Only an
     /// acknowledgement of the delta at the head can be honored, and this record
@@ -292,6 +326,7 @@ mod test {
                 }
                 _ => bytes::Bytes::new(),
             },
+            journal: String::new(),
         }
     }
 
@@ -437,10 +472,14 @@ mod test {
         ");
     }
 
-    /// A recovered acknowledgement is appended only if a replay could honor it: it must
-    /// commit the delta held, or commit nothing at all.
+    /// A recovered acknowledgement at or below its writer's last commit is already
+    /// committed, whether or not records follow that commit, and so is one of a writer
+    /// the pass never saw. One which covers exactly the delta held commits it. Any
+    /// other is refused.
     #[test]
-    fn test_which_acknowledgements_can_be_honored() {
+    fn test_what_a_recovered_acknowledgement_does() {
+        use super::RecoveredAck::{Commits, Committed, Refused};
+
         let (a, b) = (producer(0x10), producer(0x30));
         let sequenced = |records: &[Record]| {
             let mut sequencer = Sequencer::default();
@@ -452,21 +491,70 @@ mod test {
             sequencer
         };
 
-        // Nothing is sequenced, so any acknowledgement commits nothing.
-        assert!(sequenced(&[]).can_acknowledge(a, clock(5)));
-
-        // A delta of `a` is held. Its acknowledgement commits it, one at or below its
-        // last commit rolls back, and another producer's commits nothing.
-        let held = sequenced(&[Write(0x10, 1), Ack(0x10, 2), Write(0x10, 3)]);
-        assert!(held.can_acknowledge(a, clock(3)));
-        assert!(held.can_acknowledge(a, clock(4)));
-        assert!(!held.can_acknowledge(a, clock(2)));
-        assert!(!held.can_acknowledge(a, clock(1)));
-        assert!(held.can_acknowledge(b, clock(9)));
-
-        // `b` displaced the delta of `a`, whose acknowledgement can no longer be honored.
+        // `a` committed at 2 and then 4, and holds a delta of records at 5 and 6.
+        let held = sequenced(&[
+            Write(0x10, 1),
+            Ack(0x10, 2),
+            Write(0x10, 3),
+            Ack(0x10, 4),
+            Write(0x10, 5),
+            Write(0x10, 6),
+        ]);
+        // `a` committed at 4, and holds nothing.
+        let idle = sequenced(&[Write(0x10, 3), Ack(0x10, 4)]);
+        // `b` displaced the delta `a` held.
         let displaced = sequenced(&[Write(0x10, 1), Write(0x30, 2)]);
-        assert!(!displaced.can_acknowledge(a, clock(3)));
-        assert!(displaced.can_acknowledge(b, clock(3)));
+
+        let cases = [
+            (
+                "the last commit, records after it",
+                held.recovered_ack(a, clock(4)),
+                Committed { older: false },
+            ),
+            (
+                "an older commit, records after it",
+                held.recovered_ack(a, clock(2)),
+                Committed { older: true },
+            ),
+            (
+                "the last commit, nothing after it",
+                idle.recovered_ack(a, clock(4)),
+                Committed { older: false },
+            ),
+            (
+                "an older commit, nothing after it",
+                idle.recovered_ack(a, clock(2)),
+                Committed { older: true },
+            ),
+            (
+                "a writer never seen",
+                held.recovered_ack(b, clock(9)),
+                Committed { older: false },
+            ),
+            ("the delta held", held.recovered_ack(a, clock(7)), Commits),
+            (
+                "part of the delta held",
+                held.recovered_ack(a, clock(5)),
+                Refused,
+            ),
+            (
+                "records not in the journal",
+                idle.recovered_ack(a, clock(9)),
+                Refused,
+            ),
+            (
+                "a displaced delta",
+                displaced.recovered_ack(a, clock(3)),
+                Refused,
+            ),
+            (
+                "the delta which displaced it",
+                displaced.recovered_ack(b, clock(3)),
+                Commits,
+            ),
+        ];
+        for (what, got, expect) in cases {
+            assert_eq!(got, expect, "{what}");
+        }
     }
 }

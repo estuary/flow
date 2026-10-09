@@ -22,11 +22,11 @@ async fn disk_protocol() {
         ("no-request", Fresh, NoRequest, MALFORMED),
         ("no-journal", Fresh, OpenWithoutJournal, MALFORMED),
         ("misaligned", Fresh, OpenMisaligned, MALFORMED),
-        ("twice-opened", Serving, Open, OUT_OF_TURN),
-        ("twice-promoted", Serving, Promote, OUT_OF_TURN),
-        ("standby-prepares", Standing, Prepare, OUT_OF_TURN),
+        ("twice-opened", Promoted, Open, OUT_OF_TURN),
+        ("twice-promoted", Promoted, Promote, OUT_OF_TURN),
+        ("standby-prepares", Standby, Prepare, OUT_OF_TURN),
         ("twice-prepared", Prepared, Prepare, OUT_OF_TURN),
-        ("early-commit", Serving, Acknowledge, OUT_OF_TURN),
+        ("early-commit", Promoted, Acknowledge, OUT_OF_TURN),
         ("wrong-commit", Prepared, Acknowledge, OUT_OF_TURN),
     ] {
         let journal = format!("acmeCo/disk/{journal}");
@@ -46,8 +46,8 @@ async fn disk_protocol() {
 /// What the tenure has done before the request which ends it.
 enum State {
     Fresh,
-    Standing,
-    Serving,
+    Standby,
+    Promoted,
     Prepared,
 }
 
@@ -76,11 +76,11 @@ async fn a_refusal_ends_the_tenure(
 
     let prepared = match state {
         State::Fresh => None,
-        State::Standing => {
+        State::Standby => {
             () = tenure.stand_by(fixture.open(journal).await).await.unwrap();
             None
         }
-        State::Serving => {
+        State::Promoted => {
             _ = tenure.serve(fixture.open(journal).await).await.unwrap();
             None
         }

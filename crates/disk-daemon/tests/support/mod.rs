@@ -320,20 +320,26 @@ impl Fixture {
         }
     }
 
-    /// Store `floor` on `journal`, as the daemon itself would.
+    /// Store `floor` on `journal` as the daemon itself would, or remove the label where
+    /// it is `None`, as a converger which dropped it would.
     ///
     /// This is not monotonic, unlike the daemon's own store: a case uses it to plant
     /// the floor it wants to see a recovery handle.
-    pub async fn store_floor(&self, journal: &str, floor: u64) {
+    pub async fn plant_floor(&self, journal: &str, floor: Option<u64>) {
         () = e2e_support::journals::update(&self.client, journal, |spec| {
-            spec.labels = Some(labels::set_value(
-                spec.labels.take().unwrap_or_default(),
-                disk_daemon::DISK_RECOVERY_FLOOR,
-                &disk_daemon::recovery_floor_value(floor),
-            ));
+            let set = spec.labels.take().unwrap_or_default();
+
+            spec.labels = Some(match floor {
+                Some(floor) => labels::set_value(
+                    set,
+                    disk_daemon::DISK_RECOVERY_FLOOR,
+                    &disk_daemon::recovery_floor_value(floor),
+                ),
+                None => labels::remove(set, disk_daemon::DISK_RECOVERY_FLOOR),
+            });
         })
         .await
-        .expect("applying a recovery floor");
+        .expect("planting a recovery floor");
     }
 
     /// Where the brokers persist fragments, for the case which prunes them.

@@ -20,6 +20,9 @@ use proto_gazette::uuid;
 pub(super) struct Ledger {
     /// Producer of every record this tenure stamps.
     epoch: uuid::Producer,
+    /// Journal this tenure writes. Each acknowledgement names it, so that a promotion
+    /// can refuse an acknowledgement a client recovered for some other disk.
+    journal: String,
     /// Clock of the last record stamped. It only advances.
     clock: uuid::Clock,
     state: State,
@@ -72,11 +75,12 @@ pub(super) enum Stopped {
 }
 
 impl Ledger {
-    /// A tenure which appends under `epoch`, at the start of a delta it has taken
-    /// nothing into, resuming the `horizon` its replay left open.
-    pub fn new(epoch: uuid::Producer, horizon: Option<i64>) -> Self {
+    /// A tenure which appends to `journal` under `epoch`, at the start of a delta it
+    /// has taken nothing into, resuming the `horizon` its replay left open.
+    pub fn new(epoch: uuid::Producer, journal: String, horizon: Option<i64>) -> Self {
         Self {
             epoch,
+            journal,
             clock: uuid::Clock::zero(),
             state: State::Appending { prepared: None },
             delta_records: 0,
@@ -328,6 +332,11 @@ impl Ledger {
             chunks,
             opens_horizon,
             installs_epoch: bytes::Bytes::new(),
+            journal: if flags.is_ack() {
+                self.journal.clone()
+            } else {
+                String::new()
+            },
         }
     }
 }
@@ -344,7 +353,11 @@ mod test {
     }
 
     fn ledger() -> Ledger {
-        Ledger::new(uuid::Producer::from_bytes([1, 0, 0, 0, 0, 1]), None)
+        Ledger::new(
+            uuid::Producer::from_bytes([1, 0, 0, 0, 0, 1]),
+            "acmeCo/disk/one".to_string(),
+            None,
+        )
     }
 
     /// The flags and clock of a stamped record.
@@ -633,6 +646,26 @@ mod test {
         assert_eq!(ended.stop(true), Stopped::Ended);
         assert_eq!(failed.stop(false), Stopped::Failed);
         assert_eq!(failed.stop(false), Stopped::AlreadyOver);
+    }
+
+    /// An acknowledgement names the journal whose delta it commits, and no other
+    /// record names one.
+    #[test]
+    fn test_only_an_acknowledgement_names_its_journal() {
+        let mut ledger = ledger();
+
+        let record = ledger.stamp_mutation(at(1), Vec::new(), false);
+        let ack = ledger.cut(at(2), false);
+
+        let mut ack = bytes::BytesMut::from(&ack[..]);
+        let proto_gazette::fixed_framing::Frame::Record { message: ack, .. } =
+            proto_gazette::fixed_framing::unpack::<crate::proto::DiskRecord>(&mut ack).unwrap()
+        else {
+            panic!("an acknowledgement is one framed record");
+        };
+
+        assert_eq!(record.journal, "");
+        assert_eq!(ack.journal, "acmeCo/disk/one");
     }
 
     /// Clocks only advance, whatever the wall clock does, so each delta's records

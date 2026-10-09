@@ -30,7 +30,7 @@ rest belongs to the daemon and is private. Everything below is `src/`.
 | `client.rs` | `Client`, `Standby`, `Disk`, and `Error`: the caller's side of the tenure gRPC, and the two-phase commit it drives. |
 | `daemon.rs` | The process: its `Config`, the socket, the drain, and the self-signed broker client every tenure shares. |
 | `args.rs` | The command line, which is the daemon's whole configuration. |
-| `tenure.rs` | `Service` and `Tenure`: the RPC state machine. |
+| `tenure.rs` | `Service`, and the `Task` behind each tenure stream: the RPC state machine. |
 | `failure.rs` | `Failure`, and the gRPC code each tenure failure ends its stream with. |
 | `serving.rs` | `Serving`: one open disk's mount, device, and writer — its bootstrap commit, the cut order of `prepare`, and its teardown. |
 | `device/` | `Device`: one `ublk` device's life from `add_dev` to `del_dev`, and the `Owner` thread which serves it. `owner.rs` is that thread, which passes each request from the queue to the backend and each reply back, and decides nothing. `queue.rs` is the `ublk` queue over its `io_uring`, and every copy through the character device, so it hands over requests and completes replies as plain data. `backend.rs` is everything decided about a request, over the image and knowing nothing of the ring: answering it, applying each mutation admission lets through, reading horizon copies, and commands; its cases need no device. `admission.rs` is the gate in front of the recording channel and the horizon its recorded mutations discharge: the cut, parked mutations, the copy budget a delta earns and the runs it copies, and the chunks a request's change is recorded as. |
@@ -42,7 +42,7 @@ rest belongs to the daemon and is private. Everything below is `src/`.
 | `recording.rs` | The bounded channel between an accepted mutation and the writer: a Tokio channel, whose room the owner polls through `tokio_util`'s `PollSender`. |
 | `wake.rs` | `Waker`: the eventfd which interrupts an owner parked on its ring, and the `std::task::Waker` a refused reservation leaves with the recording channel. |
 | `filesystem.rs` | `mkfs`, `Mount`, and `syncfs`. The only file which knows it is ext4. |
-| `journal/` | One tenure's journal. `spec.rs` validates it and stores the floor, `fence.rs` claims it, `writer.rs` appends its deltas as `ledger.rs` decides them, `playback.rs` replays it, `replay.rs` holds the rules, `reassembly.rs` turns a read's content into records, `sequencer.rs` decides what each record does to the delta held, and `held.rs` holds that unacknowledged delta. `ledger.rs`, `reassembly.rs` and `sequencer.rs` do no I/O. |
+| `journal/` | One tenure's journal. `spec.rs` validates it and stores the floor, `mod.rs` claims it, `writer.rs` appends its deltas as `ledger.rs` decides them, `playback.rs` replays it, `replay.rs` holds the rules, `reassembly.rs` turns a read's content into records, `sequencer.rs` decides what each record does to the delta held, and `uncommitted.rs` holds that unacknowledged delta. `ledger.rs`, `reassembly.rs` and `sequencer.rs` do no I/O. |
 
 ## Architecture
 
@@ -164,11 +164,12 @@ can join a batch behind it.
 | --- | --- |
 | Before the client commits the acknowledgement | The delta remains unacknowledged and is discarded. |
 | After that commit, before the acknowledgement reaches Gazette | The client supplies the saved bytes at promotion, which appends them verbatim. |
-| After the append lands, before its confirmation reaches the client | The client supplies the same bytes; replay de-duplicates by UUID. |
+| After the append lands, before its confirmation reaches the client | The client supplies the same bytes. The journal already committed them, so promotion appends nothing for them, and any records of the next delta the writer had appended are dropped as unacknowledged. |
 
 Recovered acknowledgements must accompany the next promotion, before that tenure
 starts writing new deltas. This also lets one coordinator commit several disks by
-storing their acknowledgements in one decision.
+storing their acknowledgements in one decision. Each acknowledgement names its
+disk's journal, and a promotion refuses one handed to any other.
 
 ## Serving the local disk
 
@@ -290,22 +291,28 @@ Age-based retention and fragment path postfix templates are refused because dele
 must follow the disk's recovery floor. The recovery-floor label is the one field the
 daemon writes.
 
-Resolving a journal lists it and then probes it, which resumes one Gazette has
-suspended. A recovery needs that resumption; of a disk nobody writes it costs a
-journal that idles back to sleep. Playback of an empty journal reports ready and
-parks until promotion, which resolves the journal again in case another tenure has
-written it. Broker auto-suspension lets idle journals relinquish their replicas.
+`Open` lists the journal and then confirms its head with a zero-byte append: a
+write barrier, as a Gazette recovery log's player issues before it backfills. Like
+any append, it resumes a journal Gazette has suspended; of a disk nobody writes,
+that costs a journal that idles back to sleep. Playback of an empty journal reports
+ready and parks until promotion rather than tailing, because auto-suspension fully
+suspends a journal with no fragments and a fully suspended journal refuses reads.
+Promotion lists the journal again and reads through its own fence, in case another
+tenure has written it. Broker auto-suspension lets idle journals relinquish their
+replicas.
 
 ### Fencing and records
 
-A tenure claims a journal by appending a fence record while atomically replacing
-its `author` register with a fresh tenure epoch. Every subsequent append checks
-that epoch, so a tenure claims at `Promote` and before it serves anything — whether
-or not the journal holds content, because a fresh disk's own format is a delta like
-any other. The prior author is read at claim time, since a standby may have
-opened before several intervening writers. A tenure claims once; losing its
-fence is terminal, with no path to reclaim it. An ambiguous fence append is
-resolved by probing for the same epoch.
+A tenure claims a journal by appending a fence record which unions a fresh tenure
+epoch into its `author` register, replacing any prior author. Every subsequent
+append checks that epoch, so a tenure claims at `Promote` and before it serves
+anything — whether or not the journal holds content, because a fresh disk's own
+format is a delta like any other. The fence itself checks nothing, as with a
+Gazette recovery log's handoff: it fences out earlier writers, and choosing which
+tenure to promote is the client's, as shard assignment is for a recovery log. A
+tenure claims once; losing its fence is terminal, with no path to reclaim it. A
+fence append which fails fails the tenure, and one which landed anyway installs an
+epoch nobody uses until the next fence replaces it.
 
 The epoch is also the producer of the tenure's delta records. Each fence uses a
 separate producer and installs the epoch without changing disk content. Disk
@@ -315,8 +322,13 @@ commit a delta.
 
 Records are appended through the journal appender `runtime-next` publishes
 collection documents with, sharing its batching, chunking, retries and routing.
-The claim is the writer's own low-level append, because it alone checks the
-prior author; every record behind it checks the epoch that claim installed.
+The claim goes through it too. Like Go's `AppendService.StartAppend`, the
+appender takes the request its writes go out under, and never puts writes under
+differing requests in one RPC. A recovery log's recorder fences this way, and so
+does a tenure: its fence is written under a request that unions its epoch into
+the `author` register and checks nothing, and every record behind it under one
+that checks for that epoch. The fence is alone in its append, so the head its
+flush confirms is the one promotion reads through.
 
 Journal offsets come from the broker's append confirmation, because a retry
 after a lost reply may duplicate content which already landed. A horizon's
@@ -354,22 +366,35 @@ normal while a primary is writing, so optimistic replay followed by a cleanup
 pass would defeat much of a standby's benefit. Both immediate opens and standbys
 use the buffered playback path.
 
-On `Promote`, the tenure resolves the journal's current head and author. It fences
-immediately, bounding what the old writer can still append even while playback
-catches up. It then stops playback, appends recovered acknowledgements, obtains a
-broker-confirmed head, and continues replay through that head with the same
-sequencing state. Any delta still unacknowledged is discarded before the image is
-mounted.
+On `Promote`, the tenure lists the journal again and fences immediately, bounding
+what the old writer can still append even while playback catches up. The fence's
+commit is the head replay must reach. The tenure then stops playback, continues
+replay through that head with the same sequencing state, and appends and reads back
+any recovered acknowledgement which commits the delta replay holds. Any delta still
+unacknowledged is discarded before the image is mounted. A Gazette recovery log's
+player instead injects its handoff at the head it has read to, because that no-op
+must chain onto the log as read; a disk fence chains onto nothing, so it can come
+first.
 
 A journal holding nothing but fences, or only orphan records from a failed first
 use, produces a fresh filesystem. Supplying a recovered acknowledgement for missing
 data instead fails: the acknowledgement proves the broker confirmed a prepared
-delta, so a replay that applies nothing cannot be treated as a new disk.
+delta, so a replay that applies nothing cannot be treated as a new disk. A journal
+whose recovery-floor label is present fails the same way, because the writer
+stores that label once a delta of the disk first commits.
+
+A recovered acknowledgement the journal already committed is not appended again:
+it is at or below its writer's last commit, or its writer's records all lie below
+the floor. One which commits the delta replay holds is appended, and any other is
+refused.
 
 `Opened` is sent once and is not retracted if a standby later falls behind.
-If pruning removes fragments a tail still needs, playback discards its image and
-restarts from the current floor. Skipping the gap would leave stale blocks whose
-discard records were deleted. Repeated gaps eventually fail the tenure.
+Only a replay's first read may begin past where it asked, because what the store
+no longer holds below the real floor is history that floor covers. If pruning
+removes fragments a replay still needs anywhere else, playback discards its image
+and restarts from the current floor, and a promotion fails. Skipping the gap would
+leave stale blocks whose discard records were deleted. Repeated gaps eventually
+fail the tenure.
 Fragment pruning should leave an age margin below the floor so standbys have time
 to finish backfill.
 
@@ -422,13 +447,31 @@ mutations admitted for the next delta.
 
 The daemon stores the floor as a journal label. It belongs with the journal so
 recovery and fragment pruning can find it without the transaction client carrying
-compaction state. Flow preserves it when converging journal specifications.
+compaction state. Whoever converges a disk journal's specification must carry the
+label over. Flow's activation does, because `labels::is_data_plane_label` (and
+Go's `labels.IsRuntimeLabel`) list it, much as a Gazette shard's recovery hints
+live outside the specs that convergence rewrites. A dropped label would cost more
+than replay work: it is also the evidence that the disk has committed state.
+
+The label also records that the disk has committed state. Once a delta first
+commits, the writer stores it, at zero if no horizon has completed. A promotion
+which finds the label present but replays no committed state refuses rather than
+format the disk, as a Gazette shard refuses a recovery log which lacks what its
+hints name.
 
 The label advances monotonically after a horizon commits. Updating it is
 best-effort: a stale or missing floor costs replay work, and recovery can derive
-and store a floor whose writer died before updating the label. A floor above the
-journal head is ignored. The floor is used as a seek position, never as a filter
-that might remove records from within a delta.
+and store a floor whose writer died before updating the label. The floor is used as
+a seek position, never as a filter that might remove records from within a delta.
+
+A label proves records at or above its floor committed, so an intact journal's head
+is always past it. A floor at or above the head is refused at `Open` and again at
+the claim, as a Gazette player refuses hints past its write head as possible data
+loss. The daemon cannot tell a head that regressed, as a reset after brokers lost an
+unpersisted tail leaves it, from a label that is not this journal's. An operator
+who knows the label is wrong may correct it only if no fragments below it were
+deleted, because a pruner trusts that floor; otherwise the disk's committed state
+is lost.
 
 The daemon does not delete fragments. The client or an external pruner removes
 fragments wholly below the floor, with the standby margin described above.

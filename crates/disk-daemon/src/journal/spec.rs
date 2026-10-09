@@ -6,44 +6,92 @@
 //! a disk which can never prepare a delta. The recovery floor is the one field it
 //! writes: it is the daemon's own state about a disk rather than the spec owner's.
 
-use super::{fence, until_ended};
+use super::until_ended;
 use crate::failure;
 use anyhow::Context;
 use proto_gazette::broker;
 
-/// What a journal holds at the moment it is asked.
+/// What a journal holds as a tenure opens it.
 #[derive(Debug)]
 pub(super) struct Resolved {
-    /// Value of the `author` register, which a claim must replace. Absent while no
-    /// writer holds the journal.
-    pub(super) prior: Option<String>,
     /// Write head. Zero is a journal with no content at all.
     pub(super) head: i64,
     /// Recovery floor a replay of this journal seeks from.
     pub(super) floor: i64,
+    /// See [`Listed::marked`].
+    pub(super) marked: bool,
 }
 
-/// Resolve what `journal` holds now, refusing a journal which does not exist and a
-/// live spec a disk could not be recovered from.
-///
-/// The journal is listed before it is probed, because the listing is where the
-/// daemon checks both of those. A journal nothing has created is what the tenure
-/// asked for rather than a fresh disk: the daemon creates none, so no retry of this
-/// `Open` could ever find one.
-///
-/// The probe resumes a journal Gazette suspended, and answers with the authority on
-/// that journal's own head and author, however stale the listing already is. A
-/// resumption is what a recovery needs anyway, and of a disk nobody writes it costs
-/// a journal which idles back to sleep.
-///
-/// This runs twice for one tenure: at `Open`, and again at the claim. Nothing it
-/// reports may be carried from the first to the second, because a standby holds a
-/// disk across other tenures' fences and other tenures' deltas.
+/// What a journal's listing says of it.
+#[derive(Debug)]
+pub(super) struct Listed {
+    /// Recovery floor a replay of this journal seeks from.
+    pub(super) floor: i64,
+    /// Whether the journal carries a recovery-floor label. The writer stores one once
+    /// a delta of the disk first commits, so a journal which carries one has committed
+    /// state, whatever its fragments still hold.
+    pub(super) marked: bool,
+}
+
+/// Resolve what `journal` holds as a tenure opens it: [`list`] it, then confirm its
+/// head with a [`barrier`], and [`check_floor`] the one against the other.
 pub(super) async fn resolve(
     client: &gazette::journal::Client,
     journal: &str,
     ended: &tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<Resolved> {
+    let listed = list(client, journal, ended).await?;
+    let head = until_ended(ended, "confirming the head", barrier(client, journal)).await?;
+    () = check_floor(journal, &listed, head)?;
+
+    Ok(Resolved {
+        head,
+        floor: listed.floor,
+        marked: listed.marked,
+    })
+}
+
+/// Refuse a journal whose recovery-floor label is at or above its `head`, which
+/// must be read after `listed` was.
+///
+/// A label proves that records at or above its floor committed. The first commit
+/// stores a floor of zero after it lands, and a horizon's floor is the offset of the
+/// record which opened it, which the acknowledgement completing it follows. So an
+/// intact journal always holds a head past its floor, and the read order makes that
+/// hold of a head read later too, because a floor stored in between is below it. A
+/// head at or below the floor is committed state lost, as a recovery log's player
+/// refuses hints which name offsets past its write head as possible data loss.
+///
+/// The daemon cannot tell why. Either the journal's head regressed, as a reset after
+/// its brokers lost a tail they never persisted leaves it, or the label is not this
+/// journal's. It cannot repair either: a lower floor would serve a disk behind its
+/// client's checkpoint as though it were whole.
+pub(super) fn check_floor(journal: &str, listed: &Listed, head: i64) -> anyhow::Result<()> {
+    failure::ensure_valid!(
+        !listed.marked || listed.floor < head,
+        "journal {journal}'s recovery-floor label is {} but its head is {head}, so \
+         records it committed at or above its floor are gone: its head regressed, or \
+         the label is not this journal's",
+        listed.floor,
+    );
+    Ok(())
+}
+
+/// List `journal`, refusing a journal which does not exist and a live spec a disk
+/// could not be recovered from.
+///
+/// A journal nothing has created is what the tenure asked for rather than a fresh
+/// disk: the daemon creates none, so no retry of this `Open` could ever find one.
+///
+/// A tenure lists at `Open` and again at its claim, and nothing of the first is
+/// carried to the second. A standby holds a disk across other tenures' deltas, and
+/// one which parked over an empty journal read none of them: only the claim's
+/// listing sees the floor label another tenure's first commit stored.
+pub(super) async fn list(
+    client: &gazette::journal::Client,
+    journal: &str,
+    ended: &tokio_util::sync::CancellationToken,
+) -> anyhow::Result<Listed> {
     let listing = until_ended(ended, "listing", async {
         client
             .get_journal(journal)
@@ -63,13 +111,52 @@ pub(super) async fn resolve(
     };
     let floor = listed_floor(listing)?;
 
-    let probe = until_ended(ended, "probing", fence::probe(client, journal)).await?;
-
-    Ok(Resolved {
-        prior: probe.author,
-        head: probe.head,
-        floor,
+    Ok(Listed {
+        floor: floor.unwrap_or_default(),
+        marked: floor.is_some(),
     })
+}
+
+/// Confirm `journal`'s write head with a zero-byte append, which Gazette calls a write
+/// barrier. Only an append which carries content may change a journal's content or
+/// registers, so this changes neither.
+///
+/// It is how a recovery log's player learns the head it backfills to, standby or
+/// not. The head is transactional: it is ordered after every append committed before
+/// it. And the append resumes a journal
+/// Gazette suspended, as any append does. Of a disk nobody writes, that costs a
+/// journal which idles back to sleep.
+///
+/// A journal which is absent here was deleted after the tenure listed it, which is a
+/// failure.
+async fn barrier(client: &gazette::journal::Client, journal: &str) -> anyhow::Result<i64> {
+    let request = broker::AppendRequest {
+        journal: journal.to_string(),
+        suspend: broker::append_request::Suspend::Resume as i32,
+        ..Default::default()
+    };
+    let mut stream = std::pin::pin!(client.append(request, futures::stream::empty));
+
+    loop {
+        match futures::StreamExt::next(&mut stream).await {
+            Some(Ok(response)) => {
+                let commit = response
+                    .commit
+                    .expect("an append which succeeded reports its commit");
+                return Ok(commit.end);
+            }
+            // Polling again pays the stream's backoff and restarts route discovery.
+            Some(Err(gazette::RetryError { attempt, inner })) if inner.is_transient() => {
+                tracing::warn!(journal, attempt, %inner, "write barrier failed (will retry)");
+            }
+            Some(Err(gazette::RetryError { inner, .. })) => {
+                return Err(
+                    anyhow::Error::new(inner).context(format!("confirming the head of {journal}"))
+                );
+            }
+            None => unreachable!("an append stream does not end without a response"),
+        }
+    }
 }
 
 /// Recovery floor `journal` carries now.
@@ -92,7 +179,7 @@ pub(super) async fn current_floor(
     let Some(listing) = listing else {
         anyhow::bail!("journal {journal} no longer exists");
     };
-    listed_floor(listing)
+    Ok(listed_floor(listing)?.unwrap_or_default())
 }
 
 /// Advance `journal`'s recovery-floor label to `floor`.
@@ -156,10 +243,10 @@ pub(super) async fn advance_floor(
 /// property of a disk it merely serves. The recovery floor is the exception, and it
 /// is the daemon's own state rather than that owner's: see [`advance_floor`].
 ///
-/// The floor is the [`crate::DISK_RECOVERY_FLOOR`] label's, and zero when the
+/// The floor is the [`crate::DISK_RECOVERY_FLOOR`] label's, and `None` when the
 /// journal carries none. A label which does not parse is treated as absent, because
 /// a floor is only ever a seek.
-fn listed_floor(listing: broker::list_response::Journal) -> anyhow::Result<i64> {
+fn listed_floor(listing: broker::list_response::Journal) -> anyhow::Result<Option<i64>> {
     let spec = listing.spec.expect("a listed journal has a spec");
     () = validate_recoverable(&spec)?;
 
@@ -168,7 +255,7 @@ fn listed_floor(listing: broker::list_response::Journal) -> anyhow::Result<i64> 
         .as_ref()
         .and_then(|set| labels::maybe_one(set, crate::DISK_RECOVERY_FLOOR).ok())
         .and_then(|value| crate::parse_recovery_floor(value).ok())
-        .unwrap_or_default() as i64)
+        .map(|floor| floor as i64))
 }
 
 /// Refuse a spec a disk could not be recovered from.
@@ -273,7 +360,7 @@ fn floor_change(
 
 #[cfg(test)]
 mod test {
-    use super::{floor_change, listed_floor};
+    use super::{Listed, check_floor, floor_change, listed_floor};
     use proto_gazette::broker;
 
     const JOURNAL: &str = "acmeCo/disk/one";
@@ -322,7 +409,7 @@ mod test {
                 flags,
                 ..recoverable()
             };
-            assert_eq!(listed_floor(listing(spec)).unwrap(), 0);
+            assert_eq!(listed_floor(listing(spec)).unwrap(), None);
         }
     }
 
@@ -420,11 +507,11 @@ mod test {
     #[test]
     fn test_the_recovery_floor_is_read_from_a_label() {
         for (value, expect) in [
-            (None, 0),
-            (Some("0000000000000000"), 0),
-            (Some("00000000000186a0"), 100_000),
-            (Some("ffffffffffffffff"), u64::MAX as i64),
-            (Some("not-hex"), 0),
+            (None, None),
+            (Some("0000000000000000"), Some(0)),
+            (Some("00000000000186a0"), Some(100_000)),
+            (Some("ffffffffffffffff"), Some(u64::MAX as i64)),
+            (Some("not-hex"), None),
         ] {
             let mut spec = recoverable();
 
@@ -437,6 +524,34 @@ mod test {
             }
             assert_eq!(listed_floor(listing(spec)).unwrap(), expect, "{value:?}");
         }
+    }
+
+    /// A marked journal's head is always past its floor, so one at or below it is
+    /// refused. An unmarked journal's floor is no claim at all, even at an empty head.
+    #[test]
+    fn test_a_floor_at_or_above_the_head_is_refused() {
+        let mut out = Vec::new();
+
+        for (marked, floor, head) in [
+            (false, 0, 0),
+            (true, 0, 0),
+            (true, 100, 100),
+            (true, 100, 101),
+        ] {
+            let outcome = match check_floor("acmeCo/disk/one", &Listed { floor, marked }, head) {
+                Ok(()) => "accepted",
+                Err(_) => "refused",
+            };
+            out.push(format!(
+                "marked {marked:<5} floor {floor:<3} head {head:<3} {outcome}"
+            ));
+        }
+        insta::assert_snapshot!(out.join("\n"), @"
+        marked false floor 0   head 0   accepted
+        marked true  floor 0   head 0   refused
+        marked true  floor 100 head 100 refused
+        marked true  floor 100 head 101 accepted
+        ");
     }
 
     /// The floor label only ever advances: a change sets it where the journal holds no

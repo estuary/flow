@@ -8,6 +8,7 @@ use proto_gazette::broker::{Label, LabelSelector, LabelSet};
 pub const BUILD: &str = "estuary.dev/build";
 pub const COLLECTION: &str = "estuary.dev/collection";
 pub const CORDON: &str = "estuary.dev/cordon";
+pub const DISK_RECOVERY_FLOOR: &str = "estuary.dev/disk-recovery-floor";
 pub const FIELD_PREFIX: &str = "estuary.dev/field/";
 pub const FLAG_PREFIX: &str = "estuary.dev/flag/";
 // Flag which enables the V2 task runtime.
@@ -193,11 +194,11 @@ pub fn is_data_plane_label(label: &str) -> bool {
     }
     match label {
         // Labels the data-plane runtime applies to live journals/shards — key,
-        // r-clock, and shard splits, cordoning, and the backfill truncation
-        // boundary — which activation and partition splits must preserve rather
-        // than rebuild away.
-        CORDON | KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END | SPLIT_SOURCE | SPLIT_TARGET
-        | TRUNCATED_AT => true,
+        // r-clock, and shard splits, cordoning, the backfill truncation boundary,
+        // and a disk journal's recovery floor — which activation and partition
+        // splits must preserve rather than rebuild away.
+        CORDON | DISK_RECOVERY_FLOOR | KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END
+        | SPLIT_SOURCE | SPLIT_TARGET | TRUNCATED_AT => true,
         _ => false,
     }
 }

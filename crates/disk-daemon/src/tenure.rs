@@ -79,7 +79,7 @@ impl proto_grpc::disk::disk_server::Disk for Service {
         // The tenure owns its disk, so it outlives this call and tears the disk
         // down as it ends. A client which drops the stream both ends `requests`
         // and closes `responses`. Either of those ends the tenure.
-        let tenure = Tenure {
+        let task = Task {
             daemon,
             control,
             peer,
@@ -87,7 +87,7 @@ impl proto_grpc::disk::disk_server::Disk for Service {
             ended,
             state: State::Fresh,
         };
-        tokio::spawn(tenure.run(request.into_inner(), responses));
+        tokio::spawn(task.run(request.into_inner(), responses));
 
         Ok(tonic::Response::new(
             tokio_stream::wrappers::ReceiverStream::new(stream),
@@ -95,7 +95,7 @@ impl proto_grpc::disk::disk_server::Disk for Service {
     }
 }
 
-struct Tenure {
+struct Task {
     daemon: std::sync::Arc<crate::daemon::Config>,
     control: std::sync::Arc<Control>,
     /// User and group of the client, from the peer credential of its stream. They
@@ -117,15 +117,15 @@ enum State {
     /// The journal is accepted and its replay runs. The disk is not served, and this
     /// tenure has not claimed the journal. `Promote` moves it on.
     ///
-    /// Boxed because an `Opening` carries a whole journal writer's state, which is
-    /// several times the size of a `Serving`.
-    Standing(Box<Standing>),
-    Serving(Serving),
+    /// Boxed because a `journal::Standby` carries a whole journal writer's state,
+    /// which is several times the size of a `Serving`.
+    Standby(Box<Standby>),
+    Promoted(Serving),
 }
 
 /// A tenure whose replay runs, before it is promoted.
-struct Standing {
-    opening: journal::Opening,
+struct Standby {
+    journal: journal::Standby,
     playback: journal::playback::Playback,
     /// Set once `Opened` has been sent, which happens exactly once.
     ///
@@ -147,7 +147,7 @@ enum Event {
     CaughtUp,
 }
 
-impl Tenure {
+impl Task {
     async fn run(
         mut self,
         mut requests: tonic::Streaming<proto::Request>,
@@ -158,7 +158,7 @@ impl Tenure {
         // "The tenure is over" now means one thing, whatever state it ended in. A
         // tenure which was still standing by has nothing to tear down, and its
         // playback would otherwise go on tailing the journal — holding the image and
-        // the held delta open — until the daemon itself exits. A serving tenure's
+        // the uncommitted delta open — until the daemon itself exits. A serving tenure's
         // teardown cancels this token anyway, through `Writer::abandon`.
         () = self.ended.cancel();
 
@@ -166,7 +166,7 @@ impl Tenure {
         // reported, so that a client which sees its tenure end sees a disk
         // which is already gone. It is also how a draining daemon waits for its
         // tenures. This stream stays open until its disk is destroyed.
-        if let State::Serving(serving) = std::mem::replace(&mut self.state, State::Fresh) {
+        if let State::Promoted(serving) = std::mem::replace(&mut self.state, State::Fresh) {
             () = serving.teardown().await;
         }
 
@@ -199,10 +199,10 @@ impl Tenure {
                 Event::Request(None) => return Ok(()), // The client closed its half.
                 Event::Request(Some(request)) => self.request(*request).await?,
                 Event::CaughtUp => {
-                    let State::Standing(standing) = &mut self.state else {
-                        panic!("only a standing tenure waits on its playback");
+                    let State::Standby(standby) = &mut self.state else {
+                        panic!("only a standby tenure waits on its playback");
                     };
-                    standing.opened = true;
+                    standby.opened = true;
 
                     vec![reply(proto::response::Response::Opened(proto::Opened {}))]
                 }
@@ -216,7 +216,7 @@ impl Tenure {
 
     /// Wait for whatever this tenure must act on next.
     ///
-    /// A standing tenure waits on its playback as well as on its client. That is
+    /// A standby tenure waits on its playback as well as on its client. That is
     /// what lets `Opened` arrive without a client having asked for it, and it is also
     /// how a tenure which stands by learns that its playback died.
     ///
@@ -231,7 +231,7 @@ impl Tenure {
         let ended = self.ended.clone();
 
         let playback = match &mut self.state {
-            State::Standing(standing) => Some(&mut standing.playback),
+            State::Standby(standby) => Some(&mut standby.playback),
             _ => None,
         };
         let caught_up = async {
@@ -266,8 +266,8 @@ impl Tenure {
                         "a tenure opens exactly one disk",
                     ));
                 }
-                let standing = self.open(open).await.map_err(failure::status)?;
-                self.state = State::Standing(Box::new(standing));
+                let standby = self.open(open).await.map_err(failure::status)?;
+                self.state = State::Standby(Box::new(standby));
 
                 // `Opened` follows when the replay has read the journal's history.
                 Vec::new()
@@ -276,7 +276,7 @@ impl Tenure {
                 // The state is checked before it is taken. Replacing a `Serving` here
                 // would drop its disk out of order, ahead of the teardown which
                 // unmounts it.
-                if !matches!(self.state, State::Standing(_)) {
+                if !matches!(self.state, State::Standby(_)) {
                     return Err(tonic::Status::failed_precondition(
                         "a tenure promotes a disk which it opened, and exactly once",
                     ));
@@ -285,21 +285,21 @@ impl Tenure {
                 // within it is terminal, no request is read meanwhile, and `run`
                 // cancels `ended` afterwards — so a playback dropped here stops
                 // tailing the journal rather than outliving the tenure.
-                let State::Standing(standing) = std::mem::replace(&mut self.state, State::Fresh)
+                let State::Standby(standby) = std::mem::replace(&mut self.state, State::Fresh)
                 else {
-                    panic!("the state was just found standing");
+                    panic!("the state was just found to be a standby");
                 };
-                let Standing {
-                    opening,
+                let Standby {
+                    journal,
                     mut playback,
                     opened,
-                } = *standing;
+                } = *standby;
 
                 // The claim comes now, and not when the replay is current. A client
                 // which pipelines this behind its `Open` is asking for the disk at
                 // once, and the claim bounds what is left to read, per
-                // `Opening::claim_journal`.
-                let claimed = opening.claim_journal().await.map_err(failure::status)?;
+                // `Standby::claim_journal`.
+                let claimed = journal.claim_journal().await.map_err(failure::status)?;
 
                 let mut replies = Vec::new();
 
@@ -327,7 +327,7 @@ impl Tenure {
                 let promoted = proto::Promoted {
                     mount_path: serving.mount.path().display().to_string(),
                 };
-                self.state = State::Serving(serving);
+                self.state = State::Promoted(serving);
                 replies.push(reply(Response::Promoted(promoted)));
 
                 replies
@@ -361,7 +361,7 @@ impl Tenure {
     /// names one nothing created is refused here. Its live specification is checked
     /// before a device exists, because a specification a disk could not be recovered
     /// from is a disk which can never prepare a delta.
-    async fn open(&mut self, open: proto::Open) -> anyhow::Result<Standing> {
+    async fn open(&mut self, open: proto::Open) -> anyhow::Result<Standby> {
         let proto::Open {
             journal,
             device_size,
@@ -372,18 +372,23 @@ impl Tenure {
         let blocks = blocks(device_size)?;
         self.journal = journal.clone();
 
-        let mut opening =
-            journal::Opening::new(&self.daemon.client, journal, self.ended.clone()).await?;
+        let standby =
+            journal::Standby::new(&self.daemon.client, journal, self.ended.clone()).await?;
 
         let image = Image::create(&self.daemon.image_dir, blocks)
             .with_context(|| format!("creating an image in {:?}", self.daemon.image_dir))?;
 
-        let held = journal::held::HeldDelta::create(&self.daemon.image_dir)
-            .with_context(|| format!("creating a held delta in {:?}", self.daemon.image_dir))?;
-        let playback = opening.play(image, held);
+        let uncommitted = journal::uncommitted::UncommittedDelta::create(&self.daemon.image_dir)
+            .with_context(|| {
+                format!(
+                    "creating an uncommitted delta in {:?}",
+                    self.daemon.image_dir
+                )
+            })?;
+        let playback = standby.play(image, uncommitted);
 
-        Ok(Standing {
-            opening,
+        Ok(Standby {
+            journal: standby,
             playback,
             opened: false,
         })
@@ -391,8 +396,8 @@ impl Tenure {
 
     fn serving(&mut self) -> tonic::Result<&mut Serving> {
         match &mut self.state {
-            State::Serving(serving) => Ok(serving),
-            State::Standing(_) => Err(tonic::Status::failed_precondition(
+            State::Promoted(serving) => Ok(serving),
+            State::Standby(_) => Err(tonic::Status::failed_precondition(
                 "this tenure has not promoted the disk it opened, so it is not its writer",
             )),
             State::Fresh => Err(tonic::Status::failed_precondition(

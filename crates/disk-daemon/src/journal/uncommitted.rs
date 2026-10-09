@@ -1,5 +1,8 @@
 //! Records of the delta which the journal holds but has not acknowledged.
 //!
+//! Gazette's message sequencer calls such records read-uncommitted: it queues them
+//! until their producer's acknowledgement commits them, or a rollback drops them.
+//!
 //! A replay cannot apply a delta before its acknowledgement, for the reasons the
 //! [`super::replay`] module gives. It holds that delta's records here instead, in a
 //! file beside the image. Records go in as they arrive, framed exactly as the
@@ -21,7 +24,7 @@
 use anyhow::Context;
 use proto_gazette::fixed_framing;
 
-/// Size of the blocks a held delta is read back in. A delta has no size bound of
+/// Size of the blocks an uncommitted delta is read back in. A delta has no size bound of
 /// its own — it is whatever the primary wrote between two acknowledgements, and may
 /// exceed the disk it belongs to — so it is read back in blocks rather than read
 /// whole. A record larger than the buffer is read whole anyway,
@@ -30,7 +33,7 @@ use proto_gazette::fixed_framing;
 const READ_BYTES: usize = 64 << 10;
 
 /// The unacknowledged delta of one replay.
-pub struct HeldDelta {
+pub struct UncommittedDelta {
     file: std::fs::File,
     /// Bytes held, which is also the offset the next record is written at. The file
     /// is written strictly forward and punched back to zero whenever a delta leaves,
@@ -39,8 +42,8 @@ pub struct HeldDelta {
     records: usize,
 }
 
-impl HeldDelta {
-    /// Create the file of a held delta within `dir`, which is the daemon's image
+impl UncommittedDelta {
+    /// Create the file of an uncommitted delta within `dir`, which is the daemon's image
     /// directory.
     pub fn create(dir: &std::path::Path) -> std::io::Result<Self> {
         let mut options = std::fs::OpenOptions::new();
@@ -75,7 +78,7 @@ impl HeldDelta {
         Ok(())
     }
 
-    /// Hand every held record to `each`, in the order it was held, and then drop
+    /// Hand every uncommitted record to `each`, in the order it was held, and then drop
     /// them all.
     ///
     /// The records are read back in blocks and decoded one at a time, so this uses
@@ -87,7 +90,7 @@ impl HeldDelta {
         // Records are held with positional writes, which never move the cursor, so
         // it is still wherever the tenure's last drain left it.
         () = std::io::Seek::rewind(&mut &self.file)
-            .context("seeking to the start of a held delta")?;
+            .context("seeking to the start of an uncommitted delta")?;
 
         // The file outlives the delta it holds, because `clear` punches it rather
         // than truncating it, so the read stops at this delta's own end.
@@ -105,7 +108,7 @@ impl HeldDelta {
                     // one is corruption of the file, and not a stream which a reader
                     // joined between frames and can resynchronize with.
                     fixed_framing::Header::Desync { .. } => anyhow::bail!(
-                        "a held delta does not decode: a record begins {:02x?}",
+                        "an uncommitted delta does not decode: a record begins {:02x?}",
                         &buf[..fixed_framing::MAGIC.len()],
                     ),
                     fixed_framing::Header::Incomplete => fixed_framing::HEADER_LEN,
@@ -118,7 +121,7 @@ impl HeldDelta {
                         let framed = fixed_framing::HEADER_LEN + payload;
                         anyhow::ensure!(
                             payload as u64 <= held,
-                            "a held record frames {framed} bytes, which is {} more than \
+                            "an uncommitted record frames {framed} bytes, which is {} more than \
                              the delta holds",
                             framed as u64 - held,
                         );
@@ -127,14 +130,14 @@ impl HeldDelta {
                 };
                 if buf.len() >= framed {
                     match fixed_framing::unpack::<crate::proto::DiskRecord>(&mut buf)
-                        .context("decoding a held record")?
+                        .context("decoding an uncommitted record")?
                     {
                         fixed_framing::Frame::Record { message, .. } => break message,
                         // The magic word and the whole payload were both checked above.
                         other => panic!("a checked frame unpacked as {other:?}"),
                     }
                 }
-                anyhow::ensure!(unread != 0, "a held delta ends within a record");
+                anyhow::ensure!(unread != 0, "an uncommitted delta ends within a record");
 
                 // A block, or the rest of the record where that is longer.
                 let len = buf.len();
@@ -148,14 +151,14 @@ impl HeldDelta {
         let trailing = buf.len() as u64 + unread;
         anyhow::ensure!(
             trailing == 0,
-            "a held delta ends within a record, with {trailing} trailing bytes which frame none",
+            "an uncommitted delta ends within a record, with {trailing} trailing bytes which frame none",
         );
         () = self.clear()?;
 
         Ok(())
     }
 
-    /// Drop every held record. The image is untouched, because nothing of them was
+    /// Drop every uncommitted record. The image is untouched, because nothing of them was
     /// applied.
     pub(super) fn clear(&mut self) -> std::io::Result<()> {
         if self.len != 0 {
@@ -168,22 +171,22 @@ impl HeldDelta {
     }
 }
 
-/// Fill `buf` from `reader`, which reads the held delta and stops at its end.
+/// Fill `buf` from `reader`, which reads the uncommitted delta and stops at its end.
 ///
 /// The delta was framed as it was held, so every frame it holds must be whole. An
 /// end within one is a file which holds less than it counted records for.
 fn read_framed(reader: &mut impl std::io::Read, buf: &mut [u8]) -> anyhow::Result<()> {
     match std::io::Read::read_exact(reader, buf) {
         Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
-            anyhow::bail!("a held delta ends within a record")
+            anyhow::bail!("an uncommitted delta ends within a record")
         }
-        result => result.context("reading back a held delta"),
+        result => result.context("reading back an uncommitted delta"),
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::{HeldDelta, READ_BYTES};
+    use super::{READ_BYTES, UncommittedDelta};
     use crate::proto;
     use crate::{BLOCK_SIZE, chunk};
     use proto_gazette::{fixed_framing, uuid};
@@ -204,6 +207,7 @@ mod test {
             chunks,
             opens_horizon: false,
             installs_epoch: bytes::Bytes::new(),
+            journal: String::new(),
         }
     }
 
@@ -230,22 +234,22 @@ mod test {
     }
 
     /// Hold `records`, framed exactly as the journal frames them.
-    fn hold(held: &mut HeldDelta, records: &[proto::DiskRecord]) {
+    fn hold(uncommitted: &mut UncommittedDelta, records: &[proto::DiskRecord]) {
         let mut framed = bytes::BytesMut::new();
 
         for record in records {
             framed.clear();
             fixed_framing::encode(record, &mut framed);
-            held.push(&framed).unwrap();
+            uncommitted.push(&framed).unwrap();
         }
     }
 
     /// Drain `held`, collecting what it hands back and the failure, if any, which
     /// stopped it.
-    fn drained(held: &mut HeldDelta) -> (Vec<proto::DiskRecord>, anyhow::Result<()>) {
+    fn drained(uncommitted: &mut UncommittedDelta) -> (Vec<proto::DiskRecord>, anyhow::Result<()>) {
         let mut records = Vec::new();
 
-        let result = held.drain(|record| {
+        let result = uncommitted.drain(|record| {
             records.push(record);
             Ok(())
         });
@@ -257,23 +261,23 @@ mod test {
     #[test]
     fn test_a_many_record_delta_reads_back_in_order() {
         let dir = tempfile::tempdir().unwrap();
-        let mut held = HeldDelta::create(dir.path()).unwrap();
+        let mut uncommitted = UncommittedDelta::create(dir.path()).unwrap();
         let a = producer(0x10);
 
         let records: Vec<_> = (0..600u32).map(|i| write(a, i % 8, 1, i as u8)).collect();
 
-        hold(&mut held, &records);
+        hold(&mut uncommitted, &records);
         assert!(
-            held.len() > 8 * READ_BYTES as u64,
+            uncommitted.len() > 8 * READ_BYTES as u64,
             "many held fills of delta"
         );
 
-        let (read, result) = drained(&mut held);
+        let (read, result) = drained(&mut uncommitted);
         () = result.unwrap();
 
         assert!(read == records, "the delta read back differently");
-        assert!(held.is_empty());
-        assert_eq!(held.len(), 0);
+        assert!(uncommitted.is_empty());
+        assert_eq!(uncommitted.len(), 0);
     }
 
     /// A record may be larger than the buffer it is read through, and is then read
@@ -282,7 +286,7 @@ mod test {
     #[test]
     fn test_a_record_larger_than_the_read_buffer() {
         let dir = tempfile::tempdir().unwrap();
-        let mut held = HeldDelta::create(dir.path()).unwrap();
+        let mut uncommitted = UncommittedDelta::create(dir.path()).unwrap();
         let a = producer(0x10);
 
         let blocks = 2 + READ_BYTES as u32 / BLOCK_SIZE;
@@ -292,9 +296,9 @@ mod test {
             write(a, 1 + blocks, 1, 0xcc),
         ];
 
-        hold(&mut held, &records);
+        hold(&mut uncommitted, &records);
 
-        let (read, result) = drained(&mut held);
+        let (read, result) = drained(&mut uncommitted);
         () = result.unwrap();
 
         assert!(read == records, "the delta read back differently");
@@ -311,7 +315,7 @@ mod test {
         let mut split_header = false;
 
         for bytes in READ_BYTES - 72..READ_BYTES + 8 {
-            let mut held = HeldDelta::create(dir.path()).unwrap();
+            let mut uncommitted = UncommittedDelta::create(dir.path()).unwrap();
 
             let first = sized(a, 0, bytes, 0xaa);
             let mut framed = bytes::BytesMut::new();
@@ -321,9 +325,9 @@ mod test {
                 (READ_BYTES - fixed_framing::HEADER_LEN..READ_BYTES).contains(&framed.len());
 
             let records = [first, write(a, 40, 1, 0xbb), write(a, 41, 1, 0xcc)];
-            hold(&mut held, &records);
+            hold(&mut uncommitted, &records);
 
-            let (read, result) = drained(&mut held);
+            let (read, result) = drained(&mut uncommitted);
             () = result.unwrap();
 
             assert!(read == records, "with {bytes} bytes of data");
@@ -336,23 +340,26 @@ mod test {
     #[test]
     fn test_a_drained_file_holds_the_next_delta() {
         let dir = tempfile::tempdir().unwrap();
-        let mut held = HeldDelta::create(dir.path()).unwrap();
+        let mut uncommitted = UncommittedDelta::create(dir.path()).unwrap();
         let a = producer(0x10);
 
-        hold(&mut held, &[write(a, 0, 2, 0xaa), write(a, 1, 1, 0xbb)]);
-        let prior_len = held.len();
+        hold(
+            &mut uncommitted,
+            &[write(a, 0, 2, 0xaa), write(a, 1, 1, 0xbb)],
+        );
+        let prior_len = uncommitted.len();
 
-        let (read, result) = drained(&mut held);
+        let (read, result) = drained(&mut uncommitted);
         () = result.unwrap();
         assert_eq!(read.len(), 2);
-        assert_eq!(held.len(), 0);
+        assert_eq!(uncommitted.len(), 0);
 
         let next = [write(a, 1, 1, 0xcc), write(a, 2, 1, 0xdd)];
-        hold(&mut held, &next);
-        assert!(held.len() < prior_len, "the next delta is shorter");
-        assert_eq!(held.file.metadata().unwrap().len(), prior_len);
+        hold(&mut uncommitted, &next);
+        assert!(uncommitted.len() < prior_len, "the next delta is shorter");
+        assert_eq!(uncommitted.file.metadata().unwrap().len(), prior_len);
 
-        let (read, result) = drained(&mut held);
+        let (read, result) = drained(&mut uncommitted);
         () = result.unwrap();
 
         assert!(
@@ -363,12 +370,12 @@ mod test {
 
     /// Hold malformed bytes and report the failure of draining them.
     fn refused(dir: &tempfile::TempDir, parts: &[&[u8]]) -> String {
-        let mut held = HeldDelta::create(dir.path()).unwrap();
+        let mut uncommitted = UncommittedDelta::create(dir.path()).unwrap();
 
         for part in parts {
-            held.push(part).unwrap();
+            uncommitted.push(part).unwrap();
         }
-        let (read, result) = drained(&mut held);
+        let (read, result) = drained(&mut uncommitted);
         assert!(read.is_empty(), "a malformed delta handed back {read:?}");
 
         format!("{:#}", result.unwrap_err())

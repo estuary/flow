@@ -50,12 +50,18 @@ message Opened {}
 // Promote fences the journal, replays through the fenced head, and mounts the
 // filesystem. Losing the fence ends the tenure.
 //
+// The fence displaces whichever tenure holds the journal and checks nothing else.
+// As with a Gazette recovery log, choosing the one tenure of a disk to promote is
+// the client's: two promoted at once may both succeed, the later fence wins, and
+// the earlier tenure fails at its next append.
+//
 // May follow Open without waiting for Opened: the daemon fences when it handles
 // Promote, giving replay a fixed head. Opened still precedes Promoted. Requests
 // queued behind Promote are served once it completes.
 message Promote {
   // Prepared.ack values committed by the client but not confirmed in the
-  // journal. Appended after fencing; replay ignores duplicate UUIDs.
+  // journal. Appended after fencing where the delta they commit is still
+  // unacknowledged. One the journal already committed is not appended again.
   repeated bytes recovered_acks = 1;
 }
 
@@ -113,6 +119,9 @@ message DiskRecord {
   // Producer installed as the writer epoch. Set only on fences, which use
   // compare-and-swap on the journal's `author` register to exclude old writers.
   bytes installs_epoch = 4;
+  // Journal whose delta this record commits. Set only on ACK_TXN records, so that
+  // a promotion refuses a recovered acknowledgement of some other disk.
+  string journal = 5;
 }
 
 // Chunk updates contiguous 4096-byte device blocks.

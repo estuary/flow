@@ -61,13 +61,19 @@ pub struct Opened {}
 /// Promote fences the journal, replays through the fenced head, and mounts the
 /// filesystem. Losing the fence ends the tenure.
 ///
+/// The fence displaces whichever tenure holds the journal and checks nothing else.
+/// As with a Gazette recovery log, choosing the one tenure of a disk to promote is
+/// the client's: two promoted at once may both succeed, the later fence wins, and
+/// the earlier tenure fails at its next append.
+///
 /// May follow Open without waiting for Opened: the daemon fences when it handles
 /// Promote, giving replay a fixed head. Opened still precedes Promoted. Requests
 /// queued behind Promote are served once it completes.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Promote {
     /// Prepared.ack values committed by the client but not confirmed in the
-    /// journal. Appended after fencing; replay ignores duplicate UUIDs.
+    /// journal. Appended after fencing where the delta they commit is still
+    /// unacknowledged. One the journal already committed is not appended again.
     #[prost(bytes = "bytes", repeated, tag = "1")]
     pub recovered_acks: ::prost::alloc::vec::Vec<::prost::bytes::Bytes>,
 }
@@ -133,6 +139,10 @@ pub struct DiskRecord {
     /// compare-and-swap on the journal's `author` register to exclude old writers.
     #[prost(bytes = "bytes", tag = "4")]
     pub installs_epoch: ::prost::bytes::Bytes,
+    /// Journal whose delta this record commits. Set only on ACK_TXN records, so that
+    /// a promotion refuses a recovered acknowledgement of some other disk.
+    #[prost(string, tag = "5")]
+    pub journal: ::prost::alloc::string::String,
 }
 /// Chunk updates contiguous 4096-byte device blocks.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

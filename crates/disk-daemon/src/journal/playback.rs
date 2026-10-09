@@ -6,7 +6,7 @@
 //! a promotion is an action on top of it.
 //!
 //! The task holds the image and applies committed records to it. It holds an
-//! unacknowledged delta rather than applying it, per [`super::held`], so the image
+//! unacknowledged delta rather than applying it, per [`super::uncommitted`], so the image
 //! it hands over is at the committed edge and never ahead of it.
 //!
 //! A backfill reads the history of the journal. A tail then follows new records as
@@ -14,8 +14,8 @@
 //! is reported as `Opened`, and a promotion from there costs a fence, the records
 //! which arrive after it, and a mount.
 
-use super::held::HeldDelta;
 use super::replay::{self, Extent, Pass};
+use super::uncommitted::UncommittedDelta;
 use crate::failure;
 use crate::image::Image;
 use anyhow::Context;
@@ -45,22 +45,25 @@ impl Playback {
         floor: i64,
         head: i64,
         image: Image,
-        held: HeldDelta,
+        uncommitted: UncommittedDelta,
     ) -> Self {
         let (signal, caught_up) = tokio::sync::oneshot::channel();
         let stop = tokio_util::sync::CancellationToken::new();
 
-        let progress = Progress {
-            floor,
-            head,
-            caught_up: Some(signal),
+        let task = Task {
+            reading,
+            progress: Progress {
+                floor,
+                head,
+                caught_up: Some(signal),
+            },
+            stop: stop.clone(),
         };
-        let task = tokio::spawn(run(reading, progress, image, held, stop.clone()));
 
         Self {
             caught_up: Some(caught_up),
             stop,
-            task,
+            task: tokio::spawn(task.run(image, uncommitted)),
         }
     }
 
@@ -158,138 +161,146 @@ impl Progress {
     }
 }
 
-/// Read the journal of `reading` into `image` until the tenure promotes or ends.
-///
-/// A read gap discards the image and starts again from the journal's current floor.
-/// That floor guarantees a read from it rebuilds the whole disk, so it is the only
-/// repair, and it is always available. A partial image cannot be patched: a block
-/// which was deallocated below the gap has no record above it to punch.
-async fn run(
+/// The task behind a [`Playback`]. One of these replays its journal into the image
+/// from `Open` until its tenure promotes or ends.
+struct Task {
     reading: Reading,
-    mut progress: Progress,
-    mut image: Image,
-    mut held: HeldDelta,
+    progress: Progress,
+    /// Cancelled by [`Playback::stop`], which takes what this task holds.
     stop: tokio_util::sync::CancellationToken,
-) -> anyhow::Result<Handoff> {
-    for restart in 0..=RESTART_LIMIT {
-        let mut pass = Pass::new(held);
-
-        let outcome = play(&reading, &mut progress, &mut image, &mut pass, &stop).await;
-
-        match outcome {
-            Ok(()) => {
-                return Ok(Handoff {
-                    image,
-                    applied: pass.applied_offset(),
-                    pass,
-                });
-            }
-            Err(err) if err.chain().any(|cause| cause.is::<replay::Gap>()) => {
-                anyhow::ensure!(
-                    restart != RESTART_LIMIT,
-                    "the playback of {} read a deleted range {} times, so it cannot \
-                     keep up with the writer of that journal: {err:#}",
-                    reading.journal,
-                    RESTART_LIMIT + 1,
-                );
-                tracing::warn!(
-                    journal = reading.journal,
-                    restart,
-                    ?err,
-                    "restarting a playback of a deleted range"
-                );
-
-                // Nothing of this image survives. A read from the new floor rebuilds
-                // the disk, but only onto an image which holds nothing else.
-                () = image.reset().context("discarding a playback's image")?;
-
-                (held, _, _) = pass.into_parts();
-                () = held.clear()?;
-                progress.floor =
-                    super::spec::current_floor(&reading.client, &reading.journal).await?;
-            }
-            Err(err) => return Err(err),
-        }
-    }
-    unreachable!("the restart limit is checked within the loop")
 }
 
-/// Backfill to the head, then follow the journal until the tenure stops it.
-async fn play(
-    reading: &Reading,
-    progress: &mut Progress,
-    image: &mut Image,
-    pass: &mut Pass,
-    stop: &tokio_util::sync::CancellationToken,
-) -> anyhow::Result<()> {
-    let Reading {
-        client,
-        journal,
-        ended,
-    } = reading;
+impl Task {
+    /// Read the journal into `image` until the tenure promotes or ends.
+    ///
+    /// A read gap discards the image and starts again from the journal's current
+    /// floor. That floor guarantees a read from it rebuilds the whole disk, so it is
+    /// the only repair, and it is always available. A partial image cannot be
+    /// patched: a block which was deallocated below the gap has no record above it to
+    /// punch.
+    async fn run(
+        mut self,
+        mut image: Image,
+        mut uncommitted: UncommittedDelta,
+    ) -> anyhow::Result<Handoff> {
+        for restart in 0..=RESTART_LIMIT {
+            let mut pass = Pass::new(uncommitted);
 
-    // An empty journal holds nothing to replay, and reading one would wake a journal
-    // which Gazette suspended: a disk which is never written must cost an etcd entry
-    // and nothing more. Such a playback is current the moment it starts, and it stays
-    // current by following nothing at all.
-    //
-    // Its tenure must therefore resolve the journal again when it promotes. A
-    // primary may have formatted and committed the whole disk while this waited, and
-    // nothing here would have seen it.
-    if progress.head == 0 {
-        () = progress.report_caught_up();
-        () = ended_or_stopped(stop, ended).await?;
+            let outcome = self.play(&mut image, &mut pass).await;
 
-        return Ok(());
+            match outcome {
+                Ok(()) => {
+                    return Ok(Handoff {
+                        image,
+                        applied: pass.applied_offset(),
+                        pass,
+                    });
+                }
+                Err(err) if err.chain().any(|cause| cause.is::<replay::Gap>()) => {
+                    let journal = &self.reading.journal;
+
+                    anyhow::ensure!(
+                        restart != RESTART_LIMIT,
+                        "the playback of {journal} read a deleted range {} times, so it \
+                         cannot keep up with the writer of that journal: {err:#}",
+                        RESTART_LIMIT + 1,
+                    );
+                    tracing::warn!(
+                        journal,
+                        restart,
+                        ?err,
+                        "restarting a playback of a deleted range"
+                    );
+
+                    // Nothing of this image survives. A read from the new floor
+                    // rebuilds the disk, but only onto an image which holds nothing
+                    // else.
+                    () = image.reset().context("discarding a playback's image")?;
+
+                    (uncommitted, _, _) = pass.into_parts();
+                    () = uncommitted.clear()?;
+                    self.progress.floor =
+                        super::spec::current_floor(&self.reading.client, journal).await?;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        unreachable!("the restart limit is checked within the loop")
     }
 
-    tokio::select! {
-        result = replay::read(
+    /// Backfill to the head, then follow the journal until the tenure stops it.
+    async fn play(&mut self, image: &mut Image, pass: &mut Pass) -> anyhow::Result<()> {
+        let Self {
+            reading,
+            progress,
+            stop,
+        } = self;
+        let Reading {
             client,
             journal,
-            progress.floor,
-            Extent::Bounded(progress.head),
-            image,
-            pass,
-        ) => {
-            _ = result?;
+            ended,
+        } = &*reading;
+
+        // An empty journal holds nothing to replay, and a tail of one would not last.
+        // Gazette's auto-suspension fully suspends a journal with no fragments once
+        // it idles, and a read of a fully suspended journal fails. Such a playback is
+        // current the moment it starts, and it stays current by following nothing at
+        // all.
+        //
+        // A recovery log's player has no such case, and tails whatever it opens: a
+        // shard's log holds content once its first primary runs, while a disk may
+        // never be written at all.
+        //
+        // A primary may have formatted and committed the whole disk while this
+        // waited, and nothing here would have seen it. Its tenure therefore lists the
+        // journal again when it claims, and its promotion reads through the fence
+        // from here.
+        if progress.head == 0 {
+            () = progress.report_caught_up();
+
+            return tokio::select! {
+                () = stop.cancelled() => Ok(()),
+                () = ended.cancelled() => Err(anyhow::Error::new(failure::Failure::Ended(
+                    "the tenure ended while its playback waited".to_string(),
+                ))),
+            };
         }
-        () = stop.cancelled() => return Ok(()),
-        () = ended.cancelled() => return Err(anyhow::Error::new(failure::Failure::Ended(
-            "the tenure ended while its playback backfilled".to_string(),
-        ))),
-    }
 
-    tracing::info!(
-        journal,
-        head = progress.head,
-        applied = pass.applied_offset(),
-        chunks = pass.applied_chunks(),
-        "a playback reached the journal head",
-    );
-    () = progress.report_caught_up();
-
-    tokio::select! {
-        result = replay::read(client, journal, pass.applied_offset(), Extent::Tail, image, pass) => {
-            _ = result?;
-            anyhow::bail!("a tail of {journal} ended on its own, which it cannot do")
+        tokio::select! {
+            result = replay::read(
+                client,
+                journal,
+                progress.floor,
+                Extent::Bounded(progress.head),
+                image,
+                pass,
+            ) => {
+                _ = result?;
+            }
+            () = stop.cancelled() => return Ok(()),
+            () = ended.cancelled() => return Err(anyhow::Error::new(failure::Failure::Ended(
+                "the tenure ended while its playback backfilled".to_string(),
+            ))),
         }
-        () = stop.cancelled() => Ok(()),
-        () = ended.cancelled() => Err(anyhow::Error::new(failure::Failure::Ended(
-            "the tenure ended while its playback tailed".to_string(),
-        ))),
-    }
-}
 
-/// Wait for the tenure to promote this playback, or to end.
-async fn ended_or_stopped(
-    stop: &tokio_util::sync::CancellationToken,
-    ended: &tokio_util::sync::CancellationToken,
-) -> anyhow::Result<()> {
-    tokio::select! {
-        () = stop.cancelled() => Ok(()),
-        () = ended.cancelled() => Err(anyhow::Error::new(failure::Failure::Ended(
-            "the tenure ended while its playback waited".to_string(),
-        ))),
+        tracing::info!(
+            journal,
+            head = progress.head,
+            applied = pass.applied_offset(),
+            chunks = pass.applied_chunks(),
+            "a playback reached the journal head",
+        );
+        () = progress.report_caught_up();
+
+        tokio::select! {
+            result = replay::read(client, journal, pass.applied_offset(), Extent::Tail, image, pass) => {
+                _ = result?;
+                anyhow::bail!("a tail of {journal} ended on its own, which it cannot do")
+            }
+            () = stop.cancelled() => Ok(()),
+            () = ended.cancelled() => Err(anyhow::Error::new(failure::Failure::Ended(
+                "the tenure ended while its playback tailed".to_string(),
+            ))),
+        }
     }
 }

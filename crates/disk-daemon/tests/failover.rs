@@ -107,9 +107,9 @@ async fn a_standby_of_an_empty_journal_promotes_onto_committed_state(
     () = standby.close().await.unwrap();
 }
 
-/// A standby claims the journal against the author it finds when it promotes, not the
-/// one its open read. Every fence between the two was another writer's, and a claim
-/// against the stale author would fail although this standby is the rightful writer.
+/// A standby promotes across fences it never saw. Its own fence displaces whichever
+/// tenure holds the journal by then, and its replay reads through that fence to every
+/// delta those tenures committed.
 async fn a_standby_promotes_across_another_tenures_fence(
     fixture: &support::Fixture,
     daemon: &support::Daemon,

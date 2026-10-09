@@ -21,7 +21,7 @@ async fn disk_durability() {
     }
 
     an_acknowledgement_lost_after_commit_is_repaired(&fixture, &daemon).await;
-    a_recovered_ack_whose_replay_applies_nothing_is_terminal(&fixture, &daemon).await;
+    a_recovered_ack_of_another_disk_is_refused(&fixture, &daemon).await;
     a_commit_left_in_flight_is_awaited_by_whatever_comes_next(&fixture, &daemon).await;
     a_cut_during_writeback_recovers_a_mountable_filesystem(&fixture, &daemon).await;
 
@@ -286,10 +286,10 @@ async fn an_acknowledgement_lost_after_commit_is_repaired(
     }
 }
 
-/// A recovered acknowledgement proves a broker confirmed the data records of its
-/// delta, so a journal whose replay applies nothing lost committed state. That is
-/// terminal, rather than a fresh disk which hides the loss.
-async fn a_recovered_ack_whose_replay_applies_nothing_is_terminal(
+/// An acknowledgement names the journal of the disk whose delta it commits, so one a
+/// client hands to some other disk is refused rather than taken as that disk's. A
+/// disk which would otherwise open is not served with another disk's state behind it.
+async fn a_recovered_ack_of_another_disk_is_refused(
     fixture: &support::Fixture,
     daemon: &support::Daemon,
 ) {
@@ -308,11 +308,15 @@ async fn a_recovered_ack_whose_replay_applies_nothing_is_terminal(
     )
     .await;
 
-    assert!(status.message().contains("applied nothing"), "{status}");
+    assert!(
+        status
+            .message()
+            .contains("was handed to journal acmeCo/disk/emptied"),
+        "{status}",
+    );
 
-    // The tenure claims, and it repairs an acknowledgement its replay could honor
-    // before that replay proves the loss, so both its fence and that acknowledgement
-    // are in the journal. Neither is committed state.
+    // The tenure claims before it judges the acknowledgement, so its fence is in the
+    // journal. Nothing of the acknowledgement is.
     assert!(fixture.head(journal).await > 0);
 }
 

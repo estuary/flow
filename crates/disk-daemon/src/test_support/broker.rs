@@ -1,17 +1,17 @@
 //! Opening a journal against a real Gazette broker from a test.
 //!
 //! A data plane is expensive to start, so one case starts one and works a journal per
-//! scenario. The daemon creates no journal, so [`Fixture::opening`] creates one from
+//! scenario. The daemon creates no journal, so [`Fixture::standby`] creates one from
 //! [`Fixture::spec`] as a deployment's activation would. A scenario which stages a
 //! journal of its own, or which is about one that does not exist, opens with
-//! [`Fixture::opening_uncreated`].
+//! [`Fixture::standby_uncreated`].
 //!
 //! The operations which are about journals rather than about disks — creating one,
 //! probing it, reading a register of it — are `e2e_support::journals`'.
 
 use crate::image::Image;
-use crate::journal::held;
-use crate::journal::{Opening, Promoted, Writer};
+use crate::journal::uncommitted;
+use crate::journal::{Promoted, Standby, Writer};
 use crate::proto;
 use crate::recording::{self, Recorder};
 use proto_gazette::{broker, fixed_framing, uuid};
@@ -90,17 +90,17 @@ impl Fixture {
         journal: &str,
         acks: Vec<bytes::Bytes>,
     ) -> anyhow::Result<(Promoted, Vec<(u32, u8)>)> {
-        let mut opening = self.opening(journal).await?;
+        let standby = self.standby(journal).await?;
 
         // The image outlives its directory, having no directory entry of its own.
         let dir = tempfile::tempdir()?;
         let image = Image::create(dir.path(), BLOCKS)?;
-        let held = held::HeldDelta::create(dir.path())?;
+        let uncommitted = uncommitted::UncommittedDelta::create(dir.path())?;
 
-        let playback = opening.play(image, held);
+        let playback = standby.play(image, uncommitted);
 
         // A tenure claims when it reads `Promote`, and finishes the promotion after.
-        let claimed = opening.claim_journal().await?;
+        let claimed = standby.claim_journal().await?;
         let (promoted, recovered) = claimed.promote(playback, acks).await?;
 
         Ok((promoted, super::allocated(&recovered.image)))
@@ -108,16 +108,16 @@ impl Fixture {
 
     /// Open `journal`, having created it from [`Fixture::spec`] as a deployment's
     /// activation would.
-    pub async fn opening(&self, journal: &str) -> anyhow::Result<Opening> {
+    pub async fn standby(&self, journal: &str) -> anyhow::Result<Standby> {
         () = self.create_journal(self.spec(journal)).await?;
 
-        self.opening_uncreated(journal).await
+        self.standby_uncreated(journal).await
     }
 
-    /// [`Fixture::opening`], creating nothing, for a scenario which staged a journal
+    /// [`Fixture::standby`], creating nothing, for a scenario which staged a journal
     /// of its own — or which stages none at all.
-    pub async fn opening_uncreated(&self, journal: &str) -> anyhow::Result<Opening> {
-        Opening::new(
+    pub async fn standby_uncreated(&self, journal: &str) -> anyhow::Result<Standby> {
+        Standby::new(
             &self.daemon_client,
             journal.to_string(),
             tokio_util::sync::CancellationToken::new(),
@@ -210,13 +210,43 @@ impl Fixture {
 
     /// Value of the journal's `author` register, which only a fence installs.
     ///
-    /// This probes through `e2e_support` rather than through the crate's own
-    /// [`fence::probe`], so that a scenario reads what the daemon wrote rather than
-    /// reading it back through the code which wrote it.
+    /// The daemon itself never reads registers, so a scenario reads what the daemon
+    /// wrote through `e2e_support` rather than through the code which wrote it.
     pub async fn author(&self, journal: &str) -> Option<String> {
         e2e_support::journals::register(&self.client, journal, "author")
             .await
             .expect("probing a journal")
+    }
+
+    /// Append `fence` to `journal` under the request a claim of `epoch` writes its
+    /// fence under, outside of any tenure, and return the head just past it.
+    pub async fn append_fence(
+        &self,
+        journal: &str,
+        epoch: uuid::Producer,
+        fence: &proto::DiskRecord,
+    ) -> i64 {
+        let mut appender = publisher::Appender::new(self.client.clone(), journal.to_string());
+
+        () = appender
+            .set_request(broker::AppendRequest {
+                journal: journal.to_string(),
+                union_registers: Some(crate::journal::author(epoch)),
+                ..Default::default()
+            })
+            .await
+            .expect("setting a fence's request");
+
+        fixed_framing::encode(fence, &mut appender.buffer);
+        let barrier = appender.barrier();
+
+        () = appender.flush().await.expect("appending a fence");
+        barrier
+            .await
+            .expect("a fence's append")
+            .commit
+            .expect("an append which succeeded reports its commit")
+            .end
     }
 
     /// Broker-confirmed write head. A journal which was created and never appended to
@@ -225,5 +255,35 @@ impl Fixture {
         e2e_support::journals::head(&self.client, journal)
             .await
             .expect("probing a journal")
+    }
+
+    /// Value of the journal's recovery-floor label, which is absent until a delta of
+    /// the disk first commits.
+    pub async fn floor_label(&self, journal: &str) -> Option<String> {
+        let listing = self
+            .client
+            .get_journal(journal)
+            .await
+            .expect("listing a journal")
+            .expect("the journal exists");
+
+        listing.spec.and_then(|spec| spec.labels).and_then(|set| {
+            labels::maybe_one(&set, crate::DISK_RECOVERY_FLOOR)
+                .ok()
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+    }
+
+    /// Wait for `journal`'s head to move past `head`: for an append a writer starts
+    /// on its own, which no flush of the scenario's awaits, to land.
+    pub async fn advances(&self, journal: &str, head: i64) {
+        for _ in 0..1000 {
+            if self.head(journal).await > head {
+                return;
+            }
+            () = tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("{journal} did not advance past {head}");
     }
 }

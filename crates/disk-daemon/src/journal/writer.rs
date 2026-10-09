@@ -55,7 +55,7 @@ impl Promoted {
         } = self;
 
         Task {
-            ledger: Ledger::new(journal.epoch, horizon),
+            ledger: Ledger::new(journal.epoch, journal.name.clone(), horizon),
             appender: Some(appender),
             journal,
             compactor,
@@ -285,6 +285,11 @@ impl Task {
         () = journal.append_ack(appender, &ack).await?;
 
         if !completes_horizon {
+            // The disk has committed state now. A journal whose floor label says so is
+            // one a later promotion refuses to format, should its fragments be lost.
+            if !self.journal.marked {
+                () = self.journal.store_floor(0).await;
+            }
             return Ok(());
         }
         let floor = self.ledger.complete_horizon();

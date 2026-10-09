@@ -16,6 +16,9 @@
 //! - The range may begin within a delta. Records below the floor are unnecessary,
 //!   because a completed horizon puts a copy of every allocated block at or after
 //!   it.
+//! - Only a pass's first read may begin past the offset it asked for: content the
+//!   store no longer holds below the real floor is content the pass does not need.
+//!   Content skipped anywhere else is a [`Gap`].
 //! - Horizons are rebuilt by the same rules the writer applies. The record which
 //!   opens one snapshots the blocks allocated before its own chunks apply. Every
 //!   chunk from there on discharges the blocks it covers. The acknowledgement of
@@ -23,7 +26,7 @@
 //!   record. A later horizon replaces an earlier one. A horizon still open at the
 //!   end of the range is one the next tenure resumes.
 //!
-//! A delta is not applied as it is read. Its records are held in a [`HeldDelta`] as
+//! A delta is not applied as it is read. Its records are held in a [`UncommittedDelta`] as
 //! they are sequenced, and they apply only when the acknowledgement of that delta
 //! arrives. A delta's chunks, the horizon it opens, and the blocks that horizon
 //! discharges therefore all land together, or never land at all.
@@ -42,9 +45,9 @@
 //! `sequencer` decides what each record does to the delta held. [`Pass`] holds,
 //! drops, and applies accordingly, which is where horizons open and discharge.
 
-use super::held::HeldDelta;
 use super::reassembly::{Reassembled, Reassembly, Received};
 use super::sequencer::{Action, Sequencer, Step};
+use super::uncommitted::UncommittedDelta;
 use crate::horizon::Horizon;
 use crate::image::Image;
 use crate::proto;
@@ -64,11 +67,12 @@ pub enum Extent {
 
 /// Content a read still needed was deleted from the fragment store.
 ///
-/// A bounded recovery may skip a gap: it seeks from the floor, and the broker starts
-/// it at the first offset the store still holds. A tail may not. It holds a partial
-/// image, and a block which was deallocated below the gap has no record above it to
-/// punch, so a skip would leave that block allocated forever. The image must be
-/// discarded and rebuilt from the current floor.
+/// A pass's first read may begin past where it asked: it seeks from the floor, and
+/// the broker starts it at the first offset the store still holds. No other read may
+/// skip, bounded or tail, and neither may that first read once it has begun. A pass
+/// holds a partial image, and a block which was deallocated in the skipped content
+/// has no record after it to punch, so a skip would leave that block allocated
+/// forever. The image must be discarded and rebuilt from the current floor.
 #[derive(Debug)]
 pub struct Gap {
     pub at: i64,
@@ -90,7 +94,9 @@ impl std::error::Error for Gap {}
 ///
 /// The floor is a record boundary, so the read asks for it exactly. A broker whose
 /// store no longer holds that offset serves the next one it has, which only adds
-/// records this replay does not need.
+/// records this replay does not need, where this is the pass's first read. A read
+/// which continues a pass begins exactly where the pass stopped, or fails with a
+/// [`Gap`].
 ///
 /// A [`Extent::Tail`] read blocks at the head and returns only on an error or a
 /// [`Gap`]. Its caller stops it by cancelling it.
@@ -116,7 +122,7 @@ pub(super) async fn read(
     });
     futures::pin_mut!(stream);
 
-    let mut reassembly = Reassembly::new(extent);
+    let mut reassembly = Reassembly::new(floor, !pass.read_any);
     let mut applied = 0;
 
     while let Some(response) = futures::StreamExt::next(&mut stream).await {
@@ -162,13 +168,13 @@ pub(super) async fn read(
 /// One forward pass over the range.
 ///
 /// Its [`Sequencer`] decides what each record does to the delta held. The pass
-/// carries that out: it holds records in its held delta, drops a delta which was
-/// displaced, and at a commit applies the held delta to the image, which is where a
+/// carries that out: it holds records in its uncommitted delta, drops a delta which was
+/// displaced, and at a commit applies the uncommitted delta to the image, which is where a
 /// horizon opens and discharges and where the floor is derived.
 pub(super) struct Pass {
     sequencer: Sequencer,
     /// The delta which is not yet acknowledged, held rather than applied.
-    held: HeldDelta,
+    uncommitted: UncommittedDelta,
     /// A horizon which has opened and is not yet discharged.
     horizon: Option<OpenHorizon>,
     /// Offset of the last horizon a delta of the range completed, which is the
@@ -178,6 +184,9 @@ pub(super) struct Pass {
     /// which is cancelled, so a playback which is promoted mid-backfill still knows
     /// whether the journal held committed state.
     applied_chunks: usize,
+    /// Whether any read of this pass returned a record. Only a pass's first read may
+    /// begin past the offset it asked for.
+    read_any: bool,
 }
 
 /// A recovery horizon this pass has opened.
@@ -195,13 +204,14 @@ pub(super) struct OpenHorizon {
 
 impl Pass {
     /// A pass which holds each delta until its acknowledgement, in `held`.
-    pub(super) fn new(held: HeldDelta) -> Self {
+    pub(super) fn new(uncommitted: UncommittedDelta) -> Self {
         Self {
             sequencer: Sequencer::default(),
-            held,
+            uncommitted,
             horizon: None,
             floor: None,
             applied_chunks: 0,
+            read_any: false,
         }
     }
 
@@ -215,7 +225,7 @@ impl Pass {
         self.floor
     }
 
-    /// Offset through which committed state is applied. A held delta is not part of
+    /// Offset through which committed state is applied. An uncommitted delta is not part of
     /// it, so this never runs ahead of what the client committed.
     pub(super) fn applied_offset(&self) -> i64 {
         self.sequencer.applied()
@@ -226,10 +236,10 @@ impl Pass {
         &self.sequencer
     }
 
-    /// Take the held delta, the floor, and any horizon still open, to continue
+    /// Take the uncommitted delta, the floor, and any horizon still open, to continue
     /// this pass elsewhere.
-    pub(super) fn into_parts(self) -> (HeldDelta, Option<i64>, Option<OpenHorizon>) {
-        (self.held, self.floor, self.horizon)
+    pub(super) fn into_parts(self) -> (UncommittedDelta, Option<i64>, Option<OpenHorizon>) {
+        (self.uncommitted, self.floor, self.horizon)
     }
 
     /// Sequence `record`, which begins at `offset` and was framed as `framed`, carry
@@ -241,21 +251,22 @@ impl Pass {
         offset: i64,
         image: &mut Image,
     ) -> anyhow::Result<usize> {
+        self.read_any = true;
         let Step { displaced, action } = self.sequencer.on_record(record, offset, framed.len())?;
 
         if let Some(held) = displaced {
             tracing::debug!(
                 ?held,
-                bytes = self.held.len(),
-                "dropping a held delta which another producer's records displaced",
+                bytes = self.uncommitted.len(),
+                "dropping an uncommitted delta which another producer's records displaced",
             );
-            () = self.held.clear()?;
+            () = self.uncommitted.clear()?;
         }
 
         match action {
             Action::Skip => Ok(0),
             Action::Hold => {
-                () = self.held.push(framed)?;
+                () = self.uncommitted.push(framed)?;
                 Ok(0)
             }
             Action::Commit { opens_at } => {
@@ -282,7 +293,7 @@ impl Pass {
         }
     }
 
-    /// Apply the held delta to `image`, which its acknowledgement has committed, and
+    /// Apply the uncommitted delta to `image`, which its acknowledgement has committed, and
     /// report the chunks it applied. `opens_at` is the offset at which the delta's
     /// first record opened a horizon, if it opened one.
     ///
@@ -291,10 +302,14 @@ impl Pass {
     /// chunks which discharge that horizon apply after it. A delta's effects are
     /// whole: they all land here, or none of them ever land.
     fn apply_held(&mut self, image: &mut Image, opens_at: Option<i64>) -> anyhow::Result<usize> {
-        let Self { held, horizon, .. } = self;
+        let Self {
+            uncommitted,
+            horizon,
+            ..
+        } = self;
         let mut applied = 0;
 
-        () = held.drain(|record| {
+        () = uncommitted.drain(|record| {
             if record.opens_horizon {
                 let at = opens_at.expect("the sequencer held the offset of an opening record");
                 let blocks = Horizon::open(image.allocated());
@@ -302,7 +317,7 @@ impl Pass {
                 tracing::debug!(
                     pending = blocks.pending(),
                     at,
-                    "a held delta opened a recovery horizon",
+                    "a committed delta opened a recovery horizon",
                 );
                 *horizon = Some(OpenHorizon { at, blocks });
             }
@@ -368,6 +383,7 @@ mod test {
             chunks,
             opens_horizon: false,
             installs_epoch: bytes::Bytes::new(),
+            journal: String::new(),
         }
     }
 
@@ -400,7 +416,7 @@ mod test {
     }
 
     /// `record` framed exactly as the journal frames it. A pass keeps the journal's
-    /// own bytes of a held record and decodes them again when its delta commits, so
+    /// own bytes of an uncommitted record and decodes them again when its delta commits, so
     /// every case frames for real rather than standing in for these bytes.
     fn frame(record: &proto::DiskRecord) -> bytes::BytesMut {
         let mut framed = bytes::BytesMut::new();
@@ -424,7 +440,7 @@ mod test {
         records: &[proto::DiskRecord],
     ) -> (Pass, Image, Vec<(u32, u8)>) {
         let mut image = Image::create(dir.path(), BLOCKS).unwrap();
-        let mut pass = Pass::new(super::HeldDelta::create(dir.path()).unwrap());
+        let mut pass = Pass::new(super::UncommittedDelta::create(dir.path()).unwrap());
         let mut offset = 0;
 
         for record in records {
@@ -461,8 +477,11 @@ mod test {
         );
         assert_eq!(blocks, vec![(3, 0xaa), (4, 0xbb)]);
 
-        let (held, _floor, _horizon) = pass.into_parts();
-        assert!(held.is_empty(), "the acknowledged delta was released");
+        let (uncommitted, _floor, _horizon) = pass.into_parts();
+        assert!(
+            uncommitted.is_empty(),
+            "the acknowledged delta was released"
+        );
     }
 
     /// The delta which is still in doubt stays held, and nothing of it reaches the
@@ -484,8 +503,8 @@ mod test {
         );
         assert_eq!(blocks, vec![(3, 0xaa)]);
 
-        let (held, _floor, _horizon) = pass.into_parts();
-        assert!(!held.is_empty(), "the delta in doubt is still held");
+        let (uncommitted, _floor, _horizon) = pass.into_parts();
+        assert!(!uncommitted.is_empty(), "the delta in doubt is still held");
     }
 
     /// A delta which a replacement tenure's records follow is abandoned. Those
@@ -509,8 +528,8 @@ mod test {
         );
         assert_eq!(blocks, vec![(3, 0xaa), (6, 0xee)]);
 
-        let (held, _floor, _horizon) = pass.into_parts();
-        assert!(held.is_empty(), "the displaced delta was dropped");
+        let (uncommitted, _floor, _horizon) = pass.into_parts();
+        assert!(uncommitted.is_empty(), "the displaced delta was dropped");
     }
 
     /// A promotion repairs the acknowledgement its client held before it appends
@@ -742,7 +761,7 @@ mod test {
         // Each case is the first record of its own pass, so no case is rejected for
         // the sequencing state another one left behind.
         for (record, expect) in cases {
-            let err = Pass::new(super::HeldDelta::create(dir.path()).unwrap())
+            let err = Pass::new(super::UncommittedDelta::create(dir.path()).unwrap())
                 .record(&record, &frame(&record), 0, &mut image)
                 .unwrap_err();
 
@@ -754,7 +773,7 @@ mod test {
     /// them. Every record before it must be accepted.
     fn refused(dir: &tempfile::TempDir, records: &[proto::DiskRecord]) -> String {
         let mut image = Image::create(dir.path(), BLOCKS).unwrap();
-        let mut pass = Pass::new(super::HeldDelta::create(dir.path()).unwrap());
+        let mut pass = Pass::new(super::UncommittedDelta::create(dir.path()).unwrap());
 
         let (last, accepted) = records.split_last().expect("a case has records");
 
@@ -821,12 +840,13 @@ mod test {
 
         let (pass, _image, blocks) = replay(&dir, &displaced);
         assert_eq!(blocks, vec![(3, 0xbb)], "only the committed delta applied");
-        assert!(
-            !pass.sequencer().can_acknowledge(a, clock(5)),
+        assert_eq!(
+            pass.sequencer().recovered_ack(a, clock(5)),
+            super::super::sequencer::RecoveredAck::Refused,
             "a recovered acknowledgement of the fragment would be appended",
         );
-        let (held, _floor, _horizon) = pass.into_parts();
-        assert!(held.is_empty(), "the fragment was held");
+        let (uncommitted, _floor, _horizon) = pass.into_parts();
+        assert!(uncommitted.is_empty(), "the fragment was held");
 
         let mut acknowledged = displaced.to_vec();
         acknowledged.push(ack(a, 5));
