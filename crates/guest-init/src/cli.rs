@@ -30,6 +30,10 @@ pub struct Args {
     #[arg(long)]
     pub gid: u32,
 
+    /// Supplementary groups, once per group. Omission clears inherited groups.
+    #[arg(long = "supplementary-gid", value_name = "GID")]
+    pub supplementary_gids: Vec<u32>,
+
     /// Mount the connector mount share at this absolute guest path, which is
     /// the same path it has on the host. Required: every connector run
     /// receives one, and CONNECTOR_MOUNT in the workload's environment names
@@ -42,7 +46,8 @@ pub struct Args {
     #[arg(long, value_name = "GUEST_PATH", value_parser = guest_path)]
     pub persistent_disk: Option<String>,
 
-    /// Test only: run the workload as guest root instead of --uid/--gid.
+    /// Test only: run the workload as guest root instead of --uid, --gid and
+    /// --supplementary-gid.
     #[arg(long)]
     pub run_as_root: bool,
 
@@ -159,6 +164,16 @@ mod tests {
                 "--as-root-exec",
                 "sysctl -w vm.drop_caches=3",
             ]),
+            with(&[
+                "--supplementary-gid",
+                "1000",
+                "--supplementary-gid",
+                "1002",
+                "--supplementary-gid",
+                "1004",
+            ]),
+            with(&["--run-as-root", "--supplementary-gid", "1002"]),
+            with(&["--supplementary-gid", "1002,1004"]),
             with(&["--persistent-disk", "state"]),
             with(&["--persistent-disk", "/"]),
             with(&["--venv-dax"]),
@@ -208,14 +223,15 @@ mod tests {
     fn describe(args: &super::Args) -> String {
         format!(
             "ok: guest_ip={}/{} gateway={} nameserver={} uid={} gid={} \
-             connector_mount={} persistent_disk={:?} run_as_root={} \
-             as_root_exec={:?} argv={:?}\n",
+             supplementary_gids={:?} connector_mount={} persistent_disk={:?} \
+             run_as_root={} as_root_exec={:?} argv={:?}\n",
             args.guest_ip.address,
             args.guest_ip.prefix_len,
             args.gateway,
             args.nameserver,
             args.uid,
             args.gid,
+            args.supplementary_gids,
             args.connector_mount,
             args.persistent_disk,
             args.run_as_root,

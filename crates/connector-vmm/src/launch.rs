@@ -154,6 +154,7 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
         exec: args.exec.as_deref(),
         uid: image.uid,
         gid: image.gid,
+        groups: &image.groups,
         vsock_port: VSOCK_PORT,
     });
     let krun_config = image::krun_config(&image, &guest_argv, &contract_env(mount));

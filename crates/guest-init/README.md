@@ -43,6 +43,11 @@ the workload and becoming it. The VMM injects it into the guest root at
   nothing. It is mounted `ro,nodev,nosuid` - read-only because the host owns
   every byte of it, and not `noexec`, because `flow-connector-init` is executed
   from it. `crates/connector` is the authority for what the mount contains.
+- **The user's groups come from the VMM.** It resolves `--supplementary-gid`
+  from the image's own account files; nothing here reads them. The list
+  replaces the guest's, set before the gid and the uid, since nothing can set
+  it once the uid has dropped. `--run-as-root` skips all three and still gives
+  scratch to `--uid`/`--gid`.
 - **Scratch is chowned, the persistent disk is not.** mkfs leaves the scratch
   root owned by root while the workload runs as the image's user. The
   persistent disk is the task's own, and its owner formats its root for the

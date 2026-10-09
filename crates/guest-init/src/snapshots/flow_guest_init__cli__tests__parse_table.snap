@@ -3,13 +3,24 @@ source: crates/guest-init/src/cli.rs
 expression: table
 ---
 $ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
-ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=None run_as_root=false as_root_exec=None argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
+ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 supplementary_gids=[] connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=None run_as_root=false as_root_exec=None argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
 
 $ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --persistent-disk /acmeCo/state -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
-ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=Some("/acmeCo/state") run_as_root=false as_root_exec=None argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
+ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 supplementary_gids=[] connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=Some("/acmeCo/state") run_as_root=false as_root_exec=None argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
 
 $ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --run-as-root --as-root-exec "sysctl -w vm.drop_caches=3" -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
-ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=None run_as_root=true as_root_exec=Some("sysctl -w vm.drop_caches=3") argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
+ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 supplementary_gids=[] connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=None run_as_root=true as_root_exec=Some("sysctl -w vm.drop_caches=3") argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
+
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --supplementary-gid 1000 --supplementary-gid 1002 --supplementary-gid 1004 -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 supplementary_gids=[1000, 1002, 1004] connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=None run_as_root=false as_root_exec=None argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
+
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --run-as-root --supplementary-gid 1002 -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+ok: guest_ip=192.0.2.2/30 gateway=192.0.2.1 nameserver=192.0.2.1 uid=1000 gid=1000 supplementary_gids=[1002] connector_mount=/tmp/connector-mounts-0/mount-acme persistent_disk=None run_as_root=true as_root_exec=None argv=["/flow-connector-init", "--image-inspect-json-path=/image-inspect.json", "--vsock-port=49092"]
+
+$ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --supplementary-gid 1002,1004 -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
+flow-guest-init: error: invalid value '1002,1004' for '--supplementary-gid <GID>': invalid digit found in string
+flow-guest-init:
+flow-guest-init: For more information, try '--help'.
 
 $ flow-guest-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 --uid 1000 --gid 1000 --connector-mount /tmp/connector-mounts-0/mount-acme --persistent-disk state -- /flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092
 flow-guest-init: error: invalid value 'state' for '--persistent-disk <GUEST_PATH>': expected an absolute guest path

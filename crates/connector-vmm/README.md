@@ -78,6 +78,12 @@ scratch image: numeric ids still resolve and names are refused. The lookup
 sees the image alone, so a link into something the guest mounts later, such as
 the connector mount or `/proc`, reads whatever the image has at that path.
 
+`image::resolve_user` uses the same databases for supplementary groups,
+matching rootful podman 4.9 over runc. A colon in `User` suppresses memberships:
+`user:` keeps the passwd gid, and `:group` selects uid 0 in that group. The list
+travels as repeated `--supplementary-gid` flags; `guest-init` sets it with
+`setgroups` before `setgid` and `setuid`. `--run-as-root` skips all three.
+
 ## Disks and shares
 
 | mount | | what it is |

@@ -3,33 +3,33 @@ source: crates/connector-vmm/src/image.rs
 expression: table
 ---
 ## plain files
-"acmesvc:acmegrp" -> 1000:1002
-"acmesvc" -> 1000:1001
-"1000" -> 1000:1001
+"acmesvc:acmegrp" -> 1000:1002 groups [1002]
+"acmesvc" -> 1000:1001 groups [1001,1002]
+"1000" -> 1000:1001 groups [1001,1002]
 "nobody" -> refused: user "nobody" is not in the image's /etc/passwd
 
 ## absolute links
-"acmesvc:acmegrp" -> 1000:1002
-"acmesvc" -> 1000:1001
+"acmesvc:acmegrp" -> 1000:1002 groups [1002]
+"acmesvc" -> 1000:1001 groups [1001,1002]
 
 ## relative links climbing above the root
-"acmesvc:acmegrp" -> 1000:1002
+"acmesvc:acmegrp" -> 1000:1002 groups [1002]
 
 ## /etc an absolute link
-"acmesvc:acmegrp" -> 1000:1002
+"acmesvc:acmegrp" -> 1000:1002 groups [1002]
 
 ## /etc a relative link climbing above the root
-"acmesvc:acmegrp" -> 1000:1002
+"acmesvc:acmegrp" -> 1000:1002 groups [1002]
 
 ## links dangling in the image, whose targets exist on the host
 "acmesvc" -> refused: user "acmesvc" is not in the image's /etc/passwd
 "1000:acmegrp" -> refused: group "acmegrp" is not in the image's /etc/group
-"1000:1002" -> 1000:1002
+"1000:1002" -> 1000:1002 groups [1002]
 
 ## no account files, as in a scratch image
-"" -> 0:0
-"1000" -> 1000:0
-"1000:1002" -> 1000:1002
+"" -> 0:0 groups []
+"1000" -> 1000:0 groups [0]
+"1000:1002" -> 1000:1002 groups [1002]
 "acmesvc" -> refused: user "acmesvc" is not in the image's /etc/passwd
 
 ## a link loop

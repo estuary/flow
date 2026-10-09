@@ -15,6 +15,8 @@ pub struct ImageConfig {
     pub working_dir: String,
     pub uid: u32,
     pub gid: u32,
+    /// The supplementary groups, which replace the guest's own.
+    pub groups: Vec<u32>,
 }
 
 pub struct Guest<'a> {
@@ -26,6 +28,7 @@ pub struct Guest<'a> {
     pub exec: Option<&'a [String]>,
     pub uid: u32,
     pub gid: u32,
+    pub groups: &'a [u32],
     pub vsock_port: u32,
 }
 
@@ -57,7 +60,7 @@ pub fn load(inspect_path: &Path, rootfs: &Path) -> anyhow::Result<ImageConfig> {
 
     let root = std::fs::File::open(rootfs)
         .map_err(|e| anyhow::anyhow!("opening {}: {e}", rootfs.display()))?;
-    let (uid, gid) = resolve_user(
+    let (uid, gid, groups) = resolve_user(
         &config.user,
         &read_db(&root, c"/etc/passwd")?,
         &read_db(&root, c"/etc/group")?,
@@ -71,43 +74,65 @@ pub fn load(inspect_path: &Path, rootfs: &Path) -> anyhow::Result<ImageConfig> {
         },
         uid,
         gid,
+        groups,
     })
 }
 
 /// `User` is `[user][:group]`, either side numeric or a name.
 ///
 /// Empty means root, which is what a container gives an image that set no
-/// user. A name that does not resolve is an error rather than a silent fall
-/// back to root: escalating the workload is the wrong way to fail.
-pub fn resolve_user(user: &str, passwd: &str, group: &str) -> anyhow::Result<(u32, u32)> {
+/// user, and so does an empty user before a colon. A name that does not
+/// resolve is an error rather than a silent fall back to root: escalating the
+/// workload is the wrong way to fail.
+///
+/// A colon suppresses memberships; an empty group preserves the passwd gid.
+/// An empty `User` applies uid 0's memberships without adding its primary gid.
+pub fn resolve_user(user: &str, passwd: &str, group: &str) -> anyhow::Result<(u32, u32, Vec<u32>)> {
     if user.is_empty() {
-        return Ok((0, 0));
+        let root = passwd_by_uid(passwd, 0).map(|(name, _)| name);
+        return Ok((0, 0, supplementary_groups(group, None, root)));
     }
     let (name, wanted_group) = match user.split_once(':') {
         Some((name, group)) => (name, Some(group)),
         None => (user, None),
     };
+    let name = match name {
+        "" => "0",
+        name => name,
+    };
 
-    let (uid, primary_gid) = match name.parse::<u32>() {
+    // The entry's name is what member lists hold, whichever way it was found.
+    let (uid, primary_gid, entry) = match name.parse::<u32>() {
         // A numeric user is still looked up, because its passwd entry carries
         // the primary group: an image whose `USER` is `4` runs as 4:100 when
         // passwd holds `sync:x:4:100`, not as 4:0. Only a uid with no entry
         // falls back to group 0.
-        Ok(uid) => (uid, primary_group(passwd, uid).unwrap_or(0)),
-        Err(_) => lookup_passwd(passwd, name)
-            .ok_or_else(|| anyhow::anyhow!("user {name:?} is not in the image's /etc/passwd"))?,
+        Ok(uid) => match passwd_by_uid(passwd, uid) {
+            Some((entry, gid)) => (uid, gid, Some(entry)),
+            None => (uid, 0, None),
+        },
+        Err(_) => {
+            let (uid, gid) = lookup_passwd(passwd, name).ok_or_else(|| {
+                anyhow::anyhow!("user {name:?} is not in the image's /etc/passwd")
+            })?;
+            (uid, gid, Some(name))
+        }
     };
 
     let Some(wanted_group) = wanted_group else {
-        return Ok((uid, primary_gid));
+        let groups = supplementary_groups(group, Some(primary_gid), entry);
+        return Ok((uid, primary_gid, groups));
     };
-    let gid = match wanted_group.parse::<u32>() {
-        Ok(gid) => gid,
-        Err(_) => lookup_field(group, wanted_group, 2).ok_or_else(|| {
-            anyhow::anyhow!("group {wanted_group:?} is not in the image's /etc/group")
-        })?,
+    let gid = match wanted_group {
+        "" => primary_gid,
+        wanted_group => match wanted_group.parse::<u32>() {
+            Ok(gid) => gid,
+            Err(_) => lookup_field(group, wanted_group, 2).ok_or_else(|| {
+                anyhow::anyhow!("group {wanted_group:?} is not in the image's /etc/group")
+            })?,
+        },
     };
-    Ok((uid, gid))
+    Ok((uid, gid, vec![gid]))
 }
 
 /// The argv libkrun's guest init execs: `flow-guest-init` always leads, and
@@ -138,9 +163,13 @@ pub fn guest_argv(guest: &Guest) -> Vec<String> {
         guest.uid.to_string(),
         "--gid".to_string(),
         guest.gid.to_string(),
-        "--connector-mount".to_string(),
-        mount.to_string(),
     ];
+    for gid in guest.groups {
+        argv.push("--supplementary-gid".to_string());
+        argv.push(gid.to_string());
+    }
+    argv.push("--connector-mount".to_string());
+    argv.push(mount.to_string());
     if let Some(guest_path) = guest.persistent_disk {
         argv.push("--persistent-disk".to_string());
         argv.push(guest_path.to_string());
@@ -235,17 +264,39 @@ fn read_db(root: &std::fs::File, path: &std::ffi::CStr) -> anyhow::Result<String
     Ok(content)
 }
 
-/// The primary group of the passwd entry for `uid`, found by uid rather than
-/// by name. `None` when no entry has it.
-fn primary_group(db: &str, uid: u32) -> Option<u32> {
+/// The name and primary group of the first passwd entry for `uid`, found by
+/// uid rather than by name. `None` when no entry has it.
+fn passwd_by_uid(db: &str, uid: u32) -> Option<(&str, u32)> {
     for line in db.lines() {
         let fields: Vec<&str> = line.split(':').collect();
 
         if fields.get(2).and_then(|value| value.parse::<u32>().ok()) == Some(uid) {
-            return fields.get(3).and_then(|value| value.parse().ok());
+            return Some((fields[0], fields.get(3)?.parse().ok()?));
         }
     }
     None
+}
+
+/// `primary`, then the gid of every group whose member list names `user`,
+/// each once and in file order. No `user` means no entry to be listed under.
+fn supplementary_groups(db: &str, primary: Option<u32>, user: Option<&str>) -> Vec<u32> {
+    let mut groups: Vec<u32> = primary.into_iter().collect();
+    let Some(user) = user else {
+        return groups;
+    };
+    for line in db.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        let listed = fields
+            .get(3)
+            .is_some_and(|members| members.split(',').any(|member| member == user));
+        let Some(gid) = fields.get(2).and_then(|value| value.parse().ok()) else {
+            continue;
+        };
+        if listed && !groups.contains(&gid) {
+            groups.push(gid);
+        }
+    }
+    groups
 }
 
 fn lookup_passwd(db: &str, name: &str) -> Option<(u32, u32)> {
@@ -302,10 +353,11 @@ mod tests {
                 },
             ),
             (
-                "root image user",
+                "root image user, in no supplementary groups",
                 Guest {
                     uid: 0,
                     gid: 0,
+                    groups: &[],
                     ..base()
                 },
             ),
@@ -330,6 +382,7 @@ mod tests {
             working_dir: "/opt/acmeCo".to_string(),
             uid: 1000,
             gid: 1000,
+            groups: vec![1000],
         };
         let cmd = super::guest_argv(&base());
         let mut table = String::new();
@@ -359,43 +412,126 @@ mod tests {
         insta::assert_snapshot!(table);
     }
 
+    /// Matches identities observed with rootful Podman 4.9.3 and runc 1.3.4.
     #[test]
     fn user_resolution() {
-        const PASSWD: &str =
-            "root:x:0:0:root:/root:/bin/sh\nacme:x:1000:1001::/home/acme:/bin/sh\n";
-        const GROUP: &str = "root:x:0:\nacmegrp:x:1002:\n";
+        const PASSWD: &str = "root:x:0:0:root:/root:/bin/sh\n\
+            acmesvc:x:1000:1001::/home/acmesvc:/bin/sh\n\
+            acmealias:x:1000:1005::/:/bin/sh\n\
+            acmesolo:x:1006:1006::/:/bin/sh\n";
+        const GROUP: &str = "root:x:0:\n\
+            acmeprimary:x:1001:\n\
+            acmedata:x:1002:acmesvc\n\
+            acmeextra:x:1004:acmeother,acmesvc\n\
+            acmealiasgrp:x:1005:acmealias\n\
+            acmedup:x:1002:acmesvc\n\
+            acmeroot:x:1007:root\n\
+            acmesolo:x:1006:\n";
+
+        let cases: &[(&str, &str, &str, &[&str])] = &[
+            (
+                "both files",
+                PASSWD,
+                GROUP,
+                &[
+                    "",
+                    "0",
+                    "root",
+                    "0:0",
+                    "acmesvc",
+                    "1000",
+                    "acmealias",
+                    "acmesolo",
+                    "4242",
+                    "acmesvc:acmedata",
+                    "acmesvc:1004",
+                    "acmesvc:4343",
+                    "1000:acmeextra",
+                    "4242:acmedata",
+                    "4242:4343",
+                    "acmesvc:",
+                    "1000:",
+                    "4242:",
+                    "root:",
+                    ":acmedata",
+                    ":1002",
+                    ":4343",
+                    ":",
+                    "nobody",
+                    "acmesvc:nogroup",
+                    ":nogroup",
+                ],
+            ),
+            (
+                "no /etc/group",
+                PASSWD,
+                "",
+                &[
+                    "",
+                    "0",
+                    "acmesvc",
+                    "1000",
+                    "acmesvc:acmedata",
+                    "acmesvc:1002",
+                    "acmesvc:",
+                    "1000:",
+                    ":acmedata",
+                    ":1002",
+                    ":",
+                ],
+            ),
+            (
+                "no /etc/passwd",
+                "",
+                GROUP,
+                &[
+                    "",
+                    "0",
+                    "acmesvc",
+                    "1000",
+                    "1000:acmedata",
+                    "acmesvc:",
+                    "1000:",
+                    ":acmedata",
+                    ":",
+                ],
+            ),
+            (
+                "neither, as in a scratch image",
+                "",
+                "",
+                &[
+                    "",
+                    "0",
+                    "1000",
+                    "1000:1002",
+                    "acmesvc",
+                    "acmesvc:",
+                    "1000:",
+                    ":1002",
+                    ":",
+                ],
+            ),
+        ];
 
         let mut table = String::new();
-        for user in [
-            "",
-            "acme",
-            "1000",
-            "0",
-            "1234",
-            "acme:acmegrp",
-            "acme:1002",
-            "1234:acmegrp",
-            "1000:acmegrp",
-            "root",
-            "nobody",
-            "acme:nogroup",
-        ] {
-            let outcome = match super::resolve_user(user, PASSWD, GROUP) {
-                Ok((uid, gid)) => format!("{uid}:{gid}"),
-                Err(error) => format!("refused: {error:#}"),
-            };
-            table.push_str(&format!("{user:?} -> {outcome}\n"));
-        }
-
-        // A scratch-based image has no databases at all, so no name resolves.
-        for user in ["", "acme"] {
-            let outcome = match super::resolve_user(user, "", "") {
-                Ok((uid, gid)) => format!("{uid}:{gid}"),
-                Err(error) => format!("refused: {error:#}"),
-            };
-            table.push_str(&format!("{user:?} with no passwd file -> {outcome}\n"));
+        for (name, passwd, group, users) in cases {
+            table.push_str(&format!("## {name}\n"));
+            for user in *users {
+                let outcome = match super::resolve_user(user, passwd, group) {
+                    Ok((uid, gid, groups)) => identity(uid, gid, &groups),
+                    Err(error) => format!("refused: {error:#}"),
+                };
+                table.push_str(&format!("{user:?} -> {outcome}\n"));
+            }
+            table.push('\n');
         }
         insta::assert_snapshot!(table);
+    }
+
+    fn identity(uid: u32, gid: u32, groups: &[u32]) -> String {
+        let groups: Vec<String> = groups.iter().map(u32::to_string).collect();
+        format!("{uid}:{gid} groups [{}]", groups.join(","))
     }
 
     /// `load` over real directory trees. `rootfs` is the image root, and
@@ -408,9 +544,9 @@ mod tests {
         use Entry::{File, Link};
 
         const PASSWD: &str = "root:x:0:0::/root:/bin/sh\nacmesvc:x:1000:1001::/:/bin/sh\n";
-        const GROUP: &str = "root:x:0:\nacmegrp:x:1002:\n";
+        const GROUP: &str = "root:x:0:\nacmegrp:x:1002:acmesvc\n";
         const DECOY_PASSWD: &str = "acmesvc:x:6000:6001::/:/bin/sh\n";
-        const DECOY_GROUP: &str = "acmegrp:x:6002:\n";
+        const DECOY_GROUP: &str = "acmegrp:x:6002:acmesvc\n";
 
         let cases: &[(&str, &[(&str, Entry)], &[&str])] = &[
             (
@@ -518,7 +654,7 @@ mod tests {
                 .unwrap();
 
                 let outcome = match super::load(&inspect, &dir.path().join("rootfs")) {
-                    Ok(config) => format!("{}:{}", config.uid, config.gid),
+                    Ok(config) => identity(config.uid, config.gid, &config.groups),
                     Err(error) => format!("refused: {error:#}"),
                 };
                 table.push_str(&format!("{user:?} -> {outcome}\n"));
@@ -542,6 +678,7 @@ mod tests {
             exec: None,
             uid: 1000,
             gid: 1001,
+            groups: &[1001, 1002, 1004],
             vsock_port: 49092,
         }
     }

@@ -14,6 +14,12 @@ expression: table
 1000
 --gid
 1001
+--supplementary-gid
+1001
+--supplementary-gid
+1002
+--supplementary-gid
+1004
 --connector-mount
 /tmp/connector-mounts-0/mount-acme
 --
@@ -33,6 +39,12 @@ expression: table
 1000
 --gid
 1001
+--supplementary-gid
+1001
+--supplementary-gid
+1002
+--supplementary-gid
+1004
 --connector-mount
 /tmp/connector-mounts-0/mount-acme
 --persistent-disk
@@ -54,6 +66,12 @@ expression: table
 1000
 --gid
 1001
+--supplementary-gid
+1001
+--supplementary-gid
+1002
+--supplementary-gid
+1004
 --connector-mount
 /tmp/connector-mounts-0/mount-acme
 --run-as-root
@@ -76,6 +94,12 @@ sysctl -w vm.drop_caches=3
 1000
 --gid
 1001
+--supplementary-gid
+1001
+--supplementary-gid
+1002
+--supplementary-gid
+1004
 --connector-mount
 /tmp/connector-mounts-0/mount-acme
 --
@@ -83,7 +107,7 @@ sysctl -w vm.drop_caches=3
 -c
 exit 7
 
-## root image user
+## root image user, in no supplementary groups
 /flow-guest-init
 --guest-ip
 192.0.2.2/30

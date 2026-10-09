@@ -64,7 +64,7 @@ fn exec_workload(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     }
 
     if !args.run_as_root {
-        drop_privileges(args.uid, args.gid)?;
+        drop_privileges(args.uid, args.gid, &args.supplementary_gids)?;
     }
 
     let program = std::ffi::CString::new(args.argv[0].as_str())
@@ -104,12 +104,12 @@ fn exec_exit_code(errno: Option<i32>) -> u8 {
 
 /// setgroups before setgid before setuid: after the uid is dropped there is no
 /// privilege left to do the other two.
-fn drop_privileges(uid: u32, gid: u32) -> Result<(), String> {
-    // Safety: none of the three take pointer arguments except setgroups, whose
-    // zero-length list is passed as NULL.
+fn drop_privileges(uid: u32, gid: u32, groups: &[u32]) -> Result<(), String> {
+    // Safety: setgroups reads `groups.len()` gids from a slice that outlives
+    // the call, and the other two take no pointers.
     unsafe {
-        if libc::setgroups(0, std::ptr::null()) < 0 {
-            return Err(sys::last_error("setgroups([])"));
+        if libc::setgroups(groups.len(), groups.as_ptr()) < 0 {
+            return Err(sys::last_error(format!("setgroups({groups:?})")));
         }
         if libc::setgid(gid) < 0 {
             return Err(sys::last_error(format!("setgid({gid})")));

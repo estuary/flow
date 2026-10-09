@@ -2,17 +2,65 @@
 source: crates/connector-vmm/src/image.rs
 expression: table
 ---
-"" -> 0:0
-"acme" -> 1000:1001
-"1000" -> 1000:1001
-"0" -> 0:0
-"1234" -> 1234:0
-"acme:acmegrp" -> 1000:1002
-"acme:1002" -> 1000:1002
-"1234:acmegrp" -> 1234:1002
-"1000:acmegrp" -> 1000:1002
-"root" -> 0:0
+## both files
+"" -> 0:0 groups [1007]
+"0" -> 0:0 groups [0,1007]
+"root" -> 0:0 groups [0,1007]
+"0:0" -> 0:0 groups [0]
+"acmesvc" -> 1000:1001 groups [1001,1002,1004]
+"1000" -> 1000:1001 groups [1001,1002,1004]
+"acmealias" -> 1000:1005 groups [1005]
+"acmesolo" -> 1006:1006 groups [1006]
+"4242" -> 4242:0 groups [0]
+"acmesvc:acmedata" -> 1000:1002 groups [1002]
+"acmesvc:1004" -> 1000:1004 groups [1004]
+"acmesvc:4343" -> 1000:4343 groups [4343]
+"1000:acmeextra" -> 1000:1004 groups [1004]
+"4242:acmedata" -> 4242:1002 groups [1002]
+"4242:4343" -> 4242:4343 groups [4343]
+"acmesvc:" -> 1000:1001 groups [1001]
+"1000:" -> 1000:1001 groups [1001]
+"4242:" -> 4242:0 groups [0]
+"root:" -> 0:0 groups [0]
+":acmedata" -> 0:1002 groups [1002]
+":1002" -> 0:1002 groups [1002]
+":4343" -> 0:4343 groups [4343]
+":" -> 0:0 groups [0]
 "nobody" -> refused: user "nobody" is not in the image's /etc/passwd
-"acme:nogroup" -> refused: group "nogroup" is not in the image's /etc/group
-"" with no passwd file -> 0:0
-"acme" with no passwd file -> refused: user "acme" is not in the image's /etc/passwd
+"acmesvc:nogroup" -> refused: group "nogroup" is not in the image's /etc/group
+":nogroup" -> refused: group "nogroup" is not in the image's /etc/group
+
+## no /etc/group
+"" -> 0:0 groups []
+"0" -> 0:0 groups [0]
+"acmesvc" -> 1000:1001 groups [1001]
+"1000" -> 1000:1001 groups [1001]
+"acmesvc:acmedata" -> refused: group "acmedata" is not in the image's /etc/group
+"acmesvc:1002" -> 1000:1002 groups [1002]
+"acmesvc:" -> 1000:1001 groups [1001]
+"1000:" -> 1000:1001 groups [1001]
+":acmedata" -> refused: group "acmedata" is not in the image's /etc/group
+":1002" -> 0:1002 groups [1002]
+":" -> 0:0 groups [0]
+
+## no /etc/passwd
+"" -> 0:0 groups []
+"0" -> 0:0 groups [0]
+"acmesvc" -> refused: user "acmesvc" is not in the image's /etc/passwd
+"1000" -> 1000:0 groups [0]
+"1000:acmedata" -> 1000:1002 groups [1002]
+"acmesvc:" -> refused: user "acmesvc" is not in the image's /etc/passwd
+"1000:" -> 1000:0 groups [0]
+":acmedata" -> 0:1002 groups [1002]
+":" -> 0:0 groups [0]
+
+## neither, as in a scratch image
+"" -> 0:0 groups []
+"0" -> 0:0 groups [0]
+"1000" -> 1000:0 groups [0]
+"1000:1002" -> 1000:1002 groups [1002]
+"acmesvc" -> refused: user "acmesvc" is not in the image's /etc/passwd
+"acmesvc:" -> refused: user "acmesvc" is not in the image's /etc/passwd
+"1000:" -> 1000:0 groups [0]
+":1002" -> 0:1002 groups [1002]
+":" -> 0:0 groups [0]

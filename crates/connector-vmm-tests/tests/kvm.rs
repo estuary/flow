@@ -367,6 +367,92 @@ fn image_user_through_linked_account_files() {
     run::podman(&["image", "rm", &image]);
 }
 
+/// Access requires an image group membership, not the user's primary gid.
+#[test]
+fn image_user_reads_through_a_supplementary_group() {
+    let run = run::load();
+    let image = format!(
+        "localhost/connector-vmm-kvm-supplementary-group:{}",
+        run::random_hex()
+    );
+    run::record("image", &image);
+    let containerfile = format!(
+        "FROM {}\n\
+         USER root\n\
+         RUN echo 'acmesvc:x:4321:4321::/:/usr/sbin/nologin' >> /etc/passwd \
+         && echo 'acmedata:x:4323:acmesvc' >> /etc/group \
+         && mkdir /acme-data && echo acme-secret > /acme-data/secret \
+         && chown -R 0:4323 /acme-data && chmod 0750 /acme-data && chmod 0640 /acme-data/secret\n\
+         USER acmesvc\n",
+        run.guest_image
+    );
+    let context = run::fixture("");
+    let built = run::sudo_output(
+        &[
+            "podman",
+            "build",
+            "-q",
+            "-t",
+            &image,
+            "-f",
+            "-",
+            &context.to_string_lossy(),
+        ],
+        Some(containerfile.as_bytes()),
+    );
+    assert!(
+        built.status.success(),
+        "building {image}: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let spec = run::Spec {
+        connector_image: image.clone(),
+        ..run::Spec::probes(&run, "none.json")
+    };
+    let (vmm, mut guest) = start(&run, spec);
+    let status = probe(
+        &mut guest,
+        "status",
+        "read",
+        serde_json::json!({"path": "/proc/self/status"}),
+    );
+    // The kernel ends the `Groups:` list with a space, so compare its fields.
+    let ids: Vec<Vec<&str>> = status["content"]
+        .as_str()
+        .unwrap_or_else(|| panic!("reading /proc/self/status: {status}"))
+        .lines()
+        .filter(|line| {
+            ["Uid:", "Gid:", "Groups:"]
+                .iter()
+                .any(|key| line.starts_with(key))
+        })
+        .map(|line| line.split_whitespace().collect())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            vec!["Uid:", "4321", "4321", "4321", "4321"],
+            vec!["Gid:", "4321", "4321", "4321", "4321"],
+            vec!["Groups:", "4321", "4323"],
+        ]
+    );
+    let secret = probe(
+        &mut guest,
+        "secret",
+        "read",
+        serde_json::json!({"path": "/acme-data/secret"}),
+    );
+    assert_eq!(
+        secret,
+        serde_json::json!({"content": "acme-secret\n"}),
+        "secret"
+    );
+
+    std::mem::drop((guest, vmm));
+    run::podman(&["image", "rm", &image]);
+}
+
 /// The default workload: connector-init from the connector mount,
 /// serving over vsock, answering a Spec RPC dialed unprivileged.
 #[test]
