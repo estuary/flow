@@ -235,6 +235,9 @@ pub struct SequencedDoc {
     pub is_commit: bool,
     /// Whether this document triggers a replay of a gapped producer.
     pub replay: bool,
+    /// Whether this ACK projects its causal hints: it's a rollback, or it
+    /// committed a span which may have appended documents (see `extract_causal_hints`).
+    pub projects_hints: bool,
     /// Updated producer state to commit after processing this document.
     pub producer_state: ProducerState,
     /// Backfill-begin control-doc clock this document committed (zero = none).
@@ -378,6 +381,7 @@ pub fn sequence_producer(
     } = meta;
 
     // Determine the message's sequencing outcome.
+    let prior_commit = producer_state.last_commit;
     let was_gapped = producer_state.is_gapped();
     let outcome = uuid::sequence(
         *flags,
@@ -465,6 +469,19 @@ pub fn sequence_producer(
         && *clock >= truncated_at
         && *clock < binding.not_after;
 
+    // A committing ACK's span has clocks between its producer's prior
+    // `last_commit` (a lesser clock sequences as a duplicate) and its own. If
+    // that range misses the window above, this binding appended none of it.
+    let projects_hints = match outcome {
+        uuid::SequenceOutcome::AckCommit | uuid::SequenceOutcome::AckEmpty => {
+            *clock >= binding.not_before
+                && *clock >= truncated_at
+                && prior_commit < binding.not_after
+        }
+        uuid::SequenceOutcome::AckCleanRollback | uuid::SequenceOutcome::AckDeepRollback => true,
+        _ => false,
+    };
+
     tracing::trace!(
         %journal,
         binding = binding.state_key(),
@@ -475,6 +492,7 @@ pub fn sequence_producer(
         is_append,
         is_commit,
         replay,
+        projects_hints,
         "sequenced document"
     );
 
@@ -482,6 +500,7 @@ pub fn sequence_producer(
         is_append,
         is_commit,
         replay,
+        projects_hints,
         producer_state,
         backfill_begin,
         backfill_complete,
@@ -508,9 +527,12 @@ pub fn sequence_producer(
 ///
 /// Hinted journals of other cohorts will have their own ACKs, and will project to
 /// hints internal to their own cohort's progress tracking.
+///
+/// Hints are also filtered to bindings which can append documents of the
+/// hinted transaction: see `extract_causal_hints`.
 pub struct HintIndex {
-    /// (prefix, binding_index, cohort, filter), sorted by (prefix, binding_index).
-    entries: Vec<(Box<str>, u16, u32, PartitionFilter)>,
+    /// (prefix, binding_index, cohort, not_before, filter), sorted by (prefix, binding_index).
+    entries: Vec<(Box<str>, u16, u32, uuid::Clock, PartitionFilter)>,
     /// True if some cohort reads one journal-prefix under multiple bindings — so a
     /// journal may be read by ≥2 bindings of a cohort. When false (the common case
     /// where each journal maps 1:1 to a binding), `extract_causal_hints` skips
@@ -519,8 +541,10 @@ pub struct HintIndex {
 }
 
 impl HintIndex {
-    pub fn new<'a>(entries: impl Iterator<Item = (&'a str, u16, u32, PartitionFilter)>) -> Self {
-        let mut index: Vec<(&str, u16, u32, PartitionFilter)> = entries.collect();
+    pub fn new<'a>(
+        entries: impl Iterator<Item = (&'a str, u16, u32, uuid::Clock, PartitionFilter)>,
+    ) -> Self {
+        let mut index: Vec<(&str, u16, u32, uuid::Clock, PartitionFilter)> = entries.collect();
 
         index.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
 
@@ -536,13 +560,15 @@ impl HintIndex {
         let mut seen_prefix_cohort = std::collections::HashSet::new();
         let cohort_shares_journal = index
             .iter()
-            .any(|(prefix, _, cohort, _)| !seen_prefix_cohort.insert((*prefix, *cohort)));
+            .any(|(prefix, _, cohort, _, _)| !seen_prefix_cohort.insert((*prefix, *cohort)));
 
         // Now that we've sorted, re-allocate partition name prefixes.
         // This ensures aligns memory locality and ordering with our query pattern.
-        let entries: Vec<(Box<str>, u16, u32, PartitionFilter)> = index
+        let entries: Vec<(Box<str>, u16, u32, uuid::Clock, PartitionFilter)> = index
             .into_iter()
-            .map(|(prefix, idx, cohort, filter)| (Box::from(prefix), idx, cohort, filter))
+            .map(|(prefix, idx, cohort, not_before, filter)| {
+                (Box::from(prefix), idx, cohort, not_before, filter)
+            })
             .collect();
 
         Self {
@@ -558,24 +584,32 @@ impl HintIndex {
                 source.partition_prefix.as_ref(),
                 b.index,
                 b.cohort,
+                b.not_before,
                 PartitionFilter::new(&source.partition_fields, &b.partition_selector),
             )
         }))
     }
 
     /// Find all binding indices whose prefix matches `journal` within `cohort`,
-    /// filtering by each entry's partition selector.
+    /// filtering by each entry's partition selector, and to bindings whose
+    /// `notBefore` is at or below `clock`.
     ///
     /// Because no collection prefix is a prefix of another, there is at most
     /// one matching prefix for any journal name.
-    pub fn lookup(&self, journal: &str, cohort: u32, out: &mut Vec<u16>) -> anyhow::Result<()> {
+    pub fn lookup(
+        &self,
+        journal: &str,
+        cohort: u32,
+        clock: uuid::Clock,
+        out: &mut Vec<u16>,
+    ) -> anyhow::Result<()> {
         out.clear();
 
         // Find the first entry whose partition name prefix is > journal.
         // The matching prefix, if any, is immediately before this position.
         let pos = self
             .entries
-            .partition_point(|(prefix, _, _, _)| prefix.as_ref() <= journal);
+            .partition_point(|(prefix, _, _, _, _)| prefix.as_ref() <= journal);
         if pos == 0 {
             return Ok(());
         }
@@ -587,13 +621,14 @@ impl HintIndex {
         }
 
         // Scan all entries sharing this prefix (they are contiguous and sorted).
-        for &(ref prefix, binding_idx, binding_cohort, ref filter) in
+        for &(ref prefix, binding_idx, binding_cohort, not_before, ref filter) in
             self.entries[..pos].iter().rev()
         {
             if prefix != matched_prefix {
                 break;
             }
             if binding_cohort == cohort
+                && clock >= not_before
                 && filter.matches_name_suffix(&journal[matched_prefix.len()..])?
             {
                 out.push(binding_idx);
@@ -606,6 +641,24 @@ impl HintIndex {
 
 /// Decode causal hints from an ACK document and project them through the
 /// `hint_index` into `causal_hints` entries keyed by (journal, binding_index).
+///
+/// A hint is projected only between bindings which both append documents of
+/// its transaction, as only they have visibility to coordinate. The caller
+/// extracts no committing ACK whose span lies outside its binding's
+/// `notBefore` / `notAfter` window (`SequencedDoc::projects_hints`).
+/// Here, hints aren't projected onto a
+/// binding whose `notBefore` is above the hinted clock, as the transaction's
+/// documents have lesser clocks.
+///
+/// These are not only unneeded, but stall checkpoints. A flush of documents
+/// which were appended completes only once its lane's merge reaches them,
+/// when every binding of the lane has read through their clock, so their
+/// hints resolve promptly. But a flush having no Appends before it completes
+/// immediately, unordered with its lane: as of a binding's read which begins
+/// at the fragment preceding its `notBefore`, or which reads past its
+/// `notAfter` and so on ahead of the lane. Its hints may name a binding of
+/// the lane whose read of the hinted clock is a lane-wide catch-up away, or
+/// whose read began after it and never will.
 pub fn extract_causal_hints<N: json::AsNode>(
     hint_index: &HintIndex,
     ack_journal: &str,
@@ -625,7 +678,12 @@ pub fn extract_causal_hints<N: json::AsNode>(
             anyhow::anyhow!("decoding causal hint from ACK in {ack_journal}: {err}")
         })?;
 
-        hint_index.lookup(hinted_journal, ack_cohort, &mut matched_bindings)?;
+        hint_index.lookup(
+            hinted_journal,
+            ack_cohort,
+            hinted_clock,
+            &mut matched_bindings,
+        )?;
 
         for &binding_idx in &matched_bindings {
             causal_hints
@@ -642,7 +700,7 @@ pub fn extract_causal_hints<N: json::AsNode>(
     // producer's commit. Skipped unless a cohort actually shares a journal
     // across bindings.
     if hint_index.cohort_shares_journal {
-        hint_index.lookup(ack_journal, ack_cohort, &mut matched_bindings)?;
+        hint_index.lookup(ack_journal, ack_cohort, ack_clock, &mut matched_bindings)?;
 
         for &binding_idx in &matched_bindings {
             if binding_idx == ack_binding_index {
@@ -1605,12 +1663,29 @@ mod test {
             },
         );
 
-        let cases: Vec<(Vec<(&str, u16, u32, PartitionFilter)>, &str, u32, Vec<u16>)> = vec![
+        let cases: Vec<(
+            Vec<(&str, u16, u32, Clock, PartitionFilter)>,
+            &str,
+            u32,
+            Vec<u16>,
+        )> = vec![
             // Prefix match: anvils has 1 partition field, bananas has 0.
             (
                 vec![
-                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/bananas/", 1, 0, passthrough_filter(&[])),
+                    (
+                        "acmeCo/anvils/",
+                        0,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
+                    (
+                        "acmeCo/bananas/",
+                        1,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&[]),
+                    ),
                 ],
                 "acmeCo/anvils/part=a/pivot=00",
                 0,
@@ -1618,8 +1693,20 @@ mod test {
             ),
             (
                 vec![
-                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/bananas/", 1, 0, passthrough_filter(&[])),
+                    (
+                        "acmeCo/anvils/",
+                        0,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
+                    (
+                        "acmeCo/bananas/",
+                        1,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&[]),
+                    ),
                 ],
                 "acmeCo/bananas/pivot=00",
                 0,
@@ -1628,8 +1715,20 @@ mod test {
             // No matching prefix.
             (
                 vec![
-                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/bananas/", 1, 0, passthrough_filter(&[])),
+                    (
+                        "acmeCo/anvils/",
+                        0,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
+                    (
+                        "acmeCo/bananas/",
+                        1,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&[]),
+                    ),
                 ],
                 "other/collection/pivot=00",
                 0,
@@ -1638,8 +1737,20 @@ mod test {
             // Cohort filtering: same prefix, different cohorts.
             (
                 vec![
-                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/anvils/", 1, 1, passthrough_filter(&["part"])),
+                    (
+                        "acmeCo/anvils/",
+                        0,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
+                    (
+                        "acmeCo/anvils/",
+                        1,
+                        1,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
                 ],
                 "acmeCo/anvils/part=a/pivot=00",
                 0,
@@ -1647,8 +1758,20 @@ mod test {
             ),
             (
                 vec![
-                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/anvils/", 1, 1, passthrough_filter(&["part"])),
+                    (
+                        "acmeCo/anvils/",
+                        0,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
+                    (
+                        "acmeCo/anvils/",
+                        1,
+                        1,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
                 ],
                 "acmeCo/anvils/part=a/pivot=00",
                 1,
@@ -1657,8 +1780,20 @@ mod test {
             // Unknown cohort.
             (
                 vec![
-                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/anvils/", 1, 1, passthrough_filter(&["part"])),
+                    (
+                        "acmeCo/anvils/",
+                        0,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
+                    (
+                        "acmeCo/anvils/",
+                        1,
+                        1,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
                 ],
                 "acmeCo/anvils/part=a/pivot=00",
                 99,
@@ -1667,8 +1802,20 @@ mod test {
             // Multiple bindings, same prefix and cohort.
             (
                 vec![
-                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/anvils/", 1, 0, passthrough_filter(&["part"])),
+                    (
+                        "acmeCo/anvils/",
+                        0,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
+                    (
+                        "acmeCo/anvils/",
+                        1,
+                        0,
+                        Clock::zero(),
+                        passthrough_filter(&["part"]),
+                    ),
                 ],
                 "acmeCo/anvils/part=a/pivot=00",
                 0,
@@ -1676,21 +1823,21 @@ mod test {
             ),
             // Partition filter: "alpha" is included, "eu" not excluded.
             (
-                vec![("acmeCo/anvils/", 0, 0, filter.clone())],
+                vec![("acmeCo/anvils/", 0, 0, Clock::zero(), filter.clone())],
                 "acmeCo/anvils/category=alpha/region=eu/pivot=00",
                 0,
                 vec![0],
             ),
             // Partition filter: "beta" is not included, "eu" not excluded.
             (
-                vec![("acmeCo/anvils/", 0, 0, filter.clone())],
+                vec![("acmeCo/anvils/", 0, 0, Clock::zero(), filter.clone())],
                 "acmeCo/anvils/category=beta/region=eu/pivot=00",
                 0,
                 vec![],
             ),
             // Partition filter: "alpha" is included, "bad" is excluded.
             (
-                vec![("acmeCo/anvils/", 0, 0, filter.clone())],
+                vec![("acmeCo/anvils/", 0, 0, Clock::zero(), filter.clone())],
                 "acmeCo/anvils/category=beta/region=bad/pivot=00",
                 0,
                 vec![],
@@ -1700,7 +1847,9 @@ mod test {
         let mut out = Vec::new();
         for (entries, journal, cohort, expected) in cases {
             let index = HintIndex::new(entries.into_iter());
-            index.lookup(&journal, cohort, &mut out).unwrap();
+            index
+                .lookup(&journal, cohort, Clock::zero(), &mut out)
+                .unwrap();
             out.sort();
             assert_eq!(&out, &expected, "journal={journal}, cohort={cohort}");
         }
@@ -1710,8 +1859,20 @@ mod test {
         // anvils has 1 partition field ("part"), bananas has 0.
         HintIndex::new(
             [
-                ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
-                ("acmeCo/bananas/", 1, 0, passthrough_filter(&[])),
+                (
+                    "acmeCo/anvils/",
+                    0,
+                    0,
+                    Clock::zero(),
+                    passthrough_filter(&["part"]),
+                ),
+                (
+                    "acmeCo/bananas/",
+                    1,
+                    0,
+                    Clock::zero(),
+                    passthrough_filter(&[]),
+                ),
             ]
             .into_iter(),
         )
@@ -1829,9 +1990,27 @@ mod test {
         // reads a different prefix. Sharing is detected.
         let index = HintIndex::new(
             [
-                ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
-                ("acmeCo/anvils/", 1, 0, passthrough_filter(&["part"])),
-                ("acmeCo/bananas/", 2, 0, passthrough_filter(&[])),
+                (
+                    "acmeCo/anvils/",
+                    0,
+                    0,
+                    Clock::zero(),
+                    passthrough_filter(&["part"]),
+                ),
+                (
+                    "acmeCo/anvils/",
+                    1,
+                    0,
+                    Clock::zero(),
+                    passthrough_filter(&["part"]),
+                ),
+                (
+                    "acmeCo/bananas/",
+                    2,
+                    0,
+                    Clock::zero(),
+                    passthrough_filter(&[]),
+                ),
             ]
             .into_iter(),
         );
@@ -1843,9 +2022,27 @@ mod test {
         // Sharing must still be detected.
         let index_interleaved = HintIndex::new(
             [
-                ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
-                ("acmeCo/anvils/", 1, 1, passthrough_filter(&["part"])),
-                ("acmeCo/anvils/", 2, 0, passthrough_filter(&["part"])),
+                (
+                    "acmeCo/anvils/",
+                    0,
+                    0,
+                    Clock::zero(),
+                    passthrough_filter(&["part"]),
+                ),
+                (
+                    "acmeCo/anvils/",
+                    1,
+                    1,
+                    Clock::zero(),
+                    passthrough_filter(&["part"]),
+                ),
+                (
+                    "acmeCo/anvils/",
+                    2,
+                    0,
+                    Clock::zero(),
+                    passthrough_filter(&["part"]),
+                ),
             ]
             .into_iter(),
         );
@@ -1886,5 +2083,154 @@ mod test {
                 vec![(p1, Clock::from_u64(100))],
             )],
         );
+    }
+
+    #[test]
+    fn test_extract_causal_hints_not_before() {
+        // Bindings of one cohort, reading anvils and bananas journals from
+        // "deep" (notBefore 0) and "shallow" (notBefore 500) positions.
+        let index = HintIndex::new(
+            [
+                (
+                    "acmeCo/anvils/",
+                    0,
+                    0,
+                    Clock::zero(),
+                    passthrough_filter(&["part"]),
+                ),
+                (
+                    "acmeCo/anvils/",
+                    1,
+                    0,
+                    Clock::from_u64(500),
+                    passthrough_filter(&["part"]),
+                ),
+                (
+                    "acmeCo/bananas/",
+                    2,
+                    0,
+                    Clock::from_u64(500),
+                    passthrough_filter(&[]),
+                ),
+                (
+                    "acmeCo/bananas/",
+                    3,
+                    0,
+                    Clock::zero(),
+                    passthrough_filter(&[]),
+                ),
+            ]
+            .into_iter(),
+        );
+        let anvils = "acmeCo/anvils/part=a/pivot=00";
+        let p1 = producer(0x00);
+
+        // Project the anvils ACK of a transaction committed at `commit` across
+        // anvils and bananas, as read by `binding`.
+        let project = |binding: u16, commit: u64| {
+            let txn = vec![(
+                p1,
+                Clock::from_u64(commit),
+                vec![anvils.to_string(), "acmeCo/bananas/pivot=00".to_string()],
+            )];
+            let journal_acks = publisher::intents::build_transaction_intents(&txn, None);
+            let (_, ndjson) = journal_acks
+                .iter()
+                .find(|(journal, _)| *journal == anvils)
+                .unwrap();
+            let first_line = ndjson.split(|b| *b == b'\n').next().unwrap();
+            let ack: serde_json::Value = serde_json::from_slice(first_line).unwrap();
+            let (ack_producer, ack_clock, _flags) =
+                uuid::parse_str(ack["_meta"]["uuid"].as_str().unwrap()).unwrap();
+
+            let mut causal_hints = CausalHints::default();
+            extract_causal_hints(
+                &index,
+                anvils,
+                0,
+                binding,
+                ack_producer,
+                ack_clock,
+                &ack,
+                &mut causal_hints,
+            )
+            .unwrap();
+
+            let mut entries: Vec<_> = causal_hints
+                .iter()
+                .map(|((j, b), hints)| (j.as_ref().to_string(), *b, hints.clone()))
+                .collect();
+            entries.sort();
+            entries
+        };
+
+        insta::assert_debug_snapshot!([
+            // A commit below shallow bindings' notBefore projects only onto
+            // deep bindings: no shallow binding appends its documents.
+            (
+                "deep binding, commit below shallow notBefore",
+                project(0, 100)
+            ),
+            (
+                "deep binding, commit above shallow notBefore",
+                project(0, 600)
+            ),
+            (
+                "shallow binding, commit above shallow notBefore",
+                project(1, 600)
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_sequence_projects_hints() {
+        let mut binding = test_binding(0, true, None, "/suffix");
+        binding.not_before = Clock::from_u64(100);
+        binding.not_after = Clock::from_u64(500);
+        let p1 = producer(0x01);
+
+        // (prior last_commit, prior max_continue, flags, clock, truncated_at, expect).
+        let cases = [
+            // The span (50, 90) is below notBefore.
+            (50, 80, ACK, 90, 0, false),
+            // The span (50, 160) straddles notBefore.
+            (50, 150, ACK, 160, 0, true),
+            (200, 300, ACK, 310, 0, true),
+            // The span (450, 610) straddles notAfter.
+            (450, 600, ACK, 610, 0, true),
+            // The span (500, 610) is at and above notAfter.
+            (500, 600, ACK, 610, 0, false),
+            // The span (200, 310) is below, or straddles, `truncated_at`.
+            (200, 300, ACK, 310, 400, false),
+            (200, 300, ACK, 310, 250, true),
+            // AckEmpty: the span may precede the read.
+            (200, 0, ACK, 310, 0, true),
+            (50, 0, ACK, 90, 0, false),
+            (500, 0, ACK, 610, 0, false),
+            // AckCleanRollback and AckDeepRollback.
+            (200, 300, ACK, 200, 0, true),
+            (200, 300, ACK, 150, 0, true),
+            // OUTSIDE_TXN carries no hints.
+            (200, 0, OUTSIDE, 310, 0, false),
+        ];
+        for (last_commit, max_continue, flags, clock, truncated_at, expect) in cases {
+            let prior = ProducerState {
+                last_commit: Clock::from_u64(last_commit),
+                max_continue: Clock::from_u64(max_continue),
+                offset: if max_continue == 0 { -10 } else { 10 },
+            };
+            let seq = sequence_producer(
+                prior,
+                "test/journal/A",
+                Clock::from_u64(truncated_at),
+                &binding,
+                &meta(p1, Clock::from_u64(clock), flags, 20, 30),
+            )
+            .unwrap();
+            assert_eq!(
+                seq.projects_hints, expect,
+                "last_commit={last_commit} max_continue={max_continue} clock={clock} truncated_at={truncated_at}"
+            );
+        }
     }
 }

@@ -1,0 +1,91 @@
+---
+source: crates/shuffle/src/slice/state.rs
+expression: "[(\"deep binding, commit below shallow notBefore\", project(0, 100)),\n(\"deep binding, commit above shallow notBefore\", project(0, 600)),\n(\"shallow binding, commit above shallow notBefore\", project(1, 600)),]"
+---
+[
+    (
+        "deep binding, commit below shallow notBefore",
+        [
+            (
+                "acmeCo/bananas/pivot=00",
+                3,
+                [
+                    (
+                        Producer(01:00:00:00:00:00),
+                        Clock(0s 16ns),
+                    ),
+                ],
+            ),
+        ],
+    ),
+    (
+        "deep binding, commit above shallow notBefore",
+        [
+            (
+                "acmeCo/anvils/part=a/pivot=00",
+                1,
+                [
+                    (
+                        Producer(01:00:00:00:00:00),
+                        Clock(0s 32ns),
+                    ),
+                ],
+            ),
+            (
+                "acmeCo/bananas/pivot=00",
+                2,
+                [
+                    (
+                        Producer(01:00:00:00:00:00),
+                        Clock(0s 32ns),
+                    ),
+                ],
+            ),
+            (
+                "acmeCo/bananas/pivot=00",
+                3,
+                [
+                    (
+                        Producer(01:00:00:00:00:00),
+                        Clock(0s 32ns),
+                    ),
+                ],
+            ),
+        ],
+    ),
+    (
+        "shallow binding, commit above shallow notBefore",
+        [
+            (
+                "acmeCo/anvils/part=a/pivot=00",
+                0,
+                [
+                    (
+                        Producer(01:00:00:00:00:00),
+                        Clock(0s 32ns),
+                    ),
+                ],
+            ),
+            (
+                "acmeCo/bananas/pivot=00",
+                2,
+                [
+                    (
+                        Producer(01:00:00:00:00:00),
+                        Clock(0s 32ns),
+                    ),
+                ],
+            ),
+            (
+                "acmeCo/bananas/pivot=00",
+                3,
+                [
+                    (
+                        Producer(01:00:00:00:00:00),
+                        Clock(0s 32ns),
+                    ),
+                ],
+            ),
+        ],
+    ),
+]

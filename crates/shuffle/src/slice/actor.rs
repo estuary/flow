@@ -893,7 +893,6 @@ impl SliceActor {
                         end_offset,
                         producer,
                         clock,
-                        flags,
                         ..
                     },
                 doc,
@@ -926,7 +925,7 @@ impl SliceActor {
                 .set(clock_seconds as f64 + clock_nanos as f64 / 1_000_000_000.0);
 
             if sequenced.is_commit {
-                if flags.is_ack() {
+                if sequenced.projects_hints {
                     // This ACK is (binding, journal)-scoped: it commits only
                     // this producer's documents in this binding's read of this journal.
                     // But, it may contain causal hints of *other* journals which

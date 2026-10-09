@@ -1250,6 +1250,10 @@ async fn partition_filtered_hints(
 /// Verify that filtered documents are NOT yielded by the reader, but the
 /// frontier still shows the producer committed on both bindings — flush and
 /// progress propagate regardless of clock filtering.
+///
+/// The apples ACK projects no causal hint onto bananas, as apples appends no
+/// document of the transaction. So its commit may be checkpointed before that
+/// of bananas, and we read checkpoints through both journals' write heads.
 async fn clock_window_filtering(
     materialization_spec: &flow::MaterializationSpec,
     capture_spec: &flow::CaptureSpec,
@@ -1325,7 +1329,7 @@ async fn clock_window_filtering(
     .await
     .expect("SessionClient::open");
 
-    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    let frontier = read_through_write_heads(&mut session, 2).await;
     let mut shard_state: ShardState = (0..1).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(

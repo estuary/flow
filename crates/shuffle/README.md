@@ -192,6 +192,14 @@ and ACKs can contain "causal hints" that tell a reader that the ACK correlates w
 related ACKs in specific journals. To support end-to-end multi journal transactions,
 this implementation delays checkpoint visibility until the correlated committing
 closes across read journals of the same cohort have all been read through.
+A hint relates only bindings which both append documents of its transaction:
+none are projected from a committing ACK whose span lies outside its binding's
+`notBefore` / `notAfter` window (`SequencedDoc::projects_hints`), nor onto a
+binding whose `notBefore` is above the hinted clock (`extract_causal_hints`).
+Such hints would coordinate nothing, and would escape the lane's merge order
+which otherwise keeps hint resolution prompt: a flush with no Appends before
+it completes immediately, as does each of a read which runs ahead of its lane
+past its `notAfter`.
 
 **Cohorts**: Journals having the same priority and read-delay are grouped together
 into cohorts, which is the unit of transaction visibility coordination: a hint's
