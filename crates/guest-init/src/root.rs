@@ -23,8 +23,25 @@ pub fn write_etc(nameserver: Ipv4Addr, guest_ip: Ipv4Addr) -> Result<()> {
     let (resolv_conf, hosts) = etc_files(nameserver, guest_ip, hostname.trim());
 
     sys::mkdir("/etc", 0o755)?;
-    sys::write_file("/etc/resolv.conf", &resolv_conf)?;
-    sys::write_file("/etc/hosts", &hosts)
+    write_etc_files("/etc", &resolv_conf, &hosts)
+}
+
+/// Image symlinks can point into directories unavailable during init. Replace
+/// the links without touching their targets; no workload runs yet.
+fn write_etc_files(etc: &str, resolv_conf: &str, hosts: &str) -> Result<()> {
+    for (name, content) in [("resolv.conf", resolv_conf), ("hosts", hosts)] {
+        let path = format!("{etc}/{name}");
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_symlink() => {
+                std::fs::remove_file(&path).map_err(|e| format!("removing symlink {path}: {e}"))?
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("inspecting {path}: {e}")),
+        }
+        sys::write_file(&path, content)?;
+    }
+    Ok(())
 }
 
 /// `/etc/resolv.conf` and `/etc/hosts`, in that order.
@@ -151,5 +168,120 @@ mod tests {
             ));
         }
         insta::assert_snapshot!(rendered);
+    }
+
+    #[test]
+    fn write_etc_files() {
+        let mut rendered = String::new();
+
+        for case in [
+            "regular files",
+            "absent",
+            "dangling relative symlinks",
+            "dangling absolute symlinks",
+            "relative symlinks to files",
+            "absolute symlinks to files",
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let (etc, image) = (temp.path().join("etc"), temp.path().join("image"));
+            std::fs::create_dir(&etc).unwrap();
+            std::fs::create_dir(&image).unwrap();
+
+            for name in ["resolv.conf", "hosts"] {
+                let (path, target) = (etc.join(name), image.join(name));
+                match case {
+                    // The hard link shows each write landed in place.
+                    "regular files" => {
+                        std::fs::write(&path, "from the image\n").unwrap();
+                        std::fs::hard_link(&path, &target).unwrap();
+                    }
+                    "absent" => {}
+                    // Into a directory that does not exist, so following it fails.
+                    "dangling relative symlinks" => {
+                        std::os::unix::fs::symlink(format!("../run/{name}"), &path).unwrap();
+                    }
+                    // Into a directory that does, so following it creates the target.
+                    "dangling absolute symlinks" => {
+                        std::os::unix::fs::symlink(&target, &path).unwrap();
+                    }
+                    "relative symlinks to files" => {
+                        std::fs::write(&target, "from the image\n").unwrap();
+                        std::os::unix::fs::symlink(format!("../image/{name}"), &path).unwrap();
+                    }
+                    "absolute symlinks to files" => {
+                        std::fs::write(&target, "from the image\n").unwrap();
+                        std::os::unix::fs::symlink(&target, &path).unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            let result = super::write_etc_files(
+                etc.to_str().unwrap(),
+                "nameserver 192.0.2.1\n",
+                "127.0.0.1 localhost\n",
+            );
+            rendered.push_str(&format!("# {case}: {result:?}\n"));
+
+            for relative in [
+                "etc/resolv.conf",
+                "etc/hosts",
+                "image/resolv.conf",
+                "image/hosts",
+            ] {
+                let path = temp.path().join(relative);
+                let state = match std::fs::symlink_metadata(&path) {
+                    Ok(metadata) if metadata.is_symlink() => "symlink".to_string(),
+                    Ok(_) => format!("{:?}", std::fs::read_to_string(&path).unwrap()),
+                    Err(error) => format!("{:?}", error.kind()),
+                };
+                rendered.push_str(&format!("{relative}: {state}\n"));
+            }
+        }
+        insta::assert_snapshot!(rendered, @r#"
+        # regular files: Ok(())
+        etc/resolv.conf: "nameserver 192.0.2.1\n"
+        etc/hosts: "127.0.0.1 localhost\n"
+        image/resolv.conf: "nameserver 192.0.2.1\n"
+        image/hosts: "127.0.0.1 localhost\n"
+        # absent: Ok(())
+        etc/resolv.conf: "nameserver 192.0.2.1\n"
+        etc/hosts: "127.0.0.1 localhost\n"
+        image/resolv.conf: NotFound
+        image/hosts: NotFound
+        # dangling relative symlinks: Ok(())
+        etc/resolv.conf: "nameserver 192.0.2.1\n"
+        etc/hosts: "127.0.0.1 localhost\n"
+        image/resolv.conf: NotFound
+        image/hosts: NotFound
+        # dangling absolute symlinks: Ok(())
+        etc/resolv.conf: "nameserver 192.0.2.1\n"
+        etc/hosts: "127.0.0.1 localhost\n"
+        image/resolv.conf: NotFound
+        image/hosts: NotFound
+        # relative symlinks to files: Ok(())
+        etc/resolv.conf: "nameserver 192.0.2.1\n"
+        etc/hosts: "127.0.0.1 localhost\n"
+        image/resolv.conf: "from the image\n"
+        image/hosts: "from the image\n"
+        # absolute symlinks to files: Ok(())
+        etc/resolv.conf: "nameserver 192.0.2.1\n"
+        etc/hosts: "127.0.0.1 localhost\n"
+        image/resolv.conf: "from the image\n"
+        image/hosts: "from the image\n"
+        "#);
+    }
+
+    #[test]
+    fn write_etc_files_inspection_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let etc = temp.path().join("etc");
+        std::fs::write(&etc, "").unwrap();
+
+        let result = super::write_etc_files(etc.to_str().unwrap(), "", "");
+        insta::assert_snapshot!(
+            format!("{result:?}").replace(temp.path().to_str().unwrap(), "$TEMP"),
+            @r#"Err("inspecting $TEMP/etc/resolv.conf: Not a directory (os error 20)")"#
+        );
     }
 }
