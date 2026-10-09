@@ -20,6 +20,27 @@ refused: compression pointer at 32 does not point backwards
 # a CNAME target of the root
 records: []
 
+# a CNAME
+records: [CNAME cdn.acmeco.example ttl 300]
+
+# a CNAME target as a backward compression pointer
+records: [CNAME acmeco.example ttl 300]
+
+# a CNAME target of labels then a compression pointer
+records: [CNAME cdn.acmeco.example ttl 300]
+
+# a CNAME target running on into the next record
+refused: CNAME record data is not exactly one name (rdlength 4)
+
+# a CNAME with no record data
+refused: CNAME record data is not exactly one name (rdlength 0)
+
+# a CNAME target's compression pointer cut short by rdlength
+refused: CNAME record data is not exactly one name (rdlength 1)
+
+# a CNAME target with bytes after it
+refused: CNAME record data is not exactly one name (rdlength 22)
+
 # a label above 63 bytes
 refused: reserved label length 0x40
 

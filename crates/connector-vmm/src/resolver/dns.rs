@@ -142,7 +142,15 @@ pub fn answer_records(message: &[u8]) -> anyhow::Result<Vec<Record>> {
                 });
             } else if rtype == TYPE_CNAME {
                 let mut target = String::new();
-                read_name(message, cursor, &mut target)?;
+                // The data is one name and nothing else. A name allowed to
+                // run on would take its last labels from the next record's
+                // owner, and the target remembered would be one the answer
+                // never named.
+                if read_name(message, cursor, &mut target)? != cursor + rdlength {
+                    anyhow::bail!(
+                        "CNAME record data is not exactly one name (rdlength {rdlength})"
+                    );
+                }
 
                 // The root is not a name anything can be re-queried under.
                 if !target.is_empty() {
@@ -283,6 +291,17 @@ mod tests {
         out
     }
 
+    fn cname_record(owner: &str, rdata: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        encode_name(owner, &mut out);
+        out.extend(super::TYPE_CNAME.to_be_bytes());
+        out.extend(super::CLASS_IN.to_be_bytes());
+        out.extend(300u32.to_be_bytes());
+        out.extend((rdata.len() as u16).to_be_bytes());
+        out.extend(rdata);
+        out
+    }
+
     #[test]
     fn parsing() {
         let mut table = String::new();
@@ -337,6 +356,30 @@ mod tests {
         root_target.extend(1u16.to_be_bytes());
         root_target.push(0);
 
+        let mut cdn = Vec::new();
+        encode_name("cdn.acmeco.example", &mut cdn);
+
+        // The question `www.acmeco.example` begins at offset 12, so its
+        // `acmeco.example` is at 16.
+        let apex_pointer = [0xC0, 16];
+        let mut cdn_pointer = vec![3, b'c', b'd', b'n'];
+        cdn_pointer.extend(apex_pointer);
+
+        // Labels with no root label to end them: read on, they take the next
+        // record's owner as their own and make `cdn.evil.example`.
+        let mut spill = cname_record("acmeco.example", &[3, b'c', b'd', b'n']);
+        spill.extend(a_record("evil.example", address, 300, super::CLASS_IN));
+
+        let mut empty = cname_record("acmeco.example", &[]);
+        empty.extend(a_record("evil.example", address, 300, super::CLASS_IN));
+
+        // The pointer's second byte lies past rdlength.
+        let mut cut_pointer = cname_record("acmeco.example", &[0xC0]);
+        cut_pointer.push(0x0C);
+
+        let mut trailing = cdn.clone();
+        trailing.extend(b"xx");
+
         let mut long_label = Vec::new();
         long_label.push(64); // above the 63-byte maximum, but not a pointer
         long_label.extend([b'a'; 64]);
@@ -385,6 +428,54 @@ mod tests {
             (
                 "a CNAME target of the root",
                 message("acmeco.example", super::TYPE_A, 1, &root_target),
+            ),
+            (
+                "a CNAME",
+                message(
+                    "acmeco.example",
+                    super::TYPE_A,
+                    1,
+                    &cname_record("acmeco.example", &cdn),
+                ),
+            ),
+            (
+                "a CNAME target as a backward compression pointer",
+                message(
+                    "www.acmeco.example",
+                    super::TYPE_A,
+                    1,
+                    &cname_record("www.acmeco.example", &apex_pointer),
+                ),
+            ),
+            (
+                "a CNAME target of labels then a compression pointer",
+                message(
+                    "www.acmeco.example",
+                    super::TYPE_A,
+                    1,
+                    &cname_record("www.acmeco.example", &cdn_pointer),
+                ),
+            ),
+            (
+                "a CNAME target running on into the next record",
+                message("acmeco.example", super::TYPE_A, 2, &spill),
+            ),
+            (
+                "a CNAME with no record data",
+                message("acmeco.example", super::TYPE_A, 2, &empty),
+            ),
+            (
+                "a CNAME target's compression pointer cut short by rdlength",
+                message("acmeco.example", super::TYPE_A, 1, &cut_pointer),
+            ),
+            (
+                "a CNAME target with bytes after it",
+                message(
+                    "acmeco.example",
+                    super::TYPE_A,
+                    1,
+                    &cname_record("acmeco.example", &trailing),
+                ),
             ),
             (
                 "a label above 63 bytes",

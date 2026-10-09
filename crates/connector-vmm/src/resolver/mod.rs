@@ -671,6 +671,9 @@ mod tests {
     enum Rr {
         A(&'static str, Ipv4Addr, u32),
         Cname(&'static str, &'static str, u32),
+        /// A CNAME whose record data is these bytes, whether or not they
+        /// encode exactly one name.
+        CnameData(&'static str, &'static [u8], u32),
         /// An A record in a class other than IN. Nothing may authorize it.
         Chaos(&'static str, Ipv4Addr, u32),
     }
@@ -743,6 +746,14 @@ mod tests {
                     encode_name(target, &mut rdata);
                     message.extend((rdata.len() as u16).to_be_bytes());
                     message.extend(rdata);
+                }
+                Rr::CnameData(owner, rdata, ttl) => {
+                    encode_name(owner, &mut message);
+                    message.extend(dns::TYPE_CNAME.to_be_bytes());
+                    message.extend(dns::CLASS_IN.to_be_bytes());
+                    message.extend(ttl.to_be_bytes());
+                    message.extend((rdata.len() as u16).to_be_bytes());
+                    message.extend(*rdata);
                 }
             }
         }
@@ -1364,6 +1375,43 @@ mod tests {
         assert!(handled.answer.is_none());
         assert!(matches!(handled.decision.outcome, Outcome::Dropped(_)));
         assert!(recorder.calls().is_empty());
+    }
+
+    /// CNAME data of `cdn` with no root label, read on into the next record,
+    /// takes that record's owner and names `cdn.evil.example`. The answer is
+    /// malformed, so none of it is authorized, and the name it would have
+    /// fabricated is still refused.
+    #[test]
+    fn a_cname_running_past_its_data_authorizes_nothing() {
+        let script = vec![(
+            ("cdnonly.acmeco.example", dns::TYPE_A),
+            vec![
+                Rr::CnameData("cdnonly.acmeco.example", &[3, b'c', b'd', b'n'], 300),
+                Rr::A("evil.example", public(66), 300),
+            ],
+        )];
+        let recorder = Recorder::default();
+        let mut resolver = resolver(upstream(script), recorder.clone());
+
+        let mut log = String::new();
+        for message in [
+            query(1, "cdnonly.acmeco.example", dns::TYPE_A),
+            query(2, "cdn.evil.example", dns::TYPE_A),
+        ] {
+            let handled = resolver
+                .handle(&message, Instant::now())
+                .expect("a malformed answer is not fatal");
+            log.push_str(&format!("{}\n{}\n", handled.decision, summarize(&handled)));
+        }
+
+        assert!(recorder.calls().is_empty(), "no address was authorized");
+        assert!(resolver.targets.is_empty(), "no target was remembered");
+        insta::assert_snapshot!(log, @r"
+        name=cdnonly.acmeco.example qtype=1 outcome=dropped=CNAME record data is not exactly one name (rdlength 4) addresses=[] targets=[] refreshed=[]
+        answer: none
+        name=cdn.evil.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+        answer: rcode=5 ancount=0 bytes=34
+        ");
     }
 
     #[test]
