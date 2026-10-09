@@ -27,7 +27,7 @@ pub struct Row {
     pub user_id: Uuid,
 }
 
-pub async fn fetch_discover(id: Id, db: &sqlx::PgPool) -> sqlx::Result<Row> {
+pub async fn fetch_discover(id: Id, db: &sqlx::PgPool) -> sqlx::Result<Option<Row>> {
     sqlx::query_as!(
         Row,
         r#"select
@@ -54,7 +54,7 @@ pub async fn fetch_discover(id: Id, db: &sqlx::PgPool) -> sqlx::Result<Row> {
         "#,
         id as Id
     )
-    .fetch_one(db)
+    .fetch_optional(db)
     .await
 }
 
