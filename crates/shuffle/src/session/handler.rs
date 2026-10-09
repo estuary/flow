@@ -67,17 +67,19 @@ where
     let metrics = super::Metrics::new(shard_zero);
     let task = task.context("Open must include task")?;
     let (bindings, _ /* sources */, _ /* validators */) = crate::Binding::from_task(&task)?;
+    let priorities = crate::binding::lane_priorities(&bindings);
 
     service_kit::event!(
         tracing::Level::INFO,
         "coordinator",
         session_id,
         shards = shards.len(),
+        priorities = service_kit::event::debug(priorities.clone()),
         "received Open from Coordinator"
     );
 
-    // Concurrently Open a Slice RPC with every shard, racing the fan-out
-    // against the coordinator's request stream. `try_join_all` short-circuits
+    // Concurrently Open a Slice RPC of every lane, at every shard, racing the
+    // fan-out against the coordinator's request stream. `try_join_all_eager` short-circuits
     // the instant any Slice open errors, dropping the sibling open futures —
     // which drops their per-Slice request channels and cascades EOF teardown
     // down to those Slices and their Logs. Racing the request stream catches
@@ -85,8 +87,9 @@ where
     // way. This is the open-phase counterpart to the running-phase EOF cascade
     // (see the crate README "Shutdown" notes).
     let (slice_request_tx, response_rx): (Vec<_>, Vec<_>) = tokio::select! {
-        result = futures::future::try_join_all((0..shards.len()).map(|shard_index| {
-            open_slice_rpc(&service, session_id, &task, &shards, shard_index as u32)
+        result = crate::try_join_all_eager((0..priorities.len() * shards.len()).map(|slice| {
+            let (shard_index, priority) = (slice % shards.len(), priorities[slice / shards.len()]);
+            open_slice_rpc(&service, session_id, &task, &shards, shard_index as u32, priority)
         })) => result?.into_iter().unzip(),
 
         msg = request_rx.next() => {
@@ -132,12 +135,13 @@ where
         )?;
     }
 
-    let shard_count = shards.len();
+    let slice_count = slice_request_tx.len();
 
     let topology = super::state::Topology {
         session_id,
         shards,
         bindings,
+        priorities,
         resume_checkpoint,
     };
     let binding_cohorts: Vec<u32> = topology.bindings.iter().map(|b| b.cohort).collect();
@@ -149,7 +153,7 @@ where
     let result = super::actor::SessionActor {
         topology,
         checkpoint,
-        progress_ready: vec![true; shard_count],
+        progress_ready: vec![true; slice_count],
         session_response_tx: session_response_tx.clone(),
         slice_request_tx,
         slice_requests: std::collections::VecDeque::new(),
@@ -178,6 +182,7 @@ pub async fn open_slice_rpc(
     task: &shuffle::Task,
     shards: &[shuffle::Shard],
     slice_shard_index: u32,
+    priority: i32,
 ) -> anyhow::Result<(
     mpsc::Sender<shuffle::SliceRequest>,
     futures::stream::BoxStream<'static, tonic::Result<shuffle::SliceResponse>>,
@@ -222,6 +227,7 @@ pub async fn open_slice_rpc(
                 task: Some(task.clone()),
                 shards: shards.to_vec(),
                 shard_index: slice_shard_index,
+                priority,
             }),
             ..Default::default()
         },

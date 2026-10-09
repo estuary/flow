@@ -19,11 +19,12 @@ impl Position {
         adjusted_clock: proto_gazette::uuid::Clock::from_u64(u64::MAX),
     };
 
-    /// Merge position of an Append. The adjusted clock saturates rather than
-    /// overflows, because Logs compute it from peer-supplied Append fields.
-    pub fn from_append(append: &proto_flow::shuffle::log_request::Append) -> Self {
+    /// Merge position of an Append of a Slice having lane `priority`.
+    /// The adjusted clock saturates rather than overflows, because Logs
+    /// compute it from peer-supplied Append fields.
+    pub fn from_append(priority: i32, append: &proto_flow::shuffle::log_request::Append) -> Self {
         Self {
-            priority: append.priority,
+            priority,
             adjusted_clock: proto_gazette::uuid::Clock::from_u64(
                 append.clock.saturating_add(append.read_delay),
             ),

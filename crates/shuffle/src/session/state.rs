@@ -11,6 +11,10 @@ pub struct Topology {
     pub shards: Vec<shuffle::Shard>,
     /// Per-binding shuffle configuration extracted from the task spec.
     pub bindings: Vec<crate::Binding>,
+    /// Priorities of the session's lanes, in descending order
+    /// (`crate::binding::lane_priorities`). Slices are indexed by lane, then
+    /// shard: the Slice of lane `l` at shard `s` is `l * shards.len() + s`.
+    pub priorities: Vec<i32>,
     /// Checkpoint frontier restored from the previous session.
     /// A non-zero `unresolved_hints` makes this an idempotent-recovery session:
     /// the checkpoint carries a transaction which the crashed session prepared
@@ -43,6 +47,15 @@ pub struct RoutedRead {
 }
 
 impl Topology {
+    /// Shard and lane priority of the Slice at index `slice`.
+    pub fn slice(&self, slice: usize) -> (&shuffle::Shard, i32) {
+        let shard_count = self.shards.len();
+        (
+            &self.shards[slice % shard_count],
+            self.priorities[slice / shard_count],
+        )
+    }
+
     /// Route a ListingAdded to a targeted Slice shard that will perform the read.
     /// There are various nuances to how this is done, but big picture: we're
     /// trying to minimize data movement, by picking the shard that has a maximized
@@ -138,7 +151,8 @@ impl Topology {
     }
 
     /// Build the StartRead of a routed `(journal, binding)`, paired with the
-    /// Slice shard which will serve it. None if this session must not read the
+    /// index of the Slice which will serve it: that of the binding's priority
+    /// at the routed shard. None if this session must not read the
     /// journal: a recovery session replays only journals having an unresolved
     /// hint, and skips all others.
     pub fn build_start_read(
@@ -200,8 +214,14 @@ impl Topology {
             return None;
         }
 
+        let lane = self
+            .priorities
+            .iter()
+            .position(|priority| *priority == binding.priority)
+            .expect("priorities include those of every binding");
+
         Some((
-            routed.shard_index,
+            lane * self.shards.len() + routed.shard_index,
             shuffle::slice_request::StartRead {
                 binding: binding.index as u32,
                 spec,
@@ -452,7 +472,7 @@ impl CheckpointPipeline {
     /// promote through the pipeline.
     pub fn on_progressed(
         &mut self,
-        shard_index: usize,
+        slice: usize,
         proto: proto_flow::shuffle::Frontier,
     ) -> anyhow::Result<()> {
         let progressed =
@@ -464,7 +484,7 @@ impl CheckpointPipeline {
         service_kit::event!(
             tracing::Level::DEBUG,
             "slice",
-            shard_index,
+            slice,
             bytes_behind_delta,
             bytes_read_delta,
             journal_producers,
@@ -903,6 +923,7 @@ mod test {
         Topology {
             session_id: 1,
             shards,
+            priorities: crate::binding::lane_priorities(&bindings),
             bindings,
             resume_checkpoint,
         }

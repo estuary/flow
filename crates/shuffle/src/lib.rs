@@ -158,6 +158,30 @@ fn verify_send<T>(tx: &mpsc::Sender<T>, value: T) -> anyhow::Result<()> {
     }
 }
 
+/// Await `futures`, returning their outputs in order, or else the first error
+/// to occur (dropping the others). `futures::future::try_join_all` instead
+/// yields outputs in order for more than a few futures, or for an iterator
+/// without an exact size, so it observes an error only once all preceding
+/// futures complete. An open fan-out mustn't wait so: its preceding opens may
+/// await a rendezvous with the failed one (issue #3245).
+async fn try_join_all_eager<T>(
+    futures: impl IntoIterator<Item = impl std::future::Future<Output = anyhow::Result<T>>>,
+) -> anyhow::Result<Vec<T>> {
+    let mut pending: futures::stream::FuturesUnordered<_> = futures
+        .into_iter()
+        .enumerate()
+        .map(|(index, future)| async move { (index, future.await) })
+        .collect();
+
+    let mut outputs: Vec<Option<T>> = std::iter::repeat_with(|| None)
+        .take(pending.len())
+        .collect();
+    while let Some((index, result)) = futures::StreamExt::next(&mut pending).await {
+        outputs[index] = Some(result?);
+    }
+    Ok(outputs.into_iter().map(Option::unwrap).collect())
+}
+
 /// Build the error for a request stream that closed or spoke out of turn while
 /// a handler was still opening. No legitimate request arrives before a handler
 /// emits its `Opened` (the coordinator sends `resume_checkpoint`, and the
@@ -191,3 +215,28 @@ const ACTOR_TICKER_INTERVAL: std::time::Duration = std::time::Duration::from_sec
 /// decoupled from [`ACTOR_TICKER_INTERVAL`] (the tracing cadence) and enforced
 /// via mark-and-sweep over that many ticks. See `session::state::CheckpointPipeline`.
 const CAUSAL_HINT_RESOLUTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+#[cfg(test)]
+mod test {
+    // An error is returned as it occurs, though preceding futures never
+    // complete, and beyond the count at which `try_join_all` yields in order.
+    #[tokio::test]
+    async fn test_try_join_all_eager_short_circuits() {
+        let futures = (0..40).map(|index| async move {
+            match index {
+                39 => anyhow::bail!("failed {index}"),
+                _ => std::future::pending().await,
+            }
+        });
+        let err = super::try_join_all_eager::<()>(futures).await.unwrap_err();
+        assert_eq!(err.to_string(), "failed 39");
+
+        let outputs = super::try_join_all_eager((0..40).map(|index| async move {
+            tokio::task::yield_now().await;
+            Ok(index)
+        }))
+        .await
+        .unwrap();
+        assert_eq!(outputs, (0..40).collect::<Vec<_>>());
+    }
+}

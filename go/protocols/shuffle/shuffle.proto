@@ -231,7 +231,11 @@ message SessionResponse {
   Frontier next_checkpoint = 2;
 }
 
-// SliceRequest is sent by the Session to each shard's Slice RPC.
+// SliceRequest is sent by the Session to each Slice RPC.
+//
+// A Session opens a Slice RPC for each (shard, priority) lane: each distinct
+// priority of the task's bindings, at each shard. A Slice reads only journals
+// of bindings having its priority.
 message SliceRequest {
   // Open initiates the Slice.
   // The Slice opens Log RPCs to all shards before responding Opened.
@@ -245,6 +249,8 @@ message SliceRequest {
     repeated Shard shards = 3;
     // Index of this shard within the shards list.
     uint32 shard_index = 4;
+    // Priority of this Slice's lane: the priority of every binding it reads.
+    int32 priority = 5;
   }
   Open open = 1;
 
@@ -349,11 +355,18 @@ message LogRequest {
     uint32 slice_shard_index = 3;
     // Index of the target Log shard within the session's shard list.
     uint32 log_shard_index = 4;
+    // Priority of the source Slice's lane.
+    int32 priority = 5;
+    // Priorities of all lanes of the session: the distinct priorities of the
+    // task's bindings, in descending order. The Log awaits a Slice of each
+    // (shard, priority), and every Slice must send the same priorities.
+    repeated int32 priorities = 6;
   }
   Open open = 1;
 
   // Append sends a document to be written to the log.
-  // The Log actor merges across Slice streams, ordering by (priority, clock).
+  // The Log actor merges across Slice streams, ordering by
+  // (priority, adjusted clock), where priority is that of the Slice's lane.
   // Journal names are delta-encoded against the Slice's preceding Append to
   // this Log, across and within rounds.
   message Append {
@@ -364,9 +377,8 @@ message LogRequest {
     string journal_name_suffix = 2;
     // Binding index for this document.
     uint32 binding = 3;
-    // Priority of this binding. Higher values imply higher priority,
-    // and negative values are allowed.
-    int32 priority = 4;
+    // Priority of the binding, now implied by the Slice's lane.
+    reserved 4;
     // Read delay of the binding, as a uuid::Clock duration.
     // The Log actor applies adjusted_clock = clock + read_delay for merge ordering.
     // Zero (the common case) means no delay.

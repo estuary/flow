@@ -452,6 +452,23 @@ fn assign_cohorts(bindings: &mut [Binding]) {
     }
 }
 
+/// Priorities of the lanes of a task: the distinct priorities of its bindings,
+/// in descending order. A shuffle runs a Slice of each lane at each shard, and
+/// lanes index in this order (see "Lanes" of the crate README).
+///
+/// A task without bindings has a single lane of the default priority,
+/// so that its Slices still report (empty) progress.
+pub fn lane_priorities(bindings: &[Binding]) -> Vec<i32> {
+    let mut priorities: Vec<i32> = bindings.iter().map(|b| b.priority).collect();
+    priorities.sort_unstable_by(|l, r| r.cmp(l));
+    priorities.dedup();
+
+    if priorities.is_empty() {
+        priorities.push(0);
+    }
+    priorities
+}
+
 /// Build key extractors from string-encoded JSON pointers,
 /// using schema-annotated defaults from the inferred shape.
 pub fn build_key_extractors(pointers: &[String], shape: &doc::Shape) -> Vec<doc::Extractor> {

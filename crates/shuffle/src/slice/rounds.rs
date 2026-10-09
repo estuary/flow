@@ -144,7 +144,6 @@ impl Rounds {
             journal_name_truncate_delta: 0,
             journal_name_suffix: String::new(),
             binding: binding.index as u32,
-            priority: binding.priority,
             read_delay: binding.read_delay.as_u64(),
             producer: producer.as_i64(),
             clock: clock.as_u64(),

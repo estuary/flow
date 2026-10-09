@@ -272,7 +272,11 @@ pub mod session_response {
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Opened {}
 }
-/// SliceRequest is sent by the Session to each shard's Slice RPC.
+/// SliceRequest is sent by the Session to each Slice RPC.
+///
+/// A Session opens a Slice RPC for each (shard, priority) lane: each distinct
+/// priority of the task's bindings, at each shard. A Slice reads only journals
+/// of bindings having its priority.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SliceRequest {
     #[prost(message, optional, tag = "1")]
@@ -305,6 +309,9 @@ pub mod slice_request {
         /// Index of this shard within the shards list.
         #[prost(uint32, tag = "4")]
         pub shard_index: u32,
+        /// Priority of this Slice's lane: the priority of every binding it reads.
+        #[prost(int32, tag = "5")]
+        pub priority: i32,
     }
     /// Start is sent after all Slices have responded Opened and the Session has
     /// received the resume checkpoint frontier from the Coordinator.
@@ -438,9 +445,18 @@ pub mod log_request {
         /// Index of the target Log shard within the session's shard list.
         #[prost(uint32, tag = "4")]
         pub log_shard_index: u32,
+        /// Priority of the source Slice's lane.
+        #[prost(int32, tag = "5")]
+        pub priority: i32,
+        /// Priorities of all lanes of the session: the distinct priorities of the
+        /// task's bindings, in descending order. The Log awaits a Slice of each
+        /// (shard, priority), and every Slice must send the same priorities.
+        #[prost(int32, repeated, tag = "6")]
+        pub priorities: ::prost::alloc::vec::Vec<i32>,
     }
     /// Append sends a document to be written to the log.
-    /// The Log actor merges across Slice streams, ordering by (priority, clock).
+    /// The Log actor merges across Slice streams, ordering by
+    /// (priority, adjusted clock), where priority is that of the Slice's lane.
     /// Journal names are delta-encoded against the Slice's preceding Append to
     /// this Log, across and within rounds.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -455,10 +471,6 @@ pub mod log_request {
         /// Binding index for this document.
         #[prost(uint32, tag = "3")]
         pub binding: u32,
-        /// Priority of this binding. Higher values imply higher priority,
-        /// and negative values are allowed.
-        #[prost(int32, tag = "4")]
-        pub priority: i32,
         /// Read delay of the binding, as a uuid::Clock duration.
         /// The Log actor applies adjusted_clock = clock + read_delay for merge ordering.
         /// Zero (the common case) means no delay.
