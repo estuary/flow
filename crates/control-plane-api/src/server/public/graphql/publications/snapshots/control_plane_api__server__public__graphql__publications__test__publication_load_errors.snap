@@ -1,0 +1,9 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: "serde_json::json!({\n    \"structural\": structural[\"errors\"][0][\"message\"], \"deniedAbsent\":\n    denied_absent[\"errors\"][0][\"message\"], \"deniedPresent\":\n    denied_present[\"errors\"][0][\"message\"],\n})"
+---
+{
+  "deniedAbsent": "PermissionDenied: User is not authorized to create or change 'bobCo/data/gone'",
+  "deniedPresent": "PermissionDenied: User is not authorized to create or change 'bobCo/data/gone'",
+  "structural": "draft has errors: flow://collection/aliceCo/data/malformed: deserializing draft collection spec: missing field `key` at line 1 column 14; flow://deletion/aliceCo/data/gone-a: draft contains a deletion of \"aliceCo/data/gone-a\", but no such live spec exists; flow://deletion/aliceCo/data/gone-b: draft contains a deletion of \"aliceCo/data/gone-b\", but no such live spec exists"
+}

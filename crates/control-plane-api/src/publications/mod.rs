@@ -10,6 +10,7 @@ pub mod authz;
 pub mod builds;
 mod catalog_test_router;
 mod commit;
+pub mod create;
 mod db;
 mod finalize;
 mod initialize;

@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: outcomes
+---
+[
+  {
+    "case": "live task",
+    "error": null,
+    "status": "queued"
+  },
+  {
+    "case": "live collection with a granted reader",
+    "error": null,
+    "status": "queued"
+  },
+  {
+    "case": "live collection with an ungranted reader",
+    "error": "PermissionDenied: Specification 'aliceCo/other/mat' is not read-authorized to 'aliceCo/data/foo'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"aliceCo/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
+    "status": null
+  }
+]
