@@ -29,7 +29,9 @@ A configuration takes exactly one of two forms, and they are mutually exclusive:
 
 ## Non-obvious Details
 
-- Decryption shells out to the `sops` binary, located via `locate-bin`.
+- Decryption shells out to the `sops` binary, located via `locate-bin`. An exit
+  code of 128 means `sops` could not fetch its data key from the KMS, which is
+  retried a few times with backoff because a transient KMS error exits that way.
 - `secrets::resolve` builds each location with `json::ptr::create_value` and
   then merge-patches (RFC 7396) the resolved value there. Consequences, all
   intended: a numeric token indexes an array and pads it with `null`; a `null`
