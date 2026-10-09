@@ -8,8 +8,6 @@ pub struct Appender {
     /// A buffer of data which is to be appended. Clients directly mutate `buffer`,
     /// encoding data as they see fit, and call `checkpoint()` at message boundaries.
     pub buffer: bytes::BytesMut,
-    /// Journal to which this Appender will append.
-    journal: Box<str>,
     /// Client used for append RPCs.
     client: gazette::journal::Client,
     /// A barrier is a monotonic counter that increments with each call to barrier(),
@@ -19,9 +17,9 @@ pub struct Appender {
     watch: Arc<dyn tokens::Watch<(broker::AppendResponse, usize)>>,
     /// State of the append pipeline.
     state: AppendState,
-    /// Optional registers which must be present for the Append to succeed.
-    /// This may be used with cooperative fencing of journals.
-    check_registers: Option<Box<broker::LabelSelector>>,
+    /// Request template for buffered appends. Routing headers come from the last
+    /// response, and content comes from `buffer`.
+    request: Box<broker::AppendRequest>,
     /// Accumulated `delayed_chunks` summed across every append RPC issued to
     /// this journal since the last `take_throttle_samples()`.
     delayed_chunks: i64,
@@ -59,28 +57,48 @@ impl Appender {
         let (watch, _signal) = watch.into_parts();
 
         Self {
-            journal: journal.into_boxed_str(),
             client,
             barrier: 0,
             buffer: bytes::BytesMut::new(),
             watch,
             state: AppendState::Idle(update),
-            check_registers: None,
+            request: Box::new(broker::AppendRequest {
+                journal,
+                ..Default::default()
+            }),
             delayed_chunks: 0,
             total_chunks: 0,
         }
     }
 
-    /// Check `selector` against the journal's registers on every append of this
-    /// Appender's pipeline, so that a caller which holds a fence appends only under it.
-    pub fn with_check_registers(mut self, selector: broker::LabelSelector) -> Self {
-        self.check_registers = Some(Box::new(selector));
-        self
-    }
-
     /// The journal to which this Appender appends.
     pub fn journal(&self) -> &str {
-        &self.journal
+        &self.request.journal
+    }
+
+    /// Set the request for subsequent writes to `buffer`. A changed request starts
+    /// a background append of any buffered content under the current request,
+    /// keeping writes with different register checks or updates in separate, ordered RPCs.
+    ///
+    /// Call at a message boundary. `request.journal` must match this Appender's
+    /// journal; `header` and `content` are ignored.
+    pub async fn set_request(&mut self, mut request: broker::AppendRequest) -> tonic::Result<()> {
+        assert_eq!(
+            request.journal, self.request.journal,
+            "an Appender appends to only its own journal"
+        );
+        request.header = None;
+        request.content = Default::default();
+
+        if request == *self.request {
+            return Ok(());
+        }
+        if !self.buffer.is_empty() {
+            () = self.start_flush().await?;
+        }
+        *self.request = request;
+
+        Ok(())
     }
 
     /// Checkpoint is called after one or more complete messages have been encoded
@@ -185,9 +203,7 @@ impl Appender {
 
         let request = proto_gazette::broker::AppendRequest {
             header,
-            journal: self.journal.to_string(),
-            check_registers: self.check_registers.as_ref().map(Box::as_ref).cloned(),
-            ..Default::default()
+            ..(*self.request).clone()
         };
 
         let chunk_stream =
@@ -568,6 +584,56 @@ mod test {
             barrier.now_or_never().unwrap().unwrap(),
             broker::AppendResponse::default()
         );
+    }
+
+    #[tokio::test]
+    async fn test_set_request_starts_what_is_buffered_under_the_prior_request() {
+        let mut appender = Appender::new(mock_journal_client(), "test/journal".to_string());
+
+        let author = broker::LabelSet {
+            labels: vec![broker::Label {
+                name: "author".to_string(),
+                value: "one".to_string(),
+                prefix: false,
+            }],
+        };
+        let unions = broker::AppendRequest {
+            journal: "test/journal".to_string(),
+            union_registers: Some(author.clone()),
+            ..Default::default()
+        };
+        let checks = broker::AppendRequest {
+            journal: "test/journal".to_string(),
+            check_registers: Some(broker::LabelSelector {
+                include: Some(author),
+                exclude: None,
+            }),
+            ..Default::default()
+        };
+
+        appender.set_request(unions.clone()).await.unwrap();
+        assert!(matches!(appender.state, AppendState::Idle(_)));
+        assert_eq!(*appender.request, unions);
+
+        // The fence must precede writes that check for its author.
+        appender.buffer.extend_from_slice(b"fence");
+        appender.set_request(checks.clone()).await.unwrap();
+        assert!(appender.buffer.is_empty());
+        assert!(matches!(appender.state, AppendState::InFlight(_)));
+        assert_eq!(*appender.request, checks);
+
+        // Header and content changes alone must not split buffered writes.
+        appender.buffer.extend_from_slice(b"record");
+        appender
+            .set_request(broker::AppendRequest {
+                header: Some(broker::Header::default()),
+                content: bytes::Bytes::from_static(b"ignored"),
+                ..checks.clone()
+            })
+            .await
+            .unwrap();
+        assert_eq!(&appender.buffer[..], b"record");
+        assert_eq!(*appender.request, checks);
     }
 
     #[tokio::test]
