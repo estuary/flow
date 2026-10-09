@@ -340,6 +340,12 @@ impl App {
                     // Decrypt this materialization's endpoint config
                     let config = topology::extract_dekaf_config(&spec).await?;
 
+                    // A redirected session still reveals the task's bindings and the
+                    // target data plane's addresses, so it requires the same credential.
+                    if password != config.token {
+                        return Err(invalid_credentials());
+                    }
+
                     // Task has been migrated to a different dataplane.
                     // Return a redirect authentication that will taint
                     // the session to cause it to redirected its consumer.
