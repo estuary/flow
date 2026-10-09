@@ -1,0 +1,21 @@
+---
+source: crates/dekaf/tests/e2e/auth.rs
+expression: outcomes
+---
+[
+    (
+        "wrong password",
+        "Failed to connect to any Kafka brokers. Attempted 1 brokers: Failed to connect to tcp://[DEKAF_BROKER]: SASL authentication failed: Error performing SASL authentication: SaslAuthenticationFailed Some(\"Invalid username or password\")",
+        "401 Unauthorized \"Invalid username or password\"",
+    ),
+    (
+        "unknown task",
+        "Failed to connect to any Kafka brokers. Attempted 1 brokers: Failed to connect to tcp://[DEKAF_BROKER]: SASL authentication failed: Error performing SASL authentication: SaslAuthenticationFailed Some(\"Invalid username or password\")",
+        "401 Unauthorized \"Invalid username or password\"",
+    ),
+    (
+        "not a materialization",
+        "Failed to connect to any Kafka brokers. Attempted 1 brokers: Failed to connect to tcp://[DEKAF_BROKER]: SASL authentication failed: Error performing SASL authentication: SaslAuthenticationFailed Some(\"Invalid username or password\")",
+        "401 Unauthorized \"Invalid username or password\"",
+    ),
+]

@@ -259,8 +259,28 @@ impl App {
             let username = username.to_string();
             let listener = self.task_manager.get_listener(&username);
             // Ask the agent for information about this task, as well as a short-lived
-            // control-plane access token authorized to interact with the avro schemas table
-            match listener.get().await?.as_ref() {
+            // control-plane access token authorized to interact with the avro schemas table.
+            // A task the control plane rejects must fail exactly like a wrong password,
+            // so that clients can't probe which task names exist. Other errors stay
+            // `Unknown`, so that clients retry through a control-plane outage.
+            let state = match listener.get().await {
+                Ok(state) => state,
+                Err(err) if task_manager::is_task_rejected(&err) => {
+                    tracing::debug!(?err, "control plane rejected the task");
+                    return Err(invalid_credentials());
+                }
+                Err(err) => return Err(err.into()),
+            };
+
+            let (TaskState::Authorized { spec, .. } | TaskState::Redirect { spec, .. }) =
+                state.as_ref();
+            if spec.connector_type
+                != proto_flow::flow::materialization_spec::ConnectorType::Dekaf as i32
+            {
+                return Err(invalid_credentials());
+            }
+
+            match state.as_ref() {
                 TaskState::Authorized {
                     access_token: token,
                     access_token_claims: claims,
@@ -289,9 +309,7 @@ impl App {
 
                     // 3. Validate that the provided password matches the task's bearer token
                     if password != config.token {
-                        return Err(DekafError::Authentication(
-                            "Invalid username or password".into(),
-                        ));
+                        return Err(invalid_credentials());
                     }
 
                     logging::set_log_level(labels.log_level());
@@ -322,6 +340,12 @@ impl App {
                     // Decrypt this materialization's endpoint config
                     let config = topology::extract_dekaf_config(&spec).await?;
 
+                    // A redirected session still reveals the task's bindings and the
+                    // target data plane's addresses, so it requires the same credential.
+                    if password != config.token {
+                        return Err(invalid_credentials());
+                    }
+
                     // Task has been migrated to a different dataplane.
                     // Return a redirect authentication that will taint
                     // the session to cause it to redirected its consumer.
@@ -336,11 +360,15 @@ impl App {
                 }
             }
         } else {
-            return Err(DekafError::Authentication(
-                "Invalid username or password".into(),
-            ));
+            return Err(invalid_credentials());
         }
     }
+}
+
+/// The one error that every rejected login returns, whatever the reason, so
+/// that a client can't tell an unknown task name from a wrong password.
+fn invalid_credentials() -> DekafError {
+    DekafError::Authentication("Invalid username or password".into())
 }
 
 /// Dispatch a read request `frame` of the current session, writing its response into `out`.
