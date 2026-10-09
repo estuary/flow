@@ -1,3 +1,4 @@
+use super::filters;
 use async_graphql::{Context, types::connection};
 
 /// A prefix to which the user is authorized.
@@ -25,6 +26,14 @@ pub struct PrefixesBy {
     pub min_capability: models::Capability,
 }
 
+/// Optional filter for the `prefixes` query. A filter only narrows the
+/// prefixes the caller can reach.
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct PrefixesFilter {
+    /// Filter on the returned prefix.
+    pub prefix: Option<filters::PrefixFilter>,
+}
+
 pub type PaginatedPrefixes = connection::Connection<
     String,
     PrefixRef,
@@ -44,16 +53,23 @@ impl PrefixesQuery {
         &self,
         ctx: &Context<'_>,
         by: PrefixesBy,
+        filter: Option<PrefixesFilter>,
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedPrefixes> {
         let env = ctx.data::<crate::Envelope>()?;
+
+        let (starts_with, r#in) = match filter.and_then(|f| f.prefix) {
+            Some(prefix) => prefix.into_parts("filter.prefix")?,
+            None => (None, None),
+        };
 
         connection::query(after, None, first, None, |after, _, first, _| async move {
             let snapshot = env.snapshot();
             let subject = env.claims()?.subject();
 
             let min_bits: models::authz::CapabilitySet = by.min_capability.into();
+            let under = starts_with.as_deref().unwrap_or_default();
 
             let reachable = tables::UserGrant::reachable_prefixes(
                 &snapshot.role_grants,
@@ -62,13 +78,20 @@ impl PrefixesQuery {
             );
             // Cursor pagination: BTreeMap::range jumps directly to the
             // first key strictly greater than the previous page's last
-            // prefix, rather than iterating from the start and filtering
-            // past it.
-            let start = after
-                .as_deref()
-                .map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
+            // prefix (or to `startsWith`, if later), rather than iterating
+            // from the start and filtering past it. Keys under a prefix
+            // are contiguous, so iteration ends with the subtree.
+            let start = match after.as_deref() {
+                Some(after) if after >= under => std::ops::Bound::Excluded(after),
+                _ => std::ops::Bound::Included(under),
+            };
             let all_roles: Vec<PrefixRef> = reachable
                 .range::<str, _>((start, std::ops::Bound::Unbounded))
+                .take_while(|(prefix, _)| prefix.starts_with(under))
+                .filter(|(prefix, _)| {
+                    r#in.as_ref()
+                        .is_none_or(|exact| exact.iter().any(|e| e == *prefix))
+                })
                 .filter(|(_, (bits, _))| bits.is_superset(min_bits))
                 .map(|(prefix, (bits, legacy))| PrefixRef {
                     prefix: models::Prefix::new(*prefix),
@@ -159,6 +182,66 @@ mod tests {
                   "node": {
                     "prefix": "ops/dp/public/",
                     "userCapability": "read"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+
+        // `exact` returns only the listed prefixes the user can reach.
+        // `paged` resumes after a cursor and stops at the end of the
+        // `aliceCo/` subtree, before `ops/dp/public/`. `subtree` skips the
+        // `aliceCo/` rows that sort before its subtree and includes the
+        // prefix itself.
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        exact: prefixes(by: { minCapability: read }, filter: { prefix: { in: ["aliceCo/data/", "bobCo/"] } }) {
+                            edges { node { prefix } }
+                        }
+                        paged: prefixes(by: { minCapability: read }, filter: { prefix: { startsWith: "aliceCo/" } }, after: "aliceCo/") {
+                            edges { node { prefix } }
+                        }
+                        subtree: prefixes(by: { minCapability: read }, filter: { prefix: { startsWith: "ops/dp/public/" } }) {
+                            edges { node { prefix } }
+                        }
+                    }
+                "#
+                }),
+                Some(&token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "exact": {
+              "edges": [
+                {
+                  "node": {
+                    "prefix": "aliceCo/data/"
+                  }
+                }
+              ]
+            },
+            "paged": {
+              "edges": [
+                {
+                  "node": {
+                    "prefix": "aliceCo/data/"
+                  }
+                }
+              ]
+            },
+            "subtree": {
+              "edges": [
+                {
+                  "node": {
+                    "prefix": "ops/dp/public/"
                   }
                 }
               ]

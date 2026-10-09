@@ -2331,6 +2331,17 @@ input PrefixesBy {
 }
 
 """
+Optional filter for the `prefixes` query. A filter only narrows the
+prefixes the caller can reach.
+"""
+input PrefixesFilter {
+	"""
+	Filter on the returned prefix.
+	"""
+	prefix: PrefixFilter
+}
+
+"""
 A configured private link and its controller-observed provisioning status.
 """
 type PrivateLink {
@@ -2557,7 +2568,7 @@ type QueryRoot {
 	Returns all possible alert types with their user-facing metadata.
 	"""
 	alertTypes: [AlertTypeInfo!]!
-	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixRefConnection!
+	prefixes(by: PrefixesBy!, filter: PrefixesFilter, after: String, first: Int): PrefixRefConnection!
 	"""
 	Returns a complete list of alert subscriptions.
 	"""
