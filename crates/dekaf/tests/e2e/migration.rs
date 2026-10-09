@@ -211,7 +211,7 @@ async fn test_migration_protocol_responses() -> anyhow::Result<()> {
     let wrong_password = TestKafkaClient::connect(&src_info.broker, username, "not-the-token")
         .await
         .err()
-        .map(|err| format!("{err:#}"));
+        .map(|err| format!("{err:#}").replace(&src_info.broker, "[SOURCE_DEKAF_BROKER]"));
     insta::assert_debug_snapshot!("post_migration_wrong_password", wrong_password);
 
     let mut client = TestKafkaClient::connect(&src_info.broker, username, &password).await?;
