@@ -1,8 +1,7 @@
-use clap::Parser;
 use tracing_subscriber::prelude::*;
 
 fn main() {
-    let args = match connector_init::Args::try_parse() {
+    let args = match <connector_init::Args as clap::Parser>::try_parse() {
         Ok(args) => args,
         // `--help` and `--version` are clap's other "errors", and go to stdout.
         Err(error) if !error.use_stderr() => {

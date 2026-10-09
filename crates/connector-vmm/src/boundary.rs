@@ -19,7 +19,6 @@
 //! names the bridge the query arrived on rather than an address, so the
 //! exception cannot drift from what the VMM's resolver uses.
 
-use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub const TABLE: &str = "flow_vmm_boundary";
@@ -64,21 +63,21 @@ pub fn run(action: &Action) -> anyhow::Result<()> {
 /// or an upgrade replaces them with no permissive moment between. The
 /// declaration exists because deleting a table that was never created is an
 /// error.
-pub fn document() -> Value {
+pub fn document() -> serde_json::Value {
     let mut commands = replace_tables();
     commands.extend(
         expected()
             .into_iter()
-            .map(|object| json!({ "add": object })),
+            .map(|object| serde_json::json!({ "add": object })),
     );
-    json!({ "nftables": commands })
+    serde_json::json!({ "nftables": commands })
 }
 
 /// Every difference between a `nft -j list ruleset` document and the tables
 /// `document` installs, ignoring handles and counter values. Other tables are
 /// not compared: they can add drops, but none can undo one of these.
-pub fn differences(listing: &Value) -> Vec<String> {
-    let found: Vec<Value> = listing["nftables"]
+pub fn differences(listing: &serde_json::Value) -> Vec<String> {
+    let found: Vec<serde_json::Value> = listing["nftables"]
         .as_array()
         .into_iter()
         .flatten()
@@ -127,10 +126,10 @@ pub fn differences(listing: &Value) -> Vec<String> {
         out.push(format!(
             "{family} {chain}, rule {position}: expected {}, found {}",
             want.get(position)
-                .map_or("nothing".to_string(), Value::to_string),
+                .map_or("nothing".to_string(), serde_json::Value::to_string),
             found
                 .get(position)
-                .map_or("nothing".to_string(), Value::to_string),
+                .map_or("nothing".to_string(), serde_json::Value::to_string),
         ));
     }
     out
@@ -177,7 +176,7 @@ fn remove() -> anyhow::Result<()> {
             bridges.join(", ")
         );
     }
-    let commands = json!({ "nftables": replace_tables() });
+    let commands = serde_json::json!({ "nftables": replace_tables() });
     crate::sys::run(
         "nft",
         &["-j", "-f", "-"],
@@ -185,12 +184,12 @@ fn remove() -> anyhow::Result<()> {
     )
 }
 
-fn list() -> anyhow::Result<Value> {
+fn list() -> anyhow::Result<serde_json::Value> {
     let listing = crate::sys::output("nft", &["-j", "list", "ruleset"])?;
     serde_json::from_slice(&listing).map_err(|e| anyhow::anyhow!("parsing nft's listing: {e}"))
 }
 
-fn has_table(listing: &Value, family: &str) -> bool {
+fn has_table(listing: &serde_json::Value, family: &str) -> bool {
     listing["nftables"]
         .as_array()
         .into_iter()
@@ -224,14 +223,14 @@ fn vmm_links() -> anyhow::Result<Vec<String>> {
     Ok(links)
 }
 
-fn replace_tables() -> Vec<Value> {
+fn replace_tables() -> Vec<serde_json::Value> {
     FAMILIES
         .iter()
         .flat_map(|family| {
-            let table = json!({ "family": family, "name": TABLE });
+            let table = serde_json::json!({ "family": family, "name": TABLE });
             [
-                json!({ "add": { "table": table } }),
-                json!({ "delete": { "table": table } }),
+                serde_json::json!({ "add": { "table": table } }),
+                serde_json::json!({ "delete": { "table": table } }),
             ]
         })
         .collect()
@@ -240,28 +239,28 @@ fn replace_tables() -> Vec<Value> {
 /// Both tables, as objects in the shape `nft -j list` prints them once handles
 /// and counter values are dropped. `document` installs exactly these, which is
 /// what lets `differences` compare against them directly.
-fn expected() -> Vec<Value> {
-    let vmm = Value::from(format!("{BRIDGE_PREFIX}*"));
+fn expected() -> Vec<serde_json::Value> {
+    let vmm = serde_json::Value::from(format!("{BRIDGE_PREFIX}*"));
     let from = || meta("iifname", vmm.clone());
     let to = || meta("oifname", vmm.clone());
-    let replies = json!({ "match": {
+    let replies = serde_json::json!({ "match": {
         "op": "!=",
         "left": { "ct": { "key": "state" } },
         "right": { "set": ["established", "related"] },
     }});
-    let ipv4_or_arp = json!({ "match": {
+    let ipv4_or_arp = serde_json::json!({ "match": {
         "op": "!=",
         "left": { "payload": { "protocol": "ether", "field": "type" } },
         "right": { "set": ["ip", "arp"] },
     }});
-    let baseline: Vec<Value> = egress::baseline(&[])
+    let baseline: Vec<serde_json::Value> = egress::baseline(&[])
         .iter()
-        .map(|prefix| json!({ "prefix": { "addr": prefix.ip().to_string(), "len": prefix.prefix() } }))
+        .map(|prefix| serde_json::json!({ "prefix": { "addr": prefix.ip().to_string(), "len": prefix.prefix() } }))
         .collect();
 
     vec![
-        json!({ "table": { "family": "inet", "name": TABLE } }),
-        json!({ "set": {
+        serde_json::json!({ "table": { "family": "inet", "name": TABLE } }),
+        serde_json::json!({ "set": {
             "family": "inet",
             "table": TABLE,
             "name": "baseline",
@@ -297,7 +296,7 @@ fn expected() -> Vec<Value> {
             "fragment",
             vec![
                 from(),
-                json!({ "match": {
+                serde_json::json!({ "match": {
                     "op": "!=",
                     "left": { "&": [{ "payload": { "protocol": "ip", "field": "frag-off" } }, 0x1fff] },
                     "right": 0,
@@ -356,7 +355,7 @@ fn expected() -> Vec<Value> {
             "drop",
         ),
         rule("inet", "output", "no-inbound", vec![to(), replies], "drop"),
-        json!({ "table": { "family": "bridge", "name": TABLE } }),
+        serde_json::json!({ "table": { "family": "bridge", "name": TABLE } }),
         chain("bridge", "prerouting", BRIDGE_PRIORITY),
         chain("bridge", "forward", BRIDGE_PRIORITY),
         chain("bridge", "output", BRIDGE_PRIORITY),
@@ -386,8 +385,8 @@ fn expected() -> Vec<Value> {
     ]
 }
 
-fn chain(family: &str, name: &str, prio: i32) -> Value {
-    json!({ "chain": {
+fn chain(family: &str, name: &str, prio: i32) -> serde_json::Value {
+    serde_json::json!({ "chain": {
         "family": family,
         "table": TABLE,
         "name": name,
@@ -398,10 +397,16 @@ fn chain(family: &str, name: &str, prio: i32) -> Value {
     }})
 }
 
-fn rule(family: &str, chain: &str, comment: &str, mut expr: Vec<Value>, verdict: &str) -> Value {
-    expr.push(json!({ "counter": null }));
-    expr.push(json!({ verdict: null }));
-    json!({ "rule": {
+fn rule(
+    family: &str,
+    chain: &str,
+    comment: &str,
+    mut expr: Vec<serde_json::Value>,
+    verdict: &str,
+) -> serde_json::Value {
+    expr.push(serde_json::json!({ "counter": null }));
+    expr.push(serde_json::json!({ verdict: null }));
+    serde_json::json!({ "rule": {
         "family": family,
         "table": TABLE,
         "chain": chain,
@@ -410,20 +415,20 @@ fn rule(family: &str, chain: &str, comment: &str, mut expr: Vec<Value>, verdict:
     }})
 }
 
-fn meta(key: &str, right: Value) -> Value {
-    json!({ "match": { "op": "==", "left": { "meta": { "key": key } }, "right": right } })
+fn meta(key: &str, right: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "match": { "op": "==", "left": { "meta": { "key": key } }, "right": right } })
 }
 
-fn payload(op: &str, protocol: &str, field: &str, right: Value) -> Value {
-    json!({ "match": {
+fn payload(op: &str, protocol: &str, field: &str, right: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "match": {
         "op": op,
         "left": { "payload": { "protocol": protocol, "field": field } },
         "right": right,
     }})
 }
 
-fn fib(result: &str, flags: &[&str], right: Value) -> Value {
-    json!({ "match": {
+fn fib(result: &str, flags: &[&str], right: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "match": {
         "op": "==",
         "left": { "fib": { "result": result, "flags": flags } },
         "right": right,
@@ -432,7 +437,7 @@ fn fib(result: &str, flags: &[&str], right: Value) -> Value {
 
 /// One listed object of these tables, without its handle, and with anonymous
 /// counters' values dropped. `None` for anything else in the listing.
-fn ours(item: &Value) -> Option<Value> {
+fn ours(item: &serde_json::Value) -> Option<serde_json::Value> {
     let (kind, body) = item.as_object()?.iter().next()?;
     let family = body["family"].as_str()?;
     let name = if kind == "table" {
@@ -450,18 +455,18 @@ fn ours(item: &Value) -> Option<Value> {
     // `get_mut`, because indexing a JSON object mutably inserts the key.
     for expr in body
         .get_mut("expr")
-        .and_then(Value::as_array_mut)
+        .and_then(serde_json::Value::as_array_mut)
         .into_iter()
         .flatten()
     {
         if expr["counter"].is_object() {
-            *expr = json!({ "counter": null });
+            *expr = serde_json::json!({ "counter": null });
         }
     }
-    Some(json!({ kind: body }))
+    Some(serde_json::json!({ kind: body }))
 }
 
-fn family_of(object: &Value) -> &str {
+fn family_of(object: &serde_json::Value) -> &str {
     object
         .as_object()
         .and_then(|object| object.values().next())
@@ -469,14 +474,14 @@ fn family_of(object: &Value) -> &str {
         .unwrap_or_default()
 }
 
-fn split(objects: Vec<Value>) -> (Vec<Value>, Vec<Value>) {
+fn split(objects: Vec<serde_json::Value>) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
     objects
         .into_iter()
         .partition(|object| object.get("rule").is_some())
 }
 
-fn chains(rules: Vec<Value>) -> BTreeMap<(String, String), Vec<Value>> {
-    let mut chains: BTreeMap<(String, String), Vec<Value>> = BTreeMap::new();
+fn chains(rules: Vec<serde_json::Value>) -> BTreeMap<(String, String), Vec<serde_json::Value>> {
+    let mut chains: BTreeMap<(String, String), Vec<serde_json::Value>> = BTreeMap::new();
 
     for rule in rules {
         let key = (
@@ -496,8 +501,6 @@ fn chains(rules: Vec<Value>) -> BTreeMap<(String, String), Vec<Value>> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, json};
-
     /// The kernel's own listing of the installed tables, captured from Linux
     /// 7.0 with nft 1.0.9 and trimmed to them: handles, counter values and
     /// the `metainfo` header as the kernel reported them.
@@ -510,27 +513,29 @@ mod tests {
             .as_array()
             .expect("an array")
             .iter()
-            .map(Value::to_string)
+            .map(serde_json::Value::to_string)
             .collect();
         insta::assert_snapshot!(lines.join("\n"));
     }
 
     #[test]
     fn the_kernels_listing_verifies() {
-        let listing: Value = serde_json::from_str(LISTING).expect("fixture parses");
+        let listing: serde_json::Value = serde_json::from_str(LISTING).expect("fixture parses");
         assert_eq!(super::differences(&listing), Vec::<String>::new());
     }
 
     #[test]
     fn other_tables_are_ignored() {
-        let mut listing: Value = serde_json::from_str(LISTING).expect("fixture parses");
+        let mut listing: serde_json::Value = serde_json::from_str(LISTING).expect("fixture parses");
         let items = listing["nftables"].as_array_mut().expect("an array");
-        items.push(json!({ "table": { "family": "ip", "name": "filter", "handle": 1 } }));
-        items.push(json!({ "chain": {
+        items.push(
+            serde_json::json!({ "table": { "family": "ip", "name": "filter", "handle": 1 } }),
+        );
+        items.push(serde_json::json!({ "chain": {
             "family": "ip", "table": "filter", "name": "FORWARD", "handle": 2,
             "type": "filter", "hook": "forward", "prio": 0, "policy": "accept",
         }}));
-        items.push(json!({ "rule": {
+        items.push(serde_json::json!({ "rule": {
             "family": "inet", "table": "firewalld", "chain": "forward", "handle": 3,
             "expr": [{ "accept": null }],
         }}));
@@ -539,7 +544,7 @@ mod tests {
 
     #[test]
     fn tampering_is_detected() {
-        type Edit = fn(&mut Vec<Value>);
+        type Edit = fn(&mut Vec<serde_json::Value>);
         let edits: &[(&str, Edit)] =
             &[
                 ("no tables at all", |items| {
@@ -549,14 +554,14 @@ mod tests {
                     items.retain(|item| super::family_of(item) != "bridge")
                 }),
                 ("a dormant table", |items| {
-                    items[1]["table"]["flags"] = json!(["dormant"]);
+                    items[1]["table"]["flags"] = serde_json::json!(["dormant"]);
                 }),
                 ("a baseline element removed", |items| {
                     items[2]["set"]["elem"].as_array_mut().unwrap().remove(4);
                 }),
                 ("an accept inserted ahead of the forward drops", |items| {
                     let at = position(items, "forward", "vmm-to-vmm");
-                    items.insert(at, json!({ "rule": {
+                    items.insert(at, serde_json::json!({ "rule": {
                     "family": "inet", "table": super::TABLE, "chain": "forward", "handle": 99,
                     "expr": [{ "accept": null }],
                 }}));
@@ -567,17 +572,17 @@ mod tests {
                 }),
                 ("a rule's match rewritten under the same comment", |items| {
                     let at = position(items, "forward", "baseline");
-                    items[at]["rule"]["expr"][0]["match"]["right"] = json!("fvx*");
+                    items[at]["rule"]["expr"][0]["match"]["right"] = serde_json::json!("fvx*");
                 }),
                 ("a chain's priority moved", |items| {
                     let at = items
                         .iter()
                         .position(|item| item["chain"]["name"] == "input")
                         .unwrap();
-                    items[at]["chain"]["prio"] = json!(100);
+                    items[at]["chain"]["prio"] = serde_json::json!(100);
                 }),
                 ("an extra chain", |items| {
-                    items.push(json!({ "chain": {
+                    items.push(serde_json::json!({ "chain": {
                         "family": "inet", "table": super::TABLE, "name": "extra", "handle": 98,
                     }}));
                 }),
@@ -585,7 +590,8 @@ mod tests {
         let mut report = String::new();
 
         for (name, edit) in edits {
-            let mut listing: Value = serde_json::from_str(LISTING).expect("fixture parses");
+            let mut listing: serde_json::Value =
+                serde_json::from_str(LISTING).expect("fixture parses");
             edit(listing["nftables"].as_array_mut().expect("an array"));
             let differences = super::differences(&listing);
             assert!(!differences.is_empty(), "{name} went unnoticed");
@@ -629,7 +635,7 @@ mod tests {
         assert_eq!(accepts, vec![r#""input"/"gateway-dns""#]);
     }
 
-    fn position(items: &[Value], chain: &str, comment: &str) -> usize {
+    fn position(items: &[serde_json::Value], chain: &str, comment: &str) -> usize {
         items
             .iter()
             .position(|item| item["rule"]["chain"] == chain && item["rule"]["comment"] == comment)

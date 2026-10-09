@@ -185,8 +185,6 @@ fn held(
     what: &str,
     response_rx: &mut tokio::sync::mpsc::Receiver<tonic::Result<proto::Response>>,
 ) -> Result<(), String> {
-    use tokio::sync::mpsc::error::TryRecvError;
-
     let path = format!("{}/held-{what}", root.dir);
     let mut logs = Vec::new();
     run::eventually(&format!("podman to hold {what}"), STARTED, || {
@@ -200,8 +198,8 @@ fn held(
                 }
                 Ok(Err(status)) => format!("failed: {status}"),
                 Ok(Ok(response)) => format!("sent {response:?}"),
-                Err(TryRecvError::Disconnected) => "ended".to_string(),
-                Err(TryRecvError::Empty) => break,
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => "ended".to_string(),
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
             };
             return Some(Err(format!(
                 "the session {ended} before podman held {what}\n{logs:#?}"

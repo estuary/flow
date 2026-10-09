@@ -1,7 +1,6 @@
 //! Compile a policy into a complete nftables ruleset without touching the kernel.
 
 use egress::{Mode, Policy};
-use ipnetwork::Ipv4Network;
 use std::fmt::Write;
 
 use crate::net::{GUEST_IP, TAP, UPLINK, VMM_IP};
@@ -13,7 +12,7 @@ pub const RESOLVED_SIZE: usize = 1024;
 /// `vmm_subnets` are the VMM's own interface subnets, folded into the
 /// baseline. `run` reads them from `getifaddrs`; `print-ruleset` takes them
 /// from `--vmm-subnet`.
-pub fn render(policy: &Policy, vmm_subnets: &[Ipv4Network]) -> anyhow::Result<String> {
+pub fn render(policy: &Policy, vmm_subnets: &[ipnetwork::Ipv4Network]) -> anyhow::Result<String> {
     let baseline = egress::baseline(vmm_subnets);
     egress::check_declared(policy, &baseline)?;
 
@@ -213,10 +212,10 @@ fn declared_elements(policy: &Policy) -> Vec<String> {
         .collect()
 }
 
-fn join(prefixes: &[Ipv4Network]) -> String {
+fn join(prefixes: &[ipnetwork::Ipv4Network]) -> String {
     prefixes
         .iter()
-        .map(Ipv4Network::to_string)
+        .map(ipnetwork::Ipv4Network::to_string)
         .collect::<Vec<_>>()
         .join(", ")
 }

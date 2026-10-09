@@ -133,8 +133,6 @@ fn framed(message: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
-
     #[test]
     fn parse_table() {
         let mut table = String::new();
@@ -166,7 +164,7 @@ mod tests {
     #[test]
     fn no_rendered_error_line_begins_with_a_space() {
         for case in cases() {
-            let Err(error) = super::Args::try_parse_from(&case) else {
+            let Err(error) = <super::Args as clap::Parser>::try_parse_from(&case) else {
                 continue;
             };
             for line in crate::framed(&error.render().to_string()).lines() {
@@ -179,7 +177,7 @@ mod tests {
     }
 
     fn outcome(argv: &[&str]) -> String {
-        match super::Args::try_parse_from(argv) {
+        match <super::Args as clap::Parser>::try_parse_from(argv) {
             Ok(args) => describe(&args),
             Err(error) => crate::framed(&error.render().to_string()),
         }

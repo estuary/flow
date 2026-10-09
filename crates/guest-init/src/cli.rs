@@ -100,15 +100,13 @@ fn guest_path(raw: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
-
     #[test]
     fn parse_table() {
         let mut table = String::new();
 
         for case in cases() {
             table.push_str(&format!("$ {}\n", command_line(&case)));
-            match super::Args::try_parse_from(&case) {
+            match <super::Args as clap::Parser>::try_parse_from(&case) {
                 Ok(args) => table.push_str(&describe(&args)),
                 Err(error) => table.push_str(&crate::framed(&error.render().to_string())),
             }
@@ -120,7 +118,7 @@ mod tests {
     #[test]
     fn no_rendered_error_line_begins_with_a_space() {
         for case in cases() {
-            let Err(error) = super::Args::try_parse_from(&case) else {
+            let Err(error) = <super::Args as clap::Parser>::try_parse_from(&case) else {
                 continue;
             };
             for line in crate::framed(&error.render().to_string()).lines() {

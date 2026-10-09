@@ -2,7 +2,6 @@
 //! containers on the reference launch line.
 
 use connector_vmm_tests::{dns, endpoint, guest, host, netns, run};
-use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
@@ -28,7 +27,12 @@ fn start(run: &run::Run, spec: run::Spec) -> (run::Vmm, guest::Guest) {
     (vmm, guest)
 }
 
-fn probe(guest: &mut guest::Guest, name: &str, op: &str, arguments: Value) -> Value {
+fn probe(
+    guest: &mut guest::Guest,
+    name: &str,
+    op: &str,
+    arguments: serde_json::Value,
+) -> serde_json::Value {
     guest::call(guest, name, op, arguments)
 }
 
@@ -38,21 +42,21 @@ fn tcp(
     addr: impl ToString,
     port: u16,
     timeout: f64,
-) -> Value {
+) -> serde_json::Value {
     probe(
         guest,
         name,
         "tcp",
-        json!({"addr": addr.to_string(), "port": port, "timeout": timeout}),
+        serde_json::json!({"addr": addr.to_string(), "port": port, "timeout": timeout}),
     )
 }
 
-fn query(guest: &mut guest::Guest, name: &str, qname: &str, qtype: u16) -> Value {
+fn query(guest: &mut guest::Guest, name: &str, qname: &str, qtype: u16) -> serde_json::Value {
     probe(
         guest,
         name,
         "query",
-        json!({"nameserver": VMM_TAP.to_string(), "name": qname, "qtype": qtype, "timeout": BLOCKED}),
+        serde_json::json!({"nameserver": VMM_TAP.to_string(), "name": qname, "qtype": qtype, "timeout": BLOCKED}),
     )
 }
 
@@ -115,10 +119,10 @@ fn exists(path: &str) -> bool {
 
 /// A probe result the guest wrote to its stderr, for the `--as-root-exec`
 /// probes that run before the control channel exists.
-fn stderr_probe(vmm: &run::Vmm, name: &str) -> Value {
+fn stderr_probe(vmm: &run::Vmm, name: &str) -> serde_json::Value {
     run::stderr_text(vmm)
         .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
         .find(|line| line["probe"] == name)
         .unwrap_or_else(|| panic!("no {name} probe line on the guest's stderr"))["result"]
         .take()
@@ -347,7 +351,7 @@ fn image_user_through_linked_account_files() {
         &mut guest,
         "status",
         "read",
-        json!({"path": "/proc/self/status"}),
+        serde_json::json!({"path": "/proc/self/status"}),
     );
     let ids: Vec<&str> = status["content"]
         .as_str()
@@ -599,11 +603,11 @@ fn storage() {
         &mut guest,
         "root-fill",
         "fill",
-        json!({"path": "/tmp/fill", "mib": 768}),
+        serde_json::json!({"path": "/tmp/fill", "mib": 768}),
     );
     assert_eq!(
         root,
-        json!({"written": 768 * MIB, "stop": "done"}),
+        serde_json::json!({"written": 768 * MIB, "stop": "done"}),
         "root-fill"
     );
 
@@ -641,7 +645,7 @@ fn storage() {
         &mut guest,
         "scratch-fill",
         "fill",
-        json!({"path": "/scratch/fill", "mib": 300}),
+        serde_json::json!({"path": "/scratch/fill", "mib": 300}),
     );
     assert_eq!(
         scratch["stop"], "error:ENOSPC",
@@ -667,7 +671,7 @@ fn storage() {
         "the walk misses the VMM's own scratch descriptor: {holders:?}"
     );
 
-    let mounts = probe(&mut guest, "mounts", "mounts", json!({}));
+    let mounts = probe(&mut guest, "mounts", "mounts", serde_json::json!({}));
     assert!(
         !mounts.to_string().contains("persistent-disk"),
         "no persistent disk was asked for: {mounts}"
@@ -707,12 +711,12 @@ fn persistent_disk() {
     let (vmm, mut guest) = start(&run, spec);
     let dir = vmm.persistent_dir.clone().expect("a persistent directory");
 
-    let mounts = probe(&mut guest, "mounts", "mounts", json!({}));
+    let mounts = probe(&mut guest, "mounts", "mounts", serde_json::json!({}));
     let line = mounts
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(Value::as_str)
+        .filter_map(serde_json::Value::as_str)
         .find(|line| line.starts_with("persistent-disk /acmeCo/state virtiofs "))
         .unwrap_or_else(|| panic!("no persistent-disk mount in {mounts}"));
     let options: BTreeSet<&str> = line.split(' ').nth(3).unwrap_or("").split(',').collect();
@@ -727,7 +731,7 @@ fn persistent_disk() {
         &mut guest,
         "persistent-write",
         "write",
-        json!({"path": "/acmeCo/state/written-by-guest", "data": "acmeCo"}),
+        serde_json::json!({"path": "/acmeCo/state/written-by-guest", "data": "acmeCo"}),
     );
     assert_eq!(wrote, "ok", "persistent-write");
     let seen = run::sudo(&["cat", &format!("{dir}/written-by-guest")]);
@@ -738,11 +742,11 @@ fn persistent_disk() {
         &mut guest,
         "persistent-exec",
         "exec",
-        json!({"argv": ["/acmeCo/state/run.sh"]}),
+        serde_json::json!({"argv": ["/acmeCo/state/run.sh"]}),
     );
     assert_eq!(exec, "exit:126", "persistent-exec is refused by noexec");
 
-    let devices = probe(&mut guest, "devices", "devices", json!({}));
+    let devices = probe(&mut guest, "devices", "devices", serde_json::json!({}));
     assert_eq!(
         devices, "balloon:1 blk:1 console:1 fs:3 net:1 rng:1 vsock:1",
         "devices"
@@ -763,20 +767,20 @@ fn control_channel() {
         &mut guest,
         "vsock-mapped-port",
         "vsock",
-        json!({"cid": 2, "port": 49092, "timeout": 5}),
+        serde_json::json!({"cid": 2, "port": 49092, "timeout": 5}),
     );
     assert_eq!(mapped, "error:ECONNRESET", "vsock-mapped-port");
     let unmapped = probe(
         &mut guest,
         "vsock-unmapped-port",
         "vsock",
-        json!({"cid": 2, "port": 1234, "timeout": 3}),
+        serde_json::json!({"cid": 2, "port": 1234, "timeout": 3}),
     );
     assert_eq!(unmapped, "timeout", "vsock-unmapped-port");
 
     // A TSI proxy would be a new inet socket in the VMM's namespace.
     let before = run::nsenter(pid, &["ss", "-tuanp"]);
-    let tsi = probe(&mut guest, "tsi-proxy-create", "tsi", json!({}));
+    let tsi = probe(&mut guest, "tsi-proxy-create", "tsi", serde_json::json!({}));
     eprintln!("tsi-proxy-create: {tsi}");
     std::thread::sleep(Duration::from_secs(1));
     let after = run::nsenter(pid, &["ss", "-tuanp"]);
@@ -785,12 +789,12 @@ fn control_channel() {
         "the TSI datagram opened an inet socket in the VMM"
     );
 
-    let devices = probe(&mut guest, "devices", "devices", json!({}));
+    let devices = probe(&mut guest, "devices", "devices", serde_json::json!({}));
     assert_eq!(
         devices, "balloon:1 blk:1 console:1 fs:2 net:1 rng:1 vsock:1",
         "devices"
     );
-    let mounts = probe(&mut guest, "mounts", "mounts", json!({}));
+    let mounts = probe(&mut guest, "mounts", "mounts", serde_json::json!({}));
     assert!(
         !mounts.to_string().contains("persistent-disk"),
         "no persistent disk was asked for: {mounts}"
@@ -807,7 +811,12 @@ fn control_channel() {
             format!("{mount}/../../../../../../etc/hosts"),
         ),
     ] {
-        let result = probe(&mut guest, name, "same", json!({"a": a, "b": b}));
+        let result = probe(
+            &mut guest,
+            name,
+            "same",
+            serde_json::json!({"a": a, "b": b}),
+        );
         assert_eq!(result, "same-file", "{name}");
     }
     run::assert_framing(&vmm, true);
@@ -830,11 +839,11 @@ fn teardown() {
         &mut guest,
         "scratch-held",
         "fill",
-        json!({"path": "/scratch/held", "mib": 64, "keep": true}),
+        serde_json::json!({"path": "/scratch/held", "mib": 64, "keep": true}),
     );
     assert_eq!(
         fill,
-        json!({"written": 64 * MIB, "stop": "done"}),
+        serde_json::json!({"written": 64 * MIB, "stop": "done"}),
         "scratch-held"
     );
 
@@ -1022,7 +1031,7 @@ fn egress_allowlist() {
     spec.flags.push(format!(
         "{} once '{}'",
         run::PROBES.join(" "),
-        json!({"probe": "icmp-blocked", "op": "icmp", "name": "ok.acmeco.example", "timeout": BLOCKED})
+        serde_json::json!({"probe": "icmp-blocked", "op": "icmp", "name": "ok.acmeco.example", "timeout": BLOCKED})
     ));
     let (vmm, mut guest) = start(&run, spec);
     let pid = run::pid(&vmm);
@@ -1034,21 +1043,21 @@ fn egress_allowlist() {
         &mut guest,
         "resolve-allowed",
         "resolve",
-        json!({"name": "ok.acmeco.example"}),
+        serde_json::json!({"name": "ok.acmeco.example"}),
     );
     assert_eq!(resolved, format!("ok:{allowed_ip}"), "resolve-allowed");
     let held = probe(
         &mut guest,
         "connect-allowed",
         "hold",
-        json!({"id": "allowed", "addr": allowed_ip.to_string(), "port": port, "timeout": 5}),
+        serde_json::json!({"id": "allowed", "addr": allowed_ip.to_string(), "port": port, "timeout": 5}),
     );
     assert_eq!(held, "connected", "connect-allowed");
     let reply = probe(
         &mut guest,
         "exchange-allowed",
         "exchange",
-        json!({"id": "allowed", "timeout": 5}),
+        serde_json::json!({"id": "allowed", "timeout": 5}),
     );
     assert_eq!(reply, "pong", "exchange-allowed");
 
@@ -1056,7 +1065,7 @@ fn egress_allowlist() {
         &mut guest,
         "unlisted-refused",
         "query",
-        json!({"nameserver": VMM_TAP.to_string(), "name": "ok.elsewhere.example", "qtype": 1, "timeout": BLOCKED}),
+        serde_json::json!({"nameserver": VMM_TAP.to_string(), "name": "ok.elsewhere.example", "qtype": 1, "timeout": BLOCKED}),
     );
     assert_eq!(unlisted["status"], "rcode:5", "unlisted-refused");
     assert!(
@@ -1072,7 +1081,7 @@ fn egress_allowlist() {
             &mut guest,
             name,
             "query",
-            json!({"nameserver": VMM_TAP.to_string(), "name": qname, "qtype": 1, "timeout": BLOCKED}),
+            serde_json::json!({"nameserver": VMM_TAP.to_string(), "name": qname, "qtype": 1, "timeout": BLOCKED}),
         );
         assert_eq!(refused["status"], "rcode:5", "{name}");
         assert!(took < Duration::from_secs(1), "{name} took {took:?}");
@@ -1081,7 +1090,12 @@ fn egress_allowlist() {
         ("wildcard-resolved", "api.wild.acmeco.example"),
         ("wildcard-nested-resolved", "a.b.wild.acmeco.example"),
     ] {
-        let resolved = probe(&mut guest, name, "resolve", json!({"name": qname}));
+        let resolved = probe(
+            &mut guest,
+            name,
+            "resolve",
+            serde_json::json!({"name": qname}),
+        );
         assert_eq!(resolved, format!("ok:{wild_ip}"), "{name}");
     }
     assert_eq!(
@@ -1097,7 +1111,11 @@ fn egress_allowlist() {
     );
 
     let aaaa = query(&mut guest, "aaaa-empty", "ok.acmeco.example", 28);
-    assert_eq!(aaaa, json!({"status": "ok", "records": []}), "aaaa-empty");
+    assert_eq!(
+        aaaa,
+        serde_json::json!({"status": "ok", "records": []}),
+        "aaaa-empty"
+    );
 
     let mut blocked = vec![
         ("connect-unresolved", unresolved_ip, unresolved.addr.port()),
@@ -1127,7 +1145,7 @@ fn egress_allowlist() {
         &mut guest,
         "connect-ipv6",
         "ipv6",
-        json!({"addr": "2606:4700:4700::1111", "port": 443, "timeout": BLOCKED}),
+        serde_json::json!({"addr": "2606:4700:4700::1111", "port": 443, "timeout": BLOCKED}),
     );
     assert_ne!(ipv6, "connected", "connect-ipv6");
     eprintln!("connect-ipv6: {ipv6}");
@@ -1138,7 +1156,7 @@ fn egress_allowlist() {
             &mut guest,
             "inbound-listen",
             "listen",
-            json!({"port": 34567})
+            serde_json::json!({"port": 34567})
         ),
         "listening"
     );
@@ -1161,7 +1179,7 @@ except OSError as e:
         &mut guest,
         "inbound-accepted",
         "accepted",
-        json!({"port": 34567, "wait": 1}),
+        serde_json::json!({"port": 34567, "wait": 1}),
     );
     assert_eq!(inbound, "no-connection", "inbound-accepted");
     assert_eq!(
@@ -1269,7 +1287,7 @@ fn egress_ttl() {
     let floor = query(&mut guest, "ttl-floor", "short.acmeco.example", 1);
     assert_eq!(
         floor["records"],
-        json!([["A", short_ip.to_string(), 3]]),
+        serde_json::json!([["A", short_ip.to_string(), 3]]),
         "ttl-floor: clamped up to ttlFloorSecs"
     );
     assert_eq!(
@@ -1281,7 +1299,7 @@ fn egress_ttl() {
     let cap = query(&mut guest, "ttl-cap", "long.acmeco.example", 1);
     assert_eq!(
         cap["records"],
-        json!([["A", long_ip.to_string(), 10]]),
+        serde_json::json!([["A", long_ip.to_string(), 10]]),
         "ttl-cap: clamped down to ttlCapSecs"
     );
     assert_eq!(
@@ -1295,7 +1313,7 @@ fn egress_ttl() {
         &mut guest,
         "connect-held",
         "hold",
-        json!({"id": "held", "addr": short_ip.to_string(), "port": port, "timeout": 2}),
+        serde_json::json!({"id": "held", "addr": short_ip.to_string(), "port": port, "timeout": 2}),
     );
     assert_eq!(held, "connected", "connect-held");
 
@@ -1307,7 +1325,7 @@ fn egress_ttl() {
     let refresh = query(&mut guest, "ttl-refresh", "short.acmeco.example", 1);
     assert_eq!(
         refresh["records"],
-        json!([["A", short_ip.to_string(), 8]]),
+        serde_json::json!([["A", short_ip.to_string(), 8]]),
         "ttl-refresh"
     );
     assert_eq!(
@@ -1329,7 +1347,7 @@ fn egress_ttl() {
         &mut guest,
         "exchange-after-refresh",
         "exchange",
-        json!({"id": "held", "timeout": 2}),
+        serde_json::json!({"id": "held", "timeout": 2}),
     );
     assert_eq!(reply, "pong", "exchange-after-refresh");
 
@@ -1361,7 +1379,7 @@ fn egress_ttl() {
         &mut guest,
         "exchange-after-expiry",
         "exchange",
-        json!({"id": "held", "timeout": 2}),
+        serde_json::json!({"id": "held", "timeout": 2}),
     );
     assert_eq!(reply, "pong", "exchange-after-expiry");
     run::assert_framing(&vmm, true);
@@ -1425,7 +1443,7 @@ fn egress_cname() {
     let chain = query(&mut guest, "cname-chain", "alias.acmeco.example", 1);
     assert_eq!(
         chain["records"],
-        json!([
+        serde_json::json!([
             ["CNAME", "target.cdn.example", 5],
             ["A", target_ip.to_string(), 5]
         ]),
@@ -1587,7 +1605,7 @@ fn egress_none() {
         &mut guest,
         "resolve-none",
         "resolve",
-        json!({"name": "ok.acmeco.example"}),
+        serde_json::json!({"name": "ok.acmeco.example"}),
     );
     assert!(
         resolved.as_str().is_some_and(|r| r.starts_with("error:")),
@@ -1656,7 +1674,7 @@ fn public_https_smoke() {
         &mut guest,
         "resolve-pypi",
         "resolve",
-        json!({"name": "pypi.org"}),
+        serde_json::json!({"name": "pypi.org"}),
     );
     let addr = resolved
         .as_str()
@@ -1677,7 +1695,7 @@ fn public_https_smoke() {
 fn connector_mount() {
     let run = run::load();
     let generation = |n: u32| {
-        json!({
+        serde_json::json!({
             "token": format!("acmeCo-generation-{n}"),
             "control_plane_url": "https://control.acmeco.example",
             "config_encryption_url": "https://encryption.acmeco.example",
@@ -1694,17 +1712,17 @@ fn connector_mount() {
 
     // The test guest's image sets CONNECTOR_MOUNT and LOG_LEVEL itself; the
     // contract's values must win.
-    let env = probe(&mut guest, "contract-env", "env", json!({}));
+    let env = probe(&mut guest, "contract-env", "env", serde_json::json!({}));
     assert_eq!(env["CONNECTOR_MOUNT"], mount.as_str(), "CONNECTOR_MOUNT");
     assert_eq!(env["LOG_FORMAT"], "json", "LOG_FORMAT");
     assert_eq!(env["LOG_LEVEL"], "warn", "LOG_LEVEL");
 
-    let mounts = probe(&mut guest, "mounts", "mounts", json!({}));
+    let mounts = probe(&mut guest, "mounts", "mounts", serde_json::json!({}));
     let line = mounts
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(Value::as_str)
+        .filter_map(serde_json::Value::as_str)
         .find(|line| line.starts_with(&format!("connector-mount {mount} virtiofs ")))
         .unwrap_or_else(|| panic!("no connector-mount share at {mount} in {mounts}"))
         .to_string();
@@ -1724,16 +1742,21 @@ fn connector_mount() {
         &mut guest,
         "mount-write",
         "write",
-        json!({"path": format!("{mount}/x"), "data": "x"}),
+        serde_json::json!({"path": format!("{mount}/x"), "data": "x"}),
     );
     assert_eq!(write, "error:EROFS", "mount-write");
-    let list = probe(&mut guest, "mount-list", "list", json!({"path": &mount}));
+    let list = probe(
+        &mut guest,
+        "mount-list",
+        "list",
+        serde_json::json!({"path": &mount}),
+    );
     assert_eq!(list, "error:EACCES", "mount-list: 0711 hides the listing");
     let inspect = probe(
         &mut guest,
         "mount-read",
         "read",
-        json!({"path": format!("{mount}/image-inspect.json")}),
+        serde_json::json!({"path": format!("{mount}/image-inspect.json")}),
     );
     assert!(
         inspect["content"]
@@ -1745,7 +1768,7 @@ fn connector_mount() {
         &mut guest,
         "mount-exec",
         "exec",
-        json!({"argv": [format!("{mount}/flow-connector-init"), "--help"]}),
+        serde_json::json!({"argv": [format!("{mount}/flow-connector-init"), "--help"]}),
     );
     assert_eq!(exec, "exit:0", "mount-exec");
 
@@ -1754,7 +1777,7 @@ fn connector_mount() {
         &mut guest,
         "task-update-read",
         "read",
-        json!({"path": &path}),
+        serde_json::json!({"path": &path}),
     );
     assert_eq!(read["content"], first.as_str(), "task-update-read");
 
@@ -1769,11 +1792,11 @@ fn connector_mount() {
             &mut guest,
             &format!("task-update-generation-{n}"),
             "await",
-            json!({"path": &path, "content": &next, "timeout": 15}),
+            serde_json::json!({"path": &path, "content": &next, "timeout": 15}),
         );
         assert_eq!(
             seen,
-            json!({"seen": true}),
+            serde_json::json!({"seen": true}),
             "generation {n} never reached the guest"
         );
         eprintln!(
@@ -1940,7 +1963,8 @@ fn boundary_after_flush() {
         ("ordinary-container", ordinary_ip, in_ordinary.addr.port()),
     ];
     let direct = |name: &str, addr: Ipv4Addr, port: u16, src: Option<Ipv4Addr>| {
-        let mut arguments = json!({"addr": addr.to_string(), "port": port, "timeout": BLOCKED});
+        let mut arguments =
+            serde_json::json!({"addr": addr.to_string(), "port": port, "timeout": BLOCKED});
         if let Some(src) = src {
             arguments["src"] = src.to_string().into();
         }
@@ -1951,7 +1975,7 @@ fn boundary_after_flush() {
             a_pid,
             name,
             "query",
-            json!({"nameserver": nameserver.to_string(), "port": port, "name": qname,
+            serde_json::json!({"nameserver": nameserver.to_string(), "port": port, "name": qname,
                    "qtype": 1, "timeout": BLOCKED, "pad": pad}),
         )
     };
@@ -1994,7 +2018,7 @@ fn boundary_after_flush() {
                 a_pid,
                 "ipv6-host-link-local",
                 "ipv6",
-                json!({"addr": format!("{}%eth0", addr.ip()), "port": addr.port(), "timeout": BLOCKED}),
+                serde_json::json!({"addr": format!("{}%eth0", addr.ip()), "port": addr.port(), "timeout": BLOCKED}),
             );
             assert_ne!(reached, "connected", "ipv6-host-link-local");
         }
@@ -2124,7 +2148,8 @@ fn boundary_after_flush() {
     );
 
     // Nothing opens a connection into A: not an ordinary container, not the host.
-    let into_a = json!({"addr": a_ip.to_string(), "port": in_a.addr.port(), "timeout": BLOCKED});
+    let into_a =
+        serde_json::json!({"addr": a_ip.to_string(), "port": in_a.addr.port(), "timeout": BLOCKED});
     assert_eq!(
         guest::once_in(ordinary_pid, "ordinary-to-vmm", "tcp", into_a),
         "timeout"
@@ -2136,7 +2161,7 @@ fn boundary_after_flush() {
     assert!(from_host.is_err(), "the host opened a connection into A");
     // An ordinary container is unaffected by any of it.
     let ordinary_public =
-        json!({"addr": endpoint_ip.to_string(), "port": port, "timeout": BLOCKED});
+        serde_json::json!({"addr": endpoint_ip.to_string(), "port": port, "timeout": BLOCKED});
     assert_eq!(
         guest::once_in(ordinary_pid, "ordinary-public", "tcp", ordinary_public),
         "connected"
@@ -2169,7 +2194,7 @@ fn boundary_after_flush() {
         &mut guest,
         "guest-public-fragmented",
         "query",
-        json!({"nameserver": endpoint_ip.to_string(), "port": upstream.addr.port(),
+        serde_json::json!({"nameserver": endpoint_ip.to_string(), "port": upstream.addr.port(),
                "name": "ok.acmeco.example", "qtype": 1, "timeout": BLOCKED, "pad": 3000}),
     );
     assert_eq!(
@@ -2180,7 +2205,7 @@ fn boundary_after_flush() {
         &mut guest,
         "guest-gateway-dns",
         "query",
-        json!({"nameserver": a_gateway.to_string(), "name": &a.name, "qtype": 1, "timeout": BLOCKED}),
+        serde_json::json!({"nameserver": a_gateway.to_string(), "name": &a.name, "qtype": 1, "timeout": BLOCKED}),
     );
     assert_eq!(own["status"], "ok", "guest-gateway-dns: {own}");
     for (name, addr, port) in blocked {
@@ -2195,7 +2220,7 @@ fn boundary_after_flush() {
         &mut guest,
         "guest-other-gateway-dns",
         "query",
-        json!({"nameserver": b_gateway.to_string(), "name": &a.name, "qtype": 1, "timeout": BLOCKED}),
+        serde_json::json!({"nameserver": b_gateway.to_string(), "name": &a.name, "qtype": 1, "timeout": BLOCKED}),
     );
     assert_eq!(other["status"], "timeout", "guest-other-gateway-dns");
 
@@ -2364,7 +2389,7 @@ fn boundary_holds_across_reinstalls() {
         &mut guest,
         "hold",
         "hold",
-        json!({"id": "held", "addr": endpoint_ip.to_string(), "port": public.addr.port(), "timeout": 5}),
+        serde_json::json!({"id": "held", "addr": endpoint_ip.to_string(), "port": public.addr.port(), "timeout": 5}),
     );
     assert_eq!(held, "connected");
 
@@ -2381,7 +2406,7 @@ fn boundary_holds_across_reinstalls() {
                 &mut guest,
                 "exchange",
                 "exchange",
-                json!({"id": "held", "timeout": 2}),
+                serde_json::json!({"id": "held", "timeout": 2}),
             );
             assert_eq!(reply, "pong", "the held flow stopped during a reinstall");
             assert_eq!(
@@ -2412,7 +2437,7 @@ fn boundary_holds_across_reinstalls() {
         &mut guest,
         "exchange-after-reload",
         "exchange",
-        json!({"id": "held", "timeout": 2}),
+        serde_json::json!({"id": "held", "timeout": 2}),
     );
     assert_eq!(reply, "pong");
     assert_eq!(

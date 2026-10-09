@@ -1,7 +1,6 @@
 use anyhow::Context;
 pub use codec::Codec;
 use std::{io::Write, sync::atomic};
-use tonic::transport::server::TcpIncoming;
 
 mod capture;
 mod codec;
@@ -41,7 +40,7 @@ pub struct Args {
 // The listener is bound before anything else can fail, so that the readiness
 // byte means the same thing on both transports: the runtime may now connect.
 enum Listener {
-    Tcp(TcpIncoming),
+    Tcp(tonic::transport::server::TcpIncoming),
     Vsock(tokio_vsock::VsockListener),
 }
 
@@ -58,7 +57,7 @@ pub async fn run(
         (Some(port), None) => {
             let addr = format!("0.0.0.0:{}", port).parse().unwrap();
             Listener::Tcp(
-                TcpIncoming::bind(addr)
+                tonic::transport::server::TcpIncoming::bind(addr)
                     .map_err(|e| anyhow::anyhow!("tcp incoming error {}", e))?
                     .with_nodelay(Some(true)),
             )

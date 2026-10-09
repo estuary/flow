@@ -9,7 +9,6 @@
 //! Every routine here runs before `krun_start_enter`, because the guest's
 //! first packet has to meet a finished ruleset.
 
-use ipnetwork::Ipv4Network;
 use std::net::{Ipv4Addr, SocketAddr};
 
 /// The point-to-point tap between the VMM and its guest, a `/30`.
@@ -76,14 +75,14 @@ pub fn apply_ruleset(ruleset: &str) -> anyhow::Result<()> {
 
 /// Discover the VMM's IPv4 subnets so the baseline covers whatever podman
 /// assigned this container.
-pub fn vmm_subnets() -> anyhow::Result<Vec<Ipv4Network>> {
+pub fn vmm_subnets() -> anyhow::Result<Vec<ipnetwork::Ipv4Network>> {
     let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
 
     // SAFETY: `head` is a live pointer for the call to write through.
     if unsafe { libc::getifaddrs(&mut head) } != 0 {
         anyhow::bail!("getifaddrs: {}", std::io::Error::last_os_error());
     }
-    let mut subnets: Vec<Ipv4Network> = Vec::new();
+    let mut subnets: Vec<ipnetwork::Ipv4Network> = Vec::new();
     let mut cursor = head;
 
     // SAFETY: the list is owned by this thread until `freeifaddrs` below, and
@@ -100,7 +99,7 @@ pub fn vmm_subnets() -> anyhow::Result<Vec<Ipv4Network>> {
             continue;
         };
         let prefix_len = u32::from(netmask).count_ones() as u8;
-        let Ok(subnet) = Ipv4Network::new(address, prefix_len) else {
+        let Ok(subnet) = ipnetwork::Ipv4Network::new(address, prefix_len) else {
             continue;
         };
         if !subnets.contains(&subnet) {

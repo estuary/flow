@@ -28,7 +28,6 @@ mod dns;
 mod nftset;
 
 use egress::{AllowedName, Policy};
-use ipnetwork::Ipv4Network;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -64,7 +63,7 @@ pub struct Config {
     allowed_names: Vec<AllowedName>,
     ttl_floor: u32,
     ttl_cap: u32,
-    baseline: Vec<Ipv4Network>,
+    baseline: Vec<ipnetwork::Ipv4Network>,
 }
 
 impl Config {
@@ -73,7 +72,7 @@ impl Config {
     /// never becomes an element that does not expire.
     pub fn new(
         policy: &Policy,
-        vmm_subnets: &[Ipv4Network],
+        vmm_subnets: &[ipnetwork::Ipv4Network],
         listen: SocketAddr,
         upstream: SocketAddr,
         debug: bool,

@@ -8,8 +8,6 @@
 //! narrower than it reads. See the crate README for the exclusion list and
 //! the rationale behind each prefix.
 
-use ipnetwork::Ipv4Network;
-
 /// Destinations no policy reaches, before the VMM's own subnets are folded in.
 /// Every entry is a prefix IANA's IPv4 Special-Purpose Address Registry marks
 /// as not globally reachable, plus multicast, which is not a unicast
@@ -72,7 +70,7 @@ impl std::fmt::Display for AllowedName {
 
 #[derive(Debug)]
 pub struct Declared {
-    pub cidr: Ipv4Network,
+    pub cidr: ipnetwork::Ipv4Network,
     pub ports: Vec<u16>,
 }
 
@@ -184,8 +182,8 @@ pub fn parse(content: &[u8]) -> anyhow::Result<Policy> {
 /// subnets the VMM's own interfaces carry. Under podman the latter is the
 /// container's bridge, which sits inside `10.0.0.0/8` and is why the rendered
 /// set needs `auto-merge`.
-pub fn baseline(vmm_subnets: &[Ipv4Network]) -> Vec<Ipv4Network> {
-    let mut baseline: Vec<Ipv4Network> = BASELINE
+pub fn baseline(vmm_subnets: &[ipnetwork::Ipv4Network]) -> Vec<ipnetwork::Ipv4Network> {
+    let mut baseline: Vec<ipnetwork::Ipv4Network> = BASELINE
         .iter()
         .map(|raw| raw.parse().expect("BASELINE entries are constants"))
         .collect();
@@ -200,7 +198,7 @@ pub fn baseline(vmm_subnets: &[Ipv4Network]) -> Vec<Ipv4Network> {
 }
 
 /// Reject grants the baseline drop would prevent the ruleset from honoring.
-pub fn check_declared(policy: &Policy, baseline: &[Ipv4Network]) -> anyhow::Result<()> {
+pub fn check_declared(policy: &Policy, baseline: &[ipnetwork::Ipv4Network]) -> anyhow::Result<()> {
     for declared in &policy.declared_cidrs {
         let Some(hit) = baseline.iter().find(|entry| entry.overlaps(declared.cidr)) else {
             continue;
@@ -217,8 +215,8 @@ pub fn check_declared(policy: &Policy, baseline: &[Ipv4Network]) -> anyhow::Resu
 /// `ipnetwork` keeps whatever host bits it parsed and prints them back, which
 /// is what `getifaddrs` hands us for an interface address. nft wants the
 /// network address of the prefix.
-fn canonical(network: Ipv4Network) -> Ipv4Network {
-    Ipv4Network::new(network.network(), network.prefix())
+fn canonical(network: ipnetwork::Ipv4Network) -> ipnetwork::Ipv4Network {
+    ipnetwork::Ipv4Network::new(network.network(), network.prefix())
         .expect("a prefix length that already parsed is in range")
 }
 
@@ -362,7 +360,7 @@ fn normalize_declared(raw: &[DocumentDeclared]) -> anyhow::Result<Vec<Declared>>
     // being assembled, and the same three entries would pass or fail on their
     // order alone.
     for entry in raw {
-        let cidr: Ipv4Network = entry
+        let cidr: ipnetwork::Ipv4Network = entry
             .cidr
             .parse()
             .map_err(|e| anyhow::anyhow!("declaredCidrs {:?}: {e}", entry.cidr))?;
