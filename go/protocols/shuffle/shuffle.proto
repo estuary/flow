@@ -333,8 +333,9 @@ message SliceResponse {
 
 // LogRequest is sent by Slices to each shard's Log.
 // The first is an Open. Each which follows is a round: zero or more Appends,
-// and optionally a Flush. A round requesting a Flush goes to every Log, and
-// otherwise only to Logs for which it has Appends.
+// the Slice's MergeConstraint as of the round's end, and optionally a Flush.
+// A round requesting a Flush goes to every Log, and otherwise only to Logs
+// for which it has Appends, or to which its constraint is changed.
 //
 // Appends are flow-controlled by credits: a Slice may have a budget of Append
 // bytes sent to a Log and not yet merged by it, as advertised by the Log's
@@ -410,6 +411,37 @@ message LogRequest {
     uint64 cycle = 1;
   }
   Flush flush = 3;
+
+  // MergeConstraint is a lower bound on the adjusted clocks of the Slice's
+  // subsequent Appends, which it places on each Log's merge. Every round
+  // carries the Slice's current constraint, and its absence means the Slice
+  // is idle: it has no next document, and constrains no merge. Before a
+  // Slice's first round, a Log takes its constraint to be zero.
+  //
+  // A Log merges in (priority DESC, adjusted_clock ASC) order, where priority
+  // is that of a Slice's lane. Each Slice's merge position is its next queued
+  // Append, or else its constraint (at its lane's priority). A Log merges the
+  // least of these only if it's a queued Append, and otherwise awaits the
+  // constraining Slice's next round. A lesser-priority lane is thus held back
+  // while any higher-priority lane has documents due.
+  //
+  // A delayed constraint is of a next document which awaits its read delay.
+  // It bounds Appends of the Slice's own priority, but doesn't hold back
+  // lesser priorities, which merge documents that are due meanwhile.
+  //
+  // The bound is nominal. A Slice may later send Appends which fall below a
+  // prior constraint (for example: a replay, or a read which lags its peers),
+  // and their order of merge is best-effort. But a constraint is never below
+  // an Append the Slice has already sent, which a Log verifies. Otherwise a
+  // Slice awaiting credits of one Log could hold back the merge of another
+  // below its own unmerged Appends, and Logs could wait on one another.
+  message MergeConstraint {
+    // Adjusted clock (clock + read_delay) of the Slice's next document.
+    fixed64 adjusted_clock = 1;
+    // Whether the next document awaits its read delay.
+    bool delayed = 2;
+  }
+  MergeConstraint constraint = 4;
 }
 
 // LogResponse is sent by the Log actor back to each Slice.

@@ -253,6 +253,7 @@ async fn open_log_rpc(
             }),
             appends: Vec::new(),
             flush: None,
+            constraint: None,
         },
     )?;
 

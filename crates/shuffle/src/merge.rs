@@ -20,16 +20,21 @@ impl Position {
     };
 
     /// Merge position of an Append of a Slice having lane `priority`.
-    /// The adjusted clock saturates rather than overflows, because Logs
-    /// compute it from peer-supplied Append fields.
     pub fn from_append(priority: i32, append: &proto_flow::shuffle::log_request::Append) -> Self {
         Self {
             priority,
-            adjusted_clock: proto_gazette::uuid::Clock::from_u64(
-                append.clock.saturating_add(append.read_delay),
-            ),
+            adjusted_clock: adjusted_clock(append),
         }
     }
+}
+
+/// Adjusted clock (clock + read_delay) of an Append, as both its Slice and
+/// Log compute it. It saturates rather than overflows, because Logs compute
+/// it from peer-supplied Append fields.
+pub fn adjusted_clock(
+    append: &proto_flow::shuffle::log_request::Append,
+) -> proto_gazette::uuid::Clock {
+    proto_gazette::uuid::Clock::from_u64(append.clock.saturating_add(append.read_delay))
 }
 
 impl Ord for Position {

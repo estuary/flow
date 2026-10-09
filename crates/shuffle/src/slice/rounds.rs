@@ -1,15 +1,21 @@
 use super::{
     read::{Meta, ReadyRead},
     routing,
+    state::HeapTop,
 };
 use proto_flow::shuffle;
+use proto_gazette::uuid;
 use tokio::sync::mpsc;
 
-/// Rounds is the state of a Slice's sends to its Logs.
-/// See "Rounds and Credits" of the crate README.
+/// Rounds is the state of a Slice's sends to its Logs, and of the merge
+/// constraint which its rounds place on them.
+/// See "Rounds and Credits" and "Log Merge and Output" of the crate README.
 pub struct Rounds {
     /// Channels to shard Log RPCs, indexed by shard index.
     pub logs: Vec<LogChannel>,
+    /// Greatest adjusted clock of any queued Append, which floors the merge
+    /// constraint of every round.
+    max_queued: uuid::Clock,
     /// Re-usable scratch buffer for the packed key of an Append.
     packed_key: bytes::BytesMut,
     /// Re-usable scratch buffer for the target Logs of an Append.
@@ -46,12 +52,16 @@ pub struct LogChannel {
     sent_bytes: u64,
     /// Cumulative bytes of Appends which the Log has merged.
     acked_bytes: u64,
+    /// Merge constraint of the last round sent, which the Log holds until
+    /// the next. A Log presumes zero before a first round.
+    constraint: Option<shuffle::log_request::MergeConstraint>,
 }
 
 impl Rounds {
     pub fn new(logs: Vec<LogChannel>) -> Self {
         Self {
             logs,
+            max_queued: uuid::Clock::zero(),
             packed_key: bytes::BytesMut::new(),
             targets: Vec::new(),
         }
@@ -79,6 +89,7 @@ impl Rounds {
     ) -> Result<(), usize> {
         let Self {
             logs,
+            max_queued,
             packed_key,
             targets,
         } = self;
@@ -152,6 +163,8 @@ impl Rounds {
             doc_archived: doc.bytes().clone(),
             source_byte_length: (end_offset - begin_offset).try_into().unwrap(),
         };
+        *max_queued = (*max_queued).max(crate::merge::adjusted_clock(&append));
+
         if let Some((&last, rest)) = targets.split_last() {
             for &target in rest {
                 logs[target].queue(journal, append.clone());
@@ -162,22 +175,49 @@ impl Rounds {
         Ok(())
     }
 
-    /// Close the current round with an optional `flush`. A round is sent to
-    /// each Log having queued Appends, and to every Log if `flush`.
+    /// Close the current round with the merge constraint of heap `top`, and
+    /// an optional `flush`. A round is sent to each Log having queued Appends
+    /// or holding a different constraint, and to every Log if `flush`.
     /// Returns whether any Log was sent to.
-    pub fn close(&mut self, flush: Option<shuffle::log_request::Flush>) -> anyhow::Result<bool> {
+    ///
+    /// The constraint is the adjusted clock of a due or delayed `top`, floored
+    /// at the greatest queued Append, or the floor alone if `top` is deferred.
+    /// An idle Slice has no constraint.
+    ///
+    /// The floor keeps the constraint at or above each of the Slice's Appends,
+    /// as Logs enforce (`log::read_ahead::SliceReadAhead`), even as its top
+    /// regresses. A Slice which awaits credits of a Log then can't hold back
+    /// other Logs' merges below its Appends queued there, which is what keeps
+    /// the merges of Logs live (see `log::actor::LogActor`).
+    pub fn close(
+        &mut self,
+        top: HeapTop,
+        flush: Option<shuffle::log_request::Flush>,
+    ) -> anyhow::Result<bool> {
+        let floored = |clock: uuid::Clock, delayed| {
+            Some(shuffle::log_request::MergeConstraint {
+                adjusted_clock: clock.max(self.max_queued).as_u64(),
+                delayed,
+            })
+        };
+        let constraint = match top {
+            HeapTop::Due(clock) => floored(clock, false),
+            HeapTop::Delayed(clock) => floored(clock, true),
+            HeapTop::Deferred => floored(uuid::Clock::zero(), false),
+            HeapTop::Idle => None,
+        };
         let broadcast = flush.is_some();
         let mut sent = false;
 
         for log in self.logs.iter_mut() {
-            if !broadcast && log.round.is_empty() {
+            if !broadcast && log.round.is_empty() && log.constraint == constraint {
                 continue;
             }
-            log.send_round(flush)?;
+            log.send_round(constraint.clone(), flush)?;
             sent = true;
         }
         if sent {
-            tracing::trace!(?flush, "sent round");
+            tracing::trace!(?constraint, ?flush, "sent round");
         }
         Ok(sent)
     }
@@ -198,6 +238,7 @@ impl LogChannel {
             overhead_bytes,
             sent_bytes: 0,
             acked_bytes: 0,
+            constraint: Some(Default::default()),
         }
     }
 
@@ -257,12 +298,17 @@ impl LogChannel {
         });
     }
 
-    /// Send the current round's Appends with `flush`, as one message.
-    /// The round must have begun with channel capacity (`Rounds::try_begin`).
-    fn send_round(&mut self, flush: Option<shuffle::log_request::Flush>) -> anyhow::Result<()> {
+    /// Send the current round's Appends with `constraint` and `flush`, as one
+    /// message. The round must have begun with channel capacity (`Rounds::try_begin`).
+    fn send_round(
+        &mut self,
+        constraint: Option<shuffle::log_request::MergeConstraint>,
+        flush: Option<shuffle::log_request::Flush>,
+    ) -> anyhow::Result<()> {
         let appends = std::mem::take(&mut self.round);
         self.round.reserve(appends.len());
         self.sent_bytes += std::mem::take(&mut self.round_bytes);
+        self.constraint = constraint.clone();
 
         crate::verify_send(
             &self.tx,
@@ -270,6 +316,7 @@ impl LogChannel {
                 open: None,
                 appends,
                 flush,
+                constraint,
             },
         )
     }
@@ -297,7 +344,7 @@ mod test {
             };
             ch.queue("a/journal", append)
         };
-        let send = |ch: &mut LogChannel| ch.send_round(None).unwrap();
+        let send = |ch: &mut LogChannel| ch.send_round(None, None).unwrap();
 
         // Steps record their result, and the credits which follow it.
         // Bytes are in eighths of CREDIT.
@@ -361,34 +408,120 @@ mod test {
         ]);
         let flush = Some(shuffle::log_request::Flush { cycle: 5 });
 
-        // Each step records whether a round was sent, and (appends, flush)
-        // of the rounds each Log received.
+        let zero = HeapTop::Deferred;
+        let c100 = HeapTop::Due(uuid::Clock::from_u64(100));
+
+        // Each step records whether a round was sent, and (appends, constraint,
+        // flush) of the rounds each Log received.
         let mut trace = Vec::new();
         let mut step = |step: &str, sent: bool| {
             let received = [&mut rx0, &mut rx1].map(|rx| {
                 std::iter::from_fn(|| rx.try_recv().ok())
-                    .map(|r| (r.appends.len(), r.flush.map(|f| f.cycle)))
+                    .map(|r| {
+                        (
+                            r.appends.len(),
+                            r.constraint.map(|c| c.adjusted_clock),
+                            r.flush.map(|f| f.cycle),
+                        )
+                    })
                     .collect::<Vec<_>>()
             });
             trace.push(format!("{step} -> sent: {sent}, received: {received:?}"));
         };
 
-        // Nothing queued and no flush: no round is sent.
-        step("close(None)", rounds.close(None).unwrap());
+        // Nothing queued, no flush, and the constraint Logs presume: no round is sent.
+        step("close(0)", rounds.close(zero, None).unwrap());
 
-        // A round goes only to Logs having queued Appends.
+        // A round goes only to Logs having queued Appends,
+        // and carries the constraint.
         rounds.logs[0].queue("a/journal", Default::default());
         rounds.logs[0].queue("a/journal", Default::default());
-        step("queue(0) x2, close(None)", rounds.close(None).unwrap());
+        step("queue(0) x2, close(0)", rounds.close(zero, None).unwrap());
+
+        // A changed constraint goes to every Log whose constraint differs.
+        rounds.logs[1].queue("a/journal", Default::default());
+        step("queue(1), close(100)", rounds.close(c100, None).unwrap());
+        step("close(100)", rounds.close(c100, None).unwrap());
+        rounds.logs[0].queue("a/journal", Default::default());
+        step(
+            "queue(0), close(idle)",
+            rounds.close(HeapTop::Idle, None).unwrap(),
+        );
 
         // A flush goes to every Log, with or without Appends.
         rounds.logs[1].queue("a/journal", Default::default());
-        step("queue(1), close(flush 5)", rounds.close(flush).unwrap());
+        step(
+            "queue(1), close(idle, flush 5)",
+            rounds.close(HeapTop::Idle, flush).unwrap(),
+        );
 
         insta::assert_snapshot!(trace.join("\n"), @r"
-        close(None) -> sent: false, received: [[], []]
-        queue(0) x2, close(None) -> sent: true, received: [[(2, None)], []]
-        queue(1), close(flush 5) -> sent: true, received: [[(0, Some(5))], [(1, Some(5))]]
+        close(0) -> sent: false, received: [[], []]
+        queue(0) x2, close(0) -> sent: true, received: [[(2, Some(0), None)], []]
+        queue(1), close(100) -> sent: true, received: [[(0, Some(100), None)], [(1, Some(100), None)]]
+        close(100) -> sent: false, received: [[], []]
+        queue(0), close(idle) -> sent: true, received: [[(1, None, None)], [(0, None, None)]]
+        queue(1), close(idle, flush 5) -> sent: true, received: [[(0, None, Some(5))], [(1, None, Some(5))]]
+        ");
+    }
+
+    #[test]
+    fn test_close_constraint_floor() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut rounds = Rounds::new(vec![LogChannel::new(
+            tx,
+            crate::merge::APPEND_CREDIT_BYTES,
+            0,
+        )]);
+        let clock = uuid::Clock::from_u64;
+
+        // Each step closes a round of `top`, having queued Appends through
+        // `max_queued`, and records the constraint sent.
+        let steps = [
+            ("deferred at start", 0, HeapTop::Deferred),
+            ("due", 0, HeapTop::Due(clock(100))),
+            (
+                "due, Appends queued through it",
+                120,
+                HeapTop::Due(clock(130)),
+            ),
+            ("due, regressed", 150, HeapTop::Due(clock(110))),
+            ("delayed, regressed", 150, HeapTop::Delayed(clock(140))),
+            ("delayed", 150, HeapTop::Delayed(clock(200))),
+            ("deferred", 150, HeapTop::Deferred),
+            ("idle", 150, HeapTop::Idle),
+            ("due", 150, HeapTop::Due(clock(160))),
+        ];
+        let trace: Vec<_> = steps
+            .into_iter()
+            .map(|(step, max_queued, top)| {
+                rounds.max_queued = clock(max_queued);
+                rounds.close(top, None).unwrap();
+
+                let constraint = match &rounds.logs[0].constraint {
+                    None => "idle".to_string(),
+                    Some(c) if c.delayed => format!("delayed @{}", c.adjusted_clock),
+                    Some(c) => format!("@{}", c.adjusted_clock),
+                };
+                let top = match top {
+                    HeapTop::Due(clock) => format!("Due({})", clock.as_u64()),
+                    HeapTop::Delayed(clock) => format!("Delayed({})", clock.as_u64()),
+                    top => format!("{top:?}"),
+                };
+                format!("{step}: {top}, queued through {max_queued} -> {constraint}")
+            })
+            .collect();
+
+        insta::assert_snapshot!(trace.join("\n"), @"
+        deferred at start: Deferred, queued through 0 -> @0
+        due: Due(100), queued through 0 -> @100
+        due, Appends queued through it: Due(130), queued through 120 -> @130
+        due, regressed: Due(110), queued through 150 -> @150
+        delayed, regressed: Delayed(140), queued through 150 -> delayed @150
+        delayed: Delayed(200), queued through 150 -> delayed @200
+        deferred: Deferred, queued through 150 -> @150
+        idle: Idle, queued through 150 -> idle
+        due: Due(160), queued through 150 -> @160
         ");
     }
 }

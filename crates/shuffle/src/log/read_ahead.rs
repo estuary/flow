@@ -7,10 +7,18 @@ use proto_flow::shuffle;
 /// Appends pop in arrival order, which is the order the Slice's own merge
 /// produced them, and merge at the priority of the Slice's lane. A Flush
 /// barrier counts the Appends which preceded it, and releases as the last of
-/// them pops. See "Log Merge and Output" and "Flush Cycle" of the crate README.
+/// them pops. The Slice's merge constraint, as of its last round, bounds its
+/// Appends yet to arrive, and is at or above each Append it has sent, which
+/// is enforced. See "Log Merge and Output" and "Flush Cycle" of the crate
+/// README.
 pub struct SliceReadAhead {
     /// Priority of the Slice's lane, at which its Appends merge.
     priority: i32,
+    /// Merge constraint of the Slice's last round, or None if it's idle.
+    constraint: Option<shuffle::log_request::MergeConstraint>,
+    /// Greatest adjusted clock of any received Append, at or above which
+    /// every constraint must be.
+    max_received: proto_gazette::uuid::Clock,
     /// Unmerged Appends, in arrival order.
     queue: std::collections::VecDeque<shuffle::log_request::Append>,
     /// Bytes of queued Appends, within the Slice's credits.
@@ -47,6 +55,9 @@ impl SliceReadAhead {
     pub fn new(priority: i32) -> Self {
         Self {
             priority,
+            // Until its first round, a Slice may send any Append.
+            constraint: Some(Default::default()),
+            max_received: proto_gazette::uuid::Clock::zero(),
             queue: Default::default(),
             queued_bytes: 0,
             merged_bytes: 0,
@@ -56,12 +67,14 @@ impl SliceReadAhead {
     }
 
     /// Apply a Slice's received round, verifying that its Appends are within
-    /// the Slice's credits, and that it requests a Flush only while none is
-    /// pending. Returns the flush's cycle if it's released immediately,
-    /// because no queued Append precedes it.
+    /// the Slice's credits, that its constraint is at or above each of its
+    /// Appends, and that it requests a Flush only while none is pending.
+    /// Returns the flush's cycle if it's released immediately, because no
+    /// queued Append precedes it.
     pub fn on_round(
         &mut self,
         appends: Vec<shuffle::log_request::Append>,
+        constraint: Option<shuffle::log_request::MergeConstraint>,
         flush: Option<shuffle::log_request::Flush>,
     ) -> anyhow::Result<Option<u64>> {
         for append in appends {
@@ -84,8 +97,19 @@ impl SliceReadAhead {
                 );
             }
             self.queued_bytes += bytes;
+            self.max_received = self.max_received.max(crate::merge::adjusted_clock(&append));
             self.queue.push_back(append);
         }
+
+        if let Some(shuffle::log_request::MergeConstraint { adjusted_clock, .. }) = &constraint
+            && *adjusted_clock < self.max_received.as_u64()
+        {
+            anyhow::bail!(
+                "Slice's merge constraint {adjusted_clock} is below its prior Append at {}",
+                self.max_received.as_u64(),
+            );
+        }
+        self.constraint = constraint;
 
         let Some(shuffle::log_request::Flush { cycle }) = flush else {
             return Ok(None);
@@ -104,6 +128,11 @@ impl SliceReadAhead {
 
         self.barrier = Some(FlushBarrier { cycle, remaining });
         Ok(None)
+    }
+
+    /// Apply the EOF of the Slice, which will send no further Appends.
+    pub fn on_eof(&mut self) {
+        self.constraint = None;
     }
 
     /// Cumulative bytes of popped Appends, which are the Slice's credits.
@@ -160,10 +189,13 @@ impl SliceReadAhead {
 /// The next step of a Log's merge across its Slice read-aheads.
 #[derive(Debug, PartialEq, Eq)]
 pub enum NextMerge {
-    /// No Appends are queued.
+    /// No Appends are queued, and no Slice constrains the merge.
     Idle,
+    /// The merge awaits a next round of `slice`, whose constraint orders
+    /// before every queued Append.
+    Constrained { slice: usize },
     /// Queued Appends of `slice` may be merged in arrival order, while each
-    /// is at or before `through`: the least queued position of a peer Slice.
+    /// is at or before `through`: the least merge position of a peer Slice.
     /// Note that `through` cannot change until a Slice round is read.
     Ready {
         slice: usize,
@@ -171,34 +203,82 @@ pub enum NextMerge {
     },
 }
 
-/// Determine the next step of the merge across `slices`: the Slice whose next
-/// Append is least in merge order (breaking ties by Slice index), through the
-/// least next Append of its peers. Equal positions share a lane, so ties
-/// break by shard (Slices are indexed by lane, then shard).
+/// Determine the next step of the merge across `slices`.
+///
+/// A Slice's merge position is that of its next queued Append, or else its
+/// constraint. The least position (breaking ties by Slice index) merges if
+/// it's an Append, through the least position of its peers, and otherwise
+/// the merge awaits the Slice it constrains. A delayed constraint is a
+/// position only to Appends of its own priority: lesser priorities merge
+/// regardless of it, while it awaits its read delay.
+///
+/// A queued Append is preferred over a constraint of equal position, which
+/// admits it. Equal positions share a lane, and Slices are indexed by lane
+/// then shard, so ties of Appends break by shard.
+///
+/// A Slice's constraint is at or above each of its queued Appends
+/// (`SliceReadAhead::on_round`), so a Slice with queued Appends is positioned
+/// by its next one.
 pub fn next_merge(slices: &[SliceReadAhead]) -> NextMerge {
-    let mut least: Option<(usize, crate::merge::Position)> = None;
+    let constraint_position =
+        |slice: &SliceReadAhead, constraint: &shuffle::log_request::MergeConstraint| {
+            crate::merge::Position {
+                priority: slice.priority,
+                adjusted_clock: proto_gazette::uuid::Clock::from_u64(constraint.adjusted_clock),
+            }
+        };
+
+    // The least (position, is_constraint, slice) of queued Appends and
+    // constraints which aren't delayed, and the least position of its peers.
+    let mut least = None;
     let mut through = crate::merge::Position::MAX;
 
     for (index, slice) in slices.iter().enumerate() {
-        let Some(position) = slice.peek_position() else {
-            continue;
+        let (position, is_constraint) = match (slice.peek_position(), &slice.constraint) {
+            (Some(position), _) => (position, false),
+            (None, Some(constraint)) if !constraint.delayed => {
+                (constraint_position(slice, constraint), true)
+            }
+            _ => continue,
         };
         match least {
-            Some((_, prior)) if position >= prior => {
+            Some((prior, prior_is_constraint, _))
+                if (position, is_constraint) >= (prior, prior_is_constraint) =>
+            {
                 through = through.min(position);
             }
-            Some((_, prior)) => {
+            Some((prior, _, _)) => {
                 through = prior;
-                least = Some((index, position));
+                least = Some((position, is_constraint, index));
             }
-            None => least = Some((index, position)),
+            None => least = Some((position, is_constraint, index)),
         }
     }
 
-    match least {
-        Some((slice, _)) => NextMerge::Ready { slice, through },
-        None => NextMerge::Idle,
+    let (position, slice) = match least {
+        None => return NextMerge::Idle,
+        Some((_, true, slice)) => return NextMerge::Constrained { slice },
+        Some((position, false, slice)) => (position, slice),
+    };
+
+    // Delayed constraints of the Append's priority also bound it.
+    for (index, peer) in slices.iter().enumerate() {
+        let Some(constraint) = peer
+            .constraint
+            .as_ref()
+            .filter(|constraint| constraint.delayed && peer.priority == position.priority)
+        else {
+            continue;
+        };
+        let delayed = constraint_position(peer, constraint);
+
+        if delayed < position {
+            return NextMerge::Constrained { slice: index };
+        }
+        through = through.min(delayed);
     }
+
+    NextMerge::Ready { slice, through }
 }
 
 #[cfg(test)]
@@ -240,10 +320,20 @@ mod test {
             NextMerge::Ready { slice, through } => {
                 format!("Ready(slice: {slice}, through: {})", fmt_position(through))
             }
-            m => format!("{m:?}"),
+            NextMerge::Constrained { slice } => format!("Constrained(slice: {slice})"),
+            NextMerge::Idle => "Idle".to_string(),
         };
         let fmt_peek = |s: &SliceReadAhead| format!("{:?}", s.peek_position().map(fmt_position));
-        let round = |s: &mut SliceReadAhead, appends, flush| s.on_round(appends, flush).unwrap();
+        // Rounds of an idle Slice, or of a Slice constrained at `clock`.
+        let round =
+            |s: &mut SliceReadAhead, appends, flush| s.on_round(appends, None, flush).unwrap();
+        let constrain = |s: &mut SliceReadAhead, appends, clock, delayed| {
+            let constraint = shuffle::log_request::MergeConstraint {
+                adjusted_clock: clock,
+                delayed,
+            };
+            s.on_round(appends, Some(constraint), None).unwrap();
+        };
 
         // A flush with no queued Appends is released immediately.
         let mut s = SliceReadAhead::new(0);
@@ -271,7 +361,7 @@ mod test {
         let released = round(&mut s, vec![append(40, 0, b"doc")], flush(7));
         note("on_round([40], flush 7)", format!("{released:?}"));
         round(&mut s, vec![append(25, 0, b"doc")], None);
-        let result = s.on_round(Vec::new(), flush(8));
+        let result = s.on_round(Vec::new(), None, flush(8));
         note(
             "on_round([], flush 8)",
             format!("{:?}", result.map_err(|err| err.to_string())),
@@ -295,7 +385,7 @@ mod test {
             append(clock, 0, &vec![0; (bytes - overhead) as usize])
         };
         let mut on_round = |s: &mut SliceReadAhead, step: &str, appends| {
-            let result = s.on_round(appends, None);
+            let result = s.on_round(appends, None, None);
             note(
                 step,
                 format!(
@@ -373,7 +463,13 @@ mod test {
         // Append of its peers. Slices with nothing queued don't participate.
         // Slice 0 is of a lane having priority 1, and Slices 1 and 2 of priority 0.
         let mut slices: Vec<_> = [1, 0, 0].map(SliceReadAhead::new).into();
+
+        // Before its first round, a Slice constrains every merge.
         note("merge", fmt_merge(next_merge(&slices)));
+        for slice in slices.iter_mut() {
+            round(slice, Vec::new(), None);
+        }
+        note("idle rounds", fmt_merge(next_merge(&slices)));
 
         round(&mut slices[1], vec![append(100, 0, b"doc")], None);
         note("s1 [p0@100]", fmt_merge(next_merge(&slices)));
@@ -407,6 +503,60 @@ mod test {
         note("run", merge_run(&mut slices));
         note("run", merge_run(&mut slices));
         note("run", merge_run(&mut slices));
+
+        // A constraint holds back peers' Appends which order after it.
+        round(&mut slices[1], vec![append(200, 0, b"doc")], None);
+        constrain(&mut slices[2], Vec::new(), 150, false);
+        note("s1 [p0@200], s2 constrains @150", merge_run(&mut slices));
+        constrain(&mut slices[2], Vec::new(), 250, false);
+        note("s2 constrains @250", fmt_merge(next_merge(&slices)));
+
+        // An Append equal to a constraint merges ahead of it.
+        constrain(&mut slices[2], Vec::new(), 200, false);
+        note("s2 constrains @200", merge_run(&mut slices));
+
+        // A higher-priority lane's constraint holds back every lesser-priority
+        // Append, until it's idle.
+        round(&mut slices[1], vec![append(300, 0, b"doc")], None);
+        round(&mut slices[2], Vec::new(), None);
+        constrain(&mut slices[0], Vec::new(), 900, false);
+        note(
+            "s1 [p0@300], s2 idle, s0 constrains @900",
+            merge_run(&mut slices),
+        );
+        round(&mut slices[0], Vec::new(), None);
+        note("s0 idle", merge_run(&mut slices));
+
+        // A delayed constraint bounds Appends of its own priority, but doesn't
+        // hold back those of a lesser priority.
+        round(&mut slices[1], vec![append(500, 0, b"doc")], None);
+        constrain(&mut slices[0], Vec::new(), 250, true);
+        constrain(&mut slices[2], Vec::new(), 450, true);
+        note(
+            "s1 [p0@500], s0 delayed @250, s2 delayed @450",
+            merge_run(&mut slices),
+        );
+        constrain(&mut slices[2], Vec::new(), 600, true);
+        note("s2 delayed @600", merge_run(&mut slices));
+        round(&mut slices[0], Vec::new(), None);
+        round(&mut slices[2], Vec::new(), None);
+
+        // A Slice's Appends may regress, but its constraint is at or above each
+        // Append it has sent (here p0@500). An EOF makes a Slice idle.
+        constrain(&mut slices[1], vec![append(400, 0, b"doc")], 500, false);
+        note("s1 [p0@400] constrains @500", merge_run(&mut slices));
+        note("run", merge_run(&mut slices));
+        let constraint = shuffle::log_request::MergeConstraint {
+            adjusted_clock: 450,
+            delayed: true,
+        };
+        let result = slices[1].on_round(Vec::new(), Some(constraint), None);
+        note(
+            "s1 delayed @450",
+            format!("{:?}", result.map_err(|err| err.to_string())),
+        );
+        slices[1].on_eof();
+        note("s1 EOF", merge_run(&mut slices));
 
         insta::assert_snapshot!(trace.join("\n"));
     }

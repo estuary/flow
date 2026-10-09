@@ -884,6 +884,9 @@ impl serde::Serialize for LogRequest {
         if self.flush.is_some() {
             len += 1;
         }
+        if self.constraint.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.LogRequest", len)?;
         if let Some(v) = self.open.as_ref() {
             struct_ser.serialize_field("open", v)?;
@@ -893,6 +896,9 @@ impl serde::Serialize for LogRequest {
         }
         if let Some(v) = self.flush.as_ref() {
             struct_ser.serialize_field("flush", v)?;
+        }
+        if let Some(v) = self.constraint.as_ref() {
+            struct_ser.serialize_field("constraint", v)?;
         }
         struct_ser.end()
     }
@@ -907,6 +913,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
             "open",
             "appends",
             "flush",
+            "constraint",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -914,6 +921,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
             Open,
             Appends,
             Flush,
+            Constraint,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -939,6 +947,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                             "open" => Ok(GeneratedField::Open),
                             "appends" => Ok(GeneratedField::Appends),
                             "flush" => Ok(GeneratedField::Flush),
+                            "constraint" => Ok(GeneratedField::Constraint),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -961,6 +970,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                 let mut open__ = None;
                 let mut appends__ = None;
                 let mut flush__ = None;
+                let mut constraint__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Open => {
@@ -981,6 +991,12 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                             }
                             flush__ = map_.next_value()?;
                         }
+                        GeneratedField::Constraint => {
+                            if constraint__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("constraint"));
+                            }
+                            constraint__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -990,6 +1006,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                     open: open__,
                     appends: appends__.unwrap_or_default(),
                     flush: flush__,
+                    constraint: constraint__,
                 })
             }
         }
@@ -1375,6 +1392,123 @@ impl<'de> serde::Deserialize<'de> for log_request::Flush {
             }
         }
         deserializer.deserialize_struct("shuffle.LogRequest.Flush", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for log_request::MergeConstraint {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.adjusted_clock != 0 {
+            len += 1;
+        }
+        if self.delayed {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("shuffle.LogRequest.MergeConstraint", len)?;
+        if self.adjusted_clock != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("adjustedClock", ToString::to_string(&self.adjusted_clock).as_str())?;
+        }
+        if self.delayed {
+            struct_ser.serialize_field("delayed", &self.delayed)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for log_request::MergeConstraint {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "adjusted_clock",
+            "adjustedClock",
+            "delayed",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            AdjustedClock,
+            Delayed,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "adjustedClock" | "adjusted_clock" => Ok(GeneratedField::AdjustedClock),
+                            "delayed" => Ok(GeneratedField::Delayed),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = log_request::MergeConstraint;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct shuffle.LogRequest.MergeConstraint")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<log_request::MergeConstraint, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut adjusted_clock__ = None;
+                let mut delayed__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::AdjustedClock => {
+                            if adjusted_clock__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("adjustedClock"));
+                            }
+                            adjusted_clock__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Delayed => {
+                            if delayed__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("delayed"));
+                            }
+                            delayed__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(log_request::MergeConstraint {
+                    adjusted_clock: adjusted_clock__.unwrap_or_default(),
+                    delayed: delayed__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("shuffle.LogRequest.MergeConstraint", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for log_request::Open {

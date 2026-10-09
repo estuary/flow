@@ -30,6 +30,21 @@ pub struct Topology {
     pub hint_index: HintIndex,
 }
 
+/// What a Slice's heap offers its next round, as of a round's close,
+/// from which `Rounds::close` determines the round's merge constraint.
+#[derive(Debug, Clone, Copy)]
+pub enum HeapTop {
+    /// The heap's drain is deferred: a read that isn't in the heap may yet
+    /// preempt its top, or a replay is underway.
+    Deferred,
+    /// The heap is empty, and every read is tailing.
+    Idle,
+    /// The heap top awaits its read delay, until this adjusted clock.
+    Delayed(uuid::Clock),
+    /// The heap top is due, at this adjusted clock.
+    Due(uuid::Clock),
+}
+
 /// Flush cycle state machine, tracking in-flight flushes to Log shards.
 ///
 /// The caller is responsible for building the frontier (from reads + causal hints)

@@ -465,6 +465,53 @@ async fn shuffle_scenarios() {
         log_dir.path(),
     )
     .await;
+    data_plane.reset().await.expect("reset");
+
+    merged_across_slices(
+        "merged_across_slices",
+        2_000,
+        2048,
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    // Large documents, which exhaust Slice-to-Log credits.
+    merged_across_slices(
+        "merged_large_across_slices",
+        96,
+        512 * 1024,
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    read_delay_merge_order(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    priority_gating(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
 
     server_handle.abort();
     data_plane
@@ -2909,6 +2956,304 @@ async fn read_delay_priority_starvation(
             .for_each(|binding| counts[binding] += 1);
     }
     assert_eq!(counts, [DOCS, DOCS]);
+
+    session.close().await.expect("close");
+}
+
+/// Publish many documents round-robin across partitions, which the session
+/// spreads as reads across the Slices of a 3-shard topology. Every Log must
+/// merge its Appends from all Slices in strict clock order: each Log's merge
+/// is constrained by the merge constraints of Slices lacking a queued Append.
+/// `docs` of `padding` bytes are sized to span many rounds of Appends at
+/// every Slice: many small documents fill channels' capacity of rounds, while
+/// fewer large ones exhaust their credits.
+async fn merged_across_slices(
+    name: &str,
+    docs: usize,
+    padding: usize,
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let scenario_dir = log_dir.join(name);
+    std::fs::create_dir_all(&scenario_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+
+    const CATEGORIES: [&str; 8] = ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7"];
+    let padding = "x".repeat(padding);
+
+    for i in 0..docs {
+        let category = CATEGORIES[i % CATEGORIES.len()];
+        pub_.enqueue(
+            |uuid| {
+                Ok((
+                    1, // Bananas, which the materialization reads unfiltered.
+                    serde_json::json!({
+                        "_meta": {"uuid": uuid.to_string()},
+                        "id": format!("m-{i}"),
+                        "category": category,
+                        "value": i,
+                        "padding": &padding,
+                    }),
+                ))
+            },
+            uuid::Flags::OUTSIDE_TXN,
+        )
+        .await
+        .unwrap();
+    }
+    pub_.flush().await.unwrap();
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(3, service.peer_endpoint(), &scenario_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    let frontier = read_through_write_heads(&mut session, CATEGORIES.len()).await;
+
+    let mut clocks: Vec<Vec<u64>> = vec![Vec::new(); 3];
+    let mut journals: Vec<std::collections::BTreeSet<String>> = vec![Default::default(); 3];
+
+    for shard_index in 0..3 {
+        scan_shard_log(&scenario_dir, shard_index as u32, &frontier, |entry| {
+            clocks[shard_index].push(entry.meta.clock.to_native());
+            journals[shard_index].insert(entry.journal.name.as_str().to_owned());
+        });
+    }
+
+    for (shard_index, clocks) in clocks.iter().enumerate() {
+        assert!(
+            journals[shard_index].len() > 1,
+            "shard {shard_index} should merge documents of many journals"
+        );
+        assert!(
+            clocks.is_sorted(),
+            "shard {shard_index} log must be in merged clock order"
+        );
+    }
+    assert_eq!(clocks.iter().map(Vec::len).sum::<usize>(), docs);
+
+    session.close().await.expect("close");
+}
+
+/// A derivation reads bananas with a 2s read delay, and cherries without.
+/// (It's built from the materialization's bananas and cherries bindings:
+/// a fixture derivation built with no-op connectors has no transforms.)
+/// Documents are published at wall-clock time, interleaved across both
+/// collections and several partitions, and read by a 3-shard topology.
+/// Both are of the default priority, and so of one lane. Slices sleep on
+/// delayed documents at their heap top, and are idle while they do, which
+/// releases peers' merges of documents which are due. Every Log must merge in
+/// adjusted-clock order: cherries ahead of bananas published up to 2s earlier.
+async fn read_delay_merge_order(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let scenario_dir = log_dir.join("read_delay_merge_order");
+    std::fs::create_dir_all(&scenario_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+    // Publish at wall-clock time, so that the read delay is observed.
+    pub_.update_clock();
+
+    const CATEGORIES: [&str; 4] = ["c0", "c1", "c2", "c3"];
+    const DOCS: usize = 400;
+
+    for i in 0..DOCS {
+        let category = CATEGORIES[(i / 2) % CATEGORIES.len()];
+        pub_.enqueue(
+            |uuid| {
+                Ok((
+                    1 + i % 2, // Alternate bananas (delayed) and cherries.
+                    serde_json::json!({
+                        "_meta": {"uuid": uuid.to_string()},
+                        "id": format!("d-{i}"),
+                        "category": category,
+                        "value": i,
+                    }),
+                ))
+            },
+            uuid::Flags::OUTSIDE_TXN,
+        )
+        .await
+        .unwrap();
+    }
+    pub_.flush().await.unwrap();
+
+    let transforms = materialization_spec.bindings[1..=2]
+        .iter()
+        .zip([("fromBananas", 2), ("fromCherries", 0)])
+        .map(
+            |(binding, (name, read_delay_seconds))| flow::collection_spec::derivation::Transform {
+                name: name.to_string(),
+                collection: binding.collection.clone(),
+                collection_index: binding.collection_index,
+                partition_selector: binding.partition_selector.clone(),
+                journal_read_suffix: format!("derive/testing/delayed/{name}"),
+                state_key: name.to_string(),
+                read_delay_seconds,
+                ..Default::default()
+            },
+        )
+        .collect();
+
+    let derivation_spec = flow::CollectionSpec {
+        name: "testing/delayed".to_string(),
+        derivation: Some(Box::new(flow::collection_spec::Derivation {
+            transforms,
+            linked_collections: materialization_spec.linked_collections.clone(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+
+    let task = shuffle::proto::Task {
+        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+    };
+    // Bindings map each logged entry to its merge position (priority and adjusted clock).
+    let (bindings, _, _) = shuffle::Binding::from_task(&task).expect("Binding::from_task");
+    let merge_position = |binding: &shuffle::Binding, clock: u64| shuffle::merge::Position {
+        priority: binding.priority,
+        adjusted_clock: uuid::Clock::from_u64(clock) + binding.read_delay,
+    };
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        task,
+        build_shards(3, service.peer_endpoint(), &scenario_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    let frontier = read_through_write_heads(&mut session, 2 * CATEGORIES.len()).await;
+    let mut total = 0;
+
+    for shard_index in 0..3 {
+        let mut positions = Vec::new();
+
+        scan_shard_log(&scenario_dir, shard_index, &frontier, |entry| {
+            let binding = &bindings[entry.meta.binding.to_native() as usize];
+            positions.push(merge_position(binding, entry.meta.clock.to_native()));
+        });
+        assert!(
+            positions.is_sorted(),
+            "shard {shard_index} log must be in adjusted-clock order"
+        );
+        total += positions.len();
+    }
+    assert_eq!(total, DOCS);
+
+    session.close().await.expect("close");
+}
+
+/// A derivation reads bananas at high priority, and cherries at default
+/// priority, of one shard. Cherries are published first, then a backfill of
+/// bananas which spans many rounds and exhausts the high-priority lane's
+/// credits. The Log holds back the cherries' lane until the bananas' lane is
+/// idle: its log holds every banana, then every cherry.
+async fn priority_gating(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let scenario_dir = log_dir.join("priority_gating");
+    std::fs::create_dir_all(&scenario_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+
+    const CHERRIES: usize = 200;
+    const BANANAS: usize = 3_000;
+    let padding = "x".repeat(2048);
+
+    for i in 0..CHERRIES + BANANAS {
+        pub_.enqueue(
+            |uuid| {
+                Ok((
+                    if i < CHERRIES { 2 } else { 1 },
+                    serde_json::json!({
+                        "_meta": {"uuid": uuid.to_string()},
+                        "id": format!("g-{i}"),
+                        "category": "c0",
+                        "value": i,
+                        "padding": &padding,
+                    }),
+                ))
+            },
+            uuid::Flags::OUTSIDE_TXN,
+        )
+        .await
+        .unwrap();
+    }
+    pub_.flush().await.unwrap();
+
+    let transforms = materialization_spec.bindings[1..=2]
+        .iter()
+        .zip([("fromBananas", 1), ("fromCherries", 0)])
+        .map(
+            |(binding, (name, priority))| flow::collection_spec::derivation::Transform {
+                name: name.to_string(),
+                collection: binding.collection.clone(),
+                collection_index: binding.collection_index,
+                partition_selector: binding.partition_selector.clone(),
+                journal_read_suffix: format!("derive/testing/gated/{name}"),
+                state_key: name.to_string(),
+                priority,
+                ..Default::default()
+            },
+        )
+        .collect();
+
+    let derivation_spec = flow::CollectionSpec {
+        name: "testing/gated".to_string(),
+        derivation: Some(Box::new(flow::collection_spec::Derivation {
+            transforms,
+            linked_collections: materialization_spec.linked_collections.clone(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let task = shuffle::proto::Task {
+        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+    };
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        task,
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    let frontier = read_through_write_heads(&mut session, 2).await;
+
+    // Collapse the log's bindings into runs of (binding, count).
+    let mut runs: Vec<(u32, usize)> = Vec::new();
+    scan_shard_log(&scenario_dir, 0, &frontier, |entry| {
+        let binding = entry.meta.binding.to_native() as u32;
+        match runs.last_mut() {
+            Some((last, count)) if *last == binding => *count += 1,
+            _ => runs.push((binding, 1)),
+        }
+    });
+    // Binding 0 is bananas, and binding 1 is cherries.
+    assert_eq!(runs, vec![(0, BANANAS), (1, CHERRIES)]);
 
     session.close().await.expect("close");
 }

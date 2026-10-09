@@ -356,7 +356,8 @@ an operator can sample *which* journals are blocking and for how long.
 
 Before processing the heap top, the Slice gates on wall-clock time: if
 `adjusted_clock` is in the future (due to `read_delay`), the actor
-sleeps until the clock catches up. This is how read delays impose
+sleeps until the clock catches up, while advertising its top to Logs as a
+delayed merge constraint (§8). This is how read delays impose
 cross-transform ordering guarantees.
 
 Each dequeue also records the document's clock on the
@@ -403,8 +404,9 @@ A Slice sends to Logs in **rounds** (`slice::rounds::Rounds`). A round queues
 Appends for each Log, and closes when the Slice would otherwise wait — a
 target's credits are exhausted, or the heap is empty, deferred (§5), or
 clock-delayed — when a flush is ready (§9), or after `merge::MAX_DEQUEUES`
-dequeues. Closing sends one `LogRequest` with the round's Appends, and any
-ready `Flush`, to each Log having Appends; a round with a `Flush` goes to
+dequeues. Closing sends one `LogRequest` with the round's Appends, the
+Slice's merge constraint (§8), and any ready `Flush`, to each Log having
+Appends or holding a different constraint; a round with a `Flush` goes to
 every Log. The LogActor applies each round in one event-loop iteration.
 
 Each Slice-to-Log channel flow-controls Appends by **credits**
@@ -424,11 +426,45 @@ the order they were sent, and enforces that budget (`log::read_ahead::SliceReadA
 It merges across Slices by taking the Slice whose next Append is least in
 (priority DESC, adjusted clock ASC) order, where priority is that of the
 Slice's lane, and writes documents to its on-disk log segments in that merged
-order. The merge isn't gated: a Log merges whatever its read-aheads hold, so
-ordering across Slices is best-effort, and a Slice may lead its peers at a Log
-by up to its credits. Likewise a lane merges whenever no higher-priority lane
-has Appends queued at the Log, including while one is still reading towards
-them.
+order.
+
+The merge is gated by each Slice's **merge constraint**
+(`LogRequest.MergeConstraint`): a lower bound on the adjusted clocks of its
+subsequent Appends, which every round carries as of its close
+(`slice::rounds::Rounds::close`). It's the Slice's heap top, when the top is
+due. A top awaiting its read delay is a *delayed* constraint. A Slice with an
+empty heap and only tailing reads is *idle*, and has none. Every constraint is
+floored at the greatest Append the Slice has queued, so a Slice whose drain is
+deferred (§5), which can't know its top, constrains at that floor. Before any
+Append it's zero, as a Log presumes of a Slice until its first round.
+
+A Slice's merge position is its next queued Append, or else its constraint
+(at its lane's priority). A Log merges the least position only if it's an
+Append, and otherwise awaits the constraining Slice's next round
+(`log::read_ahead::next_merge`). A delayed constraint is a position only to
+Appends of its own priority. So:
+- Within a lane, Appends merge across shards in adjusted-clock order.
+- A lane is held back while any higher-priority lane has a document due,
+  including while that lane is deferred, as through a backfill.
+- A lane isn't held back by a higher-priority lane's documents which await
+  their read delay, as only due documents are ordered by priority.
+
+The lower bound is nominal: Appends of a replay, or of a read which lags its
+peers, may fall below a Slice's prior constraint, and merge best-effort. But
+the floor is exact: a Log rejects a constraint below an Append the Slice sent
+it (`log::read_ahead::SliceReadAhead`). So a Slice with queued Appends is
+positioned by its next one, and a Slice which awaits credits of one Log can't
+hold back another Log's merge below its Appends queued there. Without the
+floor, two Slices whose tops regressed could each hold back the Log where the
+other awaits credits, and neither Log would merge. With it, the merge is live
+(see `log::actor::LogActor`).
+
+A gated lane can't flush (§9), so its progress waits on higher-priority lanes.
+Should a checkpoint's causal hint await a gated lane's progress, the Session
+holds back every lane's progress behind it (§11), and tears the session down
+if it's held for `CAUSAL_HINT_RESOLUTION_TIMEOUT`, as through a long
+higher-priority backfill. That's not new: a single Slice's strict priority
+held hints so before lanes.
 
 Back-pressure falls on Slices as their credits run out: a Slice whose Appends
 don't merge stops reading its journals. A Log merges high-priority,
@@ -631,6 +667,7 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
     restart recovery.
   - `routing.rs`: Clock rotation and shard routing.
   - `heap.rs`: Adjusted-clock heap for ready reads of a lane.
+  - `state.rs`: Flush, progress, and merge constraint state machines.
   - `rounds.rs`: Rounds of Appends to Logs, and their per-Log credits.
 - `log/`: Log actor, per-Slice read-ahead and merge, flush IO.
   - `read_ahead.rs`: Per-Slice read-ahead of rounds and its credits, flush

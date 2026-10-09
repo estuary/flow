@@ -17,8 +17,9 @@ type FlushHandle = tokio::task::JoinHandle<anyhow::Result<(Writer, Lsn, Option<S
 ///
 /// Each Slice's rounds are read as they arrive, and its Appends are read
 /// ahead into its `SliceReadAhead`. The merge takes the least next Append of
-/// any Slice (`read_ahead::next_merge`), in a tight loop (`merge_block`) until
-/// it must wait, or until it yields after `crate::merge::MAX_DEQUEUES`.
+/// any Slice, provided no Slice's merge constraint orders before it
+/// (`read_ahead::next_merge`), in a tight loop (`merge_block`) until it must
+/// wait, or until it yields after `crate::merge::MAX_DEQUEUES`.
 ///
 /// Blocks are written by a background flush, one at a time, while the merge
 /// continues into the next block. A Slice's Flush is answered once a flush
@@ -33,6 +34,18 @@ type FlushHandle = tokio::task::JoinHandle<anyhow::Result<(Writer, Lsn, Option<S
 /// high-priority, earlier-clock documents first, so this back-pressure tends
 /// to fall on Slices and journals with lower-priority or later documents, and
 /// progress is bounded by the slowest Slice or Log.
+///
+/// The merge is live. Its least position is a queued Append, which merges,
+/// or the constraint of a Slice with no Appends queued here. That Slice will
+/// send its next document once it's read, and due, and the Slice has credits
+/// of its target Logs. It lacks credits only of a Log where its Appends are
+/// queued, which are at or below its constraint (`SliceReadAhead::on_round`).
+/// That Log merges them unless its own least position is the constraint of
+/// another Slice, which is then strictly below them, and so below the first
+/// constraint. A chain of Logs awaiting Slices which await credits thus
+/// descends strictly in position, and can't cycle: it ends at a Log which
+/// merges and returns credits, or at a Slice which isn't awaiting credits.
+/// See "Log Merge and Output" of the crate README.
 pub struct LogActor {
     /// Immutable session topology: identity and shard configuration.
     pub topology: super::state::Topology,
@@ -63,6 +76,12 @@ pub struct LogActor {
 enum Wait {
     /// No Appends are queued: await a next round from any Slice.
     Idle,
+    /// The constraint of `slice` orders before every queued Append:
+    /// await its next round. (`slice` is read by tracing, through Debug).
+    Constrained {
+        #[allow(dead_code)]
+        slice: usize,
+    },
     /// The block is full and a flush is in flight: await its completion.
     Flushing,
     /// The disk backlog is over its limit: await reclaim of sealed segments.
@@ -154,6 +173,7 @@ impl LogActor {
                     let Some(log_request) = log_request else {
                         // Clean EOF of this Slice's Log RPC.
                         connected -= 1;
+                        self.slices[slice].on_eof();
 
                         service_kit::event!(
                             tracing::Level::DEBUG,
@@ -229,6 +249,7 @@ impl LogActor {
             // next Append of its peers, through which its Appends may merge.
             let (slice, through) = match read_ahead::next_merge(&self.slices) {
                 NextMerge::Idle => return Ok(Wait::Idle),
+                NextMerge::Constrained { slice } => return Ok(Wait::Constrained { slice }),
                 NextMerge::Ready { slice, through } => (slice, through),
             };
 
@@ -273,6 +294,7 @@ impl LogActor {
             open: None,
             appends,
             flush,
+            constraint,
         } = log_request
         else {
             return Err(verify.fail_msg(log_request));
@@ -281,13 +303,14 @@ impl LogActor {
         tracing::trace!(
             slice,
             appends = appends.len(),
+            constraint = constraint.as_ref().map(|c| c.adjusted_clock),
             flush = flush.as_ref().map(|flush| flush.cycle),
             "received round from Slice"
         );
         self.metrics.rounds.increment(1);
 
         if let Some(cycle) = self.slices[slice]
-            .on_round(appends, flush)
+            .on_round(appends, constraint, flush)
             .with_context(|| {
                 format!("round of Slice {} with priority {priority}", shard.endpoint)
             })?
@@ -552,10 +575,16 @@ mod test {
                     ..Default::default()
                 }],
                 flush: flush.map(|cycle| shuffle::log_request::Flush { cycle }),
+                constraint: None,
             })
         };
 
-        // Slice 0's first Append merges and flushes, which seals a segment.
+        // Slice 1 is idle, and Slice 0's first Append merges and flushes,
+        // which seals a segment.
+        request_tx[1]
+            .send(Ok(shuffle::LogRequest::default()))
+            .await
+            .unwrap();
         request_tx[0].send(round(1, Some(1))).await.unwrap();
         let flushed = response_rx[0].recv().await.unwrap().unwrap();
 

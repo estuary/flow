@@ -6,7 +6,7 @@ use super::{
     },
     replay::Replay,
     rounds::Rounds,
-    state::{self, FlushState, ProgressState, Topology},
+    state::{self, FlushState, HeapTop, ProgressState, Topology},
 };
 use crate::log;
 use anyhow::Context;
@@ -759,7 +759,7 @@ impl SliceActor {
             Err(log) => Wait::Capacity { log },
             Ok(()) => {
                 let wait = self.fill_round(now)?;
-                self.close_round()?;
+                self.close_round(now)?;
                 wait
             }
         };
@@ -822,15 +822,7 @@ impl SliceActor {
                     });
             }
 
-            // Defer draining if any read could still resolve to content that
-            // preempts the current heap top: a journal the Session hasn't told
-            // us to read, a parked non-tailing (stalled) read, or a newly-started
-            // read still probing its write head (parked in `pending_probes`, not
-            // yet classified as tailing/stalled).
-            if !self.initial_reads_started
-                || self.tailing_reads != self.pending_reads.len()
-                || !self.pending_probes.is_empty()
-            {
+            if self.drain_deferred() {
                 return Ok(Wait::Idle);
             }
 
@@ -1000,8 +992,33 @@ impl SliceActor {
         }
     }
 
-    /// Close the round, which requests a flush if one is ready.
-    fn close_round(&mut self) -> anyhow::Result<()> {
+    /// Whether to defer draining the heap, because a read could still
+    /// resolve to content that preempts its top: a journal the Session hasn't
+    /// told us to read, a parked non-tailing (stalled) read, or a newly-started
+    /// read still probing its write head (parked in `pending_probes`, not yet
+    /// classified as tailing/stalled).
+    fn drain_deferred(&self) -> bool {
+        !self.initial_reads_started
+            || self.tailing_reads != self.pending_reads.len()
+            || !self.pending_probes.is_empty()
+    }
+
+    /// Close the round with the Slice's merge constraint, which requests a
+    /// flush if one is ready.
+    fn close_round(&mut self, now: &mut uuid::Clock) -> anyhow::Result<()> {
+        let top = if self.replay.is_some() || self.drain_deferred() {
+            HeapTop::Deferred
+        } else {
+            match self.ready_read_heap.peek() {
+                None => HeapTop::Idle,
+                Some(ReadyReadEntry { adjusted_clock, .. })
+                    if state::clock_delay(adjusted_clock, now, crate::now_clock).is_some() =>
+                {
+                    HeapTop::Delayed(*adjusted_clock)
+                }
+                Some(ReadyReadEntry { adjusted_clock, .. }) => HeapTop::Due(*adjusted_clock),
+            }
+        };
         // A flush is always broadcast, so its round is certain to be sent.
         let flush = if self.flush.should_flush() {
             // Build the frontier from unreported producers and causal hints,
@@ -1026,7 +1043,7 @@ impl SliceActor {
             None
         };
 
-        if self.rounds.close(flush)? {
+        if self.rounds.close(top, flush)? {
             self.metrics.rounds.increment(1);
         }
         Ok(())
