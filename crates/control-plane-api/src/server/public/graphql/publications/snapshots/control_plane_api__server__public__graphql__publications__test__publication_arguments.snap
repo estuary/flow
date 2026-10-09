@@ -1,0 +1,44 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: rows
+---
+[
+    (
+        true,
+        Some(
+            "first",
+        ),
+        None,
+        "queued",
+        None,
+    ),
+    (
+        false,
+        None,
+        None,
+        "queued",
+        None,
+    ),
+    (
+        false,
+        Some(
+            "unknown plane",
+        ),
+        Some(
+            "ops/dp/public/not-a-plane",
+        ),
+        "queued",
+        None,
+    ),
+    (
+        false,
+        Some(
+            "private plane",
+        ),
+        Some(
+            "ops/dp/private/bobCo2/aws-us-east-1-c1",
+        ),
+        "queued",
+        None,
+    ),
+]

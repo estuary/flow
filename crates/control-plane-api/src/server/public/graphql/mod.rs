@@ -158,6 +158,7 @@ pub struct MutationRoot(
     secrets::SecretsMutation,
     drafts::DraftsMutation,
     discovers::DiscoversMutation,
+    publications::PublicationsMutation,
 );
 
 pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {

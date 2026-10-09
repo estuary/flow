@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: outcomes
+---
+[
+  {
+    "case": "own, ops, and granted names present or not",
+    "error": null,
+    "status": "queued"
+  },
+  {
+    "case": "readable by the user but not the spec",
+    "error": "PermissionDenied: Specification 'aliceCo/out/mat' is not read-authorized to 'bobCo/readable/c'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"aliceCo/\",\n    \"object_role\": \"aaaCo/data/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"aliceCo/\",\n    \"object_role\": \"ops.us-central1.v1/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"aliceCo/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"aliceCo/out/\",\n    \"object_role\": \"aliceCo/data/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
+    "status": null
+  }
+]

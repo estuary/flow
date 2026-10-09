@@ -142,5 +142,75 @@ impl PublicationsQuery {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct PublicationsMutation;
+
+#[async_graphql::Object]
+impl PublicationsMutation {
+    /// Queue a publication of the draft `draftId`, which the caller must own.
+    /// The caller must hold `SpecEdit` on every catalog name staged in the
+    /// draft and on every live task the publication touches through
+    /// expansion, which authorizes publishing a definition at each name.
+    /// A live specification those definitions reference without it being
+    /// among them, such as the source collection of a staged
+    /// materialization, requires `CatalogRead` as well: the caller must be
+    /// allowed to inspect its definition. Ops collections are exempt, as
+    /// every build references them. These are checked now, with the
+    /// caller's full token restrictions. The publications executor then
+    /// builds, validates and commits the draft asynchronously; poll
+    /// `publication(id)` until `status.type` leaves `queued`. A committed
+    /// success deletes the draft. A dry run performs every step except the
+    /// commit and writes built specifications back into the draft, which
+    /// it keeps.
+    async fn create_publication(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+        draft_id: models::Id,
+        #[graphql(desc = "Build and validate without committing.")] dry_run: bool,
+        #[graphql(
+            desc = "Default data plane for specifications CREATED by this publication. Updates, deletions and tests are unaffected. Passed through to the publications executor, which resolves it when it builds. When omitted, each created specification is placed in the first data plane of its storage mapping."
+        )]
+        default_data_plane: Option<String>,
+        #[graphql(desc = "Optional free-text description recorded on the publication.")]
+        detail: Option<String>,
+    ) -> async_graphql::Result<Publication> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let subject = env.claims()?.subject();
+
+        let id = match crate::publications::create::create(
+            &env.pg_pool,
+            env.snapshot(),
+            &subject,
+            draft_id,
+            dry_run,
+            default_data_plane
+                .as_deref()
+                .filter(|plane| !plane.is_empty()),
+            detail.as_deref(),
+        )
+        .await
+        {
+            Ok(id) => id,
+            // A permission denial is provisional when the Snapshot predates
+            // the request: the caller is redirected to retry against a fresh
+            // one. Otherwise it is a terminal error.
+            Err(error) => match error.downcast::<tonic::Status>() {
+                Ok(status) => env.authorization_outcome(Err(status)).await?.1,
+                Err(error) => return Err(error.into()),
+            },
+        };
+        Ok(Publication {
+            id,
+            draft_id,
+            dry_run,
+            status: models::publications::JobStatus {
+                r#type: models::publications::StatusType::Queued,
+                lock_failures: Vec::new(),
+            },
+            pub_id: None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod test;

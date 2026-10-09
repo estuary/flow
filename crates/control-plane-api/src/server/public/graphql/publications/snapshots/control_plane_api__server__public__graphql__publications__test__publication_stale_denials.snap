@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: outcomes
+---
+{
+  "spec edit fresh": {
+    "error": null,
+    "status": "queued"
+  },
+  "spec edit stale": 307,
+  "spec grant fresh": {
+    "error": "PermissionDenied: Specification 'aliceCo/out/mat' is not read-authorized to 'bobCo/readable/c'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"aliceCo/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"aliceCo/out/\",\n    \"object_role\": \"aliceCo/data/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
+    "status": null
+  },
+  "spec grant stale": 307
+}

@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 3,
+          "line": 3
+        }
+      ],
+      "message": "PermissionDenied: User is not authorized to create or change 'bobCo/data/alpha'",
+      "path": [
+        "createPublication"
+      ]
+    }
+  ]
+}

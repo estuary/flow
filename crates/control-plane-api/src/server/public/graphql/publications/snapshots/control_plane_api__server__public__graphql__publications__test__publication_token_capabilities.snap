@@ -1,0 +1,41 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: outcomes
+---
+[
+  {
+    "case": "viewer mask",
+    "error": "PermissionDenied: User is not authorized to create or change 'aliceCo/data/new'",
+    "status": null
+  },
+  {
+    "case": "editor mask",
+    "error": null,
+    "status": "queued"
+  },
+  {
+    "case": "scoped to aliceCo/in/",
+    "error": "PermissionDenied: User is not authorized to create or change 'aliceCo/data/new'",
+    "status": null
+  },
+  {
+    "case": "scoped to aliceCo/data/",
+    "error": null,
+    "status": "queued"
+  },
+  {
+    "case": "scoped to aliceCo/out/, reads aliceCo/data/",
+    "error": null,
+    "status": "queued"
+  },
+  {
+    "case": "scoped to aliceCo/out/, reads aliceCo/other/",
+    "error": "PermissionDenied: User is not authorized to read 'aliceCo/other/foo'",
+    "status": null
+  },
+  {
+    "case": "unrestricted, reads aliceCo/other/",
+    "error": "PermissionDenied: Specification 'aliceCo/out/mat' is not read-authorized to 'aliceCo/other/foo'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"aliceCo/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"aliceCo/out/\",\n    \"object_role\": \"aliceCo/data/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
+    "status": null
+  }
+]

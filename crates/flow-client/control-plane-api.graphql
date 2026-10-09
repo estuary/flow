@@ -2189,6 +2189,37 @@ type MutationRoot {
 		"""
 		dataPlane: String
 	): Discover!
+	"""
+	Queue a publication of the draft `draftId`, which the caller must own.
+	The caller must hold `SpecEdit` on every catalog name staged in the
+	draft and on every live task the publication touches through
+	expansion, which authorizes publishing a definition at each name.
+	A live specification those definitions reference without it being
+	among them, such as the source collection of a staged
+	materialization, requires `CatalogRead` as well: the caller must be
+	allowed to inspect its definition. Ops collections are exempt, as
+	every build references them. These are checked now, with the
+	caller's full token restrictions. The publications executor then
+	builds, validates and commits the draft asynchronously; poll
+	`publication(id)` until `status.type` leaves `queued`. A committed
+	success deletes the draft. A dry run performs every step except the
+	commit and writes built specifications back into the draft, which
+	it keeps.
+	"""
+	createPublication(		draftId: Id!,
+		"""
+		Build and validate without committing.
+		"""
+		dryRun: Boolean!,
+		"""
+		Default data plane for specifications CREATED by this publication. Updates, deletions and tests are unaffected. Passed through to the publications executor, which resolves it when it builds. When omitted, each created specification is placed in the first data plane of its storage mapping.
+		"""
+		defaultDataPlane: String,
+		"""
+		Optional free-text description recorded on the publication.
+		"""
+		detail: String
+	): Publication!
 }
 
 """
