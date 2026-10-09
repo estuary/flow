@@ -512,6 +512,16 @@ async fn shuffle_scenarios() {
         log_dir.path(),
     )
     .await;
+    data_plane.reset().await.expect("reset");
+
+    hint_stall_under_priority_gating(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
 
     server_handle.abort();
     data_plane
@@ -3254,6 +3264,190 @@ async fn priority_gating(
     });
     // Binding 0 is bananas, and binding 1 is cherries.
     assert_eq!(runs, vec![(0, BANANAS), (1, CHERRIES)]);
+
+    session.close().await.expect("close");
+}
+
+/// A derivation reads bananas at high priority, and apples and cherries at
+/// default priority, of one shard. A low-priority transaction spans apples and
+/// cherries, but only its cherries ACK is written: its causal hint at apples
+/// holds the low lane's checkpoint, and is surfaced by a peek. Bananas are then
+/// published, and the high lane's progress reaches the client in further peeks
+/// while the hint is held. Once the apples ACK is written, a resolved
+/// checkpoint lets the transaction close.
+async fn hint_stall_under_priority_gating(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let scenario_dir = log_dir.join("hint_stall_under_priority_gating");
+    std::fs::create_dir_all(&scenario_dir).unwrap();
+
+    let p1 = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let p2 = uuid::Producer::from_bytes([0x03, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    let mut pub1 = make_publisher(capture_spec, journal_client, p1);
+    let mut pub2 = make_publisher(capture_spec, journal_client, p2);
+
+    // P1's transaction spans apples (binding 0) and cherries (binding 2).
+    for (binding, id) in [(0, "hs-apple"), (2, "hs-cherry")] {
+        pub1.enqueue(
+            |uuid| {
+                Ok((
+                    binding,
+                    serde_json::json!({
+                        "_meta": {"uuid": uuid.to_string()},
+                        "id": id,
+                        "category": "alpha",
+                        "value": 1,
+                    }),
+                ))
+            },
+            uuid::Flags::CONTINUE_TXN,
+        )
+        .await
+        .unwrap();
+    }
+    pub1.flush().await.unwrap();
+
+    let (p1_id, t1_commit, t1_journals) = pub1.commit_intents();
+    let mut t1_acks =
+        publisher::intents::build_transaction_intents(&[(p1_id, t1_commit, t1_journals)], None);
+    let apples_acks: std::collections::BTreeMap<_, _> = t1_acks
+        .iter()
+        .filter(|(journal, _)| journal.contains("apples"))
+        .map(|(journal, intent)| (journal.clone(), intent.clone()))
+        .collect();
+    t1_acks.retain(|journal, _| journal.contains("cherries"));
+    assert_eq!((t1_acks.len(), apples_acks.len()), (1, 1));
+    pub1.write_intents(t1_acks).await.unwrap();
+
+    let transforms = materialization_spec.bindings[0..=2]
+        .iter()
+        .zip([("fromApples", 0), ("fromBananas", 1), ("fromCherries", 0)])
+        .map(
+            |(binding, (name, priority))| flow::collection_spec::derivation::Transform {
+                name: name.to_string(),
+                collection: binding.collection.clone(),
+                collection_index: binding.collection_index,
+                partition_selector: binding.partition_selector.clone(),
+                journal_read_suffix: format!("derive/testing/stalled/{name}"),
+                state_key: name.to_string(),
+                priority,
+                ..Default::default()
+            },
+        )
+        .collect();
+
+    let derivation_spec = flow::CollectionSpec {
+        name: "testing/stalled".to_string(),
+        derivation: Some(Box::new(flow::collection_spec::Derivation {
+            transforms,
+            linked_collections: materialization_spec.linked_collections.clone(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let task = shuffle::proto::Task {
+        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+    };
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        task,
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    // Accumulate the client's cumulative checkpoint, as peeks arrive, until
+    // `until` holds of it. A held lane must not hold back the others' peeks.
+    let mut base = shuffle::Frontier::default();
+    let mut take_until =
+        async |base: &mut shuffle::Frontier,
+               label: &str,
+               until: &dyn Fn(&shuffle::Frontier) -> bool| {
+            while !until(base) {
+                let frontier = tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    session.next_checkpoint(),
+                )
+                .await
+                .unwrap_or_else(|_| panic!("timed out awaiting a checkpoint ({label})"))
+                .unwrap_or_else(|err| panic!("next_checkpoint ({label}): {err}"));
+                *base = std::mem::take(base).reduce(frontier);
+            }
+        };
+
+    // The low lane's held transaction anchors a peek.
+    take_until(&mut base, "anchor", &|base| {
+        matches!(
+            find_producer(base, "apples", p1),
+            Some(pf) if pf.hinted_commit == t1_commit && pf.last_commit < t1_commit
+        )
+    })
+    .await;
+    assert_eq!(base.unresolved_hints, 1);
+
+    // High-priority progress is peeked while the hint is held.
+    for i in 0..10 {
+        pub2.enqueue(
+            |uuid| {
+                Ok((
+                    1,
+                    serde_json::json!({
+                        "_meta": {"uuid": uuid.to_string()},
+                        "id": format!("hs-banana-{i}"),
+                        "category": "alpha",
+                        "value": i,
+                    }),
+                ))
+            },
+            uuid::Flags::OUTSIDE_TXN,
+        )
+        .await
+        .unwrap();
+    }
+    pub2.flush().await.unwrap();
+
+    take_until(&mut base, "peeked bananas", &|base| {
+        base.journals
+            .iter()
+            .any(|jf| jf.journal.contains("bananas") && jf.bytes_behind_delta == 0)
+            && find_producer(base, "bananas", p2).is_some()
+    })
+    .await;
+    assert_eq!(base.unresolved_hints, 1, "the apples hint is still held");
+
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read = collect_read_entries(&base, &scenario_dir, &mut shard_state);
+    let ids = |read: &[ReadEntry]| {
+        let mut ids: Vec<String> = read
+            .iter()
+            .map(|entry| entry.doc["id"].as_str().unwrap().to_string())
+            .collect();
+        ids.sort();
+        ids
+    };
+    // The peeked cherries ACK is readable within the open transaction, but the
+    // apples document awaits its own ACK.
+    assert_eq!(
+        ids(&read),
+        (0..10)
+            .map(|i| format!("hs-banana-{i}"))
+            .chain(["hs-cherry".to_string()])
+            .collect::<Vec<_>>(),
+    );
+
+    // Writing the apples ACK resolves the hint.
+    pub1.write_intents(apples_acks).await.unwrap();
+    base = base.reduce(next_resolved_checkpoint(&mut session, "resolved").await);
+    assert_eq!(base.unresolved_hints, 0);
+
+    let read = collect_read_entries(&base, &scenario_dir, &mut shard_state);
+    assert_eq!(ids(&read), vec!["hs-apple"]);
 
     session.close().await.expect("close");
 }

@@ -213,7 +213,7 @@ const ACTOR_TICKER_INTERVAL: std::time::Duration = std::time::Duration::from_sec
 /// Duration that causal hint resolution may stall — no progress against any
 /// unresolved hint — before the Session actor tears down the session. It's
 /// decoupled from [`ACTOR_TICKER_INTERVAL`] (the tracing cadence) and enforced
-/// via mark-and-sweep over that many ticks. See `session::state::CheckpointPipeline`.
+/// via mark-and-sweep over that many ticks. See `session::state::CheckpointState`.
 const CAUSAL_HINT_RESOLUTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 #[cfg(test)]
