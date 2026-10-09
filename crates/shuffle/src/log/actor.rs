@@ -1,72 +1,54 @@
 use super::Lsn;
-use super::read_ahead::{self, NextMerge, SliceReadAhead};
-use super::state::{BlockState, DiskState, FlushState};
+use super::heap::{self, AppendHeap};
+use super::state::{BlockState, FlushState};
 use super::writer::{SealedSegment, Writer};
-use futures::{StreamExt, stream::BoxStream};
+use futures::{FutureExt, StreamExt, future, stream::BoxStream};
 use proto_flow::shuffle;
 use proto_gazette::uuid;
+use std::future::Future;
 use tokio::sync::mpsc;
 
 type SliceRx = BoxStream<'static, tonic::Result<shuffle::LogRequest>>;
-type FlushHandle = tokio::task::JoinHandle<anyhow::Result<(Writer, Lsn, Option<SealedSegment>)>>;
 
-/// LogActor is the event loop of a shard's Log RPC, which every Slice joins.
-/// It merges the Slices' Appends into blocks of the shard's on-disk log.
+/// LogActor implements the main event loop of a shuffle Log RPC.
 ///
-/// Each Slice's rounds are read ahead into its `SliceReadAhead` while its
-/// receive window is open. The merge is strict: it takes the least queued
-/// Append only once no other Slice could yet send a lesser one, as told by
-/// that Slice's merge constraint (`read_ahead::next_merge`). The merge runs
-/// in a tight loop (`merge_block`) until it must wait, or until it yields
-/// after `crate::merge::MAX_DEQUEUES`.
+/// Notes on back-pressure: when a Slice sends an Append, its rx stream is
+/// parked in `slice_appends` until the heap pops that entry (lowest priority
+/// in the select loop). Given a parked rx stream, and knowing that a Log RPC
+/// is constrained by the HTTP/2 stream flow-control window (64KB), this means
+/// that the Slice is itself back-pressured, and will in-turn back-pressure to
+/// its journal reads (the journal Read RPC sits idle in a SliceActor's ReadyRead).
 ///
-/// Blocks are written by a background flush, one at a time, while the merge
-/// continues into the next block. A Slice's Flush is answered once a flush
-/// covers every Append which preceded it. A Slice has at most one Flush
-/// outstanding, so its Flushed response never awaits channel capacity.
+/// This creates the conditions for system-wide priority enforcement:
+/// LogActors drain high-priority, earlier-clock documents first, which back-pressures
+/// to Slices and journals that are producing lower-priority or higher-clock documents.
+/// The overall rate of progress is bounded by the write throughput of the slowest Log.
 ///
-/// Back-pressure: a Slice whose receive window is closed isn't read. It soon
-/// fills its send window and stops reading its journals. The merge also
-/// pauses while the disk backlog of sealed segments is over its limit
-/// (`DiskState`). Each Log merges high-priority, earlier-clock documents
-/// first, so this back-pressure falls on Slices and journals with
-/// lower-priority or later documents, and progress is bounded by the slowest
-/// Slice or Log.
+/// Additionally, the total on-disk backlog of sealed segments is tracked. When it
+/// exceeds `shuffle_disk_limit_bytes`, heap draining is paused, propagating back-pressure
+/// all the way to Slice journal reads.
 pub struct LogActor {
     /// Immutable session topology: identity and shard configuration.
     pub topology: super::state::Topology,
     /// Per-Slice response channel for sending Opened and Flushed responses.
     pub log_response_tx: Vec<mpsc::Sender<tonic::Result<shuffle::LogResponse>>>,
-    /// Read-ahead of Appends from each Slice.
-    pub slices: Vec<SliceReadAhead>,
+    /// Ready Append and receive stream for each Slice, set when an Append is
+    /// received and consumed when the corresponding heap entry is popped.
+    /// None while the slice's next read is pending in `pending_slices`.
+    pub slice_appends: Vec<Option<(shuffle::log_request::Append, SliceRx)>>,
+    /// Previous journal name received from each Slice shard, for delta decoding.
+    pub slice_prev_journal: Vec<String>,
+    /// Ordered heap of references to Some `slice_appends` items.
+    pub append_heap: AppendHeap,
     /// Log segment writer. `None` while a background flush is in-flight
-    /// (the Writer has been moved into `flush_handle`).
+    /// (the Writer has been moved into a `spawn_blocking` task).
     pub writer: Option<Writer>,
-    /// Background task of an in-flight flush, which returns the Writer.
-    pub flush_handle: Option<FlushHandle>,
     /// Block accumulation state: journals, producers, entries, byte tracking.
     pub block: BlockState,
-    /// Flush accounting: started and completed blocks, and awaiting requests.
+    /// Flush lifecycle state: pending requests, in-flight tracking, completed responses.
     pub flush: FlushState,
-    /// On-disk backlog of sealed segments, and its back-pressure of the merge.
-    pub disk: DiskState,
     /// Per-task metrics counters and gauges.
     pub metrics: super::Metrics,
-}
-
-/// What the Log's merge must await before it may continue.
-#[derive(Debug)]
-enum Wait {
-    /// No Appends are queued: await a next round from any Slice.
-    Idle,
-    /// The merge minimum is constrained by this Slice: await its next round.
-    Constrained(usize),
-    /// The block is full and a flush is in flight: await its completion.
-    Flushing,
-    /// The disk backlog is over its limit: await reclaim of sealed segments.
-    DiskBackPressure,
-    /// Await nothing: resume merging after servicing actor events.
-    Yield,
 }
 
 impl LogActor {
@@ -92,97 +74,87 @@ impl LogActor {
             .enumerate()
             .map(next_log_rx)
             .collect();
-        // Slots for streams which are not being read (via `pending_slice_rx`),
-        // either transiently or due to a full flow-control window.
-        let mut parked_slice_rx: Vec<Option<SliceRx>> =
-            std::iter::repeat_with(|| None).take(connected).collect();
 
+        // Handle for a single in-flight background flush.
+        let mut flush_handle: Option<
+            tokio::task::JoinHandle<anyhow::Result<(Writer, Lsn, Option<SealedSegment>)>>,
+        > = None;
         // Per-sealed-segment streams that drive compression and track unlink.
         // Each stream yields negative size deltas as disk space is freed.
         let mut sealed_segments = futures::stream::SelectAll::new();
 
+        // Threshold at which we'll stop draining Append requests.
+        let shuffle_disk_limit_bytes = self.topology.shuffle_disk_limit_bytes;
+        // Aggregate on-disk bytes across all living sealed segments.
+        let mut disk_backlog_bytes: u64 = 0;
+        // Hysteresis flag: engaged at shuffle_disk_limit_bytes, released at 50%.
+        let mut disk_back_pressure = false;
+
         let mut ticker = tokio::time::interval(crate::ACTOR_TICKER_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-        // Slice which constrains the merge, and since when.
-        let mut constrained: Option<(std::time::Instant, usize)> = None;
 
         let mut loop_count: u64 = 0;
         loop {
             loop_count += 1;
 
-            // First, merge into the block until we must wait.
-            let wait = self.merge_block()?;
+            // We may buffer a min-heap Append into the next block if we're
+            // under cap and disk backlog back-pressure is not active.
+            let may_buffer =
+                !self.append_heap.is_empty() && !self.block.is_full() && !disk_back_pressure;
 
-            // Re-arm parked Slices whose receive windows are open.
-            for (shard_index, parked) in parked_slice_rx.iter_mut().enumerate() {
-                if !self.slices[shard_index].window_open() {
-                    continue;
-                }
-                if let Some(rx) = parked.take() {
-                    pending_slice_rx.push(next_log_rx((shard_index, rx)));
-                }
-            }
-            self.track_constrained(&mut constrained, &wait);
-
-            // merge_block() starts a flush only when its block is full,
-            // to encourage larger blocks. Now that we've stalled, we also
-            // now flush if requested to by a Slice, as well as handling a
-            // block which filled precisely on the merge's last dequeue.
-            if self.flush.should_start(&self.block) {
-                self.start_flush();
-            }
+            // We may begin a non-empty block flush if one isn't underway, and either:
+            // - We've been asked to flush by a slice, OR
+            // - The block has reached capacity.
+            // Note that we immediately reply to a Flush request if our current
+            // block is empty (using the LSN of the last-completed flush).
+            let may_flush = !self.flush.flush_in_flight()
+                && !self.block.is_empty()
+                && (self.flush.has_pending_request() || self.block.is_full());
 
             tracing::trace!(
                 loop_count,
-                ?wait,
+                append_heap = self.append_heap.len(),
                 block = ?self.block,
                 connected,
-                disk = ?self.disk,
+                disk_backlog_mib = disk_backlog_bytes / (1024 * 1024),
                 flush = ?self.flush,
+                flushing = flush_handle.is_some(),
+                may_buffer,
+                may_flush,
                 pending_slice_rx = pending_slice_rx.len(),
                 "LogActor::serve iteration"
             );
 
-            // If indicated, yield after servicing actor events.
-            let wake_yield = async move {
-                match &wait {
-                    Wait::Yield => {
-                        tokio::task::yield_now().await;
-                        true
-                    }
-                    _ => false,
-                }
-            };
+            // First, attempt non-blocking sends of pending Flushed responses.
+            let wake_log_response_tx = self.try_log_response_tx()?;
 
             tokio::select! {
                 // Arms have a deliberate ordering designed to service IO first
-                // (reads, then writes).
+                // (reads, then writes), and to encourage larger block aggregation.
                 biased;
 
                 // Read a ready LogRequest from pending slices.
                 Some((shard_index, log_request, rx)) = pending_slice_rx.next() => {
-                    let Some(log_request) = log_request else {
-                        // Clean EOF of this shard's Slice Log RPC.
-                        self.slices[shard_index].on_eof();
-                        connected -= 1;
+                    match self.on_log_request(shard_index, log_request, rx)? {
+                        Ok(rx) => pending_slice_rx.push(next_log_rx((shard_index, rx))),
+                        Err(true) => {}, // `rx` is parked in self.slice_appends
+                        Err(false) => {
+                            connected -= 1;
 
-                        service_kit::event!(
-                            tracing::Level::DEBUG,
-                            "slice",
-                            shard_index,
-                            connected,
-                            "received EOF from Slice"
-                        );
-                        continue;
-                    };
-                    self.on_log_request(shard_index, log_request)?;
-                    parked_slice_rx[shard_index] = Some(rx);
+                            service_kit::event!(
+                                tracing::Level::DEBUG,
+                                "slice",
+                                shard_index,
+                                connected,
+                                "received EOF from Slice"
+                            );
+                        }
+                    }
                 }
 
                 // Read the completion of an in-flight flush.
-                Some(result) = futures::future::OptionFuture::from(self.flush_handle.as_mut()) => {
-                    self.flush_handle = None;
+                Some(result) = futures::future::OptionFuture::from(flush_handle.as_mut()) => {
+                    flush_handle = None;
 
                     let (writer, flushed_lsn, sealed) = match result {
                         Ok(r) => r?,
@@ -190,7 +162,14 @@ impl LogActor {
                         Err(err) => std::panic::resume_unwind(err.into_panic()),
                     };
 
-                    self.on_flushed(writer, flushed_lsn, sealed.as_ref())?;
+                    self.on_flushed(
+                        writer,
+                        flushed_lsn,
+                        sealed.as_ref(),
+                        &mut disk_backlog_bytes,
+                        shuffle_disk_limit_bytes,
+                        &mut disk_back_pressure,
+                    );
                     if let Some(sealed) = sealed {
                         sealed_segments.push(Box::pin(sealed.serve()));
                     }
@@ -200,11 +179,27 @@ impl LogActor {
                 // This arm is deactivated if no `connected` shards remain,
                 // to allow the `else` arm below to fire and exit.
                 Some(reclaimed) = sealed_segments.next(), if connected != 0 => {
-                    self.on_reclaimed(reclaimed?);
+                    self.on_reclaimed(
+                        reclaimed?,
+                        &mut disk_backlog_bytes,
+                        shuffle_disk_limit_bytes,
+                        &mut disk_back_pressure,
+                    );
                 }
 
-                // Wake when a Yield has completed.
-                true = wake_yield => {}
+                // Wake when a blocked log_response_tx has capacity.
+                true = wake_log_response_tx => {}
+
+                // Drain a ready entry from the heap into the buffering block.
+                true = std::future::ready(may_buffer) => {
+                    let pending = self.on_append_pop();
+                    pending_slice_rx.push(next_log_rx(pending));
+                }
+
+                // Start a flush of the buffering block.
+                true = std::future::ready(may_flush) => {
+                    self.start_flush(&mut flush_handle);
+                }
 
                 // Periodic tick ensures tracing fires even when idle.
                 // Guarded like sealed_segments to allow the `else` arm to fire
@@ -213,13 +208,12 @@ impl LogActor {
                     // The exporter evicts metrics idle for 10m, and a Log wedged
                     // by back-pressure neither seals nor reclaims, so without
                     // this the series vanishes on a stalled task.
-                    self.metrics.disk_backlog_bytes.set(self.disk.bytes() as f64);
+                    self.metrics.disk_backlog_bytes.set(disk_backlog_bytes as f64);
                 }
 
-                // All slices EOF'd, merge drained, and IO complete.
-                // No awaiting flush requests can remain: they imply a
-                // non-empty block or an in-flight flush, and a flush of
-                // the former would have started above.
+                // All slices EOF'd, heap drained, IO complete, and flushes sent.
+                // No pending flushes can remain: they imply a non-empty block,
+                // which would have triggered may_flush above.
                 else => break,
             }
         }
@@ -228,171 +222,177 @@ impl LogActor {
         Ok(())
     }
 
-    /// Merge into the block until the merge must wait, or has run for
-    /// `crate::merge::MAX_DEQUEUES`. A full block is flushed in-line,
-    /// if a flush isn't already underway, and the merge continues.
-    fn merge_block(&mut self) -> anyhow::Result<Wait> {
-        let mut dequeues = 0;
+    /// Try to send completed Flushed responses. If a channel is full, return
+    /// a wake future that resolves when capacity is available.
+    fn try_log_response_tx(&mut self) -> anyhow::Result<impl Future<Output = bool> + 'static> {
+        // Closure for mapping an OwnedPermit Result to Ok (our "poll again" signal).
+        // On Err (channel closed), we don't wake and rely on rx of a causal error / fail-fast teardown.
+        let ok = |result: Result<_, _>| result.is_ok();
+        // Future which represent an absence of an awake signal.
+        let idle = future::Either::Right(std::future::ready(false));
 
-        loop {
-            // `slice` is the next slice to merge, and `through` is the floor of
-            // its peers that constrain the `slice` Appends we may merge through.
-            let (slice, through) = match read_ahead::next_merge(&self.slices) {
-                NextMerge::Idle => return Ok(Wait::Idle),
-                NextMerge::Constrained(slice) => return Ok(Wait::Constrained(slice)),
-                NextMerge::Ready { slice, through } => (slice, through),
+        // This loop may head-of-line block if we're unable to send a LIFO Flushed.
+        // We accept this property for implementation simplicity.
+        while let Some(&(shard_index, cycle, flushed_lsn)) = self.flush.peek_pending_response() {
+            let tx = &self.log_response_tx[shard_index];
+
+            let Ok(permit) = tx.try_reserve() else {
+                return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
             };
+            self.flush.pop_pending_response();
 
-            // Merge a run of `slice` without re-evaluating `next_merge`.
-            while self.slices[slice]
-                .peek_position()
-                .is_some_and(|position| position <= through)
-            {
-                if self.disk.back_pressure() {
-                    return Ok(Wait::DiskBackPressure);
-                }
-                if self.block.is_full() {
-                    if self.flush.in_flight() {
-                        return Ok(Wait::Flushing);
-                    }
-                    self.start_flush();
-                }
-                if dequeues == crate::merge::MAX_DEQUEUES {
-                    return Ok(Wait::Yield);
-                }
-                self.on_append_pop(slice)?;
-                dequeues += 1;
-            }
+            permit.send(Ok(shuffle::LogResponse {
+                flushed: Some(shuffle::log_response::Flushed {
+                    cycle,
+                    flushed_lsn: flushed_lsn.as_u64(),
+                }),
+                ..Default::default()
+            }));
+
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "slice",
+                shard_index,
+                cycle,
+                flushed_lsn = flushed_lsn.as_u64(),
+                "sent Flushed response to Slice",
+            );
         }
+
+        Ok(idle)
     }
 
-    /// Time how long each Slice holds up the merge, for `constrained_micros`.
-    /// `constrained` is the Slice currently holding it up, and since when.
-    /// When `wait` shows that Slice is no longer the one, charge it the
-    /// elapsed time, and start timing the new one (if any).
-    fn track_constrained(
-        &self,
-        constrained: &mut Option<(std::time::Instant, usize)>,
-        wait: &Wait,
-    ) {
-        let slice = match wait {
-            Wait::Constrained(slice) => Some(*slice),
-            _ => None,
-        };
-        if let Some((since, prior)) = *constrained {
-            if slice == Some(prior) {
-                return; // Still constrained by the same Slice.
-            }
-            self.metrics.constrained_micros[prior].increment(since.elapsed().as_micros() as u64);
-        }
-        *constrained = slice.map(|slice| (std::time::Instant::now(), slice));
-    }
-
-    /// Verify and apply a Slice's round to its SliceReadAhead.
+    /// Handle a ready slice: verify the request and dispatch to on_append or on_flush.
+    ///
+    /// Returns:
+    ///  - Some(rx) on Flush (`rx` is re-pushed immediately)
+    ///  - Err(true) when `rx` (and a read Append) are parked in `slice_appends`.
+    ///  - Err(false) on clean EOF from the Slice RPC.
     fn on_log_request(
         &mut self,
         shard_index: usize,
-        log_request: tonic::Result<shuffle::LogRequest>,
-    ) -> anyhow::Result<()> {
+        log_request: Option<tonic::Result<shuffle::LogRequest>>,
+        rx: SliceRx,
+    ) -> anyhow::Result<Result<SliceRx, bool>> {
+        let Some(log_request) = log_request else {
+            return Ok(Err(false)); // Clean EOF of this shard's Slice Log RPC.
+        };
+
         let verify = proto_grpc::verify(
             "LogRequest",
-            "round of Appends, MergeConstraint, and optional Flush",
+            "Append or Flush",
             &self.topology.shards[shard_index].endpoint,
         );
         let log_request = verify.ok(log_request)?;
 
-        let shuffle::LogRequest {
-            open: None,
-            appends,
-            constraint: Some(constraint),
-            flush,
-        } = log_request
-        else {
-            return Err(verify.fail_msg(log_request));
-        };
+        match log_request {
+            shuffle::LogRequest {
+                append: Some(append),
+                ..
+            } => {
+                self.on_append_rx(append, shard_index, rx);
+                Ok(Err(true))
+            }
 
-        tracing::trace!(
-            shard_index,
-            appends = appends.len(),
-            priority = constraint.priority,
-            adjusted_clock = constraint.adjusted_clock,
-            tailing = constraint.tailing,
-            flush = flush.as_ref().map(|flush| flush.cycle),
-            "received round from Slice"
-        );
-        self.metrics.rounds.increment(1);
+            shuffle::LogRequest {
+                flush: Some(flush), ..
+            } => {
+                let shuffle::log_request::Flush { cycle } = flush;
+                let empty = self.block.is_empty();
+                self.flush.on_flush(shard_index, cycle, empty);
 
-        if let Some(cycle) = self.slices[shard_index].on_round(appends, &constraint, flush) {
-            self.on_flush(shard_index, cycle)?;
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "slice",
+                    shard_index,
+                    cycle,
+                    empty,
+                    "received Flush from Slice",
+                );
+                Ok(Ok(rx))
+            }
+
+            request => Err(verify.fail_msg(request)),
         }
-        Ok(())
     }
 
-    /// Request a Slice's flush, once every Append which preceded it has been
-    /// accumulated into a block, and answer it now if it's already satisfied.
-    fn on_flush(&mut self, shard_index: usize, cycle: u64) -> anyhow::Result<()> {
-        let empty = self.block.is_empty();
-        let flushed_lsn = self.flush.on_request(shard_index, cycle, empty);
-
-        service_kit::event!(
-            tracing::Level::DEBUG,
-            "slice",
-            shard_index,
-            cycle,
-            empty,
-            satisfied = flushed_lsn.is_some(),
-            "requested Flush of Slice",
-        );
-
-        let Some(flushed_lsn) = flushed_lsn else {
-            return Ok(());
-        };
-        send_flushed(
-            &self.log_response_tx[shard_index],
-            shard_index,
-            cycle,
-            flushed_lsn,
-        )
-    }
-
-    /// Pop the least Append of a Slice and accumulate it into the current block.
-    fn on_append_pop(&mut self, shard_index: usize) -> anyhow::Result<()> {
-        let read_ahead::Popped {
-            append,
-            journal,
-            released,
-        } = self.slices[shard_index].pop();
-
-        let producer = uuid::Producer::from_i64(append.producer);
-        self.block.accumulate(&journal, producer, &append);
+    fn on_append_rx(
+        &mut self,
+        append: shuffle::log_request::Append,
+        shard_index: usize,
+        rx: SliceRx,
+    ) {
+        let priority = append.priority;
+        let clock = uuid::Clock::from_u64(append.clock);
+        let adjusted_clock = clock + uuid::Clock::from_u64(append.read_delay);
 
         tracing::trace!(
             shard_index,
-            journal = &*journal,
-            position = ?crate::merge::Position::from_append(&append),
-            ?producer,
+            priority,
+            ?adjusted_clock,
             doc_bytes = append.doc_archived.len(),
-            "drained Append from merge"
+            "received Append from Slice"
+        );
+
+        debug_assert!(self.slice_appends[shard_index].is_none());
+        self.slice_appends[shard_index] = Some((append, rx));
+
+        self.append_heap.push(heap::AppendEntry {
+            priority,
+            adjusted_clock,
+            shard_index,
+        });
+    }
+
+    /// Pop the top append from the heap and accumulate it into the current block.
+    fn on_append_pop(&mut self) -> (usize, SliceRx) {
+        let heap::AppendEntry {
+            priority,
+            adjusted_clock,
+            shard_index,
+        } = self.append_heap.pop().unwrap();
+
+        let (append, rx) = self.slice_appends[shard_index]
+            .take()
+            .expect("slice_appends must be Some for a heap entry");
+
+        // Delta-decode the journal name.
+        gazette::delta::decode(
+            &mut self.slice_prev_journal[shard_index],
+            append.journal_name_truncate_delta,
+            &append.journal_name_suffix,
+        );
+
+        let journal = &self.slice_prev_journal[shard_index];
+        let producer = uuid::Producer::from_i64(append.producer);
+        self.block.accumulate(journal, producer, &append);
+
+        tracing::trace!(
+            shard_index,
+            journal,
+            priority,
+            ?producer,
+            ?adjusted_clock,
+            doc_bytes = append.doc_archived.len(),
+            "drained Append from heap"
         );
         self.metrics.appends.increment(1);
         self.metrics
             .bytes_appended
             .increment(append.source_byte_length as u64);
 
-        // Route a released flush after accumulating, so that it observes a
-        // non-empty block which includes its last-preceding Append.
-        if let Some(cycle) = released {
-            self.on_flush(shard_index, cycle)?;
-        }
-        Ok(())
+        (shard_index, rx)
     }
 
     /// Move the writer and accumulated block state into a background blocking
-    /// task that encodes and writes the block. It begins immediately, on a
-    /// thread of the blocking pool.
-    fn start_flush(&mut self) {
-        assert!(!self.block.is_empty());
-        self.flush.on_started();
+    /// task that encodes and writes the block.
+    fn start_flush(
+        &mut self,
+        flush_handle: &mut Option<
+            tokio::task::JoinHandle<anyhow::Result<(Writer, super::Lsn, Option<SealedSegment>)>>,
+        >,
+    ) {
+        self.flush.start_flush();
 
         let mut writer = self
             .writer
@@ -411,110 +411,92 @@ impl LogActor {
         );
         self.metrics.flushes.increment(1);
 
-        self.flush_handle = Some(tokio::task::spawn_blocking(move || {
+        *flush_handle = Some(tokio::task::spawn_blocking(move || {
             let (flushed_lsn, sealed) = writer.append_block(journals, producers, entries)?;
             Ok((writer, flushed_lsn, sealed))
         }));
     }
 
     /// Handle the completion of a background block flush: restore the writer,
-    /// answer the flush requests it satisfies, and bookkeep the disk backlog
-    /// (engaging back-pressure if a new segment was sealed).
+    /// advance flush state, and bookkeep the disk-backlog measure (engaging
+    /// back-pressure if a new segment was sealed).
     fn on_flushed(
         &mut self,
         writer: Writer,
         flushed_lsn: Lsn,
         sealed: Option<&SealedSegment>,
-    ) -> anyhow::Result<()> {
+        disk_backlog_bytes: &mut u64,
+        shuffle_disk_limit_bytes: u64,
+        disk_back_pressure: &mut bool,
+    ) {
         self.writer = Some(writer);
-
-        for (shard_index, cycle) in self.flush.on_completed(flushed_lsn) {
-            send_flushed(
-                &self.log_response_tx[shard_index],
-                shard_index,
-                cycle,
-                flushed_lsn,
-            )?;
-        }
+        self.flush.on_flushed(flushed_lsn);
 
         // Did the flush seal its segment (the writer rolled to the next)?
         let Some(sealed) = sealed else {
             service_kit::event!(
                 tracing::Level::TRACE,
                 "writer",
-                disk_back_pressure = self.disk.back_pressure(),
-                disk_backlog_mib = self.disk.bytes() / (1024 * 1024),
-                next_requested = self.flush.is_requested(),
+                disk_back_pressure = *disk_back_pressure,
+                disk_backlog_mib = *disk_backlog_bytes / (1024 * 1024),
+                next_pending = self.flush.has_pending_request(),
                 "log segment flushed (partial segment)"
             );
-            return Ok(());
+            return;
         };
 
-        self.disk.on_sealed(sealed.size);
+        *disk_backlog_bytes += sealed.size;
+
+        if *disk_backlog_bytes >= shuffle_disk_limit_bytes {
+            *disk_back_pressure = true;
+        };
 
         service_kit::event!(
             tracing::Level::DEBUG,
             "writer",
-            disk_back_pressure = self.disk.back_pressure(),
-            disk_backlog_mib = self.disk.bytes() / (1024 * 1024),
+            disk_back_pressure = *disk_back_pressure,
+            disk_backlog_mib = *disk_backlog_bytes / (1024 * 1024),
             last_segment = service_kit::event::debug(sealed.path.to_owned()),
-            next_requested = self.flush.is_requested(),
+            next_pending = self.flush.has_pending_request(),
             sealed_mib = sealed.size / (1024 * 1024),
             "log segment flushed (segment sealed)"
         );
         self.metrics.segments_sealed.increment(1);
         self.metrics
             .disk_backlog_bytes
-            .set(self.disk.bytes() as f64);
-        Ok(())
+            .set(*disk_backlog_bytes as f64);
     }
 
-    /// Handle a disk-space reclaim from a sealed segment's compress / unlink stream.
-    fn on_reclaimed(&mut self, reclaimed: u64) {
-        self.disk.on_reclaimed(reclaimed);
+    /// Handle a disk-space reclaim from a sealed segment's compress / unlink
+    /// stream: subtract from the backlog measure and release back-pressure
+    /// at the hysteresis threshold (half of `shuffle_disk_limit_bytes`).
+    fn on_reclaimed(
+        &mut self,
+        reclaimed: u64,
+        disk_backlog_bytes: &mut u64,
+        shuffle_disk_limit_bytes: u64,
+        disk_back_pressure: &mut bool,
+    ) {
+        *disk_backlog_bytes = disk_backlog_bytes
+            .checked_sub(reclaimed)
+            .expect("disk_backlog_bytes underflow");
+
+        if *disk_back_pressure && *disk_backlog_bytes < shuffle_disk_limit_bytes / 2 {
+            *disk_back_pressure = false;
+        }
 
         service_kit::event!(
             tracing::Level::DEBUG,
             "writer",
-            disk_back_pressure = self.disk.back_pressure(),
-            disk_backlog_mib = self.disk.bytes() / (1024 * 1024),
+            disk_back_pressure = *disk_back_pressure,
+            disk_backlog_mib = *disk_backlog_bytes / (1024 * 1024),
             reclaimed_mib = reclaimed / (1024 * 1024),
             "log segment reclaimed",
         );
         self.metrics
             .disk_backlog_bytes
-            .set(self.disk.bytes() as f64);
+            .set(*disk_backlog_bytes as f64);
     }
-}
-
-// Send a Flushed response to a Slice. A Slice has at most one Flush
-// outstanding, so its channel always has capacity.
-fn send_flushed(
-    tx: &mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
-    shard_index: usize,
-    cycle: u64,
-    flushed_lsn: Lsn,
-) -> anyhow::Result<()> {
-    crate::verify_send(
-        tx,
-        Ok(shuffle::LogResponse {
-            flushed: Some(shuffle::log_response::Flushed {
-                cycle,
-                flushed_lsn: flushed_lsn.as_u64(),
-            }),
-            ..Default::default()
-        }),
-    )?;
-
-    service_kit::event!(
-        tracing::Level::DEBUG,
-        "slice",
-        shard_index,
-        cycle,
-        flushed_lsn = flushed_lsn.as_u64(),
-        "sent Flushed response to Slice",
-    );
-    Ok(())
 }
 
 // Helper which builds a future that yields the next request from a shard's Log RPC.

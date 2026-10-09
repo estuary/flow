@@ -11,16 +11,18 @@ Checkpoint {
                 producers: [
                     ProducerFrontier {
                         producer: Producer(01:00:00:00:00:01),
-                        last_commit: Clock(0s 3000ns),
+                        last_commit: Clock(0s 1000ns),
                         hinted_commit: Clock(0s 0ns),
-                        offset: -291,
+                        offset: -97,
                     },
                 ],
-                bytes_read_delta: 291,
-                bytes_behind_delta: 0,
+                bytes_read_delta: 97,
+                bytes_behind_delta: 194,
             },
         ],
-        flushed_lsn: [],
+        flushed_lsn: [
+            1/0,
+        ],
         latest_backfill_begin: {},
         latest_backfill_complete: {},
         binding_gap_floors: {},
@@ -36,30 +38,6 @@ Checkpoint {
                 },
                 "category": String("alpha"),
                 "id": String("a1"),
-                "value": Number(1),
-            },
-        },
-        ReadEntry {
-            binding: 0,
-            journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
-            doc: Object {
-                "_meta": Object {
-                    "uuid": String("13814014-1dd2-11b2-8000-010000000001"),
-                },
-                "category": String("alpha"),
-                "id": String("a2"),
-                "value": Number(1),
-            },
-        },
-        ReadEntry {
-            binding: 0,
-            journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
-            doc: Object {
-                "_meta": Object {
-                    "uuid": String("1381401e-1dd2-11b2-8000-010000000001"),
-                },
-                "category": String("alpha"),
-                "id": String("a3"),
                 "value": Number(1),
             },
         },

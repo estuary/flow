@@ -39,12 +39,14 @@
 //! base and the session then crashes, recovery re-gaps at `F'`, and `[F, F')` was
 //! unreadable anyway)
 
-use super::actor::{SliceActor, Wait};
+use super::actor::{Buffers, SliceActor};
 use super::producer::ProducerState;
 use super::read::{self, Meta, ReadyRead};
 use super::state;
 use futures::StreamExt;
+use proto_flow::shuffle;
 use proto_gazette::{broker, uuid};
+use tokio::sync::mpsc;
 
 /// All live state for the single active replay of a gapped producer's open
 /// span, owned by the actor in `SliceActor::replay`.
@@ -177,27 +179,22 @@ impl SliceActor {
         Ok(())
     }
 
-    /// Drain the active replay's batch cursor into the round as far as it
-    /// will go, counting each consumed document against the round's
-    /// `dequeues`. Returns why the round ends: more broker I/O is required,
-    /// the round is long, or a Log RPC channel must await acks to its window.
+    /// Drain the active replay's batch cursor as far as it will go,
+    /// returning None when more broker I/O is required, or Some with
+    /// a Log RPC channel that must await send capacity.
     pub(super) fn try_drain_replay(
         &mut self,
         mut replay: Replay,
-        dequeues: &mut usize,
-    ) -> anyhow::Result<Wait> {
+        buffers: &mut Buffers,
+    ) -> anyhow::Result<Option<mpsc::Sender<shuffle::LogRequest>>> {
         let read_state = &mut self.reads[replay.read_id];
         let binding = &self.topology.bindings[read_state.binding_index as usize];
         let mut producer_state = read_state.producer_state(replay.target);
 
-        let end = loop {
+        let maybe_tx = loop {
             let ReplayIo::Draining(mut ready_read) = replay.io else {
-                break Wait::Idle;
+                break None;
             };
-            if *dequeues == crate::merge::MAX_DEQUEUES {
-                replay.io = ReplayIo::Draining(ready_read);
-                break Wait::Yield;
-            }
             let Meta {
                 begin_offset,
                 producer,
@@ -225,22 +222,24 @@ impl SliceActor {
                     );
                 }
                 if sequenced.is_append {
-                    if let Err((log, acks)) = self.rounds.try_queue(
+                    if let Err(tx) = Self::try_log_request_append_tx(
                         binding,
+                        buffers,
                         &read_state.journal,
                         &self.topology.shards,
+                        &mut self.log_prev_journal,
+                        &self.log_request_tx,
                         &ready_read,
                     ) {
-                        // Put back, await acks, and retry.
+                        // Put back, await capacity, and retry.
                         replay.io = ReplayIo::Draining(ready_read);
-                        break Wait::Acks { log, acks };
+                        break Some(tx);
                     }
                 }
 
                 // Append is complete; commit sequenced update.
                 producer_state = sequenced.producer_state;
             }
-            *dequeues += 1;
 
             let ReadyRead {
                 inner: read,
@@ -273,7 +272,7 @@ impl SliceActor {
         _ = read_state.unreported.insert(replay.target, producer_state);
         self.replay = Some(replay);
 
-        Ok(end)
+        Ok(maybe_tx)
     }
 
     pub(super) fn on_replay_read_resolved(

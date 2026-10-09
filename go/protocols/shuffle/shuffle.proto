@@ -326,15 +326,6 @@ message SliceResponse {
 }
 
 // LogRequest is sent by Slices to each shard's Log.
-// The first is an Open. Each which follows is a round: zero or more Appends,
-// the Slice's MergeConstraint as of the round's end, and optionally a Flush.
-//
-// While a Slice is behind, its constraint advances with nearly every round,
-// and each round goes to every Log. Similarly, a round requesting a flush must
-// always go to every Log. As a special case, a Slice may omit sending a round
-// to a Log if the round's constraint is unchanged from the one the Slice last
-// sent, the round doesn't request a Flush, and it has no Appends for that Log.
-// This is typical of a Slice which remains live `tailing`.
 message LogRequest {
   // Open initiates the Log RPC.
   // Multiple Slices open Log RPCs to the same shard, and the Log
@@ -354,8 +345,6 @@ message LogRequest {
 
   // Append sends a document to be written to the log.
   // The Log actor merges across Slice streams, ordering by (priority, clock).
-  // Journal names are delta-encoded against the Slice's preceding Append to
-  // this Log, across and within rounds.
   message Append {
     // Number of bytes to truncate from the preceding name.
     // Must align with a UTF-8 code point boundary.
@@ -387,49 +376,15 @@ message LogRequest {
     // Always fits in uint32 because a single document is always < 4 GiB.
     uint32 source_byte_length = 11;
   }
-  // Appends of the round, in the order the Slice's merge produced them:
-  // nearly but not fully ordered on (priority DESC, adjusted_clock ASC).
-  repeated Append appends = 2;
+  Append append = 2;
 
-  // Flush requests a durability barrier, and the Log responds with a Flushed
-  // of its cycle once the Appends of this and all prior rounds of the Slice
-  // are durable.
+  // Flush requests a durability barrier.
   message Flush {
     // Cycle number for correlating Flush with Flushed response.
+    // Allows pipelining if we later want multiple in-flight flushes.
     uint64 cycle = 1;
   }
   Flush flush = 3;
-
-  // MergeConstraint is the constraint a Slice places on each Log's merge,
-  // as of the end of its round. Every round carries one.
-  //
-  // A Log merges Appends across Slices in (priority DESC, adjusted_clock ASC)
-  // order, and may only take a next Append when it knows every other
-  // non-tailing Slice cannot later send it a lesser one. The constraint
-  // carries that knowledge: a lower bound on the Appends of the Slice's
-  // subsequent rounds.
-  //
-  // The constraint always exceeds every Append the Slice has sent which a Log
-  // may not yet have merged. Advertising it allows a Log to release all
-  // Appends of peer Slices which order before it, even where this Slice has
-  // no organic Appends of its own to send to the Log.
-  //
-  // Slices may occasionally send Appends which fall below a prior constraint
-  // (examples: a replay, freshly-arriving higher priority data, or a started
-  // read of a newly-created journal). Logs merge them upon receipt,
-  // and ordering of such Appends is best-effort.
-  message MergeConstraint {
-    // Priority of the Slice's position. Higher values imply higher priority,
-    // and negative values are allowed.
-    int32 priority = 1;
-    // Adjusted clock (clock + read_delay) of the Slice's position.
-    fixed64 adjusted_clock = 2;
-    // When true, all of the Slice's reads are tailing and it has no ready
-    // documents. It places no constraint on Log merges, which don't wait for
-    // its updates until the Slice restates as !tailing.
-    bool tailing = 3;
-  }
-  MergeConstraint constraint = 4;
 }
 
 // LogResponse is sent by the Log actor back to each Slice.
