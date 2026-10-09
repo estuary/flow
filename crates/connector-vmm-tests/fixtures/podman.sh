@@ -150,6 +150,6 @@ fi
 if [[ "${step}" == start && -e "${TEST}/gate-readiness" ]]; then
     # Redirections apply in order, so the gate starts while fd 3 is still open.
     exec 3>&2
-    exec "${podman[@]}" "$@" 2> >(exec python3 "${TEST}/gate.py" "${TEST}/held-readiness" >&3 3>&-) 3>&-
+    exec "${podman[@]}" "$@" 2> >(exec python3 "${TEST}/gate.py" "${TEST}/held-readiness" "$(<"${TEST}/gate-readiness")" >&3 3>&-) 3>&-
 fi
 exec "${podman[@]}" "$@"

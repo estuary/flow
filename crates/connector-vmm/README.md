@@ -54,9 +54,8 @@ worker threads. `launch::sweep` retains stdio and the scratch disk at fd 3;
 `launch::check_kvm` opens `/dev/kvm` and asks its API version before libkrun
 is loaded, failing with `KVM is unavailable to this VMM`. Without KVM libkrun
 panics inside `krun_start_enter`, across its C boundary, and aborts with a
-backtrace whose indented lines a launcher's stderr framing reads as
-connector-init's readiness byte; the launch then fails dialing a socket that
-was never bound. Any other libkrun panic before readiness still does that.
+backtrace which says nothing of KVM. The launch, whose readiness is
+connector-init's health and not stderr, then reports only that the VMM exited.
 
 `launch::enter` disables implicit vsock networking to prevent TSI INET
 hijacking and configures separate workload stderr. See `image::guest_argv`

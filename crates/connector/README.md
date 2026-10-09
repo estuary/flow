@@ -300,7 +300,7 @@ EOF or status. A client which does not drain responses may park the handler.
   connector mount and `fv_<id>` state directory, writes the planned files,
   runs `boundary verify`, creates the network (a new id and record, at most
   three tries, if that fails), creates the container, and starts it. Pulls,
-  inspection, verification, the readiness wait and the dial race the start's
+  inspection, verification and the readiness dial race the start's
   abandonment; the commands which create the network and container are never
   interrupted, so each has finished before teardown looks for what it made.
 
@@ -401,6 +401,16 @@ EOF or status. A client which does not drain responses may park the handler.
 
 - **A VMM is reached only through `init.sock`.** Its `Container` has no
   address, ports or mapped ports, and carries the image's usage rate.
+
+- **A VMM is ready when connector-init's health is SERVING.** The launch
+  dials `init.sock` and calls standard `grpc.health.v1.Health/Check` for the
+  whole server, retrying failures every 100ms within one 60-second deadline.
+  The `start --attach` client's exit ends the wait. Stderr is only logging.
+
+- **VMM readiness is tested without KVM.** `vmm/launch/readiness_tests.rs`
+  exercises the real launcher with a scripted engine and Unix socket peers,
+  checking startup, cancellation, the dial's deadline, a health which is not
+  SERVING, and resource cleanup.
 
 - **Image admission identifies images by repository.** The public-plane
   refusal of Python derivations applies to every tag, digest, and bare

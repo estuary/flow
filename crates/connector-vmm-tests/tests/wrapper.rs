@@ -28,6 +28,9 @@ printf 'podman %s (stdin %s)\n' "$*" "$(readlink /proc/self/fd/0)" >>"${stubs}/l
 if [[ "$1" == create ]]; then
     echo 0000000000000000000000000000000000000000000000000000000000000001
 fi
+if [[ "$1" == start && -e "${stubs}/stderr" ]]; then
+    cat "${stubs}/stderr" >&2
+fi
 "#;
 
 struct Setup {
@@ -247,6 +250,45 @@ fn a_hold_can_catch_a_later_call() {
             .count(),
         3,
         "{ran}"
+    );
+}
+
+#[test]
+fn the_readiness_gate_keeps_only_its_checkpoint() {
+    const CHECKPOINT: &str = "connector-vmm-tests: a checkpoint";
+    let resembling = format!(
+        "WARN libkrun: a diagnostic\n {CHECKPOINT}\n{CHECKPOINT} and more\n \
+         {{\"message\":\"a log\"}}\n"
+    );
+
+    let mut outcomes = Vec::new();
+    for stderr in [
+        format!("{resembling}partial"),
+        format!("{resembling}{CHECKPOINT}\nafter\npartial"),
+    ] {
+        let setup = setup();
+        std::fs::copy(
+            connector_vmm_tests::run::fixture("gate.py"),
+            setup.test.join("gate.py"),
+        )
+        .unwrap();
+        control(&setup, "gate-readiness", CHECKPOINT);
+        std::fs::write(setup.stubs.join("stderr"), stderr).unwrap();
+
+        // Read to its end, which the gate holds open until it has finished.
+        let output = spawn(&setup, START).wait_with_output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        outcomes.push((
+            String::from_utf8(output.stderr).unwrap(),
+            setup.test.join("held-readiness").exists(),
+        ));
+    }
+    assert_eq!(
+        outcomes,
+        vec![
+            (format!("{resembling}partial"), false),
+            (format!("{resembling}after\npartial"), true),
+        ]
     );
 }
 

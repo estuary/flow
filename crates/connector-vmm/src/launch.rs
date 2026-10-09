@@ -317,10 +317,9 @@ fn check_read_only(connector_mount: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// libkrun panics across its C boundary when it can't create a VM, and the
-/// backtrace it prints then has indented lines, which a launcher reads as
-/// connector-init's readiness. So a VMM without KVM says so, and exits,
-/// before libkrun is called.
+/// libkrun panics across its C boundary when it can't create a VM, with a
+/// backtrace which says nothing of KVM. So a VMM without KVM says so, and
+/// exits, before libkrun is called.
 fn check_kvm(path: &str) -> anyhow::Result<()> {
     let kvm = std::fs::OpenOptions::new()
         .read(true)

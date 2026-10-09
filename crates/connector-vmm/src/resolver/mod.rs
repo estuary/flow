@@ -1540,7 +1540,7 @@ mod tests {
     /// A decision is one line, whatever the guest put in the question. A name
     /// arrives off the wire, so a label holding a newline would otherwise
     /// split the debug log and could produce a line beginning with a space,
-    /// which is the launcher's readiness signal.
+    /// which the launcher's pump takes for connector-init's marker.
     #[test]
     fn a_decision_never_spans_lines() {
         let decision = Decision {

@@ -3,10 +3,9 @@
 //! `Command::status` would let a subprocess write to this process's stderr
 //! untouched, and these commands do not all write tidy single lines: an `nft`
 //! syntax error echoes the offending rule and underlines it with carets, both
-//! indented. A leading space on stderr is what the launcher reads as
-//! connector-init's readiness signal, so a setup command that failed would
-//! announce a connector that never started, and then be mistaken for that
-//! connector's first log record.
+//! indented. A leading space on stderr is what the launcher's log pump takes
+//! for connector-init's marker, so a setup command that failed would pass for
+//! it, and then be mistaken for that connector's first log record.
 
 use std::io::Write;
 use std::process::{Command, Output, Stdio};
@@ -106,7 +105,7 @@ ruleset:3:30-37: Error: syntax error, unexpected string, expecting priority
         };
 
         // What would have reached the launcher without framing. The first of
-        // these is what it reads as connector-init's readiness byte.
+        // these is what its pump takes for connector-init's marker.
         assert_eq!(
             NFT_SYNTAX_ERROR
                 .lines()

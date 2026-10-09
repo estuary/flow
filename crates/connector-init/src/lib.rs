@@ -10,6 +10,8 @@ pub mod inspect;
 mod materialize;
 pub mod rpc;
 
+#[cfg(test)]
+mod health_test;
 #[cfg(all(test, target_os = "linux"))]
 mod vsock_test;
 
@@ -111,10 +113,14 @@ pub async fn run(
         .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the runtime sends.
         .max_encoding_message_size(usize::MAX); // The default, made explicit.
 
+    // Whole-server health ("") defaults to SERVING and is exposed after proxy setup.
+    // Checks do not run connectors or extend the idle watchdog.
+    let (_, health) = tonic_health::server::health_reporter();
     let router = tonic::transport::Server::builder()
         .add_service(capture)
         .add_service(derive)
-        .add_service(materialize);
+        .add_service(materialize)
+        .add_service(health);
 
     let () = match listener {
         Listener::Tcp(incoming) => {

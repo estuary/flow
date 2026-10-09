@@ -1350,7 +1350,7 @@ fn a_kill_before_readiness() {
     launcher::wait_held(&root, "readiness", STARTED);
     let name = launcher::vmm_name(&root).expect("the launch named its network");
     let footprint = launcher::footprint(&root.state_dir, &root.tmp_dir, &name);
-    let _rpc = hold_rpc(&runtime, &root.state_dir, &name);
+    // The pre-init gate keeps the guest alive without starting init's idle watchdog.
     owner.kill();
 
     launch(&runtime, &successor, &run.derive_python_image);

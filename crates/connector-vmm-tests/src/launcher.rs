@@ -178,9 +178,21 @@ pub fn vmm_flags(root: &Root, flags: &[String]) {
     std::fs::write(&path, content).unwrap_or_else(|e| panic!("creating {path}: {e}"));
 }
 
+const GATE: &str = "connector-vmm-tests: held before connector-init";
+
+/// Guest-init waits for this shell to exit; SIGSTOP holds it indefinitely
+/// before connector-init and its idle watchdog can start.
+fn gate_command() -> String {
+    format!("printf '%s\\n' '{GATE}' >&2 && kill -STOP $$")
+}
+
+/// Holds the test's VMMs before connector-init starts, through `vmm_flags`
+/// (replacing any others). `gate.py` keeps the guest's `GATE` line from the
+/// launcher, and marks the hold `readiness` with it.
 pub fn gate_readiness(root: &Root) {
+    vmm_flags(root, &["--as-root-exec".to_string(), gate_command()]);
     let path = format!("{}/gate-readiness", root.dir);
-    std::fs::write(&path, "").unwrap_or_else(|e| panic!("creating {path}: {e}"));
+    std::fs::write(&path, GATE).unwrap_or_else(|e| panic!("creating {path}: {e}"));
 }
 
 pub fn wait_held(root: &Root, what: &str, timeout: Duration) {
@@ -608,5 +620,33 @@ mod test {
         assert!(super::start_time(std::process::id()).is_some());
         // Above any pid_max.
         assert_eq!(super::start_time(u32::MAX), None);
+    }
+
+    #[test]
+    fn the_gate_announces_then_stops() {
+        use std::io::Read;
+
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", &super::gate_command()])
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pid = child.id() as libc::pid_t;
+        let mut status = 0;
+        // SAFETY: `status` is the int waitpid writes. WUNTRACED returns once
+        // the child stops, as well as if it exits.
+        let waited = unsafe { libc::waitpid(pid, &mut status, libc::WUNTRACED) };
+        let stopped = waited == pid && libc::WIFSTOPPED(status);
+
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let mut stderr = String::new();
+        child
+            .stderr
+            .take()
+            .unwrap()
+            .read_to_string(&mut stderr)
+            .unwrap();
+        assert_eq!((stopped, stderr), (true, format!("{}\n", super::GATE)));
     }
 }

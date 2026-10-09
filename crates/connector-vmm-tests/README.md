@@ -133,10 +133,15 @@ own, in `launcher-<hex>` beneath the run's directory. That podman is
 and container a launch is about to create to the resources list and logs every
 call as the launcher made it. While a test's control files ask, it holds a
 step's first call, or its Nth, as the test's user or as root beneath sudo; fails
-a step; withholds the VMM's readiness byte through `fixtures/gate.py`; creates
+a step; holds the VMM's guest before connector-init starts (below); creates
 the VMM's container without `/dev/kvm`; or runs the boundary's verification in
 a named network namespace. A hold catches one call, never another launch's. The test process stays
 unprivileged and dials `init.sock` itself.
+
+The readiness gate (`launcher::gate_readiness`) uses `--as-root-exec` to
+stop a guest shell before connector-init starts. `fixtures/gate.py` observes
+its checkpoint line on `start --attach`'s stderr and marks the hold. The guest
+stays alive without starting init's health service or idle watchdog.
 
 - With the fake image (`spec_through_the_fake`): the launcher's whole call
   sequence (snapshotted), real `boundary verify` from the fake, its own
@@ -151,7 +156,7 @@ unprivileged and dials `init.sock` itself.
 - Abandoned starts: while the network is created (it is finished, then
   removed, and the VMM never runs), while the container is created (it is
   finished, then removed, and never started), while the VMM is up but its
-  readiness is withheld, and after `Started` (the whole host footprint,
+  guest is held before connector-init, and after `Started` (the whole host footprint,
   below, is measured gone). Each leaves nothing. The tests read the session
   while awaiting their held step, so startup failures report their error and
   logs. `a_failed_start_ends_the_wait_for_readiness` covers a failed start.
@@ -193,7 +198,7 @@ in-process, except in `owners_alike_by_pid`.
   command has created what it was creating, releases it.
 - Killed once podman created the container but before the owner read its ID
   (`a_kill_before_the_container_id_is_read`): found by its label.
-- Killed with its readiness withheld, and while serving a session: the whole
+- Killed with its guest held before connector-init, and while serving a session: the whole
   footprint is gone, the container by the recovering launch's own removal of
   its ID. A live owner sharing the state directory, and one beneath another
   as another stack's would be, are untouched, then end cleanly.
@@ -376,10 +381,9 @@ fails that test alone.
   public plane's egress is shown only by the launcher tests' in-process
   services, and its Python admission only by `crates/connector`'s unit tests.
 - **Readiness after a libkrun panic.** `flow-connector-vmm` checks for KVM
-  before libkrun runs, but any other libkrun panic before readiness prints a
-  backtrace whose indented lines pass for connector-init's readiness byte. The
-  launch still fails, dialing a socket never bound, rather than saying the VMM
-  exited.
+  before libkrun runs, and no test here makes libkrun panic after that. That a
+  backtrace never passes for readiness, which is connector-init's health and
+  not stderr, is shown without KVM by `crates/connector`'s readiness tests.
 - **Credentials.** `task-update.json` is synthetic: no producer mints or
   refreshes it, and nothing here reaches the APIs it names.
 - **Teardown of a session whose runtime goes first.** A stopped shard's and a

@@ -12,8 +12,9 @@ codec the image speaks.
 - `src/main.rs`: CLI. Installs the `ops::Log` tracing layer (stderr, always
   structured) and a current-thread Tokio runtime, then calls `run`.
 - `src/lib.rs`: `Args` and `run`. Binds the listener, writes the readiness
-  byte, parses the image inspection, and serves the three services until the
-  `watchdog` sees no RPC for a while.
+  byte, parses the image inspection, and serves the three services and
+  `tonic-health`'s standard `grpc.health.v1.Health` until the `watchdog` sees
+  no connector RPC for a while.
 - `src/inspect.rs`: the `docker inspect` output the launcher writes into the
   container; yields the image's real argv and its `FLOW_RUNTIME_CODEC`.
 - `src/rpc.rs`: the generic bidirectional and unary proxies over a child
@@ -36,12 +37,20 @@ connector VMM boots the image in a guest and uses vsock, which the VMM maps to
 a Unix socket on the host, so the runtime dials a path instead of a port.
 
 The listener is bound before anything else can fail, and only then is a single
-space written to stderr. That byte is the launcher's readiness signal on both
-transports, and nothing else here may write a line beginning with a space. That
+space written to stderr. That byte is an ordinary container's readiness
+signal, and nothing else here may write a line beginning with a space. That
 includes usage errors, so `main` re-frames clap's output behind the binary's
 name rather than letting clap print its indented argument lists.
 
+A VMM's launcher ignores the byte, since anything in the guest may write to
+its console, and waits instead for the server's health (`""`) to answer
+SERVING. Health is served only with the proxies, once the image is parsed, so
+that answer means init serves the connector's protocol. It runs no connector.
+
 ## Testing
+
+`src/health_test.rs` runs `run` over TCP with an entrypoint that cannot be
+executed: health is SERVING, and a capture RPC fails to start the connector.
 
 `src/vsock_test.rs` dials CID 1, which needs the `vsock_loopback` kernel module.
 Without it the test skips, unless `CONNECTOR_VMM_KVM` is set, in which case a

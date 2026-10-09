@@ -1,16 +1,16 @@
-"""Withhold connector-init's readiness byte and mark when it arrives."""
+"""Observe the guest's pre-init checkpoint and create HELD.
+
+Usage: gate.py HELD CHECKPOINT. Only the exact checkpoint line is withheld;
+all other stderr, including a final partial line, passes unchanged.
+"""
 
 import sys
 
-held = sys.argv[1]
+held, checkpoint = sys.argv[1], sys.argv[2].encode() + b"\n"
 source, sink = sys.stdin.buffer, sys.stdout.buffer
-line_start, withheld = True, False
-
-while byte := source.read(1):
-    if byte == b" " and line_start and not withheld:
-        withheld = True
+for line in source:
+    if line == checkpoint:
         open(held, "w").close()
-        continue
-    sink.write(byte)
-    sink.flush()
-    line_start = byte == b"\n"
+    else:
+        sink.write(line)
+        sink.flush()

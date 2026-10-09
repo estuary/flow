@@ -3,7 +3,7 @@
 //! pull and inspect the connector's image with the VMM's podman, claim the
 //! launch's ownership record, prepare its connector mount and `fv_<id>`
 //! state, verify the host boundary, create the VMM's network and container,
-//! start it, wait for its readiness, and dial `init.sock`.
+//! start it, and dial `init.sock` until connector-init's health is SERVING.
 //!
 //! One spawned task owns everything a launch creates, from its claim to its
 //! release, and holds the record's lock throughout (see `record`). The
@@ -18,7 +18,9 @@ use proto_flow::runtime;
 use std::time::Duration;
 
 const ATTEMPTS: usize = 3;
+/// The one deadline for every dial of a VMM's connector-init and its health.
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
+const DIAL_INTERVAL: Duration = Duration::from_millis(100);
 /// How long teardown waits for podman's attached start client to leave, once
 /// its container is removed.
 const START_EXIT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -388,7 +390,9 @@ async fn run_vmm(
         .with_context(|| format!("failed to run {} to start the VMM", vmm.podman))?
         .into();
 
-    let (ready_tx, ready_rx) = futures::channel::oneshot::channel();
+    // The pump still frames connector-init's readiness byte, but anything in
+    // the guest may write to its console: only init's health is readiness.
+    let (ready_tx, _) = futures::channel::oneshot::channel();
     let pump = tokio::spawn(crate::container::pump_stderr(
         tokio::io::BufReader::new(child.stderr.take().expect("stderr is piped")),
         ready_tx,
@@ -400,38 +404,21 @@ async fn run_vmm(
         },
     ));
     owner.attached = Some(Attached { child, pump });
+    let child = &mut owner.attached.as_mut().expect("attached just now").child;
 
-    unless_abandoned(launched_tx, async {
+    // The start client exits with its VMM, which then never becomes ready.
+    let channel = unless_abandoned(launched_tx, async {
         tokio::select! {
-            () = tokio::time::sleep(READY_TIMEOUT) => {
-                anyhow::bail!("timeout waiting for the VMM to become ready")
-            }
-            ready = ready_rx => match ready {
-                Ok(()) => Ok(()),
-                Err(_) => anyhow::bail!(
+            biased;
+            exited = child.wait() => {
+                exited.context("waiting for the VMM's attached start client")?;
+                anyhow::bail!(
                     "the VMM exited before flow-connector-init started; \
                      the cause is in the preceding connector logs"
-                ),
-            },
-        }
-    })
-    .await?;
-
-    let channel = unless_abandoned(launched_tx, async {
-        tonic::transport::Endpoint::from_shared(format!("unix:{}", plan.socket))
-            .context("a socket path is an endpoint")?
-            .connect_timeout(Duration::from_secs(5))
-            .http2_keep_alive_interval(Duration::from_secs(5))
-            // As for an ordinary container: the task runtime is single-threaded.
-            .keep_alive_timeout(Duration::from_secs(60))
-            .connect()
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to connect to the VMM's connector-init at {}",
-                    plan.socket
                 )
-            })
+            }
+            channel = dial(&plan.socket) => channel,
+        }
     })
     .await?;
 
@@ -485,6 +472,57 @@ async fn unless_abandoned<T>(
 
 fn abandoned() -> anyhow::Error {
     anyhow::anyhow!("the connector start was abandoned")
+}
+
+/// The host socket can precede the guest server. Retry connection and health
+/// failures within one deadline until connector-init reports SERVING.
+async fn dial(socket: &str) -> anyhow::Result<tonic::transport::Channel> {
+    let endpoint = tonic::transport::Endpoint::from_shared(format!("unix:{socket}"))
+        .context("a socket path is an endpoint")?
+        .connect_timeout(Duration::from_secs(5))
+        .http2_keep_alive_interval(Duration::from_secs(5))
+        // As for an ordinary container: the task runtime is single-threaded.
+        .keep_alive_timeout(Duration::from_secs(60));
+
+    let mut failed = None;
+    let dialed = tokio::time::timeout(READY_TIMEOUT, async {
+        loop {
+            let attempt = async {
+                let channel = endpoint.connect().await.context("connecting")?;
+                serving(channel.clone()).await?;
+                anyhow::Ok(channel)
+            };
+            match attempt.await {
+                Ok(channel) => return channel,
+                Err(err) => failed = Some(err),
+            }
+            tokio::time::sleep(DIAL_INTERVAL).await;
+        }
+    })
+    .await;
+
+    dialed.map_err(|_elapsed| {
+        let timeout = "timeout waiting for the VMM to become ready";
+        match failed {
+            Some(err) => err
+                .context(format!("the last dial of connector-init at {socket}"))
+                .context(timeout),
+            None => anyhow::anyhow!(timeout),
+        }
+    })
+}
+
+/// An empty service name checks connector-init itself without running a connector.
+async fn serving(channel: tonic::transport::Channel) -> anyhow::Result<()> {
+    let response = tonic_health::pb::health_client::HealthClient::new(channel)
+        .check(tonic_health::pb::HealthCheckRequest::default())
+        .await
+        .context("checking health")?;
+
+    match response.into_inner().status() {
+        tonic_health::pb::health_check_response::ServingStatus::Serving => Ok(()),
+        status => anyhow::bail!("connector-init's health is {}", status.as_str_name()),
+    }
 }
 
 fn precondition(err: anyhow::Error) -> anyhow::Error {
@@ -707,3 +745,7 @@ async fn stop(podman: &str, container: Option<&str>, attached: Option<Attached>)
     }
     std::mem::drop(child); // Killed, if it's still running: it creates nothing.
 }
+
+// The FIFO harness relies on Linux read-write semantics.
+#[cfg(all(test, target_os = "linux"))]
+mod readiness_tests;
