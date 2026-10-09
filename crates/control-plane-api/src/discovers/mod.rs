@@ -12,6 +12,213 @@ use std::collections::HashSet;
 // Re-export key types and functions that executors will need
 pub use db::{Row, fetch_discover, resolve};
 
+/// Metadata of a discovery committed with its executor task.
+pub struct CreatedDiscover {
+    pub id: models::Id,
+    pub data_plane_name: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Queues discovery using the capture's staged definition, or its live definition
+/// when no draft entry exists and `subject` can read it.
+/// The executor writes discovery results to the draft.
+/// Permission denials and data-plane failures carry a `tonic::Status` so
+/// request handlers can return HTTP 307 for provisional failures.
+pub async fn create(
+    pool: &sqlx::PgPool,
+    snapshot: &crate::Snapshot,
+    subject: &models::authz::Subject,
+    draft_id: models::Id,
+    capture_name: &str,
+    requested_data_plane_name: Option<&str>,
+) -> anyhow::Result<CreatedDiscover> {
+    // A draft owned by someone else reads as missing. `staged` distinguishes a
+    // draft without an entry for the capture from an entry staging a deletion.
+    let draft = sqlx::query!(
+        r#"
+        SELECT ds.catalog_name IS NOT NULL AS "staged!",
+               ds.spec_type AS "spec_type?: models::CatalogType",
+               ds.spec::text AS spec
+        FROM drafts d
+        LEFT JOIN draft_specs ds ON ds.draft_id = d.id AND ds.catalog_name = $3
+        WHERE d.id = $1 AND d.user_id = $2
+        "#,
+        draft_id as models::Id,
+        subject.user_id,
+        capture_name,
+    )
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("draft not found"))?;
+
+    // Data plane selection is based on the live capture even when its definition
+    // cannot be disclosed to this caller or the draft contains edits.
+    let live_capture = sqlx::query!(
+        r#"
+        SELECT ls.spec::text AS spec,
+               ls.data_plane_id AS "data_plane_id: models::Id"
+        FROM live_specs ls
+        WHERE ls.catalog_name = $1 AND ls.spec_type = 'capture'
+          AND ls.spec IS NOT NULL
+        "#,
+        capture_name,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    let model = select_capture_model(
+        capture_name,
+        draft
+            .staged
+            .then_some((draft.spec_type, draft.spec.as_deref())),
+        live_capture.as_ref().and_then(|row| row.spec.as_deref()),
+        snapshot,
+        subject,
+    )?;
+
+    // The executor copies the live definitions of binding targets into the
+    // draft, filtered by the user's CatalogRead. It runs without the request's
+    // capability mask and prefix scope, so a restricted token could otherwise
+    // read definitions through the draft.
+    if let Some(target) = model
+        .bindings
+        .iter()
+        .map(|binding| binding.target.as_str())
+        .find(|target| {
+            !snapshot.is_user_authorized(subject, target, models::authz::Capability::CatalogRead)
+        })
+    {
+        anyhow::bail!(tonic::Status::permission_denied(format!(
+            "not authorized to read binding target {target}"
+        )));
+    }
+    let (connector_config, image_name, image_tag) = extract_discovery_endpoint(&model)?;
+
+    let connector_tag_id = sqlx::query_scalar!(
+        r#"
+        SELECT ct.id AS "id!: models::Id" FROM connector_tags ct
+        JOIN connectors c ON c.id = ct.connector_id
+        WHERE c.image_name = $1 AND ct.image_tag = $2
+          AND ct.protocol = 'capture' AND ct.job_status->>'type' = 'success'
+        "#,
+        image_name,
+        image_tag,
+    )
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("capture connector tag is not ready"))?;
+
+    let data_plane_error = || tonic::Status::not_found("data plane not found or unauthorized");
+    let data_plane_name = if let Some(live) = live_capture {
+        let current_data_plane_name = &snapshot
+            .data_plane_by_id(live.data_plane_id)
+            .ok_or_else(data_plane_error)?
+            .data_plane_name;
+        if requested_data_plane_name.is_some_and(|selected| selected != current_data_plane_name) {
+            anyhow::bail!("data plane differs from the live capture");
+        }
+        current_data_plane_name.clone()
+    } else {
+        snapshot
+            .storage_mapping_for(capture_name)
+            .and_then(|mapping| {
+                let (prefix, data_planes) =
+                    mapping.ok_or_else(|| anyhow::anyhow!("no storage mapping for capture"))?;
+                crate::storage_mappings::select_data_plane(
+                    prefix.as_str(),
+                    data_planes,
+                    requested_data_plane_name,
+                )
+            })
+            .inspect_err(|_| snapshot.request_refresh())?
+            .to_owned()
+    };
+    snapshot
+        .is_user_authorized(subject, &data_plane_name, models::Capability::Read)
+        .then(|| snapshot.data_plane_by_catalog_name(&data_plane_name))
+        .flatten()
+        .filter(|data_plane| data_plane.connector_route().is_ok())
+        .ok_or_else(data_plane_error)?;
+
+    let update_only = model
+        .auto_discover
+        .as_ref()
+        .is_some_and(|policy| !policy.add_new_bindings);
+    // The `create_discover_task` trigger schedules the executor within this statement.
+    let row = sqlx::query!(
+        r#"
+        INSERT INTO discovers (
+            draft_id, capture_name, connector_tag_id, endpoint_config,
+            update_only, data_plane_name
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id AS "id!: models::Id", created_at, updated_at
+        "#,
+        draft_id as models::Id,
+        capture_name,
+        connector_tag_id as models::Id,
+        crate::TextJson(connector_config.config.clone()) as crate::TextJson<models::RawValue>,
+        update_only,
+        data_plane_name,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(CreatedDiscover {
+        id: row.id,
+        data_plane_name,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
+}
+
+/// `staged` is the type and model of the draft's entry for the capture, if it has one.
+fn select_capture_model(
+    capture_name: &str,
+    staged: Option<(Option<models::CatalogType>, Option<&str>)>,
+    live_spec: Option<&str>,
+    snapshot: &crate::Snapshot,
+    subject: &models::authz::Subject,
+) -> anyhow::Result<models::CaptureDef> {
+    let spec = if let Some((spec_type, spec)) = staged {
+        if spec_type != Some(models::CatalogType::Capture) {
+            anyhow::bail!("draft entry is not a capture");
+        }
+        spec.ok_or_else(|| anyhow::anyhow!("draft entry is a deletion"))?
+    } else {
+        // Check permission independently of existence so a provisional denial
+        // cannot reveal whether an unreadable live capture exists.
+        if !snapshot.is_user_authorized(
+            subject,
+            capture_name,
+            models::authz::Capability::CatalogRead,
+        ) {
+            anyhow::bail!(tonic::Status::not_found("capture not found"));
+        }
+        live_spec.ok_or_else(|| anyhow::anyhow!("capture not found"))?
+    };
+    serde_json::from_str(spec).map_err(|_| anyhow::anyhow!("invalid capture model"))
+}
+
+fn extract_discovery_endpoint(
+    model: &models::CaptureDef,
+) -> anyhow::Result<(&models::ConnectorConfig, String, String)> {
+    if model.delete {
+        anyhow::bail!("capture is staged for deletion");
+    }
+    let models::CaptureEndpoint::Connector(connector_config) = &model.endpoint else {
+        anyhow::bail!("capture requires a connector endpoint");
+    };
+    let (image_name, image_tag) = models::split_image_tag(&connector_config.image);
+    if image_name.is_empty() || image_tag.is_empty() {
+        anyhow::bail!("capture requires a tagged connector image");
+    }
+    if !serde_json::from_str::<serde_json::Value>(connector_config.config.get())?.is_object() {
+        anyhow::bail!("endpoint configuration must be an inline JSON object");
+    }
+    Ok((connector_config, image_name, image_tag))
+}
+
 /// Represents the desire to discover an endpoint. The discovered bindings will be merged with
 /// those in the `base_model`.
 pub struct Discover<'a> {

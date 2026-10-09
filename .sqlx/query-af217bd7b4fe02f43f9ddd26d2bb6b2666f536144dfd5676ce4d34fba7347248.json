@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT catalog_prefix AS \"catalog_prefix: models::Prefix\",\n               COALESCE(spec->'data_planes', '[]'::json)\n                   AS \"data_planes!: sqlx::types::Json<serde_json::Value>\"\n        FROM storage_mappings\n        WHERE NOT starts_with(catalog_prefix, 'recovery/')\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_prefix: models::Prefix",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "storage_mappings",
+            "name": "catalog_prefix"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "data_planes!: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Json",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "af217bd7b4fe02f43f9ddd26d2bb6b2666f536144dfd5676ce4d34fba7347248"
+}

@@ -1,0 +1,91 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers/test.rs
+expression: "serde_json::json!({\n    \"pages\": pages, \"afterCompletion\":\n    {\n        \"status\": later[\"data\"][\"discover\"][\"status\"], \"logs\":\n        later[\"data\"][\"discover\"][\"logs\"],\n    },\n})"
+---
+{
+  "afterCompletion": {
+    "logs": {
+      "edges": [
+        {
+          "cursor": "2026-01-01T00:00:01+00:00",
+          "node": {
+            "line": "late line",
+            "loggedAt": "2026-01-01T00:00:01+00:00",
+            "stream": "test"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "2026-01-01T00:00:01+00:00",
+        "hasNextPage": false
+      }
+    },
+    "status": "SUCCESS"
+  },
+  "pages": [
+    {
+      "edges": [
+        {
+          "cursor": "2026-01-01T00:00:00.000001+00:00",
+          "node": {
+            "line": "first",
+            "loggedAt": "2026-01-01T00:00:00.000001+00:00",
+            "stream": "test"
+          }
+        },
+        {
+          "cursor": "2026-01-01T00:00:00.000002+00:00",
+          "node": {
+            "line": "second",
+            "loggedAt": "2026-01-01T00:00:00.000002+00:00",
+            "stream": "test"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "2026-01-01T00:00:00.000002+00:00",
+        "hasNextPage": true
+      }
+    },
+    {
+      "edges": [
+        {
+          "cursor": "2026-01-01T00:00:00.000003+00:00",
+          "node": {
+            "line": "third",
+            "loggedAt": "2026-01-01T00:00:00.000003+00:00",
+            "stream": "test"
+          }
+        },
+        {
+          "cursor": "2026-01-01T00:00:00.000004+00:00",
+          "node": {
+            "line": "fourth",
+            "loggedAt": "2026-01-01T00:00:00.000004+00:00",
+            "stream": "test"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "2026-01-01T00:00:00.000004+00:00",
+        "hasNextPage": true
+      }
+    },
+    {
+      "edges": [
+        {
+          "cursor": "2026-01-01T00:00:00.000005+00:00",
+          "node": {
+            "line": "fifth",
+            "loggedAt": "2026-01-01T00:00:00.000005+00:00",
+            "stream": "test"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "2026-01-01T00:00:00.000005+00:00",
+        "hasNextPage": false
+      }
+    }
+  ]
+}

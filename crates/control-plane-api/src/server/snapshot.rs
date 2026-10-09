@@ -1,5 +1,5 @@
 use anyhow::Context;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 // SnapshotData encapsulates all data required to construct a Snapshot.
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -14,6 +14,7 @@ pub struct SnapshotData {
     pub role_grants: Vec<tables::RoleGrant>,
     // Platform user grants.
     pub user_grants: Vec<tables::UserGrant>,
+    pub storage_mapping_data_planes: BTreeMap<models::Prefix, Result<Vec<String>, String>>,
     // Platform tasks.
     pub tasks: Vec<SnapshotTask>,
 }
@@ -39,6 +40,8 @@ pub struct Snapshot {
     pub role_grants: tables::RoleGrants,
     // Platform user grants.
     pub user_grants: tables::UserGrants,
+    // Invalid data plane lists stay with their mapping so they don't block refresh.
+    storage_mapping_data_planes: BTreeMap<models::Prefix, Result<Vec<String>, String>>,
     // Platform tasks, indexed on `shard_template_id`.
     pub tasks: Vec<SnapshotTask>,
     // Indices of `tasks`, indexed on `task_name`.
@@ -228,6 +231,7 @@ impl Snapshot {
             migrations: Vec::new(),
             role_grants: tables::RoleGrants::default(),
             user_grants: tables::UserGrants::default(),
+            storage_mapping_data_planes: BTreeMap::new(),
             tasks: Vec::new(),
             tasks_idx_name: Vec::new(),
             revoke: tokens::CancellationToken::new(),
@@ -242,6 +246,7 @@ impl Snapshot {
             mut migrations,
             role_grants,
             user_grants,
+            storage_mapping_data_planes,
             mut tasks,
         } = data;
 
@@ -296,6 +301,7 @@ impl Snapshot {
             migrations,
             role_grants,
             user_grants,
+            storage_mapping_data_planes,
             tasks,
             tasks_idx_name,
             revoke: tokens::CancellationToken::new(),
@@ -306,6 +312,26 @@ impl Snapshot {
     /// an operation that started at `started`, allowing for clock skew.
     pub fn taken_after(&self, started: tokens::DateTime) -> bool {
         self.taken > (started + Self::TEMPORAL_SKEW)
+    }
+
+    /// Returns the most specific covering storage mapping and its ordered data planes.
+    /// An invalid list errors only when that mapping is selected.
+    pub fn storage_mapping_for(
+        &self,
+        catalog_name: &str,
+    ) -> anyhow::Result<Option<(&models::Prefix, &[String])>> {
+        let Some((prefix, data_planes)) = self
+            .storage_mapping_data_planes
+            .range(..=models::Prefix::new(catalog_name))
+            .rev()
+            .find(|(prefix, _)| catalog_name.starts_with(prefix.as_str()))
+        else {
+            return Ok(None);
+        };
+        let data_planes = data_planes.as_ref().map_err(|error| {
+            anyhow::anyhow!("invalid data planes for storage mapping {prefix}: {error}")
+        })?;
+        Ok(Some((prefix, data_planes)))
     }
 
     // Retrieve all tasks whose names start with the given `prefix`.
@@ -661,6 +687,28 @@ pub async fn try_fetch(
     .await
     .context("failed to fetch user_grants")?;
 
+    let storage_mapping_data_planes = sqlx::query!(
+        r#"
+        SELECT catalog_prefix AS "catalog_prefix: models::Prefix",
+               COALESCE(spec->'data_planes', '[]'::json)
+                   AS "data_planes!: sqlx::types::Json<serde_json::Value>"
+        FROM storage_mappings
+        WHERE NOT starts_with(catalog_prefix, 'recovery/')
+        "#,
+    )
+    .fetch_all(pg_pool)
+    .await
+    .context("failed to fetch storage mapping data planes")?
+    .into_iter()
+    .map(|row| {
+        (
+            row.catalog_prefix,
+            serde_json::from_value::<Vec<String>>(row.data_planes.0)
+                .map_err(|error| error.to_string()),
+        )
+    })
+    .collect::<BTreeMap<_, _>>();
+
     let tasks = sqlx::query_as!(
         SnapshotTask,
         r#"
@@ -683,6 +731,7 @@ pub async fn try_fetch(
         migrations = migrations.len(),
         role_grants = role_grants.len(),
         user_grants = user_grants.len(),
+        storage_mappings = storage_mapping_data_planes.len(),
         tasks = tasks.len(),
         "fetched authorization snapshot",
     );
@@ -747,6 +796,7 @@ pub async fn try_fetch(
         migrations,
         role_grants,
         user_grants,
+        storage_mapping_data_planes,
         tasks,
     })
 }
@@ -885,6 +935,63 @@ mod tests {
                 .0,
             "plaintext keys are carried into the snapshot"
         );
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("storage_mappings"))
+    )]
+    async fn test_storage_mapping_lookup(pool: sqlx::PgPool) {
+        sqlx::query(
+            r#"
+            INSERT INTO storage_mappings (catalog_prefix, spec) VALUES
+                ('recovery/aliceCo/', '{"data_planes":42}'),
+                ('aliceCo/with_under/', '{"data_planes":["second","first"]}'),
+                ('aliceCo/planeless/', '{}'),
+                ('aliceCo/invalid/', '{"data_planes":42}'),
+                ('aliceCo/invalid/child/', '{"data_planes":["child"]}'),
+                ('aliceCo/null/', '{"data_planes":null}')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let data = try_fetch(&pool, &mut Default::default())
+            .await
+            .expect("invalid mappings must not prevent snapshot refresh");
+        let snapshot = Snapshot::new(tokens::now(), data);
+
+        let lookups = [
+            "aliceCo/task",
+            "aliceCo/private/task",
+            "aliceCo/private",
+            "aliceCo/with_under/task",
+            "aliceCo/withXunder/task",
+            "aliceCo/planeless/task",
+            "aliceCo/invalid/child/task",
+            "aliceCo/invalid/task",
+            "aliceCo/null/task",
+            "carolCo/task",
+            "recovery/aliceCo/task",
+        ]
+        .map(|name| match snapshot.storage_mapping_for(name) {
+            Ok(Some((prefix, data_planes))) => format!("{name} => {prefix} {data_planes:?}"),
+            Ok(None) => format!("{name} => no mapping"),
+            Err(err) => format!("{name} => {err}"),
+        });
+        insta::assert_snapshot!(lookups.join("\n"), @r#"
+        aliceCo/task => aliceCo/ ["ops/dp/public/aws-us-west-2-c1"]
+        aliceCo/private/task => aliceCo/private/ ["ops/dp/public/gcp-us-central1-c2"]
+        aliceCo/private => aliceCo/ ["ops/dp/public/aws-us-west-2-c1"]
+        aliceCo/with_under/task => aliceCo/with_under/ ["second", "first"]
+        aliceCo/withXunder/task => aliceCo/ ["ops/dp/public/aws-us-west-2-c1"]
+        aliceCo/planeless/task => aliceCo/planeless/ []
+        aliceCo/invalid/child/task => aliceCo/invalid/child/ ["child"]
+        aliceCo/invalid/task => invalid data planes for storage mapping aliceCo/invalid/: invalid type: integer `42`, expected a sequence
+        aliceCo/null/task => invalid data planes for storage mapping aliceCo/null/: invalid type: null, expected a sequence
+        carolCo/task => no mapping
+        recovery/aliceCo/task => no mapping
+        "#);
     }
 
     #[test]

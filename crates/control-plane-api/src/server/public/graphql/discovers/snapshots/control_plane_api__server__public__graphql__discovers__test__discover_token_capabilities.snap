@@ -1,0 +1,28 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers/test.rs
+expression: outcomes
+---
+[
+  {
+    "error": "PermissionDenied: user is not authorized to access prefix or name 'aliceCo/in/capture-foo' with required capability SpecEdit",
+    "mask": [
+      "viewer"
+    ],
+    "status": null
+  },
+  {
+    "error": "NotFound: data plane not found or unauthorized",
+    "mask": [
+      "editor"
+    ],
+    "status": null
+  },
+  {
+    "error": null,
+    "mask": [
+      "editor",
+      "viewer"
+    ],
+    "status": "QUEUED"
+  }
+]

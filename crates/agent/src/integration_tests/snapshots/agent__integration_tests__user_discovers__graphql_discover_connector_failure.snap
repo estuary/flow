@@ -1,0 +1,14 @@
+---
+source: crates/agent/src/integration_tests/user_discovers.rs
+expression: failed_lookup
+---
+{
+  "discover": {
+    "errors": [
+      {
+        "detail": "connector unavailable"
+      }
+    ],
+    "status": "DISCOVER_FAILED"
+  }
+}
