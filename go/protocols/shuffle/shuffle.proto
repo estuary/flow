@@ -326,6 +326,15 @@ message SliceResponse {
 }
 
 // LogRequest is sent by Slices to each shard's Log.
+// The first is an Open. Each which follows is a round: zero or more Appends,
+// and optionally a Flush. A round requesting a Flush goes to every Log, and
+// otherwise only to Logs for which it has Appends.
+//
+// Appends are flow-controlled by credits: a Slice may have a budget of Append
+// bytes sent to a Log and not yet merged by it, as advertised by the Log's
+// LogResponse.Opened and returned by its LogResponse.Acked. Rounds themselves
+// are not credited, and a Log reads every round as it arrives, so a Slice's
+// Flush always reaches the Log, however many of its Appends are queued there.
 message LogRequest {
   // Open initiates the Log RPC.
   // Multiple Slices open Log RPCs to the same shard, and the Log
@@ -345,6 +354,8 @@ message LogRequest {
 
   // Append sends a document to be written to the log.
   // The Log actor merges across Slice streams, ordering by (priority, clock).
+  // Journal names are delta-encoded against the Slice's preceding Append to
+  // this Log, across and within rounds.
   message Append {
     // Number of bytes to truncate from the preceding name.
     // Must align with a UTF-8 code point boundary.
@@ -376,12 +387,14 @@ message LogRequest {
     // Always fits in uint32 because a single document is always < 4 GiB.
     uint32 source_byte_length = 11;
   }
-  Append append = 2;
+  // Appends of the round, in the order the Slice's merge produced them.
+  repeated Append appends = 2;
 
-  // Flush requests a durability barrier.
+  // Flush requests a durability barrier, and the Log responds with a Flushed
+  // of its cycle once the Appends of this and all prior rounds of the Slice
+  // are durable.
   message Flush {
     // Cycle number for correlating Flush with Flushed response.
-    // Allows pipelining if we later want multiple in-flight flushes.
     uint64 cycle = 1;
   }
   Flush flush = 3;
@@ -391,7 +404,14 @@ message LogRequest {
 message LogResponse {
   // Opened confirms the Log is ready to receive documents.
   // Sent after this Log RPC has joined over the shard's single session Log actor.
-  message Opened {}
+  message Opened {
+    // Bytes of Appends the Slice may have sent to this Log and not yet had
+    // merged by it (see Acked). The Log decides and enforces this budget.
+    uint64 append_credit_bytes = 1;
+    // Bytes accounted for each Append against its credits, in addition to
+    // the lengths of its doc_archived and packed_key.
+    uint64 append_overhead_bytes = 2;
+  }
   Opened opened = 1;
 
   // Flushed confirms all preceding documents are visible for dequeue.
@@ -406,6 +426,16 @@ message LogResponse {
     uint64 flushed_lsn = 2;
   }
   Flushed flushed = 2;
+
+  // Acked returns credits of Append bytes to the Slice.
+  // A Log sends it as Appends merge, and may skip intermediate values.
+  message Acked {
+    // Cumulative bytes of the Slice's Appends which the Log has merged since
+    // the RPC opened, as accounted by Opened.append_overhead_bytes.
+    // It never decreases.
+    uint64 bytes = 1;
+  }
+  Acked acked = 3;
 }
 
 // Shuffle service provides coordinated, disk-backed shuffled reads.

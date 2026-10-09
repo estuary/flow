@@ -39,6 +39,29 @@ async fn next_resolved_checkpoint(
     frontier
 }
 
+/// Reduce checkpoints until `journals` journals are each read through their
+/// write head. A single scan of that cumulative frontier yields each shard's
+/// log in on-disk order (scans of interim checkpoints would not: an entry not
+/// yet committed in one is re-yielded later, from a remainder).
+async fn read_through_write_heads(
+    session: &mut shuffle::SessionClient,
+    journals: usize,
+) -> shuffle::Frontier {
+    let mut frontier = shuffle::Frontier::default();
+    loop {
+        frontier = frontier.reduce(next_resolved_checkpoint(session, "next_checkpoint").await);
+
+        if frontier.journals.len() == journals
+            && frontier
+                .journals
+                .iter()
+                .all(|jf| jf.bytes_behind_delta == 0)
+        {
+            return frontier;
+        }
+    }
+}
+
 /// Build a Materialization task from a built MaterializationSpec.
 /// Exercises `shuffle::Binding::from_materialization_binding()`.
 fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
@@ -460,9 +483,13 @@ async fn single_producer_outside_txn(
     .await
     .expect("SessionClient::open");
 
-    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    // Flush boundaries may split the documents across checkpoints, so read
+    // through the journal's write head. How many flushes that takes decides
+    // its flushed LSNs, which aren't snapshotted.
+    let mut frontier = read_through_write_heads(&mut session, 1).await;
     let mut shard_state: ShardState = (0..1).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
+    frontier.flushed_lsn.clear();
     insta::assert_debug_snapshot!(
         "single_producer_outside_txn",
         Checkpoint {
@@ -585,9 +612,13 @@ async fn multi_shard_routing(
     .await
     .expect("SessionClient::open");
 
-    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    // Flush boundaries may split the documents across checkpoints, so read
+    // through the journal's write head. How many flushes that takes decides
+    // its flushed LSNs, which aren't snapshotted.
+    let mut frontier = read_through_write_heads(&mut session, 1).await;
     let mut shard_state: ShardState = (0..3).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
+    frontier.flushed_lsn.clear();
     insta::assert_debug_snapshot!(
         "multi_shard_routing",
         Checkpoint {

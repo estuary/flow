@@ -399,12 +399,22 @@ pub mod slice_response {
     }
 }
 /// LogRequest is sent by Slices to each shard's Log.
+/// The first is an Open. Each which follows is a round: zero or more Appends,
+/// and optionally a Flush. A round requesting a Flush goes to every Log, and
+/// otherwise only to Logs for which it has Appends.
+///
+/// Appends are flow-controlled by credits: a Slice may have a budget of Append
+/// bytes sent to a Log and not yet merged by it, as advertised by the Log's
+/// LogResponse.Opened and returned by its LogResponse.Acked. Rounds themselves
+/// are not credited, and a Log reads every round as it arrives, so a Slice's
+/// Flush always reaches the Log, however many of its Appends are queued there.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LogRequest {
     #[prost(message, optional, tag = "1")]
     pub open: ::core::option::Option<log_request::Open>,
-    #[prost(message, optional, tag = "2")]
-    pub append: ::core::option::Option<log_request::Append>,
+    /// Appends of the round, in the order the Slice's merge produced them.
+    #[prost(message, repeated, tag = "2")]
+    pub appends: ::prost::alloc::vec::Vec<log_request::Append>,
     #[prost(message, optional, tag = "3")]
     pub flush: ::core::option::Option<log_request::Flush>,
 }
@@ -431,6 +441,8 @@ pub mod log_request {
     }
     /// Append sends a document to be written to the log.
     /// The Log actor merges across Slice streams, ordering by (priority, clock).
+    /// Journal names are delta-encoded against the Slice's preceding Append to
+    /// this Log, across and within rounds.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Append {
         /// Number of bytes to truncate from the preceding name.
@@ -474,11 +486,12 @@ pub mod log_request {
         #[prost(uint32, tag = "11")]
         pub source_byte_length: u32,
     }
-    /// Flush requests a durability barrier.
+    /// Flush requests a durability barrier, and the Log responds with a Flushed
+    /// of its cycle once the Appends of this and all prior rounds of the Slice
+    /// are durable.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Flush {
         /// Cycle number for correlating Flush with Flushed response.
-        /// Allows pipelining if we later want multiple in-flight flushes.
         #[prost(uint64, tag = "1")]
         pub cycle: u64,
     }
@@ -490,13 +503,24 @@ pub struct LogResponse {
     pub opened: ::core::option::Option<log_response::Opened>,
     #[prost(message, optional, tag = "2")]
     pub flushed: ::core::option::Option<log_response::Flushed>,
+    #[prost(message, optional, tag = "3")]
+    pub acked: ::core::option::Option<log_response::Acked>,
 }
 /// Nested message and enum types in `LogResponse`.
 pub mod log_response {
     /// Opened confirms the Log is ready to receive documents.
     /// Sent after this Log RPC has joined over the shard's single session Log actor.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Opened {}
+    pub struct Opened {
+        /// Bytes of Appends the Slice may have sent to this Log and not yet had
+        /// merged by it (see Acked). The Log decides and enforces this budget.
+        #[prost(uint64, tag = "1")]
+        pub append_credit_bytes: u64,
+        /// Bytes accounted for each Append against its credits, in addition to
+        /// the lengths of its doc_archived and packed_key.
+        #[prost(uint64, tag = "2")]
+        pub append_overhead_bytes: u64,
+    }
     /// Flushed confirms all preceding documents are visible for dequeue.
     /// Only after receiving Flushed from ALL Log RPCs can a Slice safely
     /// report ProgressDelta to the Session.
@@ -510,5 +534,15 @@ pub mod log_response {
         /// documents appended before this flush.
         #[prost(uint64, tag = "2")]
         pub flushed_lsn: u64,
+    }
+    /// Acked returns credits of Append bytes to the Slice.
+    /// A Log sends it as Appends merge, and may skip intermediate values.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Acked {
+        /// Cumulative bytes of the Slice's Appends which the Log has merged since
+        /// the RPC opened, as accounted by Opened.append_overhead_bytes.
+        /// It never decreases.
+        #[prost(uint64, tag = "1")]
+        pub bytes: u64,
     }
 }

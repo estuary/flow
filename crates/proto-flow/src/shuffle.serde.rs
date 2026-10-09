@@ -878,7 +878,7 @@ impl serde::Serialize for LogRequest {
         if self.open.is_some() {
             len += 1;
         }
-        if self.append.is_some() {
+        if !self.appends.is_empty() {
             len += 1;
         }
         if self.flush.is_some() {
@@ -888,8 +888,8 @@ impl serde::Serialize for LogRequest {
         if let Some(v) = self.open.as_ref() {
             struct_ser.serialize_field("open", v)?;
         }
-        if let Some(v) = self.append.as_ref() {
-            struct_ser.serialize_field("append", v)?;
+        if !self.appends.is_empty() {
+            struct_ser.serialize_field("appends", &self.appends)?;
         }
         if let Some(v) = self.flush.as_ref() {
             struct_ser.serialize_field("flush", v)?;
@@ -905,14 +905,14 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
     {
         const FIELDS: &[&str] = &[
             "open",
-            "append",
+            "appends",
             "flush",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Open,
-            Append,
+            Appends,
             Flush,
             __SkipField__,
         }
@@ -937,7 +937,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                     {
                         match value {
                             "open" => Ok(GeneratedField::Open),
-                            "append" => Ok(GeneratedField::Append),
+                            "appends" => Ok(GeneratedField::Appends),
                             "flush" => Ok(GeneratedField::Flush),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -959,7 +959,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut open__ = None;
-                let mut append__ = None;
+                let mut appends__ = None;
                 let mut flush__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -969,11 +969,11 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                             }
                             open__ = map_.next_value()?;
                         }
-                        GeneratedField::Append => {
-                            if append__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("append"));
+                        GeneratedField::Appends => {
+                            if appends__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("appends"));
                             }
-                            append__ = map_.next_value()?;
+                            appends__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Flush => {
                             if flush__.is_some() {
@@ -988,7 +988,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                 }
                 Ok(LogRequest {
                     open: open__,
-                    append: append__,
+                    appends: appends__.unwrap_or_default(),
                     flush: flush__,
                 })
             }
@@ -1565,12 +1565,18 @@ impl serde::Serialize for LogResponse {
         if self.flushed.is_some() {
             len += 1;
         }
+        if self.acked.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.LogResponse", len)?;
         if let Some(v) = self.opened.as_ref() {
             struct_ser.serialize_field("opened", v)?;
         }
         if let Some(v) = self.flushed.as_ref() {
             struct_ser.serialize_field("flushed", v)?;
+        }
+        if let Some(v) = self.acked.as_ref() {
+            struct_ser.serialize_field("acked", v)?;
         }
         struct_ser.end()
     }
@@ -1584,12 +1590,14 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
         const FIELDS: &[&str] = &[
             "opened",
             "flushed",
+            "acked",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Opened,
             Flushed,
+            Acked,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1614,6 +1622,7 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
                         match value {
                             "opened" => Ok(GeneratedField::Opened),
                             "flushed" => Ok(GeneratedField::Flushed),
+                            "acked" => Ok(GeneratedField::Acked),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1635,6 +1644,7 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
             {
                 let mut opened__ = None;
                 let mut flushed__ = None;
+                let mut acked__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Opened => {
@@ -1649,6 +1659,12 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
                             }
                             flushed__ = map_.next_value()?;
                         }
+                        GeneratedField::Acked => {
+                            if acked__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("acked"));
+                            }
+                            acked__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1657,10 +1673,110 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
                 Ok(LogResponse {
                     opened: opened__,
                     flushed: flushed__,
+                    acked: acked__,
                 })
             }
         }
         deserializer.deserialize_struct("shuffle.LogResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for log_response::Acked {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.bytes != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("shuffle.LogResponse.Acked", len)?;
+        if self.bytes != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("bytes", ToString::to_string(&self.bytes).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for log_response::Acked {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "bytes",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Bytes,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "bytes" => Ok(GeneratedField::Bytes),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = log_response::Acked;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct shuffle.LogResponse.Acked")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<log_response::Acked, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut bytes__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Bytes => {
+                            if bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("bytes"));
+                            }
+                            bytes__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(log_response::Acked {
+                    bytes: bytes__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("shuffle.LogResponse.Acked", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for log_response::Flushed {
@@ -1791,8 +1907,24 @@ impl serde::Serialize for log_response::Opened {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let len = 0;
-        let struct_ser = serializer.serialize_struct("shuffle.LogResponse.Opened", len)?;
+        let mut len = 0;
+        if self.append_credit_bytes != 0 {
+            len += 1;
+        }
+        if self.append_overhead_bytes != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("shuffle.LogResponse.Opened", len)?;
+        if self.append_credit_bytes != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("appendCreditBytes", ToString::to_string(&self.append_credit_bytes).as_str())?;
+        }
+        if self.append_overhead_bytes != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("appendOverheadBytes", ToString::to_string(&self.append_overhead_bytes).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -1803,10 +1935,16 @@ impl<'de> serde::Deserialize<'de> for log_response::Opened {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "append_credit_bytes",
+            "appendCreditBytes",
+            "append_overhead_bytes",
+            "appendOverheadBytes",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            AppendCreditBytes,
+            AppendOverheadBytes,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1828,7 +1966,11 @@ impl<'de> serde::Deserialize<'de> for log_response::Opened {
                     where
                         E: serde::de::Error,
                     {
-                            Ok(GeneratedField::__SkipField__)
+                        match value {
+                            "appendCreditBytes" | "append_credit_bytes" => Ok(GeneratedField::AppendCreditBytes),
+                            "appendOverheadBytes" | "append_overhead_bytes" => Ok(GeneratedField::AppendOverheadBytes),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -1846,10 +1988,34 @@ impl<'de> serde::Deserialize<'de> for log_response::Opened {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map_.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                let mut append_credit_bytes__ = None;
+                let mut append_overhead_bytes__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::AppendCreditBytes => {
+                            if append_credit_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("appendCreditBytes"));
+                            }
+                            append_credit_bytes__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::AppendOverheadBytes => {
+                            if append_overhead_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("appendOverheadBytes"));
+                            }
+                            append_overhead_bytes__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
                 }
                 Ok(log_response::Opened {
+                    append_credit_bytes: append_credit_bytes__.unwrap_or_default(),
+                    append_overhead_bytes: append_overhead_bytes__.unwrap_or_default(),
                 })
             }
         }

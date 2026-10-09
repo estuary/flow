@@ -74,22 +74,12 @@ Session request stream, the Session propagates this to its Slices by closing
 their request streams, and each Slice in turn to its Logs. Each actor observes
 the EOF, then drains its downstream peers' EOFs before exiting.
 
-This interacts subtly with disk back-pressure. When a Log engages back-pressure
-(§8), it stops draining a Slice's `Append`s, which parks that Slice's request
-stream — so the Log no longer polls it and cannot observe its EOF. A Slice whose
-`Append` is parked at a back-pressured Log therefore can't drain that Log to EOF,
-and shutdown wedges from the Log upward. Back-pressure normally releases only as
-the downstream coordinator consumes the local log and reclaims segments — which
-stops happening once the coordinator is shutting down.
-
-A coordinator breaks this by relieving the back-pressure out-of-band: it removes
-each shard's log segment files (`remove_shard_segments`). The co-located Log's
-sealed-segment reclaim observes the unlinks, drops `disk_backlog_bytes` below
-threshold, and releases back-pressure — so the parked Slice streams re-arm, reach
-EOF, and the whole topology drains. Because this discards any log not yet
-consumed, a coordinator does it only once it will request no further checkpoints,
-then calls `SessionClient::close()` (which blocks until the Session→Slice→Log
-topology has fully drained).
+A Log reads every Slice's rounds whether or not its merge is paused by disk
+back-pressure (§8), so it always observes each Slice's EOF. Once all have
+EOF'd, it exits, discarding any Appends that back-pressure held unmerged along
+with its log segments. A coordinator closes a Session (`SessionClient::close()`,
+which blocks until the Session→Slice→Log topology has fully drained) only once
+it will request no further checkpoints, so nothing it would read is lost.
 
 #### Teardown during the opening phase
 
@@ -380,32 +370,68 @@ computes its hash, and routes to target Log shard(s) using
 `filter_r_clocks` additionally filters by the rotated clock value,
 distributing reads across shards in the r_clock dimension.
 
-The document, its packed key, metadata, and journal context are sent
-as an `Append` message to each target Log. Journal names are
-delta-encoded across consecutive sends to minimize wire overhead.
+The document, its packed key, metadata, and journal context are queued
+as an `Append` to each target Log. Journal names are delta-encoded across
+consecutive Appends to minimize wire overhead.
+
+#### Rounds and Credits
+
+A Slice sends to Logs in **rounds** (`slice::rounds::Rounds`). A round queues
+Appends for each Log, and closes when the Slice would otherwise wait — a
+target's credits are exhausted, or the heap is empty, deferred (§5), or
+clock-delayed — when a flush is ready (§9), or after `merge::MAX_DEQUEUES`
+dequeues. Closing sends one `LogRequest` with the round's Appends, and any
+ready `Flush`, to each Log having Appends; a round with a `Flush` goes to
+every Log. The LogActor applies each round in one event-loop iteration.
+
+Each Slice-to-Log channel flow-controls Appends by **credits**
+(`slice::rounds::LogChannel`): a Slice may have up to `APPEND_CREDIT_BYTES` of
+Appends queued, sent, or read ahead by a Log and not yet merged by it. Each Log
+advertises its budget, and the per-Append overhead it accounts
+(`APPEND_OVERHEAD_BYTES`), in `LogResponse.Opened`, so its Slices account
+exactly as it does. The Log returns credits as it merges, as a cumulative count
+of merged bytes (`LogResponse.Acked`). Rounds themselves aren't credited, and a
+Log reads every round as it arrives, so a Slice's flush always reaches every
+Log, even one holding a full read-ahead of the Slice's Appends.
 
 ### 8. Log Merge and Output
 
-Each LogActor receives Append messages from all Slices. Received
-appends are placed in a min-heap ordered by (priority DESC,
-adjusted_clock ASC). The actor pops entries one at a time, writing
-documents to its on-disk log files in a globally-merged order.
+Each Log reads ahead up to `APPEND_CREDIT_BYTES` of each Slice's Appends, in
+the order they were sent, and enforces that budget (`log::read_ahead::SliceReadAhead`).
+It merges across Slices by taking the Slice whose next Append is least in
+(priority DESC, adjusted clock ASC) order, and writes documents to its on-disk
+log segments in that merged order. The merge isn't gated: a Log merges
+whatever its read-aheads hold, so ordering across Slices is best-effort, and a
+Slice may lead its peers at a Log by up to its credits.
 
-Back-pressure is enforced through HTTP/2 flow control: when the Log actor
-can't drain fast enough, Slice sends block, which blocks journal reads,
-creating system-wide priority enforcement. High-priority, earlier-clock
-documents flow through first.
+Back-pressure falls on Slices as their credits run out: a Slice whose Appends
+don't merge stops reading its journals. A Log merges high-priority,
+earlier-clock documents first, so back-pressure tends to fall on lower-priority
+and later documents. A Log also pauses its merge, returning no credits, while
+its disk backlog of sealed segments is over its limit (`log::state::DiskState`).
+
+Mechanics are documented on `log::actor::LogActor`,
+`log::read_ahead::next_merge`, and `Service::spawn_log`, which merges
+credits into the Log's response stream.
+
+Metrics:
+- `shuffle_slice_log_blocked_micros{log}`: time a Slice awaited each Log's
+  credits or channel capacity.
+- `shuffle_slice_rounds` / `shuffle_log_rounds`: rounds closed by Slices, and
+  received by Logs. `shuffle_log_appends / shuffle_slice_rounds` is roughly
+  the mean round size.
 
 ### 9. Flush Cycle
 
 When the Slice observes a commit (ACK or OUTSIDE_TXN), it marks the
-flush as ready. On the next event loop iteration (if no flush is already
-in-flight), the Slice:
+flush as ready. This closes its current round (if no flush is already
+in-flight), and the Slice:
 
 1. Builds a `Frontier` from unreported producer state and accumulated
    causal hints, then drains `unreported` into `reported`.
-2. Sends `Flush { cycle }` to all Log shards.
-3. Each Log performs its durability IO and responds `Flushed { cycle }`.
+2. Sends the round to all Log shards, with `Flush { cycle }`.
+3. Each Log, once it has merged the Slice's Appends which preceded the flush,
+   performs its durability IO and responds `Flushed { cycle }`.
 4. When all Logs respond, the flush cycle completes and the frontier
    is reduced into the Slice's accumulated progress.
 
@@ -579,8 +605,12 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
     restart recovery.
   - `routing.rs`: Clock rotation and shard routing.
   - `heap.rs`: Priority heap for ready reads.
-- `log/`: Log actor, append merge heap, flush IO.
+  - `rounds.rs`: Rounds of Appends to Logs, and their per-Log credits.
+- `log/`: Log actor, per-Slice read-ahead and merge, flush IO.
+  - `read_ahead.rs`: Per-Slice read-ahead of rounds and its credits, flush
+    barriers, and the merge step across Slices (`next_merge`).
   - `log/block/`: Zero-copy types for working with segmented log blocks.
+- `merge.rs`: Merge order (`Position`), and Append credits of flow control.
 - `frontier.rs`: Frontier types, reduction, causal hint resolution,
   chunked encode/decode, and drain.
 - `binding.rs`: Binding and Source configuration, partition filtering.

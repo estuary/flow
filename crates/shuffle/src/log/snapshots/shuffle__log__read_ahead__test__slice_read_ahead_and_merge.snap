@@ -1,0 +1,33 @@
+---
+source: crates/shuffle/src/log/read_ahead.rs
+expression: "trace.join(\"\\n\")"
+---
+on_round([], flush 3) -> Some(3)
+peek -> Some("p0@30")
+pop -> p0@30, flags: 0, released: None
+peek -> Some("p1@20")
+pop -> p1@20, flags: 0, released: None
+peek -> Some("p0@25")
+pop -> p0@25, flags: 1, released: None
+peek -> None
+on_round([40], flush 7) -> None
+pop -> p0@30, flags: 0, released: None
+pop -> p0@40, flags: 0, released: Some(7)
+pop -> p0@25, flags: 0, released: None
+drained -> barrier: None, queued_bytes: 0
+on_round([4/8, 4/8]) -> Ok(None), queued: 8/8, merged: 0/8
+pop, on_round([4/8]) -> Ok(None), queued: 8/8, merged: 4/8
+on_round([doc]) -> Err("Slice exceeded its Append credits: an Append of 140 bytes with 4194304 bytes queued exceeds 4194304"), queued: 8/8, merged: 4/8
+pop x2, on_round([16/8]) -> Ok(None), queued: 16/8, merged: 12/8
+pop -> merged: 28/8
+delta-decoded -> ["acmeCo/one/pivot=00", "acmeCo/one/pivot=00", "acmeCo/one/pivot=11"]
+merge -> Idle
+s1 [p0@100] -> Ready(slice: 1, through: MAX)
+s2 [p0@90] -> Ready(slice: 2, through: p0@100)
+s0 [p1@200] -> Ready(slice: 0, through: p0@90)
+s0 pop, [p0@90] -> Ready(slice: 0, through: p0@90)
+s0 [95, 92, 100] flush 9, [101] -> s0: [p0@90]
+run -> s2: [p0@90]
+run -> s0: [p0@95, p0@92, p0@100 released 9]
+run -> s1: [p0@100]
+run -> s0: [p0@101]

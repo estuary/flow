@@ -11,20 +11,16 @@ Checkpoint {
                 producers: [
                     ProducerFrontier {
                         producer: Producer(01:00:00:00:00:01),
-                        last_commit: Clock(0s 1000ns),
+                        last_commit: Clock(0s 5000ns),
                         hinted_commit: Clock(0s 0ns),
-                        offset: -100,
+                        offset: -500,
                     },
                 ],
-                bytes_read_delta: 100,
-                bytes_behind_delta: 400,
+                bytes_read_delta: 500,
+                bytes_behind_delta: 0,
             },
         ],
-        flushed_lsn: [
-            0/0,
-            1/0,
-            0/0,
-        ],
+        flushed_lsn: [],
         latest_backfill_begin: {},
         latest_backfill_complete: {},
         binding_gap_floors: {},
@@ -36,10 +32,58 @@ Checkpoint {
             journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
             doc: Object {
                 "_meta": Object {
+                    "uuid": String("13814014-1dd2-11b2-8000-010000000001"),
+                },
+                "category": String("alpha"),
+                "id": String("m-bbb"),
+                "value": Number(3),
+            },
+        },
+        ReadEntry {
+            binding: 0,
+            journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
+            doc: Object {
+                "_meta": Object {
                     "uuid": String("1381400a-1dd2-11b2-8000-010000000001"),
                 },
                 "category": String("alpha"),
                 "id": String("m-aaa"),
+                "value": Number(3),
+            },
+        },
+        ReadEntry {
+            binding: 0,
+            journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
+            doc: Object {
+                "_meta": Object {
+                    "uuid": String("1381401e-1dd2-11b2-8000-010000000001"),
+                },
+                "category": String("alpha"),
+                "id": String("m-ccc"),
+                "value": Number(3),
+            },
+        },
+        ReadEntry {
+            binding: 0,
+            journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
+            doc: Object {
+                "_meta": Object {
+                    "uuid": String("13814028-1dd2-11b2-8000-010000000001"),
+                },
+                "category": String("alpha"),
+                "id": String("m-ddd"),
+                "value": Number(3),
+            },
+        },
+        ReadEntry {
+            binding: 0,
+            journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
+            doc: Object {
+                "_meta": Object {
+                    "uuid": String("13814032-1dd2-11b2-8000-010000000001"),
+                },
+                "category": String("alpha"),
+                "id": String("m-eee"),
                 "value": Number(3),
             },
         },

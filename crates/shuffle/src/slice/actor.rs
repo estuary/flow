@@ -5,7 +5,7 @@ use super::{
         parse_lines_batch, probe_read_start,
     },
     replay::Replay,
-    routing,
+    rounds::Rounds,
     state::{self, FlushState, ProgressState, Topology},
 };
 use crate::log;
@@ -32,10 +32,8 @@ pub struct SliceActor {
     pub progress: ProgressState,
     /// Channel for sends to parent Session.
     pub slice_response_tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
-    /// Channels for sends to shard Log RPCs, indexed by shard index.
-    pub log_request_tx: Vec<mpsc::Sender<shuffle::LogRequest>>,
-    /// Previous journal name sent to each Log shard, for delta encoding.
-    pub log_prev_journal: Vec<String>,
+    /// Rounds of sends to shard Log RPCs.
+    pub rounds: Rounds,
     /// Pending Journal read-start probes for newly started reads.
     /// Each resolves to `(offset, start_offset, read)`: the offset requested of
     /// the broker, and the read's fast-forwarded starting offset used to seed
@@ -51,7 +49,7 @@ pub struct SliceActor {
     pub tailing_reads: usize,
     /// Read IDs currently pending AND non-tailing: parked awaiting broker I/O
     /// while still behind their journal write head. This is exactly the set that
-    /// head-of-line-blocks heap draining (see the gate in `try_log_request_tx`).
+    /// head-of-line-blocks heap draining (see the gate in `fill_round`).
     pub stalled_reads: std::collections::HashSet<u32>,
     /// Set by the Session's InitialReadsStarted request, which trails every
     /// initial StartRead on our request stream. Heap draining waits for it.
@@ -81,10 +79,20 @@ impl Drop for SliceActor {
     }
 }
 
-pub(super) struct Buffers {
-    packed_key: bytes::BytesMut,
-    targets: Vec<usize>,
-    permits: Vec<mpsc::Permit<'static, shuffle::LogRequest>>,
+/// What the Slice's send loop must await before its next round.
+pub(super) enum Wait {
+    /// Await a next actor event.
+    Idle,
+    /// Await nothing: resume with a next round after servicing actor events,
+    /// and yielding to the runtime.
+    Yield,
+    /// Await the adjusted clock of the heap top.
+    Sleep(std::time::Duration),
+    /// Await credits of the Log at index `log`, so that it admits an Append.
+    /// They arrive as a LogResponse, which is a next actor event.
+    Credits { log: usize },
+    /// Await capacity of the Log channel at index `log` for a next round.
+    Capacity { log: usize },
 }
 
 impl SliceActor {
@@ -131,15 +139,10 @@ impl SliceActor {
             tokio::task::JoinHandle<Option<anyhow::Error>>,
         > = self.spawn_listings(&cancel);
 
-        // Re-usable scratch buffers.
-        let mut buffers = Buffers {
-            packed_key: bytes::BytesMut::new(),
-            targets: Vec::new(),
-            permits: Vec::new(),
-        };
-
         // Measure of wall-clock time, used to gate delayed reads.
         let mut now = uuid::Clock::zero();
+        // Log whose credits or channel capacity we're awaiting, and since when.
+        let mut blocked_on: Option<(std::time::Instant, usize)> = None;
 
         let mut ticker = tokio::time::interval(crate::ACTOR_TICKER_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -167,7 +170,7 @@ impl SliceActor {
                 "SliceActor::serve iteration"
             );
             // First, attempt non-blocking sends.
-            let wake_log_request_tx = self.try_log_request_tx(&mut buffers, &mut now)?;
+            let wake_log_request_tx = self.try_log_request_tx(&mut now, &mut blocked_on)?;
             let wake_slice_response_tx = self.try_slice_response_tx()?;
 
             // Then, wait for a blocking future to resolve.
@@ -236,7 +239,7 @@ impl SliceActor {
             flush_cycle = self.flush.cycle,
             "SliceActor::serve exiting on Session EOF"
         );
-        self.log_request_tx.clear(); // Drop all tx handles to close.
+        self.rounds.logs.clear(); // Drop all tx handles to close.
 
         // Read clean EOF from all Log RPCs.
         while let Some((shard_index, slice_response, rx)) = log_response_rx.next().await {
@@ -697,12 +700,23 @@ impl SliceActor {
     ) -> anyhow::Result<()> {
         let verify = proto_grpc::verify(
             "LogResponse",
-            "Flushed",
+            "Acked or Flushed",
             &self.topology.shards[shard_index].endpoint,
         );
         let log_response = verify.not_eof(log_response)?;
 
         match log_response {
+            shuffle::LogResponse {
+                acked: Some(shuffle::log_response::Acked { bytes }),
+                ..
+            } => self.rounds.logs[shard_index]
+                .on_acked(bytes)
+                .with_context(|| {
+                    format!(
+                        "Acked from Log {}",
+                        self.topology.shards[shard_index].endpoint
+                    )
+                }),
             shuffle::LogResponse {
                 flushed: Some(shuffle::log_response::Flushed { cycle, flushed_lsn }),
                 ..
@@ -719,40 +733,84 @@ impl SliceActor {
         }
     }
 
+    /// Run a round of the send loop: fill it with Appends of ready documents,
+    /// then close it. Returns a future of what the round must await, which
+    /// resolves `true` if the next round should run.
     fn try_log_request_tx(
         &mut self,
-        buffers: &mut Buffers,
         now: &mut uuid::Clock,
+        blocked_on: &mut Option<(std::time::Instant, usize)>,
     ) -> anyhow::Result<impl Future<Output = bool> + 'static> {
-        // Closure for mapping an OwnedPermit Result to Ok (our "poll again" signal).
-        // On Err (channel closed), we don't wake and rely on rx of a causal error / fail-fast teardown.
-        let ok = |result: Result<_, _>| result.is_ok();
-        // Future which represent an absence of an awake signal.
-        let idle = future::Either::Right(future::Either::Right(std::future::ready(false)));
+        if let Some((since, log)) = blocked_on.take() {
+            self.metrics.log_blocked_micros[log].increment(since.elapsed().as_micros() as u64);
+        }
+
+        let wait = match self.rounds.try_begin() {
+            // Begin a round only if every channel has capacity for it.
+            Err(log) => Wait::Capacity { log },
+            Ok(()) => {
+                let wait = self.fill_round(now)?;
+                self.close_round()?;
+                wait
+            }
+        };
+
+        // Map to a future only now that the round has closed.
+        let capacity = match wait {
+            Wait::Credits { log } => {
+                *blocked_on = Some((std::time::Instant::now(), log));
+                None
+            }
+            Wait::Capacity { log } => {
+                *blocked_on = Some((std::time::Instant::now(), log));
+                Some(self.rounds.logs[log].capacity())
+            }
+            _ => None,
+        };
+
+        Ok(async move {
+            match wait {
+                Wait::Idle | Wait::Credits { .. } => false,
+                Wait::Yield => {
+                    tokio::task::yield_now().await;
+                    true
+                }
+                Wait::Sleep(wait) => {
+                    tokio::time::sleep(wait).await;
+                    true
+                }
+                Wait::Capacity { .. } => capacity.unwrap().await,
+            }
+        })
+    }
+
+    /// Fill the round: queue Appends of ready documents until the Slice must
+    /// wait, a flush is ready, or the round is long.
+    fn fill_round(&mut self, now: &mut uuid::Clock) -> anyhow::Result<Wait> {
+        let mut dequeues = 0;
 
         loop {
-            // A flush cycle takes priority over sending Append requests.
-            // We'll await capacity for Flushes even if the next Append shard has capacity.
+            // A ready flush closes the round now, rather than after a long round.
+            // Only one flush is in flight, so its latency paces progress, and
+            // this closes at most one extra round per flush cycle.
             if self.flush.should_flush() {
-                if let Err(tx) = self.try_log_request_flush_tx(buffers) {
-                    return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
-                }
+                return Ok(Wait::Yield);
+            }
+            // A long round yields, so that actor events are serviced through a
+            // long run of documents.
+            if dequeues == crate::merge::MAX_DEQUEUES {
+                return Ok(Wait::Yield);
             }
 
             // If there's an active replay, sequence and drain its historical
             // documents. They append before all heap documents, including the
             // replay trigger (still in the heap).
             if let Some(replay) = self.replay.take() {
-                return match self.try_drain_replay(replay, buffers) {
-                    // We require a permit to send further Appends.
-                    Ok(Some(tx)) => Ok(future::Either::Left(tx.reserve_owned().map(ok))),
-                    // We're awaiting further replay I/O.
-                    Ok(None) => Ok(idle),
-                    Err(err) => {
+                return self
+                    .try_drain_replay(replay, &mut dequeues)
+                    .inspect_err(|_| {
                         self.metrics.replays_stopped.increment(1);
-                        Err(err)
-                    }
-                };
+                    });
             }
 
             // Defer draining if any read could still resolve to content that
@@ -764,7 +822,7 @@ impl SliceActor {
                 || self.tailing_reads != self.pending_reads.len()
                 || !self.pending_probes.is_empty()
             {
-                return Ok(idle);
+                return Ok(Wait::Idle);
             }
 
             // Do we have a document ready for append?
@@ -774,7 +832,7 @@ impl SliceActor {
                 ..
             }) = self.ready_read_heap.peek()
             else {
-                return Ok(idle);
+                return Ok(Wait::Idle);
             };
             let ready_read = ready_read.as_deref().unwrap();
 
@@ -788,9 +846,7 @@ impl SliceActor {
 
             // Gate on the adjusted clock: sleep until wall-clock time catches up.
             if let Some(wait) = state::clock_delay(adjusted_clock, now, crate::now_clock) {
-                return Ok(future::Either::Right(future::Either::Left(
-                    tokio::time::sleep(wait).map(|()| true),
-                )));
+                return Ok(Wait::Sleep(wait));
             }
 
             let producer_state = read_state.producer_state(meta.producer);
@@ -810,22 +866,19 @@ impl SliceActor {
                 continue;
             }
 
-            // If this is an Append, attempt to send it to the appropriate shard(s).
+            // If this is an Append, attempt to queue it to the appropriate shard(s).
             if sequenced.is_append {
-                if let Err(tx) = Self::try_log_request_append_tx(
+                if let Err(log) = self.rounds.try_queue(
                     binding,
-                    buffers,
                     &read_state.journal,
                     &self.topology.shards,
-                    &mut self.log_prev_journal,
-                    &self.log_request_tx,
                     ready_read,
                 ) {
-                    return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
+                    return Ok(Wait::Credits { log });
                 }
             }
 
-            // Pop the heap entry now that any Append requests have been sent.
+            // Pop the heap entry now that any Appends have been queued.
             // Crucially: we now cannot fail to consume this document.
             let ReadyReadEntry {
                 priority,
@@ -851,6 +904,7 @@ impl SliceActor {
 
             // Track maximum forward progress of the read.
             read_state.read_offset = end_offset;
+            dequeues += 1;
 
             // Fold any committed backfill control clock into this journal's
             // per-flush backfill state, then step producer state forward.
@@ -940,167 +994,35 @@ impl SliceActor {
         }
     }
 
-    /// Try to send Flush requests to all log channels (all-or-nothing).
-    /// Returns `Err(tx)` with the sender that lacked capacity.
-    fn try_log_request_flush_tx(
-        &mut self,
-        buffers: &mut Buffers,
-    ) -> Result<(), mpsc::Sender<shuffle::LogRequest>> {
-        let Buffers { permits, .. } = buffers;
-
-        // Safety: `permits` is always empty on return (retaining only capacity).
-        let permits: &mut Vec<_> =
-            unsafe { std::mem::transmute::<&mut Vec<_>, &mut Vec<_>>(permits) };
-
-        // Collect permits to send to all log channels (all-or-nothing).
-        for tx in &self.log_request_tx {
-            let Ok(permit) = tx.try_reserve() else {
-                permits.clear();
-                return Err(tx.clone());
-            };
-            permits.push(permit);
-        }
-
-        // Build the frontier from unreported producers and causal hints,
-        // draining unreported→reported and resetting byte accumulators.
-        let frontier = super::producer::build_flush_frontier(
-            &mut self.reads,
-            self.causal_hints.drain(),
-            self.topology.shards.len(),
-        );
-        let flush_cycle = self.flush.start(self.log_request_tx.len(), frontier);
-
-        for permit in permits.drain(..) {
-            permit.send(shuffle::LogRequest {
-                flush: Some(shuffle::log_request::Flush { cycle: flush_cycle }),
-                ..Default::default()
-            });
-        }
-
-        service_kit::event!(
-            tracing::Level::DEBUG,
-            "log",
-            cycle = flush_cycle,
-            "broadcast Flush request",
-        );
-        self.metrics.flushes.increment(1);
-
-        Ok(())
-    }
-
-    /// Try to send Append requests to target log channels (all-or-nothing).
-    /// Returns `Err(tx)` with the sender that lacked capacity.
-    pub(super) fn try_log_request_append_tx(
-        binding: &crate::Binding,
-        buffers: &mut Buffers,
-        journal: &str,
-        shards: &[shuffle::Shard],
-        log_prev_journal: &mut [String],
-        log_request_tx: &[mpsc::Sender<shuffle::LogRequest>],
-        ready_read: &ReadyRead,
-    ) -> Result<(), mpsc::Sender<shuffle::LogRequest>> {
-        let Buffers {
-            packed_key,
-            permits,
-            targets,
-        } = buffers;
-
-        let ReadyRead {
-            doc,
-            meta:
-                Meta {
-                    begin_offset,
-                    end_offset,
-                    clock,
-                    producer,
-                    ..
-                },
-            ..
-        } = ready_read;
-
-        // Extract into `packed_key` and hash to route the document.
-        // Compute shard index `targets` to receive an Append of this document.
-        packed_key.clear();
-        doc::Extractor::extract_all(
-            doc.get(),
-            &binding.key_extractors,
-            doc::Encoding::Packed,
-            packed_key,
-            None,
-        );
-
-        let key_hash = doc::Extractor::packed_hash(packed_key);
-        let r_clock = routing::rotate_clock(*clock);
-
-        targets.clear();
-        targets.extend(routing::route_to_shards(
-            key_hash,
-            r_clock,
-            binding.filter_r_clocks,
-            shards,
-        ));
-
-        tracing::trace!(
-            %journal,
-            binding = binding.state_key(),
-            ?producer,
-            ?clock,
-            begin_offset,
-            key_hash,
-            flags = ready_read.meta.flags.0,
-            r_clock,
-            ?targets,
-            "routed document Append to Log RPC shards"
-        );
-
-        // Safety: `permits` is always cleared prior to return (retaining only capacity).
-        let permits: &mut Vec<_> =
-            unsafe { std::mem::transmute::<&mut Vec<_>, &mut Vec<_>>(permits) };
-
-        // All-or-nothing: reserve permits for every target channel.
-        for &target in targets.iter() {
-            let Ok(permit) = log_request_tx[target].try_reserve() else {
-                permits.clear();
-                return Err(log_request_tx[target].clone());
-            };
-            permits.push(permit);
-        }
-        // All channels reserved. At this point, a send is infallible.
-
-        let packed_key = packed_key.split().freeze();
-
-        for (&target, permit) in targets.iter().zip(permits.drain(..)) {
-            let prev_journal = &mut log_prev_journal[target];
-
-            let (journal_name_truncate_delta, journal_name_suffix) =
-                gazette::delta::encode(prev_journal, journal);
-            let journal_name_suffix = journal_name_suffix.to_string();
-
-            // Update `prev_journal` for next iteration.
-            gazette::delta::decode(
-                &mut log_prev_journal[target],
-                journal_name_truncate_delta,
-                &journal_name_suffix,
+    /// Close the round, which requests a flush if one is ready.
+    fn close_round(&mut self) -> anyhow::Result<()> {
+        // A flush is always broadcast, so its round is certain to be sent.
+        let flush = if self.flush.should_flush() {
+            // Build the frontier from unreported producers and causal hints,
+            // draining unreported→reported and resetting byte accumulators.
+            let frontier = super::producer::build_flush_frontier(
+                &mut self.reads,
+                self.causal_hints.drain(),
+                self.topology.shards.len(),
             );
+            let flush_cycle = self.flush.start(self.topology.shards.len(), frontier);
 
-            permit.send(shuffle::LogRequest {
-                append: Some(shuffle::log_request::Append {
-                    journal_name_truncate_delta,
-                    journal_name_suffix,
-                    binding: binding.index as u32,
-                    priority: binding.priority,
-                    read_delay: binding.read_delay.as_u64(),
-                    producer: producer.as_i64(),
-                    clock: clock.as_u64(),
-                    flags: ready_read.meta.flags.0 as u32,
-                    packed_key: packed_key.clone(),
-                    doc_archived: doc.bytes().clone(),
-                    source_byte_length: (end_offset - begin_offset).try_into().unwrap(),
-                }),
-                ..Default::default()
-            });
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "log",
+                cycle = flush_cycle,
+                "broadcast Flush request",
+            );
+            self.metrics.flushes.increment(1);
+
+            Some(shuffle::log_request::Flush { cycle: flush_cycle })
+        } else {
+            None
+        };
+
+        if self.rounds.close(flush)? {
+            self.metrics.rounds.increment(1);
         }
-
         Ok(())
     }
 

@@ -1,4 +1,5 @@
 use crate::{log, new_channel, session, slice};
+use futures::StreamExt;
 use proto_flow::shuffle;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -140,25 +141,48 @@ impl Service {
         response_rx
     }
 
+    /// Spawn a Log RPC handler, returning its response stream.
+    ///
+    /// Responses are those of the handler's channel, merged with its
+    /// cumulative merged bytes as `LogResponse.Acked`. These credits are a
+    /// `watch` rather than channel messages, so that the LogActor never awaits
+    /// channel capacity to return them, and a Slice which reads them late
+    /// receives only the latest.
     pub fn spawn_log<R>(
         &self,
         authz: proto_grpc::Authorizer,
         request_rx: R,
-    ) -> mpsc::Receiver<tonic::Result<shuffle::LogResponse>>
+    ) -> futures::stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>
     where
         R: futures::Stream<Item = tonic::Result<shuffle::LogRequest>> + Send + Unpin + 'static,
     {
         let service = self.clone();
         let (response_tx, response_rx) = new_channel::<tonic::Result<shuffle::LogResponse>>();
+        let (acked_tx, acked_rx) = tokio::sync::watch::channel(0);
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            let handler = log::serve_log(service, authz, request_rx, response_tx);
+            let handler = log::serve_log(service, authz, request_rx, response_tx, acked_tx);
             if let Err(status) = proto_grpc::catch_panic(handler).await {
                 let _ = error_tx.send(Err(status)).await;
             }
         });
-        response_rx
+
+        let acked_rx = tokio_stream::wrappers::WatchStream::from_changes(acked_rx).map(|bytes| {
+            Ok(shuffle::LogResponse {
+                acked: Some(shuffle::log_response::Acked { bytes }),
+                ..Default::default()
+            })
+        });
+
+        // Prefer the channel, so that Opened precedes credits
+        // and an error isn't delayed behind them.
+        futures::stream::select_with_strategy(
+            tokio_stream::wrappers::ReceiverStream::new(response_rx),
+            acked_rx,
+            |_: &mut ()| futures::stream::PollNext::Left,
+        )
+        .boxed()
     }
 
     /// Build gRPC client metadata bearing a self-signed `SHUFFLE` token, scoped
@@ -209,7 +233,7 @@ impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
         tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<shuffle::SessionResponse>>;
     type SliceStream =
         tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::SliceResponse>>;
-    type LogStream = tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::LogResponse>>;
+    type LogStream = futures::stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>;
 
     async fn session(
         &self,
@@ -241,9 +265,7 @@ impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
     ) -> tonic::Result<tonic::Response<Self::LogStream>> {
         let authz = proto_grpc::Authorizer::from_request(&mut request, self.signer.is_none())?;
         Ok(tonic::Response::new(
-            tokio_stream::wrappers::ReceiverStream::new(
-                self.spawn_log(authz, request.into_inner()),
-            ),
+            self.spawn_log(authz, request.into_inner()),
         ))
     }
 }
