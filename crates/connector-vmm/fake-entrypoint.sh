@@ -29,6 +29,10 @@ fi
 [[ "${1:-}" == run ]] || fail "expected the run or boundary subcommand; the fake implements nothing else"
 shift
 
+# Share argument parsing and launch prerequisites with the real VMM.
+/usr/local/libexec/flow-connector-vmm check-launch "$@" || exit
+
+# Decode validated arguments and refuse fake-specific unsupported flags.
 declare -A args=()
 while (($# > 0)); do
     flag="${1%%=*}"
@@ -40,51 +44,25 @@ while (($# > 0)); do
     --run-as-root | --as-root-exec | --debug | --resolver-upstream | --exec)
         fail "${flag} is test-only and needs the real VMM"
         ;;
+    # check-launch has printed run's help.
+    -h | --help)
+        exit 0
+        ;;
     *)
-        fail "unexpected argument: $1"
+        fail "${flag} is unsupported: the fake does not implement it"
         ;;
     esac
 
-    if [[ -v "args[${flag}]" ]]; then
-        fail "${flag} given more than once"
-    fi
     if [[ "$1" == *=* ]]; then
         args["${flag}"]="${1#*=}"
         shift
-    elif (($# >= 2)); then
+    else
         args["${flag}"]="$2"
         shift 2
-    else
-        fail "${flag} requires a value"
     fi
 done
 
-for flag in --policy --connector-mount --memory-mib --vcpus --disk-mib; do
-    [[ -v "args[${flag}]" ]] || fail "${flag} is required"
-done
-for flag in --memory-mib --vcpus --disk-mib; do
-    [[ "${args[${flag}]}" =~ ^[0-9]+$ ]] || fail "${flag} expects a number, not ${args[${flag}]}"
-done
-
 readonly MOUNT="${args[--connector-mount]}"
-[[ "${MOUNT}" == /* ]] || fail "--connector-mount expects an absolute path"
-[[ ! "${MOUNT}" =~ ^/+$ ]] || fail "--connector-mount: the guest root is not a mount point for this share"
-[[ -d "${MOUNT}" ]] || fail "${MOUNT} is not a directory"
-
-# `-w` is false on a read-only mount even for root.
-if [[ -w / ]]; then
-    fail "/ is writable; the VMM container must be launched with \`--read-only\`"
-fi
-if [[ -w "${MOUNT}" ]]; then
-    fail "${MOUNT} is writable; the VMM container must be launched with \`--mount type=bind,source=M,target=M,readonly\`"
-fi
-[[ -r "${args[--policy]}" ]] || fail "${args[--policy]} is not readable"
-
-ipv6=/proc/sys/net/ipv6/conf/default/disable_ipv6
-if [[ -e "${ipv6}" && "$(<"${ipv6}")" != 1 ]]; then
-    fail "IPv6 is enabled; the VMM container must be launched with --sysctl net.ipv6.conf.default.disable_ipv6=1"
-fi
-[[ -r "${MOUNT}/image-inspect.json" ]] || fail "${MOUNT}/image-inspect.json is not readable"
 
 # The connector sees the mount at its own path inside the chroot, which only a
 # copy can give it: a bind mount needs CAP_SYS_ADMIN, and a symlink resolves

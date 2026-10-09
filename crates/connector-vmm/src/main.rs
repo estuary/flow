@@ -37,6 +37,9 @@ enum Command {
     /// the process and exits with the guest workload's code.
     Run(launch::Args),
 
+    /// Check shared launch prerequisites without creating resources.
+    CheckLaunch(launch::Args),
+
     /// Compile a policy into its nftables ruleset and write it to stdout.
     PrintRuleset {
         /// The policy JSON, as the launcher writes it into /init/policy.json.
@@ -84,6 +87,10 @@ fn run(args: &Args) -> anyhow::Result<()> {
         Command::Run(args) => {
             let Err(error) = launch::run(args);
             Err(error)
+        }
+        Command::CheckLaunch(args) => {
+            launch::check(args)?;
+            Ok(())
         }
         Command::PrintRuleset {
             policy,
@@ -134,13 +141,26 @@ mod tests {
 
         for case in cases() {
             table.push_str(&format!("$ {}\n", command_line(&case)));
-            match super::Args::try_parse_from(&case) {
-                Ok(args) => table.push_str(&describe(&args)),
-                Err(error) => table.push_str(&crate::framed(&error.render().to_string())),
-            }
+            table.push_str(&outcome(&case));
             table.push('\n');
         }
         insta::assert_snapshot!(table);
+    }
+
+    #[test]
+    fn check_launch_parses_as_run_does() {
+        for case in cases() {
+            if case.get(1) != Some(&"run") {
+                continue;
+            }
+            let checked = as_check_launch(case.clone());
+            assert_eq!(
+                outcome(&checked).replace("check-launch", "run"),
+                outcome(&case),
+                "$ {}",
+                command_line(&checked)
+            );
+        }
     }
 
     #[test]
@@ -155,6 +175,13 @@ mod tests {
                     "{case:?} rendered a line beginning with a space: {line:?}"
                 );
             }
+        }
+    }
+
+    fn outcome(argv: &[&str]) -> String {
+        match super::Args::try_parse_from(argv) {
+            Ok(args) => describe(&args),
+            Err(error) => crate::framed(&error.render().to_string()),
         }
     }
 
@@ -210,9 +237,21 @@ mod tests {
             run(&["--debug", "--exec", "/bin/sh", "-c", "exit 7"]),
             run(&["--exec", "/bin/sh", "-c", "exit 7", "--debug"]),
             run(&["--exec"]),
-            with_mount("relative/mount"),
-            with_mount("/"),
+            with("--connector-mount", "relative/mount"),
+            with("--connector-mount", "/"),
+            with("--vcpus", "256"),
+            with("--memory-mib", "4294967296"),
+            with("--disk-mib", "-1"),
+            run(&["--vcpus", "4"]),
             vec!["flow-connector-vmm", "run", "--policy", "/init/policy.json"],
+            as_check_launch(run(&[])),
+            as_check_launch(with("--vcpus", "256")),
+            vec![
+                "flow-connector-vmm",
+                "check-launch",
+                "--policy",
+                "/init/policy.json",
+            ],
             vec!["flow-connector-vmm"],
             vec!["flow-connector-vmm", "boundary", "install"],
             vec!["flow-connector-vmm", "boundary", "verify"],
@@ -240,16 +279,21 @@ mod tests {
         [REQUIRED, extra].concat()
     }
 
-    /// A `run` line whose `--connector-mount` value is replaced, so a
-    /// rejection reaches the value parser rather than clap's duplicate check.
-    fn with_mount(mount: &'static str) -> Vec<&'static str> {
+    /// A `run` line with one flag's value replaced, so a rejection reaches
+    /// the value parser rather than clap's duplicate check.
+    fn with(flag: &'static str, value: &'static str) -> Vec<&'static str> {
         let mut argv = run(&[]);
-        let value = argv
+        let position = argv
             .iter()
-            .position(|argument| *argument == "--connector-mount")
-            .expect("run() passes --connector-mount")
+            .position(|argument| *argument == flag)
+            .expect("run() passes the flag")
             + 1;
-        argv[value] = mount;
+        argv[position] = value;
+        argv
+    }
+
+    fn as_check_launch(mut argv: Vec<&'static str>) -> Vec<&'static str> {
+        argv[1] = "check-launch";
         argv
     }
 
@@ -266,23 +310,28 @@ mod tests {
                     .map(ipnetwork::Ipv4Network::to_string)
                     .collect::<Vec<_>>(),
             ),
-            super::Command::Run(args) => format!(
-                "ok: run policy={} connector_mount={} memory_mib={} vcpus={} disk_mib={} \
-                 persistent_disk={:?} run_as_root={} as_root_exec={:?} debug={} \
-                 resolver_upstream={:?} exec={:?}\n",
-                args.policy.display(),
-                args.connector_mount,
-                args.memory_mib,
-                args.vcpus,
-                args.disk_mib,
-                args.persistent_disk,
-                args.run_as_root,
-                args.as_root_exec,
-                args.debug,
-                args.resolver_upstream.map(|u| u.to_string()),
-                args.exec,
-            ),
+            super::Command::Run(args) => describe_launch("run", args),
+            super::Command::CheckLaunch(args) => describe_launch("check-launch", args),
             super::Command::Boundary { action } => format!("ok: boundary {action:?}\n"),
         }
+    }
+
+    fn describe_launch(command: &str, args: &crate::launch::Args) -> String {
+        format!(
+            "ok: {command} policy={} connector_mount={} memory_mib={} vcpus={} disk_mib={} \
+             persistent_disk={:?} run_as_root={} as_root_exec={:?} debug={} \
+             resolver_upstream={:?} exec={:?}\n",
+            args.policy.display(),
+            args.connector_mount,
+            args.memory_mib,
+            args.vcpus,
+            args.disk_mib,
+            args.persistent_disk,
+            args.run_as_root,
+            args.as_root_exec,
+            args.debug,
+            args.resolver_upstream.map(|u| u.to_string()),
+            args.exec,
+        )
     }
 }

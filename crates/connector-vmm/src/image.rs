@@ -36,7 +36,7 @@ pub struct Guest<'a> {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct InspectConfig {
+pub struct InspectConfig {
     #[serde(default)]
     env: Vec<String>,
     #[serde(default)]
@@ -51,15 +51,19 @@ struct Inspect {
     config: InspectConfig,
 }
 
-/// Read the inspect JSON and resolve its `User` against the image's own
-/// passwd and group databases, which are reachable because the image is
-/// mounted at `rootfs`.
-pub fn load(inspect_path: &Path, rootfs: &Path) -> anyhow::Result<ImageConfig> {
-    let content = std::fs::read(inspect_path)
-        .map_err(|e| anyhow::anyhow!("reading {}: {e}", inspect_path.display()))?;
+/// Parse the inspect config without resolving image accounts.
+pub fn read_inspect(path: &Path) -> anyhow::Result<InspectConfig> {
+    let content =
+        std::fs::read(path).map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
     let (Inspect { config },): (Inspect,) = serde_json::from_slice(&content)
-        .map_err(|e| anyhow::anyhow!("parsing {}: {e}", inspect_path.display()))?;
+        .map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
+    Ok(config)
+}
 
+/// Resolve the inspect config's `User` against the image's own passwd and
+/// group databases, which are reachable because the image is mounted at
+/// `rootfs`.
+pub fn load(config: InspectConfig, rootfs: &Path) -> anyhow::Result<ImageConfig> {
     let working_dir = match config.working_dir.as_str() {
         "" => "/".to_string(),
         dir => dir.to_string(),
@@ -881,7 +885,8 @@ mod tests {
                 )
                 .unwrap();
 
-                let outcome = match super::load(&inspect, &dir.path().join("rootfs")) {
+                let config = super::read_inspect(&inspect).unwrap();
+                let outcome = match super::load(config, &dir.path().join("rootfs")) {
                     Ok(config) => identity(config.uid, config.gid, &config.groups),
                     Err(error) => format!("refused: {error:#}"),
                 };

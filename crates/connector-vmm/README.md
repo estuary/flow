@@ -6,7 +6,9 @@ that `flow-guest-init` takes over: the network the guest is given, the ruleset
 that bounds it, the disks and shares it sees, and the libkrun call sequence
 that starts it.
 
-`run` is the whole launch. `print-ruleset` compiles a connector's egress policy
+`run` is the whole launch. `check-launch` checks shared launch prerequisites
+without creating resources; see [Launch constraints](#launch-constraints).
+`print-ruleset` compiles a connector's egress policy
 into the nftables ruleset that the VM will run behind, without touching the
 kernel, so the policy can be reviewed and snapshot-tested on any machine.
 `boundary` installs, verifies and removes the host's tables around every VMM
@@ -19,8 +21,9 @@ for when a host's provisioning runs it.
 
 - `src/main.rs`: the CLI, the stderr framing, and exit 2 for every failure
   before a VM starts.
-- `src/launch.rs`: the ordered sequence `run` executes, split into the IO that
-  builds a `Machine` and the pure `enter` that turns one into libkrun calls.
+- `src/launch.rs`: the ordered sequence `run` executes, split into `check`,
+  the read-only prefix `check-launch` shares, the IO that builds a `Machine`
+  and the pure `enter` that turns one into libkrun calls.
 - `src/krun.rs`: libkrun's ABI behind a trait, loaded with `dlopen`.
 - `src/image.rs`: the image's OCI config, the guest argv and
   `.krun_config.json`.
@@ -45,6 +48,12 @@ for when a host's provisioning runs it.
   `fake-entrypoint.sh`: the two images; see [Images](#images).
 
 ## Launch constraints
+
+`run` and `check-launch` share `launch::Args` and `launch::check`: read-only
+root and connector mount, default IPv6, policy and `image-inspect.json`.
+These checks need no KVM, libkrun or `CAP_NET_ADMIN`; the fake invokes them
+before staging. Passing covers common prerequisites. Real-only KVM, libkrun,
+network setup and image account resolution follow in `run`.
 
 `launch::run` loads libkrun before creating resources, finishes the network
 before booting the guest, and sweeps inherited descriptors before starting any
@@ -148,7 +157,8 @@ fit a Unix socket address, under 108 bytes.
 
 Pass `--sysctl net.ipv6.conf.default.disable_ipv6=1` so the tap inherits disabled
 IPv6. Podman mounts `/proc/sys` read-only, preventing the VMM from setting this
-itself. `net::check_ipv6_disabled` verifies it after creating the tap. The
+itself. `net::check_ipv6_disabled` reads `default` in `launch::check`, before
+anything is created, and the tap's own once `run` has created it. The
 container's `eth0` exists before the sysctl applies and keeps an IPv6
 link-local address (measured); the host boundary drops what it sends.
 
@@ -177,8 +187,8 @@ constraints:
 
 `connector-vmm-fake` implements `run`'s launch contract without a VM, for
 exercising a launcher where KVM is unavailable. `fake-entrypoint.sh`, at the
-real binary's path, takes the same CLI, applies the same launch-line guards,
-serves `/sock/init.sock` at mode 0777 and hands the workload `CONNECTOR_MOUNT`,
+real binary's path, invokes Rust `check-launch` before staging. It then serves
+`/sock/init.sock` at mode 0777 and hands the workload `CONNECTOR_MOUNT`,
 `LOG_FORMAT` and `LOG_LEVEL`. connector-init runs chrooted into `/rootfs`, from
 a copy of the connector mount staged at the mount's own path, and socat bridges
 the socket to its TCP port. It needs none of the launch line's devices or

@@ -1,7 +1,8 @@
 //! The ordered sequence `run` executes, from a policy on disk to a running VM.
 //!
-//! `run` resolves paths, descriptors and image config into a `Machine`.
-//! `enter` issues libkrun calls that tests can record without a VM.
+//! `check` is the prefix `run` shares with `check-launch`. `run` resolves
+//! paths, descriptors and image config into a `Machine`. `enter` issues
+//! libkrun calls that tests can record without a VM.
 
 use crate::image;
 use crate::krun::{self, Krun};
@@ -118,11 +119,26 @@ pub struct Console {
     pub error: RawFd,
 }
 
-pub fn run(args: &Args) -> anyhow::Result<Infallible> {
-    check_read_only(&args.connector_mount)?;
-    check_kvm(KVM)?;
+pub struct Checked {
+    pub policy: egress::Policy,
+    pub inspect: image::InspectConfig,
+}
 
+/// Shared read-only prerequisites for `run` and `check-launch`.
+/// VM-specific checks remain in `run`.
+pub fn check(args: &Args) -> anyhow::Result<Checked> {
+    check_read_only(&args.connector_mount)?;
+    net::check_ipv6_disabled("default")?;
     let policy = egress::load(&args.policy)?;
+    let inspect =
+        image::read_inspect(&Path::new(&args.connector_mount).join("image-inspect.json"))?;
+
+    Ok(Checked { policy, inspect })
+}
+
+pub fn run(args: &Args) -> anyhow::Result<Infallible> {
+    let Checked { policy, inspect } = check(args)?;
+    check_kvm(KVM)?;
 
     // The first side-effecting step, so a missing or wrong library is the
     // first line on stderr with nothing half-built behind it.
@@ -134,7 +150,7 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
     let vmm_subnets = net::vmm_subnets()?;
     let ruleset = crate::ruleset::render(&policy, &vmm_subnets)?;
     net::create_tap()?;
-    net::check_ipv6_disabled()?;
+    net::check_ipv6_disabled(net::TAP)?;
     net::apply_ruleset(&ruleset)?;
     stage(args.debug, "network-ready");
 
@@ -142,10 +158,7 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
     stage(args.debug, "scratch-ready");
 
     let mount = args.connector_mount.as_str();
-    let image = image::load(
-        &Path::new(mount).join("image-inspect.json"),
-        Path::new(ROOTFS),
-    )?;
+    let image = image::load(inspect, Path::new(ROOTFS))?;
     let guest_argv = image::guest_argv(&image::Guest {
         connector_mount: mount,
         persistent_disk: args.persistent_disk.as_deref(),

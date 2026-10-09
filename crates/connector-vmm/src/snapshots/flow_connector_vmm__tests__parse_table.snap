@@ -54,6 +54,30 @@ flow-connector-vmm: error: invalid value '/' for '--connector-mount <PATH>': the
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 256 --disk-mib 512
+flow-connector-vmm: error: invalid value '256' for '--vcpus <N>': 256 is not in 0..=255
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 4294967296 --vcpus 2 --disk-mib 512
+flow-connector-vmm: error: invalid value '4294967296' for '--memory-mib <N>': 4294967296 is not in 0..=4294967295
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib -1
+flow-connector-vmm: error: unexpected argument '-1' found
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm run [OPTIONS] --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --vcpus 4
+flow-connector-vmm: error: the argument '--vcpus <N>' cannot be used multiple times
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm run [OPTIONS] --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
 $ flow-connector-vmm run --policy /init/policy.json
 flow-connector-vmm: error: the following required arguments were not provided:
 flow-connector-vmm:   --connector-mount <PATH>
@@ -65,6 +89,25 @@ flow-connector-vmm: Usage: flow-connector-vmm run --policy <PATH> --connector-mo
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 
+$ flow-connector-vmm check-launch --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512
+ok: check-launch policy=/init/policy.json connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None run_as_root=false as_root_exec=None debug=false resolver_upstream=None exec=None
+
+$ flow-connector-vmm check-launch --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 256 --disk-mib 512
+flow-connector-vmm: error: invalid value '256' for '--vcpus <N>': 256 is not in 0..=255
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm check-launch --policy /init/policy.json
+flow-connector-vmm: error: the following required arguments were not provided:
+flow-connector-vmm:   --connector-mount <PATH>
+flow-connector-vmm:   --memory-mib <N>
+flow-connector-vmm:   --vcpus <N>
+flow-connector-vmm:   --disk-mib <N>
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm check-launch --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
 $ flow-connector-vmm
 flow-connector-vmm: Run one connector in a micro-VM.
 flow-connector-vmm:
@@ -72,6 +115,7 @@ flow-connector-vmm: Usage: flow-connector-vmm <COMMAND>
 flow-connector-vmm:
 flow-connector-vmm: Commands:
 flow-connector-vmm:   run            Run one connector in a micro-VM. Does not return: libkrun takes over the process and exits with the guest workload's code
+flow-connector-vmm:   check-launch   Check shared launch prerequisites without creating resources
 flow-connector-vmm:   print-ruleset  Compile a policy into its nftables ruleset and write it to stdout
 flow-connector-vmm:   boundary       Install, verify or remove the host's boundary around every VMM bridge. Runs in the host's network namespace, never in a VMM container
 flow-connector-vmm:   help           Print this message or the help of the given subcommand(s)

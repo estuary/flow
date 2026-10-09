@@ -43,10 +43,16 @@ pub fn create_tap() -> anyhow::Result<()> {
 /// afterwards inherits. Reading is still allowed, so a launch line missing the
 /// flag is caught here rather than surfacing later as a tap that emits MLD
 /// reports the ruleset has to drop on every VM.
-pub fn check_ipv6_disabled() -> anyhow::Result<()> {
-    let path = format!("/proc/sys/net/ipv6/conf/{TAP}/disable_ipv6");
+///
+/// `launch::check` reads `default`, the precondition, before anything exists;
+/// `run` reads `TAP` once it does, as the postcondition that it inherited it.
+pub fn check_ipv6_disabled(interface: &str) -> anyhow::Result<()> {
+    let path = format!("/proc/sys/net/ipv6/conf/{interface}/disable_ipv6");
+    ipv6_disabled(&path, std::fs::read_to_string(&path))
+}
 
-    let disabled = match std::fs::read_to_string(&path) {
+fn ipv6_disabled(path: &str, read: std::io::Result<String>) -> anyhow::Result<()> {
+    let disabled = match read {
         Ok(content) => content,
         // No such knob means the kernel has no IPv6 at all, which is the
         // outcome this check is asking for.
@@ -57,8 +63,9 @@ pub fn check_ipv6_disabled() -> anyhow::Result<()> {
         return Ok(());
     }
     anyhow::bail!(
-        "{TAP} has IPv6 enabled; the VMM container must be launched with \
-         --sysctl net.ipv6.conf.default.disable_ipv6=1"
+        "{path} is {}; the VMM container must be launched with \
+         --sysctl net.ipv6.conf.default.disable_ipv6=1",
+        disabled.trim()
     )
 }
 
@@ -198,6 +205,32 @@ mod tests {
                 None => "none".to_string(),
             };
             table.push_str(&format!("{name} -> {outcome}\n"));
+        }
+        insta::assert_snapshot!(table);
+    }
+
+    #[test]
+    fn ipv6_must_be_disabled() {
+        let path = "/proc/sys/net/ipv6/conf/default/disable_ipv6";
+        let mut table = String::new();
+
+        for (name, read) in [
+            ("disabled", Ok("1\n".to_string())),
+            ("enabled", Ok("0\n".to_string())),
+            (
+                "no IPv6 in the kernel",
+                Err(std::io::ErrorKind::NotFound.into()),
+            ),
+            (
+                "unreadable",
+                Err(std::io::ErrorKind::PermissionDenied.into()),
+            ),
+        ] {
+            let outcome = match super::ipv6_disabled(path, read) {
+                Ok(()) => "ok".to_string(),
+                Err(error) => crate::framed(&format!("{error:#}")),
+            };
+            table.push_str(&format!("{name} -> {}\n", outcome.trim_end()));
         }
         insta::assert_snapshot!(table);
     }
