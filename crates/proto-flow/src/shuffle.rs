@@ -399,27 +399,14 @@ pub mod slice_response {
     }
 }
 /// LogRequest is sent by Slices to each shard's Log.
-/// The first is an Open. Each which follows is a round: zero or more Appends,
-/// the Slice's MergeConstraint as of the round's end, and optionally a Flush.
-///
-/// While a Slice is behind, its constraint advances with nearly every round,
-/// and each round goes to every Log. Similarly, a round requesting a flush must
-/// always go to every Log. As a special case, a Slice may omit sending a round
-/// to a Log if the round's constraint is unchanged from the one the Slice last
-/// sent, the round doesn't request a Flush, and it has no Appends for that Log.
-/// This is typical of a Slice which remains live `tailing`.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LogRequest {
     #[prost(message, optional, tag = "1")]
     pub open: ::core::option::Option<log_request::Open>,
-    /// Appends of the round, in the order the Slice's merge produced them:
-    /// nearly but not fully ordered on (priority DESC, adjusted_clock ASC).
-    #[prost(message, repeated, tag = "2")]
-    pub appends: ::prost::alloc::vec::Vec<log_request::Append>,
+    #[prost(message, optional, tag = "2")]
+    pub append: ::core::option::Option<log_request::Append>,
     #[prost(message, optional, tag = "3")]
     pub flush: ::core::option::Option<log_request::Flush>,
-    #[prost(message, optional, tag = "4")]
-    pub constraint: ::core::option::Option<log_request::MergeConstraint>,
 }
 /// Nested message and enum types in `LogRequest`.
 pub mod log_request {
@@ -444,8 +431,6 @@ pub mod log_request {
     }
     /// Append sends a document to be written to the log.
     /// The Log actor merges across Slice streams, ordering by (priority, clock).
-    /// Journal names are delta-encoded against the Slice's preceding Append to
-    /// this Log, across and within rounds.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Append {
         /// Number of bytes to truncate from the preceding name.
@@ -489,47 +474,13 @@ pub mod log_request {
         #[prost(uint32, tag = "11")]
         pub source_byte_length: u32,
     }
-    /// Flush requests a durability barrier, and the Log responds with a Flushed
-    /// of its cycle once the Appends of this and all prior rounds of the Slice
-    /// are durable.
+    /// Flush requests a durability barrier.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Flush {
         /// Cycle number for correlating Flush with Flushed response.
+        /// Allows pipelining if we later want multiple in-flight flushes.
         #[prost(uint64, tag = "1")]
         pub cycle: u64,
-    }
-    /// MergeConstraint is the constraint a Slice places on each Log's merge,
-    /// as of the end of its round. Every round carries one.
-    ///
-    /// A Log merges Appends across Slices in (priority DESC, adjusted_clock ASC)
-    /// order, and may only take a next Append when it knows every other
-    /// non-tailing Slice cannot later send it a lesser one. The constraint
-    /// carries that knowledge: a lower bound on the Appends of the Slice's
-    /// subsequent rounds.
-    ///
-    /// The constraint always exceeds every Append the Slice has sent which a Log
-    /// may not yet have merged. Advertising it allows a Log to release all
-    /// Appends of peer Slices which order before it, even where this Slice has
-    /// no organic Appends of its own to send to the Log.
-    ///
-    /// Slices may occasionally send Appends which fall below a prior constraint
-    /// (examples: a replay, freshly-arriving higher priority data, or a started
-    /// read of a newly-created journal). Logs merge them upon receipt,
-    /// and ordering of such Appends is best-effort.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct MergeConstraint {
-        /// Priority of the Slice's position. Higher values imply higher priority,
-        /// and negative values are allowed.
-        #[prost(int32, tag = "1")]
-        pub priority: i32,
-        /// Adjusted clock (clock + read_delay) of the Slice's position.
-        #[prost(fixed64, tag = "2")]
-        pub adjusted_clock: u64,
-        /// When true, all of the Slice's reads are tailing and it has no ready
-        /// documents. It places no constraint on Log merges, which don't wait for
-        /// its updates until the Slice restates as !tailing.
-        #[prost(bool, tag = "3")]
-        pub tailing: bool,
     }
 }
 /// LogResponse is sent by the Log actor back to each Slice.

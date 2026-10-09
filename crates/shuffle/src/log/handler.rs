@@ -1,4 +1,4 @@
-use super::{LogJoin, LogJoinSlot, read_ahead, state, writer::Writer};
+use super::{LogJoin, LogJoinSlot, state, writer::Writer};
 use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::shuffle;
@@ -85,7 +85,7 @@ where
     handler.set_field("token", serde_json::to_string(&authz.claims()).unwrap());
     handler.set_phase("joining");
 
-    let metrics = super::Metrics::new(shard_id, shards.len());
+    let metrics = super::Metrics::new(shard_id);
 
     service_kit::event!(
         tracing::Level::INFO,
@@ -239,15 +239,14 @@ where
             session_id,
             shards,
             log_shard_index,
+            shuffle_disk_limit_bytes,
         },
-        slices: std::iter::repeat_with(read_ahead::SliceReadAhead::new)
-            .take(shard_count)
-            .collect(),
+        append_heap: super::heap::AppendHeap::new(),
+        slice_prev_journal: vec![String::new(); shard_count],
+        slice_appends: std::iter::repeat_with(|| None).take(shard_count).collect(),
         writer: Some(writer),
-        flush_handle: None,
         block: state::BlockState::new(),
-        flush: state::FlushState::new(shard_count),
-        disk: state::DiskState::new(shuffle_disk_limit_bytes),
+        flush: state::FlushState::new(),
         log_response_tx,
         metrics,
     }

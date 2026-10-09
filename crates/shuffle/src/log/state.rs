@@ -14,56 +14,9 @@ pub struct Topology {
     pub shards: Vec<shuffle::Shard>,
     /// Index of this Log RPC within `shards`.
     pub log_shard_index: u32,
-}
-
-/// On-disk backlog of a Log's sealed segments, which engages back-pressure of
-/// the merge at `limit` bytes and releases it at half of `limit` (hysteresis).
-#[derive(Debug)]
-pub struct DiskState {
-    /// Aggregate on-disk bytes across all living sealed segments.
-    bytes: u64,
     /// Shuffle disk limit in bytes before engaging back-pressure.
     /// Sourced per-task from the shard's labeling, or the Service default.
-    limit: u64,
-    back_pressure: bool,
-}
-
-impl DiskState {
-    pub fn new(limit: u64) -> Self {
-        Self {
-            bytes: 0,
-            limit,
-            back_pressure: false,
-        }
-    }
-
-    pub fn bytes(&self) -> u64 {
-        self.bytes
-    }
-
-    /// Whether back-pressure is engaged, pausing the merge.
-    pub fn back_pressure(&self) -> bool {
-        self.back_pressure
-    }
-
-    pub fn on_sealed(&mut self, size: u64) {
-        self.bytes += size;
-
-        if self.bytes >= self.limit {
-            self.back_pressure = true;
-        }
-    }
-
-    pub fn on_reclaimed(&mut self, reclaimed: u64) {
-        self.bytes = self
-            .bytes
-            .checked_sub(reclaimed)
-            .expect("disk_backlog_bytes underflow");
-
-        if self.back_pressure && self.bytes < self.limit / 2 {
-            self.back_pressure = false;
-        }
-    }
+    pub shuffle_disk_limit_bytes: u64,
 }
 
 /// Target ceiling for accumulated doc bytes before forcing a block flush.
@@ -89,6 +42,18 @@ impl std::fmt::Debug for BlockState {
             .field("entries_bytes", &self.entries_bytes)
             .field("journals", &self.journals.len())
             .field("producers", &self.producers.len())
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for FlushState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FlushState")
+            .field("flushed_lsn", &self.flushed_lsn)
+            .field("flush_in_flight", &self.flush_in_flight)
+            .field("pending_request", &self.pending_request.len())
+            .field("next_pending_flush", &self.next_pending_flush.len())
+            .field("pending_response", &self.pending_response.len())
             .finish()
     }
 }
@@ -169,92 +134,102 @@ impl BlockState {
     }
 }
 
-/// Flush accounting of the Log actor, by block number.
+/// Flush lifecycle state machine for the Log actor.
 ///
-/// Blocks are numbered from one as their flushes start, and flushes complete
-/// in order. A Slice's flush request awaits the accumulating block if it's
-/// non-empty, and otherwise the last-started block, which may already be
-/// complete. A Slice has at most one flush request outstanding.
-#[derive(Debug)]
+/// Tracks whether a flush is in-flight, routes incoming Flush requests
+/// to the appropriate queue, and processes flush completions.
 pub struct FlushState {
-    /// Number of blocks whose flush has started.
-    /// The accumulating block is `started + 1`.
-    started: u64,
-    /// Number of blocks whose flush has completed.
-    completed: u64,
-    /// LSN of the last completed flush.
+    /// LSN of the most recently completed flush.
     flushed_lsn: Lsn,
-    /// Greatest block awaited by any flush request.
-    requested: u64,
-    /// Per-Slice flush request awaiting completion: (cycle, block).
-    awaiting: Vec<Option<(u64, u64)>>,
+    /// Whether a background flush task is currently running.
+    flush_in_flight: bool,
+    /// Slice index and cycle awaiting the current flush completion.
+    pending_request: Vec<(usize, u64)>,
+    /// Slice index and cycle awaiting completion of the *next* flush
+    /// after the current one. Non-empty only while a flush is underway.
+    next_pending_flush: Vec<(usize, u64)>,
+    /// Completed flushes awaiting send of their Flushed response.
+    /// Each entry is (shard_index, cycle, flushed_lsn).
+    pending_response: Vec<(usize, u64, Lsn)>,
 }
 
 impl FlushState {
-    pub fn new(num_slices: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            started: 0,
-            completed: 0,
             flushed_lsn: Lsn::ZERO,
-            requested: 0,
-            awaiting: vec![None; num_slices],
+            flush_in_flight: false,
+            pending_request: Vec::new(),
+            next_pending_flush: Vec::new(),
+            pending_response: Vec::new(),
         }
     }
 
-    pub fn in_flight(&self) -> bool {
-        self.started != self.completed
+    pub fn flush_in_flight(&self) -> bool {
+        self.flush_in_flight
     }
 
-    /// Whether a flush request awaits the accumulating block,
-    /// which implies the block is non-empty.
-    pub fn is_requested(&self) -> bool {
-        self.requested > self.started
+    #[cfg(test)]
+    pub fn flushed_lsn(&self) -> Lsn {
+        self.flushed_lsn
     }
 
-    /// Whether a flush of the accumulating block should start now.
-    pub fn should_start(&self, block: &BlockState) -> bool {
-        !self.in_flight() && (self.is_requested() || block.is_full())
+    /// Whether there are pending flush requests that need a flush to start.
+    pub fn has_pending_request(&self) -> bool {
+        !self.pending_request.is_empty()
     }
 
-    /// Request a flush for a Slice, once every Append which preceded it has
-    /// been accumulated. Returns the flushed LSN if it's already satisfied.
-    pub fn on_request(&mut self, slice: usize, cycle: u64, block_empty: bool) -> Option<Lsn> {
-        let block = self.started + !block_empty as u64;
-        if block == self.completed {
-            return Some(self.flushed_lsn);
+    /// Route a Flush request based on current state.
+    ///
+    /// Routing depends on two dimensions:
+    /// - Whether a flush is currently in-flight
+    /// - Whether there are buffered block entries not yet covered by a flush
+    pub fn on_flush(&mut self, shard_index: usize, cycle: u64, block_is_empty: bool) {
+        if self.flush_in_flight {
+            if block_is_empty {
+                // Flush is in-flight and no new entries: covered by in-flight flush.
+                self.pending_request.push((shard_index, cycle));
+            } else {
+                // Flush is in-flight AND we have new entries not covered by it.
+                // Must wait for the *next* flush after the current one completes.
+                self.next_pending_flush.push((shard_index, cycle));
+            }
+        } else if block_is_empty {
+            // Not flushing and no entries: already trivially flushed.
+            self.pending_response
+                .push((shard_index, cycle, self.flushed_lsn));
+        } else {
+            // Not flushing but have entries: must await a future flush.
+            self.pending_request.push((shard_index, cycle));
         }
-        self.requested = self.requested.max(block);
-
-        assert!(
-            self.awaiting[slice].replace((cycle, block)).is_none(),
-            "flush requested while a prior flush is awaiting"
-        );
-        None
     }
 
-    pub fn on_started(&mut self) {
-        assert!(!self.in_flight());
-        self.started += 1;
+    /// Mark that a flush has started (writer moved into background task).
+    pub fn start_flush(&mut self) {
+        debug_assert!(!self.flush_in_flight);
+        self.flush_in_flight = true;
     }
 
-    /// Complete the in-flight flush, yielding the (slice, cycle) of each
-    /// flush request it satisfies.
-    pub fn on_completed(&mut self, flushed_lsn: Lsn) -> impl Iterator<Item = (usize, u64)> + '_ {
-        assert!(self.in_flight());
-        self.completed += 1;
+    /// Process a flush completion: restore state, drain pending, and swap next_pending.
+    pub fn on_flushed(&mut self, flushed_lsn: Lsn) {
+        debug_assert!(self.flush_in_flight);
+        self.flush_in_flight = false;
         self.flushed_lsn = flushed_lsn;
 
-        let completed = self.completed;
-        self.awaiting
-            .iter_mut()
-            .enumerate()
-            .filter_map(move |(slice, awaiting)| match *awaiting {
-                Some((cycle, block)) if block == completed => {
-                    *awaiting = None;
-                    Some((slice, cycle))
-                }
-                _ => None,
-            })
+        for (slice_idx, cycle) in self.pending_request.drain(..) {
+            self.pending_response
+                .push((slice_idx, cycle, self.flushed_lsn));
+        }
+        std::mem::swap(&mut self.pending_request, &mut self.next_pending_flush);
+    }
+
+    /// Peek at the last completed flush response (LIFO order).
+    pub fn peek_pending_response(&self) -> Option<&(usize, u64, Lsn)> {
+        self.pending_response.last()
+    }
+
+    /// Pop the last completed flush response (LIFO order).
+    pub fn pop_pending_response(&mut self) -> Option<(usize, u64, Lsn)> {
+        self.pending_response.pop()
     }
 }
 
@@ -359,91 +334,49 @@ mod test {
 
     #[test]
     fn test_flush_state_machine() {
-        let mut flush = FlushState::new(6);
-        let mut block = BlockState::new();
-        let prod = uuid::Producer([0, 0, 0, 0, 0, 1]);
+        let mut flush = FlushState::new();
+        let drain = |f: &mut FlushState| {
+            std::iter::from_fn(|| f.pop_pending_response()).collect::<Vec<_>>()
+        };
 
-        // Each step records its result, and the FlushState which follows it.
-        let mut trace = Vec::new();
-        let mut step =
-            |step: &str, result: &dyn std::fmt::Debug, flush: &FlushState, block: &BlockState| {
-                trace.push(format!(
-                    "{step} -> {result:?}\n    should_start: {}, {flush:?}",
-                    flush.should_start(block)
-                ))
-            };
+        // No inflight + empty block: immediately resolved.
+        flush.on_flush(0, 0, true);
+        assert_eq!(flush.pop_pending_response(), Some((0, 0, Lsn::ZERO)));
+        assert!(!flush.has_pending_request());
 
-        // Not in flight + empty block: immediately satisfied.
-        step(
-            "on_request(0, 1, empty)",
-            &flush.on_request(0, 1, true),
-            &flush,
-            &block,
-        );
+        // No inflight + non-empty block: queued to pending_flush.
+        flush.on_flush(0, 1, false);
+        flush.on_flush(1, 1, false);
+        assert!(flush.has_pending_request());
+        assert_eq!(flush.pop_pending_response(), None);
 
-        // Not in flight + non-empty block: awaits block 1, which should start.
-        step(
-            "on_request(1, 1, non-empty)",
-            &flush.on_request(1, 1, false),
-            &flush,
-            &block,
-        );
-        step(
-            "on_request(2, 1, non-empty)",
-            &flush.on_request(2, 1, false),
-            &flush,
-            &block,
-        );
-        step("on_started", &flush.on_started(), &flush, &block);
+        // Start flush cycle 1.
+        flush.start_flush();
+        assert!(flush.flush_in_flight());
 
-        // In flight + empty block: awaits in-flight block 1.
-        step(
-            "on_request(3, 1, empty)",
-            &flush.on_request(3, 1, true),
-            &flush,
-            &block,
-        );
-        // In flight + non-empty block: awaits accumulating block 2.
-        step(
-            "on_request(4, 2, non-empty)",
-            &flush.on_request(4, 2, false),
-            &flush,
-            &block,
-        );
-        step(
-            "on_request(5, 2, non-empty)",
-            &flush.on_request(5, 2, false),
-            &flush,
-            &block,
-        );
+        // Inflight + empty block: covered by current flush → pending_flush.
+        flush.on_flush(3, 1, true);
 
-        // A full block doesn't start while a flush is in flight.
-        block.accumulate(
-            "j/a",
-            prod,
-            &append(0, 1, 0x8000, &vec![0u8; BLOCK_BYTES_THRESHOLD]),
-        );
-        step("accumulate(full)", &block.is_full(), &flush, &block);
+        // Inflight + non-empty block: needs next flush → next_pending_flush.
+        flush.on_flush(4, 2, false);
+        flush.on_flush(5, 2, false);
 
-        // Completion of block 1 satisfies its awaiting Slices, and block 2 should start.
-        let satisfied: Vec<_> = flush.on_completed(Lsn::new(1, 0)).collect();
-        step("on_completed(1/0)", &satisfied, &flush, &block);
-        step("on_started", &flush.on_started(), &flush, &block);
+        // Complete flush cycle 1.
+        flush.on_flushed(Lsn::new(1, 0));
+        assert!(!flush.flush_in_flight());
+        assert_eq!(flush.flushed_lsn(), Lsn::new(1, 0));
 
-        // Completion of block 2. A full block alone should start a flush.
-        let satisfied: Vec<_> = flush.on_completed(Lsn::new(1, 1)).collect();
-        step("on_completed(1/1)", &satisfied, &flush, &block);
-        _ = block.take();
-        step("take", &block.is_empty(), &flush, &block);
+        // Slices 0, 1, 3 (all covered by cycle 1) are now pending_flushed.
+        insta::assert_debug_snapshot!("first_batch", drain(&mut flush));
 
-        // Satisfied immediately with the last completed LSN.
-        step(
-            "on_request(0, 2, empty)",
-            &flush.on_request(0, 2, true),
-            &flush,
-            &block,
-        );
+        // Slices 4, 5 (from next_pending) have swapped into pending_flush.
+        assert!(flush.has_pending_request());
 
-        insta::assert_snapshot!(trace.join("\n"));
+        // Flush cycle 2.
+        flush.start_flush();
+        flush.on_flushed(Lsn::new(1, 1));
+
+        insta::assert_debug_snapshot!("second_batch", drain(&mut flush));
+        assert!(!flush.has_pending_request());
     }
 }

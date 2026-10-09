@@ -415,11 +415,6 @@ impl Binding {
     pub fn state_key(&self) -> &str {
         self.journal_read_suffix.rsplit("/").next().unwrap()
     }
-
-    /// Merge position of a document of this Binding having `clock`.
-    pub fn merge_position(&self, clock: uuid::Clock) -> crate::merge::Position {
-        crate::merge::Position::new(self.priority, clock.as_u64(), self.read_delay.as_u64())
-    }
 }
 
 /// Guard [`Binding::index`]'s u16 width, which is also the width of
