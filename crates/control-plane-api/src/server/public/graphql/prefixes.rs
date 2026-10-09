@@ -23,6 +23,10 @@ pub struct PrefixRef {
 pub struct PrefixesBy {
     /// Filter returned prefixes by user capability.
     pub min_capability: models::Capability,
+    /// Optionally filter returned prefixes to those that start with this
+    /// catalog prefix. For example, `acmeCo/team/` returns `acmeCo/team/`
+    /// and `acmeCo/team/nested/`, but not `acmeCo/`.
+    pub prefix: Option<models::Prefix>,
 }
 
 pub type PaginatedPrefixes = connection::Connection<
@@ -49,11 +53,20 @@ impl PrefixesQuery {
     ) -> async_graphql::Result<PaginatedPrefixes> {
         let env = ctx.data::<crate::Envelope>()?;
 
+        if let Some(prefix) = &by.prefix
+            && let Err(err) = validator::Validate::validate(prefix)
+        {
+            return Err(async_graphql::Error::new(format!(
+                "invalid catalog prefix: {err}"
+            )));
+        }
+
         connection::query(after, None, first, None, |after, _, first, _| async move {
             let snapshot = env.snapshot();
             let subject = env.claims()?.subject();
 
             let min_bits: models::authz::CapabilitySet = by.min_capability.into();
+            let under = by.prefix.as_deref().unwrap_or_default();
 
             let reachable = tables::UserGrant::reachable_prefixes(
                 &snapshot.role_grants,
@@ -62,13 +75,16 @@ impl PrefixesQuery {
             );
             // Cursor pagination: BTreeMap::range jumps directly to the
             // first key strictly greater than the previous page's last
-            // prefix, rather than iterating from the start and filtering
-            // past it.
-            let start = after
-                .as_deref()
-                .map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
+            // prefix (or to `by.prefix`, if later), rather than iterating
+            // from the start and filtering past it. Keys under a prefix
+            // are contiguous, so iteration ends with the subtree.
+            let start = match after.as_deref() {
+                Some(after) if after >= under => std::ops::Bound::Excluded(after),
+                _ => std::ops::Bound::Included(under),
+            };
             let all_roles: Vec<PrefixRef> = reachable
                 .range::<str, _>((start, std::ops::Bound::Unbounded))
+                .take_while(|(prefix, _)| prefix.starts_with(under))
                 .filter(|(_, (bits, _))| bits.is_superset(min_bits))
                 .map(|(prefix, (bits, legacy))| PrefixRef {
                     prefix: models::Prefix::new(*prefix),
@@ -159,6 +175,52 @@ mod tests {
                   "node": {
                     "prefix": "ops/dp/public/",
                     "userCapability": "read"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+
+        // `exact` skips the `aliceCo/` rows that sort before its subtree and
+        // includes the prefix itself. `paged` resumes after a cursor and stops
+        // at the end of the `aliceCo/` subtree, before `ops/dp/public/`.
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        exact: prefixes(by: { minCapability: read, prefix: "ops/dp/public/" }) {
+                            edges { node { prefix } }
+                        }
+                        paged: prefixes(by: { minCapability: read, prefix: "aliceCo/" }, after: "aliceCo/") {
+                            edges { node { prefix } }
+                        }
+                    }
+                "#
+                }),
+                Some(&token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "exact": {
+              "edges": [
+                {
+                  "node": {
+                    "prefix": "ops/dp/public/"
+                  }
+                }
+              ]
+            },
+            "paged": {
+              "edges": [
+                {
+                  "node": {
+                    "prefix": "aliceCo/data/"
                   }
                 }
               ]
