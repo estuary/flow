@@ -62,6 +62,8 @@ where
         shards,
         slice_shard_index,
         log_shard_index,
+        priority,
+        priorities,
     } = open.open.context("first message must be Open")?;
 
     // Identity, directory, and per-task shuffle disk limit of the shard hosting
@@ -95,11 +97,27 @@ where
         session_id,
         shards = shards.len(),
         slice_shard_index,
+        priority,
         log_shard_index,
         directory = directory.clone(),
         "received Open from Slice",
     );
     let join_key = (directory.clone(), session_id, log_shard_index);
+    let prefix =
+        format!("Log shard_index {log_shard_index} directory {directory} in session {session_id}");
+
+    // Index the Slice by its lane, then its shard.
+    if slice_shard_index as usize >= shards.len() {
+        anyhow::bail!(
+            "{prefix}: slice_shard_index {slice_shard_index} out of range (shard_count {})",
+            shards.len(),
+        );
+    }
+    let Some(lane) = priorities.iter().position(|p| *p == priority) else {
+        anyhow::bail!("{prefix}: priority {priority} is not of priorities {priorities:?}");
+    };
+    let slice = lane * shards.len() + slice_shard_index as usize;
+    let slice_count = priorities.len() * shards.len();
 
     // Register this Slice's connection into the rendezvous. Either we complete
     // it (own all slots and run the LogActor) or we must park until released —
@@ -110,56 +128,53 @@ where
         let mut guard = service.log_joins.lock().unwrap();
 
         let join = guard.entry(join_key.clone()).or_insert_with(|| LogJoin {
-            shards: std::iter::repeat_with(|| None).take(shards.len()).collect(),
+            priorities: priorities.clone(),
+            slices: std::iter::repeat_with(|| None).take(slice_count).collect(),
         });
-        if join.shards.len() != shards.len() {
+        if join.priorities != priorities || join.slices.len() != slice_count {
             anyhow::bail!(
-                "Log shard_index {log_shard_index} directory {directory} in session {session_id} expected shard_count {} but got {}",
-                join.shards.len(),
+                "{prefix} expected priorities {:?} and {} Slices, but got priorities {priorities:?} with shard_count {}",
+                join.priorities,
+                join.slices.len(),
                 shards.len(),
             );
         }
-        if slice_shard_index as usize >= join.shards.len() {
+        if join.slices[slice].is_some() {
             anyhow::bail!(
-                "Log shard_index {log_shard_index} directory {directory} in session {session_id}: slice_shard_index {slice_shard_index} out of range (shard_count {})",
-                join.shards.len(),
-            );
-        }
-        if join.shards[slice_shard_index as usize].is_some() {
-            anyhow::bail!(
-                "Log shard_index {log_shard_index} directory {directory} in session {session_id} received duplicate Slice connection from {slice_shard_index}",
+                "{prefix} received duplicate Slice connection from shard {slice_shard_index}, priority {priority}",
             );
         }
 
         let (complete_tx, complete_rx) = tokio::sync::oneshot::channel();
         let response_tx_clone = response_tx.clone();
-        join.shards[slice_shard_index as usize] = Some(LogJoinSlot {
+        join.slices[slice] = Some(LogJoinSlot {
             request_rx: request_rx.boxed(),
             response_tx,
             acked_tx,
             complete_tx,
         });
 
-        let connected = join.shards.iter().filter(|s| s.is_some()).count();
+        let connected = join.slices.iter().filter(|s| s.is_some()).count();
 
         tracing::debug!(
             session_id,
             log_shard_index,
             slice_shard_index,
+            priority,
             connected,
-            shards = shards.len(),
+            slice_count,
             "registered Slice connection with LogJoin"
         );
 
         // Are there still more Slices that need to connect?
-        if connected != shards.len() as usize {
+        if connected != slice_count {
             Rendezvous::Park {
                 complete_rx,
                 response_tx: response_tx_clone,
             }
         } else {
             // All Slices have connected to this Log.
-            Rendezvous::Complete(guard.remove(&join_key).unwrap().shards)
+            Rendezvous::Complete(guard.remove(&join_key).unwrap().slices)
         }
     };
 
@@ -187,8 +202,8 @@ where
                 _ = response_tx.closed() => {
                     let mut guard = service.log_joins.lock().unwrap();
                     if let Some(join) = guard.get_mut(&join_key) {
-                        join.shards[slice_shard_index as usize] = None;
-                        if join.shards.iter().all(Option::is_none) {
+                        join.slices[slice] = None;
+                        if join.slices.iter().all(Option::is_none) {
                             guard.remove(&join_key);
                         }
                     }
@@ -202,9 +217,9 @@ where
 
     // Walk `connections` and partition into Senders and receiver Streams,
     // releasing each slot's parked sibling as we take ownership.
-    let mut log_response_tx = Vec::with_capacity(shards.len());
-    let mut log_request_rx = Vec::with_capacity(shards.len());
-    let mut acked_tx = Vec::with_capacity(shards.len());
+    let mut log_response_tx = Vec::with_capacity(slice_count);
+    let mut log_request_rx = Vec::with_capacity(slice_count);
+    let mut acked_tx = Vec::with_capacity(slice_count);
 
     for connection in connections {
         let LogJoinSlot {
@@ -238,24 +253,27 @@ where
         )?;
     }
 
-    let shard_count = shards.len();
     let writer = Writer::new(std::path::Path::new(&directory), log_shard_index)?;
 
     handler.set_phase("running");
 
     let result = super::actor::LogActor {
+        slices: priorities
+            .iter()
+            .flat_map(|&priority| {
+                (0..shards.len()).map(move |_| read_ahead::SliceReadAhead::new(priority))
+            })
+            .collect(),
         topology: super::state::Topology {
             session_id,
             shards,
+            priorities,
             log_shard_index,
         },
-        slices: std::iter::repeat_with(read_ahead::SliceReadAhead::new)
-            .take(shard_count)
-            .collect(),
         writer: Some(writer),
         flush_handle: None,
         block: state::BlockState::new(),
-        flush: state::FlushState::new(shard_count),
+        flush: state::FlushState::new(slice_count),
         disk: state::DiskState::new(shuffle_disk_limit_bytes),
         log_response_tx,
         acked_tx,

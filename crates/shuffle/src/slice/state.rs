@@ -17,6 +17,9 @@ pub struct Topology {
     pub shards: Vec<shuffle::Shard>,
     /// Index of this Slice RPC within `shards`.
     pub slice_shard_index: u32,
+    /// Priority of this Slice's lane. It lists and reads only bindings of
+    /// this priority, and its Appends merge at this priority.
+    pub priority: i32,
     /// Per-binding shuffle configuration extracted from the task spec.
     pub bindings: Vec<crate::Binding>,
     /// Source collections read by the task's bindings.

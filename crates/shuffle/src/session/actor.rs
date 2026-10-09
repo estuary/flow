@@ -8,15 +8,16 @@ pub struct SessionActor {
     pub topology: super::state::Topology,
     /// Four-stage checkpoint pipeline state machine.
     pub checkpoint: super::state::CheckpointPipeline,
-    /// Bits by-shard indicating whether to send a ProgressRequest.
+    /// Bits by-Slice indicating whether to send a ProgressRequest.
     pub progress_ready: Vec<bool>,
     /// Channel for sending SessionResponse messages back to the coordinator.
     /// Unbounded because the coordinator drives req/resp pairs (≤1 in flight),
     /// so the queue depth is bounded by protocol — no back-pressure needed.
     pub session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
-    /// Per-shard channels for sending SliceRequest messages.
+    /// Per-Slice channels for sending SliceRequest messages,
+    /// indexed by lane then shard (see `Topology::priorities`).
     pub slice_request_tx: Vec<mpsc::Sender<shuffle::SliceRequest>>,
-    /// FIFO queue of per-shard requests, with InitialReadsStarted after StartReads.
+    /// FIFO queue of per-Slice requests, with InitialReadsStarted after StartReads.
     pub slice_requests: std::collections::VecDeque<(usize, shuffle::SliceRequest)>,
     /// Count of bindings whose initial listing snapshot has completed.
     pub listing_snapshots_complete: usize,
@@ -82,9 +83,9 @@ impl SessionActor {
                         None => break,
                     }
                 }
-                Some((shard_index, slice_response, rx)) = slice_response_rx.next() => {
-                    self.on_slice_response(shard_index, slice_response)?;
-                    slice_response_rx.push(next_slice_rx((shard_index, rx)));
+                Some((slice, slice_response, rx)) = slice_response_rx.next() => {
+                    self.on_slice_response(slice, slice_response)?;
+                    slice_response_rx.push(next_slice_rx((slice, rx)));
                 }
 
                 // Next priority is draining ready-to-send messages.
@@ -102,15 +103,15 @@ impl SessionActor {
         self.slice_request_tx.clear(); // Drop all tx handles to close.
 
         // Read clean EOF from all Slice RPCs.
-        while let Some((shard_index, slice_response, rx)) = slice_response_rx.next().await {
+        while let Some((slice, slice_response, rx)) = slice_response_rx.next().await {
             let verify = proto_grpc::verify(
                 "SliceResponse",
                 "EOF",
-                &self.topology.shards[shard_index].endpoint,
+                &self.topology.slice(slice).0.endpoint,
             );
             match slice_response {
                 None => (), // Clean EOF.
-                Some(Ok(_ignored)) => slice_response_rx.push(next_slice_rx((shard_index, rx))),
+                Some(Ok(_ignored)) => slice_response_rx.push(next_slice_rx((slice, rx))),
                 Some(Err(status)) => return Err(verify.fail_status(status)),
             }
         }
@@ -131,9 +132,9 @@ impl SessionActor {
         {
             self.initial_reads_queued = true;
 
-            for shard_index in 0..self.topology.shards.len() {
+            for slice in 0..self.slice_request_tx.len() {
                 self.slice_requests.push_back((
-                    shard_index,
+                    slice,
                     shuffle::SliceRequest {
                         initial_reads_started: Some(shuffle::slice_request::InitialReadsStarted {}),
                         ..Default::default()
@@ -143,13 +144,13 @@ impl SessionActor {
         }
 
         // Try to drain Progress requests. This loop may head-of-line block if
-        // we're unable to send to a FIFO shard. We accept this property for
+        // we're unable to send to a FIFO Slice. We accept this property for
         // implementation simplicity.
-        for (shard_index, pending) in self.progress_ready.iter_mut().enumerate() {
+        for (slice, pending) in self.progress_ready.iter_mut().enumerate() {
             if !*pending {
                 continue;
             }
-            let tx = &self.slice_request_tx[shard_index];
+            let tx = &self.slice_request_tx[slice];
 
             let Ok(permit) = tx.try_reserve() else {
                 return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
@@ -164,19 +165,19 @@ impl SessionActor {
             service_kit::event!(
                 tracing::Level::DEBUG,
                 "slice",
-                shard_index,
+                slice,
                 "sent Progress request",
             );
         }
 
         // Try to drain StartRead and InitialReadsStarted requests in FIFO order.
-        while let Some((shard_index, _request)) = self.slice_requests.front() {
-            let tx = &self.slice_request_tx[*shard_index];
+        while let Some((slice, _request)) = self.slice_requests.front() {
+            let tx = &self.slice_request_tx[*slice];
 
             let Ok(permit) = tx.try_reserve() else {
                 return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
             };
-            let (shard_index, request) = self.slice_requests.pop_front().unwrap();
+            let (slice, request) = self.slice_requests.pop_front().unwrap();
             let request_type = if request.initial_reads_started.is_some() {
                 "InitialReadsStarted"
             } else {
@@ -187,7 +188,7 @@ impl SessionActor {
             service_kit::event!(
                 tracing::Level::DEBUG,
                 "slice",
-                shard_index,
+                slice,
                 "sent {} request",
                 request_type,
             );
@@ -245,13 +246,14 @@ impl SessionActor {
 
     fn on_slice_response(
         &mut self,
-        shard_index: usize,
+        slice: usize,
         slice_response: Option<tonic::Result<shuffle::SliceResponse>>,
     ) -> anyhow::Result<()> {
+        let (shard, priority) = self.topology.slice(slice);
         let verify = proto_grpc::verify(
             "SliceResponse",
             "ListingAdded, ListingSnapshotComplete, or ProgressDelta",
-            &self.topology.shards[shard_index].endpoint,
+            &shard.endpoint,
         );
         let slice_response = verify.not_eof(slice_response)?;
 
@@ -263,17 +265,16 @@ impl SessionActor {
                 service_kit::event!(
                     tracing::Level::DEBUG,
                     "slice",
-                    shard_index,
+                    slice,
+                    priority,
                     "received ListingAdded",
                 );
 
                 let routed = self.topology.route_read(&added)?;
 
-                if let Some((shard_index, start_read)) =
-                    self.topology.build_start_read(&routed, added)
-                {
+                if let Some((slice, start_read)) = self.topology.build_start_read(&routed, added) {
                     self.slice_requests.push_back((
-                        shard_index,
+                        slice,
                         shuffle::SliceRequest {
                             start_read: Some(start_read),
                             ..Default::default()
@@ -292,7 +293,8 @@ impl SessionActor {
                 service_kit::event!(
                     tracing::Level::DEBUG,
                     "slice",
-                    shard_index,
+                    slice,
+                    priority,
                     binding,
                     "received ListingSnapshotComplete",
                 );
@@ -306,8 +308,8 @@ impl SessionActor {
                 progressed: Some(proto),
                 ..
             } => {
-                self.checkpoint.on_progressed(shard_index, proto)?; // Handles event! diagnostic.
-                self.progress_ready[shard_index] = true;
+                self.checkpoint.on_progressed(slice, proto)?; // Handles event! diagnostic.
+                self.progress_ready[slice] = true;
                 Ok(())
             }
 
@@ -361,13 +363,16 @@ mod test {
 
         let checkpoint =
             super::super::state::CheckpointPipeline::new(&resume_checkpoint, binding_cohorts);
+        let priorities = crate::binding::lane_priorities(&bindings);
+        let slice_count = priorities.len() * shard_count;
         let topology = super::super::state::Topology {
             session_id: 1,
             shards,
             bindings,
+            priorities,
             resume_checkpoint,
         };
-        let (slice_request_tx, slice_request_rx): (Vec<_>, Vec<_>) = (0..shard_count)
+        let (slice_request_tx, slice_request_rx): (Vec<_>, Vec<_>) = (0..slice_count)
             .map(|_| crate::new_channel::<shuffle::SliceRequest>())
             .unzip();
         let (session_response_tx, _session_response_rx) = mpsc::unbounded_channel();
@@ -375,7 +380,7 @@ mod test {
         let actor = SessionActor {
             topology,
             checkpoint,
-            progress_ready: vec![true; shard_count],
+            progress_ready: vec![true; slice_count],
             session_response_tx,
             slice_request_tx,
             slice_requests: Default::default(),
@@ -405,7 +410,7 @@ mod test {
         actor
             .slice_requests
             .iter()
-            .filter_map(|(_shard, request)| request.start_read.as_ref())
+            .filter_map(|(_slice, request)| request.start_read.as_ref())
             .map(|start_read| start_read.spec.as_ref().unwrap().name.clone())
             .collect()
     }
@@ -490,11 +495,11 @@ mod test {
 
     fn listing_snapshot_complete(
         actor: &mut SessionActor,
-        shard_index: usize,
+        slice: usize,
         binding: u32,
     ) -> anyhow::Result<()> {
         actor.on_slice_response(
-            shard_index,
+            slice,
             Some(Ok(shuffle::SliceResponse {
                 listing_snapshot_complete: Some(shuffle::slice_response::ListingSnapshotComplete {
                     binding,
@@ -540,6 +545,37 @@ mod test {
         insta::assert_debug_snapshot!("initial_reads_started_ordering", phases);
     }
 
+    // Slices are opened for each lane (priority DESC) at each shard, and a
+    // read starts on the Slice of its binding's priority at its routed shard.
+    #[test]
+    fn test_reads_start_on_slice_of_binding_priority() {
+        let bindings: Vec<_> = [(0, 0), (1, 5), (2, -1), (3, 5)]
+            .into_iter()
+            .map(|(index, priority)| crate::Binding {
+                priority,
+                ..test_binding(index, true, None, &format!("/suffix-{index}"))
+            })
+            .collect();
+        let (mut actor, mut slice_rx) =
+            test_actor_with_topology(crate::Frontier::default(), bindings, test_shards_3());
+
+        for binding in 0..4 {
+            _ = listing_added(&mut actor, binding, &format!("test/collection/{binding}"));
+            listing_snapshot_complete(&mut actor, 0, binding).unwrap();
+        }
+        _ = actor.try_slice_request_tx().unwrap();
+
+        let sent: Vec<_> = slice_rx
+            .iter_mut()
+            .enumerate()
+            .map(|(slice, rx)| {
+                let (shard, priority) = actor.topology.slice(slice);
+                (shard.id.clone(), priority, drain_slice_requests(rx))
+            })
+            .collect();
+        insta::assert_debug_snapshot!("reads_start_on_slice_of_binding_priority", sent);
+    }
+
     #[test]
     fn test_initial_reads_started_without_bindings_on_every_slice() {
         let (mut actor, mut slice_rx) =
@@ -554,14 +590,14 @@ mod test {
 
 // Helper which builds a future that yields the next response from a shard's Slice RPC.
 async fn next_slice_rx(
-    (shard_index, mut rx): (
+    (slice, mut rx): (
         usize,
         BoxStream<'static, tonic::Result<shuffle::SliceResponse>>,
     ),
 ) -> (
-    usize,                                                     // Shard index.
+    usize,                                                     // Slice index.
     Option<tonic::Result<shuffle::SliceResponse>>,             // Response.
     BoxStream<'static, tonic::Result<shuffle::SliceResponse>>, // Stream.
 ) {
-    (shard_index, rx.next().await, rx)
+    (slice, rx.next().await, rx)
 }

@@ -5,10 +5,12 @@ use proto_flow::shuffle;
 /// which it enforces and returns as Appends pop.
 ///
 /// Appends pop in arrival order, which is the order the Slice's own merge
-/// produced them. A Flush barrier counts the Appends which preceded it, and
-/// releases as the last of them pops.
-/// See "Log Merge and Output" and "Flush Cycle" of the crate README.
+/// produced them, and merge at the priority of the Slice's lane. A Flush
+/// barrier counts the Appends which preceded it, and releases as the last of
+/// them pops. See "Log Merge and Output" and "Flush Cycle" of the crate README.
 pub struct SliceReadAhead {
+    /// Priority of the Slice's lane, at which its Appends merge.
+    priority: i32,
     /// Unmerged Appends, in arrival order.
     queue: std::collections::VecDeque<shuffle::log_request::Append>,
     /// Bytes of queued Appends, within the Slice's credits.
@@ -42,8 +44,9 @@ pub struct Popped<'a> {
 }
 
 impl SliceReadAhead {
-    pub fn new() -> Self {
+    pub fn new(priority: i32) -> Self {
         Self {
+            priority,
             queue: Default::default(),
             queued_bytes: 0,
             merged_bytes: 0,
@@ -110,7 +113,9 @@ impl SliceReadAhead {
 
     /// Merge position of the next Append to pop.
     pub fn peek_position(&self) -> Option<crate::merge::Position> {
-        self.queue.front().map(crate::merge::Position::from_append)
+        self.queue
+            .front()
+            .map(|append| crate::merge::Position::from_append(self.priority, append))
     }
 
     /// Pop the Append which arrived first for its merge.
@@ -168,7 +173,8 @@ pub enum NextMerge {
 
 /// Determine the next step of the merge across `slices`: the Slice whose next
 /// Append is least in merge order (breaking ties by Slice index), through the
-/// least next Append of its peers.
+/// least next Append of its peers. Equal positions share a lane, so ties
+/// break by shard (Slices are indexed by lane, then shard).
 pub fn next_merge(slices: &[SliceReadAhead]) -> NextMerge {
     let mut least: Option<(usize, crate::merge::Position)> = None;
     let mut through = crate::merge::Position::MAX;
@@ -199,9 +205,8 @@ pub fn next_merge(slices: &[SliceReadAhead]) -> NextMerge {
 mod test {
     use super::*;
 
-    fn append(priority: i32, clock: u64, flags: u32, doc: &[u8]) -> shuffle::log_request::Append {
+    fn append(clock: u64, flags: u32, doc: &[u8]) -> shuffle::log_request::Append {
         shuffle::log_request::Append {
-            priority,
             clock,
             flags,
             packed_key: bytes::Bytes::from_static(b"k"),
@@ -227,8 +232,8 @@ mod test {
                 append, released, ..
             } = popped;
             format!(
-                "p{}@{}, flags: {}, released: {released:?}",
-                append.priority, append.clock, append.flags
+                "clock {}, flags: {}, released: {released:?}",
+                append.clock, append.flags
             )
         };
         let fmt_merge = |m: NextMerge| match m {
@@ -241,17 +246,17 @@ mod test {
         let round = |s: &mut SliceReadAhead, appends, flush| s.on_round(appends, flush).unwrap();
 
         // A flush with no queued Appends is released immediately.
-        let mut s = SliceReadAhead::new();
+        let mut s = SliceReadAhead::new(0);
         let released = round(&mut s, Vec::new(), flush(3));
         note("on_round([], flush 3)", format!("{released:?}"));
 
         // Appends pop in arrival order, across rounds, whatever their positions.
         round(
             &mut s,
-            vec![append(0, 30, 0, b"doc"), append(1, 20, 0, b"doc")],
+            vec![append(30, 0, b"doc"), append(20, 0, b"doc")],
             None,
         );
-        round(&mut s, vec![append(0, 25, 1, b"doc")], None);
+        round(&mut s, vec![append(25, 1, b"doc")], None);
         for _ in 0..3 {
             note("peek", fmt_peek(&s));
             note("pop", fmt_pop(s.pop()));
@@ -262,10 +267,10 @@ mod test {
         // its own round) is released by the merge of the last. A later-arriving
         // Append (25) merges after them. A second flush while it's pending is
         // an error.
-        round(&mut s, vec![append(0, 30, 0, b"doc")], None);
-        let released = round(&mut s, vec![append(0, 40, 0, b"doc")], flush(7));
+        round(&mut s, vec![append(30, 0, b"doc")], None);
+        let released = round(&mut s, vec![append(40, 0, b"doc")], flush(7));
         note("on_round([40], flush 7)", format!("{released:?}"));
-        round(&mut s, vec![append(0, 25, 0, b"doc")], None);
+        round(&mut s, vec![append(25, 0, b"doc")], None);
         let result = s.on_round(Vec::new(), flush(8));
         note(
             "on_round([], flush 8)",
@@ -287,7 +292,7 @@ mod test {
         let sized = |clock: u64, bytes: u64| {
             let overhead =
                 crate::merge::append_bytes(crate::merge::APPEND_OVERHEAD_BYTES, b"", b"k");
-            append(0, clock, 0, &vec![0; (bytes - overhead) as usize])
+            append(clock, 0, &vec![0; (bytes - overhead) as usize])
         };
         let mut on_round = |s: &mut SliceReadAhead, step: &str, appends| {
             let result = s.on_round(appends, None);
@@ -301,7 +306,7 @@ mod test {
                 ),
             );
         };
-        let mut s = SliceReadAhead::new();
+        let mut s = SliceReadAhead::new(0);
         on_round(
             &mut s,
             "on_round([4/8, 4/8])",
@@ -311,7 +316,7 @@ mod test {
         on_round(&mut s, "pop, on_round([4/8])", vec![sized(52, CREDIT / 2)]);
 
         // A Slice which sends beyond its credits is an error.
-        on_round(&mut s, "on_round([doc])", vec![append(0, 53, 0, b"doc")]);
+        on_round(&mut s, "on_round([doc])", vec![append(53, 0, b"doc")]);
 
         // Any Append is admitted if nothing is queued, however large.
         _ = s.pop();
@@ -325,11 +330,11 @@ mod test {
         note("pop", format!("merged: {}", eighths(s.merged_bytes())));
 
         // Journal names are delta-decoded as Appends pop.
-        let mut s = SliceReadAhead::new();
+        let mut s = SliceReadAhead::new(0);
         let named = |truncate: i32, suffix: &str| shuffle::log_request::Append {
             journal_name_truncate_delta: truncate,
             journal_name_suffix: suffix.to_string(),
-            ..append(0, 1, 0, b"doc")
+            ..append(1, 0, b"doc")
         };
         round(
             &mut s,
@@ -343,32 +348,13 @@ mod test {
         let journals: Vec<_> = (0..3).map(|_| s.pop().journal.to_string()).collect();
         note("delta-decoded", format!("{journals:?}"));
 
-        // Merge: the Slice with the least next Append, through the least next
-        // Append of its peers. Slices with nothing queued don't participate.
-        let mut slices: Vec<_> = (0..3).map(|_| SliceReadAhead::new()).collect();
-        note("merge", fmt_merge(next_merge(&slices)));
-
-        round(&mut slices[1], vec![append(0, 100, 0, b"doc")], None);
-        note("s1 [p0@100]", fmt_merge(next_merge(&slices)));
-
-        round(&mut slices[2], vec![append(0, 90, 0, b"doc")], None);
-        note("s2 [p0@90]", fmt_merge(next_merge(&slices)));
-
-        // Higher priority merges first, whatever its clock.
-        round(&mut slices[0], vec![append(1, 200, 0, b"doc")], None);
-        note("s0 [p1@200]", fmt_merge(next_merge(&slices)));
-
-        // Ties break by Slice index.
-        _ = slices[0].pop();
-        round(&mut slices[0], vec![append(0, 90, 0, b"doc")], None);
-        note("s0 pop, [p0@90]", fmt_merge(next_merge(&slices)));
-
         // Merge runs as `LogActor::merge_block` does: in arrival order, while
         // the Slice's next Append is at or before `through`.
         let merge_run = |slices: &mut [SliceReadAhead]| {
             let NextMerge::Ready { slice, through } = next_merge(slices) else {
                 return fmt_merge(next_merge(slices));
             };
+            let priority = slices[slice].priority;
             let mut merged = Vec::new();
             while slices[slice]
                 .peek_position()
@@ -378,25 +364,46 @@ mod test {
                     append, released, ..
                 } = slices[slice].pop();
                 let released = released.map_or(String::new(), |c| format!(" released {c}"));
-                merged.push(format!("p{}@{}{released}", append.priority, append.clock));
+                merged.push(format!("p{priority}@{}{released}", append.clock));
             }
             format!("s{slice}: [{}]", merged.join(", "))
         };
 
+        // Merge: the Slice with the least next Append, through the least next
+        // Append of its peers. Slices with nothing queued don't participate.
+        // Slice 0 is of a lane having priority 1, and Slices 1 and 2 of priority 0.
+        let mut slices: Vec<_> = [1, 0, 0].map(SliceReadAhead::new).into();
+        note("merge", fmt_merge(next_merge(&slices)));
+
+        round(&mut slices[1], vec![append(100, 0, b"doc")], None);
+        note("s1 [p0@100]", fmt_merge(next_merge(&slices)));
+
+        round(&mut slices[2], vec![append(90, 0, b"doc")], None);
+        note("s2 [p0@90]", fmt_merge(next_merge(&slices)));
+
+        // The higher-priority lane merges first, whatever its clock.
+        round(&mut slices[0], vec![append(200, 0, b"doc")], None);
+        note("s0 [p1@200]", fmt_merge(next_merge(&slices)));
+        note("run", merge_run(&mut slices));
+        note("run", merge_run(&mut slices));
+
+        // Ties break by Slice index.
+        round(&mut slices[2], vec![append(100, 0, b"doc")], None);
+        note("s2 [p0@100]", fmt_merge(next_merge(&slices)));
+
         // A run continues through a later-arriving lesser Append, and through
         // Appends equal to `through`, and releases a flush barrier mid-run.
         round(
-            &mut slices[0],
+            &mut slices[1],
             vec![
-                append(0, 95, 0, b"doc"),
-                append(0, 92, 0, b"doc"),
-                append(0, 100, 0, b"doc"),
+                append(95, 0, b"doc"),
+                append(92, 0, b"doc"),
+                append(100, 0, b"doc"),
             ],
             flush(9),
         );
-        round(&mut slices[0], vec![append(0, 101, 0, b"doc")], None);
-        note("s0 [95, 92, 100] flush 9, [101]", merge_run(&mut slices));
-        note("run", merge_run(&mut slices));
+        round(&mut slices[1], vec![append(101, 0, b"doc")], None);
+        note("s1 [95, 92, 100] flush 9, [101]", merge_run(&mut slices));
         note("run", merge_run(&mut slices));
         note("run", merge_run(&mut slices));
         note("run", merge_run(&mut slices));

@@ -62,6 +62,22 @@ async fn read_through_write_heads(
     }
 }
 
+/// Scan the committed entries of a shard's log through `frontier`,
+/// in on-disk order.
+fn scan_shard_log(
+    log_dir: &std::path::Path,
+    shard_index: u32,
+    frontier: &shuffle::Frontier,
+    mut on_entry: impl FnMut(shuffle::log::reader::Entry<'_>),
+) {
+    let reader = Reader::new(log_dir, shard_index);
+    let mut scan = FrontierScan::new(frontier.clone(), reader, VecDeque::new()).unwrap();
+
+    while scan.advance_block().unwrap() {
+        scan.block_iter().for_each(&mut on_entry);
+    }
+}
+
 /// Build a Materialization task from a built MaterializationSpec.
 /// Exercises `shuffle::Binding::from_materialization_binding()`.
 fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
@@ -418,6 +434,30 @@ async fn shuffle_scenarios() {
     data_plane.reset().await.expect("reset");
 
     gapped_outside_violation(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    read_delay_priority_starvation(
+        "read_delay_priority_starvation",
+        1,
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    read_delay_priority_starvation(
+        "read_delay_priority_starvation_3_shards",
+        3,
         &materialization_spec,
         &capture_spec,
         &data_plane.journal_client,
@@ -2760,4 +2800,115 @@ async fn resume_with_backfill_metadata(
     );
 
     session.close().await.expect("close phase 2");
+}
+
+/// A derivation reads bananas at high priority with a 3s read delay, and
+/// cherries at default priority without one. (It's built from the
+/// materialization's bananas and cherries bindings: a fixture derivation
+/// built with no-op connectors has no transforms.) Both are published at
+/// wall-clock time, before the session opens.
+///
+/// Priority orders documents which are due, and a delayed banana isn't due
+/// until its read delay elapses. Cherries are due at once, and must not wait
+/// behind bananas which are not: each shard's log holds its every cherry,
+/// then its every banana.
+async fn read_delay_priority_starvation(
+    name: &str,
+    shard_count: u32,
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let scenario_dir = log_dir.join(name);
+    std::fs::create_dir_all(&scenario_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+    // Publish at wall-clock time, so that the read delay is observed.
+    pub_.update_clock();
+
+    const DOCS: usize = 20;
+
+    for i in 0..2 * DOCS {
+        pub_.enqueue(
+            |uuid| {
+                Ok((
+                    1 + i % 2, // Alternate bananas (delayed) and cherries.
+                    serde_json::json!({
+                        "_meta": {"uuid": uuid.to_string()},
+                        "id": format!("s-{i}"),
+                        "category": "c0",
+                        "value": i,
+                    }),
+                ))
+            },
+            uuid::Flags::OUTSIDE_TXN,
+        )
+        .await
+        .unwrap();
+    }
+    pub_.flush().await.unwrap();
+
+    let transforms = materialization_spec.bindings[1..=2]
+        .iter()
+        .zip([("fromBananas", 1, 3), ("fromCherries", 0, 0)])
+        .map(|(binding, (name, priority, read_delay_seconds))| {
+            flow::collection_spec::derivation::Transform {
+                name: name.to_string(),
+                collection: binding.collection.clone(),
+                collection_index: binding.collection_index,
+                partition_selector: binding.partition_selector.clone(),
+                journal_read_suffix: format!("derive/testing/starved/{name}"),
+                state_key: name.to_string(),
+                priority,
+                read_delay_seconds,
+                ..Default::default()
+            }
+        })
+        .collect();
+
+    let derivation_spec = flow::CollectionSpec {
+        name: "testing/starved".to_string(),
+        derivation: Some(Box::new(flow::collection_spec::Derivation {
+            transforms,
+            linked_collections: materialization_spec.linked_collections.clone(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let task = shuffle::proto::Task {
+        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+    };
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        task,
+        build_shards(shard_count, service.peer_endpoint(), &scenario_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    let frontier = read_through_write_heads(&mut session, 2).await;
+    let mut counts = [0, 0];
+
+    for shard_index in 0..shard_count {
+        let mut bindings = Vec::new();
+        scan_shard_log(&scenario_dir, shard_index, &frontier, |entry| {
+            bindings.push(entry.meta.binding.to_native() as usize);
+        });
+        // Binding 0 is bananas, and binding 1 is cherries.
+        assert!(
+            bindings.is_sorted_by(|l, r| l >= r),
+            "shard {shard_index} log must hold cherries, then bananas: {bindings:?}"
+        );
+        bindings
+            .into_iter()
+            .for_each(|binding| counts[binding] += 1);
+    }
+    assert_eq!(counts, [DOCS, DOCS]);
+
+    session.close().await.expect("close");
 }

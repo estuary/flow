@@ -1013,9 +1013,6 @@ impl serde::Serialize for log_request::Append {
         if self.binding != 0 {
             len += 1;
         }
-        if self.priority != 0 {
-            len += 1;
-        }
         if self.read_delay != 0 {
             len += 1;
         }
@@ -1046,9 +1043,6 @@ impl serde::Serialize for log_request::Append {
         }
         if self.binding != 0 {
             struct_ser.serialize_field("binding", &self.binding)?;
-        }
-        if self.priority != 0 {
-            struct_ser.serialize_field("priority", &self.priority)?;
         }
         if self.read_delay != 0 {
             #[allow(clippy::needless_borrow)]
@@ -1096,7 +1090,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
             "journal_name_suffix",
             "journalNameSuffix",
             "binding",
-            "priority",
             "read_delay",
             "readDelay",
             "producer",
@@ -1115,7 +1108,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
             JournalNameTruncateDelta,
             JournalNameSuffix,
             Binding,
-            Priority,
             ReadDelay,
             Producer,
             Clock,
@@ -1148,7 +1140,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
                             "journalNameTruncateDelta" | "journal_name_truncate_delta" => Ok(GeneratedField::JournalNameTruncateDelta),
                             "journalNameSuffix" | "journal_name_suffix" => Ok(GeneratedField::JournalNameSuffix),
                             "binding" => Ok(GeneratedField::Binding),
-                            "priority" => Ok(GeneratedField::Priority),
                             "readDelay" | "read_delay" => Ok(GeneratedField::ReadDelay),
                             "producer" => Ok(GeneratedField::Producer),
                             "clock" => Ok(GeneratedField::Clock),
@@ -1178,7 +1169,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
                 let mut journal_name_truncate_delta__ = None;
                 let mut journal_name_suffix__ = None;
                 let mut binding__ = None;
-                let mut priority__ = None;
                 let mut read_delay__ = None;
                 let mut producer__ = None;
                 let mut clock__ = None;
@@ -1207,14 +1197,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
                                 return Err(serde::de::Error::duplicate_field("binding"));
                             }
                             binding__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::Priority => {
-                            if priority__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("priority"));
-                            }
-                            priority__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1283,7 +1265,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
                     journal_name_truncate_delta: journal_name_truncate_delta__.unwrap_or_default(),
                     journal_name_suffix: journal_name_suffix__.unwrap_or_default(),
                     binding: binding__.unwrap_or_default(),
-                    priority: priority__.unwrap_or_default(),
                     read_delay: read_delay__.unwrap_or_default(),
                     producer: producer__.unwrap_or_default(),
                     clock: clock__.unwrap_or_default(),
@@ -1416,6 +1397,12 @@ impl serde::Serialize for log_request::Open {
         if self.log_shard_index != 0 {
             len += 1;
         }
+        if self.priority != 0 {
+            len += 1;
+        }
+        if !self.priorities.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.LogRequest.Open", len)?;
         if self.session_id != 0 {
             struct_ser.serialize_field("sessionId", &self.session_id)?;
@@ -1428,6 +1415,12 @@ impl serde::Serialize for log_request::Open {
         }
         if self.log_shard_index != 0 {
             struct_ser.serialize_field("logShardIndex", &self.log_shard_index)?;
+        }
+        if self.priority != 0 {
+            struct_ser.serialize_field("priority", &self.priority)?;
+        }
+        if !self.priorities.is_empty() {
+            struct_ser.serialize_field("priorities", &self.priorities)?;
         }
         struct_ser.end()
     }
@@ -1446,6 +1439,8 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
             "sliceShardIndex",
             "log_shard_index",
             "logShardIndex",
+            "priority",
+            "priorities",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1454,6 +1449,8 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
             Shards,
             SliceShardIndex,
             LogShardIndex,
+            Priority,
+            Priorities,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1480,6 +1477,8 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                             "shards" => Ok(GeneratedField::Shards),
                             "sliceShardIndex" | "slice_shard_index" => Ok(GeneratedField::SliceShardIndex),
                             "logShardIndex" | "log_shard_index" => Ok(GeneratedField::LogShardIndex),
+                            "priority" => Ok(GeneratedField::Priority),
+                            "priorities" => Ok(GeneratedField::Priorities),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1503,6 +1502,8 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                 let mut shards__ = None;
                 let mut slice_shard_index__ = None;
                 let mut log_shard_index__ = None;
+                let mut priority__ = None;
+                let mut priorities__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SessionId => {
@@ -1535,6 +1536,23 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Priority => {
+                            if priority__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("priority"));
+                            }
+                            priority__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Priorities => {
+                            if priorities__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("priorities"));
+                            }
+                            priorities__ = 
+                                Some(map_.next_value::<Vec<::pbjson::private::NumberDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1545,6 +1563,8 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                     shards: shards__.unwrap_or_default(),
                     slice_shard_index: slice_shard_index__.unwrap_or_default(),
                     log_shard_index: log_shard_index__.unwrap_or_default(),
+                    priority: priority__.unwrap_or_default(),
+                    priorities: priorities__.unwrap_or_default(),
                 })
             }
         }
@@ -3111,6 +3131,9 @@ impl serde::Serialize for slice_request::Open {
         if self.shard_index != 0 {
             len += 1;
         }
+        if self.priority != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.SliceRequest.Open", len)?;
         if self.session_id != 0 {
             struct_ser.serialize_field("sessionId", &self.session_id)?;
@@ -3123,6 +3146,9 @@ impl serde::Serialize for slice_request::Open {
         }
         if self.shard_index != 0 {
             struct_ser.serialize_field("shardIndex", &self.shard_index)?;
+        }
+        if self.priority != 0 {
+            struct_ser.serialize_field("priority", &self.priority)?;
         }
         struct_ser.end()
     }
@@ -3140,6 +3166,7 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
             "shards",
             "shard_index",
             "shardIndex",
+            "priority",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3148,6 +3175,7 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
             Task,
             Shards,
             ShardIndex,
+            Priority,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3174,6 +3202,7 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
                             "task" => Ok(GeneratedField::Task),
                             "shards" => Ok(GeneratedField::Shards),
                             "shardIndex" | "shard_index" => Ok(GeneratedField::ShardIndex),
+                            "priority" => Ok(GeneratedField::Priority),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3197,6 +3226,7 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
                 let mut task__ = None;
                 let mut shards__ = None;
                 let mut shard_index__ = None;
+                let mut priority__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SessionId => {
@@ -3227,6 +3257,14 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Priority => {
+                            if priority__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("priority"));
+                            }
+                            priority__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3237,6 +3275,7 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
                     task: task__,
                     shards: shards__.unwrap_or_default(),
                     shard_index: shard_index__.unwrap_or_default(),
+                    priority: priority__.unwrap_or_default(),
                 })
             }
         }

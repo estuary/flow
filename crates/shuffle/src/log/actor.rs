@@ -11,7 +11,8 @@ use tokio::sync::{mpsc, watch};
 type SliceRx = BoxStream<'static, tonic::Result<shuffle::LogRequest>>;
 type FlushHandle = tokio::task::JoinHandle<anyhow::Result<(Writer, Lsn, Option<SealedSegment>)>>;
 
-/// LogActor is the event loop of a shard's Log RPC, which every Slice joins.
+/// LogActor is the event loop of a shard's Log RPC, which every Slice joins:
+/// the Slice of each lane, at each shard.
 /// It merges the Slices' Appends into blocks of the shard's on-disk log.
 ///
 /// Each Slice's rounds are read as they arrive, and its Appends are read
@@ -85,7 +86,7 @@ impl LogActor {
         mut self,
         log_request_rx: Vec<BoxStream<'static, tonic::Result<shuffle::LogRequest>>>,
     ) -> anyhow::Result<()> {
-        // Number of still-connected Slice RPC shards.
+        // Number of still-connected Slice RPCs.
         let mut connected = log_request_rx.len();
         // Build rx futures for the next LogRequest from each Slice.
         let mut pending_slice_rx: futures::stream::FuturesUnordered<_> = log_request_rx
@@ -149,22 +150,22 @@ impl LogActor {
                 biased;
 
                 // Read a ready LogRequest from pending slices.
-                Some((shard_index, log_request, rx)) = pending_slice_rx.next() => {
+                Some((slice, log_request, rx)) = pending_slice_rx.next() => {
                     let Some(log_request) = log_request else {
-                        // Clean EOF of this shard's Slice Log RPC.
+                        // Clean EOF of this Slice's Log RPC.
                         connected -= 1;
 
                         service_kit::event!(
                             tracing::Level::DEBUG,
                             "slice",
-                            shard_index,
+                            slice,
                             connected,
                             "received EOF from Slice"
                         );
                         continue;
                     };
-                    self.on_log_request(shard_index, log_request)?;
-                    pending_slice_rx.push(next_log_rx((shard_index, rx)));
+                    self.on_log_request(slice, log_request)?;
+                    pending_slice_rx.push(next_log_rx((slice, rx)));
                 }
 
                 // Read the completion of an in-flight flush.
@@ -257,13 +258,14 @@ impl LogActor {
     /// Verify and apply a Slice's round to its SliceReadAhead.
     fn on_log_request(
         &mut self,
-        shard_index: usize,
+        slice: usize,
         log_request: tonic::Result<shuffle::LogRequest>,
     ) -> anyhow::Result<()> {
+        let (shard, priority) = self.topology.slice(slice);
         let verify = proto_grpc::verify(
             "LogRequest",
             "round of Appends and optional Flush",
-            &self.topology.shards[shard_index].endpoint,
+            &shard.endpoint,
         );
         let log_request = verify.ok(log_request)?;
 
@@ -277,37 +279,34 @@ impl LogActor {
         };
 
         tracing::trace!(
-            shard_index,
+            slice,
             appends = appends.len(),
             flush = flush.as_ref().map(|flush| flush.cycle),
             "received round from Slice"
         );
         self.metrics.rounds.increment(1);
 
-        if let Some(cycle) = self.slices[shard_index]
+        if let Some(cycle) = self.slices[slice]
             .on_round(appends, flush)
             .with_context(|| {
-                format!(
-                    "round of Slice {}",
-                    self.topology.shards[shard_index].endpoint
-                )
+                format!("round of Slice {} with priority {priority}", shard.endpoint)
             })?
         {
-            self.on_flush(shard_index, cycle)?;
+            self.on_flush(slice, cycle)?;
         }
         Ok(())
     }
 
     /// Request a Slice's flush, once every Append which preceded it has been
     /// accumulated into a block, and answer it now if it's already satisfied.
-    fn on_flush(&mut self, shard_index: usize, cycle: u64) -> anyhow::Result<()> {
+    fn on_flush(&mut self, slice: usize, cycle: u64) -> anyhow::Result<()> {
         let empty = self.block.is_empty();
-        let flushed_lsn = self.flush.on_request(shard_index, cycle, empty);
+        let flushed_lsn = self.flush.on_request(slice, cycle, empty);
 
         service_kit::event!(
             tracing::Level::DEBUG,
             "slice",
-            shard_index,
+            slice,
             cycle,
             empty,
             satisfied = flushed_lsn.is_some(),
@@ -317,29 +316,25 @@ impl LogActor {
         let Some(flushed_lsn) = flushed_lsn else {
             return Ok(());
         };
-        send_flushed(
-            &self.log_response_tx[shard_index],
-            shard_index,
-            cycle,
-            flushed_lsn,
-        )
+        send_flushed(&self.log_response_tx[slice], slice, cycle, flushed_lsn)
     }
 
     /// Pop the next Append of a Slice and accumulate it into the current block.
-    fn on_append_pop(&mut self, shard_index: usize) -> anyhow::Result<()> {
+    fn on_append_pop(&mut self, slice: usize) -> anyhow::Result<()> {
+        let priority = self.topology.slice(slice).1;
         let read_ahead::Popped {
             append,
             journal,
             released,
-        } = self.slices[shard_index].pop();
+        } = self.slices[slice].pop();
 
         let producer = uuid::Producer::from_i64(append.producer);
         self.block.accumulate(journal, producer, &append);
 
         tracing::trace!(
-            shard_index,
+            slice,
             journal,
-            position = ?crate::merge::Position::from_append(&append),
+            position = ?crate::merge::Position::from_append(priority, &append),
             ?producer,
             doc_bytes = append.doc_archived.len(),
             "drained Append from merge"
@@ -352,7 +347,7 @@ impl LogActor {
         // Route a released flush after accumulating, so that it observes a
         // non-empty block which includes its last-preceding Append.
         if let Some(cycle) = released {
-            self.on_flush(shard_index, cycle)?;
+            self.on_flush(slice, cycle)?;
         }
         Ok(())
     }
@@ -398,13 +393,8 @@ impl LogActor {
     ) -> anyhow::Result<()> {
         self.writer = Some(writer);
 
-        for (shard_index, cycle) in self.flush.on_completed(flushed_lsn) {
-            send_flushed(
-                &self.log_response_tx[shard_index],
-                shard_index,
-                cycle,
-                flushed_lsn,
-            )?;
+        for (slice, cycle) in self.flush.on_completed(flushed_lsn) {
+            send_flushed(&self.log_response_tx[slice], slice, cycle, flushed_lsn)?;
         }
 
         // Did the flush seal its segment (the writer rolled to the next)?
@@ -461,7 +451,7 @@ impl LogActor {
 // outstanding, so its channel always has capacity.
 fn send_flushed(
     tx: &mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
-    shard_index: usize,
+    slice: usize,
     cycle: u64,
     flushed_lsn: Lsn,
 ) -> anyhow::Result<()> {
@@ -479,7 +469,7 @@ fn send_flushed(
     service_kit::event!(
         tracing::Level::DEBUG,
         "slice",
-        shard_index,
+        slice,
         cycle,
         flushed_lsn = flushed_lsn.as_u64(),
         "sent Flushed response to Slice",
@@ -487,15 +477,15 @@ fn send_flushed(
     Ok(())
 }
 
-// Helper which builds a future that yields the next request from a shard's Log RPC.
+// Helper which builds a future that yields the next request from a Slice's Log RPC.
 async fn next_log_rx(
-    (shard_index, mut rx): (usize, SliceRx),
+    (slice, mut rx): (usize, SliceRx),
 ) -> (
-    usize,                                      // Shard index.
+    usize,                                      // Slice index.
     Option<tonic::Result<shuffle::LogRequest>>, // Request.
     SliceRx,                                    // Stream.
 ) {
-    (shard_index, rx.next().await, rx)
+    (slice, rx.next().await, rx)
 }
 
 #[cfg(test)]
@@ -531,11 +521,12 @@ mod test {
             topology: super::super::state::Topology {
                 session_id: 1,
                 shards: vec![shuffle::Shard::default(), shuffle::Shard::default()],
+                priorities: vec![0],
                 log_shard_index: 0,
             },
             log_response_tx: response_tx,
             acked_tx,
-            slices: (0..2).map(|_| SliceReadAhead::new()).collect(),
+            slices: (0..2).map(|_| SliceReadAhead::new(0)).collect(),
             // Each block seals its segment, which engages back-pressure.
             writer: Some(Writer::with_thresholds(dir.path(), 0, usize::MAX, 1).unwrap()),
             flush_handle: None,
@@ -602,7 +593,7 @@ mod test {
                 0,
             ],
             [
-                176,
+                168,
                 0,
             ],
         )
