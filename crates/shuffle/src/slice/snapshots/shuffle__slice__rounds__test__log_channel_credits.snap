@@ -1,0 +1,32 @@
+---
+source: crates/shuffle/src/slice/rounds.rs
+expression: "trace.join(\"\\n\")"
+---
+admits(32/8) -> true
+    sent: 0/8, acked: 0/8, round: 0/8
+admits(4/8) -> true
+    sent: 0/8, acked: 0/8, round: 4/8
+admits(4/8 + 1 byte) -> false
+    sent: 0/8, acked: 0/8, round: 4/8
+send -> ()
+    sent: 6/8, acked: 0/8, round: 0/8
+admits(2/8) -> true
+    sent: 6/8, acked: 0/8, round: 0/8
+admits(1/8) -> true
+    sent: 6/8, acked: 0/8, round: 0/8
+on_acked(4/8) -> true
+    sent: 6/8, acked: 4/8, round: 0/8
+admits(6/8) -> true
+    sent: 6/8, acked: 4/8, round: 0/8
+admits(6/8 + 1 byte) -> false
+    sent: 6/8, acked: 4/8, round: 0/8
+on_acked(2/8) -> Acked bytes 1048576 must be between prior Acked 2097152 and sent 3145728
+    sent: 6/8, acked: 4/8, round: 0/8
+on_acked(8/8) -> Acked bytes 4194304 must be between prior Acked 2097152 and sent 3145728
+    sent: 6/8, acked: 4/8, round: 0/8
+on_acked(6/8) -> true
+    sent: 6/8, acked: 6/8, round: 0/8
+admits(32/8) -> true
+    sent: 6/8, acked: 6/8, round: 0/8
+send x3, try_begin -> Err(0)
+take, try_begin -> Ok(())

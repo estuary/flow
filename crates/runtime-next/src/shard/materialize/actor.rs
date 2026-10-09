@@ -318,21 +318,12 @@ impl Actor {
         }
 
         // We observed L:Stopped, which the leader sends only at a transaction
-        // boundary — so we're idle and own the shuffle Reader. Remove our shuffle
-        // log segment files now, before blocking on the leader's EOF below. The
-        // leader is concurrently closing its shuffle SessionClient; deleting these
-        // segments releases any disk back-pressure held by the co-located Log RPC,
-        // letting the shuffle topology drain to EOF so the leader's close() can
-        // complete. Only then does the leader drop our channel, delivering the EOF
-        // we await next.
-        let Phase::Idle { shuffle_reader, .. } = &phase else {
+        // boundary. The leader is concurrently closing its shuffle
+        // SessionClient, and drops our channel once the shuffle topology has
+        // drained, delivering the EOF we await next.
+        if !matches!(phase, Phase::Idle { .. }) {
             anyhow::bail!("leader sent Stopped while shard was not idle");
-        };
-        shuffle::log::remove_shard_segments(
-            shuffle_reader.directory(),
-            shuffle_reader.shard_index(),
-        )
-        .context("removing shuffle log segments on Stop")?;
+        }
 
         // After Stopped and shuffle session drain, the leader's stream must EOF.
         let verify = crate::verify("Materialize", "leader EOF after Stopped", "leader");

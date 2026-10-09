@@ -49,6 +49,7 @@ pub mod binding;
 mod client;
 pub mod frontier;
 pub mod log;
+pub mod merge;
 mod service;
 mod session;
 pub mod slice;
@@ -136,7 +137,7 @@ fn now_clock() -> proto_gazette::uuid::Clock {
 }
 
 fn new_channel<T>() -> (mpsc::Sender<T>, mpsc::Receiver<T>) {
-    mpsc::channel::<T>(32)
+    mpsc::channel::<T>(proto_grpc::CHANNEL_BUFFER)
 }
 
 /// Non-blocking channel send that enforces capacity invariants.

@@ -1,4 +1,4 @@
-use super::{LogJoin, LogJoinSlot, state, writer::Writer};
+use super::{LogJoin, LogJoinSlot, read_ahead, state, writer::Writer};
 use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::shuffle;
@@ -24,6 +24,7 @@ pub(crate) async fn serve_log<R>(
     authz: proto_grpc::Authorizer,
     request_rx: R,
     response_tx: mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
+    acked_tx: tokio::sync::watch::Sender<u64>,
 ) -> anyhow::Result<()>
 where
     R: futures::Stream<Item = tonic::Result<shuffle::LogRequest>> + Send + Unpin + 'static,
@@ -33,7 +34,7 @@ where
     // instrumentation included.
     let handler = service.registry.register("shuffle.log");
     let span = handler.span();
-    serve_log_inner(service, authz, request_rx, response_tx, handler)
+    serve_log_inner(service, authz, request_rx, response_tx, acked_tx, handler)
         .instrument(span)
         .await
 }
@@ -43,6 +44,7 @@ async fn serve_log_inner<R>(
     authz: proto_grpc::Authorizer,
     mut request_rx: R,
     response_tx: mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
+    acked_tx: tokio::sync::watch::Sender<u64>,
     mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<()>
 where
@@ -134,6 +136,7 @@ where
         join.shards[slice_shard_index as usize] = Some(LogJoinSlot {
             request_rx: request_rx.boxed(),
             response_tx,
+            acked_tx,
             complete_tx,
         });
 
@@ -201,11 +204,13 @@ where
     // releasing each slot's parked sibling as we take ownership.
     let mut log_response_tx = Vec::with_capacity(shards.len());
     let mut log_request_rx = Vec::with_capacity(shards.len());
+    let mut acked_tx = Vec::with_capacity(shards.len());
 
     for connection in connections {
         let LogJoinSlot {
             request_rx,
             response_tx,
+            acked_tx: slot_acked_tx,
             complete_tx,
         } = connection.unwrap();
 
@@ -215,6 +220,7 @@ where
 
         log_response_tx.push(response_tx);
         log_request_rx.push(request_rx);
+        acked_tx.push(slot_acked_tx);
     }
 
     // Send Opened response to all Slices.
@@ -223,7 +229,10 @@ where
         crate::verify_send(
             tx,
             Ok(shuffle::LogResponse {
-                opened: Some(shuffle::log_response::Opened {}),
+                opened: Some(shuffle::log_response::Opened {
+                    append_credit_bytes: crate::merge::APPEND_CREDIT_BYTES,
+                    append_overhead_bytes: crate::merge::APPEND_OVERHEAD_BYTES,
+                }),
                 ..Default::default()
             }),
         )?;
@@ -239,15 +248,17 @@ where
             session_id,
             shards,
             log_shard_index,
-            shuffle_disk_limit_bytes,
         },
-        append_heap: super::heap::AppendHeap::new(),
-        slice_prev_journal: vec![String::new(); shard_count],
-        slice_appends: std::iter::repeat_with(|| None).take(shard_count).collect(),
+        slices: std::iter::repeat_with(read_ahead::SliceReadAhead::new)
+            .take(shard_count)
+            .collect(),
         writer: Some(writer),
+        flush_handle: None,
         block: state::BlockState::new(),
-        flush: state::FlushState::new(),
+        flush: state::FlushState::new(shard_count),
+        disk: state::DiskState::new(shuffle_disk_limit_bytes),
         log_response_tx,
+        acked_tx,
         metrics,
     }
     .serve(log_request_rx)
