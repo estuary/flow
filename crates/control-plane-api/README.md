@@ -1,5 +1,10 @@
 # control-plane-api
 
+`server/oauth` implements the optional OAuth authorization server. Code redemption
+issues one multi-use Estuary bearer credential, renewed by ordinary API use.
+See its [README](src/server/oauth/README.md) for the permission model, configuration,
+rollout, and separate dashboard integration contract.
+
 Service-account API keys are minted by `server/public/graphql/service_accounts.rs`.
 Like refresh-token creation, API-key creation rejects access tokens carrying a
 capability mask or prefix scope, because the new credential would not preserve

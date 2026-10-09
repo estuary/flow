@@ -36,6 +36,9 @@ struct Args {
     /// The port to listen on for API requests.
     #[clap(long, default_value = "8080", env = "API_PORT")]
     api_port: u16,
+    /// JSON configuration file enabling the OAuth authorization server.
+    #[clap(long, env = "OAUTH_CONFIG")]
+    oauth_config: Option<std::path::PathBuf>,
     /// Stripe secret API key. When provided, the billing GraphQL queries and
     /// mutations that interact with Stripe are enabled. Without this, those
     /// operations return an error indicating billing is not configured.
@@ -395,7 +398,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let sprites = args
         .sprites_token
         .map(|token| Arc::new(control_plane_api::sprites::Client::new(token)));
-    let api_app = Arc::new(App::new(
+    let mut api_app = App::new(
         agent::id_generator::with_random_shard(),
         billing_provider,
         catalog_stats,
@@ -405,7 +408,19 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         snapshot_watch.clone(),
         sprites,
         args.stripe_webhook_secret,
-    ));
+    );
+    if let Some(path) = args.oauth_config {
+        let config: control_plane_api::server::oauth::Config = serde_json::from_slice(
+            &tokio::fs::read(path)
+                .await
+                .context("reading OAuth configuration")?,
+        )
+        .context("parsing OAuth configuration")?;
+        config.validate()?;
+        api_app.oauth = Some(config);
+    }
+    let api_app = Arc::new(api_app);
+    let oauth_cleanup = control_plane_api::server::oauth::cleanup(pg_pool.clone());
     let api_router = control_plane_api::build_router(
         api_app.clone(),
         &args.allow_origin,
@@ -502,6 +517,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     // window to drain logs buffered in the channel before exiting.
     tokio::pin!(logs_sink);
     tokio::select! {
+        () = oauth_cleanup => unreachable!("OAuth cleanup runs until shutdown"),
         result = async { tokio::try_join!(api_server, automations_fut) } => {
             let ((), ()) = result?;
         }

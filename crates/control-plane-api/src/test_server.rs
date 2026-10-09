@@ -125,6 +125,25 @@ impl TestServer {
         catalog_stats: Option<Arc<catalog_stats::Client>>,
         alert_config_defaults: models::AlertConfig,
     ) -> Self {
+        Self::start_with_oauth_config(
+            pg_pool,
+            snapshot,
+            billing_provider,
+            catalog_stats,
+            alert_config_defaults,
+            None,
+        )
+        .await
+    }
+
+    pub async fn start_with_oauth_config(
+        pg_pool: sqlx::PgPool,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+        catalog_stats: Option<Arc<catalog_stats::Client>>,
+        alert_config_defaults: models::AlertConfig,
+        oauth: Option<crate::server::oauth::Config>,
+    ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         // TODO(johnny): Aggregate into a sink?
         let (logs_tx, _logs_rx) = tokio::sync::mpsc::channel(1);
@@ -138,7 +157,7 @@ impl TestServer {
             Box::new(NoopBuilder),
         );
 
-        let app = Arc::new(crate::App::new(
+        let mut app = crate::App::new(
             models::IdGenerator::new(0),
             billing_provider,
             catalog_stats,
@@ -148,7 +167,9 @@ impl TestServer {
             snapshot,
             None,
             Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
-        ));
+        );
+        app.oauth = oauth;
+        let app = Arc::new(app);
         let encoding_key = app.control_plane_jwt_encode_key.clone();
         let decoding_keys = app.control_plane_jwt_decode_keys.clone();
 

@@ -57,6 +57,7 @@ humantime-serde = { workspace = true }
 itertools = { workspace = true }
 jsonwebtoken = { workspace = true }
 lazy_static = { workspace = true }
+oauth2 = { version = "5", default-features = false }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
