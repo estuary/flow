@@ -64,7 +64,8 @@ async fn test_auth_failures_are_indistinguishable() -> anyhow::Result<()> {
     for (case, username, password) in cases {
         let sasl = match TestKafkaClient::connect(&info.broker, username, password).await {
             Ok(_) => "authenticated".to_string(),
-            Err(err) => format!("{err:#}"),
+            // The broker's port depends on the local stack, so redact it.
+            Err(err) => format!("{err:#}").replace(&info.broker, "[DEKAF_BROKER]"),
         };
         let registry = http
             .get(format!("{}/subjects", info.registry))
