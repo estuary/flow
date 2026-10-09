@@ -14,6 +14,16 @@ Public AWS planes always use their derived colocated trial bucket; local and
 non-AWS planes use the GCS trial bucket. Provision the matching AWS bucket and
 permissions before opening a plane for signup.
 
+Access tokens may carry `prefix_scope: ["acmeCo/team/", "otherCo/"]`.
+The authorization subject normalizes each prefix with a trailing slash and
+intersects the user's authority with the union of all listed prefixes and their
+reachable grant-graph nodes. Scopes cannot grant authority the user lacks, and
+capability masks still apply. An omitted or null claim is unrestricted; an empty
+array grants no authority. The former string-valued claim is rejected, so issuers
+must send a one-element array for a single scope. Token exchange preserves the
+array verbatim. Credential creation and tenant provisioning reject any present
+scope array, including an empty one.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.

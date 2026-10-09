@@ -638,9 +638,17 @@ mod test {
         for (mask, scope) in [
             (Some(vec![]), None),
             (Some(vec!["admin".to_string()]), None),
-            (None, Some("acmeCo/".to_string())),
-            (None, Some(String::new())),
-            (Some(vec!["admin".to_string()]), Some("acmeCo/".to_string())),
+            (None, Some(vec!["acmeCo/".to_string()])),
+            (None, Some(Vec::new())),
+            (None, Some(vec![String::new()])),
+            (
+                None,
+                Some(vec!["acmeCo/".to_string(), "otherCo/".to_string()]),
+            ),
+            (
+                Some(vec!["admin".to_string()]),
+                Some(vec!["acmeCo/".to_string()]),
+            ),
         ] {
             let restricted = server.make_restricted_access_token(ALICE, None, mask, scope);
             let denied: serde_json::Value = server.graphql(&req, Some(&restricted)).await;

@@ -197,7 +197,7 @@ impl TestServer {
         user_id: uuid::Uuid,
         email: Option<&str>,
         capability_mask: Option<Vec<String>>,
-        prefix_scope: Option<String>,
+        prefix_scope: Option<Vec<String>>,
     ) -> String {
         let now = tokens::now();
         self.sign_claims(&models::authorizations::ControlClaims {
