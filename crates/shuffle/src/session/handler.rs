@@ -144,9 +144,12 @@ where
         priorities,
         resume_checkpoint,
     };
-    let binding_cohorts: Vec<u32> = topology.bindings.iter().map(|b| b.cohort).collect();
-    let checkpoint =
-        super::state::CheckpointPipeline::new(&topology.resume_checkpoint, binding_cohorts);
+    let checkpoint = super::state::CheckpointState::new(
+        &topology.resume_checkpoint,
+        &topology.bindings,
+        topology.priorities.clone(),
+        topology.shards.len(),
+    );
 
     handler.set_phase("running");
 

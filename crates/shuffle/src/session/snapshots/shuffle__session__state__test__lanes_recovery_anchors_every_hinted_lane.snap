@@ -1,0 +1,22 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: log
+---
+[
+    (
+        "no progress",
+        "(none)",
+    ),
+    (
+        "low resolved, high anchored",
+        "unresolved_hints=1 begin={} [(\"high/a\", 0, [(0, 10, -10)], 0, 0), (\"low/b\", 1, [(20, 20, -30)], 0, 0)]",
+    ),
+    (
+        "both resolved",
+        "unresolved_hints=0 begin={} [(\"high/a\", 0, [(10, 10, -40)], 200, 0), (\"low/b\", 1, [(20, 20, -30)], 100, 0)]",
+    ),
+    (
+        "quiesced",
+        "(none)",
+    ),
+]

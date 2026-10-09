@@ -1,0 +1,38 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: log
+---
+[
+    (
+        "rule 3: ready lanes only",
+        "unresolved_hints=0 begin={} [(\"high/a\", 0, [(30, 0, -20)], 200, 0)]",
+    ),
+    (
+        "rule 4: anchor low",
+        "unresolved_hints=1 begin={} [(\"low/j2\", 1, [(10, 20, -10)], 0, 0)]",
+    ),
+    (
+        "anchored, nothing new",
+        "(none)",
+    ),
+    (
+        "rule 1: high ready grew",
+        "unresolved_hints=1 begin={0: Clock(35s 0ns)} [(\"high/a\", 0, [(40, 0, -30)], 0, 0), (\"low/j2\", 1, [(10, 20, -10)], 0, 0)]",
+    ),
+    (
+        "rule 1: high ready grew again",
+        "unresolved_hints=1 begin={0: Clock(35s 0ns)} [(\"high/a\", 0, [(50, 0, -40)], 0, 0), (\"low/j2\", 1, [(10, 20, -10)], 0, 0)]",
+    ),
+    (
+        "unanchored unresolved",
+        "(none)",
+    ),
+    (
+        "rule 2: last anchor resolved",
+        "unresolved_hints=0 begin={0: Clock(35s 0ns)} [(\"high/a\", 0, [(50, 0, -40)], 350, 0), (\"low/j2\", 1, [(20, 20, -60)], 107, 0)]",
+    ),
+    (
+        "rule 4: anchor high",
+        "unresolved_hints=1 begin={} [(\"high/b\", 0, [(5, 60, -50)], 0, 0)]",
+    ),
+]

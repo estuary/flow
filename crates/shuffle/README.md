@@ -460,11 +460,13 @@ other awaits credits, and neither Log would merge. With it, the merge is live
 (see `log::actor::LogActor`).
 
 A gated lane can't flush (§9), so its progress waits on higher-priority lanes.
-Should a checkpoint's causal hint await a gated lane's progress, the Session
-holds back every lane's progress behind it (§11), and tears the session down
-if it's held for `CAUSAL_HINT_RESOLUTION_TIMEOUT`, as through a long
-higher-priority backfill. That's not new: a single Slice's strict priority
-held hints so before lanes.
+Should a checkpoint's causal hint await a gated lane's progress, only that
+lane's checkpoints are held: the Session runs a checkpoint pipeline per lane,
+and other lanes' resolved progress still reaches the coordinator (§11). The
+held lane times out after `CAUSAL_HINT_RESOLUTION_TIMEOUT`, as through a long
+higher-priority backfill, and the session restarts from the progress the
+other lanes committed meanwhile. Its next session reads the backlog before the
+held transaction, which can't flush while the backlog is due.
 
 Back-pressure falls on Slices as their credits run out: a Slice whose Appends
 don't merge stops reading its journals. A Log merges high-priority,
@@ -510,8 +512,11 @@ request pending, it sends the accumulated frontier as a `Frontier`.
 
 ### 11. Checkpoint Pipeline
 
-The Session's `CheckpointPipeline` is a four-stage state machine that
-promotes progress through: `progressed` → `unresolved` → `ready`.
+The Session runs a `CheckpointPipeline` of each lane: a four-stage state
+machine that promotes progress through `progressed` → `unresolved` → `ready`.
+Causal hints resolve only within a cohort, and a cohort is of one lane, so
+lanes resolve independently. `CheckpointState` answers the coordinator's
+requests by reducing across lanes (see "Lanes of a transaction", below).
 
 **Causal hints** gate promotion. When a producer writes to journals
 spanning multiple bindings within a single transaction, the ACK document
@@ -572,7 +577,7 @@ checkpoint, make it so:
   stream at the resolving committing close, so no read tails on into post-crash
   content. Its `ReadState` survives, so the resolving flush delta still
   reaches the Session.
-- `CheckpointPipeline::recovery_session` is sticky: newer `progressed`
+- `CheckpointPipeline::recovery_session` is sticky, and session-wide: newer `progressed`
   is never promoted, so the one checkpoint this session emits is exactly
   the hinted frontier, no more and no less, and the Session then
   quiesces.
@@ -598,16 +603,19 @@ ratcheted floor, and the next session re-reads only the novel tail.
 In the recovery case, `unresolved` can carry hints whose resolution
 requires reading tens of GB before `ready` becomes available. To avoid
 keeping the coordinator idle (and log segments unscannable) during that
-window, `take_ready` may emit a *peek* of `unresolved` instead: a
+window, `CheckpointState::take_ready` may emit a *peek* of `unresolved` instead: a
 `Frontier` carrying `unresolved_hints == true` and zeroed byte deltas.
-A peek is emitted only when `unresolved` has made progress — any
-producer's `last_commit` advancing — since the last emission.
+A peek is emitted only when an anchored `unresolved` has made progress —
+any producer's `last_commit` advancing — or another lane's `ready` has
+grown, since the last emission.
 
-The same "did `unresolved` make progress?" signal disarms the `on_tick`
-stall timeout: it fires only when no progress at all occurs between
-two consecutive ticks, and only while a coordinator request is
-outstanding — with nobody waiting on a checkpoint, zero progress is
-routine.
+The same "did `unresolved` make progress?" signal, of the lane's own
+`unresolved`, disarms its `on_tick` stall timeout: it fires only when no
+progress at all occurs across the timeout's worth of ticks, counting only
+ticks at which a coordinator request is outstanding — with nobody waiting on
+a checkpoint, zero progress is routine. A tick without a request doesn't
+reset the count, as the coordinator routinely holds another lane's checkpoint
+without one while it can't extend its transaction.
 
 A peek also carries `latest_backfill_begin` eagerly (cloned from
 `unresolved`, which retains it for the eventual resolved `ready`), as
@@ -618,6 +626,29 @@ boundary are never combined. The begin clock only becomes durable
 checkpoint state once its causal hints resolve and it rides a fully-resolved
 `ready`. `latest_backfill_complete` is surfaced the same way — eagerly on a peek
 and durably on a resolved `ready` — but plays no part in classification.
+
+#### Lanes of a transaction
+
+A lane is *anchored* once a peek surfaces its `unresolved` to the coordinator,
+whose open transaction then can't close until those hints resolve. So:
+
+- While any lane is anchored, requests are answered by peeks which reduce the
+  anchored `unresolved` with every lane's `ready`. A `ready` holds no hints, so
+  can't extend the open transaction, but another lane's `unresolved` could and
+  is never surfaced. A peek clones rather than takes, so the resolved
+  checkpoint which follows delivers bytes once, and backfill markers durably.
+- Once the last anchor promotes, every lane's `ready` is taken as a resolved
+  checkpoint, and the transaction may close.
+- With no lane anchored, every lane's `ready` is taken. Only if none is
+  `ready` is the highest-priority lane holding `unresolved` anchored.
+
+An idempotent-recovery session begins with every lane holding resumed hints
+anchored, so its one checkpoint follows the recovery of every lane.
+
+Each lane times out its own stalled hints, whether or not it's anchored, and
+other lanes' progress doesn't disarm it. While a lane is held, the
+coordinator's Log scans read past its uncommitted entries, retaining them as
+remainders until it resolves.
 
 ### 12. Coordinator Receives Checkpoint
 
@@ -631,8 +662,9 @@ fully-resolved checkpoint.
 
 After completing downstream processing on a fully-resolved frontier, the
 coordinator merges the delta into its base checkpoint and requests the
-next one. A fully-resolved frontier leaves every hint of every preceding peek
-resolved or discharged, and `reduce` alone keeps the discharged ones, so the
+next one. A peek may carry other lanes' resolved progress, but its hints are
+only those of anchored lanes, so a fully-resolved frontier leaves every hint
+of every preceding peek resolved or discharged, and `reduce` alone keeps the discharged ones, so the
 coordinator follows it with `Frontier::clear_discharged_hints`.
 
 ## Key Types
@@ -655,7 +687,7 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
 
 ## Modules
 
-- `session/`: Session actor, checkpoint pipeline, journal routing.
+- `session/`: Session actor, per-lane checkpoint pipelines (`CheckpointState`), journal routing.
 - `slice/`: Slice actor, journal reading, document sequencing, key
   extraction, Append routing, flush/progress state machines.
   - `listing.rs`: Gazette journal listing subscriber.

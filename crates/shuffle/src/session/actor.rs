@@ -6,8 +6,8 @@ use tokio::sync::mpsc;
 pub struct SessionActor {
     /// Immutable session configuration: topology, bindings, resume checkpoint.
     pub topology: super::state::Topology,
-    /// Four-stage checkpoint pipeline state machine.
-    pub checkpoint: super::state::CheckpointPipeline,
+    /// Checkpoint state machine over the pipeline of each lane.
+    pub checkpoint: super::state::CheckpointState,
     /// Bits by-Slice indicating whether to send a ProgressRequest.
     pub progress_ready: Vec<bool>,
     /// Channel for sending SessionResponse messages back to the coordinator.
@@ -357,13 +357,16 @@ mod test {
         bindings: Vec<crate::Binding>,
         shards: Vec<shuffle::Shard>,
     ) -> (SessionActor, Vec<mpsc::Receiver<shuffle::SliceRequest>>) {
-        let binding_cohorts = bindings.iter().map(|b| b.cohort).collect();
         let shard_count = shards.len();
         let metrics = super::super::Metrics::new(&shards[0].id);
 
-        let checkpoint =
-            super::super::state::CheckpointPipeline::new(&resume_checkpoint, binding_cohorts);
         let priorities = crate::binding::lane_priorities(&bindings);
+        let checkpoint = super::super::state::CheckpointState::new(
+            &resume_checkpoint,
+            &bindings,
+            priorities.clone(),
+            shard_count,
+        );
         let slice_count = priorities.len() * shard_count;
         let topology = super::super::state::Topology {
             session_id: 1,

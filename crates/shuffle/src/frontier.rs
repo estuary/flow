@@ -943,6 +943,17 @@ impl Frontier {
         Ok(frontier)
     }
 
+    /// Retain only the entries of bindings for which `keep` returns true.
+    pub fn retain_bindings(&mut self, keep: impl Fn(u16) -> bool) {
+        self.journals.retain(|jf| keep(jf.binding));
+        self.latest_backfill_begin
+            .retain(|binding, _| keep(*binding));
+        self.latest_backfill_complete
+            .retain(|binding, _| keep(*binding));
+        self.binding_gap_floors.retain(|binding, _| keep(*binding));
+        self.unresolved_hints = count_unresolved_hints(&self.journals);
+    }
+
     /// Extract producers with unresolved causal hints (`hinted_commit > last_commit`)
     /// into a new Frontier, filtering out journals that have no such producers.
     /// Used at startup to project read-through state from `resume_checkpoint`.
