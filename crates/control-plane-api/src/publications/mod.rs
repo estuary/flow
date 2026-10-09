@@ -6,9 +6,11 @@ use sqlx::Executor;
 use sqlx::types::Uuid;
 use tables::BuiltRow;
 
+pub mod authz;
 pub mod builds;
 mod catalog_test_router;
 mod commit;
+pub mod create;
 mod db;
 mod finalize;
 mod initialize;
@@ -16,6 +18,8 @@ mod placement;
 mod quotas;
 mod retry;
 pub mod specs;
+#[cfg(test)]
+mod test_support;
 
 pub use self::commit::{ClearDraftErrors, NoopWithCommit, UpdatePublicationsRow, WithCommit};
 pub use self::db::{Row, create, delete_draft, fetch_publication, resolve};

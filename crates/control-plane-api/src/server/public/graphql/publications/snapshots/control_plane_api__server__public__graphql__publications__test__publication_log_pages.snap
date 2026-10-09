@@ -1,0 +1,94 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: "serde_json::json!({\n    \"pages\": pages, \"afterCompletion\":\n    {\n        \"status\": later[\"data\"][\"publication\"][\"status\"], \"logs\":\n        later[\"data\"][\"publication\"][\"logs\"],\n    },\n})"
+---
+{
+  "afterCompletion": {
+    "logs": {
+      "edges": [
+        {
+          "cursor": "[cursor]",
+          "node": {
+            "line": "late line",
+            "loggedAt": "[ts]",
+            "stream": "test"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "[cursor]",
+        "hasNextPage": false
+      }
+    },
+    "status": {
+      "lockFailures": [],
+      "type": "success"
+    }
+  },
+  "pages": [
+    {
+      "edges": [
+        {
+          "cursor": "[cursor]",
+          "node": {
+            "line": "first",
+            "loggedAt": "[ts]",
+            "stream": "test"
+          }
+        },
+        {
+          "cursor": "[cursor]",
+          "node": {
+            "line": "second",
+            "loggedAt": "[ts]",
+            "stream": "test"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "[cursor]",
+        "hasNextPage": true
+      }
+    },
+    {
+      "edges": [
+        {
+          "cursor": "[cursor]",
+          "node": {
+            "line": "third",
+            "loggedAt": "[ts]",
+            "stream": "test"
+          }
+        },
+        {
+          "cursor": "[cursor]",
+          "node": {
+            "line": "fourth",
+            "loggedAt": "[ts]",
+            "stream": "test"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "[cursor]",
+        "hasNextPage": true
+      }
+    },
+    {
+      "edges": [
+        {
+          "cursor": "[cursor]",
+          "node": {
+            "line": "fifth",
+            "loggedAt": "[ts]",
+            "stream": "test"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "[cursor]",
+        "hasNextPage": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: outcomes
+---
+[
+  {
+    "case": "scoped to aliceCo/",
+    "error": null,
+    "status": "queued"
+  },
+  {
+    "case": "unrestricted",
+    "error": "PermissionDenied: Specification 'bobCo/out/mat' is not read-authorized to 'aliceCo/data/foo'.\nAvailable grants are: []",
+    "status": null
+  }
+]

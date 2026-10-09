@@ -39,8 +39,10 @@ mod invite_links;
 mod legal_terms;
 mod live_spec_refs;
 mod live_specs;
+mod logs;
 mod prefixes;
 mod publication_history;
+mod publications;
 mod refresh_tokens;
 mod sandboxes;
 mod scalars;
@@ -137,6 +139,7 @@ pub struct QueryRoot(
     catalog_stats::CatalogStatsQuery,
     sandboxes::SandboxesQuery,
     discovers::DiscoversQuery,
+    publications::PublicationsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
@@ -155,6 +158,7 @@ pub struct MutationRoot(
     secrets::SecretsMutation,
     drafts::DraftsMutation,
     discovers::DiscoversMutation,
+    publications::PublicationsMutation,
 );
 
 pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {

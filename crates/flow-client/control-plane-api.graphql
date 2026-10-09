@@ -2189,6 +2189,32 @@ type MutationRoot {
 		"""
 		dataPlane: String
 	): Discover!
+	"""
+	Queue a publication of the draft `draftId`, which the caller must own.
+	The caller must hold `SpecEdit` on every catalog name staged in the
+	draft and on every live task the publication touches through
+	expansion, and `CatalogRead` on every live specification the draft
+	references. These are checked now, with the caller's full token
+	restrictions. The publications executor then builds, validates and
+	commits the draft asynchronously; poll `publication(id)` until
+	`status.type` leaves `queued`. On success the draft is deleted. A dry
+	run performs every step except the commit and writes built
+	specifications back into the draft.
+	"""
+	createPublication(		draftId: Id!,
+		"""
+		Build and validate without committing.
+		"""
+		dryRun: Boolean!,
+		"""
+		Default data plane for specifications CREATED by this publication. Updates, deletions and tests are unaffected. Passed through to the publications executor, which resolves it when it builds. When omitted, each created specification is placed in the first data plane of its storage mapping.
+		"""
+		defaultDataPlane: String,
+		"""
+		Optional free-text description recorded on the publication.
+		"""
+		detail: String
+	): Publication!
 }
 
 """
@@ -2452,6 +2478,39 @@ type PublicDataPlaneEdge {
 }
 
 """
+A user-initiated publication of a draft.
+"""
+type Publication {
+	id: Id!
+	draftId: Id!
+	dryRun: Boolean!
+	"""
+	Outcome so far. `type` is `queued` until the executor finishes.
+	`lockFailures` is non-empty only for `buildIdLockFailure`.
+	"""
+	status: JobStatus!
+	"""
+	Id of the publication's build. Null until success. On a committed
+	publication it becomes `lastPubId` on every live specification it
+	changed. A successful dry run records it too, but commits nothing,
+	so no live specification carries it.
+	"""
+	pubId: Id
+	"""
+	The draft's current errors. All jobs on a draft share them: they may
+	predate this publication, and a later job replaces them. Empty once
+	the draft has been deleted.
+	"""
+	errors: [Error!]!
+	"""
+	Publication logs in timestamp order. Pagination is best effort, and
+	logs may arrive after the publication completes. `first` controls
+	page size and cannot exceed 1000 log lines.
+	"""
+	logs(after: String, first: Int): LogLineConnection!
+}
+
+"""
 Summary of a publication that was attempted by a controller.
 """
 type PublicationInfo {
@@ -2675,6 +2734,12 @@ type QueryRoot {
 	Returns a discover visible to the caller, or null.
 	"""
 	discover(id: Id!): Discover
+	"""
+	Returns a publication initiated by the caller, or null when no such
+	publication exists or the caller did not initiate it; the two are
+	indistinguishable.
+	"""
+	publication(id: Id!): Publication
 }
 
 """

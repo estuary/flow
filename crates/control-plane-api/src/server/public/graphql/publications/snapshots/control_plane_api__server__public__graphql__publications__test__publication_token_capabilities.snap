@@ -1,0 +1,26 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: outcomes
+---
+[
+  {
+    "case": "viewer mask",
+    "error": "PermissionDenied: User is not authorized to create or change 'aliceCo/data/new'",
+    "status": null
+  },
+  {
+    "case": "editor mask",
+    "error": null,
+    "status": "queued"
+  },
+  {
+    "case": "scoped to aliceCo/in/",
+    "error": "PermissionDenied: User is not authorized to create or change 'aliceCo/data/new'",
+    "status": null
+  },
+  {
+    "case": "scoped to aliceCo/data/",
+    "error": null,
+    "status": "queued"
+  }
+]
