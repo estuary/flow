@@ -77,6 +77,23 @@ pub enum TaskState {
     },
 }
 
+/// Returns true if `err`, from [`TaskStateListener::get`], is the control plane
+/// definitively refusing to authorize this task name: it doesn't exist (404),
+/// or isn't a materialization (412). Any other error may be transient.
+pub fn is_task_rejected(err: &anyhow::Error) -> bool {
+    let Some(SharedError(inner)) = err.downcast_ref::<SharedError>() else {
+        return false;
+    };
+    inner
+        .downcast_ref::<flow_client::AgentError>()
+        .is_some_and(|err| {
+            matches!(
+                err.status,
+                reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::PRECONDITION_FAILED
+            )
+        })
+}
+
 /// A wrapper around a TaskManager receiver that provides a method to get the current state.
 /// So long as there is at least one `TaskStateReceiver` listening, the task manager will continue to run.
 #[derive(Clone)]

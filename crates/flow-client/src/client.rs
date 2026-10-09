@@ -25,6 +25,16 @@ pub struct Client {
     config_encryption_url: url::Url,
 }
 
+/// A non-success response from an agent API. Callers downcast to it when they
+/// must tell a definitive rejection (such as 404) apart from a transient failure.
+#[derive(Debug, thiserror::Error)]
+#[error("POST {path}: {status}: {body}")]
+pub struct AgentError {
+    pub path: String,
+    pub status: reqwest::StatusCode,
+    pub body: String,
+}
+
 impl Client {
     /// Build a new Client from the Config.
     pub fn new(
@@ -157,7 +167,12 @@ impl Client {
             })
         } else {
             let body = response.text().await?;
-            anyhow::bail!("POST {path}: {status}: {body}");
+            Err(AgentError {
+                path: path.to_string(),
+                status,
+                body,
+            }
+            .into())
         }
     }
 
