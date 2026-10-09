@@ -2247,6 +2247,12 @@ input PrefixesBy {
 	Filter returned prefixes by user capability.
 	"""
 	minCapability: Capability!
+	"""
+	Optionally filter returned prefixes to those that start with this
+	catalog prefix. For example, `acmeCo/team/` returns `acmeCo/team/`
+	and `acmeCo/team/nested/`, but not `acmeCo/`.
+	"""
+	prefix: Prefix
 }
 
 """
