@@ -453,6 +453,80 @@ fn image_user_reads_through_a_supplementary_group() {
     run::podman(&["image", "rm", &image]);
 }
 
+/// Environment defaults reach both diagnostics and the workload.
+#[test]
+fn image_environment() {
+    let run = run::load();
+    let image = format!(
+        "localhost/connector-vmm-kvm-environment:{}",
+        run::random_hex()
+    );
+    run::record("image", &image);
+    let containerfile = format!(
+        "FROM {}\n\
+         USER root\n\
+         RUN echo 'acmesvc:x:4321:4321::/home/acmesvc:/usr/sbin/nologin' >> /etc/passwd\n\
+         USER acmesvc\n",
+        run.guest_image
+    );
+    let context = run::fixture("");
+    let built = run::sudo_output(
+        &[
+            "podman",
+            "build",
+            "-q",
+            "-t",
+            &image,
+            "-f",
+            "-",
+            &context.to_string_lossy(),
+        ],
+        Some(containerfile.as_bytes()),
+    );
+    assert!(
+        built.status.success(),
+        "building {image}: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let spec = run::Spec {
+        connector_image: image.clone(),
+        flags: vec![
+            "--as-root-exec".to_string(),
+            format!(
+                "{} once '{}'",
+                run::PROBES.join(" "),
+                serde_json::json!({"probe": "root-env", "op": "env"})
+            ),
+        ],
+        ..run::Spec::probes(&run, "none.json")
+    };
+    let (vmm, mut guest) = start(&run, spec);
+    let kernel = probe(
+        &mut guest,
+        "hostname",
+        "read",
+        serde_json::json!({"path": "/proc/sys/kernel/hostname"}),
+    );
+    let kernel = kernel["content"]
+        .as_str()
+        .unwrap_or_else(|| panic!("reading /proc/sys/kernel/hostname: {kernel}"))
+        .trim()
+        .to_string();
+    let workload = probe(&mut guest, "env", "env", serde_json::json!({}));
+
+    for (name, env) in [
+        ("--as-root-exec", stderr_probe(&vmm, "root-env")),
+        ("workload", workload),
+    ] {
+        assert_eq!(env["HOME"], "/home/acmesvc", "{name} HOME: {env}");
+        assert_eq!(env["HOSTNAME"], kernel.as_str(), "{name} HOSTNAME: {env}");
+    }
+
+    std::mem::drop((guest, vmm));
+    run::podman(&["image", "rm", &image]);
+}
+
 /// The default workload: connector-init from the connector mount,
 /// serving over vsock, answering a Spec RPC dialed unprivileged.
 #[test]

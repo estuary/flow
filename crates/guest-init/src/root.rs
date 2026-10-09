@@ -17,13 +17,15 @@ const PERSISTENT_DISK: &str = "persistent-disk";
 /// The virtiofs tag the VMM gives the connector mount share.
 const CONNECTOR_MOUNT: &str = "connector-mount";
 
-pub fn write_etc(nameserver: Ipv4Addr, guest_ip: Ipv4Addr) -> Result<()> {
+pub fn write_etc(nameserver: Ipv4Addr, guest_ip: Ipv4Addr) -> Result<String> {
     let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname")
         .map_err(|e| format!("reading /proc/sys/kernel/hostname: {e}"))?;
-    let (resolv_conf, hosts) = etc_files(nameserver, guest_ip, hostname.trim());
+    let hostname = hostname.trim();
+    let (resolv_conf, hosts) = etc_files(nameserver, guest_ip, hostname);
 
     sys::mkdir("/etc", 0o755)?;
-    write_etc_files("/etc", &resolv_conf, &hosts)
+    write_etc_files("/etc", &resolv_conf, &hosts)?;
+    Ok(hostname.to_string())
 }
 
 /// Image symlinks can point into directories unavailable during init. Replace

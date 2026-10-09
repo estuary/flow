@@ -21,7 +21,12 @@ the workload and becoming it. The VMM injects it into the guest root at
 
 - **libkrun's init ran first.** `/dev`, `/proc`, `/sys`, `/sys/fs/cgroup`,
   `/dev/pts` and `/dev/shm` are mounted, `lo` is up, and the image's `Env` and
-  `WorkingDir` are applied. None of that is repeated here.
+  `WorkingDir` are applied. None of that is repeated here. The VMM resolves
+  `HOME` into that `Env`.
+- **`HOSTNAME` is the image's, or the kernel's.** libkrun's init names the
+  kernel after the image's `HOSTNAME`, or `localhost` without one. An image
+  value, even an empty one, stays as podman keeps it; a missing one is set to
+  the kernel's hostname before `--as-root-exec` or the workload runs.
 - **Nothing here may change the root of the shared mount namespace.** libkrun's
   init reports the workload's exit code through an ioctl on `/`, and only when
   `statfs("/")` returns virtiofs magic. A `pivot_root`, or a mount over `/`,
@@ -47,7 +52,7 @@ the workload and becoming it. The VMM injects it into the guest root at
   from the image's own account files; nothing here reads them. The list
   replaces the guest's, set before the gid and the uid, since nothing can set
   it once the uid has dropped. `--run-as-root` skips all three and still gives
-  scratch to `--uid`/`--gid`.
+  scratch to `--uid`/`--gid`, leaving `HOME` the image user's.
 - **Scratch is chowned, the persistent disk is not.** mkfs leaves the scratch
   root owned by root while the workload runs as the image's user. The
   persistent disk is the task's own, and its owner formats its root for the

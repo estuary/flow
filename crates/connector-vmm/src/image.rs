@@ -17,6 +17,8 @@ pub struct ImageConfig {
     pub gid: u32,
     /// The supplementary groups, which replace the guest's own.
     pub groups: Vec<u32>,
+    /// The user's home, for an image whose `Env` gives `HOME` no value.
+    pub home: String,
 }
 
 pub struct Guest<'a> {
@@ -58,23 +60,26 @@ pub fn load(inspect_path: &Path, rootfs: &Path) -> anyhow::Result<ImageConfig> {
     let (Inspect { config },): (Inspect,) = serde_json::from_slice(&content)
         .map_err(|e| anyhow::anyhow!("parsing {}: {e}", inspect_path.display()))?;
 
+    let working_dir = match config.working_dir.as_str() {
+        "" => "/".to_string(),
+        dir => dir.to_string(),
+    };
     let root = std::fs::File::open(rootfs)
         .map_err(|e| anyhow::anyhow!("opening {}: {e}", rootfs.display()))?;
-    let (uid, gid, groups) = resolve_user(
+    let (uid, gid, groups, home) = resolve_user(
         &config.user,
         &read_db(&root, c"/etc/passwd")?,
         &read_db(&root, c"/etc/group")?,
+        &working_dir,
     )?;
 
     Ok(ImageConfig {
         env: config.env,
-        working_dir: match config.working_dir.as_str() {
-            "" => "/".to_string(),
-            dir => dir.to_string(),
-        },
+        working_dir,
         uid,
         gid,
         groups,
+        home,
     })
 }
 
@@ -87,41 +92,56 @@ pub fn load(inspect_path: &Path, rootfs: &Path) -> anyhow::Result<ImageConfig> {
 ///
 /// A colon suppresses memberships; an empty group preserves the passwd gid.
 /// An empty `User` applies uid 0's memberships without adding its primary gid.
-pub fn resolve_user(user: &str, passwd: &str, group: &str) -> anyhow::Result<(u32, u32, Vec<u32>)> {
+///
+/// HOME keeps the selected entry's home, including empty. Without an entry,
+/// an explicit uid defaults to `working_dir`, an empty user to `/`.
+pub fn resolve_user(
+    user: &str,
+    passwd: &str,
+    group: &str,
+    working_dir: &str,
+) -> anyhow::Result<(u32, u32, Vec<u32>, String)> {
     if user.is_empty() {
-        let root = passwd_by_uid(passwd, 0).map(|(name, _)| name);
-        return Ok((0, 0, supplementary_groups(group, None, root)));
+        let root = passwd_by_uid(passwd, 0);
+        let groups = supplementary_groups(group, None, root.map(|(name, ..)| name));
+        return Ok((
+            0,
+            0,
+            groups,
+            root.map_or("/", |(.., home)| home).to_string(),
+        ));
     }
     let (name, wanted_group) = match user.split_once(':') {
         Some((name, group)) => (name, Some(group)),
         None => (user, None),
     };
-    let name = match name {
-        "" => "0",
-        name => name,
+    let (name, no_entry_home) = match name {
+        "" => ("0", "/"),
+        name => (name, working_dir),
     };
 
     // The entry's name is what member lists hold, whichever way it was found.
-    let (uid, primary_gid, entry) = match name.parse::<u32>() {
+    let (uid, primary_gid, entry, home) = match name.parse::<u32>() {
         // A numeric user is still looked up, because its passwd entry carries
         // the primary group: an image whose `USER` is `4` runs as 4:100 when
         // passwd holds `sync:x:4:100`, not as 4:0. Only a uid with no entry
         // falls back to group 0.
         Ok(uid) => match passwd_by_uid(passwd, uid) {
-            Some((entry, gid)) => (uid, gid, Some(entry)),
-            None => (uid, 0, None),
+            Some((entry, gid, home)) => (uid, gid, Some(entry), home),
+            None => (uid, 0, None, no_entry_home),
         },
         Err(_) => {
-            let (uid, gid) = lookup_passwd(passwd, name).ok_or_else(|| {
+            let (uid, gid, home) = lookup_passwd(passwd, name).ok_or_else(|| {
                 anyhow::anyhow!("user {name:?} is not in the image's /etc/passwd")
             })?;
-            (uid, gid, Some(name))
+            (uid, gid, Some(name), home)
         }
     };
+    let home = home.to_string();
 
     let Some(wanted_group) = wanted_group else {
         let groups = supplementary_groups(group, Some(primary_gid), entry);
-        return Ok((uid, primary_gid, groups));
+        return Ok((uid, primary_gid, groups, home));
     };
     let gid = match wanted_group {
         "" => primary_gid,
@@ -132,7 +152,7 @@ pub fn resolve_user(user: &str, passwd: &str, group: &str) -> anyhow::Result<(u3
             })?,
         },
     };
-    Ok((uid, gid, vec![gid]))
+    Ok((uid, gid, vec![gid], home))
 }
 
 /// The argv libkrun's guest init execs: `flow-guest-init` always leads, and
@@ -189,15 +209,27 @@ pub fn guest_argv(guest: &Guest) -> Vec<String> {
 /// `/.krun_config.json`, the only channel into libkrun's guest init: it reads
 /// `Cmd`, `WorkingDir` and `Env` from here and execs.
 ///
-/// `overrides` lead the array deliberately. The init applies each entry with
+/// `overrides` lead the array deliberately. The init applies most entries with
 /// `setenv(name, value, 0)`, so the first occurrence of a name wins and the
 /// runtime's environment contract overrides anything baked into the image.
+///
+/// `HOME` and `TERM` use last-wins `setenv`. Append the user's home when the
+/// image's `HOME` is missing or empty, as podman does.
 pub fn krun_config(config: &ImageConfig, cmd: &[String], overrides: &[(&str, String)]) -> Vec<u8> {
     let mut env: Vec<String> = overrides
         .iter()
         .map(|(name, value)| format!("{name}={value}"))
         .collect();
     env.extend(config.env.iter().cloned());
+
+    let image_home = config
+        .env
+        .iter()
+        .rev()
+        .find_map(|entry| entry.strip_prefix("HOME="));
+    if image_home.is_none_or(str::is_empty) {
+        env.push(format!("HOME={}", config.home));
+    }
 
     serde_json::to_vec(&serde_json::json!({
         "Cmd": cmd,
@@ -264,14 +296,17 @@ fn read_db(root: &std::fs::File, path: &std::ffi::CStr) -> anyhow::Result<String
     Ok(content)
 }
 
-/// The name and primary group of the first passwd entry for `uid`, found by
-/// uid rather than by name. `None` when no entry has it.
-fn passwd_by_uid(db: &str, uid: u32) -> Option<(&str, u32)> {
+/// The name, primary group and home of the first passwd entry for `uid`,
+/// found by uid rather than by name. `None` when no entry has it.
+///
+/// Numeric lookups accept truncated records with an empty missing home.
+fn passwd_by_uid(db: &str, uid: u32) -> Option<(&str, u32, &str)> {
     for line in db.lines() {
         let fields: Vec<&str> = line.split(':').collect();
 
         if fields.get(2).and_then(|value| value.parse::<u32>().ok()) == Some(uid) {
-            return Some((fields[0], fields.get(3)?.parse().ok()?));
+            let home = fields.get(5).copied().unwrap_or("");
+            return Some((fields[0], fields.get(3)?.parse().ok()?, home));
         }
     }
     None
@@ -299,11 +334,24 @@ fn supplementary_groups(db: &str, primary: Option<u32>, user: Option<&str>) -> V
     groups
 }
 
-fn lookup_passwd(db: &str, name: &str) -> Option<(u32, u32)> {
-    Some((lookup_field(db, name, 2)?, lookup_field(db, name, 3)?))
+/// The uid, primary group and home of the first passwd entry named `name`.
+///
+/// Podman's named lookup stops at the first record without seven fields;
+/// numeric lookup remains lenient.
+fn lookup_passwd<'a>(db: &'a str, name: &str) -> Option<(u32, u32, &'a str)> {
+    for line in db.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() != 7 {
+            return None;
+        }
+        if fields[0] == name {
+            return Some((fields[2].parse().ok()?, fields[3].parse().ok()?, fields[5]));
+        }
+    }
+    None
 }
 
-/// `name:x:uid:gid:...` for passwd, `name:x:gid:...` for group.
+/// `name:x:gid:...`, as group holds it.
 fn lookup_field(db: &str, name: &str, field: usize) -> Option<u32> {
     for line in db.lines() {
         let fields: Vec<&str> = line.split(':').collect();
@@ -383,13 +431,14 @@ mod tests {
             uid: 1000,
             gid: 1000,
             groups: vec![1000],
+            home: "/home/acmesvc".to_string(),
         };
-        let cmd = super::guest_argv(&base());
         let mut table = String::new();
 
-        for (name, overrides) in [
+        for (name, guest, overrides) in [
             (
                 "the full contract",
+                base(),
                 vec![
                     ("CONNECTOR_MOUNT", MOUNT.to_string()),
                     ("LOG_FORMAT", "json".to_string()),
@@ -398,9 +447,20 @@ mod tests {
             ),
             (
                 "the runtime set no log variables",
+                base(),
+                vec![("CONNECTOR_MOUNT", MOUNT.to_string())],
+            ),
+            (
+                "--run-as-root keeps the image user's identity and HOME",
+                Guest {
+                    run_as_root: true,
+                    as_root_exec: Some("env"),
+                    ..base()
+                },
                 vec![("CONNECTOR_MOUNT", MOUNT.to_string())],
             ),
         ] {
+            let cmd = super::guest_argv(&guest);
             let rendered = super::krun_config(&config, &cmd, &overrides);
             let parsed: serde_json::Value =
                 serde_json::from_slice(&rendered).expect("krun_config emits JSON");
@@ -408,6 +468,43 @@ mod tests {
             table.push_str(&format!("## {name}\n"));
             table.push_str(&serde_json::to_string_pretty(&parsed).unwrap());
             table.push_str("\n\n");
+        }
+        insta::assert_snapshot!(table);
+    }
+
+    /// Image HOME precedence under libkrun's last-wins parser.
+    #[test]
+    fn krun_config_home() {
+        let cmd = super::guest_argv(&base());
+        let mut table = String::new();
+
+        for (name, image_env) in [
+            ("the image sets no HOME", vec![]),
+            ("the image's own HOME", vec!["HOME=/opt/acmeCo"]),
+            ("an empty image HOME, which podman replaces", vec!["HOME="]),
+        ] {
+            let config = ImageConfig {
+                env: ["PATH=/usr/bin"]
+                    .into_iter()
+                    .chain(image_env)
+                    .map(ToString::to_string)
+                    .collect(),
+                working_dir: "/".to_string(),
+                uid: 1000,
+                gid: 1001,
+                groups: vec![1001],
+                home: "/home/acmesvc".to_string(),
+            };
+            let rendered =
+                super::krun_config(&config, &cmd, &[("CONNECTOR_MOUNT", MOUNT.to_string())]);
+            let parsed: serde_json::Value =
+                serde_json::from_slice(&rendered).expect("krun_config emits JSON");
+
+            table.push_str(&format!("## {name}\n"));
+            for entry in parsed["Env"].as_array().expect("Env is an array") {
+                table.push_str(&format!("{}\n", entry.as_str().expect("Env holds strings")));
+            }
+            table.push('\n');
         }
         insta::assert_snapshot!(table);
     }
@@ -518,8 +615,139 @@ mod tests {
         for (name, passwd, group, users) in cases {
             table.push_str(&format!("## {name}\n"));
             for user in *users {
-                let outcome = match super::resolve_user(user, passwd, group) {
-                    Ok((uid, gid, groups)) => identity(uid, gid, &groups),
+                let outcome = match super::resolve_user(user, passwd, group, "/") {
+                    Ok((uid, gid, groups, _)) => identity(uid, gid, &groups),
+                    Err(error) => format!("refused: {error:#}"),
+                };
+                table.push_str(&format!("{user:?} -> {outcome}\n"));
+            }
+            table.push('\n');
+        }
+        insta::assert_snapshot!(table);
+    }
+
+    /// A named alias keeps its home; a uid selects the first matching entry.
+    #[test]
+    fn home_resolution() {
+        const PASSWD: &str = "root:x:0:0:root:/acmeroot:/bin/sh\n\
+            acmesvc:x:1000:1001::/home/acmesvc:/bin/sh\n\
+            acmealias:x:1000:1005::/home/acmealias:/bin/sh\n\
+            acmeempty:x:1006:1006:::/bin/sh\n\
+            acmefirst:x:1008:1008:::/bin/sh\n\
+            acmesecond:x:1008:1008::/home/acmesecond:/bin/sh\n\
+            acmeshort:x:1009:1009\n";
+        const NO_ROOT: &str = "acmesvc:x:1000:1001::/home/acmesvc:/bin/sh\n";
+        const GROUP: &str = "root:x:0:\nacmedata:x:1002:acmesvc\n";
+
+        let cases: &[(&str, &str, &str, &[&str])] = &[
+            (
+                "both files, working dir /acmework",
+                PASSWD,
+                "/acmework",
+                &[
+                    "",
+                    "0",
+                    "root",
+                    "0:0",
+                    ":",
+                    ":1002",
+                    "acmesvc",
+                    "1000",
+                    "acmealias",
+                    "acmealias:1002",
+                    "acmeempty",
+                    "1006",
+                    "1008",
+                    "acmefirst",
+                    "acmesecond",
+                    "1009",
+                    "acmesvc:acmedata",
+                    "1000:1002",
+                    "acmesvc:",
+                    "1000:",
+                    "4242",
+                    "4242:1002",
+                ],
+            ),
+            (
+                "both files, no working dir",
+                PASSWD,
+                "/",
+                &["4242", "4242:", "4242:1002"],
+            ),
+            (
+                "no entry for uid 0, working dir /acmework",
+                NO_ROOT,
+                "/acmework",
+                &["", "0", ":1002", "root"],
+            ),
+            (
+                "no /etc/passwd, working dir /acmework",
+                "",
+                "/acmework",
+                &["", "0", "1000", ":", ":1002"],
+            ),
+            (
+                "no /etc/passwd, no working dir",
+                "",
+                "/",
+                &["", "0", "1000", "1000:1002", ":1002"],
+            ),
+        ];
+
+        let mut table = String::new();
+        for (name, passwd, working_dir, users) in cases {
+            table.push_str(&format!("## {name}\n"));
+            for user in *users {
+                let outcome = match super::resolve_user(user, passwd, GROUP, working_dir) {
+                    Ok((uid, .., home)) => format!("uid {uid} HOME={home:?}"),
+                    Err(error) => format!("refused: {error:#}"),
+                };
+                table.push_str(&format!("{user:?} -> {outcome}\n"));
+            }
+            table.push('\n');
+        }
+        insta::assert_snapshot!(table);
+    }
+
+    #[test]
+    fn passwd_field_counts() {
+        const ROOT: &str = "root:x:0:0:root:/acmeroot:/bin/sh\n";
+
+        let cases: &[(&str, &str, &[&str])] = &[
+            (
+                "seven fields, one with an empty home and one with an empty shell",
+                "acmeemptyhome:x:1006:1006:::/bin/sh\n\
+                 acmeemptyshell:x:1012:1012::/home/acmeemptyshell:\n",
+                &["acmeemptyhome", "1006", "acmeemptyshell", "1012"],
+            ),
+            (
+                "six fields, no shell",
+                "acmesix:x:1011:1011::/home/acmesix\n",
+                &["acmesix", "1011"],
+            ),
+            (
+                "eight fields",
+                "acmeeight:x:1014:1014::/home/acmeeight:/bin/sh:extra\n",
+                &["acmeeight", "1014"],
+            ),
+            (
+                "seven fields below six",
+                "acmesix:x:1011:1011::/home/acmesix\n\
+                 acmeafter:x:1020:1020::/home/acmeafter:/bin/sh\n",
+                &["root", "acmeafter", "acmeafter:0", "1020"],
+            ),
+        ];
+
+        let mut table = String::new();
+        for (name, entries, users) in cases {
+            table.push_str(&format!("## {name}\n"));
+            let passwd = format!("{ROOT}{entries}");
+            for user in *users {
+                let outcome = match super::resolve_user(user, &passwd, "root:x:0:\n", "/acmework") {
+                    Ok((uid, gid, groups, home)) => {
+                        format!("{} HOME={home:?}", identity(uid, gid, &groups))
+                    }
                     Err(error) => format!("refused: {error:#}"),
                 };
                 table.push_str(&format!("{user:?} -> {outcome}\n"));

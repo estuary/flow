@@ -35,7 +35,8 @@ expression: table
     "LOG_LEVEL=warn",
     "PATH=/usr/local/bin:/usr/bin",
     "LOG_LEVEL=trace",
-    "CONNECTOR_MOUNT=/somewhere/else"
+    "CONNECTOR_MOUNT=/somewhere/else",
+    "HOME=/home/acmesvc"
   ],
   "WorkingDir": "/opt/acmeCo"
 }
@@ -71,7 +72,48 @@ expression: table
     "CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-acme",
     "PATH=/usr/local/bin:/usr/bin",
     "LOG_LEVEL=trace",
-    "CONNECTOR_MOUNT=/somewhere/else"
+    "CONNECTOR_MOUNT=/somewhere/else",
+    "HOME=/home/acmesvc"
+  ],
+  "WorkingDir": "/opt/acmeCo"
+}
+
+## --run-as-root keeps the image user's identity and HOME
+{
+  "Cmd": [
+    "/flow-guest-init",
+    "--guest-ip",
+    "192.0.2.2/30",
+    "--gateway",
+    "192.0.2.1",
+    "--nameserver",
+    "192.0.2.1",
+    "--uid",
+    "1000",
+    "--gid",
+    "1001",
+    "--supplementary-gid",
+    "1001",
+    "--supplementary-gid",
+    "1002",
+    "--supplementary-gid",
+    "1004",
+    "--connector-mount",
+    "/tmp/connector-mounts-0/mount-acme",
+    "--run-as-root",
+    "--as-root-exec",
+    "env",
+    "--",
+    "/tmp/connector-mounts-0/mount-acme/flow-connector-init",
+    "--image-inspect-json-path=/tmp/connector-mounts-0/mount-acme/image-inspect.json",
+    "--vsock-port=49092"
+  ],
+  "Env": [
+    "CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-acme",
+    "PATH=/usr/local/bin:/usr/bin",
+    "LOG_LEVEL=trace",
+    "CONNECTOR_MOUNT=/somewhere/else",
+    "HOME=/home/acmesvc"
   ],
   "WorkingDir": "/opt/acmeCo"
 }

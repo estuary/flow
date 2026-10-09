@@ -33,13 +33,14 @@ fn run(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     )?;
     net::disable_ipv6()?;
 
-    root::write_etc(args.nameserver, args.guest_ip.address)?;
+    let hostname = root::write_etc(args.nameserver, args.guest_ip.address)?;
     root::mount_scratch(args.uid, args.gid)?;
     root::mount_connector_mount(&args.connector_mount)?;
 
     if let Some(guest_path) = &args.persistent_disk {
         root::mount_persistent_disk(guest_path)?;
     }
+    default_hostname(&hostname);
 
     // Ignore the probe's exit status so a failed probe does not stop the workload.
     if let Some(command) = &args.as_root_exec {
@@ -88,6 +89,15 @@ fn exec_workload(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     let error = std::io::Error::last_os_error();
     report(&format!("exec {:?}: {error}", args.argv[0]));
     std::process::exit(i32::from(exec_exit_code(error.raw_os_error())));
+}
+
+fn default_hostname(kernel: &str) {
+    if std::env::var_os("HOSTNAME").is_some() {
+        return;
+    }
+    // Safety: nothing here has spawned a thread, so no other thread can be in
+    // `getenv` while this is set.
+    unsafe { std::env::set_var("HOSTNAME", kernel) };
 }
 
 /// The exit codes libkrun's init uses for a failed exec, which are a shell's:
@@ -166,5 +176,60 @@ mod tests {
         table.push_str(&format!("(none) => {}\n", super::exec_exit_code(None)));
 
         insta::assert_snapshot!(table);
+    }
+
+    const CHILD_MARKER: &str = "FLOW_GUEST_INIT_HOSTNAME_CHILD";
+    const CHILD_TEST: &str = "tests::default_hostname_child";
+    const REPORT: &str = "HOSTNAME is ";
+
+    /// Each case runs in a child process: the environment is the whole
+    /// process's, and the harness's other threads read it.
+    #[test]
+    fn default_hostname() {
+        let mut table = String::new();
+
+        for (name, image) in [
+            ("the image set none", None),
+            ("the image's own", Some("acme-image-host")),
+            ("the image's own, empty", Some("")),
+        ] {
+            let mut child = std::process::Command::new(
+                std::env::current_exe().expect("a test binary has a path"),
+            );
+            child
+                .args(["--exact", CHILD_TEST, "--nocapture", "--test-threads=1"])
+                .env(CHILD_MARKER, "1");
+            match image {
+                Some(value) => child.env("HOSTNAME", value),
+                None => child.env_remove("HOSTNAME"),
+            };
+            let output = child.output().expect("spawning the child");
+            let stdout = String::from_utf8(output.stdout).expect("the child prints UTF-8");
+
+            assert!(
+                output.status.success(),
+                "child failed: {:?}\n{stdout}",
+                output.status
+            );
+            let reported = stdout
+                .split_once(REPORT)
+                .and_then(|(_, rest)| rest.lines().next())
+                .unwrap_or_else(|| panic!("no report in the child's output:\n{stdout}"));
+            table.push_str(&format!("{name}: {reported}\n"));
+        }
+        insta::assert_snapshot!(table, @r#"
+        the image set none: Some("acme-guest-kernel")
+        the image's own: Some("acme-image-host")
+        the image's own, empty: Some("")
+        "#);
+    }
+
+    #[test]
+    fn default_hostname_child() {
+        if std::env::var_os(CHILD_MARKER).is_none() {
+            return;
+        }
+        super::default_hostname("acme-guest-kernel");
+        println!("{REPORT}{:?}", std::env::var_os("HOSTNAME"));
     }
 }

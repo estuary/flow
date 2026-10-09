@@ -1,0 +1,19 @@
+---
+source: crates/connector-vmm/src/image.rs
+expression: table
+---
+## the image sets no HOME
+CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-acme
+PATH=/usr/bin
+HOME=/home/acmesvc
+
+## the image's own HOME
+CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-acme
+PATH=/usr/bin
+HOME=/opt/acmeCo
+
+## an empty image HOME, which podman replaces
+CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-acme
+PATH=/usr/bin
+HOME=
+HOME=/home/acmesvc

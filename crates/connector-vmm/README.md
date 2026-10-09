@@ -74,7 +74,9 @@ the image root and never above it, and the kernel holds that through the whole
 walk, so no link reaches the VMM image's own files. There is no fallback: a
 host kernel without `openat2` (Linux 5.6) fails every launch with an error
 naming it. A missing file, or a link to nothing, reads as empty, as in a
-scratch image: numeric ids still resolve and names are refused. The lookup
+scratch image: numeric ids still resolve and names are refused. As in podman,
+a name resolves only from a seven-field passwd entry above any line without
+seven, while a uid resolves from a line of any length. The lookup
 sees the image alone, so a link into something the guest mounts later, such as
 the connector mount or `/proc`, reads whatever the image has at that path.
 
@@ -83,6 +85,12 @@ matching rootful podman 4.9 over runc. A colon in `User` suppresses memberships:
 `user:` keeps the passwd gid, and `:group` selects uid 0 in that group. The list
 travels as repeated `--supplementary-gid` flags; `guest-init` sets it with
 `setgroups` before `setgid` and `setuid`. `--run-as-root` skips all three.
+
+`HOME` comes from the resolved passwd entry, including empty fields. Without
+an entry, an explicit uid defaults to `WorkingDir`; an empty user defaults to
+`/`. The image's nonempty `HOME` wins. `image::krun_config` appends defaults
+because libkrun applies `HOME` and `TERM` last-wins. `--run-as-root` retains
+the image user's `HOME`.
 
 ## Disks and shares
 
