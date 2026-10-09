@@ -30,6 +30,62 @@ pub struct Topology {
     pub hint_index: HintIndex,
 }
 
+/// What a Slice's heap offers its next round, as of a round's close.
+#[derive(Debug, Clone, Copy)]
+pub enum HeapTop {
+    /// The heap's drain is deferred: a read that isn't in the heap may yet
+    /// preempt its top, or a replay is underway.
+    Deferred,
+    /// The heap is empty, and every read is tailing.
+    Idle,
+    /// The heap top awaits its read delay, until this adjusted clock.
+    Delayed(uuid::Clock),
+    /// The heap top is due, at this adjusted clock.
+    Due(uuid::Clock),
+}
+
+/// Merge constraint state machine of the constraint a Slice places on its
+/// Logs' merges (`LogRequest.MergeConstraint`): a lower bound on the adjusted
+/// clocks of its subsequent Appends, or None if it's idle.
+///
+/// A heap top is its own bound, which is delayed if it awaits its read delay.
+/// A deferred heap's top isn't a bound, as an unread document may precede it,
+/// so the Slice keeps the bound it last advertised of a due top: that top
+/// bounded every read then, and those since drained are only later documents
+/// of its reads. A Slice which was idle or delayed has no such bound, and
+/// constrains its peers entirely, as Logs presume of a Slice before its first
+/// round. See "Log Merge and Output" of the crate README.
+#[derive(Debug)]
+pub struct ConstraintState {
+    advertised: Option<shuffle::log_request::MergeConstraint>,
+}
+
+impl ConstraintState {
+    pub fn new() -> Self {
+        Self {
+            advertised: Some(Default::default()),
+        }
+    }
+
+    /// Determine the constraint of a round closing with heap `top`.
+    pub fn on_round(&mut self, top: HeapTop) -> Option<shuffle::log_request::MergeConstraint> {
+        let constraint = |clock: uuid::Clock, delayed| shuffle::log_request::MergeConstraint {
+            adjusted_clock: clock.as_u64(),
+            delayed,
+        };
+        self.advertised = match top {
+            HeapTop::Due(clock) => Some(constraint(clock, false)),
+            HeapTop::Delayed(clock) => Some(constraint(clock, true)),
+            HeapTop::Idle => None,
+            HeapTop::Deferred => match self.advertised.take() {
+                Some(advertised) if !advertised.delayed => Some(advertised),
+                _ => Some(Default::default()),
+            },
+        };
+        self.advertised.clone()
+    }
+}
+
 /// Flush cycle state machine, tracking in-flight flushes to Log shards.
 ///
 /// The caller is responsible for building the frontier (from reads + causal hints)
@@ -1306,6 +1362,54 @@ mod test {
             format!("{err}").contains("already pending"),
             "expected double-request error, got: {err}"
         );
+    }
+
+    #[test]
+    fn test_constraint_state() {
+        let mut state = ConstraintState::new();
+        let clock = Clock::from_u64;
+
+        let steps = [
+            ("deferred at start", HeapTop::Deferred),
+            ("due", HeapTop::Due(clock(100))),
+            ("due", HeapTop::Due(clock(120))),
+            ("deferred keeps its bound", HeapTop::Deferred),
+            ("due, regressed", HeapTop::Due(clock(110))),
+            ("idle", HeapTop::Idle),
+            ("deferred after idle", HeapTop::Deferred),
+            ("delayed", HeapTop::Delayed(clock(200))),
+            ("deferred after delayed", HeapTop::Deferred),
+            ("due", HeapTop::Due(clock(130))),
+        ];
+        let trace: Vec<_> = steps
+            .into_iter()
+            .map(|(step, top)| {
+                let top_str = match top {
+                    HeapTop::Due(clock) => format!("Due({})", clock.as_u64()),
+                    HeapTop::Delayed(clock) => format!("Delayed({})", clock.as_u64()),
+                    top => format!("{top:?}"),
+                };
+                let constraint = match state.on_round(top) {
+                    None => "idle".to_string(),
+                    Some(c) if c.delayed => format!("delayed @{}", c.adjusted_clock),
+                    Some(c) => format!("@{}", c.adjusted_clock),
+                };
+                format!("{step}: {top_str} -> {constraint}")
+            })
+            .collect();
+
+        insta::assert_snapshot!(trace.join("\n"), @r"
+        deferred at start: Deferred -> @0
+        due: Due(100) -> @100
+        due: Due(120) -> @120
+        deferred keeps its bound: Deferred -> @120
+        due, regressed: Due(110) -> @110
+        idle: Idle -> idle
+        deferred after idle: Deferred -> @0
+        delayed: Delayed(200) -> delayed @200
+        deferred after delayed: Deferred -> @0
+        due: Due(130) -> @130
+        ");
     }
 
     #[test]

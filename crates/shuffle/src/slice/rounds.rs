@@ -46,6 +46,9 @@ pub struct LogChannel {
     sent_bytes: u64,
     /// Cumulative bytes of Appends which the Log has merged.
     acked_bytes: u64,
+    /// Merge constraint of the last round sent, which the Log holds until
+    /// the next. A Log presumes zero before a first round.
+    constraint: Option<shuffle::log_request::MergeConstraint>,
 }
 
 impl Rounds {
@@ -162,22 +165,27 @@ impl Rounds {
         Ok(())
     }
 
-    /// Close the current round with an optional `flush`. A round is sent to
-    /// each Log having queued Appends, and to every Log if `flush`.
+    /// Close the current round with the Slice's merge `constraint`, and an
+    /// optional `flush`. A round is sent to each Log having queued Appends or
+    /// holding a different constraint, and to every Log if `flush`.
     /// Returns whether any Log was sent to.
-    pub fn close(&mut self, flush: Option<shuffle::log_request::Flush>) -> anyhow::Result<bool> {
+    pub fn close(
+        &mut self,
+        constraint: Option<shuffle::log_request::MergeConstraint>,
+        flush: Option<shuffle::log_request::Flush>,
+    ) -> anyhow::Result<bool> {
         let broadcast = flush.is_some();
         let mut sent = false;
 
         for log in self.logs.iter_mut() {
-            if !broadcast && log.round.is_empty() {
+            if !broadcast && log.round.is_empty() && log.constraint == constraint {
                 continue;
             }
-            log.send_round(flush)?;
+            log.send_round(constraint.clone(), flush)?;
             sent = true;
         }
         if sent {
-            tracing::trace!(?flush, "sent round");
+            tracing::trace!(?constraint, ?flush, "sent round");
         }
         Ok(sent)
     }
@@ -198,6 +206,7 @@ impl LogChannel {
             overhead_bytes,
             sent_bytes: 0,
             acked_bytes: 0,
+            constraint: Some(Default::default()),
         }
     }
 
@@ -257,12 +266,17 @@ impl LogChannel {
         });
     }
 
-    /// Send the current round's Appends with `flush`, as one message.
-    /// The round must have begun with channel capacity (`Rounds::try_begin`).
-    fn send_round(&mut self, flush: Option<shuffle::log_request::Flush>) -> anyhow::Result<()> {
+    /// Send the current round's Appends with `constraint` and `flush`, as one
+    /// message. The round must have begun with channel capacity (`Rounds::try_begin`).
+    fn send_round(
+        &mut self,
+        constraint: Option<shuffle::log_request::MergeConstraint>,
+        flush: Option<shuffle::log_request::Flush>,
+    ) -> anyhow::Result<()> {
         let appends = std::mem::take(&mut self.round);
         self.round.reserve(appends.len());
         self.sent_bytes += std::mem::take(&mut self.round_bytes);
+        self.constraint = constraint.clone();
 
         crate::verify_send(
             &self.tx,
@@ -270,6 +284,7 @@ impl LogChannel {
                 open: None,
                 appends,
                 flush,
+                constraint,
             },
         )
     }
@@ -297,7 +312,7 @@ mod test {
             };
             ch.queue("a/journal", append)
         };
-        let send = |ch: &mut LogChannel| ch.send_round(None).unwrap();
+        let send = |ch: &mut LogChannel| ch.send_round(None, None).unwrap();
 
         // Steps record their result, and the credits which follow it.
         // Bytes are in eighths of CREDIT.
@@ -361,34 +376,66 @@ mod test {
         ]);
         let flush = Some(shuffle::log_request::Flush { cycle: 5 });
 
-        // Each step records whether a round was sent, and (appends, flush)
-        // of the rounds each Log received.
+        let zero = Some(shuffle::log_request::MergeConstraint::default());
+        let c100 = Some(shuffle::log_request::MergeConstraint {
+            adjusted_clock: 100,
+            delayed: false,
+        });
+
+        // Each step records whether a round was sent, and (appends, constraint,
+        // flush) of the rounds each Log received.
         let mut trace = Vec::new();
         let mut step = |step: &str, sent: bool| {
             let received = [&mut rx0, &mut rx1].map(|rx| {
                 std::iter::from_fn(|| rx.try_recv().ok())
-                    .map(|r| (r.appends.len(), r.flush.map(|f| f.cycle)))
+                    .map(|r| {
+                        (
+                            r.appends.len(),
+                            r.constraint.map(|c| c.adjusted_clock),
+                            r.flush.map(|f| f.cycle),
+                        )
+                    })
                     .collect::<Vec<_>>()
             });
             trace.push(format!("{step} -> sent: {sent}, received: {received:?}"));
         };
 
-        // Nothing queued and no flush: no round is sent.
-        step("close(None)", rounds.close(None).unwrap());
+        // Nothing queued, no flush, and the constraint Logs presume: no round is sent.
+        step("close(0)", rounds.close(zero.clone(), None).unwrap());
 
-        // A round goes only to Logs having queued Appends.
+        // A round goes only to Logs having queued Appends,
+        // and carries the constraint.
         rounds.logs[0].queue("a/journal", Default::default());
         rounds.logs[0].queue("a/journal", Default::default());
-        step("queue(0) x2, close(None)", rounds.close(None).unwrap());
+        step(
+            "queue(0) x2, close(0)",
+            rounds.close(zero.clone(), None).unwrap(),
+        );
+
+        // A changed constraint goes to every Log whose constraint differs.
+        rounds.logs[1].queue("a/journal", Default::default());
+        step(
+            "queue(1), close(100)",
+            rounds.close(c100.clone(), None).unwrap(),
+        );
+        step("close(100)", rounds.close(c100.clone(), None).unwrap());
+        rounds.logs[0].queue("a/journal", Default::default());
+        step("queue(0), close(idle)", rounds.close(None, None).unwrap());
 
         // A flush goes to every Log, with or without Appends.
         rounds.logs[1].queue("a/journal", Default::default());
-        step("queue(1), close(flush 5)", rounds.close(flush).unwrap());
+        step(
+            "queue(1), close(idle, flush 5)",
+            rounds.close(None, flush).unwrap(),
+        );
 
         insta::assert_snapshot!(trace.join("\n"), @r"
-        close(None) -> sent: false, received: [[], []]
-        queue(0) x2, close(None) -> sent: true, received: [[(2, None)], []]
-        queue(1), close(flush 5) -> sent: true, received: [[(0, Some(5))], [(1, Some(5))]]
+        close(0) -> sent: false, received: [[], []]
+        queue(0) x2, close(0) -> sent: true, received: [[(2, Some(0), None)], []]
+        queue(1), close(100) -> sent: true, received: [[(0, Some(100), None)], [(1, Some(100), None)]]
+        close(100) -> sent: false, received: [[], []]
+        queue(0), close(idle) -> sent: true, received: [[(1, None, None)], [(0, None, None)]]
+        queue(1), close(idle, flush 5) -> sent: true, received: [[(0, None, Some(5))], [(1, None, Some(5))]]
         ");
     }
 }

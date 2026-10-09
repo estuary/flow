@@ -407,8 +407,9 @@ pub mod slice_response {
 }
 /// LogRequest is sent by Slices to each shard's Log.
 /// The first is an Open. Each which follows is a round: zero or more Appends,
-/// and optionally a Flush. A round requesting a Flush goes to every Log, and
-/// otherwise only to Logs for which it has Appends.
+/// the Slice's MergeConstraint as of the round's end, and optionally a Flush.
+/// A round requesting a Flush goes to every Log, and otherwise only to Logs
+/// for which it has Appends, or to which its constraint is changed.
 ///
 /// Appends are flow-controlled by credits: a Slice may have a budget of Append
 /// bytes sent to a Log and not yet merged by it, as advertised by the Log's
@@ -424,6 +425,8 @@ pub struct LogRequest {
     pub appends: ::prost::alloc::vec::Vec<log_request::Append>,
     #[prost(message, optional, tag = "3")]
     pub flush: ::core::option::Option<log_request::Flush>,
+    #[prost(message, optional, tag = "4")]
+    pub constraint: ::core::option::Option<log_request::MergeConstraint>,
 }
 /// Nested message and enum types in `LogRequest`.
 pub mod log_request {
@@ -506,6 +509,35 @@ pub mod log_request {
         /// Cycle number for correlating Flush with Flushed response.
         #[prost(uint64, tag = "1")]
         pub cycle: u64,
+    }
+    /// MergeConstraint is a lower bound on the adjusted clocks of the Slice's
+    /// subsequent Appends, which it places on each Log's merge. Every round
+    /// carries the Slice's current constraint, and its absence means the Slice
+    /// is idle: it has no next document, and constrains no merge. Before a
+    /// Slice's first round, a Log takes its constraint to be zero.
+    ///
+    /// A Log merges in (priority DESC, adjusted_clock ASC) order, where priority
+    /// is that of a Slice's lane. Each Slice's merge position is its next queued
+    /// Append, or else its constraint (at its lane's priority). A Log merges the
+    /// least of these only if it's a queued Append, and otherwise awaits the
+    /// constraining Slice's next round. A lesser-priority lane is thus held back
+    /// while any higher-priority lane has documents due.
+    ///
+    /// A delayed constraint is of a next document which awaits its read delay.
+    /// It bounds Appends of the Slice's own priority, but doesn't hold back
+    /// lesser priorities, which merge documents that are due meanwhile.
+    ///
+    /// The bound is nominal. A Slice may later send Appends which fall below a
+    /// prior constraint (for example: a replay, or a started read of a
+    /// newly-created journal), and their order of merge is best-effort.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct MergeConstraint {
+        /// Adjusted clock (clock + read_delay) of the Slice's next document.
+        #[prost(fixed64, tag = "1")]
+        pub adjusted_clock: u64,
+        /// Whether the next document awaits its read delay.
+        #[prost(bool, tag = "2")]
+        pub delayed: bool,
     }
 }
 /// LogResponse is sent by the Log actor back to each Slice.

@@ -174,6 +174,7 @@ where
         progress: state::ProgressState::new(),
         slice_response_tx,
         rounds: super::rounds::Rounds::new(log_channels),
+        constraint: state::ConstraintState::new(),
         pending_probes: stream::FuturesUnordered::new(),
         pending_reads: stream::FuturesUnordered::new(),
         parser: simd_doc::SimdParser::new(1_000_000),
@@ -253,6 +254,7 @@ async fn open_log_rpc(
             }),
             appends: Vec::new(),
             flush: None,
+            constraint: None,
         },
     )?;
 
