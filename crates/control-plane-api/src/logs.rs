@@ -71,6 +71,8 @@ pub async fn serve_sink(
     let mut tokens = Vec::new();
     let mut streams = Vec::new();
     let mut lines = Vec::new();
+    let mut logged_at = Vec::new();
+    let mut previous_logged_at = None;
 
     let mut held_conn = None;
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
@@ -118,6 +120,13 @@ pub async fn serve_sink(
             lines.push(sanitize_null_bytes(line));
         }
 
+        let mut next = next_logged_at(previous_logged_at, chrono::Utc::now());
+        for _ in &lines {
+            logged_at.push(next);
+            next += chrono::Duration::microseconds(1);
+        }
+        previous_logged_at = logged_at.last().copied();
+
         if let None = held_conn {
             held_conn = Some(pg_pool.acquire().await?);
             debug!("acquired new pg_conn");
@@ -127,13 +136,14 @@ pub async fn serve_sink(
         // Dispatch the vector of lines to the table.
         let r = sqlx::query(
             r#"
-            insert into internal.log_lines (token, stream, log_line)
-            select * from unnest($1, $2, $3)
+            insert into internal.log_lines (token, stream, log_line, logged_at)
+            select * from unnest($1, $2, $3, $4)
             "#,
         )
         .bind(&tokens)
         .bind(&streams)
         .bind(&lines)
+        .bind(&logged_at)
         .execute(held_conn.as_deref_mut().unwrap())
         .await?;
 
@@ -142,7 +152,22 @@ pub async fn serve_sink(
         tokens.clear();
         streams.clear();
         lines.clear();
+        logged_at.clear();
     }
+}
+
+/// PostgreSQL stores timestamps at microsecond precision. Keep the cursor
+/// strictly increasing across batches, including when the local clock recedes.
+fn next_logged_at(
+    previous: Option<chrono::DateTime<chrono::Utc>>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> chrono::DateTime<chrono::Utc> {
+    let now = chrono::DateTime::from_timestamp_micros(now.timestamp_micros())
+        .expect("current time is representable");
+    previous
+        .map(|previous| previous + chrono::Duration::microseconds(1))
+        .filter(|next| *next > now)
+        .unwrap_or(now)
 }
 
 #[derive(Debug, Clone)]
@@ -238,8 +263,19 @@ fn render_ops_log_for_ui(log: &ops::Log) -> String {
 
 #[cfg(test)]
 mod test {
-    use super::render_ops_log_for_ui;
+    use super::{next_logged_at, render_ops_log_for_ui};
     use proto_flow::ops;
+
+    #[test]
+    fn timestamps_advance_across_batches_and_clock_recession() {
+        let now = "2026-01-01T00:00:00.123456789Z".parse().unwrap();
+        let first = next_logged_at(None, now);
+        assert_eq!(first.to_rfc3339(), "2026-01-01T00:00:00.123456+00:00");
+        let second = next_logged_at(Some(first), now);
+        assert_eq!(second - first, chrono::Duration::microseconds(1));
+        let backwards = next_logged_at(Some(second), now - chrono::Duration::seconds(1));
+        assert_eq!(backwards - second, chrono::Duration::microseconds(1));
+    }
 
     #[test]
     fn test_log_rendering() {
