@@ -376,13 +376,13 @@ mod test {
     #[test]
     fn rejects_invalid_flow_declarations() {
         let fixtures = [
-            json!([{"Config": {"Labels": {}, "Env": []}}]),
-            json!([{"Config": {
+            json!([{"Id": "test-image-id", "Config": {"Labels": {}, "Env": []}}]),
+            json!([{"Id": "test-image-id", "Config": {
                 "Labels": {"FLOW_RUNTIME_PROTOCOL": "derive"},
                 "Env": [],
                 "ExposedPorts": {"whoops": {}}
             }}]),
-            json!([{"Config": {
+            json!([{"Id": "test-image-id", "Config": {
                 "Labels": {
                     "FLOW_RUNTIME_PROTOCOL": "derive",
                     "dev.estuary.port-public.111": "whoops"

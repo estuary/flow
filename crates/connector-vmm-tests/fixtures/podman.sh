@@ -20,6 +20,12 @@ if [[ -e "${TEST}/require-clean-environment" ]]; then
     printf '%s\n' "$*" >>"${TEST}/clean-environment"
 fi
 
+# A test-created tag exists only in local storage, so pulling it would ask
+# the registry for an image the test owns on this host.
+if [[ "${1:-}" == pull && -e "${TEST}/local-image" && "${2:-}" == "$(<"${TEST}/local-image")" ]]; then
+    exit 0
+fi
+
 # An owner in a PID namespace of its own still drives the host's podman, in
 # the host's: podman records container PIDs as it sees them. No process can
 # join an ancestor PID namespace, so systemd runs it, with this script's

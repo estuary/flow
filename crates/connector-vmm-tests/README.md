@@ -153,6 +153,10 @@ stays alive without starting init's health service or idle watchdog.
 - With the real image (`spec_through_the_vmm`): the same, through a booted
   guest in which derive-python runs as its image's user, `nobody`. Every engine
   call checks that synthetic platform secrets are absent before sudo.
+- `mounts_the_inspected_image_after_a_tag_changes` holds container creation,
+  repoints a private local tag from derive-python to a capture image, then
+  verifies the guest still serves the inspected derivation's Spec. The wrapper
+  skips pulling that test-created tag, which exists only in local storage.
 - Abandoned starts: while the network is created (it is finished, then
   removed, and the VMM never runs), while the container is created (it is
   finished, then removed, and never started), while the VMM is up but its

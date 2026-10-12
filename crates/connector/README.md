@@ -280,6 +280,9 @@ EOF or status. A client which does not drain responses may park the handler.
   policy, the `fv_<16 hex>` state directories and socket, the files the
   connector mount must hold, and three podman lines: `boundary verify` from
   the VMM image, the VMM's own `fvm<12 hex>` bridge network, and its `run`.
+  The rootfs mount uses the inspected image ID so a concurrent pull cannot
+  replace the code after its metadata and policy were read. Usage labels keep
+  the requested image reference.
   It refuses an image which exposes TCP ports, which nothing could reach. The
   lines are those of `crates/connector-vmm-tests`'s `src/launch.rs` plus
   `--platform`, the usage labels, the owner label (below) and

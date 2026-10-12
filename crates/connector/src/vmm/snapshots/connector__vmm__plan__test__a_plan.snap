@@ -49,7 +49,7 @@ podman create \
   --sysctl=net.ipv6.conf.default.disable_ipv6=1 \
   --memory=1073741824 \
   --cpus=1.5 \
-  --mount=type=image,source=ghcr.io/estuary/derive-python:stable,destination=/rootfs,rw=false \
+  --mount=type=image,source=sha256:0123abcd,destination=/rootfs,rw=false \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/init,target=/init,readonly \
   --mount=type=bind,source=/tmp/connector-mounts-0/mount-fv_0123456789abcdef,target=/tmp/connector-mounts-0/mount-fv_0123456789abcdef,readonly \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/sock,target=/sock \

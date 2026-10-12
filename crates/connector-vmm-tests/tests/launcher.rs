@@ -250,6 +250,10 @@ fn normalized_calls(root: &launcher::Root, run: &run::Run, name: &str) -> String
     let mut calls = calls
         .replace(&run.fake_image, "<fake image>")
         .replace(&run.vmm_image, "<vmm image>");
+    calls = regex::Regex::new(r"(--mount=type=image,source=)(?:sha256:)?[0-9a-f]{64}")
+        .unwrap()
+        .replace_all(&calls, "${1}<connector image id>")
+        .into_owned();
     if let Some(mount) = mount {
         calls = calls.replace(&mount, "<mount>");
     }
@@ -513,6 +517,68 @@ fn spec_through_the_fake() {
         "teardown finished before the session did"
     );
     insta::assert_snapshot!(normalized_calls(&root, &run, &name));
+}
+
+/// Retagging after inspection must not replace the rootfs whose metadata
+/// the launcher handed to connector-init.
+#[test]
+fn mounts_the_inspected_image_after_a_tag_changes() {
+    let (run, root, runtime) = setup();
+    let image = format!("ghcr.io/estuary/derive-python:vmm-{}", run::random_hex());
+    run::record("image", &image);
+    run::podman(&["tag", &run.derive_python_image, &image]);
+    std::fs::write(format!("{}/local-image", root.dir), &image).unwrap();
+    let inspected_id = run::podman(&["image", "inspect", "--format", "{{.Id}}", &image])
+        .trim()
+        .to_string();
+
+    let router = router(vmm(&root, &run.vmm_image));
+    let hold = launcher::hold(&root, "create");
+    let logs = Logs::default();
+    let task = {
+        let logs = logs.clone();
+        let request = spec(&image);
+        runtime.spawn(async move {
+            let logger = move |log: &ops::Log| logs.push(log);
+            proto_grpc::connector::unary(&router, &logger, request, STARTED, STARTED)
+                .await
+                .map(|(started, _response)| started)
+        })
+    };
+    launcher::wait_held(&root, "create", STARTED);
+
+    // The replacement is a capture image which cannot serve the inspected
+    // Python derivation's entrypoint or protocol.
+    run::podman(&["tag", &run.hello_world_image, &image]);
+    let replaced_id = run::podman(&["image", "inspect", "--format", "{{.Id}}", &image]);
+    assert_ne!(replaced_id.trim(), inspected_id);
+    std::mem::drop(hold);
+
+    let started = runtime
+        .block_on(task)
+        .expect("the launch task completes")
+        .unwrap_or_else(|err| {
+            panic!(
+                "launching the inspected image: {err:#}\n{:#?}",
+                logs.messages()
+            )
+        });
+    assert_started(&started);
+    let name = launcher::vmm_name(&root).expect("the launch created a network");
+    assert_eq!(
+        launcher::leftovers(&root, Some(&name)),
+        Vec::<String>::new()
+    );
+    let calls = launcher::calls(&root);
+    let create = calls
+        .iter()
+        .find(|call| call.starts_with("create "))
+        .unwrap();
+    assert!(create.contains(&format!(
+        "--mount=type=image,source={inspected_id},destination=/rootfs,rw=false"
+    )));
+    assert!(create.contains(&format!("--label=image={image}")));
+    run::podman(&["image", "rm", &image]);
 }
 
 /// The real VMM: derive-python runs as its image's user, which is not root,

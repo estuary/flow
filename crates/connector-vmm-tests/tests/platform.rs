@@ -287,6 +287,10 @@ fn normalize_calls(platform: &Platform, calls: &[String]) -> String {
         .join("\n")
         .replace(&platform.vmm_image, "<vmm image>")
         .replace(&platform.dir, "<platform>");
+    text = regex::Regex::new(r"(--mount=type=image,source=)(?:sha256:)?[0-9a-f]{64}")
+        .unwrap()
+        .replace_all(&text, "${1}<connector image id>")
+        .into_owned();
     for (pattern, label) in [
         (r"fv_[0-9a-f]{16}", "fv_"),
         (r"fvm[0-9a-f]{12}", "fvm"),

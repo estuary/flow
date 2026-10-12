@@ -209,6 +209,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     let mount = format!("{connector_mounts}/mount-{name}");
 
     check_mount_value(image).with_context(|| format!("connector image {image:?}"))?;
+    check_mount_value(&image_inspection.id).context("inspected connector image ID")?;
     check_share(&mount).with_context(|| format!("connector mount {mount:?}"))?;
     if let Some(PersistentDisk {
         host_dir,
@@ -255,7 +256,12 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         "--sysctl=net.ipv6.conf.default.disable_ipv6=1".to_string(),
         format!("--memory={}", vmm.memory_bytes),
         format!("--cpus={}", vmm.cpu_limit),
-        format!("--mount=type=image,source={image},destination=/rootfs,rw=false"),
+        // A concurrent pull may move the tag after inspection. The rootfs
+        // must match the metadata used to configure the connector and its policy.
+        format!(
+            "--mount=type=image,source={},destination=/rootfs,rw=false",
+            image_inspection.id
+        ),
         format!("--mount=type=bind,source={state}/init,target=/init,readonly"),
         format!("--mount=type=bind,source={mount},target={mount},readonly"),
         format!("--mount=type=bind,source={state}/sock,target=/sock"),
@@ -456,6 +462,7 @@ mod test {
     use serde_json::json;
 
     const IMAGE: &str = "ghcr.io/estuary/derive-python:stable";
+    const IMAGE_ID: &str = "sha256:0123abcd";
     const MOUNTS: &str = "/tmp/connector-mounts-0";
     const ID: u64 = 0x0123456789abcdef;
     const TOKEN: u128 = 0x00112233445566778899aabbccddeeff;
@@ -487,7 +494,7 @@ mod test {
             .extend(labels.as_object().unwrap().clone());
 
         serde_json::to_vec(&json!([{
-            "Id": "sha256:0123abcd",
+            "Id": IMAGE_ID,
             "Created": "2026-09-30T00:00:00Z",
             "Config": {
                 "Entrypoint": ["/derive-python"],
@@ -566,7 +573,7 @@ mod test {
                 network: &plan.name,
                 state_dir: &format!("/var/lib/flow/connector-vmm/{}", plan.name),
                 connector_mount: &plan.mount,
-                connector_image: IMAGE,
+                connector_image: IMAGE_ID,
                 vmm_image: &vmm.image,
                 memory_mib: 1024,
                 vcpus: 2,

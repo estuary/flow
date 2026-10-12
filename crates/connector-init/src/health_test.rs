@@ -8,6 +8,7 @@ async fn health_is_serving_without_running_the_connector() {
     std::fs::write(
         &inspect_path,
         serde_json::to_vec(&serde_json::json!([{
+            "Id": "synthetic-image",
             "Config": {
                 "Cmd": null,
                 "Entrypoint": [dir.path().join("absent")],
