@@ -1,0 +1,63 @@
+---
+source: crates/connector-vmm/src/resolver/dns.rs
+expression: table
+---
+# shorter than a header
+refused: message of 8 bytes is shorter than a header
+
+# one A record
+records: [A 93.184.216.34 ttl 300]
+
+# an A record in another class
+records: []
+
+# the owner name as a backward compression pointer
+records: [A 93.184.216.34 ttl 300]
+
+# a forward compression pointer
+refused: compression pointer at 32 does not point backwards
+
+# a CNAME target of the root
+records: []
+
+# a CNAME
+records: [CNAME cdn.acmeco.example ttl 300]
+
+# a CNAME target as a backward compression pointer
+records: [CNAME acmeco.example ttl 300]
+
+# a CNAME target of labels then a compression pointer
+records: [CNAME cdn.acmeco.example ttl 300]
+
+# a CNAME target running on into the next record
+refused: CNAME record data is not exactly one name (rdlength 4)
+
+# a CNAME with no record data
+refused: CNAME record data is not exactly one name (rdlength 0)
+
+# a CNAME target's compression pointer cut short by rdlength
+refused: CNAME record data is not exactly one name (rdlength 1)
+
+# a CNAME target with bytes after it
+refused: CNAME record data is not exactly one name (rdlength 22)
+
+# a label above 63 bytes
+refused: reserved label length 0x40
+
+# a reserved label length
+refused: reserved label length 0x80
+
+# rdlength running past the message
+refused: resource record data truncated
+
+# more answers claimed than carried
+refused: name runs past the end of the message
+
+# a record past the answer section is not read
+records: [A 93.184.216.34 ttl 300]
+
+# a truncated question
+refused: question truncated
+
+# a truncated resource record
+refused: resource record truncated
