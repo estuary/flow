@@ -1,3 +1,98 @@
+use crate::proto;
+use proto_gazette::{fixed_framing, uuid};
+
+pub mod broker;
+
+/// A producer which [`name`] reads back as `name`, so that a trace can label it.
+pub fn producer(name: char) -> uuid::Producer {
+    let name = name as u8;
+    uuid::Producer::from_bytes([name | 0x01, 0, 0, 0, 0, name])
+}
+
+/// The name a [`producer`] was built with.
+pub fn name(producer: uuid::Producer) -> char {
+    producer.as_bytes()[5] as char
+}
+
+/// A clock `ticks` microseconds after the epoch, so that a case reads as a sequence
+/// of small numbers.
+pub fn clock(ticks: u64) -> uuid::Clock {
+    let mut clock = uuid::Clock::UNIX_EPOCH;
+    for _ in 0..ticks {
+        _ = clock.tick();
+    }
+    clock
+}
+
+/// A record of `producer` at `ticks`, carrying `chunks`.
+pub fn record(
+    producer: uuid::Producer,
+    ticks: u64,
+    flags: uuid::Flags,
+    chunks: Vec<proto::Chunk>,
+) -> proto::DiskRecord {
+    proto::DiskRecord {
+        uuid: bytes::Bytes::copy_from_slice(uuid::build(producer, clock(ticks), flags).as_bytes()),
+        chunks,
+        opens_horizon: false,
+    }
+}
+
+/// The fence of `author`, as a promotion appends it.
+pub fn fence(author: uuid::Producer) -> proto::DiskRecord {
+    let uuid = uuid::build(author, uuid::Clock::zero(), uuid::Flags::OUTSIDE_TXN);
+
+    proto::DiskRecord {
+        uuid: bytes::Bytes::copy_from_slice(uuid.as_bytes()),
+        ..Default::default()
+    }
+}
+
+/// `records`, framed exactly as the journal frames them.
+pub fn frame<'a>(records: impl IntoIterator<Item = &'a proto::DiskRecord>) -> bytes::BytesMut {
+    let mut framed = bytes::BytesMut::new();
+    for record in records {
+        fixed_framing::encode(record, &mut framed);
+    }
+    framed
+}
+
+/// Each allocated block of `image`, paired with the byte it is filled with: a
+/// readable report of what a replay left allocated.
+pub fn allocated(image: &crate::image::Image) -> Vec<(u32, u8)> {
+    let mut block = vec![0u8; crate::BLOCK_SIZE as usize];
+
+    image
+        .allocated()
+        .iter_ones()
+        .map(|index| {
+            let index = index as u32;
+            image.read_at(index, &mut block).unwrap();
+            (index, block[0])
+        })
+        .collect()
+}
+
+/// Render `blocks`, as [`allocated`] reports them, as runs of consecutive blocks
+/// holding one fill byte.
+pub fn render_blocks(blocks: &[(u32, u8)]) -> String {
+    let mut runs: Vec<(std::ops::Range<u32>, u8)> = Vec::new();
+
+    for &(block, fill) in blocks {
+        match runs.last_mut() {
+            Some((range, last)) if range.end == block && *last == fill => range.end += 1,
+            _ => runs.push((block..block + 1, fill)),
+        }
+    }
+    if runs.is_empty() {
+        return "none".to_string();
+    }
+    runs.iter()
+        .map(|(range, fill)| format!("{}..{} filled {fill:#04x}", range.start, range.end))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Render chunk ranges and run-length encoded data for compact snapshots.
 pub fn render_chunk(chunk: &crate::proto::Chunk) -> String {
     let range = crate::chunk::covered_blocks(chunk);
