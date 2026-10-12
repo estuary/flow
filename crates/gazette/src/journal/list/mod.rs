@@ -42,6 +42,32 @@ impl Client {
         self.list_with(req, FoldViaExtend(Default::default())).await
     }
 
+    /// Fetch an exact journal name, or `None` if absent.
+    /// The entry includes its spec and Etcd `mod_revision` for a conditional Apply.
+    pub async fn get_journal(
+        &self,
+        journal: &str,
+    ) -> crate::Result<Option<broker::list_response::Journal>> {
+        let response = self
+            .list(broker::ListRequest {
+                // Gazette indexes a journal's own name as a label of its spec.
+                selector: Some(broker::LabelSelector {
+                    include: Some(broker::LabelSet {
+                        labels: vec![broker::Label {
+                            name: "name".to_string(),
+                            value: journal.to_string(),
+                            prefix: false,
+                        }],
+                    }),
+                    exclude: None,
+                }),
+                ..Default::default()
+            })
+            .await?;
+
+        Ok(response.journals.into_iter().next())
+    }
+
     /// List journals that match the ListRequest, using a custom Fold.
     pub async fn list_with<F: Fold>(
         &self,
