@@ -10,6 +10,8 @@ pub struct GazetteBroker {
 pub struct GazetteCluster {
     pub brokers: Vec<GazetteBroker>,
     pub encode_key: tokens::jwt::EncodingKey,
+    /// `encode_key` as a base64 `--broker.auth-keys` configuration value.
+    pub auth_keys: String,
     /// Subdirectory used as `--broker.file-root` for fragment storage.
     /// Lives under the tempdir so it can be blown away on reset without
     /// disturbing UDS sockets.
@@ -98,6 +100,7 @@ impl GazetteCluster {
         Ok(Self {
             brokers,
             encode_key,
+            auth_keys: base64_key,
             fragment_root,
         })
     }
