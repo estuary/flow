@@ -155,5 +155,14 @@ expression: json_test(msg)
   "secrets": {
     "acmeCo/password": "/credentials/password",
     "acmeCo/whole-config": ""
+  },
+  "execution": {
+    "vmm": true,
+    "egress": {
+      "hosts": [
+        "api.acmeco.example",
+        "*.svc.acmeco.example"
+      ]
+    }
   }
 }

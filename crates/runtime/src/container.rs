@@ -659,7 +659,8 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
 async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Result<()> {
     // If we can locate an installed flow-connector-init, use that.
     // This is common when developing or within a container workspace.
-    if let Ok(connector_init) = locate_bin::locate("flow-connector-init") {
+    // It runs against the image's libc, so a dynamically linked build won't do.
+    if let Ok(connector_init) = locate_bin::locate_static("flow-connector-init") {
         tokio::fs::copy(connector_init, tmp_path).await?;
         return Ok(());
     }
@@ -738,7 +739,7 @@ mod test {
 
     #[tokio::test]
     async fn test_http_ingest_spec() {
-        if let Err(_) = locate_bin::locate("flow-connector-init") {
+        if let Err(_) = locate_bin::locate_static("flow-connector-init") {
             // Skip if `flow-connector-init` isn't available (yet). We're probably on CI.
             // This test is useful as a sanity check for local development
             // and we have plenty of other coverage during CI.
@@ -802,7 +803,7 @@ mod test {
 
     #[tokio::test]
     async fn test_container_fails_to_start() {
-        if let Err(_) = locate_bin::locate("flow-connector-init") {
+        if let Err(_) = locate_bin::locate_static("flow-connector-init") {
             // Skip if `flow-connector-init` isn't available (yet). We're probably on CI.
             // This test is useful as a sanity check for local development
             // and we have plenty of other coverage during CI.

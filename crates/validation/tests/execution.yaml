@@ -1,0 +1,187 @@
+test://example/catalog.yaml:
+  collections:
+    acmeCo/source:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+
+    acmeCo/vmm-derivation:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+      derive:
+        using:
+          python:
+            module: python module placeholder
+        vmm: true
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+        transforms:
+          - name: fromSource
+            source: acmeCo/source
+            shuffle: any
+
+    # Requests VMM execution, but derivations default to the V1 runtime.
+    acmeCo/v1-derivation:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+      derive:
+        using:
+          python:
+            module: python module placeholder
+        vmm: true
+        transforms:
+          - name: fromSource
+            source: acmeCo/source
+            shuffle: any
+
+    # A disabled task skips its connector, but not its runtime requirement.
+    acmeCo/disabled-v1-derivation:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+      derive:
+        using:
+          python:
+            module: python module placeholder
+        vmm: true
+        shards:
+          disable: true
+        transforms:
+          - name: fromSource
+            source: acmeCo/source
+            shuffle: any
+
+  captures:
+    # Captures default to the V2 runtime.
+    acmeCo/vmm-capture:
+      endpoint:
+        connector:
+          image: source/image
+          config: {}
+      vmm: true
+      bindings:
+        - resource: { table: one }
+          target: acmeCo/source
+
+    acmeCo/v1-capture:
+      endpoint:
+        connector:
+          image: source/image
+          config: {}
+      vmm: true
+      shards:
+        flags:
+          enable-runtime-v2: "false"
+      bindings:
+        - resource: { table: two }
+          target: acmeCo/source
+
+    # An explicit `vmm: false` is ordinary, as is omission.
+    acmeCo/ordinary-capture:
+      endpoint:
+        connector:
+          image: source/image
+          config: {}
+      vmm: false
+      bindings:
+        - resource: { table: three }
+          target: acmeCo/source
+
+  materializations:
+    acmeCo/vmm-materialization:
+      endpoint:
+        connector:
+          image: materialize/image
+          config: {}
+      vmm: true
+      shards:
+        flags:
+          enable-runtime-v2: "true"
+      bindings:
+        - resource: { table: one }
+          source: acmeCo/source
+
+    # Requests VMM execution, but materializations default to the V1 runtime.
+    acmeCo/v1-materialization:
+      endpoint:
+        connector:
+          image: materialize/image
+          config: {}
+      vmm: true
+      bindings:
+        - resource: { table: two }
+          source: acmeCo/source
+
+    acmeCo/ordinary-materialization:
+      endpoint:
+        connector:
+          image: materialize/image
+          config: {}
+      bindings:
+        - resource: { table: three }
+          source: acmeCo/source
+
+# Each mock call requires its Validate request to `Start` with exactly
+# `execution`, and fails the task otherwise. V1 tasks have no mock: their
+# connectors must not be called at all.
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+
+  derivations:
+    acmeCo/vmm-derivation:
+      execution: { vmm: true }
+      connectorType: IMAGE
+      config:
+        image: ghcr.io/estuary/derive-python:stable
+        config:
+          module: python module placeholder
+          dependencies: {}
+      shuffleKeyTypes: []
+      transforms:
+        - readOnly: true
+
+  captures:
+    acmeCo/vmm-capture:
+      execution: { vmm: true }
+      connectorType: IMAGE
+      config: { image: source/image, config: {} }
+      bindings:
+        - resourcePath: [one]
+    acmeCo/ordinary-capture:
+      connectorType: IMAGE
+      config: { image: source/image, config: {} }
+      bindings:
+        - resourcePath: [three]
+
+  materializations:
+    acmeCo/vmm-materialization:
+      execution: { vmm: true }
+      connectorType: IMAGE
+      config: { image: materialize/image, config: {} }
+      bindings:
+        - constraints:
+            id: { type: 2, reason: "location required" }
+          resourcePath: [one]
+    acmeCo/ordinary-materialization:
+      connectorType: IMAGE
+      config: { image: materialize/image, config: {} }
+      bindings:
+        - constraints:
+            id: { type: 2, reason: "location required" }
+          resourcePath: [three]

@@ -1,0 +1,29 @@
+---
+source: crates/connector/src/vmm.rs
+expression: "rows.join(\"\\n\")"
+---
+start ordinary spec ordinary => ordinary
+start ordinary spec vmm => InvalidArgument: Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+start ordinary spec vmm egress [] => InvalidArgument: Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
+start ordinary spec vmm egress [api] => InvalidArgument: Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+start ordinary spec vmm egress [API] => InvalidArgument: Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } of the task's built spec
+start vmm spec ordinary => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
+start vmm spec vmm => FailedPrecondition: this data plane does not support VMM execution
+start vmm spec vmm egress [] => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
+start vmm spec vmm egress [api] => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+start vmm spec vmm egress [API] => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } of the task's built spec
+start vmm egress [] spec ordinary => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
+start vmm egress [] spec vmm => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+start vmm egress [] spec vmm egress [] => FailedPrecondition: this data plane does not support VMM execution
+start vmm egress [] spec vmm egress [api] => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+start vmm egress [] spec vmm egress [API] => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } of the task's built spec
+start vmm egress [api] spec ordinary => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
+start vmm egress [api] spec vmm => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+start vmm egress [api] spec vmm egress [] => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
+start vmm egress [api] spec vmm egress [api] => FailedPrecondition: this data plane does not support VMM execution
+start vmm egress [api] spec vmm egress [API] => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } of the task's built spec
+start vmm egress [API] spec ordinary => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
+start vmm egress [API] spec vmm => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+start vmm egress [API] spec vmm egress [] => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
+start vmm egress [API] spec vmm egress [api] => InvalidArgument: Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+start vmm egress [API] spec vmm egress [API] => FailedPrecondition: this data plane does not support VMM execution
