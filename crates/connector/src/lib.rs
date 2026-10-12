@@ -33,6 +33,10 @@ mod serve;
 mod service;
 mod vmm;
 
+#[cfg(test)]
+#[path = "../tests/fixtures/execution.rs"]
+mod execution_fixture;
+
 pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify};
 pub use router::{LOCAL_ISSUER, ServiceRouter};
@@ -132,6 +136,7 @@ struct Transport<P: protocol::Protocol> {
     codec: connector_init::Codec,
     /// `docker run` of an image connector, which its [`Guard`] SIGKILLs.
     process: Option<async_process::Child>,
+    vmm: Option<vmm::launch::Guard>,
     /// Sealed endpoint configuration of the dispatched endpoint.
     sealed_config: models::RawValue,
     /// Spec already exchanged on an RPC of its own, only when required.
@@ -160,6 +165,7 @@ struct Started<P: protocol::Protocol> {
 /// Killing the container also closes its stderr, so its log pump can finish.
 pub(crate) struct Guard {
     _process: Option<async_process::Child>,
+    _vmm: Option<vmm::launch::Guard>,
     _refresh: Option<tokio::sync::oneshot::Sender<()>>,
     _mount: Option<tempfile::TempDir>,
 }

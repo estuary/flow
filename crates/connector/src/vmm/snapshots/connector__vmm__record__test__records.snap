@@ -1,0 +1,99 @@
+---
+source: crates/connector/src/vmm/record.rs
+expression: table
+---
+# just claimed
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false }
+
+# with its mount
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"mount\"}\n"
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: true, created_state: false }
+
+# with both directories
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"mount\"}\n{\"created\":\"state\"}\n"
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: true, created_state: true }
+
+# a torn marker
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"mount\"}"
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false }
+
+# a torn claim
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}"
+=> refused: holds no complete claim line
+
+# empty
+""
+=> refused: holds no complete claim line
+
+# a marker twice
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"mount\"}\n{\"created\":\"mount\"}\n"
+=> refused: marks Mount as created twice
+
+# an unknown line
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"network\"}\n"
+=> refused: reading line 2: unknown variant `network`, expected `mount` or `state` at line 1 column 20
+
+# not JSON
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\ncreated mount\n"
+=> refused: reading line 2: expected value at line 1 column 1
+
+# a blank line
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n\n{\"created\":\"mount\"}\n"
+=> refused: reading line 2: EOF while parsing a value at line 1 column 0
+
+# another version
+"{\"version\":2,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
+=> refused: is version 2, not 1
+
+# another version, with fields of its own
+"{\"version\":2,\"pid\":42,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
+=> refused: is version 2, not 1
+
+# an unknown field
+"{\"version\":1,\"pid\":42,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
+=> refused: reading its claim line: unknown field `pid`, expected one of `version`, `id`, `token`, `mount` at line 1 column 18
+
+# another id
+"{\"version\":1,\"id\":\"fv_fedcba9876543210\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
+=> refused: claims id "fv_fedcba9876543210", not "fv_0123456789abcdef"
+
+# an upper-case token
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899AABBCCDDEEFF\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
+=> refused: has a malformed owner token "00112233445566778899AABBCCDDEEFF"
+
+# a short token
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeef\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
+=> refused: has a malformed owner token "00112233445566778899aabbccddeef"
+
+# a relative mount
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
+=> refused: names connector mount "tmp/connector-mounts-1000/mount-fv_0123456789abcdef": is not an absolute path
+
+# another launch's mount
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_fedcba9876543210\"}\n"
+=> refused: names connector mount "/tmp/connector-mounts-1000/mount-fv_fedcba9876543210": is not named mount-fv_0123456789abcdef
+
+# a mount outside connector-mounts
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/home/acme/mount-fv_0123456789abcdef\"}\n"
+=> refused: names connector mount "/home/acme/mount-fv_0123456789abcdef": is not within a connector-mounts-<uid> directory
+
+# a mount in connector-mounts-
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-/mount-fv_0123456789abcdef\"}\n"
+=> refused: names connector mount "/tmp/connector-mounts-/mount-fv_0123456789abcdef": is not within a connector-mounts-<uid> directory
+
+# a mount with ..
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/../connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
+=> refused: names connector mount "/tmp/connector-mounts-1000/../connector-mounts-1000/mount-fv_0123456789abcdef": is not a plain path
+
+# a mount with //
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp//connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
+=> refused: names connector mount "/tmp//connector-mounts-1000/mount-fv_0123456789abcdef": is not a plain path
+
+# a mount with a trailing slash
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef/\"}\n"
+=> refused: names connector mount "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef/": is not a plain path
+
+# a mount alone
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/mount-fv_0123456789abcdef\"}\n"
+=> refused: names connector mount "/mount-fv_0123456789abcdef": is not within a connector-mounts directory

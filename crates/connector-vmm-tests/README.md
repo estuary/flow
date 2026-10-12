@@ -22,3 +22,15 @@ The normal nextest profile excludes privileged tests and runs harness unit tests
 The task owns the host boundary and controlled endpoint namespace for one run.
 Each guest has its own network and state directory. Test-name filters are partial
 runs; the task records resources before creation so interrupted runs can clean up.
+
+## Connector launcher
+
+`tests/launcher.rs` drives `connector::Service` through real and fake VMM images,
+including guest-health readiness, startup faults, killed owners and recovery.
+`src/launcher.rs` owns per-test state and fault controls; `fixtures/podman.sh`
+and `fixtures/gate.py` wrap the engine and control readiness. `tests/common/rpc.rs`
+holds a connector RPC open for lifecycle tests.
+
+A launch claims a durable ownership record and retains its lock across engine
+commands. Recovery releases only resources proven to belong to a dead owner;
+failed cleanup is retained for retry. Connector mounts follow the same owner.

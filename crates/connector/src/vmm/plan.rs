@@ -225,7 +225,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     let state = format!("{}/{name}", vmm.state_dir);
     let socket = format!("{state}/sock/init.sock");
     let token = format!("{token:032x}");
-    let owner = format!("--label={}={token}", "dev.estuary.vmm-owner");
+    let owner = format!("--label={}={token}", super::record::OWNER_LABEL);
     assert!(
         socket.len() <= SOCKET_PATH_MAX,
         "check_state_dir bounds every socket path"
@@ -306,7 +306,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             (format!("{state}/scratch"), 0o700),
         ],
         scratch: format!("{state}/scratch"),
-        record: format!("{}/{name}.owner", vmm.state_dir),
+        record: super::record::path(&vmm.state_dir, &name),
         token,
         policy: match &egress {
             Egress::Names(names) => {

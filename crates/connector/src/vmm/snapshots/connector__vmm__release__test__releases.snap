@@ -1,0 +1,86 @@
+---
+source: crates/connector/src/vmm/release.rs
+expression: table
+---
+# nothing was made
+FindContainers -> FindsNothing
+FindNetworks -> FindsNothing
+RemoveRecord
+
+# only the mount was made
+FindContainers -> FindsNothing
+FindNetworks -> FindsNothing
+RemoveMount -> Removes
+RemoveRecord
+
+# everything was made
+FindContainers -> Finds
+RemoveContainers(["0123abcd"]) -> Removes
+FindNetworks -> Finds
+RemoveNetworks(["fv_0123456789abcdef"]) -> Removes
+RemoveMount -> Removes
+RemoveState -> Removes
+RemoveRecord
+
+# everything, already gone
+FindContainers -> FindsNothing
+FindNetworks -> FindsNothing
+RemoveMount -> Removes
+RemoveState -> Removes
+RemoveRecord
+
+# the container query fails
+FindContainers -> Fails
+Keep
+  left container fv_0123456789abcdef: refused
+
+# the container removal fails
+FindContainers -> Finds
+RemoveContainers(["0123abcd"]) -> Fails
+Keep
+  left container fv_0123456789abcdef: refused
+
+# the network query fails
+FindContainers -> FindsNothing
+FindNetworks -> Fails
+RemoveMount -> Removes
+RemoveState -> Removes
+Keep
+  left network fv_0123456789abcdef: refused
+
+# the network is in use
+FindContainers -> FindsNothing
+FindNetworks -> Finds
+RemoveNetworks(["fv_0123456789abcdef"]) -> Fails
+RemoveMount -> Removes
+RemoveState -> Removes
+Keep
+  left network fv_0123456789abcdef: refused
+
+# the mount removal fails
+FindContainers -> FindsNothing
+FindNetworks -> FindsNothing
+RemoveMount -> Fails
+RemoveState -> Removes
+Keep
+  left /tmp/connector-mounts-1000/mount-fv_0123456789abcdef: refused
+
+# the state removal fails
+FindContainers -> FindsNothing
+FindNetworks -> FindsNothing
+RemoveMount -> Removes
+RemoveState -> Fails
+Keep
+  left /var/lib/flow/connector-vmm/fv_0123456789abcdef: refused
+
+# every removal fails
+FindContainers -> Finds
+RemoveContainers(["0123abcd"]) -> Removes
+FindNetworks -> Finds
+RemoveNetworks(["fv_0123456789abcdef"]) -> Fails
+RemoveMount -> Fails
+RemoveState -> Fails
+Keep
+  left network fv_0123456789abcdef: refused
+  left /tmp/connector-mounts-1000/mount-fv_0123456789abcdef: refused
+  left /var/lib/flow/connector-vmm/fv_0123456789abcdef: refused

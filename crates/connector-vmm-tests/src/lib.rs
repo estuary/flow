@@ -6,5 +6,6 @@ pub mod endpoint;
 pub mod guest;
 pub mod host;
 pub mod launch;
+pub mod launcher;
 pub mod netns;
 pub mod run;
