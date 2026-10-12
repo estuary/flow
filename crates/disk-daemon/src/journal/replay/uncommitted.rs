@@ -1,0 +1,479 @@
+use crate::proto;
+use anyhow::Context;
+use proto_gazette::fixed_framing;
+
+/// Buffer limit before spilling. Batching avoids a file write per record;
+/// smaller deltas need no file I/O. An idle standby may retain this buffer for
+/// as long as its primary leaves a delta uncommitted.
+const SPILL_BYTES: usize = 1 << 20;
+
+/// Read spilled deltas incrementally: repeated writes can make a delta larger
+/// than the disk. A single record may exceed this buffer and must decode whole.
+const READ_BYTES: usize = 64 << 10;
+
+/// The unacknowledged delta of one replay.
+pub struct UncommittedDelta {
+    /// Anonymous spill file beside the disk image.
+    file: std::fs::File,
+    /// Bytes spilled to `file`, which is also its length. `clear` truncates it, so a
+    /// standby which runs for weeks holds no more than the delta it is holding.
+    spilled: u64,
+    /// Records held in memory, which follow every record in `file`.
+    buffered: bytes::BytesMut,
+    /// Total records held in memory and on disk.
+    records: usize,
+    /// Bytes buffered before they spill: [`SPILL_BYTES`], or less in a case which
+    /// spills.
+    spill_bytes: usize,
+}
+
+impl UncommittedDelta {
+    /// Create the file of an uncommitted delta within `dir`, which is the daemon's image
+    /// directory.
+    pub fn create(dir: &std::path::Path) -> std::io::Result<Self> {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true);
+        std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_TMPFILE);
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+
+        Ok(Self {
+            file: options.open(dir)?,
+            spilled: 0,
+            buffered: bytes::BytesMut::new(),
+            records: 0,
+            spill_bytes: SPILL_BYTES,
+        })
+    }
+
+    /// Bytes held, in memory and spilled.
+    pub fn len(&self) -> u64 {
+        self.spilled + self.buffered.len() as u64
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.records == 0
+    }
+
+    /// Hold `framed`, the journal's own bytes of one record. Records spill whole, so
+    /// the file always ends at a record boundary.
+    pub(super) fn push(&mut self, framed: &[u8]) -> anyhow::Result<()> {
+        self.buffered.extend_from_slice(framed);
+        self.records += 1;
+
+        if self.buffered.len() < self.spill_bytes {
+            return Ok(());
+        }
+        () = std::os::unix::fs::FileExt::write_all_at(&self.file, &self.buffered, self.spilled)
+            .context("spilling an unacknowledged delta")?;
+
+        self.spilled += self.buffered.len() as u64;
+        self.buffered.clear();
+
+        Ok(())
+    }
+
+    /// Decode records in order, then clear the delta. Read spills incrementally,
+    /// keeping memory bounded by the buffers and largest record, not delta size.
+    /// Malformed framing, incomplete records, and count mismatches are corruption:
+    /// these bytes were already validated when read from the journal.
+    pub(super) fn drain(
+        &mut self,
+        mut each: impl FnMut(proto::DiskRecord) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        let mut records = 0;
+        let mut each = |record| {
+            records += 1;
+            each(record)
+        };
+
+        // Bytes read back and not yet unpacked. Each read lands in place after what is
+        // held of a record which straddles two reads, so the spilled bytes are copied
+        // out of the file once.
+        let mut buf = bytes::BytesMut::new();
+        let mut offset = 0;
+
+        while offset != self.spilled {
+            let held = buf.len();
+            let len = std::cmp::min(READ_BYTES as u64, self.spilled - offset) as usize;
+            buf.resize(held + len, 0);
+
+            () = std::os::unix::fs::FileExt::read_exact_at(&self.file, &mut buf[held..], offset)
+                .context("reading back an uncommitted delta")?;
+            offset += len as u64;
+
+            () = unpack(&mut buf, &mut each)?;
+        }
+        () = unpack(&mut self.buffered, &mut each)?;
+
+        anyhow::ensure!(
+            buf.is_empty() && self.buffered.is_empty() && records == self.records,
+            "an uncommitted delta ends within a record: {records} of {} records decode, \
+             with {} bytes left over",
+            self.records,
+            buf.len() + self.buffered.len(),
+        );
+        () = self.clear()?;
+
+        Ok(())
+    }
+
+    /// Drop buffered records and truncate the spill file without touching the image.
+    /// Release buffer memory too: an idle standby may not need it again for hours.
+    pub(super) fn clear(&mut self) -> std::io::Result<()> {
+        if self.spilled != 0 {
+            () = self.file.set_len(0)?;
+        }
+        self.spilled = 0;
+        self.buffered = bytes::BytesMut::new();
+        self.records = 0;
+
+        Ok(())
+    }
+}
+
+/// Hand each whole record `buf` holds to `each`, and leave a record it holds only
+/// part of.
+fn unpack(
+    buf: &mut bytes::BytesMut,
+    each: &mut impl FnMut(proto::DiskRecord) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    loop {
+        match fixed_framing::unpack::<proto::DiskRecord>(buf)
+            .context("decoding an uncommitted delta")?
+        {
+            fixed_framing::Frame::Record { message, .. } => () = each(message)?,
+            fixed_framing::Frame::Desync { skipped } => {
+                anyhow::bail!("{} unframed bytes in an uncommitted delta", skipped.len(),)
+            }
+            fixed_framing::Frame::Incomplete => return Ok(()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{READ_BYTES, SPILL_BYTES, UncommittedDelta};
+    use crate::proto;
+    use crate::{BLOCK_SIZE, chunk};
+    use proto_gazette::{fixed_framing, uuid};
+    use std::fmt::Write as _;
+
+    /// Each way a delta may be held: every record spilled, records spilled in batches
+    /// with the rest held in memory, and every record held in memory.
+    const SPILLS: [usize; 3] = [0, 3 * READ_BYTES, SPILL_BYTES];
+
+    fn producer(seed: u8) -> uuid::Producer {
+        uuid::Producer::from_bytes([seed | 0x01, 0, 0, 0, 0, seed])
+    }
+
+    /// A record of `producer`'s delta carrying `chunks`. Nothing here sequences
+    /// records, so one clock serves them all.
+    fn record(producer: uuid::Producer, chunks: Vec<proto::Chunk>) -> proto::DiskRecord {
+        proto::DiskRecord {
+            uuid: bytes::Bytes::copy_from_slice(
+                uuid::build(producer, uuid::Clock::UNIX_EPOCH, uuid::Flags::CONTINUE_TXN)
+                    .as_bytes()
+                    .as_slice(),
+            ),
+            chunks,
+            opens_horizon: false,
+            installs_author: bytes::Bytes::new(),
+        }
+    }
+
+    /// A record writing `blocks` blocks of `fill`, beginning at `block`.
+    fn write(producer: uuid::Producer, block: u32, blocks: u32, fill: u8) -> proto::DiskRecord {
+        let data = bytes::Bytes::from(vec![fill; (blocks * BLOCK_SIZE) as usize]);
+
+        record(producer, chunk::encode_write(block, &data))
+    }
+
+    /// A record whose chunk carries `bytes` bytes of `fill`, which is how a case
+    /// places its framing at an offset a block-aligned write could not reach.
+    fn sized(producer: uuid::Producer, block: u32, bytes: usize, fill: u8) -> proto::DiskRecord {
+        record(
+            producer,
+            vec![proto::Chunk {
+                block,
+                content: Some(proto::chunk::Content::Data(bytes::Bytes::from(vec![
+                    fill;
+                    bytes
+                ]))),
+            }],
+        )
+    }
+
+    /// Hold `records`, framed exactly as the journal frames them.
+    fn hold(uncommitted: &mut UncommittedDelta, records: &[proto::DiskRecord]) {
+        let mut framed = bytes::BytesMut::new();
+
+        for record in records {
+            framed.clear();
+            fixed_framing::encode(record, &mut framed);
+            uncommitted.push(&framed).unwrap();
+        }
+    }
+
+    /// An uncommitted delta within `dir` which spills past `spill_bytes`.
+    fn delta(dir: &tempfile::TempDir, spill_bytes: usize) -> UncommittedDelta {
+        UncommittedDelta {
+            spill_bytes,
+            ..UncommittedDelta::create(dir.path()).unwrap()
+        }
+    }
+
+    /// Drain `held`, collecting what it hands back and the failure, if any, which
+    /// stopped it.
+    fn drained(uncommitted: &mut UncommittedDelta) -> (Vec<proto::DiskRecord>, anyhow::Result<()>) {
+        let mut records = Vec::new();
+
+        let result = uncommitted.drain(|record| {
+            records.push(record);
+            Ok(())
+        });
+        (records, result)
+    }
+
+    /// Trace held records, encoded bytes, and spill file length after `step`.
+    fn row(step: &str, uncommitted: &UncommittedDelta) -> String {
+        let records = if uncommitted.is_empty() {
+            "empty".to_string()
+        } else {
+            format!("{} records", uncommitted.records)
+        };
+        format!(
+            "{step:<13}{records:<13}held {:<8}file {}",
+            uncommitted.len(),
+            uncommitted.file.metadata().unwrap().len(),
+        )
+    }
+
+    /// A delta of many records, spanning many fills of the reader's buffer, reads
+    /// back in the order it was held, however much of it spilled. One smaller than
+    /// [`SPILL_BYTES`] never touches the file.
+    #[test]
+    fn test_a_many_record_delta_reads_back_in_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = producer(0x10);
+        let records: Vec<_> = (0..200u32).map(|i| write(a, i % 8, 1, i as u8)).collect();
+        let mut trace = String::new();
+
+        for spill_bytes in SPILLS {
+            let mut uncommitted = delta(&dir, spill_bytes);
+
+            hold(&mut uncommitted, &records);
+            assert!(
+                uncommitted.len() > 8 * READ_BYTES as u64,
+                "many held fills of delta"
+            );
+            let step = row("hold", &uncommitted);
+            writeln!(trace, "spill past {spill_bytes:<9}{step}").unwrap();
+
+            let (read, result) = drained(&mut uncommitted);
+            () = result.unwrap();
+
+            assert!(read == records, "spilling past {spill_bytes} bytes");
+            let step = row(&format!("drained {}", read.len()), &uncommitted);
+            writeln!(trace, "spill past {spill_bytes:<9}{step}").unwrap();
+        }
+        insta::assert_snapshot!(trace, @"
+        spill past 0        hold         200 records  held 821852  file 821852
+        spill past 0        drained 200  empty        held 0       file 0
+        spill past 196608   hold         200 records  held 821852  file 792942
+        spill past 196608   drained 200  empty        held 0       file 0
+        spill past 1048576  hold         200 records  held 821852  file 0
+        spill past 1048576  drained 200  empty        held 0       file 0
+        ");
+    }
+
+    /// A record may be larger than the buffer it is read through, and is then read
+    /// whole. Framing decodes a record as a unit, and a chunk of the device's
+    /// maximum request size already exceeds the buffer.
+    #[test]
+    fn test_a_record_larger_than_the_read_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = producer(0x10);
+
+        let blocks = 2 + READ_BYTES as u32 / BLOCK_SIZE;
+        let records = [
+            write(a, 0, 1, 0xaa),
+            write(a, 1, blocks, 0xbb),
+            write(a, 1 + blocks, 1, 0xcc),
+        ];
+
+        for spill_bytes in SPILLS {
+            let mut uncommitted = delta(&dir, spill_bytes);
+            hold(&mut uncommitted, &records);
+
+            let (read, result) = drained(&mut uncommitted);
+            () = result.unwrap();
+
+            assert!(read == records, "spilling past {spill_bytes} bytes");
+        }
+    }
+
+    /// A spilled frame may cross a fill of the reader's buffer at any offset,
+    /// including within its own header. Sweeping the size of the first record walks
+    /// the second record's start across that edge, and the sweep asserts that it
+    /// reached the header case.
+    #[test]
+    fn test_a_record_may_straddle_the_read_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = producer(0x10);
+        let mut split_header = false;
+
+        for bytes in READ_BYTES - 72..READ_BYTES + 8 {
+            let mut uncommitted = delta(&dir, 0);
+
+            let first = sized(a, 0, bytes, 0xaa);
+            let mut framed = bytes::BytesMut::new();
+            fixed_framing::encode(&first, &mut framed);
+
+            split_header |=
+                (READ_BYTES - fixed_framing::HEADER_LEN..READ_BYTES).contains(&framed.len());
+
+            let records = [first, write(a, 40, 1, 0xbb), write(a, 41, 1, 0xcc)];
+            hold(&mut uncommitted, &records);
+
+            let (read, result) = drained(&mut uncommitted);
+            () = result.unwrap();
+
+            assert!(read == records, "with {bytes} bytes of data");
+        }
+        assert!(split_header, "a frame header straddled a held boundary");
+    }
+
+    /// A drain truncates the file it spilled to, so the next delta's spill starts
+    /// over and reads back without the prior delta's tail.
+    #[test]
+    fn test_a_drained_file_holds_the_next_delta() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut uncommitted = delta(&dir, 0);
+        let a = producer(0x10);
+        let mut trace = String::new();
+
+        hold(
+            &mut uncommitted,
+            &[write(a, 0, 2, 0xaa), write(a, 1, 1, 0xbb)],
+        );
+        let prior_len = uncommitted.len();
+        writeln!(trace, "{}", row("hold prior", &uncommitted)).unwrap();
+
+        let (read, result) = drained(&mut uncommitted);
+        () = result.unwrap();
+        let step = row(&format!("drained {}", read.len()), &uncommitted);
+        writeln!(trace, "{step}").unwrap();
+
+        let next = [write(a, 1, 1, 0xcc), write(a, 2, 1, 0xdd)];
+        hold(&mut uncommitted, &next);
+        assert!(uncommitted.len() < prior_len, "the next delta is shorter");
+        writeln!(trace, "{}", row("hold next", &uncommitted)).unwrap();
+
+        let (read, result) = drained(&mut uncommitted);
+        () = result.unwrap();
+
+        assert!(
+            read == next,
+            "the next delta read back with the prior one's tail"
+        );
+        let step = row(&format!("drained {}", read.len()), &uncommitted);
+        writeln!(trace, "{step}").unwrap();
+
+        insta::assert_snapshot!(trace, @"
+        hold prior   2 records    held 12354   file 12354
+        drained 2    empty        held 0       file 0
+        hold next    2 records    held 8260    file 8260
+        drained 2    empty        held 0       file 0
+        ");
+    }
+
+    /// Report the records yielded and failure for each spill threshold when
+    /// draining malformed input.
+    fn refused(dir: &tempfile::TempDir, parts: &[&[u8]]) -> Vec<String> {
+        SPILLS
+            .iter()
+            .map(|&spill_bytes| {
+                let mut uncommitted = delta(dir, spill_bytes);
+
+                for part in parts {
+                    uncommitted.push(part).unwrap();
+                }
+                let (read, result) = drained(&mut uncommitted);
+                let outcome = match result {
+                    Ok(()) => "drained".to_string(),
+                    Err(err) => format!("refused: {err:#}"),
+                };
+                format!(
+                    "spill past {spill_bytes:<9}handed back {}, {outcome}",
+                    read.len(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_unframed_held_content_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let rows = refused(&dir, &[b"held content with no magic word anywhere in it"]);
+
+        insta::assert_snapshot!(rows.join("\n"), @"
+        spill past 0        handed back 0, refused: 43 unframed bytes in an uncommitted delta
+        spill past 196608   handed back 0, refused: 43 unframed bytes in an uncommitted delta
+        spill past 1048576  handed back 0, refused: 43 unframed bytes in an uncommitted delta
+        ");
+    }
+
+    /// Reject truncation within the frame header or payload.
+    #[test]
+    fn test_a_delta_which_ends_within_a_record_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let mut framed = bytes::BytesMut::new();
+        fixed_framing::encode(&write(producer(0x10), 0, 1, 0xaa), &mut framed);
+
+        let mut trace = String::new();
+        for len in [1, fixed_framing::HEADER_LEN - 1, framed.len() - 1] {
+            let held = format!("{len} bytes");
+            for row in refused(&dir, &[&framed[..len]]) {
+                writeln!(trace, "{held:<12}{row}").unwrap();
+            }
+        }
+        insta::assert_snapshot!(trace, @"
+        1 bytes     spill past 0        handed back 0, refused: an uncommitted delta ends within a record: 0 of 1 records decode, with 1 bytes left over
+        1 bytes     spill past 196608   handed back 0, refused: an uncommitted delta ends within a record: 0 of 1 records decode, with 1 bytes left over
+        1 bytes     spill past 1048576  handed back 0, refused: an uncommitted delta ends within a record: 0 of 1 records decode, with 1 bytes left over
+        7 bytes     spill past 0        handed back 0, refused: an uncommitted delta ends within a record: 0 of 1 records decode, with 7 bytes left over
+        7 bytes     spill past 196608   handed back 0, refused: an uncommitted delta ends within a record: 0 of 1 records decode, with 7 bytes left over
+        7 bytes     spill past 1048576  handed back 0, refused: an uncommitted delta ends within a record: 0 of 1 records decode, with 7 bytes left over
+        4127 bytes  spill past 0        handed back 0, refused: an uncommitted delta ends within a record: 0 of 1 records decode, with 4127 bytes left over
+        4127 bytes  spill past 196608   handed back 0, refused: an uncommitted delta ends within a record: 0 of 1 records decode, with 4127 bytes left over
+        4127 bytes  spill past 1048576  handed back 0, refused: an uncommitted delta ends within a record: 0 of 1 records decode, with 4127 bytes left over
+        ");
+    }
+
+    /// A header states a payload longer than the delta holds. The record never
+    /// completes, so the delta ends within it. The delta here runs past the first
+    /// block, so where it spilled, that end is found only once the rest has been
+    /// read.
+    #[test]
+    fn test_a_record_which_frames_more_than_is_held_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = producer(0x10);
+
+        let mut claims = bytes::BytesMut::from(&fixed_framing::MAGIC[..]);
+        claims.extend_from_slice(&u32::MAX.to_le_bytes());
+
+        let mut beyond = bytes::BytesMut::new();
+        while beyond.len() < READ_BYTES {
+            fixed_framing::encode(&write(a, 0, 1, 0xaa), &mut beyond);
+        }
+
+        let rows = refused(&dir, &[&claims, &beyond]);
+
+        insta::assert_snapshot!(rows.join("\n"), @"
+        spill past 0        handed back 0, refused: an uncommitted delta ends within a record: 0 of 2 records decode, with 66056 bytes left over
+        spill past 196608   handed back 0, refused: an uncommitted delta ends within a record: 0 of 2 records decode, with 66056 bytes left over
+        spill past 1048576  handed back 0, refused: an uncommitted delta ends within a record: 0 of 2 records decode, with 66056 bytes left over
+        ");
+    }
+}
