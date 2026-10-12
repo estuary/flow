@@ -18,6 +18,7 @@ mise run build:gazette
 mise run build:flowctl-go
 mise run ci:nextest-build
 mise run local:bigtable
+sudo modprobe ublk_drv
 mise run ci:nextest-run
 mise run ci:doctest
 mise run ci:gotest

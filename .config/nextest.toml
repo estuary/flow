@@ -8,6 +8,10 @@ serial-db-tests = { max-threads = 1 }
 # a bound leaves the allocator headroom that an unbounded fan-out would not.
 capped-shard-reconfiguration = { max-threads = 3 }
 
+# disk-daemon tests share /dev/ublk-control and check for leaked devices and mounts,
+# so no other scenario may run during their cleanup checks.
+serial-ublk-tests = { max-threads = 1 }
+
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
 # Exclude e2e tests from Dekaf by default because they require special setup.
@@ -76,6 +80,14 @@ test-group = 'serial-db-tests'
 [[profile.default.overrides]]
 filter = 'package(automations) and test(test_fibonacci_bench)'
 test-group = 'serial-db-tests'
+
+# TODO(whb): Data-plane startup and multi-disk scenarios need more than the default timeout.
+# Revisit these tests so they run quickly enough to be practical.
+# Match by kind so new integration binaries also join the serialized group.
+[[profile.default.overrides]]
+filter = 'package(disk-daemon) and kind(test)'
+test-group = 'serial-ublk-tests'
+slow-timeout = { period = "60s", terminate-after = 6 }
 
 # This `server::` filter is overly broad, as not all the tests there actually
 # need the database. But I gave up on listing all the tests individually, as
