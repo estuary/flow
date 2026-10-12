@@ -5,6 +5,8 @@ set -euo pipefail
 #USAGE arg "[filter]" help="Run only suite tests whose names match. The run is then partial: connector-init's vsock test is skipped."
 #USAGE flag "--allow-missing-vsock-loopback" help="Let connector-init's vsock test skip where vsock_loopback cannot load. The suite's own guest still proves connector-init serving over vsock."
 
+#USAGE flag "--ignored" help="Run the suite's opt-in test named as the filter, which must be c11::lifecycle_cycles (100 seeded launch, cancel and crash cycles), instead of its default tests."
+
 # Must match `run::ROOT` in crates/connector-vmm-tests/src/run.rs.
 ROOT=/var/tmp/connector-vmm-kvm
 FIXTURES=crates/connector-vmm-tests/fixtures
@@ -36,11 +38,16 @@ DECOYS=(198.18.255.241)
 
 FILTER="${usage_filter:-}"
 ALLOW_MISSING_VSOCK="${usage_allow_missing_vsock_loopback:-false}"
+IGNORED="${usage_ignored:-false}"
 
 fail() {
     echo "ci:connector-vmm-kvm: $*" >&2
     exit 1
 }
+
+if [ "${IGNORED}" = true ]; then
+    [ "${FILTER}" = c11::lifecycle_cycles ] || fail "--ignored runs only c11::lifecycle_cycles, named as its filter"
+fi
 
 [ "$(uname -m)" = x86_64 ] || fail "the VMM image is linux/amd64 only, and this host is $(uname -m)"
 sudo -n true 2>/dev/null || fail "passwordless sudo is unavailable"
@@ -250,7 +257,7 @@ fi
 echo "=== The KVM suite ==="
 PATH="${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release:${PATH}" \
 CONNECTOR_VMM_KVM=1 cargo nextest run --locked --profile connector-vmm-kvm -p connector-vmm-tests \
-    --no-fail-fast ${FILTER:+"${FILTER}"} || status=$?
+    --no-fail-fast $([ "${IGNORED}" = false ] || echo --run-ignored=only) ${FILTER:+"${FILTER}"} || status=$?
 
 echo "Every launch's stdout and stderr: ${RUN_DIR}"
 exit "${status}"

@@ -1,12 +1,12 @@
-//! VMM capability, connector start admission, and the plan of a VMM launch.
+//! VMM capability, connector start admission, and the plan, launch, ownership
+//! and release of a VMM.
 use anyhow::Context;
 use proto_flow::flow;
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "VMM launches are refused before any plan is made")
-)]
+pub(crate) mod launch;
 mod plan;
+mod record;
+mod release;
 
 /// VMM capability of a connector service, and the configuration every VMM it
 /// launches shares.
@@ -244,7 +244,6 @@ fn eligible(task_type: ops::TaskType, image: &str) -> Option<&'static Eligible> 
 }
 
 /// How an admitted connector start runs.
-#[expect(dead_code, reason = "VMM launches are not yet implemented")]
 #[derive(Debug)]
 pub(crate) enum Execution<'a> {
     Ordinary,

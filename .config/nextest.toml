@@ -16,7 +16,7 @@ slow-timeout = { period = "30s", terminate-after = 4 }
 # running local stack. See mise/tasks/ci/consistency. The connector VMM's KVM
 # suite needs KVM, sudo and rootful podman, and runs only under
 # mise/tasks/ci/connector-vmm-kvm; its harness's own unit tests stay here.
-default-filter = 'not binary_id(/dekaf::e2e/) and not binary_id(/materialize-consistency::scenarios/) and not binary_id(/connector-vmm-tests::kvm/)'
+default-filter = 'not binary_id(/dekaf::e2e/) and not binary_id(/materialize-consistency::scenarios/) and not binary_id(/connector-vmm-tests::kvm/) and not binary_id(/connector-vmm-tests::launcher/)'
 
 [profile.dekaf-e2e]
 # Migration tests excluded due to 8-minute timeout; run them with the
@@ -72,18 +72,54 @@ filter = '''
 test-group = 'capped-shard-reconfiguration'
 
 [profile.connector-vmm-kvm]
-default-filter = 'binary_id(/connector-vmm-tests::kvm/)'
+default-filter = 'binary_id(/connector-vmm-tests::kvm/) or binary_id(/connector-vmm-tests::launcher/)'
 # Backstop for a hung test; the task's resource list handles cleanup.
 slow-timeout = { period = "60s", terminate-after = 3 }
 # Each test boots a guest costing about 1 GiB of host memory.
 test-threads = 4
 success-output = "final"
 
+# Its launch waits out connector's 60s release command timeout once for each
+# of three records in turn, so it alone runs past the profile's backstop.
+[[profile.connector-vmm-kvm.overrides]]
+filter = 'binary_id(/connector-vmm-tests::launcher/) and test(=stalled_queries_of_three_records_each_time_out)'
+slow-timeout = { period = "60s", terminate-after = 7 }
+
 # Four serial noisy-tenant variants beside one peer, each holding pressure for
 # twenty seconds or more, then launching a successor.
 [[profile.connector-vmm-kvm.overrides]]
 filter = 'binary_id(/connector-vmm-tests::kvm/) and test(=c07::noisy_tenant)'
 slow-timeout = { period = "60s", terminate-after = 6 }
+
+# Seven launches in turn, each bounded by 60 s, two of them beside an old
+# generation's removal held for up to 30 s.
+[[profile.connector-vmm-kvm.overrides]]
+filter = 'binary_id(/connector-vmm-tests::launcher/) and test(=c12::replacement_races_old_cleanup)'
+slow-timeout = { period = "60s", terminate-after = 8 }
+
+# Three launches, a baseline, an OOM kill and its release, then a fresh
+# launch, each launch bounded by the launcher tests' 180 s.
+[[profile.connector-vmm-kvm.overrides]]
+filter = 'binary_id(/connector-vmm-tests::kvm/) and test(=c08::host_oom)'
+slow-timeout = { period = "60s", terminate-after = 8 }
+
+# Up to two launches, each bounded by 180 s to start, 120 s to install, 30 s
+# to derive and 60 s each to end and release.
+[[profile.connector-vmm-kvm.overrides]]
+filter = 'binary_id(/connector-vmm-tests::kvm/) and test(/^c14::/)'
+slow-timeout = { period = "60s", terminate-after = 15 }
+
+# A launch, up to 30 s of flood and an 8 s hold, or a 12 s stopped window and
+# a sibling launch, then a release, each launch bounded by 180 s.
+[[profile.connector-vmm-kvm.overrides]]
+filter = 'binary_id(/connector-vmm-tests::kvm/) and test(/^c09::/)'
+slow-timeout = { period = "60s", terminate-after = 6 }
+
+# Opt-in (`ci:connector-vmm-kvm --ignored c11::lifecycle_cycles`): 100 cycles
+# of a few seconds each, every one bounded at 120 s by its own watchdog.
+[[profile.connector-vmm-kvm.overrides]]
+filter = 'binary_id(/connector-vmm-tests::launcher/) and test(=c11::lifecycle_cycles)'
+slow-timeout = { period = "60s", terminate-after = 25 }
 
 [[profile.default.overrides]]
 filter = 'package(agent) and (test(discovers::) + test(directives::) + test(integration_tests::))'
