@@ -3216,6 +3216,7 @@ dependencies = [
  "anyhow",
  "async-process",
  "build",
+ "bytes",
  "futures",
  "gazette",
  "insta",

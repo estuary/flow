@@ -10,6 +10,8 @@ pub struct GazetteBroker {
 pub struct GazetteCluster {
     pub brokers: Vec<GazetteBroker>,
     pub encode_key: tokens::jwt::EncodingKey,
+    /// `encode_key` as a base64 `--broker.auth-keys` configuration value.
+    pub auth_keys: String,
     /// Subdirectory used as `--broker.file-root` for fragment storage.
     /// Lives under the tempdir so it can be blown away on reset without
     /// disturbing UDS sockets.
@@ -98,8 +100,20 @@ impl GazetteCluster {
         Ok(Self {
             brokers,
             encode_key,
+            auth_keys: base64_key,
             fragment_root,
         })
+    }
+
+    /// Signal every broker. SIGSTOP/SIGCONT simulate an outage with no replies,
+    /// which clients must wait through.
+    pub fn signal(&self, signal: libc::c_int) {
+        for broker in &self.brokers {
+            let pid = broker.process.id() as libc::pid_t;
+
+            // SAFETY: `pid` is a child of this process, which has not been reaped.
+            assert_eq!(unsafe { libc::kill(pid, signal) }, 0, "signalling {pid}");
+        }
     }
 
     /// Build a journal client authenticated with the cluster's HMAC key.
