@@ -1,0 +1,5 @@
+---
+source: crates/disk-daemon/src/chunk.rs
+expression: render(&chunks)
+---
+blocks 0..1: data len 4095 [0xaax4095]

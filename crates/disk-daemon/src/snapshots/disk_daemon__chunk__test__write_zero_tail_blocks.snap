@@ -1,0 +1,8 @@
+---
+source: crates/disk-daemon/src/chunk.rs
+expression: render(&chunks)
+---
+blocks 100..101: data len 4096 [0xaax4096]
+blocks 101..102: empty data (one zeroed block)
+blocks 102..103: empty data (one zeroed block)
+blocks 103..104: empty data (one zeroed block)

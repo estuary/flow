@@ -1,0 +1,7 @@
+---
+source: crates/disk-daemon/src/chunk.rs
+expression: render(&chunks)
+---
+blocks 5..6: empty data (one zeroed block)
+blocks 6..7: empty data (one zeroed block)
+blocks 7..8: empty data (one zeroed block)
