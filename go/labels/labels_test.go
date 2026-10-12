@@ -15,6 +15,7 @@ func TestRuntimeLabels(t *testing.T) {
 		{"other", false},
 		{Build, false},
 		{Collection, false},
+		{DiskRecoveryFloor, true},
 		{FieldPrefix + "One", true},
 		{FieldPrefix + "two", true},
 		{KeyBegin, true},

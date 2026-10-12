@@ -19,6 +19,10 @@ const (
 	// Cordon is a label that indicates that this journal or shard is cordoned
 	// due to an ongoing data-plane migration.
 	Cordon = "estuary.dev/cordon"
+	// DiskRecoveryFloor is the earliest journal offset needed to rebuild a disk,
+	// encoded as 16 hex characters. The daemon stores it after a commit, so it
+	// also records that committed state exists. Convergence must preserve it.
+	DiskRecoveryFloor = "estuary.dev/disk-recovery-floor"
 	// Field is a logical partition of the Collection that's implemented by this
 	// journal.
 	FieldPrefix = "estuary.dev/field/"
@@ -121,6 +125,8 @@ func IsRuntimeLabel(label string) bool {
 	case
 		// Cordoning is tracked in the data-plane.
 		Cordon,
+		// A disk's recovery floor is stored by the disk daemon on its journal.
+		DiskRecoveryFloor,
 		// Key splits are performed dynamically by the runtime.
 		KeyBegin, KeyEnd,
 		// R-Clock splits are performed dynamically by the runtime.
