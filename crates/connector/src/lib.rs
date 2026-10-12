@@ -31,17 +31,21 @@ mod protocol;
 mod router;
 mod serve;
 mod service;
+mod vmm;
 
 pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify};
 pub use router::{LOCAL_ISSUER, ServiceRouter};
 pub use service::{Service, TaskUpdate};
+pub use vmm::Vmm;
 
 /// Build a connector router for tests and other offline callers which need no
-/// shared registry and never attach containers to a Docker network.
+/// shared registry, never attach containers to a Docker network, and have no
+/// VMM capability.
 pub fn local_test_router() -> std::sync::Arc<dyn proto_grpc::connector::Router> {
     let (_service, router) = Service::new_local(
         String::new(),
+        None,
         service_kit::Registry::new(),
         std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
     );
@@ -144,6 +148,8 @@ struct Started<P: protocol::Protocol> {
     /// Keeps an image or local connector's host resources alive until stream
     /// teardown. In-process connectors have none.
     guard: Guard,
+    /// Execution admitted at start, fixed for this session.
+    execution: proto_flow::flow::ConnectorExecution,
 }
 
 /// Host resources of an image or local connector, released when the served
@@ -155,7 +161,7 @@ struct Started<P: protocol::Protocol> {
 pub(crate) struct Guard {
     _process: Option<async_process::Child>,
     _refresh: Option<tokio::sync::oneshot::Sender<()>>,
-    _mount: tempfile::TempDir,
+    _mount: Option<tempfile::TempDir>,
 }
 
 /// Render one `ops::Log` of this crate's own reporting.
