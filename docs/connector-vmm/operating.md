@@ -23,7 +23,7 @@ and the rollout and security limits of this support. What tasks declare is in
 Measured, and the only arrangement proven: an x86_64 GCP VM running Ubuntu
 24.04 (kernel 7.0), rootful Podman 4.9.3 with netavark 1.4.0 (whose firewall
 driver writes iptables-nft 1.8.10), nft 1.0.9, systemd 255, with Docker 29.1.3
-beside it. The VMM image is Fedora 43 with libkrun 1.19.4 and libkrunfw 5.5.0.
+beside it. The VMM image is Fedora 43 with libkrun 1.19.4 and libkrunfw 5.6.2.
 The reactor in that proof was a local stack's systemd user unit driving
 podman through sudo.
 

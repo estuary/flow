@@ -4,7 +4,7 @@
 # Fedora's. These versions also label the image, so they are set once here.
 ARG LIBKRUN_VERSION=1.19.4
 ARG LIBKRUN_COMMIT=728df8125077d0db44265f6e997c72b81b65c015
-ARG LIBKRUNFW_VERSION=5.5.0
+ARG LIBKRUNFW_VERSION=5.6.2
 
 FROM quay.io/fedora/fedora:43 AS libkrun
 ARG LIBKRUN_VERSION

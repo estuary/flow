@@ -205,7 +205,7 @@ fn launched(calls: &[String]) -> Vec<String> {
     names
 }
 
-/// Every connector mount which appears beneath the shared TMPDIR, and whether
+/// Every VMM connector mount which appears beneath the shared TMPDIR, and whether
 /// its `flow-connector-init` was ever seen to be the static build's bytes. A
 /// mount is watched from creation until it's gone, so a file read while the
 /// launcher was still writing it is read again.
@@ -243,6 +243,9 @@ fn watch_mounts(platform: &Platform) -> Mounts {
                     let Some(name) = file.strip_prefix("mount-") else {
                         continue;
                     };
+                    if !name.starts_with("fv_") {
+                        continue;
+                    }
                     let mut seen = seen.lock().unwrap();
                     if matches!(seen.get(name), Some(Ok(()))) {
                         continue;
