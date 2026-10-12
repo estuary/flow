@@ -27,6 +27,7 @@ futures = { workspace = true }
 hyper-util = { workspace = true }
 insta = { workspace = true }
 regex = { workspace = true }
+serde_yaml = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }

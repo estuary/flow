@@ -1,0 +1,20 @@
+---
+source: crates/connector-vmm-tests/tests/platform.rs
+expression: "normalize_calls(&platform, &calls)"
+---
+pull ghcr.io/estuary/derive-python:stable --quiet --platform=linux/amd64
+image inspect ghcr.io/estuary/derive-python:stable
+run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN <vmm image> boundary verify
+network create --driver=bridge --interface-name=fvm<1> --label=dev.estuary.vmm-owner=token<1> fv_<1>
+create --rm --name=fv_<1> --network=fv_<1> --log-driver=none --read-only --read-only-tmpfs=false --device=/dev/kvm --device=/dev/net/tun --cap-add=CAP_NET_ADMIN --sysctl=net.ipv4.ip_forward=1 --sysctl=net.ipv4.conf.default.rp_filter=1 --sysctl=net.ipv6.conf.default.disable_ipv6=1 --memory=1g --cpus=2 --mount=type=image,source=ghcr.io/estuary/derive-python:stable,destination=/rootfs,rw=true --mount=type=bind,source=<platform>/state/fv_<1>/init,target=/init,readonly --mount=type=bind,source=<platform>/tmp/connector-mounts-<1>/mount-fv_<1>,target=<platform>/tmp/connector-mounts-<1>/mount-fv_<1>,readonly --mount=type=bind,source=<platform>/state/fv_<1>/sock,target=/sock --mount=type=bind,source=<platform>/state/fv_<1>/scratch,target=/scratch-backing --env=CONNECTOR_MOUNT=<platform>/tmp/connector-mounts-<1>/mount-fv_<1> --env=LOG_FORMAT=json --env=LOG_LEVEL=info --platform=linux/amd64 --label=image=ghcr.io/estuary/derive-python:stable --label=task-name=acmeCo/vmm-python/numbers --label=task-type=derivation --label=dev.estuary.vmm-owner=token<1> <vmm image> run --policy /init/policy.json --connector-mount <platform>/tmp/connector-mounts-<1>/mount-fv_<1> --memory-mib 768 --vcpus 2 --disk-mib 2048
+start --attach container<1>
+rm --force --time=0 --ignore container<1>
+ps --all --no-trunc --filter label=dev.estuary.vmm-owner=token<1> --format {{.ID}}
+network ls --filter label=dev.estuary.vmm-owner=token<1> --format {{.Name}}
+network rm fv_<1>
+pull ghcr.io/estuary/derive-python:stable --quiet --platform=linux/amd64
+image inspect ghcr.io/estuary/derive-python:stable
+run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN <vmm image> boundary verify
+network create --driver=bridge --interface-name=fvm<2> --label=dev.estuary.vmm-owner=token<2> fv_<2>
+create --rm --name=fv_<2> --network=fv_<2> --log-driver=none --read-only --read-only-tmpfs=false --device=/dev/kvm --device=/dev/net/tun --cap-add=CAP_NET_ADMIN --sysctl=net.ipv4.ip_forward=1 --sysctl=net.ipv4.conf.default.rp_filter=1 --sysctl=net.ipv6.conf.default.disable_ipv6=1 --memory=1g --cpus=2 --mount=type=image,source=ghcr.io/estuary/derive-python:stable,destination=/rootfs,rw=true --mount=type=bind,source=<platform>/state/fv_<2>/init,target=/init,readonly --mount=type=bind,source=<platform>/tmp/connector-mounts-<1>/mount-fv_<2>,target=<platform>/tmp/connector-mounts-<1>/mount-fv_<2>,readonly --mount=type=bind,source=<platform>/state/fv_<2>/sock,target=/sock --mount=type=bind,source=<platform>/state/fv_<2>/scratch,target=/scratch-backing --env=CONNECTOR_MOUNT=<platform>/tmp/connector-mounts-<1>/mount-fv_<2> --env=LOG_FORMAT=json --env=LOG_LEVEL=info --platform=linux/amd64 --label=image=ghcr.io/estuary/derive-python:stable --label=task-name=acmeCo/vmm-python/numbers --label=task-type=derivation --label=dev.estuary.vmm-owner=token<2> <vmm image> run --policy /init/policy.json --connector-mount <platform>/tmp/connector-mounts-<1>/mount-fv_<2> --memory-mib 768 --vcpus 2 --disk-mib 2048
+start --attach container<2>

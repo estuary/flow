@@ -1,0 +1,29 @@
+# The test stages ordinary-numbers.flow.yaml from numbers.flow.yaml,
+# removing `vmm` and `egress`.
+import:
+  - flow.yaml
+  - ordinary-numbers.flow.yaml
+
+materializations:
+  acmeCo/vmm-python/postgres:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-postgres:dev
+        config:
+          address: db:5432
+          database: postgres
+          user: postgres
+          schema: vmm_python
+          credentials:
+            auth_type: UserPassword
+            password: postgres
+    shards:
+      flags:
+        enable-runtime-v2: "true"
+    bindings:
+      - source: acmeCo/vmm-python/greetings
+        resource: { table: greetings }
+      - source: acmeCo/vmm-python/numbers
+        resource: { table: numbers }
+      - source: acmeCo/vmm-python/ordinary-numbers
+        resource: { table: ordinary_numbers }
