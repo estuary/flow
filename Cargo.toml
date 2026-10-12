@@ -59,6 +59,9 @@ apache-avro = { version = "0", default-features = false, features = [
     "bzip",
 ] }
 
+# Held at the version librocksdb-sys resolves to, so only one bindgen is built.
+bindgen = "0.72"
+
 # For some reason, the version requirement "0" resulted in cargo downgrading
 # this dependency to an incompatible version. The requirement here is intended
 # to be similarly permissive of update versions, while preventing downgrade.
@@ -101,6 +104,7 @@ itertools = "0"
 ipnetwork = { version = "0.21", features = ["serde"] }
 indexmap = { version = "1", features = ["serde"] }
 highway = "1"
+io-uring = "0"
 iri-string = "0"
 jemallocator = { version = "0", features = [
     "profiling",
@@ -191,7 +195,9 @@ sqlx = { version = "0.9", features = [
 ] }
 
 tokio-rustls = "0"
-rustls = { version = "0", features = ["aws_lc_rs"] }
+# Pinned. A "0" requirement also matches the 0.21 which transitive dependencies
+# pull in, and that version has no `aws_lc_rs` feature.
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
 rustls-pemfile = "2"
 webpki = "0"
 tempfile = "3"
@@ -275,7 +281,9 @@ assert_cmd = "2"
 criterion = "0"
 glob = "0"
 insta = { version = "1", features = ["redactions", "json", "yaml"] }
-rand = { version = "0", features = ["small_rng"] }
+# Pinned. A "0" requirement also matches the 0.4 which transitive dependencies
+# pull in, and that version has no `small_rng` feature.
+rand = { version = "0.9", features = ["small_rng"] }
 rand_distr = { version = "0" }
 rdkafka = "0"
 schema_registry_converter = { version = "4", features = [
