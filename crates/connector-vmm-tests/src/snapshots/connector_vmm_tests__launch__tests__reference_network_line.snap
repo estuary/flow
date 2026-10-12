@@ -1,0 +1,10 @@
+---
+source: crates/connector-vmm-tests/src/launch.rs
+assertion_line: 165
+expression: "super::network(\"fv_0123456789abcdef\", \"fvm0123456789ab\").join(\"\\n\")"
+---
+network
+create
+--driver=bridge
+--interface-name=fvm0123456789ab
+fv_0123456789abcdef
