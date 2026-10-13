@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.94"
+rust-version = "1.95"
 authors = ["Estuary developers <engineering@estuary.dev>"]
 readme = "./README.md"
 homepage = "https://estuary.dev/"
@@ -129,7 +129,7 @@ num-bigint = "0"
 num-format = "0"
 indicatif = "0"
 open = "3"
-parquet = { version = "56", features = ["json"] }
+parquet = { version = "60", features = ["json"] }
 pathfinding = "4"
 pbjson = "0"
 pbjson-types = "0"
@@ -189,7 +189,7 @@ sqlx = { version = "0.9", features = [
 ] }
 
 tokio-rustls = "0"
-rustls = { version = "0", features = ["aws_lc_rs"] }
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
 rustls-pemfile = "2"
 webpki = "0"
 tempfile = "3"
@@ -252,7 +252,12 @@ aws-config = "1"
 aws-types = "1"
 aws-credential-types = "1"
 aws-msk-iam-sasl-signer = "1"
-aws-sdk-sts = "1"
+# Default features minus "rustls", which selects the legacy rustls 0.21 client.
+aws-sdk-sts = { version = "1", default-features = false, features = [
+    "default-https-client",
+    "rt-tokio",
+    "sigv4a",
+] }
 
 # Used for the agent http server
 axum = { version = "0", features = ["macros"] }
@@ -273,7 +278,7 @@ assert_cmd = "2"
 criterion = "0"
 glob = "0"
 insta = { version = "1", features = ["redactions", "json", "yaml"] }
-rand = { version = "0", features = ["small_rng"] }
+rand = { version = "0.9", features = ["small_rng"] }
 rand_distr = { version = "0" }
 rdkafka = "0"
 schema_registry_converter = { version = "4", features = [
@@ -325,6 +330,12 @@ opt-level = 1 # Basic optimization. As fast to build as none.
 # TODO: Remove patch after next aide release (>0.15.1)
 # Using git commit to get schemars 1.0.4 support
 aide = { git = "https://github.com/tamasfe/aide.git", rev = "6d0e50027011a98a58365bbb6495f763df5f2796" }
+
+# TODO: Remove patch after next postgrest release (>1.6.0)
+# Released 1.6.0 depends on reqwest 0.11, which pins rustls 0.21 and an
+# unmaintained rustls-webpki 0.101 that vulnerability scanners flag.
+# This commit is 1.6.0 moved onto reqwest 0.12, matching the rest of the workspace.
+postgrest = { git = "https://github.com/supabase-community/postgrest-rs.git", rev = "c6a01c5bdf088579b0d015189e6400d721e2b0e1" }
 
 # Recommended by sqlx authors to speed up build-time checks.
 # https://github.com/launchbadge/sqlx#compile-time-verification
