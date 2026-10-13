@@ -4,7 +4,7 @@ set -euo pipefail
 #MISE description="Provision a tenant via the onboarding API and emit flowctl credentials"
 #MISE depends=["local:control-plane"]
 #USAGE flag "--tenant <tenant>" help="Tenant name without trailing slash (default: test)"
-#USAGE flag "--user <user>" help="Email of an auth.users row to own the tenant (default: alice@example.com). NOTE: onboarding API rejects users that already hold any grants, so each seeded user (alice/bob/carol/dave from seed.sql) can own at most one tenant."
+#USAGE flag "--user <user>" help="Email of an auth.users row to own the tenant (default: alice@example.com). NOTE: onboarding API rejects users that already administer a tenant, so each seeded user (alice/bob/carol/dave from seed.sql) can own at most one tenant."
 
 source "$(dirname "$0")/lib.sh"
 ensure_stack_env
@@ -46,89 +46,6 @@ if [ -z "${USER_ID}" ]; then
     exit 1
 fi
 
-PREFIX="${TENANT}/"
-TENANT_EXISTS=$(psql "${PGURL}" -tAqc \
-    "SELECT 1 FROM public.tenants WHERE tenant = '${PREFIX}'")
-
-if [ -z "${TENANT_EXISTS}" ]; then
-    # Onboarding snapshots the set of `ops/dp/public/*` data planes into
-    # storage_mappings.data_planes at provisioning time. Data planes are
-    # registered asynchronously by flow-plane-link once the agent is up,
-    # so wait for at least one public data plane, using the same filter
-    # the onboarding query aggregates over.
-    echo "Waiting for a public data plane (ops/dp/public/*) to be registered..."
-    ELAPSED=0
-    TIMEOUT=120
-    while true; do
-        PLANE_COUNT=$(psql "${PGURL}" -tAqc "
-            SELECT count(*) FROM public.data_planes
-            WHERE starts_with(data_plane_name, 'ops/dp/public/')" 2>/dev/null)
-        if [ "${PLANE_COUNT:-0}" -gt 0 ] 2>/dev/null; then
-            break
-        fi
-        sleep 1
-        ELAPSED=$((ELAPSED + 1))
-        if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
-            echo "Error: no public data plane (ops/dp/public/*) registered within ${TIMEOUT}s" >&2
-            echo "Hint: bring up and link a data plane first (mise run local:stack, or" >&2
-            echo "      mise run local:data-plane <name> <port> --link)" >&2
-            exit 1
-        fi
-    done
-
-    echo "Provisioning tenant ${PREFIX} owned by ${USER_EMAIL} via onboarding API..."
-
-    # Insert with the default queued status; the create_directive_task trigger
-    # enqueues an agent task and applied_directives_agent_notifications wakes
-    # the agent. user_claims must be set or the trigger won't fire.
-    APPLIED_ID=$(psql "${PGURL}" -tAqc "
-        INSERT INTO public.applied_directives (directive_id, user_id, user_claims)
-        SELECT id, '${USER_ID}'::uuid, '{\"requestedTenant\":\"${TENANT}\"}'::json_obj
-        FROM public.directives
-        WHERE token = '453e00cd-e12a-4ce5-b12d-3837aa385751'
-        RETURNING id
-    ")
-    if [ -z "${APPLIED_ID}" ]; then
-        echo "Error: betaOnboard directive (token 453e00cd-...) not found in directives table" >&2
-        exit 1
-    fi
-
-    echo "Waiting for agent to apply directive ${APPLIED_ID}..."
-    ELAPSED=0
-    TIMEOUT=60
-    while true; do
-        STATUS=$(psql "${PGURL}" -tAqc \
-            "SELECT job_status->>'type' FROM public.applied_directives WHERE id = '${APPLIED_ID}'")
-        case "${STATUS}" in
-            success)
-                break
-                ;;
-            queued)
-                ;;
-            *)
-                ERR=$(psql "${PGURL}" -tAqc \
-                    "SELECT job_status->>'error' FROM public.applied_directives WHERE id = '${APPLIED_ID}'")
-                echo "Error: betaOnboard returned status '${STATUS}': ${ERR}" >&2
-                exit 1
-                ;;
-        esac
-        sleep 1
-        ELAPSED=$((ELAPSED + 1))
-        if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
-            echo "Error: directive did not apply within ${TIMEOUT}s (still ${STATUS})" >&2
-            exit 1
-        fi
-    done
-    echo "Tenant ${PREFIX} provisioned."
-else
-    echo "Tenant ${PREFIX} already exists; skipping provisioning."
-fi
-
-# Onboarding stamps the default per-tenant quotas (10 tasks / 500 collections).
-# Raise the ceiling well above anything a test run could reach.
-psql "${PGURL}" -tAqc \
-    "UPDATE public.tenants SET tasks_quota = 1000, collections_quota = 1000 WHERE tenant = '${PREFIX}'" >/dev/null
-
 echo "Minting multi-use refresh token for ${USER_EMAIL}..."
 # Insert directly (bypassing create_refresh_token's SECURITY DEFINER + auth_uid())
 # so we don't need to fake JWT claims. We control the DB here.
@@ -152,6 +69,62 @@ if [ -z "${TOKEN_JSON}" ]; then
 fi
 
 FLOW_AUTH_TOKEN=$(printf '%s' "${TOKEN_JSON}" | base64 -w0)
+
+PREFIX="${TENANT}/"
+TENANT_EXISTS=$(psql "${PGURL}" -tAqc \
+    "SELECT 1 FROM public.tenants WHERE tenant = '${PREFIX}'")
+
+if [ -z "${TENANT_EXISTS}" ]; then
+    # Wait until the API snapshot includes a public plane with signing keys.
+    echo "Waiting for a public data plane to be ready..."
+    ELAPSED=0
+    TIMEOUT=120
+    while true; do
+        PLANES=$(curl --fail-with-body -sS --max-time 10 \
+            "http://localhost:${AGENT_PORT}/api/graphql" \
+            -H "Authorization: Bearer ${FLOW_AUTH_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"query":"{ publicDataPlanes(first: 1) { edges { node { name } } } }"}')
+        DATA_PLANE=$(jq -r '.data.publicDataPlanes.edges[0].node.name // empty' <<< "${PLANES}")
+        if [ -n "${DATA_PLANE}" ]; then
+            break
+        fi
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+        if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+            echo "Error: no public data plane ready within ${TIMEOUT}s" >&2
+            echo "Hint: bring up and link a data plane first (mise run local:stack, or" >&2
+            echo "      mise run local:data-plane <name> <port> --link)" >&2
+            exit 1
+        fi
+    done
+
+    echo "Provisioning tenant ${PREFIX} owned by ${USER_EMAIL} via onboarding API..."
+
+    TERMS_ID=$(psql "${PGURL}" -tAqc \
+        "SELECT id FROM internal.legal_terms WHERE type = 'msa' ORDER BY version DESC LIMIT 1")
+    REQUEST=$(jq -n --arg name "${TENANT}" --arg terms "${TERMS_ID}" --arg plane "${DATA_PLANE}" '{
+        query: "mutation($name: String!, $terms: Id!, $plane: String!) { tenantCreate(name: $name, submittingUserAgreesToTermsId: $terms, dataPlane: $plane) }",
+        variables: {name: $name, terms: $terms, plane: $plane}
+    }')
+    RESPONSE=$(curl --fail-with-body -sS --max-time 120 \
+        "http://localhost:${AGENT_PORT}/api/graphql" \
+        -H "Authorization: Bearer ${FLOW_AUTH_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "${REQUEST}")
+    if ! jq -e '.data.tenantCreate == true and (.errors | length == 0)' <<< "${RESPONSE}" >/dev/null; then
+        echo "Error: tenantCreate failed: ${RESPONSE}" >&2
+        exit 1
+    fi
+    echo "Tenant ${PREFIX} provisioned."
+else
+    echo "Tenant ${PREFIX} already exists; skipping provisioning."
+fi
+
+# Onboarding stamps the default per-tenant quotas (10 tasks / 500 collections).
+# Raise the ceiling well above anything a test run could reach.
+psql "${PGURL}" -tAqc \
+    "UPDATE public.tenants SET tasks_quota = 1000, collections_quota = 1000 WHERE tenant = '${PREFIX}'" >/dev/null
 
 # Close the window where the agent still serves a stale authorization snapshot.
 #

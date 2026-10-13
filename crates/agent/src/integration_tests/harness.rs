@@ -290,8 +290,7 @@ impl HarnessBuilder {
 
         let controller_exec =
             crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
-        let directive_exec =
-            crate::directives::DirectiveHandler::new("support@estuary.test".to_string());
+        let directive_exec = crate::directives::DirectiveHandler;
 
         let mut harness = TestHarness {
             test_name,

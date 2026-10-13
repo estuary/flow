@@ -421,7 +421,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 
     let automations_fut = if args.max_automations > 0 {
-        let directive_executor = agent::DirectiveHandler::new(args.accounts_email);
+        let directive_executor = agent::DirectiveHandler;
         let connector_tags_executor =
             agent::TagExecutor::new(connector_factory, snapshot_watch.clone());
         let mut automations_server = automations::Server::new()
