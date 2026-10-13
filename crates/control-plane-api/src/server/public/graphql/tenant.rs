@@ -1,4 +1,5 @@
 use async_graphql::{Context, Result, SimpleObject};
+use unicode_normalization::UnicodeNormalization;
 use validator::Validate;
 
 mod storage;
@@ -202,6 +203,16 @@ async fn create_tenant(
 
     if !unicode_normalization::is_nfkc(name) {
         return Err(async_graphql::Error::new("Invalid organization name"));
+    }
+
+    // Reject names that contain "estuary" and variants
+    let unaccented_name: String = name
+        .nfkd()
+        .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
+        .flat_map(char::to_lowercase)
+        .collect();
+    if unaccented_name.contains("estuary") {
+        return Err(async_graphql::Error::new(TENANT_UNAVAILABLE_MESSAGE));
     }
 
     // Lock this user to prevent concurrent tenant create mutations.
@@ -664,7 +675,12 @@ mod test {
             "Service accounts cannot create tenants"
         );
 
-        for name in ["invalid/name", "Ａcme"] {
+        for name in [
+            "invalid/name",
+            "Ａcme",
+            "ｅｓｔｕａｒｙ",
+            "e\u{301}stu\u{30a}ary",
+        ] {
             let response: serde_json::Value = server.graphql(&request(name), Some(&token)).await;
             assert_eq!(
                 response["errors"][0]["message"], "Invalid organization name",
@@ -723,6 +739,15 @@ mod test {
             "ReCoVeRy",
             "ops.us-central1.v1",
             "Ops.Us-Central1.V1",
+            "estuary",
+            "EsTuArY",
+            "estuaryLabs",
+            "myestuary",
+            "my-estuary-org",
+            "éstůary",
+            "ÉSTŮARY",
+            "my-éstůary-org",
+            "eśtüàry",
         ] {
             let response: serde_json::Value = server.graphql(&request(name), Some(&token)).await;
             assert_eq!(
@@ -741,6 +766,18 @@ mod test {
         .await
         .unwrap();
         assert_eq!(count, 0);
+
+        let response: serde_json::Value = server.graphql(&request("caféCo"), Some(&token)).await;
+        assert!(response.get("errors").is_none(), "{response}");
+        let tenant: String =
+            sqlx::query_scalar("SELECT tenant FROM tenants WHERE tenant = 'caféCo/'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            tenant, "caféCo/",
+            "valid accented names are stored unchanged"
+        );
     }
 
     #[sqlx::test(
