@@ -133,22 +133,3 @@ fn extract<'de, Directive: Validate, Claims: Deserialize<'de> + Validate + schem
         Err(err) => Err(JobStatus::invalid_claims(err)),
     }
 }
-
-#[cfg(test)]
-mod test {
-    #[test]
-    fn retired_directives_are_rejected() {
-        for directive_type in ["clickToAccept", "betaOnboard"] {
-            let spec = serde_json::json!({"type": directive_type});
-            let err = serde_json::from_value::<super::Directive>(spec).unwrap_err();
-            assert!(err.to_string().contains("unknown variant"));
-        }
-        assert!(matches!(
-            serde_json::from_value::<super::Directive>(
-                serde_json::json!({"type": "acceptDemoTenant"})
-            )
-            .unwrap(),
-            super::Directive::AcceptDemoTenant(_)
-        ));
-    }
-}

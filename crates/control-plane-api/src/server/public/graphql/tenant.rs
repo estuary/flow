@@ -223,7 +223,7 @@ async fn create_tenant(
     .fetch_one(&mut **txn)
     .await?;
 
-    if crate::directives::beta_onboard::is_user_provisioned(user_id, txn).await? {
+    if crate::tenants::is_user_provisioned(user_id, txn).await? {
         return Err(async_graphql::Error::new(
             "Cannot provision a new tenant because the user has existing grants",
         ));
@@ -258,12 +258,12 @@ async fn create_tenant(
     });
     let (tenant_storage, recovery_storage) = storage::specs(public_planes, data_plane)?;
 
-    crate::directives::beta_onboard::provision_tenant(
-        // TODO: remove unused email param when retiring betaOnboard directive
-        "",
+    crate::tenants::provision_tenant(
         Some("created via tenantCreate".to_string()),
         name,
         user_id,
+        tenant_storage,
+        recovery_storage,
         txn,
     )
     .await
@@ -278,19 +278,6 @@ async fn create_tenant(
         }
         err.into()
     })?;
-    // Keep the legacy directive's provisioning behavior unchanged. Its initial
-    // mappings and these replacements are committed atomically with the tenant.
-    sqlx::query(
-        "UPDATE storage_mappings SET spec = CASE WHEN catalog_prefix = $1 THEN $2::json ELSE $3::json END
-         WHERE catalog_prefix = $1 OR catalog_prefix = $4",
-    )
-    .bind(&tenant_name)
-    .bind(tenant_storage)
-    .bind(recovery_storage)
-    .bind(format!("recovery/{tenant_name}"))
-    .execute(&mut **txn)
-    .await?;
-
     let metadata = if survey.is_null() {
         serde_json::json!({})
     } else {

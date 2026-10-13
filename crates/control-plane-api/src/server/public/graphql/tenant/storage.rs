@@ -1,4 +1,4 @@
-//! Storage selection for GraphQL tenant creation; legacy directives retain their own defaults.
+//! Storage selection for GraphQL tenant creation.
 
 fn trial_bucket_name(plane: &str) -> Option<(String, String)> {
     use sha2::Digest;
