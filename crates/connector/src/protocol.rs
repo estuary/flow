@@ -632,7 +632,7 @@ fn connect_local<P: Protocol>(
 pub(super) fn unwrap_spec_response<P: Protocol>(
     response: Option<tonic::Result<P::Response>>,
 ) -> anyhow::Result<proto::response::started::Spec> {
-    let verify = crate::verify(P::NAME, "spec response", "connector");
+    let verify = crate::verify_connector(P::NAME, "spec response");
 
     match P::unwrap_spec(verify.not_eof(response)?) {
         Ok(spec) => Ok(spec),

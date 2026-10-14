@@ -669,10 +669,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         ready: &mut fsm::ConnectorRx,
         msg: Option<tonic::Result<Response>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify(
+        let verify = crate::verify_connector(
             "Capture",
             "Captured, SourcedSchema, Checkpoint, BackfillBegin, or BackfillComplete",
-            "connector",
         );
         let Some(response) = msg else {
             *ready = fsm::ConnectorRx::Eof;

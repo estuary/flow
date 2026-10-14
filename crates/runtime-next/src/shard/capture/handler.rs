@@ -278,7 +278,7 @@ where
         connector::proto::request::Kind::Capture(open.clone()),
     )
     .await?;
-    let verify = crate::verify("Capture", "Opened", "connector");
+    let verify = crate::verify_connector("Capture", "Opened");
     let next = connector::next(&mut connector_rx, &logger, connector::unwrap_capture);
     let opened = match verify.not_eof(next.await)? {
         capture::Response {
@@ -450,7 +450,7 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         .await?;
         std::mem::drop(connector_tx);
 
-        let verify = crate::verify("Capture", "Applied", "connector");
+        let verify = crate::verify_connector("Capture", "Applied");
         let next = connector::next(&mut connector_rx, logger, connector::unwrap_capture);
         let (action_description, applied_patches_json) = match verify.not_eof(next.await)? {
             capture::Response {

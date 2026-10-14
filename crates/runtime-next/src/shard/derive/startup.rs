@@ -225,7 +225,7 @@ where
     )
     .await?;
 
-    let verify = crate::verify("Derive", "Opened", "connector");
+    let verify = crate::verify_connector("Derive", "Opened");
     let next = connector::next(&mut connector_rx, logger, connector::unwrap_derive);
     let opened = match verify.not_eof(next.await)? {
         derive::Response {

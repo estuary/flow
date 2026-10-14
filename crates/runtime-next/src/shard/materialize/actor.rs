@@ -590,7 +590,7 @@ impl Actor {
         phase: &mut Phase,
         resp: Option<tonic::Result<materialize::Response>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify("Materialize", "connector response", "connector");
+        let verify = crate::verify_connector("Materialize", "connector response");
         let resp = verify.not_eof(resp)?;
 
         if let Some(materialize::response::Kind::Loaded(materialize::response::Loaded {
