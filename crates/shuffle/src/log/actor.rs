@@ -2,10 +2,11 @@ use super::Lsn;
 use super::buffer::{self, NextMerge, SliceBuffer};
 use super::state::{BlockState, DiskState, FlushState};
 use super::writer::{SealedSegment, Writer};
+use anyhow::Context;
 use futures::{StreamExt, stream::BoxStream};
 use proto_flow::shuffle;
 use proto_gazette::uuid;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 type SliceRx = BoxStream<'static, tonic::Result<shuffle::LogRequest>>;
 type FlushHandle = tokio::task::JoinHandle<anyhow::Result<(Writer, Lsn, Option<SealedSegment>)>>;
@@ -13,35 +14,57 @@ type FlushHandle = tokio::task::JoinHandle<anyhow::Result<(Writer, Lsn, Option<S
 /// LogActor is the event loop of a shard's Log RPC, which every Slice joins.
 /// It merges the Slices' Appends into blocks of the shard's on-disk log.
 ///
-/// A Slice's rounds are read one at a time into its `SliceBuffer`: its next
-/// round is read once its current round has merged. The merge takes the least
-/// next Append of any Slice with a buffered round (`buffer::next_merge`), in a
-/// tight loop (`merge_block`) until it must wait, or until it yields after
-/// `MAX_MERGES`.
+/// Each Slice's rounds are read as they arrive, and their Appends and closing
+/// Barriers are buffered into its `SliceBuffer`. The merge takes the least next
+/// entry of any Slice, provided no Slice's gate orders before it
+/// (`buffer::next_merge`), in a tight loop (`merge_block`) until it must
+/// wait, or until it yields after `MAX_MERGES`.
 ///
 /// Blocks are written by a background flush, one at a time, while the merge
-/// continues into the next block. A Slice's round may request a flush at a
-/// cycle number, answered by Flushed once the round has merged and a flush
+/// continues into the next block. A Slice's Barrier may request a flush at a
+/// cycle number, answered by Flushed once the Barrier has merged and a flush
 /// covers every Append which preceded it. A Slice has at most one flush request
 /// outstanding, so its Flushed response never awaits channel capacity.
 ///
 /// Back-pressure runs from the disk back to the Slices' journal reads.
 /// The merge pauses while a full block awaits the flush already in flight,
 /// or while the backlog of sealed segments on disk is over its limit
-/// (`DiskState`). A Slice's request stream isn't read while its round is
-/// unmerged, so HTTP/2 flow control holds back the Slice, which stops reading
-/// its journals.
+/// (`DiskState`). A paused merge merges no Barriers, so it releases no quota
+/// (`acked_tx`). A Slice whose window of unreleased quota is full stops
+/// reading its journals.
 ///
-/// A running merge takes high-priority, earlier-clock documents first. So
-/// back-pressure tends to fall on Slices and journals with lower-priority or
-/// later documents, and progress is bounded by the slowest Log.
+/// A running merge also releases quota in merge order: high-priority,
+/// earlier-clock documents first. So back-pressure tends to fall on Slices
+/// and journals with lower-priority or later documents. Every Slice sends
+/// the same quota to every Log, and stops reading once any one Log is a full
+/// window behind. So one slow Log holds back every Slice.
+///
+/// The merge is live: it can't deadlock. Apart from back-pressure, a Log's
+/// merge waits only on a Slice which gates it: one with nothing queued here,
+/// whose gate is strictly below every queued entry (`buffer::next_merge`).
+/// That Slice sends its next round once it reads its next document, or finds
+/// it has none due. Only a full window can hold it back.
+///
+/// If its window is full, another Log holds unmerged Barriers of the Slice.
+/// Those Barriers and their Appends are at or below the Slice's gate, which
+/// is the position of its last Barrier (`SliceBuffer::on_round`). The other
+/// Log merges them, unless it too waits on a Slice which gates it. That
+/// Slice's gate is strictly below them, and so strictly below the first gate.
+///
+/// Following these waits from Log to Slice to Log, gates strictly descend.
+/// No Slice can appear twice, so the chain ends: at a Log which merges and
+/// releases a window, or at a Slice whose window isn't full. Strict descent
+/// is why an entry merges ahead of a gate at an equal position.
 /// See "Log Merge and Output" of the crate README.
 pub struct LogActor {
     /// Immutable session topology: identity and shard configuration.
     pub topology: super::state::Topology,
     /// Per-Slice response channel for sending Opened and Flushed responses.
     pub log_response_tx: Vec<mpsc::Sender<tonic::Result<shuffle::LogResponse>>>,
-    /// Buffer of the received and unmerged round of each Slice.
+    /// Per-Slice cumulative quota of merged Barriers, which releases the
+    /// Slice's window as `LogResponse.Acked` (see `crate::Service::spawn_log`).
+    pub acked_tx: Vec<watch::Sender<u64>>,
+    /// Buffer of received and unmerged rounds from each Slice.
     pub slices: Vec<SliceBuffer>,
     /// Log segment writer. `None` while a background flush is in-flight
     /// (the Writer has been moved into `flush_handle`).
@@ -61,8 +84,13 @@ pub struct LogActor {
 /// What the Log's merge must await before it may continue.
 #[derive(Debug)]
 enum Wait {
-    /// No Appends are queued: await a next round from any Slice.
+    /// Nothing is queued: await a next round from any Slice.
     Idle,
+    /// `slice` gates the merge. Await its next round.
+    Gated {
+        #[allow(dead_code)]
+        slice: usize, // Read by std::fmt::Debug.
+    },
     /// The block is full and a flush is in flight: await its completion.
     Flushing,
     /// The disk backlog is over its limit: await reclaim of sealed segments.
@@ -94,9 +122,6 @@ impl LogActor {
             .enumerate()
             .map(next_log_rx)
             .collect();
-        // Request streams of Slices whose round is buffered, until it merges.
-        let mut parked_slice_rx: Vec<Option<SliceRx>> =
-            std::iter::repeat_with(|| None).take(connected).collect();
         // Per-sealed-segment streams that drive compression and track unlink.
         // Each stream yields negative size deltas as disk space is freed.
         let mut sealed_segments = futures::stream::SelectAll::new();
@@ -111,13 +136,10 @@ impl LogActor {
             // First, merge into the block until we must wait.
             let wait = self.merge_block()?;
 
-            // Read a next round of each Slice whose round has merged.
-            for (slice, rx) in parked_slice_rx.iter_mut().enumerate() {
-                if self.slices[slice].is_drained()
-                    && let Some(rx) = rx.take()
-                {
-                    pending_slice_rx.push(next_log_rx((slice, rx)));
-                }
+            // Release windows of Barriers merged by `merge_block`.
+            for (slice, acked_tx) in self.slices.iter().zip(&self.acked_tx) {
+                let released = slice.released();
+                acked_tx.send_if_modified(|acked| std::mem::replace(acked, released) != released);
             }
 
             // merge_block() starts a flush only when its block is full,
@@ -168,7 +190,7 @@ impl LogActor {
                         continue;
                     };
                     self.on_log_request(slice, log_request)?;
-                    parked_slice_rx[slice] = Some(rx);
+                    pending_slice_rx.push(next_log_rx((slice, rx)));
                 }
 
                 // Read the completion of an in-flight flush.
@@ -227,6 +249,7 @@ impl LogActor {
             // next Position of its peers, through which `slice` Appends may merge.
             let (slice, through) = match buffer::next_merge(&self.slices) {
                 NextMerge::Idle => return Ok(Wait::Idle),
+                NextMerge::Gated { slice } => return Ok(Wait::Gated { slice }),
                 NextMerge::Ready { slice, through } => (slice, through),
             };
 
@@ -259,10 +282,10 @@ impl LogActor {
         slice: usize,
         log_request: tonic::Result<shuffle::LogRequest>,
     ) -> anyhow::Result<()> {
-        let (shard, _) = self.topology.slice(slice);
+        let (shard, priority) = self.topology.slice(slice);
         let verify = proto_grpc::verify(
             "LogRequest",
-            "round of Appends and optional Flush",
+            "round of Appends and a Barrier",
             &shard.endpoint,
         );
         let log_request = verify.ok(log_request)?;
@@ -270,7 +293,7 @@ impl LogActor {
         let shuffle::LogRequest {
             open: None,
             appends,
-            flush,
+            barrier: Some(barrier),
         } = log_request
         else {
             return Err(verify.fail_msg(log_request));
@@ -279,18 +302,17 @@ impl LogActor {
         tracing::trace!(
             slice,
             appends = appends.len(),
-            ?flush,
+            ?barrier,
             "received round from Slice"
         );
         self.metrics.rounds.increment(1);
 
-        if let Some(cycle) = self.slices[slice].on_round(appends, flush) {
-            self.on_flush(slice, cycle)?;
-        }
-        Ok(())
+        self.slices[slice]
+            .on_round(appends, barrier)
+            .with_context(|| format!("round of Slice {} with priority {priority}", shard.endpoint))
     }
 
-    /// A Slice's round requesting a flush at `cycle` has merged, along with
+    /// A Slice's Barrier requesting a flush at `cycle` has merged, along with
     /// all preceding Appends. Retain the request or, if the block is already
     /// flushed, send a Flushed response now.
     fn on_flush(&mut self, slice: usize, cycle: u64) -> anyhow::Result<()> {
@@ -313,13 +335,16 @@ impl LogActor {
         send_flushed(&self.log_response_tx[slice], slice, cycle, flushed_lsn)
     }
 
-    /// Pop the next Append of a Slice and accumulate it into the current block.
+    /// Pop the next entry of a Slice: accumulate an Append into the current
+    /// block, or take a Barrier's flush request, if any.
     fn on_next_merge(&mut self, slice: usize) -> anyhow::Result<()> {
-        let buffer::Popped {
-            append,
-            journal,
-            flush_cycle,
-        } = self.slices[slice].pop();
+        let (append, journal) = match self.slices[slice].pop() {
+            buffer::Popped::Append { append, journal } => (append, journal),
+            buffer::Popped::Barrier { flush_cycle: None } => return Ok(()),
+            buffer::Popped::Barrier {
+                flush_cycle: Some(cycle),
+            } => return self.on_flush(slice, cycle),
+        };
 
         let priority = self.topology.slice(slice).1;
         let producer = uuid::Producer::from_i64(append.producer);
@@ -339,9 +364,6 @@ impl LogActor {
             .bytes_appended
             .increment(append.source_byte_length as u64);
 
-        if let Some(cycle) = flush_cycle {
-            self.on_flush(slice, cycle)?;
-        }
         Ok(())
     }
 
@@ -476,7 +498,137 @@ async fn next_log_rx(
     (slice, rx.next().await, rx)
 }
 
-/// Maximum Appends merged before the Log yields to service its other events,
-/// and then to the tokio runtime: to read Slices' rounds and send Flushed
-/// responses while a long merge runs. It bounds how long a ready flush awaits.
+/// Maximum entries merged before the Log yields to service its other events,
+/// and then to the tokio runtime: to read Slices' rounds, release their
+/// windows, and send Flushed responses while a long merge runs. It bounds how
+/// long a ready flush awaits.
 const MAX_MERGES: usize = 1024;
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    // A Log's merge, paused by disk back-pressure, still reads each Slice's
+    // rounds through to EOF, and exits, discarding rounds it never merged
+    // without releasing their quota.
+    #[tokio::test]
+    async fn test_exit_under_disk_back_pressure() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut request_tx = Vec::new();
+        let mut request_rx = Vec::new();
+        let mut response_tx = Vec::new();
+        let mut response_rx = Vec::new();
+        let mut acked_tx = Vec::new();
+        let mut acked_rx = Vec::new();
+
+        for _ in 0..2 {
+            let (tx, rx) = mpsc::channel(MAX_MERGES);
+            request_tx.push(tx);
+            request_rx.push(tokio_stream::wrappers::ReceiverStream::new(rx).boxed());
+            let (tx, rx) = mpsc::channel(proto_grpc::CHANNEL_BUFFER);
+            response_tx.push(tx);
+            response_rx.push(rx);
+            let (tx, rx) = watch::channel(0);
+            acked_tx.push(tx);
+            acked_rx.push(rx);
+        }
+
+        let actor = LogActor {
+            topology: super::super::state::Topology {
+                session_id: 1,
+                shards: vec![shuffle::Shard::default(), shuffle::Shard::default()],
+                priorities: vec![0],
+                log_shard_index: 0,
+            },
+            log_response_tx: response_tx,
+            acked_tx,
+            slices: (0..2).map(|_| SliceBuffer::new(0)).collect(),
+            // Each block seals its segment, which engages back-pressure.
+            writer: Some(Writer::with_thresholds(dir.path(), 0, usize::MAX, 1).unwrap()),
+            flush_handle: None,
+            block: BlockState::new(),
+            flush: FlushState::new(2),
+            disk: DiskState::new(1),
+            metrics: super::super::Metrics::new("acmeCo/shard-000"),
+        };
+        let serve = tokio::spawn(actor.serve(request_rx));
+
+        let alloc = doc::HeapNode::new_allocator();
+        let doc = doc::HeapNode::from_serde(&serde_json::json!({"key": "val"}), &alloc).unwrap();
+        let doc = bytes::Bytes::from(doc.to_archive().to_vec());
+
+        let round = |clock: u64, flush_cycle: u64| {
+            Ok(shuffle::LogRequest {
+                open: None,
+                appends: vec![shuffle::log_request::Append {
+                    journal_name_suffix: "acmeCo/journal".to_string(),
+                    producer: uuid::Producer::from_bytes([1, 0, 0, 0, 0, 1]).as_i64(),
+                    clock,
+                    doc_archived: doc.clone(),
+                    ..Default::default()
+                }],
+                barrier: Some(shuffle::log_request::Barrier {
+                    adjusted_clock: clock,
+                    quota: 10 * clock,
+                    caught_up: false,
+                    flush_cycle,
+                }),
+            })
+        };
+
+        // Slice 1 is caught up, and Slice 0's first round merges and flushes,
+        // which seals a segment.
+        request_tx[1]
+            .send(Ok(shuffle::LogRequest {
+                barrier: Some(shuffle::log_request::Barrier {
+                    caught_up: true,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        request_tx[0].send(round(1, 1)).await.unwrap();
+        let flushed = response_rx[0].recv().await.unwrap().unwrap();
+
+        // Further rounds are read, but their Appends aren't merged.
+        request_tx[0].send(round(2, 2)).await.unwrap();
+        request_tx[1].send(round(3, 0)).await.unwrap();
+        request_tx.clear();
+
+        tokio::time::timeout(std::time::Duration::from_secs(10), serve)
+            .await
+            .expect("LogActor must exit under back-pressure")
+            .unwrap()
+            .unwrap();
+
+        let remaining: Vec<_> = response_rx
+            .iter_mut()
+            .map(|rx| std::iter::from_fn(|| rx.try_recv().ok()).count())
+            .collect();
+        let acked: Vec<_> = acked_rx.iter().map(|rx| *rx.borrow()).collect();
+
+        insta::assert_debug_snapshot!((flushed, remaining, acked), @r"
+        (
+            LogResponse {
+                opened: None,
+                flushed: Some(
+                    Flushed {
+                        cycle: 1,
+                        flushed_lsn: 65536,
+                    },
+                ),
+                acked: None,
+            },
+            [
+                0,
+                0,
+            ],
+            [
+                10,
+                0,
+            ],
+        )
+        ");
+    }
+}

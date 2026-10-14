@@ -3,6 +3,9 @@ source: crates/shuffle/src/slice/rounds.rs
 expression: "trace.join(\"\\n\")"
 ---
 send -> sent: false, received: ["", ""]
-consume x3, buffer(0) x2, send -> sent: true, received: ["(2, flush None)", ""]
-buffer(1), send(flush 5) -> sent: true, received: ["(0, flush Some(5))", "(1, flush Some(5))"]
-consume x ROUND_DOCUMENTS, send -> sent: false, received: ["", ""]
+send(caught up) -> sent: true, received: ["(0, @0 quota 0 caught_up true flush 0)", "(0, @0 quota 0 caught_up true flush 0)"]
+send(caught up) -> sent: false, received: ["", ""]
+consume x2, buffer(0) x2, send -> sent: true, received: ["(2, @50 quota 110 caught_up false flush 0)", "(0, @50 quota 110 caught_up false flush 0)"]
+send(flush 5) -> sent: true, received: ["(0, @50 quota 0 caught_up false flush 5)", "(0, @50 quota 0 caught_up false flush 5)"]
+send -> sent: false, received: ["", ""]
+consume, buffer(1), send(caught up) -> sent: true, received: ["(0, @70 quota 20 caught_up true flush 0)", "(1, @70 quota 20 caught_up true flush 0)"]

@@ -178,9 +178,9 @@ impl SliceActor {
     }
 
     /// Drain the active replay's batch cursor into the round as far as it
-    /// will go, counting each consumed document against the round, whatever
-    /// its producer. Returns why the round ends: more broker I/O is required,
-    /// or the round has consumed its documents.
+    /// will go, charging each consumed document's quota, whatever its producer.
+    /// Returns why the round ends: more broker I/O is required, the round has
+    /// consumed its quota, or the window is full.
     pub(super) fn try_drain_replay(&mut self, mut replay: Replay) -> anyhow::Result<Wait> {
         let read_state = &mut self.reads[replay.read_id];
         let binding = &self.topology.bindings[read_state.binding_index as usize];
@@ -197,10 +197,22 @@ impl SliceActor {
             let Meta {
                 begin_offset,
                 producer,
+                clock,
                 ..
             } = ready_read.meta;
 
-            self.rounds.on_consumed();
+            if self
+                .rounds
+                .try_charge(
+                    ready_read.doc.bytes().len() as u64,
+                    clock + binding.read_delay,
+                )
+                .is_err()
+            {
+                // Put back, await release of the window, and retry.
+                replay.io = ReplayIo::Draining(ready_read);
+                break Wait::Quota;
+            }
 
             if producer == replay.target {
                 let sequenced = state::sequence_producer(

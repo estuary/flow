@@ -66,6 +66,8 @@ pub(super) enum Wait {
     Yield,
     /// Await the adjusted clock of the heap top.
     Sleep(std::time::Duration),
+    /// Await an Ack which releases quota of the window, which is currently full.
+    Quota,
 }
 
 impl SliceActor {
@@ -615,12 +617,21 @@ impl SliceActor {
     ) -> anyhow::Result<()> {
         let verify = proto_grpc::verify(
             "LogResponse",
-            "Flushed",
+            "Acked or Flushed",
             &self.topology.shards[shard_index].endpoint,
         );
         let log_response = verify.not_eof(log_response)?;
 
         match log_response {
+            shuffle::LogResponse {
+                acked: Some(shuffle::log_response::Acked { quota }),
+                ..
+            } => self.rounds.on_acked(shard_index, quota).with_context(|| {
+                format!(
+                    "Acked from Log {}",
+                    self.topology.shards[shard_index].endpoint
+                )
+            }),
             shuffle::LogResponse {
                 flushed: Some(shuffle::log_response::Flushed { cycle, flushed_lsn }),
                 ..
@@ -686,13 +697,21 @@ impl SliceActor {
             None
         };
 
-        if self.rounds.send(flush)? {
+        // A Slice is caught up if, post-round, it has no document due.
+        // An active replay always has documents due.
+        let caught_up = self.replay.is_none()
+            && matches!(
+                self.heap.resolved_top(now),
+                ResolvedTop::Idle | ResolvedTop::Delayed(_)
+            );
+
+        if self.rounds.send(caught_up, flush)? {
             self.metrics.rounds.increment(1);
         }
 
         Ok(future::Either::Right(async move {
             match wait {
-                Wait::Idle => false,
+                Wait::Idle | Wait::Quota => false,
                 Wait::Yield => {
                     tokio::task::yield_now().await;
                     true
@@ -709,7 +728,7 @@ impl SliceActor {
     /// end, returning what the actor must await next.
     fn fill_round(&mut self, now: &mut uuid::Clock) -> anyhow::Result<Wait> {
         let wait = loop {
-            // End a round having consumed its documents, which also yields
+            // End a round having consumed its quota, which also yields
             // periodically to service Actor events.
             if self.rounds.is_round_full() {
                 break Wait::Yield;
@@ -742,12 +761,16 @@ impl SliceActor {
     /// Returns the Wait which ends the round, or None if it may be extended further.
     fn extend_round(&mut self) -> anyhow::Result<Option<Wait>> {
         let ReadyReadEntry {
-            inner: ready_read, ..
+            adjusted_clock,
+            inner: ready_read,
         } = self.heap.peek_ready().unwrap();
         let ready_read = ready_read.as_deref().unwrap();
 
         let ReadyRead {
-            meta, inner: read, ..
+            doc,
+            meta,
+            inner: read,
+            ..
         } = ready_read;
 
         let read_id = read.id() as usize;
@@ -771,7 +794,13 @@ impl SliceActor {
             return Ok(None);
         }
 
-        self.rounds.on_consumed();
+        if self
+            .rounds
+            .try_charge(doc.bytes().len() as u64, *adjusted_clock)
+            .is_err()
+        {
+            return Ok(Some(Wait::Quota));
+        }
 
         // Buffer an Append for the appropriate shard(s).
         if sequenced.is_append {
@@ -783,7 +812,7 @@ impl SliceActor {
             );
         }
 
-        // Pop the heap entry now that any Appends are buffered.
+        // Pop the heap entry now that its quota is charged.
         // Crucially: we now cannot fail to consume this document.
         let ReadyReadEntry {
             inner: ready_read, ..

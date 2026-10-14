@@ -2,24 +2,25 @@
 source: crates/shuffle/src/log/buffer.rs
 expression: "trace.join(\"\\n\")"
 ---
-on_round([], flush 3) -> Some(3)
-on_round([30, 20, 25], flush 7) -> None
-peek -> Some("p0@30")
-pop -> clock 30, released: None
-peek -> Some("p0@20")
-pop -> clock 20, released: None
-peek -> Some("p0@25")
-pop -> clock 25, released: Some(7)
-drained -> true
+pop p0@30 -> append @30 ""
+released -> 0
+pop p0@20 -> append @20 ""
+released -> 0
+pop p0@30 -> barrier, flush: None
+released -> 100
+pop p0@25 -> append @25 ""
+released -> 100
+pop p0@35 -> barrier, flush: Some(7)
+released -> 150
+pop p0@40 -> barrier, flush: None
+released -> 160
+on_round([60], barrier @50) -> Err("Slice's Barrier 50 is below a prior Append at 60")
 delta-decoded -> ["acmeCo/one/pivot=00", "acmeCo/one/pivot=00", "acmeCo/one/pivot=11"]
-merge -> Idle
-s1 [p0@100] -> Ready(slice: 1, through: MAX)
-s2 [p0@90] -> Ready(slice: 2, through: p0@100)
-s0 [p1@200] -> Ready(slice: 0, through: p0@90)
-run -> s0: [p1@200]
-run -> s2: [p0@90]
-s2 [p0@100] -> Ready(slice: 1, through: p0@100)
-run -> s1: [p0@100]
-s1 [95, 92, 100] flush 9 -> s1: [p0@95, p0@92, p0@100 released 9]
-run -> s2: [p0@100]
-run -> Idle
+merge -> Gated(slice: 0)
+all caught up -> s0: [|p1@0]; s1: [|p0@0]; s2: [|p0@0]; Idle
+s1 [p0@100]|110, s2 |90 -> s2: [|p0@90]; Gated(slice: 2)
+s2 |105 flush 9 -> s1: [p0@100]; s2: [|p0@105 flush 9]; Gated(slice: 2)
+s2 [p0@110]|110 -> s1: [|p0@110]; s2: [p0@110, |p0@110]; Gated(slice: 1)
+s1 [p0@120]|120, s2 caught up, s0 [p1@500]|500 -> s0: [p1@500, |p1@500]; Gated(slice: 0)
+s0 caught up -> s0: [|p1@500]; s2: [|p0@110]; s1: [p0@120, |p0@120]; Gated(slice: 1)
+s1 [p0@130]|140, [p0@125]|150 -> s1: [p0@130, |p0@140, p0@125, |p0@150]; Gated(slice: 1)

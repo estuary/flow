@@ -333,8 +333,14 @@ message SliceResponse {
 
 // LogRequest is sent by Slices to each shard's Log.
 // The first is an Open. All that follow are a round: zero or more Appends,
-// and optionally a Flush. A round that starts a Flush goes to every Log, and
-// otherwise only to Logs for which it has Appends.
+// closed by a Barrier. Every round goes to every Log.
+//
+// Slices are flow-controlled by the archived bytes of documents they consume,
+// whether or not those documents are appended. Each round's Barrier carries the
+// round's consumed archived bytes as its quota, which is the same at every Log,
+// and a Log releases a Barrier's quota (LogResponse.Acked) as it merges the
+// Barrier. A Slice consumes no further than a window of quota which some Log
+// hasn't released. The Slice (alone) sizes and enforces its window.
 message LogRequest {
   // Open initiates the Log RPC.
   // Multiple Slices open Log RPCs to the same shard, and the Log
@@ -396,14 +402,42 @@ message LogRequest {
   // Appends of the round, in the order of the Slice's merge over read journals.
   repeated Append appends = 2;
 
-  // Flush requests a durability barrier, and the Log responds with a Flushed
-  // of its cycle once the Appends of this and all prior rounds of the Slice
-  // are durable.
-  message Flush {
-    // Cycle number for correlating Flush with Flushed response.
-    uint64 cycle = 1;
+  // Barrier closes a round, and is queued behind its Appends.
+  //
+  // Logs merge Appends and Barriers in (priority DESC, adjusted_clock ASC)
+  // order, where a Slice's merge position is its priority and its next queued
+  // Append or Barrier. A Slice with nothing queued gates the merge at the
+  // position of its last Barrier, and the Log awaits its next round, unless
+  // that Barrier was caught up. Until its first round, a Slice is presumed not
+  // caught up at position zero: nothing of its priority or lower may merge
+  // without first hearing from it. A Slice of lower priority therefore merges
+  // only once every higher-priority Slice is caught up and drained.
+  //
+  // As a Barrier merges, the Log releases its quota and its flush request, if any.
+  // A Slice's progress is thus reported only once the merge has passed the
+  // position through which it was consumed, whether or not the Slice appended.
+  //
+  // A Slice may send Appends which fall below a prior Barrier, such as when
+  // a source producer's clock regresses, or a gapped producer replays. Their
+  // order of merge is best-effort. However, a Barrier never falls below an
+  // Append the Slice has already sent, which Logs verify (a property required
+  // for the liveness of their merge).
+  message Barrier {
+    // If non-zero, requests a log flush of this cycle. The Log responds with a
+    // Flushed of the cycle once this Barrier has merged, and the Appends of
+    // this and all prior rounds of the Slice are durable.
+    uint64 flush_cycle = 1;
+    // Adjusted clock (clock + read_delay) through which the Slice has consumed:
+    // the greatest of any document it has dequeued, appended or not.
+    fixed64 adjusted_clock = 2;
+    // Archived bytes of the documents the Slice dequeued in this round.
+    uint64 quota = 3;
+    // Whether the Slice has no document due: all of its reads are tailing, or
+    // have stopped at the recovery frontier, or its next document awaits its
+    // read delay. A caught-up Slice with nothing queued doesn't gate the merge.
+    bool caught_up = 4;
   }
-  Flush flush = 3;
+  Barrier barrier = 3;
 }
 
 // LogResponse is sent by the Log actor back to each Slice.
@@ -417,7 +451,7 @@ message LogResponse {
   // Only after receiving Flushed from ALL Log RPCs can a Slice safely
   // report ProgressDelta to the Session.
   message Flushed {
-    // Cycle number from the corresponding Flush request.
+    // Cycle number of the Barrier which requested this flush.
     uint64 cycle = 1;
     // Log head position after all preceding appends are durable.
     // The consumer must read through this LSN to observe all
@@ -425,6 +459,14 @@ message LogResponse {
     uint64 flushed_lsn = 2;
   }
   Flushed flushed = 2;
+
+  // Acked releases the Slice's window of quota.
+  message Acked {
+    // Cumulative quota of the Slice's Barriers which the Log has merged since
+    // the RPC opened. It never decreases.
+    uint64 quota = 1;
+  }
+  Acked acked = 3;
 }
 
 // Shuffle service provides coordinated, disk-backed shuffled reads.

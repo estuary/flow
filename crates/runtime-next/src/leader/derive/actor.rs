@@ -296,9 +296,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             "derive Actor::serve exiting; broadcasting Stopped",
         );
 
-        // Broadcast L:Stopped. Each shard, upon observing it, removes its shuffle
-        // log segment files — releasing any disk back-pressure held by the
-        // co-located shuffle Log RPC so the Session topology can drain.
+        // Broadcast L:Stopped, which each shard awaits before our EOF.
         for tx in &self.shard_tx {
             let _ = tx.send(Ok(proto::Derive {
                 stopped: Some(proto::Stopped::default()),
@@ -307,8 +305,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         }
 
         // Close the shuffle Session, blocking until the entire
-        // Session→Slice→Log topology has drained to EOF and exited. This depends
-        // on the shard segment removals above to release disk back-pressure.
+        // Session→Slice→Log topology has drained to EOF and exited.
         () = session
             .close()
             .await
