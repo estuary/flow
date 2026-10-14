@@ -20,6 +20,7 @@ tokens = { path = "../tokens" }
 
 async-compression = { workspace = true }
 bytes = { workspace = true }
+crc32c = { workspace = true }
 flate2 = { workspace = true }            # Not directly used, but forces features declared in root Cargo.toml
 futures = { workspace = true }
 futures-core = { workspace = true }
@@ -28,6 +29,7 @@ memchr = { workspace = true }
 metrics = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
+snap = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

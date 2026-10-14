@@ -14,6 +14,12 @@ all communicating over Unix domain sockets in a temporary directory.
 - `EtcdInstance` (`etcd.rs`) — manages a child etcd process with UDS transport.
 - `GazetteCluster` (`gazette.rs`) — manages N broker processes
   and provides HMAC-authenticated `gazette::journal::Client` construction.
+  Its `signal` method sends SIGSTOP/SIGCONT to simulate broker outages.
+
+## Journal helpers
+
+`journals.rs` provides test helpers for head/register probes and journal creation
+and updates, using a `gazette::journal::Client`.
 
 ## Lifecycle
 

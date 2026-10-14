@@ -3,12 +3,11 @@ use proto_gazette::broker;
 use std::sync::Arc;
 
 /// An Appender manages a pipeline of sequential appends directed to a single journal.
+/// Dropping it aborts pending appends.
 pub struct Appender {
     /// A buffer of data which is to be appended. Clients directly mutate `buffer`,
     /// encoding data as they see fit, and call `checkpoint()` at message boundaries.
     pub buffer: bytes::BytesMut,
-    /// Journal to which this Appender will append.
-    journal: Box<str>,
     /// Client used for append RPCs.
     client: gazette::journal::Client,
     /// A barrier is a monotonic counter that increments with each call to barrier(),
@@ -18,9 +17,9 @@ pub struct Appender {
     watch: Arc<dyn tokens::Watch<(broker::AppendResponse, usize)>>,
     /// State of the append pipeline.
     state: AppendState,
-    /// Optional registers which must be present for the Append to succeed.
-    /// This may be used with cooperative fencing of journals.
-    check_registers: Option<Box<broker::LabelSelector>>,
+    /// Request template for buffered appends. Routing headers come from the last
+    /// response, and content comes from `buffer`.
+    request: Box<broker::AppendRequest>,
     /// Accumulated `delayed_chunks` summed across every append RPC issued to
     /// this journal since the last `take_throttle_samples()`.
     delayed_chunks: i64,
@@ -32,7 +31,8 @@ type UpdateFn = Box<
     dyn FnMut(
             tonic::Result<(broker::AppendResponse, usize)>,
         ) -> Option<tokens::WaitForCancellationFutureOwned>
-        + Send,
+        + Send
+        + Sync,
 >;
 
 enum AppendState {
@@ -57,13 +57,15 @@ impl Appender {
         let (watch, _signal) = watch.into_parts();
 
         Self {
-            journal: journal.into_boxed_str(),
             client,
             barrier: 0,
             buffer: bytes::BytesMut::new(),
             watch,
             state: AppendState::Idle(update),
-            check_registers: None,
+            request: Box::new(broker::AppendRequest {
+                journal,
+                ..Default::default()
+            }),
             delayed_chunks: 0,
             total_chunks: 0,
         }
@@ -71,7 +73,32 @@ impl Appender {
 
     /// The journal to which this Appender appends.
     pub fn journal(&self) -> &str {
-        &self.journal
+        &self.request.journal
+    }
+
+    /// Set the request for subsequent writes to `buffer`. A changed request starts
+    /// a background append of any buffered content under the current request,
+    /// keeping writes with different register checks or updates in separate, ordered RPCs.
+    ///
+    /// Call at a message boundary. `request.journal` must match this Appender's
+    /// journal; `header` and `content` are ignored.
+    pub async fn set_request(&mut self, mut request: broker::AppendRequest) -> tonic::Result<()> {
+        assert_eq!(
+            request.journal, self.request.journal,
+            "an Appender appends to only its own journal"
+        );
+        request.header = None;
+        request.content = Default::default();
+
+        if request == *self.request {
+            return Ok(());
+        }
+        if !self.buffer.is_empty() {
+            () = self.start_flush().await?;
+        }
+        *self.request = request;
+
+        Ok(())
     }
 
     /// Checkpoint is called after one or more complete messages have been encoded
@@ -91,20 +118,20 @@ impl Appender {
         self.start_flush().await
     }
 
-    /// Barrier returns a future that resolves when the contents of `buffer`
-    /// and all prior appends have completed, returning success or failure.
+    /// Return a future resolving after the current buffer and all prior appends
+    /// complete, or fail. It can gate dependent work, such as writing an ACK after
+    /// a durable log commit.
     ///
-    /// Note that barrier() does not itself spawn a background RPC and
-    /// provides no guarantee that the returned Future will ever resolve.
-    /// The caller must continue to drive the Appender via checkpoint(),
-    /// start_flush(), or flush() to ensure progress.
+    /// This starts no RPC. Continue driving the appender with `checkpoint()`,
+    /// `start_flush()`, or `flush()` to ensure progress.
     ///
-    /// Barriers are useful as a share-able synchronization point that
-    /// gates a task that cannot begin until the barrier has resolved
-    /// (e.x. writing ACKs only after a durable write-ahead log commit).
+    /// The watch retains only the latest response, so the future returns the
+    /// response satisfying the barrier or a later one. For an exact record offset,
+    /// append that record alone and read its response before further appends.
     pub fn barrier(
         &mut self,
-    ) -> impl std::future::Future<Output = tonic::Result<()>> + Send + Sync + 'static {
+    ) -> impl std::future::Future<Output = tonic::Result<broker::AppendResponse>> + Send + Sync + 'static
+    {
         self.barrier += 1;
 
         let target = self.barrier;
@@ -113,10 +140,10 @@ impl Appender {
         async move {
             loop {
                 let token = watch.token();
-                let (_response, barrier) = token.result()?;
+                let (response, barrier) = token.result()?;
 
                 if *barrier >= target {
-                    return Ok(());
+                    return Ok(response.clone());
                 }
                 () = token.expired().await;
             }
@@ -127,36 +154,35 @@ impl Appender {
     /// Then, if `buffer` is non-empty, start a new background Append RPC for it.
     /// On return `self.buffer` is empty.
     pub async fn start_flush(&mut self) -> tonic::Result<()> {
-        let mut update = match std::mem::replace(&mut self.state, AppendState::Empty) {
-            AppendState::InFlight(handle) => {
-                // Fold the completed append's throttle counts into our running totals
-                let (update, delayed_chunks, total_chunks) =
-                    handle.await.expect("append task panicked");
-                self.delayed_chunks += delayed_chunks;
-                self.total_chunks += total_chunks;
-                update
-            }
-            AppendState::Idle(update) => update,
-            AppendState::Empty => panic!("AppendState::Empty outside of start_flush"),
-        };
+        // Await in place so cancellation leaves the append joinable.
+        if let AppendState::InFlight(handle) = &mut self.state {
+            // Fold the completed append's throttle counts into our running totals
+            let (update, delayed_chunks, total_chunks) =
+                handle.await.expect("append task panicked");
+            self.delayed_chunks += delayed_chunks;
+            self.total_chunks += total_chunks;
+            self.state = AppendState::Idle(update);
+        }
 
         // Verify that all prior appends were successful.
         // An error is terminal: the Appender cannot make further progress.
         let token = self.watch.token();
-        let header = match token.result() {
-            Ok((last_response, _last_barrier)) => {
-                // Use the header of the last response to route our next one.
-                last_response.header.clone()
-            }
-            Err(err) => {
-                self.state = AppendState::Idle(update);
-                return Err(err);
-            }
-        };
+        let (last_response, last_barrier) = token.result()?;
+        // Use the header of the last response to route our next one.
+        let header = last_response.header.clone();
 
         // If there's nothing further to append, bail out now.
         if self.buffer.is_empty() {
-            self.state = AppendState::Idle(update);
+            // With no append to update the watch, resolve outstanding barriers
+            // using the last response and current count.
+            if *last_barrier < self.barrier {
+                let response = last_response.clone();
+
+                let AppendState::Idle(update) = &mut self.state else {
+                    unreachable!("an in-flight append was joined above")
+                };
+                _ = update(Ok((response, self.barrier)));
+            }
             return Ok(());
         }
 
@@ -166,9 +192,7 @@ impl Appender {
 
         let request = proto_gazette::broker::AppendRequest {
             header,
-            journal: self.journal.to_string(),
-            check_registers: self.check_registers.as_ref().map(Box::as_ref).cloned(),
-            ..Default::default()
+            ..(*self.request).clone()
         };
 
         let chunk_stream =
@@ -181,6 +205,11 @@ impl Appender {
                     },
                 ))
             };
+
+        let AppendState::Idle(mut update) = std::mem::replace(&mut self.state, AppendState::Empty)
+        else {
+            unreachable!("an in-flight append was joined above")
+        };
 
         let handle = tokio::spawn(async move {
             let journal = request.journal.clone();
@@ -203,14 +232,16 @@ impl Appender {
                         if err.is_transient() {
                             tracing::warn!(?attempt, journal, %err, "append failed (will retry)");
                         } else {
-                            let err = match err {
-                                gazette::Error::Grpc(status) => status,
+                            let mut status = match &err {
+                                gazette::Error::Grpc(status) => status.clone(),
                                 gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
                                     tonic::Status::not_found(format!("journal {journal} not found"))
                                 }
                                 other => tonic::Status::internal(other.to_string()),
                             };
-                            update(Err(err));
+                            // Preserve the original error so callers can classify the failure.
+                            status.set_source(Arc::new(err));
+                            update(Err(status));
                             return (update, 0, 0);
                         }
                     }
@@ -242,6 +273,15 @@ impl Appender {
 
     /// Chunk size for streaming data to the broker during an append RPC.
     const CHUNK_SIZE: usize = 32 << 10; // 32 KB
+}
+
+impl Drop for Appender {
+    fn drop(&mut self) {
+        // Dropping a JoinHandle alone would detach its retry loop.
+        if let AppendState::InFlight(handle) = &self.state {
+            handle.abort();
+        }
+    }
 }
 
 /// A per-journal sample of append-throttle pressure observed over all of a
@@ -339,9 +379,10 @@ impl AppenderGroup {
 #[cfg(test)]
 mod test {
     use super::*;
+    use futures::FutureExt;
 
     /// Build an Appender whose watch can be driven externally via the returned UpdateFn.
-    /// The Appender's state is Empty (tests must never call start_flush()).
+    /// Its state is Empty until a test installs a task.
     fn test_appender(journal: &str) -> (Appender, UpdateFn) {
         let mut appender = Appender::new(mock_journal_client(), journal.to_string());
 
@@ -516,6 +557,129 @@ mod test {
         // Subsequent barriers see the same error.
         let err = b2.await.unwrap_err();
         assert_eq!(err.code(), tonic::Code::Internal);
+    }
+
+    #[test]
+    fn test_barrier_yields_its_response() {
+        let (mut appender, mut update) = test_appender("test/journal");
+        let barrier = appender.barrier(); // target = 1
+
+        let expected = broker::AppendResponse {
+            commit: Some(broker::Fragment {
+                begin: 10,
+                end: 110,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        update(Ok((expected.clone(), 1)));
+        assert_eq!(barrier.now_or_never().unwrap().unwrap(), expected);
+
+        // An append which failed is terminal for later barriers, too.
+        update(Err(tonic::Status::internal("simulated failure")));
+        assert!(appender.barrier().now_or_never().unwrap().is_err());
+    }
+
+    #[test]
+    fn test_barrier_over_an_empty_pipeline_resolves_at_flush() {
+        let mut appender = Appender::new(mock_journal_client(), "test/journal".to_string());
+        let mut barrier = std::pin::pin!(appender.barrier());
+
+        // No append will satisfy the barrier, because there is nothing to append.
+        assert!(barrier.as_mut().now_or_never().is_none());
+
+        // The flush re-publishes the last response under the barrier's count.
+        appender.flush().now_or_never().unwrap().unwrap();
+        assert_eq!(
+            barrier.now_or_never().unwrap().unwrap(),
+            broker::AppendResponse::default()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_request_starts_what_is_buffered_under_the_prior_request() {
+        let mut appender = Appender::new(mock_journal_client(), "test/journal".to_string());
+
+        let author = broker::LabelSet {
+            labels: vec![broker::Label {
+                name: "author".to_string(),
+                value: "one".to_string(),
+                prefix: false,
+            }],
+        };
+        let unions = broker::AppendRequest {
+            journal: "test/journal".to_string(),
+            union_registers: Some(author.clone()),
+            ..Default::default()
+        };
+        let checks = broker::AppendRequest {
+            journal: "test/journal".to_string(),
+            check_registers: Some(broker::LabelSelector {
+                include: Some(author),
+                exclude: None,
+            }),
+            ..Default::default()
+        };
+
+        appender.set_request(unions.clone()).await.unwrap();
+        assert!(matches!(appender.state, AppendState::Idle(_)));
+        assert_eq!(*appender.request, unions);
+
+        // The fence must precede writes that check for its author.
+        appender.buffer.extend_from_slice(b"fence");
+        appender.set_request(checks.clone()).await.unwrap();
+        assert!(appender.buffer.is_empty());
+        assert!(matches!(appender.state, AppendState::InFlight(_)));
+        assert_eq!(*appender.request, checks);
+
+        // Header and content changes alone must not split buffered writes.
+        appender.buffer.extend_from_slice(b"record");
+        appender
+            .set_request(broker::AppendRequest {
+                header: Some(broker::Header::default()),
+                content: bytes::Bytes::from_static(b"ignored"),
+                ..checks.clone()
+            })
+            .await
+            .unwrap();
+        assert_eq!(&appender.buffer[..], b"record");
+        assert_eq!(*appender.request, checks);
+    }
+
+    #[tokio::test]
+    async fn test_backpressure_cancellation_and_drop() {
+        let (mut appender, update) = test_appender("test/stalled");
+        let (stopped_tx, stopped_rx) = tokio::sync::oneshot::channel::<()>();
+
+        let barrier = appender.barrier();
+
+        appender.state = AppendState::InFlight(tokio::spawn(async move {
+            let _stopped = stopped_tx;
+            () = futures::future::pending().await;
+            (update, 0, 0)
+        }));
+
+        let threshold = Appender::BUFFER_FLUSH_THRESHOLD;
+
+        appender.buffer.resize(threshold - 1, 0x11);
+        appender.checkpoint().now_or_never().unwrap().unwrap();
+
+        appender.buffer.resize(threshold, 0x11);
+        for _ in 0..2 {
+            assert!(appender.checkpoint().now_or_never().is_none());
+            assert!(appender.flush().now_or_never().is_none());
+            assert_eq!(appender.buffer.len(), threshold);
+            assert!(appender.buffer.iter().all(|byte| *byte == 0x11));
+        }
+
+        drop(appender);
+        tokio::time::timeout(std::time::Duration::from_secs(5), stopped_rx)
+            .await
+            .expect("dropping the appender did not stop its task")
+            .unwrap_err();
+
+        // The aborted append never completed, so nothing can satisfy its barrier.
+        assert!(barrier.now_or_never().is_none());
     }
 
     fn mock_journal_client() -> gazette::journal::Client {
