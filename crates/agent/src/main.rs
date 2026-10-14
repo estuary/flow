@@ -183,7 +183,7 @@ struct Args {
     runtime_v2_new_derivations: bool,
 
     /// Catalog Stats configuration. When provided, the catalogStats GraphQL queries
-    /// to read stats are enabled.
+    /// to read stats are enabled, and tenant controllers start free trials.
     #[command(flatten)]
     catalog_stats_config: control_plane_api::catalog_stats::CatalogStatsConfig,
 
@@ -391,6 +391,12 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let tenant_controller_billing_provider = billing_provider.clone();
     let catalog_stats =
         control_plane_api::catalog_stats::connect(args.catalog_stats_config).await?;
+    if catalog_stats.is_none() {
+        tracing::warn!(
+            "BigTable is not configured: catalogStats queries are unavailable and tenant controllers will not start free trials"
+        );
+    }
+    let tenant_controller_catalog_stats = catalog_stats.clone();
 
     let sprites = args
         .sprites_token
@@ -448,6 +454,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             ))
             .register(agent::tenant_controller::TenantController::new(
                 tenant_controller_billing_provider,
+                tenant_controller_catalog_stats,
             ));
 
         if args.serve_alert_notifications {

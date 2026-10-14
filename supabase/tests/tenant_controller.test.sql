@@ -20,15 +20,16 @@ begin
     'the controller task has the tenant-controller task type'
   );
   return query select ok(
-    (select wake_at is null from internal.tasks where task_id = v_task_id),
-    'a newly created controller task is not yet woken'
+    (select wake_at is not null and inbox is null from internal.tasks where task_id = v_task_id),
+    'a newly created controller task is woken without a message'
   );
 
   -- Changing a billing field wakes the controller (IS DISTINCT FROM fires).
+  update internal.tasks set wake_at = null where task_id = v_task_id;
   update tenants set billing_email = 'billing@acme.co' where tenant = 'acmeCo/';
   return query select ok(
-    (select wake_at is not null from internal.tasks where task_id = v_task_id),
-    'a billing-field change wakes the controller'
+    (select wake_at is not null and inbox is not null from internal.tasks where task_id = v_task_id),
+    'a billing-field change wakes the controller with a message'
   );
 
   -- A non-billing update must not wake the controller. Clear wake_at and confirm
@@ -65,10 +66,12 @@ declare
   v_task_id public.flowid;
 begin
 
-  -- Inserting a tenant auto-creates a controller task; it starts un-woken and
-  -- defaults to the 'stripe' payment provider.
+  -- Inserting a tenant auto-creates a controller task, and defaults to the
+  -- 'stripe' payment provider. Clear the creation wake, so that only the
+  -- provider change can wake the controller.
   insert into tenants (tenant) values ('acmeCo/');
   select controller_task_id into v_task_id from tenants where tenant = 'acmeCo/';
+  update internal.tasks set wake_at = null where task_id = v_task_id;
 
   -- Setting the provider to 'external' wakes the controller and enqueues a wake
   -- message on its task inbox.

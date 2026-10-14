@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT tenant as \"tenant!\", billing_email, billing_name, billing_address, payment_provider as \"payment_provider: PaymentProvider\"\n        FROM tenants\n        WHERE controller_task_id = $1\n        ",
+  "query": "\n        SELECT tenant as \"tenant!\", billing_email, billing_name, billing_address, payment_provider as \"payment_provider: PaymentProvider\", trial_start\n        FROM tenants\n        WHERE controller_task_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -67,6 +67,17 @@
             "name": "payment_provider"
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "trial_start",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "trial_start"
+          }
+        }
       }
     ],
     "parameters": {
@@ -79,8 +90,9 @@
       true,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "71fc2c89bcb79db20b026af9714df642609449770e5802b485965f49939ddfd0"
+  "hash": "82420c940f43abecbe3de7fe95dd197797d723628f77683e2c61cdbf0063409b"
 }

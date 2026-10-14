@@ -189,6 +189,7 @@ mod tests {
             billing_name: None,
             billing_address: None,
             payment_provider: None,
+            trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
@@ -205,6 +206,7 @@ mod tests {
             billing_name: None,
             billing_address: None,
             payment_provider: None,
+            trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
@@ -243,6 +245,7 @@ mod tests {
             billing_name: None,
             billing_address: None,
             payment_provider: None,
+            trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
@@ -271,6 +274,7 @@ mod tests {
             billing_name: None,
             billing_address: None,
             payment_provider: Some(PaymentProvider::External),
+            trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
@@ -294,6 +298,7 @@ mod tests {
             billing_name: None,
             billing_address: None,
             payment_provider: None,
+            trial_start: None,
         };
 
         let mut status = QuotaUpdateStatus::default();
