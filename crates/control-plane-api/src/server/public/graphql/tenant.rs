@@ -254,7 +254,7 @@ async fn create_tenant(
             .data_plane_by_catalog_name(name)
             .is_some_and(|plane| plane.can_sign())
     });
-    let (tenant_storage, recovery_storage) = storage::specs(public_planes, data_plane)?;
+    let (collection_storage, recovery_storage) = storage::specs(public_planes, data_plane)?;
 
     let metadata = if survey.is_null() {
         serde_json::json!({})
@@ -267,7 +267,7 @@ async fn create_tenant(
         name,
         user_id,
         metadata,
-        tenant_storage,
+        collection_storage,
         recovery_storage,
         txn,
     )

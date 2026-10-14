@@ -37,7 +37,7 @@ pub async fn provision_tenant(
     tenant: &str,
     tenant_user_id: Uuid,
     metadata: serde_json::Value,
-    tenant_storage: serde_json::Value,
+    collection_storage: serde_json::Value,
     recovery_storage: serde_json::Value,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
@@ -76,7 +76,7 @@ pub async fn provision_tenant(
         tenant_user_id as Uuid,
         &prefix as &str,
         detail.clone() as Option<String>,
-        tenant_storage,
+        collection_storage,
         recovery_storage,
         &default_alert_types as &[models::status::AlertType],
         metadata,
@@ -112,7 +112,7 @@ pub async fn provision_test_tenant(
     let public_planes = open_public_planes(&mut txn)
         .await
         .expect("fetch test data planes");
-    let tenant_storage = serde_json::json!({
+    let collection_storage = serde_json::json!({
         "stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}],
         "data_planes": public_planes,
     });
@@ -125,7 +125,7 @@ pub async fn provision_test_tenant(
         tenant,
         user_id,
         serde_json::json!({}),
-        tenant_storage,
+        collection_storage,
         recovery_storage,
         &mut txn,
     )
