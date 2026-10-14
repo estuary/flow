@@ -3156,19 +3156,17 @@ mod test {
         assert_eq!(pipeline.pipelines[0].unresolved.unresolved_hints, 1);
         assert!(pipeline.pipelines[0].ready.journals.is_empty());
 
-        // A floor rides the flush frontier of the read which sampled it.
+        // A floor arrives before any of its read's documents, and discharges
+        // the hint.
         pipeline.pipelines[0].unresolved_stalled_ticks = 3;
-        ingest_progressed_with_gap_floors(
-            &mut pipeline,
-            vec![jf("journal/B", 0, vec![pf(0x05, floor, 0, -100)])],
-            &[("journal/B", 0, floor)],
-        );
+        ingest_progressed_with_gap_floors(&mut pipeline, vec![], &[("journal/B", 0, floor)]);
 
         assert_eq!(pipeline.pipelines[0].unresolved.unresolved_hints, 0);
         assert!(pipeline.pipelines[0].unresolved.journals.is_empty());
         assert_eq!(pipeline.pipelines[0].unresolved_stalled_ticks, 0);
 
-        // The checkpoint the floor released also carries it to the client.
+        // The checkpoint the floor released also carries it to the client, on
+        // the journal of the hint it discharged.
         pipeline.request().unwrap();
         let ready = pipeline.take_ready().expect("ready checkpoint");
 
@@ -3181,7 +3179,7 @@ mod test {
             readout,
             vec![
                 ("journal/A", 1, uuid::Clock::zero()),
-                ("journal/B", 1, uuid::Clock::from_unix(floor, 0)),
+                ("journal/B", 0, uuid::Clock::from_unix(floor, 0)),
             ]
         );
 

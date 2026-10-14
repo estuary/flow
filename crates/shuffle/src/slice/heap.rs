@@ -22,8 +22,9 @@ pub struct ReadHeap {
 }
 
 /// Output of a read's probe: its resume and probed (fast-forwarded) offsets,
-/// and the read, which begins at the probed offset.
-pub type Probed = anyhow::Result<(i64, i64, ReadLines)>;
+/// the journal's write head at the probe, and the read, which begins at the
+/// probed offset.
+pub type Probed = anyhow::Result<(i64, i64, i64, ReadLines)>;
 
 /// An event of a ReadHeap's probes or pending reads.
 pub enum ReadEvent {
@@ -272,9 +273,9 @@ mod test {
         step("ready", &heap);
 
         let probed = read(0, false);
-        heap.start_probe(Box::pin(async { Ok((0, 0, probed)) }));
+        heap.start_probe(Box::pin(async { Ok((0, 0, 1, probed)) }));
         step("probing", &heap);
-        let ReadEvent::Probed(Ok((_, _, probed))) = heap.next_read_event().await else {
+        let ReadEvent::Probed(Ok((_, _, _, probed))) = heap.next_read_event().await else {
             unreachable!()
         };
         step("probed", &heap);

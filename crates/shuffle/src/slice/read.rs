@@ -34,8 +34,6 @@ pub struct ReadState {
     pub backfill_complete: uuid::Clock,
     /// Whether a read-start byte gap awaits its first document.
     pub pending_gap: bool,
-    /// Sampled gap floor, awaiting the next flush (zero = none).
-    pub gap_floor: uuid::Clock,
     /// Producers whose state has been reported in a flush frontier: either from
     /// the initial checkpoint or drained from `unreported` at the start of a
     /// flush cycle.
@@ -89,7 +87,6 @@ impl ReadState {
             backfill_begin: uuid::Clock::zero(),
             backfill_complete: uuid::Clock::zero(),
             pending_gap: false,
-            gap_floor: uuid::Clock::zero(),
             reported,
             unreported: Default::default(),
             read_offset: 0,
@@ -104,41 +101,52 @@ impl ReadState {
         }
     }
 
-    /// Seed all four offset fields to `offset`, the read's effective start as
-    /// resolved by the journal probe. The probe may fast-forward past leading
-    /// fragments that precede the read's `begin_mod_time`, so `offset` can
-    /// exceed the checkpoint offset; the skipped range would be filtered by the
-    /// read regardless. Initializing all four equal makes the initial "bytes
-    /// behind" (`write_head - read_offset`) and the delta baseline
-    /// (`prev_write_head - prev_read_offset`) zero, which is required because
-    /// metrics accumulate deltas starting from these baselines.
+    /// Begin the read at its `probed_offset`, which its probe fast-forwarded
+    /// from `resume_offset`, noting whether that left a byte gap.
     ///
-    /// `write_head` is a placeholder here; it's overwritten with the journal's
-    /// true head once the first batch resolves in `process_read_result`.
-    pub fn start_at(&mut self, offset: i64) {
-        self.read_offset = offset;
-        self.prev_read_offset = offset;
-        self.write_head = offset;
-        self.prev_write_head = offset;
+    /// Delta baselines are seeded at the probed offset. Metrics accumulate
+    /// deltas from a zero baseline, and bytes the read skipped are not read.
+    /// `write_head` is the journal's head at the probe, so the first flush
+    /// reports the read's full backlog as bytes behind.
+    ///
+    /// A gapped read whose probed offset is the journal's `write_head` is
+    /// tailing, and may not receive a document for a long while, if ever.
+    /// Every ACK its gap removed or skipped was appended before the probe,
+    /// so its gap floor is set from the probe's time, `now`, and returned.
+    pub fn on_probed(
+        &mut self,
+        resume_offset: i64,
+        probed_offset: i64,
+        write_head: i64,
+        now: uuid::Clock,
+    ) -> Option<uuid::Clock> {
+        self.pending_gap = probed_offset > resume_offset;
+        self.read_offset = probed_offset;
+        self.prev_read_offset = probed_offset;
+        self.write_head = write_head;
+        self.prev_write_head = probed_offset;
+
+        if probed_offset < write_head {
+            return None;
+        }
+        self.take_gap_floor(now)
     }
 
-    /// Sample the first document past a read-start byte gap into `gap_floor`,
-    /// plus [`crate::CAUSAL_HINT_GAP_MARGIN`].
+    /// Take the floor of a pending read-start byte gap: `clock` plus
+    /// [`crate::CAUSAL_HINT_GAP_MARGIN`]. `clock` is that of the first document
+    /// past the gap, or the probe's time if the read is already tailing.
+    /// Every ACK the gap removed precedes it, so hints naming them are bounded.
     ///
-    /// Every ACK the gap removed precedes this document in offset order, so the
-    /// sample bounds them all. Hints naming them can never resolve on this read.
-    ///
-    /// `notBefore` is not consulted: it suppresses append but not commits
-    /// (`super::state::sequence_producer`), so hints still resolve from any
-    /// document the read receives. It bears on the floor only when it opens a gap.
-    pub fn sample_gap_floor(&mut self, clock: uuid::Clock) {
+    /// `notBefore` doesn't bear on the floor: it suppresses append but not
+    /// commits (`super::state::sequence_producer`).
+    pub fn take_gap_floor(&mut self, clock: uuid::Clock) -> Option<uuid::Clock> {
         if !std::mem::take(&mut self.pending_gap) {
-            return;
+            return None;
         }
         // A duration as a Clock delta, encoded as `Binding::read_delay` is.
         let margin =
             uuid::Clock::from_u64((crate::CAUSAL_HINT_GAP_MARGIN.as_secs() * 10_000_000) << 4);
-        self.gap_floor = self.gap_floor.max(clock + margin);
+        Some(clock + margin)
     }
 
     /// Fold a just-sequenced commit's `post` producer state into [`Park`],
@@ -423,6 +431,7 @@ pub async fn start_read(
     Ok((
         resume_offset,
         probed.offset,
+        probed.write_head,
         Box::pin(gazette::journal::read::ReadLines::new(
             client.read(request).boxed(),
             read_id,
@@ -708,21 +717,43 @@ mod test {
         let margin = crate::CAUSAL_HINT_GAP_MARGIN.as_secs();
         let mut read = recovered(&[]);
 
-        // No gap: nothing is sampled.
-        read.sample_gap_floor(clock(20));
-        assert_eq!(read.gap_floor, uuid::Clock::zero());
+        // No gap: there's no floor.
+        assert_eq!(read.take_gap_floor(clock(20)), None);
 
-        // A gap samples its first document plus the margin, and nothing after.
+        // A gap's floor is its first document plus the margin, taken once.
         read.pending_gap = true;
-        read.sample_gap_floor(clock(20));
+        assert_eq!(read.take_gap_floor(clock(20)), Some(clock(20 + margin)));
         assert!(!read.pending_gap);
-        assert_eq!(read.gap_floor, clock(20 + margin));
-        read.sample_gap_floor(clock(30));
-        assert_eq!(read.gap_floor, clock(20 + margin));
+        assert_eq!(read.take_gap_floor(clock(30)), None);
+    }
 
-        // The floor only rises.
-        read.pending_gap = true;
-        read.sample_gap_floor(clock(15));
-        assert_eq!(read.gap_floor, clock(20 + margin));
+    #[test]
+    fn test_gap_floor_at_probe_of_tailing_read() {
+        let clock = |secs| uuid::Clock::from_unix(secs, 0);
+        let margin = crate::CAUSAL_HINT_GAP_MARGIN.as_secs();
+
+        // A gapped read which is already tailing takes its floor at the probe,
+        // and not again at its first document.
+        let mut read = recovered(&[]);
+        assert_eq!(
+            read.on_probed(100, 500, 500, clock(1_000)),
+            Some(clock(1_000 + margin))
+        );
+        assert_eq!((read.read_offset, read.write_head), (500, 500));
+        assert_eq!(read.take_gap_floor(clock(2_000)), None);
+
+        // A gapped read which isn't tailing takes it at its first document.
+        let mut read = recovered(&[]);
+        assert_eq!(read.on_probed(100, 500, 900, clock(1_000)), None);
+        assert_eq!(
+            (read.read_offset, read.write_head, read.prev_write_head),
+            (500, 900, 500)
+        );
+        assert_eq!(read.take_gap_floor(clock(20)), Some(clock(20 + margin)));
+
+        // A tailing read without a gap has no floor.
+        let mut read = recovered(&[]);
+        assert_eq!(read.on_probed(500, 500, 500, clock(1_000)), None);
+        assert!(!read.pending_gap);
     }
 }

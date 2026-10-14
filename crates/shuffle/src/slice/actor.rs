@@ -171,7 +171,7 @@ impl SliceActor {
                 }
                 event = self.heap.next_read_event() => match event {
                     ReadEvent::Probed(probed) => {
-                        let (resume_offset, probed_offset, read) = match probed {
+                        let (resume_offset, probed_offset, write_head, read) = match probed {
                             Ok(ok) => ok,
                             Err(err) => {
                                 self.metrics.reads_stopped.increment(1);
@@ -179,11 +179,18 @@ impl SliceActor {
                             }
                         };
                         let read_state = &mut self.reads[read.id() as usize];
-                        read_state.pending_gap = probed_offset > resume_offset;
-                        // Seed the ReadState's offsets at the probed offset before
-                        // its first batch, so byte deltas exclude the filtered range
-                        // the read skipped.
-                        read_state.start_at(probed_offset);
+                        if let Some(floor) = read_state.on_probed(
+                            resume_offset,
+                            probed_offset,
+                            write_head,
+                            crate::now_clock(),
+                        ) {
+                            self.progress.on_gap_floor(
+                                &read_state.journal,
+                                read_state.binding_index,
+                                floor,
+                            );
+                        }
                         self.process_or_await(read)?;
                     }
                     ReadEvent::Resolved { result, read, was_stalled } => {
@@ -608,6 +615,14 @@ impl SliceActor {
             }
         };
 
+        // Take and report the floor as the batch is parsed, not by a flush.
+        // Consumption awaits the merge reaching this clock, but peers may
+        // meanwhile deliver hints which only the floor discharges.
+        if let Some(floor) = read_state.take_gap_floor(ready_read.meta.clock) {
+            self.progress
+                .on_gap_floor(&read_state.journal, read_state.binding_index, floor);
+        }
+
         self.heap.push_ready(ReadyReadEntry {
             adjusted_clock: ready_read.meta.clock + binding.read_delay,
             inner: Some(Box::new(ready_read)),
@@ -849,8 +864,6 @@ impl SliceActor {
         read_state.backfill_complete = read_state
             .backfill_complete
             .max(sequenced.backfill_complete);
-
-        read_state.sample_gap_floor(clock);
 
         _ = read_state
             .unreported

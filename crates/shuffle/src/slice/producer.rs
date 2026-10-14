@@ -85,9 +85,7 @@ pub fn build_flush_frontier(
 
         // Backfill clocks are per-binding metadata. Drain this journal's into
         // the checkpoint maps; multiple journals of one binding fold to their
-        // max. The gap floor rides this journal's entry. The `continue` above
-        // strands none: each is folded from a document, so a non-zero one
-        // implies unreported work.
+        // max.
         let binding = read_state.binding_index;
         let backfill_begin = std::mem::take(&mut read_state.backfill_begin);
         if backfill_begin != Clock::zero() {
@@ -130,7 +128,6 @@ pub fn build_flush_frontier(
             producers,
             bytes_read_delta,
             bytes_behind_delta,
-            gap_floor: std::mem::take(&mut read_state.gap_floor),
             ..Default::default()
         });
 
@@ -408,26 +405,18 @@ mod test {
     #[test]
     fn test_build_flush_frontier_drains_binding_clocks_from_reads() {
         // Two journals of one binding (shared `suffix/0`). The drain folds both
-        // journals' backfill clocks per-binding via `max` and clears each read's
-        // fields. journal/A is processed first with the smaller begin; journal/B
-        // carries the larger, so the fold must `max`-upgrade to it rather than
-        // keep the first-seen value. Only journal/A carries a complete. Gap
-        // floors ride each journal's own entry.
+        // journals' clocks per-binding via `max` and clears each read's fields.
+        // journal/A is processed first with the smaller begin; journal/B carries
+        // the larger, so the fold must `max`-upgrade to it rather than keep the
+        // first-seen value. Only journal/A carries a complete.
         let mut read_a = read_state("journal/A", 0, &[(0x01, 100, -500)]);
         read_a.backfill_begin = Clock::from_u64(80);
         read_a.backfill_complete = Clock::from_u64(100);
-        read_a.gap_floor = Clock::from_u64(300);
 
         let mut read_b = read_state("journal/B", 0, &[(0x03, 0, 700)]);
         read_b.backfill_begin = Clock::from_u64(90);
-        read_b.gap_floor = Clock::from_u64(900);
 
-        // journal/C's floor was raised at read start, but it has no document
-        // yet, so the floor waits.
-        let mut read_c = read_state("journal/C", 1, &[]);
-        read_c.gap_floor = Clock::from_u64(500);
-
-        let mut reads = vec![read_a, read_b, read_c];
+        let mut reads = vec![read_a, read_b];
 
         let frontier = build_flush_frontier(&mut reads, std::iter::empty(), 2);
         assert_eq!(frontier.journals.len(), 2);
@@ -441,23 +430,10 @@ mod test {
             frontier.latest_backfill_complete.get(&0),
             Some(&Clock::from_u64(100))
         );
-        let floors: Vec<_> = (frontier.journals.iter())
-            .map(|jf| (&*jf.journal, jf.gap_floor))
-            .collect();
-        assert_eq!(
-            floors,
-            vec![
-                ("journal/A", Clock::from_u64(300)),
-                ("journal/B", Clock::from_u64(900)),
-            ]
-        );
 
         // The per-journal clocks are drained (reset to zero).
         assert_eq!(reads[0].backfill_begin, Clock::zero());
         assert_eq!(reads[0].backfill_complete, Clock::zero());
-        assert_eq!(reads[0].gap_floor, Clock::zero());
         assert_eq!(reads[1].backfill_begin, Clock::zero());
-        assert_eq!(reads[1].gap_floor, Clock::zero());
-        assert_eq!(reads[2].gap_floor, Clock::from_u64(500));
     }
 }

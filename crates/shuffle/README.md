@@ -190,12 +190,8 @@ whether retention removed them, `begin_mod_time` skipped them, or they were
 never written. The response does not say which.
 
 **Gap floor**: A clock below which causal hints naming a `(journal, binding)`
-are unreachable (`JournalFrontier::gap_floor`). Only a byte gap at read start
-raises it, to the first document past the gap plus `CAUSAL_HINT_GAP_MARGIN`
-(`ReadState::sample_gap_floor`). It only rises, and discharges causal hints
-which trail it (`Completed::is_gap_stale`) — never producer commits, and never
-the hinted frontier an idempotent-recovery session replays. Persistence keeps
-one floor per binding, the largest of its journals.
+are unreachable, because a byte gap at the read's start skipped their ACKs
+(`JournalFrontier::gap_floor`). It discharges hints, never producer commits.
 
 **Remainder**: An already-read log block holding entries not yet committed at
 the reading shard's frontier, carried into later scans until they are
@@ -311,9 +307,8 @@ recovered later by a bounded replay (see `slice/replay.rs`).
 It first probes the journal write head to determine whether the read is already
 tailing (caught up).
 
-A probe landing beyond the requested offset is a byte gap at read start, which
-raises the journal's gap floor (`ReadState::sample_gap_floor`). A gap mid-read
-raises nothing.
+A probe landing beyond the resume offset is a byte gap at read start, which
+raises the journal's gap floor (`ReadState::take_gap_floor`).
 
 Read data arrives as `LinesBatch` chunks from Gazette, which are
 transcoded via `simd_doc::SimdParser` into archived document nodes.
