@@ -170,6 +170,30 @@ Keep READMEs current - update with code changes.
 - Decompose IO and POD processing into separate routines where possible.
   Routines should gravitate towards IO or processing, and not mix both.
 
+### Comments and Prose
+
+- When making changes, document and discuss behavior as it now exists, not
+  as it used to. Avoid comparative arguments or rationalizations against
+  behavior we no longer have.
+- When updating an existing comment, seek to remove as much as you add.
+  Avoid repeating background context that should live in a README or closer
+  to another component.
+- Include only facts the point needs. A true but irrelevant fact implies a
+  connection that isn't there, so leave it out or move it where it matters.
+- Prefer short sentences that each make one claim. Break up stacked relative
+  clauses and appositives ("the window is that of the Log which has released
+  the least") into plain statements ("the Log furthest behind sets the limit").
+- Present an argument (liveness, ordering, safety) as steps: state the claim,
+  then give each step in its own sentence, and a new paragraph when the
+  argument turns. Cite the routine or type that backs each step
+  (`buffer::next_merge`), so a reader can check it.
+- Seek explicit buy-in from the user before inventing new terminology or
+  concepts.
+- When one effect causes another, describe the chain in order.
+  Don’t list related mechanisms as independent sources or cases.
+- When editing a comment, check each claim against the code it cites.
+  Rewording is when stale or incomplete claims are cheapest to catch.
+
 ### Testing
 - Prefer snapshots over fine-grain assertions (`insta` / `cupaloy`)
 
