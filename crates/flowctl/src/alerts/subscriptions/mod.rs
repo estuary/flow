@@ -4,7 +4,20 @@ use itertools::Itertools;
 use crate::graphql::*;
 use anyhow::Context;
 use clap::builder::{PossibleValuesParser, TypedValueParser};
-use models::status::AlertType;
+
+/// Name of an alert type, such as `shard_failed`, as given by the GraphQL
+/// `AlertType` enum. It's a string rather than `models::status::AlertType` so
+/// that subscriptions which include alert types added after this flowctl was
+/// built can still be listed and updated.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct AlertType(String);
+
+impl std::fmt::Display for AlertType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 #[derive(Debug, clap::Args)]
 pub struct List {
@@ -32,9 +45,7 @@ pub struct SubscribeArgs {
     /// argument. May be provided multiple times in order to subscribe to
     /// multiple alert types. If not provided, a comprehensive default list of
     /// alert types will be used.
-    #[clap(long, value_parser =
-    PossibleValuesParser::new(alert_type_values()).map(|s|
-    AlertType::from_str(&s).unwrap()))]
+    #[clap(long, value_parser = PossibleValuesParser::new(alert_type_values()).map(AlertType))]
     pub alert_type: Option<Vec<AlertType>>,
 
     #[clap(long)]
@@ -42,7 +53,10 @@ pub struct SubscribeArgs {
 }
 
 fn alert_type_values() -> Vec<&'static str> {
-    AlertType::all().into_iter().map(|ty| ty.name()).collect()
+    models::status::AlertType::all()
+        .iter()
+        .map(|ty| ty.name())
+        .collect()
 }
 
 #[derive(Debug, clap::Args)]
@@ -61,7 +75,7 @@ pub struct UnsubscribeArgs {
     /// alert types in place. May be provided multiple times in order to
     /// unsubscribe from multiple alert types. If not provided, then all alert
     /// types will be unsubscribed.
-    #[clap(long, value_parser = PossibleValuesParser::new(alert_type_values()).map(|s| AlertType::from_str(&s).unwrap()))]
+    #[clap(long, value_parser = PossibleValuesParser::new(alert_type_values()).map(AlertType))]
     pub alert_type: Option<Vec<AlertType>>,
 }
 
@@ -318,7 +332,7 @@ async fn do_unsubscribe(args: &UnsubscribeArgs, ctx: &mut crate::CliContext) -> 
     // we should remove the entire subscription.
     let desired_alert_types: Vec<AlertType> = if let Some(remove_types) = &args.alert_type {
         let mut desired = Vec::new();
-        for current_type in existing.alert_types.iter().copied() {
+        for current_type in existing.alert_types.iter().cloned() {
             if !remove_types.contains(&current_type) {
                 desired.push(current_type);
             }
@@ -389,4 +403,44 @@ fn resolve_email(
     let auth_claims = ctx.require_control_claims()?;
     email_arg.clone().or(auth_claims.email.clone()).ok_or_else(||
         anyhow::anyhow!("no explicit email argument provided, and unable to determine the user email from the available authentication information. Please try logging in again, or pass an explicit email argument."))
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn unknown_alert_types_round_trip() {
+        // A subscription may include alert types which this flowctl doesn't
+        // know of, which must be listed and preserved when updating it.
+        let resp: super::list_alert_subscriptions::ResponseData =
+            serde_json::from_value(serde_json::json!({
+                "alertSubscriptions": [{
+                    "alertTypes": ["shard_failed", "a_future_alert_type"],
+                    "catalogPrefix": "acmeCo/",
+                    "createdAt": "2026-10-14T00:00:00Z",
+                    "detail": null,
+                    "email": "user@example.com",
+                    "updatedAt": "2026-10-14T00:00:00Z",
+                }]
+            }))
+            .unwrap();
+        let existing = &resp.alert_subscriptions[0];
+
+        let vars = super::update_alert_subscription::Variables {
+            prefix: models::Prefix::new("acmeCo/"),
+            email: "user@example.com".to_string(),
+            alert_types: Some(existing.alert_types.clone()),
+            detail: None,
+        };
+        insta::assert_json_snapshot!(vars, @r#"
+        {
+          "prefix": "acmeCo/",
+          "email": "user@example.com",
+          "alertTypes": [
+            "shard_failed",
+            "a_future_alert_type"
+          ],
+          "detail": null
+        }
+        "#);
+    }
 }
