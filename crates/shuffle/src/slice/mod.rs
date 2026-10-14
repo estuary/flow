@@ -7,6 +7,7 @@ mod listing;
 mod producer;
 pub mod read;
 mod replay;
+mod rounds;
 pub mod routing;
 mod state;
 
@@ -44,7 +45,7 @@ pub type CausalHints =
 pub(crate) struct Metrics {
     /// Total bytes read from journals, accumulated from each progress flush.
     bytes_read: metrics::Counter,
-    /// Total flush cycles started (broadcast Flush to Log shards).
+    /// Total flush cycles started.
     flushes: metrics::Counter,
     /// Total journal reads started over the session lifetime.
     reads_started: metrics::Counter,
@@ -60,13 +61,13 @@ pub(crate) struct Metrics {
     replays_started: metrics::Counter,
     /// Replays that have either completed or failed.
     replays_stopped: metrics::Counter,
-    /// Unix time (seconds) of the last document dequeued from the ready-read
+    /// Unix time (seconds) of the last document consumed from the ready-read
     /// heap, indexed by cohort: how far this shard's shuffled read has
-    /// progressed in source published-at time. `time() - gauge` in PromQL is
-    /// the shard's read lag, and max - min across sibling shards' series is
-    /// their skew. Clocks are only comparable within a cohort (bindings of
-    /// differing priority or read delay legitimately diverge), hence the label.
+    /// progressed in source published-at time. Clocks are only comparable
+    /// within a cohort, hence the label.
     last_source_published_at: Vec<metrics::Gauge>,
+    /// Total rounds sent to Log shards.
+    rounds: metrics::Counter,
 }
 
 impl Metrics {
@@ -116,7 +117,12 @@ impl Metrics {
             metrics::describe_gauge!(
                 "shuffle_slice_last_source_published_at_time_seconds",
                 metrics::Unit::Seconds,
-                "unix time of the last document dequeued from the ready-read heap, by cohort",
+                "unix time of the last document consumed from the ready-read heap, by cohort",
+            );
+            metrics::describe_counter!(
+                "shuffle_slice_rounds",
+                metrics::Unit::Count,
+                "rounds sent to Log shards",
             );
         });
 
@@ -138,6 +144,7 @@ impl Metrics {
                     )
                 })
                 .collect(),
+            rounds: metrics::counter!("shuffle_slice_rounds", "shard_id" => shard_id.to_string()),
         }
     }
 }

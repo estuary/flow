@@ -205,6 +205,23 @@ pub struct ReadyRead {
     pub meta_tail: std::vec::IntoIter<Meta>,
 }
 
+impl ReadyRead {
+    /// Advance to the next document of the batch, re-using this Box,
+    /// or return the underlying read if the batch is drained.
+    pub fn advance(mut self: Box<Self>) -> Result<Box<Self>, super::ReadLines> {
+        // `doc_tail` and `meta_tail` advance in lock-step.
+        match (self.doc_tail.next(), self.meta_tail.next()) {
+            (Some((doc, _)), Some(meta)) => {
+                self.doc = doc;
+                self.meta = meta;
+                Ok(self)
+            }
+            (None, None) => Err(self.inner),
+            _ => unreachable!("doc_tail and meta_tail have equal length"),
+        }
+    }
+}
+
 /// Extract UUID metadata and validate each document in a transcoded batch.
 /// Returns a Vec<Meta> parallel to `transcoded.iter()`.
 pub fn extract_metas(

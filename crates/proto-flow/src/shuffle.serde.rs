@@ -878,7 +878,7 @@ impl serde::Serialize for LogRequest {
         if self.open.is_some() {
             len += 1;
         }
-        if self.append.is_some() {
+        if !self.appends.is_empty() {
             len += 1;
         }
         if self.flush.is_some() {
@@ -888,8 +888,8 @@ impl serde::Serialize for LogRequest {
         if let Some(v) = self.open.as_ref() {
             struct_ser.serialize_field("open", v)?;
         }
-        if let Some(v) = self.append.as_ref() {
-            struct_ser.serialize_field("append", v)?;
+        if !self.appends.is_empty() {
+            struct_ser.serialize_field("appends", &self.appends)?;
         }
         if let Some(v) = self.flush.as_ref() {
             struct_ser.serialize_field("flush", v)?;
@@ -905,14 +905,14 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
     {
         const FIELDS: &[&str] = &[
             "open",
-            "append",
+            "appends",
             "flush",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Open,
-            Append,
+            Appends,
             Flush,
             __SkipField__,
         }
@@ -937,7 +937,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                     {
                         match value {
                             "open" => Ok(GeneratedField::Open),
-                            "append" => Ok(GeneratedField::Append),
+                            "appends" => Ok(GeneratedField::Appends),
                             "flush" => Ok(GeneratedField::Flush),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -959,7 +959,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut open__ = None;
-                let mut append__ = None;
+                let mut appends__ = None;
                 let mut flush__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -969,11 +969,11 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                             }
                             open__ = map_.next_value()?;
                         }
-                        GeneratedField::Append => {
-                            if append__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("append"));
+                        GeneratedField::Appends => {
+                            if appends__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("appends"));
                             }
-                            append__ = map_.next_value()?;
+                            appends__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Flush => {
                             if flush__.is_some() {
@@ -988,7 +988,7 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                 }
                 Ok(LogRequest {
                     open: open__,
-                    append: append__,
+                    appends: appends__.unwrap_or_default(),
                     flush: flush__,
                 })
             }

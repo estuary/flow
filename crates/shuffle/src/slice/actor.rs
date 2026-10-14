@@ -5,7 +5,7 @@ use super::{
         parse_lines_batch,
     },
     replay::Replay,
-    routing,
+    rounds::Rounds,
     state::{self, FlushState, ProgressState, Topology},
 };
 use crate::log;
@@ -32,10 +32,8 @@ pub struct SliceActor {
     pub progress: ProgressState,
     /// Channel for sends to parent Session.
     pub slice_response_tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
-    /// Channels for sends to shard Log RPCs, indexed by shard index.
-    pub log_request_tx: Vec<mpsc::Sender<shuffle::LogRequest>>,
-    /// Previous journal name sent to each Log shard, for delta encoding.
-    pub log_prev_journal: Vec<String>,
+    /// Rounds of sends to shard Log RPCs.
+    pub rounds: Rounds,
     /// Shard parser for transcoding documents from LinesBatch.
     pub parser: simd_doc::SimdParser,
     /// Journal reads, and the heap of their ready documents.
@@ -59,10 +57,15 @@ impl Drop for SliceActor {
     }
 }
 
-pub(super) struct Buffers {
-    packed_key: bytes::BytesMut,
-    targets: Vec<usize>,
-    permits: Vec<mpsc::Permit<'static, shuffle::LogRequest>>,
+/// Why a round ended, and what the Slice's send loop must await before its next.
+pub(super) enum Wait {
+    /// Await a next actor event.
+    Idle,
+    /// Await nothing: resume with a next round after servicing actor events,
+    /// and yielding to the runtime.
+    Yield,
+    /// Await the adjusted clock of the heap top.
+    Sleep(std::time::Duration),
 }
 
 impl SliceActor {
@@ -109,13 +112,6 @@ impl SliceActor {
             tokio::task::JoinHandle<Option<anyhow::Error>>,
         > = self.spawn_listings(&cancel);
 
-        // Re-usable scratch buffers.
-        let mut buffers = Buffers {
-            packed_key: bytes::BytesMut::new(),
-            targets: Vec::new(),
-            permits: Vec::new(),
-        };
-
         // Measure of wall-clock time, used to gate delayed reads.
         let mut now = uuid::Clock::zero();
 
@@ -140,7 +136,7 @@ impl SliceActor {
                 "SliceActor::serve iteration"
             );
             // First, attempt non-blocking sends.
-            let wake_log_request_tx = self.try_log_request_tx(&mut buffers, &mut now)?;
+            let wake_log_request_tx = self.try_log_request_tx(&mut now)?;
             let wake_slice_response_tx = self.try_slice_response_tx()?;
 
             // Then, wait for a blocking future to resolve.
@@ -211,7 +207,7 @@ impl SliceActor {
             flush_cycle = self.flush.cycle,
             "SliceActor::serve exiting on Session EOF"
         );
-        self.log_request_tx.clear(); // Drop all tx handles to close.
+        self.rounds.logs.clear(); // Drop all tx handles to close.
 
         // Read clean EOF from all Log RPCs.
         while let Some((shard_index, slice_response, rx)) = log_response_rx.next().await {
@@ -632,373 +628,246 @@ impl SliceActor {
         }
     }
 
+    /// Attempt to send a round to Logs with Appends of ready documents and/or a
+    /// flush request, if ready. Returns a future of what the Actor must next await.
     fn try_log_request_tx(
         &mut self,
-        buffers: &mut Buffers,
         now: &mut uuid::Clock,
     ) -> anyhow::Result<impl Future<Output = bool> + 'static> {
-        // Closure for mapping an OwnedPermit Result to Ok (our "poll again" signal).
-        // On Err (channel closed), we don't wake and rely on rx of a causal error / fail-fast teardown.
-        let ok = |result: Result<_, _>| result.is_ok();
-        // Future which represent an absence of an awake signal.
-        let idle = future::Either::Right(future::Either::Right(std::future::ready(false)));
+        // Ensure all Log channels have capacity for a next round.
+        if let Some(log) = (self.rounds.logs)
+            .iter()
+            .position(|log| log.tx.capacity() == 0)
+        {
+            let tx = self.rounds.logs[log].tx.clone();
 
-        loop {
-            // A flush cycle takes priority over sending Append requests.
-            // We'll await capacity for Flushes even if the next Append shard has capacity.
-            if self.flush.should_flush() {
-                if let Err(tx) = self.try_log_request_flush_tx(buffers) {
-                    return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
+            return Ok(future::Either::Left(
+                // On Err (channel closed), we don't wake and rely on rx of a
+                // causal error / fail-fast teardown.
+                async move { tx.reserve().await.is_ok() },
+            ));
+        }
+
+        // If we just received Flushed then request the next flush immediately,
+        // instead of delaying it behind a full round.
+        let wait = if self.flush.should_flush() {
+            Wait::Yield
+        } else {
+            self.fill_round(now)?
+        };
+
+        let flush = if self.flush.should_flush() {
+            let frontier = super::producer::build_flush_frontier(
+                &mut self.reads,
+                self.causal_hints.drain(),
+                self.topology.shards.len(),
+            );
+            let cycle = self.flush.start(self.topology.shards.len(), frontier);
+
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "log",
+                cycle,
+                "broadcast flush request",
+            );
+            self.metrics.flushes.increment(1);
+
+            Some(cycle)
+        } else {
+            None
+        };
+
+        if self.rounds.send(flush)? {
+            self.metrics.rounds.increment(1);
+        }
+
+        Ok(future::Either::Right(async move {
+            match wait {
+                Wait::Idle => false,
+                Wait::Yield => {
+                    tokio::task::yield_now().await;
+                    true
                 }
+                Wait::Sleep(wait) => {
+                    tokio::time::sleep(wait).await;
+                    true
+                }
+            }
+        }))
+    }
+
+    /// Fill the round by consuming ready documents until the round must
+    /// end, returning what the actor must await next.
+    fn fill_round(&mut self, now: &mut uuid::Clock) -> anyhow::Result<Wait> {
+        let wait = loop {
+            // End a round having consumed its documents, which also yields
+            // periodically to service Actor events.
+            if self.rounds.is_round_full() {
+                break Wait::Yield;
             }
 
             // If there's an active replay, sequence and drain its historical
             // documents. They append before all heap documents, including the
             // replay trigger (still in the heap).
             if let Some(replay) = self.replay.take() {
-                return match self.try_drain_replay(replay, buffers) {
-                    // We require a permit to send further Appends.
-                    Ok(Some(tx)) => Ok(future::Either::Left(tx.reserve_owned().map(ok))),
-                    // We're awaiting further replay I/O.
-                    Ok(None) => Ok(idle),
-                    Err(err) => {
-                        self.metrics.replays_stopped.increment(1);
-                        Err(err)
-                    }
-                };
+                break self.try_drain_replay(replay).inspect_err(|_| {
+                    self.metrics.replays_stopped.increment(1);
+                })?;
             }
 
             match self.heap.resolved_top(now) {
-                ResolvedTop::Unknown | ResolvedTop::Idle => return Ok(idle),
-                ResolvedTop::Delayed(wait) => {
-                    return Ok(future::Either::Right(future::Either::Left(
-                        tokio::time::sleep(wait).map(|()| true),
-                    )));
-                }
+                ResolvedTop::Unknown | ResolvedTop::Idle => break Wait::Idle,
+                ResolvedTop::Delayed(delay) => break Wait::Sleep(delay),
                 ResolvedTop::Due => (),
             }
 
-            let ReadyReadEntry {
-                inner: ready_read, ..
-            } = self.heap.peek_ready().unwrap();
-            let ready_read = ready_read.as_deref().unwrap();
-
-            let ReadyRead {
-                meta, inner: read, ..
-            } = ready_read;
-
-            let read_id = read.id() as usize;
-            let read_state = &mut self.reads[read_id];
-            let binding = &self.topology.bindings[read_state.binding_index as usize];
-
-            let producer_state = read_state.producer_state(meta.producer);
-            let sequenced = state::sequence_producer(
-                producer_state,
-                &read_state.journal,
-                read_state.truncated_at,
-                binding,
-                meta,
-            )?;
-
-            // If this document awakens a gapped producer, then we must pause
-            // here (leaving this document in the heap) while we replay the
-            // gapped span. We'll re-sequence this document when it's done.
-            if sequenced.replay {
-                self.start_replay(read_id, producer_state, *meta)?;
-                continue;
+            if let Some(wait) = self.extend_round()? {
+                break wait;
             }
+        };
 
-            // If this is an Append, attempt to send it to the appropriate shard(s).
-            if sequenced.is_append {
-                if let Err(tx) = Self::try_log_request_append_tx(
-                    binding,
-                    buffers,
-                    &read_state.journal,
-                    &self.topology.shards,
-                    &mut self.log_prev_journal,
-                    &self.log_request_tx,
-                    ready_read,
-                ) {
-                    return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
-                }
-            }
-
-            // Pop the heap entry now that any Append requests have been sent.
-            // Crucially: we now cannot fail to consume this document.
-            let ReadyReadEntry {
-                priority,
-                inner: ready_read,
-                ..
-            } = self.heap.pop_ready().unwrap();
-            let mut ready_read = ready_read.unwrap();
-
-            let ReadyRead {
-                inner: read,
-                meta:
-                    Meta {
-                        end_offset,
-                        producer,
-                        clock,
-                        flags,
-                        ..
-                    },
-                doc,
-                mut doc_tail,
-                mut meta_tail,
-            } = *ready_read;
-
-            // Track maximum forward progress of the read.
-            read_state.read_offset = end_offset;
-
-            // Fold any committed backfill control clock into this journal's
-            // per-flush backfill state, then step producer state forward.
-            read_state.backfill_begin = read_state.backfill_begin.max(sequenced.backfill_begin);
-            read_state.backfill_complete = read_state
-                .backfill_complete
-                .max(sequenced.backfill_complete);
-
-            read_state.sample_gap_floor(clock);
-
-            _ = read_state
-                .unreported
-                .insert(producer, sequenced.producer_state);
-
-            // Copy so the `binding` borrow can end below, freeing &mut self for re-borrow.
-            let (cohort, read_delay) = (binding.cohort, binding.read_delay);
-
-            let (clock_seconds, clock_nanos) = clock.to_unix();
-            self.metrics.last_source_published_at[cohort as usize]
-                .set(clock_seconds as f64 + clock_nanos as f64 / 1_000_000_000.0);
-
-            if sequenced.is_commit {
-                if flags.is_ack() {
-                    // This ACK is (binding, journal)-scoped: it commits only
-                    // this producer's documents in this binding's read of this journal.
-                    // But, it may contain causal hints of *other* journals which
-                    // committed with this one. Extract and project so we can propagate
-                    // to the Session, which is tasked with gating checkpoints for
-                    // atomic cross-journal visibility.
-                    state::extract_causal_hints(
-                        &self.topology.hint_index,
-                        &read_state.journal,
-                        cohort,
-                        read_state.binding_index,
-                        producer,
-                        clock,
-                        doc.get(),
-                        &mut self.causal_hints,
-                    )?;
-                }
-                self.flush.set_ready();
-
-                // If we resolved our last recovery resumption hint, then drop.
-                // Everything after is post-crash docs this session can't consume.
-                if read_state.resolve_hint(producer, &sequenced.producer_state) {
-                    debug_assert!(self.replay.is_none());
-
-                    service_kit::event!(
-                        tracing::Level::INFO,
-                        "read",
-                        read_id,
-                        binding = read_state.binding_index,
-                        journal = read_state.journal.to_string(),
-                        read_offset = read_state.read_offset,
-                        write_head = read_state.write_head,
-                        "parked read at its hinted frontier",
-                    );
-                    // The read is no longer held by `heap`.
-                    self.metrics.reads_stopped.increment(1);
-
-                    continue; // Drops `read`, `doc_tail` and `meta_tail`.
-                }
-            }
-
-            // Advance doc_tail and meta_tail in lock-step (guaranteed equal length).
-            match (doc_tail.next(), meta_tail.next()) {
-                (Some((doc, _)), Some(meta)) => {
-                    // Re-structure into the existing Box to re-use it.
-                    *ready_read = ReadyRead {
-                        doc,
-                        meta,
-                        doc_tail,
-                        meta_tail,
-                        inner: read,
-                    };
-                    self.heap.push_ready(ReadyReadEntry {
-                        priority,
-                        adjusted_clock: ready_read.meta.clock + read_delay,
-                        inner: Some(ready_read),
-                    })
-                }
-                // This read's batch is fully drained, and we must await I/O.
-                (None, None) => self.process_or_await(read)?,
-                _ => unreachable!("doc_tail and meta_tail have equal length"),
-            }
-        }
+        Ok(wait)
     }
 
-    /// Try to send Flush requests to all log channels (all-or-nothing).
-    /// Returns `Err(tx)` with the sender that lacked capacity.
-    fn try_log_request_flush_tx(
-        &mut self,
-        buffers: &mut Buffers,
-    ) -> Result<(), mpsc::Sender<shuffle::LogRequest>> {
-        let Buffers { permits, .. } = buffers;
-
-        // Safety: `permits` is always empty on return (retaining only capacity).
-        let permits: &mut Vec<_> =
-            unsafe { std::mem::transmute::<&mut Vec<_>, &mut Vec<_>>(permits) };
-
-        // Collect permits to send to all log channels (all-or-nothing).
-        for tx in &self.log_request_tx {
-            let Ok(permit) = tx.try_reserve() else {
-                permits.clear();
-                return Err(tx.clone());
-            };
-            permits.push(permit);
-        }
-
-        // Build the frontier from unreported producers and causal hints,
-        // draining unreported→reported and resetting byte accumulators.
-        let frontier = super::producer::build_flush_frontier(
-            &mut self.reads,
-            self.causal_hints.drain(),
-            self.topology.shards.len(),
-        );
-        let flush_cycle = self.flush.start(self.log_request_tx.len(), frontier);
-
-        for permit in permits.drain(..) {
-            permit.send(shuffle::LogRequest {
-                flush: Some(shuffle::log_request::Flush { cycle: flush_cycle }),
-                ..Default::default()
-            });
-        }
-
-        service_kit::event!(
-            tracing::Level::DEBUG,
-            "log",
-            cycle = flush_cycle,
-            "broadcast Flush request",
-        );
-        self.metrics.flushes.increment(1);
-
-        Ok(())
-    }
-
-    /// Try to send Append requests to target log channels (all-or-nothing).
-    /// Returns `Err(tx)` with the sender that lacked capacity.
-    pub(super) fn try_log_request_append_tx(
-        binding: &crate::Binding,
-        buffers: &mut Buffers,
-        journal: &str,
-        shards: &[shuffle::Shard],
-        log_prev_journal: &mut [String],
-        log_request_tx: &[mpsc::Sender<shuffle::LogRequest>],
-        ready_read: &ReadyRead,
-    ) -> Result<(), mpsc::Sender<shuffle::LogRequest>> {
-        let Buffers {
-            packed_key,
-            permits,
-            targets,
-        } = buffers;
+    /// Extend the round by the due top of the heap.
+    /// Returns the Wait which ends the round, or None if it may be extended further.
+    fn extend_round(&mut self) -> anyhow::Result<Option<Wait>> {
+        let ReadyReadEntry {
+            inner: ready_read, ..
+        } = self.heap.peek_ready().unwrap();
+        let ready_read = ready_read.as_deref().unwrap();
 
         let ReadyRead {
-            doc,
-            meta:
-                Meta {
-                    begin_offset,
-                    end_offset,
-                    clock,
-                    producer,
-                    ..
-                },
-            ..
+            meta, inner: read, ..
         } = ready_read;
 
-        // Extract into `packed_key` and hash to route the document.
-        // Compute shard index `targets` to receive an Append of this document.
-        packed_key.clear();
-        doc::Extractor::extract_all(
-            doc.get(),
-            &binding.key_extractors,
-            doc::Encoding::Packed,
-            packed_key,
-            None,
-        );
+        let read_id = read.id() as usize;
+        let read_state = &mut self.reads[read_id];
+        let binding = &self.topology.bindings[read_state.binding_index as usize];
 
-        let key_hash = doc::Extractor::packed_hash(packed_key);
-        let r_clock = routing::rotate_clock(*clock);
+        let producer_state = read_state.producer_state(meta.producer);
+        let sequenced = state::sequence_producer(
+            producer_state,
+            &read_state.journal,
+            read_state.truncated_at,
+            binding,
+            meta,
+        )?;
 
-        targets.clear();
-        targets.extend(routing::route_to_shards(
-            key_hash,
-            r_clock,
-            binding.filter_r_clocks,
-            shards,
-        ));
-
-        tracing::trace!(
-            %journal,
-            binding = binding.state_key(),
-            ?producer,
-            ?clock,
-            begin_offset,
-            key_hash,
-            flags = ready_read.meta.flags.0,
-            r_clock,
-            ?targets,
-            "routed document Append to Log RPC shards"
-        );
-
-        // Safety: `permits` is always cleared prior to return (retaining only capacity).
-        let permits: &mut Vec<_> =
-            unsafe { std::mem::transmute::<&mut Vec<_>, &mut Vec<_>>(permits) };
-
-        // All-or-nothing: reserve permits for every target channel.
-        for &target in targets.iter() {
-            let Ok(permit) = log_request_tx[target].try_reserve() else {
-                permits.clear();
-                return Err(log_request_tx[target].clone());
-            };
-            permits.push(permit);
+        // If this document awakens a gapped producer, then we must leave
+        // this document in the heap while we replay the gapped span.
+        // We'll re-sequence this document when it's done.
+        if sequenced.replay {
+            self.start_replay(read_id, producer_state, *meta)?;
+            return Ok(None);
         }
-        // All channels reserved. At this point, a send is infallible.
 
-        let packed_key = packed_key.split().freeze();
+        self.rounds.on_consumed();
 
-        for (&target, permit) in targets.iter().zip(permits.drain(..)) {
-            let prev_journal = &mut log_prev_journal[target];
-
-            let (journal_name_truncate_delta, journal_name_suffix) =
-                gazette::delta::encode(prev_journal, journal);
-            let journal_name_suffix = journal_name_suffix.to_string();
-
-            // Update `prev_journal` for next iteration.
-            gazette::delta::decode(
-                &mut log_prev_journal[target],
-                journal_name_truncate_delta,
-                &journal_name_suffix,
+        // Buffer an Append for the appropriate shard(s).
+        if sequenced.is_append {
+            self.rounds.buffer_append(
+                binding,
+                &read_state.journal,
+                &self.topology.shards,
+                ready_read,
             );
-
-            permit.send(shuffle::LogRequest {
-                append: Some(shuffle::log_request::Append {
-                    journal_name_truncate_delta,
-                    journal_name_suffix,
-                    binding: binding.index as u32,
-                    priority: binding.priority,
-                    read_delay: binding.read_delay.as_u64(),
-                    producer: producer.as_i64(),
-                    clock: clock.as_u64(),
-                    flags: ready_read.meta.flags.0 as u32,
-                    packed_key: packed_key.clone(),
-                    doc_archived: doc.bytes().clone(),
-                    source_byte_length: (end_offset - begin_offset).try_into().unwrap(),
-                }),
-                ..Default::default()
-            });
         }
 
-        Ok(())
+        // Pop the heap entry now that any Appends are buffered.
+        // Crucially: we now cannot fail to consume this document.
+        let ReadyReadEntry {
+            priority,
+            inner: ready_read,
+            ..
+        } = self.heap.pop_ready().unwrap();
+        let ready_read = ready_read.unwrap();
+
+        let Meta {
+            end_offset,
+            producer,
+            clock,
+            flags,
+            ..
+        } = ready_read.meta;
+
+        // Track maximum forward progress of the read.
+        read_state.read_offset = end_offset;
+
+        // Fold any committed backfill control clock into this journal's
+        // per-flush backfill state, then step producer state forward.
+        read_state.backfill_begin = read_state.backfill_begin.max(sequenced.backfill_begin);
+        read_state.backfill_complete = read_state
+            .backfill_complete
+            .max(sequenced.backfill_complete);
+
+        read_state.sample_gap_floor(clock);
+
+        _ = read_state
+            .unreported
+            .insert(producer, sequenced.producer_state);
+
+        // Copy so the `binding` borrow can end below, freeing &mut self for re-borrow.
+        let (cohort, read_delay) = (binding.cohort, binding.read_delay);
+
+        let (clock_seconds, clock_nanos) = clock.to_unix();
+        self.metrics.last_source_published_at[cohort as usize]
+            .set(clock_seconds as f64 + clock_nanos as f64 / 1_000_000_000.0);
+
+        if sequenced.is_commit {
+            if flags.is_ack() {
+                // This ACK is (binding, journal)-scoped: it commits only
+                // this producer's documents in this binding's read of this journal.
+                // But, it may contain causal hints of *other* journals which
+                // committed with this one. Extract and project so we can propagate
+                // to the Session, which is tasked with gating checkpoints for
+                // atomic cross-journal visibility.
+                state::extract_causal_hints(
+                    &self.topology.hint_index,
+                    &read_state.journal,
+                    cohort,
+                    read_state.binding_index,
+                    producer,
+                    clock,
+                    ready_read.doc.get(),
+                    &mut self.causal_hints,
+                )?;
+            }
+            self.flush.set_ready();
+
+            // If we resolved our last recovery resumption hint, then drop.
+            // Everything after is post-crash docs this session can't consume.
+            if read_state.resolve_hint(producer, &sequenced.producer_state) {
+                debug_assert!(self.replay.is_none());
+
+                service_kit::event!(
+                    tracing::Level::INFO,
+                    "read",
+                    read_id,
+                    binding = read_state.binding_index,
+                    journal = read_state.journal.to_string(),
+                    read_offset = read_state.read_offset,
+                    write_head = read_state.write_head,
+                    "parked read at its hinted frontier",
+                );
+                // The read is no longer held by `heap`.
+                self.metrics.reads_stopped.increment(1);
+
+                return Ok(None); // Drops `ready_read`, and its read.
+            }
+        }
+
+        match ready_read.advance() {
+            Ok(ready_read) => self.heap.push_ready(ReadyReadEntry {
+                priority,
+                adjusted_clock: ready_read.meta.clock + read_delay,
+                inner: Some(ready_read),
+            }),
+            // This read's batch is fully drained, and we must await I/O.
+            Err(read) => self.process_or_await(read)?,
+        }
+
+        Ok(None)
     }
 
     fn try_slice_response_tx(&mut self) -> anyhow::Result<impl Future<Output = bool> + 'static> {

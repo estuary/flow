@@ -61,7 +61,7 @@ impl FlushState {
         }
     }
 
-    /// Whether we're ready to begin a Flush cycle.
+    /// Whether we're ready to begin a flush cycle.
     pub fn should_flush(&self) -> bool {
         self.ready && self.in_flight.is_empty()
     }

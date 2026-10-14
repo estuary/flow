@@ -1,4 +1,4 @@
-use super::{LogJoin, LogJoinSlot, state, writer::Writer};
+use super::{LogJoin, LogJoinSlot, buffer, state, writer::Writer};
 use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::shuffle;
@@ -239,14 +239,15 @@ where
             session_id,
             shards,
             log_shard_index,
-            shuffle_disk_limit_bytes,
         },
-        append_heap: super::heap::AppendHeap::new(),
-        slice_prev_journal: vec![String::new(); shard_count],
-        slice_appends: std::iter::repeat_with(|| None).take(shard_count).collect(),
+        slices: std::iter::repeat_with(buffer::SliceBuffer::new)
+            .take(shard_count)
+            .collect(),
         writer: Some(writer),
+        flush_handle: None,
         block: state::BlockState::new(),
-        flush: state::FlushState::new(),
+        flush: state::FlushState::new(shard_count),
+        disk: state::DiskState::new(shuffle_disk_limit_bytes),
         log_response_tx,
         metrics,
     }
