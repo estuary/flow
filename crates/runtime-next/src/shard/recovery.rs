@@ -24,8 +24,8 @@
 //! materialization state — the cumulative begin/complete clocks of the durable
 //! truncation boundary used for stale source/loaded handling.
 //!
-//! `GF:` is the binding's shuffle gap floor: written once per Persist, restored
-//! onto the committed Frontier, and cleared by neither `delete_*_frontier`.
+//! `GF:` is the binding's shuffle gap floor: written by a Persist on a change,
+//! restored onto the committed Frontier, and untouched by `delete_*_frontier`.
 //!
 //! | Prefix       | Key tail                                 | Value                            |
 //! |--------------|------------------------------------------|----------------------------------|
@@ -273,15 +273,7 @@ pub fn encode_persist<S: AsRef<str>>(
         )?;
     }
 
-    // `merge_binding_clocks` stamps the same floors on every Frontier of a
-    // Persist, so write each `GF:` row once, from whichever Frontier is present.
-    if let Some(frontier) = persist
-        .committed_frontier
-        .as_ref()
-        .or(persist.hinted_frontier.as_ref())
-    {
-        encode_gap_floors(frontier, binding_state_keys, &mut emit, &mut buf)?;
-    }
+    encode_gap_floors(&persist.gap_floors, binding_state_keys, &mut emit, &mut buf)?;
 
     if !persist.last_applied.is_empty() {
         emit(KeyOp::Put {
@@ -456,16 +448,16 @@ fn encode_backfill_clocks<S: AsRef<str>>(
 }
 
 fn encode_gap_floors<S: AsRef<str>>(
-    frontier: &shuffle::proto::Frontier,
+    gap_floors: &std::collections::BTreeMap<u32, u64>,
     binding_state_keys: &[S],
     emit: &mut impl FnMut(KeyOp),
     buf: &mut BytesMut,
 ) -> Result<(), EncodeError> {
-    for entry in &frontier.binding_gap_floors {
+    for (binding, clock) in gap_floors {
         let state_key = binding_state_keys
-            .get(entry.binding as usize)
+            .get(*binding as usize)
             .ok_or(EncodeError::UnknownBinding {
-                binding: entry.binding,
+                binding: *binding,
                 num_bindings: binding_state_keys.len(),
             })?
             .as_ref();
@@ -473,7 +465,7 @@ fn encode_gap_floors<S: AsRef<str>>(
         buf.extend_from_slice(state_key.as_bytes());
         emit(KeyOp::Put {
             key: buf.split().freeze(),
-            value: Bytes::copy_from_slice(&entry.clock.to_le_bytes()),
+            value: Bytes::copy_from_slice(&clock.to_le_bytes()),
         });
     }
     Ok(())
@@ -613,7 +605,7 @@ pub fn decode_recover_key_value(
 /// `HB:`/`HC:` (hinted) keys onto their respective Frontiers, advancing the
 /// durable truncation boundary. The hinted boundary lets a marker observed in a
 /// hinted-but-not-committed transaction survive a remote-authoritative recovery.
-/// Gap floors of `GF:` are stamped onto the committed Frontier alone.
+/// Gap floors of `GF:` are restored to `Recover::gap_floors`.
 pub fn restore_binding_clocks(
     recover: &mut proto::Recover,
     committed_backfill_begin: std::collections::BTreeMap<u32, u64>,
@@ -633,15 +625,7 @@ pub fn restore_binding_clocks(
         hinted_backfill_complete,
     );
 
-    if !gap_floors.is_empty() {
-        recover
-            .committed_frontier
-            .get_or_insert_default()
-            .binding_gap_floors = gap_floors
-            .into_iter()
-            .map(|(binding, clock)| shuffle::proto::frontier::BindingGapFloor { binding, clock })
-            .collect();
-    }
+    recover.gap_floors = gap_floors;
 }
 
 /// Stamp per-binding backfill clocks onto an optional Frontier, creating it only
@@ -833,6 +817,7 @@ pub fn prune_committed_frontier(
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::collections::BTreeMap;
 
     fn producer_id(tag: u8) -> [u8; 6] {
         [0x01, tag, 0, 0, 0, 0]
@@ -1134,12 +1119,9 @@ mod test {
                     binding: 0,
                     clock: 110,
                 }],
-                binding_gap_floors: vec![shuffle::proto::frontier::BindingGapFloor {
-                    binding: 1,
-                    clock: 900,
-                }],
                 ..Default::default()
             }),
+            gap_floors: BTreeMap::from([(1, 900)]),
             ..Default::default()
         };
 
@@ -1149,9 +1131,9 @@ mod test {
         store.sort_by(|a, b| a.0.cmp(&b.0));
 
         let mapping = state_key_index(&[("materialize/mat/t1", 0), ("materialize/mat/t2", 1)]);
-        let recovered = decode_pairs(store, &mapping)
-            .unwrap()
-            .recover
+        let recover = decode_pairs(store, &mapping).unwrap().recover;
+        assert_eq!(recover.gap_floors, BTreeMap::from([(1, 900)]));
+        let recovered = recover
             .committed_frontier
             .expect("committed frontier recovered");
 
@@ -1163,21 +1145,13 @@ mod test {
                 clock: 110,
             }],
         );
-        assert_eq!(
-            recovered.binding_gap_floors,
-            vec![shuffle::proto::frontier::BindingGapFloor {
-                binding: 1,
-                clock: 900,
-            }],
-        );
     }
 
     #[test]
     fn hinted_backfill_clocks_roundtrip() {
         // The hinted boundary must survive encode→decode via the HB:/HC: keys —
         // the durability a remote-authoritative recovery relies on. Gap floors
-        // of a hinted Persist take the shared `GF:` rows instead, and recover
-        // as committed authority.
+        // of a hinted Persist take the shared `GF:` rows instead.
         let persist = proto::Persist {
             delete_hinted_frontier: true,
             hinted_frontier: Some(shuffle::proto::Frontier {
@@ -1189,12 +1163,9 @@ mod test {
                     binding: 0,
                     clock: 110,
                 }],
-                binding_gap_floors: vec![shuffle::proto::frontier::BindingGapFloor {
-                    binding: 0,
-                    clock: 700,
-                }],
                 ..Default::default()
             }),
+            gap_floors: BTreeMap::from([(0, 700)]),
             ..Default::default()
         };
 
@@ -1223,41 +1194,16 @@ mod test {
                 clock: 110,
             }],
         );
-        assert!(
-            recovered.binding_gap_floors.is_empty(),
-            "floors are not hinted state",
-        );
-        assert_eq!(
-            recover
-                .committed_frontier
-                .expect("the hinted Persist's floor recovered as committed")
-                .binding_gap_floors,
-            vec![shuffle::proto::frontier::BindingGapFloor {
-                binding: 0,
-                clock: 700,
-            }],
-        );
+        assert_eq!(recover.gap_floors, BTreeMap::from([(0, 700)]));
     }
 
     #[test]
     fn gap_floors_survive_frontier_deletion() {
         // `GF:` rows outlive later Persists which clear both frontier ranges
         // and carry no floor of their own.
-        let floors = vec![
-            shuffle::proto::frontier::BindingGapFloor {
-                binding: 0,
-                clock: 700,
-            },
-            shuffle::proto::frontier::BindingGapFloor {
-                binding: 1,
-                clock: 900,
-            },
-        ];
+        let floors = BTreeMap::from([(0, 700), (1, 900)]);
         let seed = proto::Persist {
-            committed_frontier: Some(shuffle::proto::Frontier {
-                binding_gap_floors: floors.clone(),
-                ..Default::default()
-            }),
+            gap_floors: floors.clone(),
             ..Default::default()
         };
         // A subsequent transaction which rewrites both frontier ranges from
@@ -1287,28 +1233,16 @@ mod test {
         );
 
         let mapping = state_key_index(&[("materialize/mat/t1", 0), ("materialize/mat/t2", 1)]);
-        let recovered = decode_pairs(store, &mapping)
-            .unwrap()
-            .recover
-            .committed_frontier
-            .expect("committed frontier recovered");
-
-        assert_eq!(recovered.binding_gap_floors, floors);
+        let recover = decode_pairs(store, &mapping).unwrap().recover;
+        assert_eq!(recover.gap_floors, floors);
     }
 
     #[test]
     fn gap_floors_write_once() {
-        let floor = |binding, clock| shuffle::proto::frontier::BindingGapFloor { binding, clock };
-        let floors = vec![floor(0, 700), floor(1, 900)];
         let persist = proto::Persist {
-            committed_frontier: Some(shuffle::proto::Frontier {
-                binding_gap_floors: floors.clone(),
-                ..Default::default()
-            }),
-            hinted_frontier: Some(shuffle::proto::Frontier {
-                binding_gap_floors: floors,
-                ..Default::default()
-            }),
+            committed_frontier: Some(shuffle::proto::Frontier::default()),
+            hinted_frontier: Some(shuffle::proto::Frontier::default()),
+            gap_floors: BTreeMap::from([(0, 700), (1, 900)]),
             ..Default::default()
         };
 

@@ -17,6 +17,7 @@ Frontier {
             ],
             bytes_read_delta: 1200,
             bytes_behind_delta: 5000,
+            gap_floor: Clock(0s 0ns),
             prune_floor: Clock(0s 0ns),
         },
         JournalFrontier {
@@ -32,12 +33,12 @@ Frontier {
             ],
             bytes_read_delta: 900,
             bytes_behind_delta: -300,
+            gap_floor: Clock(0s 0ns),
             prune_floor: Clock(0s 0ns),
         },
     ],
     flushed_lsn: [],
     latest_backfill_begin: {},
     latest_backfill_complete: {},
-    binding_gap_floors: {},
     unresolved_hints: 0,
 }

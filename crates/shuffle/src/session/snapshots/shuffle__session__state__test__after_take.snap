@@ -9,7 +9,6 @@ PipelineSnapshot {
         flushed_lsn: [],
         latest_backfill_begin: {},
         latest_backfill_complete: {},
-        binding_gap_floors: {},
         unresolved_hints: 0,
     },
     unresolved: Frontier {
@@ -17,7 +16,6 @@ PipelineSnapshot {
         flushed_lsn: [],
         latest_backfill_begin: {},
         latest_backfill_complete: {},
-        binding_gap_floors: {},
         unresolved_hints: 0,
     },
     unresolved_count: 0,
@@ -36,6 +34,7 @@ PipelineSnapshot {
                 ],
                 bytes_read_delta: 500,
                 bytes_behind_delta: 2000,
+                gap_floor: Clock(0s 0ns),
                 prune_floor: Clock(0s 0ns),
             },
             JournalFrontier {
@@ -51,6 +50,7 @@ PipelineSnapshot {
                 ],
                 bytes_read_delta: 300,
                 bytes_behind_delta: -100,
+                gap_floor: Clock(0s 0ns),
                 prune_floor: Clock(0s 0ns),
             },
             JournalFrontier {
@@ -66,6 +66,7 @@ PipelineSnapshot {
                 ],
                 bytes_read_delta: 150,
                 bytes_behind_delta: 800,
+                gap_floor: Clock(0s 0ns),
                 prune_floor: Clock(0s 0ns),
             },
         ],
@@ -74,7 +75,6 @@ PipelineSnapshot {
         ],
         latest_backfill_begin: {},
         latest_backfill_complete: {},
-        binding_gap_floors: {},
         unresolved_hints: 0,
     },
 }

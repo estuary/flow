@@ -600,7 +600,7 @@ impl CheckpointPipeline {
         // wait on again.
         let mut completed = crate::frontier::Completed::new(binding_cohorts);
         completed.update(resume_checkpoint);
-        completed.advance_gap_floors(&resume_checkpoint.binding_gap_floors);
+        completed.advance_gap_floors(resume_checkpoint);
 
         service_kit::event!(
             tracing::Level::DEBUG,
@@ -626,7 +626,8 @@ impl CheckpointPipeline {
     }
 
     /// Ingest a Progressed frontier from a Slice of our priority, resolve
-    /// causal hints, and promote through the pipeline.
+    /// causal hints, and promote through the pipeline. Its journals' gap
+    /// floors also update `completed`.
     fn on_progressed(&mut self, slice: usize, progressed: crate::Frontier) {
         let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
             progressed.measures();
@@ -642,12 +643,17 @@ impl CheckpointPipeline {
             "received Progressed response",
         );
 
-        // A floor cannot tell an ACK the gap removed from one just past it, so
-        // the session which must replay its hinted frontier exactly acts on no
-        // floor raised while it runs.
-        if !self.recovery_session && !progressed.binding_gap_floors.is_empty() {
-            self.completed
-                .advance_gap_floors(&progressed.binding_gap_floors);
+        // A floor sits a margin above the first document past the gap, so it
+        // may also discharge a hint whose ACK is still readable just past the
+        // gap. A recovery session must read every hinted ACK to replay its
+        // hinted frontier exactly, so it uses only the floors it resumed with.
+        if !self.recovery_session
+            && progressed
+                .journals
+                .iter()
+                .any(|jf| jf.gap_floor != proto_gazette::uuid::Clock::zero())
+        {
+            self.completed.advance_gap_floors(&progressed);
             self.discharge_unresolved_by_gap_floor();
         }
 
@@ -1119,22 +1125,26 @@ mod test {
         pipeline.on_progressed(0, proto).unwrap();
     }
 
-    /// Feed a Progressed frontier carrying `gap_floors` — `(binding, seconds)`
-    /// pairs — via shard 0.
+    /// Feed a Progressed frontier of `journals`, carrying `gap_floors` —
+    /// `(journal, binding, seconds)` triples — via shard 0.
     fn ingest_progressed_with_gap_floors(
         pipeline: &mut CheckpointState,
         journals: Vec<crate::JournalFrontier>,
-        gap_floors: &[(u16, u64)],
+        gap_floors: &[(&str, u16, u64)],
     ) {
-        let mut proto = crate::JournalFrontier::encode(&journals);
-        proto.binding_gap_floors = gap_floors
+        let floors = gap_floors
             .iter()
-            .map(|(binding, seconds)| shuffle::frontier::BindingGapFloor {
-                binding: *binding as u32,
-                clock: uuid::Clock::from_unix(*seconds, 0).as_u64(),
+            .map(|(journal, binding, seconds)| crate::JournalFrontier {
+                journal: (*journal).into(),
+                binding: *binding,
+                gap_floor: uuid::Clock::from_unix(*seconds, 0),
+                ..Default::default()
             })
             .collect();
-        pipeline.on_progressed(0, proto).unwrap();
+        let progressed = crate::Frontier::new(journals, vec![])
+            .unwrap()
+            .reduce(crate::Frontier::new(floors, vec![]).unwrap());
+        pipeline.on_progressed(0, progressed.encode()).unwrap();
     }
 
     fn ingest_progressed_with_backfill(
@@ -1662,7 +1672,6 @@ mod test {
                 unresolved_hints: 1,
                 latest_backfill_begin: Default::default(),
                 latest_backfill_complete: Default::default(),
-                binding_gap_floors: Default::default(),
             },
             vec![0],
         );
@@ -1803,7 +1812,6 @@ mod test {
                 unresolved_hints: 1,
                 latest_backfill_begin: Default::default(),
                 latest_backfill_complete: Default::default(),
-                binding_gap_floors: Default::default(),
             },
             vec![0],
         );
@@ -2452,7 +2460,6 @@ mod test {
             unresolved_hints: 0,
             latest_backfill_begin: Default::default(),
             latest_backfill_complete: Default::default(),
-            binding_gap_floors: Default::default(),
         };
 
         // Checkpoint found in resume_checkpoint.
@@ -2789,7 +2796,6 @@ mod test {
             unresolved_hints: 1,
             latest_backfill_begin: Default::default(),
             latest_backfill_complete: Default::default(),
-            binding_gap_floors: Default::default(),
         };
         let mut pipeline = test_state(resume, vec![0, 0]);
 
@@ -3007,7 +3013,6 @@ mod test {
                     uuid::Clock::from_u64(42),
                 )]),
                 latest_backfill_complete: Default::default(),
-                binding_gap_floors: Default::default(),
             },
             vec![0],
         );
@@ -3155,36 +3160,55 @@ mod test {
         pipeline.pipelines[0].unresolved_stalled_ticks = 3;
         ingest_progressed_with_gap_floors(
             &mut pipeline,
-            vec![jf("journal/E", 0, vec![pf(0x05, floor, 0, -100)])],
-            &[(0, floor)],
+            vec![jf("journal/B", 0, vec![pf(0x05, floor, 0, -100)])],
+            &[("journal/B", 0, floor)],
         );
 
         assert_eq!(pipeline.pipelines[0].unresolved.unresolved_hints, 0);
         assert!(pipeline.pipelines[0].unresolved.journals.is_empty());
         assert_eq!(pipeline.pipelines[0].unresolved_stalled_ticks, 0);
 
-        assert_eq!(
-            pipeline.pipelines[0].ready.binding_gap_floors,
-            std::collections::BTreeMap::from([(0, uuid::Clock::from_unix(floor, 0))]),
-        );
-        let readout: Vec<_> = pipeline.pipelines[0]
-            .ready
+        // The checkpoint the floor released also carries it to the client.
+        pipeline.request().unwrap();
+        let ready = pipeline.take_ready().expect("ready checkpoint");
+
+        let readout: Vec<_> = ready
             .journals
             .iter()
-            .map(|jf| &*jf.journal)
+            .map(|jf| (&*jf.journal, jf.producers.len(), jf.gap_floor))
             .collect();
-        assert_eq!(readout, vec!["journal/A", "journal/E"]);
+        assert_eq!(
+            readout,
+            vec![
+                ("journal/A", 1, uuid::Clock::zero()),
+                ("journal/B", 1, uuid::Clock::from_unix(floor, 0)),
+            ]
+        );
+
+        // Each floor is sent once.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/E", 0, vec![pf(0x05, floor, 0, -100)])],
+            vec![],
+        );
+        pipeline.request().unwrap();
+        let ready = pipeline.take_ready().expect("ready checkpoint");
+        let readout: Vec<_> = ready
+            .journals
+            .iter()
+            .map(|jf| (&*jf.journal, jf.gap_floor))
+            .collect();
+        assert_eq!(readout, vec![("journal/E", uuid::Clock::zero())]);
     }
 
     #[test]
     fn test_gap_floor_seeded_from_resume_checkpoint() {
         let floor = 500_000;
         let mut resume = crate::Frontier {
-            journals: vec![jf("journal/A", 0, vec![pf(0x01, floor, 0, -500)])],
-            binding_gap_floors: std::collections::BTreeMap::from([(
-                0,
-                uuid::Clock::from_unix(floor, 0),
-            )]),
+            journals: vec![crate::JournalFrontier {
+                gap_floor: uuid::Clock::from_unix(floor, 0),
+                ..jf("journal/A", 0, vec![pf(0x01, floor, 0, -500)])
+            }],
             ..Default::default()
         };
 
@@ -3212,7 +3236,7 @@ mod test {
         ingest_progressed_with_gap_floors(
             &mut pipeline,
             vec![jf("journal/B", 0, vec![pf(0x03, 0, floor - 1, 0)])],
-            &[(0, floor + 1_000)],
+            &[("journal/B", 0, floor + 1_000)],
         );
         assert!(!pipeline.pipelines[0].ratchet_frozen);
         assert!(pipeline.pipelines[0].progressed.journals.is_empty());
@@ -3224,9 +3248,14 @@ mod test {
                 .completed
                 .is_gap_stale(0, uuid::Clock::from_unix(floor + 500, 0))
         );
+        // It still carries the floor, for the next session to use.
+        let index = pipeline.pipelines[0]
+            .unresolved
+            .find_journal("journal/B", 0)
+            .unwrap();
         assert_eq!(
-            pipeline.pipelines[0].unresolved.binding_gap_floors,
-            std::collections::BTreeMap::from([(0, uuid::Clock::from_unix(floor + 1_000, 0))]),
+            pipeline.pipelines[0].unresolved.journals[index].gap_floor,
+            uuid::Clock::from_unix(floor + 1_000, 0),
         );
     }
 

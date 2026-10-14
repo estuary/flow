@@ -115,6 +115,9 @@ pub fn merge_frontier_into_checkpoint<S: AsRef<str>>(
     let mut scratch = Vec::new();
 
     for jf in &frontier.journals {
+        if jf.producers.is_empty() {
+            continue; // Carries only a gap floor, which V1 has no use for.
+        }
         let Some(suffix) = binding_journal_read_suffixes.get(jf.binding as usize) else {
             continue; // Reachable only if shuffle service provides bad binding indices.
         };
@@ -190,6 +193,16 @@ pub fn merge_frontier_into_checkpoint<S: AsRef<str>>(
 
         checkpoint.sources.insert(source_key, source);
     }
+}
+
+/// Map a `Recover`'s gap floors (from `GF:` rows) to binding indices and Clocks.
+pub fn recovered_gap_floors(
+    gap_floors: &std::collections::BTreeMap<u32, u64>,
+) -> std::collections::BTreeMap<u16, uuid::Clock> {
+    gap_floors
+        .iter()
+        .map(|(binding, clock)| (*binding as u16, uuid::Clock::from_u64(*clock)))
+        .collect()
 }
 
 /// Project a verbatim `FH:` Frontier into hinted form: each producer's

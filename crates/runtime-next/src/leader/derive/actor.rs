@@ -11,8 +11,8 @@ use tokio::sync::mpsc;
 
 /// Actor leads transactions of an established derivation task session.
 pub struct Actor<P: crate::Publisher, L: crate::Logger> {
-    // Per-binding gap floor, cumulative across the session.
-    gap_floors: BTreeMap<u16, uuid::Clock>,
+    // Per-binding gap floor, cumulative across the session, and a "dirty" bit.
+    gap_floors: BTreeMap<u16, (uuid::Clock, bool)>,
     // Future for an in-flight ACK intents write, if any.
     intents_write_fut: Option<BoxFuture<'static, tonic::Result<P>>>,
     // Optional full Frontier and Checkpoint, used for V1 rollback support.
@@ -44,7 +44,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         task: Task,
     ) -> Self {
         Self {
-            gap_floors,
+            gap_floors: gap_floors
+                .into_iter()
+                .map(|(binding, clock)| (binding, (clock, false)))
+                .collect(),
             intents_write_fut: None,
             legacy_checkpoint: legacy_checkpoint.map(|f| (f, consumer::Checkpoint::default())),
             metrics,
@@ -315,39 +318,30 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     }
 
     /// Fold the gap floors of every `Load` frontier into the session-cumulative
-    /// map, and stamp it onto outgoing `Persist` frontiers as durable state.
-    /// Derivations carry floors alone; materialize also folds backfill markers.
+    /// map, and stamp floors which rose since the last `Persist` onto the next.
     fn merge_binding_clocks(&mut self, action: &mut fsm::Action) {
         match action {
             fsm::Action::Load { frontier } => {
-                for (binding, clock) in &frontier.binding_gap_floors {
-                    let entry = self
+                for jf in &frontier.journals {
+                    let (floor, dirty) = self
                         .gap_floors
-                        .entry(*binding)
-                        .or_insert(uuid::Clock::zero());
-                    *entry = (*entry).max(*clock);
+                        .entry(jf.binding)
+                        .or_insert((uuid::Clock::zero(), false));
+
+                    if jf.gap_floor > *floor {
+                        *floor = jf.gap_floor;
+                        *dirty = true;
+                    }
                 }
             }
             fsm::Action::Persist { persist } => {
-                let floors: Vec<_> = self
+                persist.gap_floors = self
                     .gap_floors
-                    .iter()
-                    .map(
-                        |(binding, clock)| shuffle::proto::frontier::BindingGapFloor {
-                            binding: *binding as u32,
-                            clock: clock.as_u64(),
-                        },
-                    )
+                    .iter_mut()
+                    .filter_map(|(binding, (floor, dirty))| {
+                        std::mem::take(dirty).then(|| (*binding as u32, floor.as_u64()))
+                    })
                     .collect();
-                for frontier in [
-                    &mut persist.committed_frontier,
-                    &mut persist.hinted_frontier,
-                ]
-                .into_iter()
-                .flatten()
-                {
-                    frontier.binding_gap_floors = floors.clone();
-                }
             }
             _ => {}
         }
@@ -622,15 +616,26 @@ mod tests {
         (actor, rxs)
     }
 
+    /// A journal of `binding` carrying only a gap floor at `clock`.
+    fn floor(journal: &str, binding: u16, clock: u64) -> shuffle::JournalFrontier {
+        shuffle::JournalFrontier {
+            journal: journal.into(),
+            binding,
+            gap_floor: uuid::Clock::from_u64(clock),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn merge_binding_clocks_folds_and_stamps_gap_floors() {
         let (mut actor, _rxs) = mk_actor(1);
-        actor.gap_floors = BTreeMap::from([(0, uuid::Clock::from_u64(700))]);
+        // A floor recovered at startup is already durable, and clean.
+        actor.gap_floors = BTreeMap::from([(0, (uuid::Clock::from_u64(700), false))]);
 
         // An eager peek's floor folds like any other.
         let mut eager = fsm::Action::Load {
             frontier: shuffle::Frontier {
-                binding_gap_floors: BTreeMap::from([(0, uuid::Clock::from_u64(900))]),
+                journals: vec![floor("j/a", 0, 900)],
                 unresolved_hints: 1,
                 ..Default::default()
             },
@@ -638,18 +643,21 @@ mod tests {
         actor.merge_binding_clocks(&mut eager);
         assert_eq!(
             actor.gap_floors,
-            BTreeMap::from([(0, uuid::Clock::from_u64(900))]),
+            BTreeMap::from([(0, (uuid::Clock::from_u64(900), true))]),
             "an eager floor advances the cumulative map",
         );
 
-        // A resolved Load delta: an older binding 0 (must not regress the
-        // cumulative) and a fresh binding 1.
+        // A resolved Load delta: older journals of binding 0 (which must not
+        // regress) and a fresh binding 1, flattened to the largest floor of
+        // each binding's journals.
         let mut resolved = fsm::Action::Load {
             frontier: shuffle::Frontier {
-                binding_gap_floors: BTreeMap::from([
-                    (0, uuid::Clock::from_u64(300)),
-                    (1, uuid::Clock::from_u64(900)),
-                ]),
+                journals: vec![
+                    floor("j/a", 0, 300),
+                    floor("j/b", 0, 500),
+                    floor("j/b", 1, 800),
+                    floor("j/c", 1, 900),
+                ],
                 ..Default::default()
             },
         };
@@ -657,8 +665,8 @@ mod tests {
         assert_eq!(
             actor.gap_floors,
             BTreeMap::from([
-                (0, uuid::Clock::from_u64(900)),
-                (1, uuid::Clock::from_u64(900))
+                (0, (uuid::Clock::from_u64(900), true)),
+                (1, (uuid::Clock::from_u64(900), true))
             ]),
         );
 
@@ -673,22 +681,27 @@ mod tests {
         let fsm::Action::Persist { persist } = &action else {
             panic!("expected Persist");
         };
-        assert_eq!(
-            persist
-                .committed_frontier
-                .as_ref()
-                .unwrap()
-                .binding_gap_floors,
-            vec![
-                shuffle::proto::frontier::BindingGapFloor {
-                    binding: 0,
-                    clock: 900,
-                },
-                shuffle::proto::frontier::BindingGapFloor {
-                    binding: 1,
-                    clock: 900,
-                },
-            ],
-        );
+        assert_eq!(persist.gap_floors, BTreeMap::from([(0, 900), (1, 900)]));
+
+        // Binding 0 holds and binding 1 rises: the next Persist writes only
+        // binding 1, and the one after that writes nothing.
+        let mut load = fsm::Action::Load {
+            frontier: shuffle::Frontier {
+                journals: vec![floor("j/a", 0, 900), floor("j/c", 1, 1_000)],
+                ..Default::default()
+            },
+        };
+        actor.merge_binding_clocks(&mut load);
+
+        for want in [BTreeMap::from([(1, 1_000)]), BTreeMap::new()] {
+            let mut action = fsm::Action::Persist {
+                persist: proto::Persist::default(),
+            };
+            actor.merge_binding_clocks(&mut action);
+            let fsm::Action::Persist { persist } = &action else {
+                panic!("expected Persist");
+            };
+            assert_eq!(persist.gap_floors, want);
+        }
     }
 }

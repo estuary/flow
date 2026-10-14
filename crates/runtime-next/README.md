@@ -248,17 +248,19 @@ future backfill of a peer binding may produce.
 
 ## Binding gap floors (`GF:`)
 
-Shard zero holds one `GF:{state_key}` row per binding: the shuffle Session's
-*binding gap floor* (see `crates/shuffle/README.md`). A floor is not transaction
-state: it rides either `Persist` Frontier, restores onto the committed Frontier,
-and neither `delete_*_frontier` clears it.
+Shard zero holds one `GF:{state_key}` row per binding: the largest *gap floor*
+of the binding's journals (`JournalFrontier::gap_floor`, see
+`crates/shuffle/README.md`). The Session tracks floors per journal, and
+persistence flattens changed floors per-binding. A scan restores the rows to
+`Recover.gap_floors`, and startup re-hydrates them onto every journal of the
+binding in the resume Frontier (`Frontier::hydrate_gap_floors`).
 
-For that same reason the leader's actor folds floors from unresolved peeks as
-well as resolved `Load`s, unlike `BB:`/`BC:`. Materialize's hinted `Persist`
-precedes StartCommit, so a floor is durable before the transaction which
-observed the gap commits. Derive's only `Persist` follows StartCommit, so a
-remote-authoritative derivation which crashes in between loses the floors of
-that one transaction.
+A floor is not transaction state: the leader's actor folds floors from
+unresolved peeks as well as resolved `Load`s, unlike `BB:`/`BC:`.
+Materialize's hinted `Persist` precedes StartCommit, so a floor is durable
+before the transaction which observed the gap commits. Derive's only `Persist`
+follows StartCommit, so a remote-authoritative derivation which crashes in
+between loses the floors of that one transaction.
 
 A Head reduces every `Load` into its extents, then on a resolved `Load` calls
 `Frontier::clear_discharged_hints`, so a hint the Session discharges rather

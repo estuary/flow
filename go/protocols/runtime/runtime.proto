@@ -530,6 +530,9 @@ message Recover {
   // resolve a BackfillComplete's truncated_at. Resolved from "AB:{state_key}"
   // keys by the scan.
   map<uint32, fixed64> active_backfills = 11;
+  // Gap floors, keyed by binding index: each the maximum `gap_floor` of any
+  // journal of the binding. Resolved from "GF:{state_key}" keys by the scan.
+  map<uint32, fixed64> gap_floors = 12;
 }
 
 // Persist is sent by the leader to shard zero when state must be durably
@@ -610,6 +613,11 @@ message Persist {
     // Effect: Delete "AB:{state_key}" (state_key resolved by the encoder).
     uint32 complete_binding = 19;
   }
+  // Gap floors, keyed by binding index: each the maximum `gap_floor` of any
+  // journal of the binding, cumulative over the session. Only bindings whose
+  // floor rose since the prior Persist are present.
+  // Effect: Put fixed64-LE under "GF:{state_key}" (state_key resolved by the encoder).
+  map<uint32, fixed64> gap_floors = 20;
 }
 
 // ActiveBackfillBegin records a binding's backfill begin clock — its

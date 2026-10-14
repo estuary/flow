@@ -114,6 +114,11 @@ pub struct JournalFrontier {
     /// Positive when the reader is falling behind, negative when catching up.
     /// Summed during reduction.
     pub bytes_behind_delta: i64,
+    /// Clock below which causal hints naming this journal are unreachable,
+    /// because a byte gap at the read's start removed (or skipped) their ACKs.
+    /// Zero if none. An entry may carry a gap floor and no producers.
+    /// Maximized during reduction.
+    pub gap_floor: Clock,
     /// Largest `last_commit` of a producer which this entry has forgotten:
     /// one removed by [`Self::prune_stale_producers`]. A clock at-or-below it,
     /// of a producer absent from `producers`, may be one this entry once
@@ -139,8 +144,16 @@ impl JournalFrontier {
         );
         self.bytes_read_delta += other.bytes_read_delta;
         self.bytes_behind_delta += other.bytes_behind_delta;
+        self.gap_floor = self.gap_floor.max(other.gap_floor);
         self.prune_floor = self.prune_floor.max(other.prune_floor);
         self
+    }
+
+    /// Whether this entry carries nothing: no producers, and no floors.
+    pub fn is_empty(&self) -> bool {
+        self.producers.is_empty()
+            && self.gap_floor == Clock::zero()
+            && self.prune_floor == Clock::zero()
     }
 
     /// Remove this entry's retired producers, raising `prune_floor` to the
@@ -312,7 +325,8 @@ impl JournalFrontier {
                     .collect(),
                 bytes_read_delta: jf.bytes_read_delta,
                 bytes_behind_delta: jf.bytes_behind_delta,
-                ..Default::default()
+                gap_floor: Clock::from_u64(jf.gap_floor),
+                prune_floor: Clock::zero(),
             }
         })
     }
@@ -350,6 +364,7 @@ impl JournalFrontier {
                         .collect(),
                     bytes_read_delta: jf.bytes_read_delta,
                     bytes_behind_delta: jf.bytes_behind_delta,
+                    gap_floor: jf.gap_floor.as_u64(),
                 }
             })
             .collect();
@@ -447,9 +462,6 @@ pub struct Frontier {
     /// Latest committed backfill-complete clock of the checkpoint delta, keyed
     /// by binding index. See `latest_backfill_begin`.
     pub latest_backfill_complete: BTreeMap<u16, Clock>,
-    /// Gap floor of each binding, keyed by binding index. See
-    /// [`Completed::is_gap_stale`].
-    pub binding_gap_floors: BTreeMap<u16, Clock>,
     /// Count of `ProducerFrontier` entries with `hinted_commit > last_commit`.
     /// A Frontier with a non-zero count is "partial": readable for processing
     /// (e.g. log scanning), but NOT a transactional boundary.
@@ -588,7 +600,6 @@ impl Frontier {
             flushed_lsn,
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
-            binding_gap_floors: BTreeMap::new(),
             unresolved_hints,
         })
     }
@@ -648,7 +659,6 @@ impl Frontier {
             flushed_lsn: delta_flushed_lsn,
             latest_backfill_begin: delta_backfill_begin,
             latest_backfill_complete: delta_backfill_complete,
-            binding_gap_floors: delta_gap_floors,
             unresolved_hints: delta_unresolved_hints,
         } = delta;
 
@@ -661,10 +671,6 @@ impl Frontier {
         base.latest_backfill_complete = Self::merge_binding_clocks(
             std::mem::take(&mut base.latest_backfill_complete),
             delta_backfill_complete,
-        );
-        base.binding_gap_floors = Self::merge_binding_clocks(
-            std::mem::take(&mut base.binding_gap_floors),
-            delta_gap_floors,
         );
 
         if delta_journals.is_empty() {
@@ -716,6 +722,17 @@ impl Frontier {
             cleared,
             "cleared causal hint(s) of preceding peeks which the Session discharged rather than resolved",
         );
+    }
+
+    /// Raise the `gap_floor` of each journal to its binding's floor in `floors`.
+    /// Persistence flattens gap floors to one per binding (the largest of its
+    /// journals), and this re-hydrates them onto a recovered Frontier.
+    pub fn hydrate_gap_floors(&mut self, floors: &BTreeMap<u16, Clock>) {
+        for jf in &mut self.journals {
+            if let Some(floor) = floors.get(&jf.binding) {
+                jf.gap_floor = jf.gap_floor.max(*floor);
+            }
+        }
     }
 
     /// Look up a journal entry by `(journal, binding)`.
@@ -801,6 +818,7 @@ impl Frontier {
 
         self.journals.retain_mut(|jf| {
             let binding = jf.binding;
+            let mut discharged_by_gap_floor = false;
 
             jf.producers.retain_mut(|pf| {
                 if pf.hinted_commit <= pf.last_commit {
@@ -812,6 +830,7 @@ impl Frontier {
                     by_horizon += 1;
                 } else if completed.is_gap_stale(binding, pf.hinted_commit) {
                     by_gap_floor += 1;
+                    discharged_by_gap_floor = true;
                 } else {
                     return true; // Hint is at the frontier.
                 }
@@ -821,7 +840,12 @@ impl Frontier {
                 pf.last_commit != Clock::zero()
             });
 
-            !jf.producers.is_empty()
+            // Carry the floor with the entry it discharged, so it's delivered
+            // with exactly the checkpoint which relied on it.
+            if discharged_by_gap_floor {
+                jf.gap_floor = jf.gap_floor.max(completed.gap_floor(binding));
+            }
+            !jf.is_empty()
         });
 
         self.unresolved_hints -= by_clock + by_horizon + by_gap_floor;
@@ -949,14 +973,6 @@ impl Frontier {
                 clock: clock.as_u64(),
             })
             .collect();
-        proto.binding_gap_floors = self
-            .binding_gap_floors
-            .iter()
-            .map(|(binding, clock)| shuffle::frontier::BindingGapFloor {
-                binding: *binding as u32,
-                clock: clock.as_u64(),
-            })
-            .collect();
         proto
     }
 
@@ -972,17 +988,10 @@ impl Frontier {
             .map(|e| (e.binding as u16, Clock::from_u64(e.clock)))
             .collect();
 
-        let binding_gap_floors: BTreeMap<u16, Clock> =
-            std::mem::take(&mut proto.binding_gap_floors)
-                .into_iter()
-                .map(|e| (e.binding as u16, Clock::from_u64(e.clock)))
-                .collect();
-
         let journals: Vec<JournalFrontier> = JournalFrontier::decode(proto).collect();
         let mut frontier = Self::new(journals, flushed_lsn)?;
         frontier.latest_backfill_begin = latest_backfill_begin;
         frontier.latest_backfill_complete = latest_backfill_complete;
-        frontier.binding_gap_floors = binding_gap_floors;
         Ok(frontier)
     }
 
@@ -995,7 +1004,6 @@ impl Frontier {
             flushed_lsn,
             latest_backfill_begin,
             latest_backfill_complete,
-            binding_gap_floors,
             unresolved_hints: _,
         } = self;
 
@@ -1019,11 +1027,6 @@ impl Frontier {
         for (binding, clock) in latest_backfill_complete {
             out[part_of(binding)]
                 .latest_backfill_complete
-                .insert(binding, clock);
-        }
-        for (binding, clock) in binding_gap_floors {
-            out[part_of(binding)]
-                .binding_gap_floors
                 .insert(binding, clock);
         }
         for part in &mut out {
@@ -1066,7 +1069,6 @@ impl Frontier {
             flushed_lsn: vec![],
             latest_backfill_begin: self.latest_backfill_begin.clone(),
             latest_backfill_complete: self.latest_backfill_complete.clone(),
-            binding_gap_floors: self.binding_gap_floors.clone(),
             unresolved_hints,
         }
     }
@@ -1237,11 +1239,18 @@ impl Completed {
         Clock::delta(self.binding_max[binding as usize], clock) >= crate::PRODUCER_STALENESS_HORIZON
     }
 
-    pub fn advance_gap_floors(&mut self, floors: &BTreeMap<u16, Clock>) {
-        for (binding, clock) in floors {
-            let floor = &mut self.binding_gap_floor[*binding as usize];
-            *floor = (*floor).max(*clock);
+    /// Raise each binding's gap floor to the largest `gap_floor` of its
+    /// journals in `frontier`.
+    pub fn advance_gap_floors(&mut self, frontier: &Frontier) {
+        for jf in &frontier.journals {
+            let floor = &mut self.binding_gap_floor[jf.binding as usize];
+            *floor = (*floor).max(jf.gap_floor);
         }
+    }
+
+    /// Gap floor of `binding`, or zero if it has none.
+    pub fn gap_floor(&self, binding: u16) -> Clock {
+        self.binding_gap_floor[binding as usize]
     }
 
     /// Whether `clock` lies below `binding`'s gap floor, deeming the ACK it
@@ -1625,10 +1634,6 @@ mod test {
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(50), Lsn::from_u64(3)],
             latest_backfill_begin: BTreeMap::from([(0, Clock::from_u64(100))]),
             latest_backfill_complete: BTreeMap::from([(1, Clock::from_u64(140))]),
-            binding_gap_floors: BTreeMap::from([
-                (0, Clock::from_u64(700)),
-                (3, Clock::from_u64(900)),
-            ]),
             unresolved_hints: 0,
         };
         let hints = Frontier {
@@ -1639,12 +1644,12 @@ mod test {
             flushed_lsn: vec![Lsn::from_u64(40), Lsn::from_u64(20), Lsn::from_u64(30)],
             latest_backfill_begin: BTreeMap::from([(0, Clock::from_u64(120))]),
             latest_backfill_complete: BTreeMap::from([(0, Clock::from_u64(130))]),
-            binding_gap_floors: BTreeMap::from([
-                (0, Clock::from_u64(500)),
-                (3, Clock::from_u64(1_100)),
-            ]),
             unresolved_hints: 2,
         };
+        let (mut reads, mut hints) = (reads, hints);
+        reads.journals[1].gap_floor = Clock::from_u64(700);
+        hints.journals[0].gap_floor = Clock::from_u64(500);
+        hints.journals[1].gap_floor = Clock::from_u64(1_100);
         let r = reads.reduce(hints);
 
         // journal/A: reads-only pass-through.
@@ -1718,9 +1723,10 @@ mod test {
             r.latest_backfill_complete.get(&1),
             Some(&Clock::from_u64(140))
         );
+        // Per-journal max of gap floors.
         assert_eq!(
-            r.binding_gap_floors,
-            BTreeMap::from([(0, Clock::from_u64(700)), (3, Clock::from_u64(1_100))]),
+            r.journals.iter().map(|j| j.gap_floor).collect::<Vec<_>>(),
+            vec![Clock::zero(), Clock::from_u64(700), Clock::from_u64(1_100)],
         );
 
         // Identity: reducing with an empty frontier preserves all fields.
@@ -1729,7 +1735,6 @@ mod test {
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(20)],
             latest_backfill_begin: BTreeMap::from([(0, Clock::from_u64(100))]),
             latest_backfill_complete: BTreeMap::from([(0, Clock::from_u64(200))]),
-            binding_gap_floors: BTreeMap::from([(0, Clock::from_u64(300))]),
             unresolved_hints: 0,
         };
         let r = f.clone().reduce(Frontier::default());
@@ -1737,7 +1742,6 @@ mod test {
         assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
         assert_eq!(r.latest_backfill_begin, f.latest_backfill_begin);
         assert_eq!(r.latest_backfill_complete, f.latest_backfill_complete);
-        assert_eq!(r.binding_gap_floors, f.binding_gap_floors);
         let r = Frontier::default().reduce(f);
         assert_eq!(r.journals.len(), 1);
         assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
@@ -1746,7 +1750,6 @@ mod test {
             r.latest_backfill_complete.get(&0),
             Some(&Clock::from_u64(200))
         );
-        assert_eq!(r.binding_gap_floors.get(&0), Some(&Clock::from_u64(300)));
         assert!(
             Frontier::default()
                 .reduce(Frontier::default())
@@ -1991,7 +1994,6 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
-            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 2,
         };
 
@@ -2005,7 +2007,6 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
-            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 0,
         };
 
@@ -2041,7 +2042,6 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
-            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 0,
         };
         let (advanced2, resolved2) = pending.resolve_hints(&progressed2);
@@ -2122,7 +2122,6 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
-            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 1,
         };
         let progressed = Frontier {
@@ -2130,7 +2129,6 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
-            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 0,
         };
         assert_eq!(pending.resolve_hints(&progressed), (0, 0));
@@ -2182,7 +2180,6 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::from([(0, Clock::from_u64(9))]),
             latest_backfill_complete: BTreeMap::from([(0, Clock::from_u64(8))]),
-            binding_gap_floors: BTreeMap::from([(0, Clock::from_u64(7))]),
             unresolved_hints: 2,
         };
 
@@ -2195,7 +2192,6 @@ mod test {
             projected.latest_backfill_complete,
             f.latest_backfill_complete
         );
-        assert_eq!(projected.binding_gap_floors, f.binding_gap_floors);
 
         // journal/A: only P1 (unresolved). journal/B: filtered out (no hints).
         // journal/C: P7 (unresolved).
@@ -2235,7 +2231,6 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
-            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 0,
         };
         assert!(no_hints.project_unresolved_hints().journals.is_empty());
@@ -2261,7 +2256,6 @@ mod test {
             flushed_lsn: vec![Lsn::from_u64(10)],
             latest_backfill_begin: BTreeMap::from([(0, Clock::from_u64(9))]),
             latest_backfill_complete: BTreeMap::from([(1, Clock::from_u64(8))]),
-            binding_gap_floors: BTreeMap::from([(2, Clock::from_u64(7))]),
             unresolved_hints: 2,
         };
 
@@ -2273,7 +2267,6 @@ mod test {
             &part.flushed_lsn,
             &part.latest_backfill_begin,
             &part.latest_backfill_complete,
-            &part.binding_gap_floors,
             part.unresolved_hints,
         )).collect::<Vec<_>>(), @r#"
         [
@@ -2299,9 +2292,6 @@ mod test {
                     0: Clock(0s 36ns),
                 },
                 {},
-                {
-                    2: Clock(0s 28ns),
-                },
                 2,
             ),
             (
@@ -2318,7 +2308,6 @@ mod test {
                 {
                     1: Clock(0s 32ns),
                 },
-                {},
                 0,
             ),
         ]
@@ -2333,7 +2322,7 @@ mod test {
         let mut f = Frontier {
             journals: vec![
                 // Below the floor: discharged, and dropped for want of a
-                // commit, emptying its journal.
+                // commit. Its journal is retained, carrying the floor.
                 jf("journal/A", 0, vec![pf(0x09, 0, below, 0)]),
                 // Just below: discharged. The producer keeps its real commit;
                 // only the hint is cleared.
@@ -2359,15 +2348,18 @@ mod test {
                 (
                     &*jf.journal,
                     jf.producers.iter().map(pf_tuple).collect::<Vec<_>>(),
+                    jf.gap_floor.to_unix().0,
                 )
             })
             .collect();
+        // Each journal of a discharged hint carries the floor which discharged it.
         assert_eq!(
             readout,
             vec![
-                ("journal/B", vec![(10_000, 0, -500)]),
-                ("journal/C", vec![(10_000, floor, -500)]),
-                ("journal/D", vec![(10_000, below, -500)]),
+                ("journal/A", vec![], floor),
+                ("journal/B", vec![(10_000, 0, -500)], floor),
+                ("journal/C", vec![(10_000, floor, -500)], 0),
+                ("journal/D", vec![(10_000, below, -500)], 0),
             ],
         );
     }
@@ -2413,8 +2405,8 @@ mod test {
             vec![100, 200, 300],
         )
         .unwrap();
-        original.binding_gap_floors =
-            BTreeMap::from([(0, Clock::from_u64(700)), (3, Clock::from_u64(900))]);
+        original.journals[1].gap_floor = Clock::from_u64(700);
+        original.journals[1].prune_floor = Clock::from_u64(900);
 
         let proto = original.encode();
         assert_eq!(proto.journals.len(), 3);
@@ -2426,9 +2418,11 @@ mod test {
             assert_eq!(&*a.journal, &*b.journal);
             assert_eq!(a.binding, b.binding);
             assert_eq!(a.producers.len(), b.producers.len());
+            assert_eq!(a.gap_floor, b.gap_floor);
+            // `prune_floor` is session-internal, and never encoded.
+            assert_eq!(a.prune_floor, Clock::zero());
         }
         assert_eq!(reassembled.flushed_lsn, original.flushed_lsn);
-        assert_eq!(reassembled.binding_gap_floors, original.binding_gap_floors);
     }
 
     #[test]

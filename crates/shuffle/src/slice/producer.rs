@@ -72,7 +72,6 @@ pub fn build_flush_frontier(
     let mut journals: Vec<crate::JournalFrontier> = Vec::new();
     let mut latest_backfill_begin = BTreeMap::<u16, Clock>::new();
     let mut latest_backfill_complete = BTreeMap::<u16, Clock>::new();
-    let mut binding_gap_floors = BTreeMap::<u16, Clock>::new();
 
     for read_state in reads.iter_mut() {
         if read_state.unreported.is_empty() {
@@ -84,10 +83,11 @@ pub fn build_flush_frontier(
             continue;
         }
 
-        // Backfill clocks and the gap floor are per-binding metadata. Drain this
-        // journal's into the checkpoint maps; multiple journals of one binding
-        // fold to their max. The `continue` above strands none: each is folded
-        // from a document, so a non-zero one implies unreported work.
+        // Backfill clocks are per-binding metadata. Drain this journal's into
+        // the checkpoint maps; multiple journals of one binding fold to their
+        // max. The gap floor rides this journal's entry. The `continue` above
+        // strands none: each is folded from a document, so a non-zero one
+        // implies unreported work.
         let binding = read_state.binding_index;
         let backfill_begin = std::mem::take(&mut read_state.backfill_begin);
         if backfill_begin != Clock::zero() {
@@ -103,14 +103,6 @@ pub fn build_flush_frontier(
                 .and_modify(|c| *c = (*c).max(backfill_complete))
                 .or_insert(backfill_complete);
         }
-        let gap_floor = std::mem::take(&mut read_state.gap_floor);
-        if gap_floor != Clock::zero() {
-            binding_gap_floors
-                .entry(binding)
-                .and_modify(|c| *c = (*c).max(gap_floor))
-                .or_insert(gap_floor);
-        }
-
         let mut producers: Vec<_> = read_state
             .unreported
             .iter()
@@ -138,6 +130,7 @@ pub fn build_flush_frontier(
             producers,
             bytes_read_delta,
             bytes_behind_delta,
+            gap_floor: std::mem::take(&mut read_state.gap_floor),
             ..Default::default()
         });
 
@@ -155,7 +148,6 @@ pub fn build_flush_frontier(
         flushed_lsn: vec![crate::log::Lsn::ZERO; shard_count],
         latest_backfill_begin,
         latest_backfill_complete,
-        binding_gap_floors,
     };
 
     // Build a Frontier from causal hints via single-pass iteration.
@@ -200,7 +192,6 @@ pub fn build_flush_frontier(
         flushed_lsn: vec![],
         latest_backfill_begin: Default::default(),
         latest_backfill_complete: Default::default(),
-        binding_gap_floors: Default::default(),
     })
 }
 
@@ -417,10 +408,11 @@ mod test {
     #[test]
     fn test_build_flush_frontier_drains_binding_clocks_from_reads() {
         // Two journals of one binding (shared `suffix/0`). The drain folds both
-        // journals' clocks per-binding via `max` and clears each read's fields.
-        // journal/A is processed first with the smaller begin and floor; journal/B
-        // carries the larger, so the fold must `max`-upgrade to it rather than keep
-        // the first-seen value. Only journal/A carries a complete.
+        // journals' backfill clocks per-binding via `max` and clears each read's
+        // fields. journal/A is processed first with the smaller begin; journal/B
+        // carries the larger, so the fold must `max`-upgrade to it rather than
+        // keep the first-seen value. Only journal/A carries a complete. Gap
+        // floors ride each journal's own entry.
         let mut read_a = read_state("journal/A", 0, &[(0x01, 100, -500)]);
         read_a.backfill_begin = Clock::from_u64(80);
         read_a.backfill_complete = Clock::from_u64(100);
@@ -449,9 +441,15 @@ mod test {
             frontier.latest_backfill_complete.get(&0),
             Some(&Clock::from_u64(100))
         );
+        let floors: Vec<_> = (frontier.journals.iter())
+            .map(|jf| (&*jf.journal, jf.gap_floor))
+            .collect();
         assert_eq!(
-            frontier.binding_gap_floors,
-            BTreeMap::from([(0u16, Clock::from_u64(900))])
+            floors,
+            vec![
+                ("journal/A", Clock::from_u64(300)),
+                ("journal/B", Clock::from_u64(900)),
+            ]
         );
 
         // The per-journal clocks are drained (reset to zero).
