@@ -1,4 +1,5 @@
 use super::{
+    blocking,
     heap::{ReadEvent, ReadHeap, ReadyReadEntry, ResolvedTop},
     read::{
         Meta, ReadFailure, ReadState, ReadyRead, classify_read_failure, map_read_error,
@@ -66,8 +67,9 @@ pub(super) enum Wait {
     Yield,
     /// Await the adjusted clock of the heap top.
     Sleep(std::time::Duration),
-    /// Await an Ack which releases quota of the window, which is currently full.
-    Quota,
+    /// Await an Ack of the Log at index `log` which releases quota of the
+    /// window, which is currently full.
+    Quota { log: usize },
 }
 
 impl SliceActor {
@@ -116,6 +118,8 @@ impl SliceActor {
 
         // Measure of wall-clock time, used to gate delayed reads.
         let mut now = uuid::Clock::zero();
+        // Time the send loop is blocked on Logs, reported each tick.
+        let mut blocked = blocking::Tracker::new(self.rounds.logs.len());
 
         let mut ticker = tokio::time::interval(crate::ACTOR_TICKER_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -138,7 +142,7 @@ impl SliceActor {
                 "SliceActor::serve iteration"
             );
             // First, attempt non-blocking sends.
-            let wake_log_request_tx = self.try_log_request_tx(&mut now)?;
+            let wake_log_request_tx = self.try_log_request_tx(&mut now, &mut blocked)?;
             let wake_slice_response_tx = self.try_slice_response_tx()?;
 
             // Then, wait for a blocking future to resolve.
@@ -197,6 +201,8 @@ impl SliceActor {
                         self.emit_stall_warnings();
                     }
                     stall_armed = true;
+
+                    blocking::emit_report(&mut blocked);
                 }
             }
         }
@@ -653,12 +659,16 @@ impl SliceActor {
     fn try_log_request_tx(
         &mut self,
         now: &mut uuid::Clock,
+        blocked: &mut blocking::Tracker,
     ) -> anyhow::Result<impl Future<Output = bool> + 'static> {
+        blocked.unblock(std::time::Instant::now());
+
         // Ensure all Log channels have capacity for a next round.
         if let Some(log) = (self.rounds.logs)
             .iter()
             .position(|log| log.tx.capacity() == 0)
         {
+            blocked.block(std::time::Instant::now(), log, blocking::Reason::Capacity);
             let tx = self.rounds.logs[log].tx.clone();
 
             return Ok(future::Either::Left(
@@ -709,9 +719,13 @@ impl SliceActor {
             self.metrics.rounds.increment(1);
         }
 
+        if let Wait::Quota { log } = wait {
+            blocked.block(std::time::Instant::now(), log, blocking::Reason::Quota);
+        }
+
         Ok(future::Either::Right(async move {
             match wait {
-                Wait::Idle | Wait::Quota => false,
+                Wait::Idle | Wait::Quota { .. } => false,
                 Wait::Yield => {
                     tokio::task::yield_now().await;
                     true
@@ -794,12 +808,11 @@ impl SliceActor {
             return Ok(None);
         }
 
-        if self
+        if let Err(log) = self
             .rounds
             .try_charge(doc.bytes().len() as u64, *adjusted_clock)
-            .is_err()
         {
-            return Ok(Some(Wait::Quota));
+            return Ok(Some(Wait::Quota { log }));
         }
 
         // Buffer an Append for the appropriate shard(s).

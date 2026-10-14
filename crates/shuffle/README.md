@@ -429,7 +429,8 @@ Back-pressure runs from a Log's disk back to the Slices' journal reads. A merge
 pauses while the disk can't keep up, and a paused merge releases no quota
 (`log::actor::LogActor`).
 
-`shuffle_slice_rounds` / `shuffle_log_rounds` count rounds.
+`shuffle_slice_rounds` / `shuffle_log_rounds` count rounds, and each Slice's
+`blocked` event track reports its time blocked on Logs (`slice::blocking`).
 
 ### 9. Flush Cycle
 
@@ -624,6 +625,7 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
   - `state.rs`: Flush and progress state machines.
   - `rounds.rs`: Rounds of Appends and Barriers to Logs, and the window of
     quota.
+  - `blocking.rs`: Time the send loop is blocked on Logs, reported as events.
 - `log/`: Log actor, per-Slice buffers and merge, flush IO.
   - `buffer.rs`: Per-Slice buffers of Appends and Barriers, and the merge
     across Slices.

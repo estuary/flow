@@ -1,6 +1,7 @@
 use proto_gazette::{broker, uuid};
 
 mod actor;
+mod blocking;
 mod handler;
 mod heap;
 mod listing;

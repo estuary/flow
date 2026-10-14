@@ -201,17 +201,13 @@ impl SliceActor {
                 ..
             } = ready_read.meta;
 
-            if self
-                .rounds
-                .try_charge(
-                    ready_read.doc.bytes().len() as u64,
-                    clock + binding.read_delay,
-                )
-                .is_err()
-            {
+            if let Err(log) = self.rounds.try_charge(
+                ready_read.doc.bytes().len() as u64,
+                clock + binding.read_delay,
+            ) {
                 // Put back, await release of the window, and retry.
                 replay.io = ReplayIo::Draining(ready_read);
-                break Wait::Quota;
+                break Wait::Quota { log };
             }
 
             if producer == replay.target {
