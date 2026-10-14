@@ -1,0 +1,129 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            plan_kind AS \"plan_kind: PlanKind\",\n            collection_method AS \"collection_method: CollectionMethod\",\n            payment_provider AS \"payment_provider: billing_types::PaymentProvider\",\n            trial_start,\n            (trial_start + INTERVAL '1 month')::date AS trial_end,\n            data_tiers,\n            usage_tiers\n        FROM tenants\n        WHERE tenant = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "plan_kind: PlanKind",
+        "type_info": {
+          "Custom": {
+            "name": "plan_kind_type",
+            "kind": {
+              "Enum": [
+                "self_serve",
+                "contract",
+                "internal"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "plan_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "collection_method: CollectionMethod",
+        "type_info": {
+          "Custom": {
+            "name": "collection_method_type",
+            "kind": {
+              "Enum": [
+                "charge_default_payment_method",
+                "send_invoice"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "collection_method"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "payment_provider: billing_types::PaymentProvider",
+        "type_info": {
+          "Custom": {
+            "name": "payment_provider_type",
+            "kind": {
+              "Enum": [
+                "stripe",
+                "external",
+                "aws_marketplace",
+                "gcp_marketplace",
+                "snowflake_marketplace"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "payment_provider"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "trial_start",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "trial_start"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "trial_end",
+        "type_info": "Date",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "data_tiers",
+        "type_info": "Int4Array",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "data_tiers"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "usage_tiers",
+        "type_info": "Int4Array",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "usage_tiers"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "dd2a75dd71231625fb69aeafba971a3eddda82b8d5c806c7a1cae9314e34b843"
+}

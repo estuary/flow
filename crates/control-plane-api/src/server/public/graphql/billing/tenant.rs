@@ -7,6 +7,7 @@ use super::contact::{self, BillingContact};
 use super::invoices::{Invoice, InvoiceFilter};
 use super::loaders::CustomerDataLoader;
 use super::payment_methods::PaymentMethod;
+use super::plan::{self, BillingPlan};
 use crate::billing::{self, BillingProvider, InvoiceCursor};
 use async_graphql::{
     ComplexObject, Context, Result,
@@ -41,6 +42,14 @@ impl TenantBilling {
     async fn contact(&self, ctx: &Context<'_>) -> Result<BillingContact> {
         let env = ctx.data::<crate::Envelope>()?;
         contact::fetch_billing_contact(&env.pg_pool, &self.tenant)
+            .await
+            .map_err(|err| async_graphql::Error::new(err.to_string()))
+    }
+
+    /// The tenant's billing arrangement.
+    async fn plan(&self, ctx: &Context<'_>) -> Result<BillingPlan> {
+        let env = ctx.data::<crate::Envelope>()?;
+        plan::fetch_billing_plan(&env.pg_pool, &self.tenant)
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))
     }

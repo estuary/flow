@@ -170,7 +170,7 @@ impl InvoiceSearch<'_> {
     }
 }
 
-/// This represents the payment type that's used within our tenants table.
+/// Who bills the tenant: `tenants.payment_provider`.
 #[derive(
     serde::Serialize,
     serde::Deserialize,
@@ -184,10 +184,40 @@ impl InvoiceSearch<'_> {
     Copy,
     sqlx::Type,
 )]
-#[sqlx(type_name = "payment_provider_type", rename_all = "lowercase")]
+#[sqlx(type_name = "payment_provider_type", rename_all = "snake_case")]
 pub enum PaymentProvider {
     Stripe,
+    /// Paid outside of Stripe by an unclassified arrangement. Only self-serve
+    /// tenants may carry it, until they're classified into a concrete provider.
     External,
+    AwsMarketplace,
+    GcpMarketplace,
+    SnowflakeMarketplace,
+}
+
+/// Billing arrangement of the tenant: `tenants.plan_kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(type_name = "plan_kind_type", rename_all = "snake_case")]
+pub enum PlanKind {
+    SelfServe,
+    Contract,
+    Internal,
+}
+
+/// How usage-based invoices are collected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "SCREAMING_SNAKE_CASE")
+)]
+#[sqlx(type_name = "collection_method_type", rename_all = "snake_case")]
+pub enum CollectionMethod {
+    /// Charge the default payment method, or send the invoice to be paid
+    /// manually when there is no default payment method.
+    ChargeDefaultPaymentMethod,
+    /// Send the invoice to be paid manually, even if a payment method is on file.
+    SendInvoice,
 }
 
 #[cfg(test)]

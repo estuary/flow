@@ -14,6 +14,14 @@ Public AWS planes always use their derived colocated trial bucket; local and
 non-AWS planes use the GCS trial bucket. Provision the matching AWS bucket and
 permissions before opening a plane for signup.
 
+`server/public/graphql/billing/plan.rs` resolves `TenantBilling.plan` from
+`tenants.plan_kind`, `collection_method`, `payment_provider`, `trial_start`,
+and the tier arrays. Trial ends use Postgres date arithmetic to match the trial
+credit of `internal.billing_report_202308`, and a contract's included usage is
+its leading zero-priced tiers. Trial starts, tenant alerts, and invoice
+collection read `trial_start` and `payment_provider` directly, not `plan_kind`
+or `collection_method`.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.
