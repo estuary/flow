@@ -1,0 +1,82 @@
+---
+source: crates/shuffle/src/session/actor.rs
+expression: sent
+---
+[
+    (
+        "test/task/shard-0",
+        5,
+        [
+            "Progress",
+            "StartRead(binding=1, journal=test/collection/1)",
+            "StartRead(binding=3, journal=test/collection/3)",
+            "InitialReadsStarted",
+        ],
+    ),
+    (
+        "test/task/shard-1",
+        5,
+        [
+            "Progress",
+            "InitialReadsStarted",
+        ],
+    ),
+    (
+        "test/task/shard-2",
+        5,
+        [
+            "Progress",
+            "InitialReadsStarted",
+        ],
+    ),
+    (
+        "test/task/shard-0",
+        0,
+        [
+            "Progress",
+            "StartRead(binding=0, journal=test/collection/0)",
+            "InitialReadsStarted",
+        ],
+    ),
+    (
+        "test/task/shard-1",
+        0,
+        [
+            "Progress",
+            "InitialReadsStarted",
+        ],
+    ),
+    (
+        "test/task/shard-2",
+        0,
+        [
+            "Progress",
+            "InitialReadsStarted",
+        ],
+    ),
+    (
+        "test/task/shard-0",
+        -1,
+        [
+            "Progress",
+            "StartRead(binding=2, journal=test/collection/2)",
+            "InitialReadsStarted",
+        ],
+    ),
+    (
+        "test/task/shard-1",
+        -1,
+        [
+            "Progress",
+            "InitialReadsStarted",
+        ],
+    ),
+    (
+        "test/task/shard-2",
+        -1,
+        [
+            "Progress",
+            "InitialReadsStarted",
+        ],
+    ),
+]

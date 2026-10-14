@@ -71,7 +71,7 @@ pub(crate) struct Metrics {
 }
 
 impl Metrics {
-    fn new(shard_id: &str, num_cohorts: usize) -> Self {
+    fn new(shard_id: &str, priority: i32, num_cohorts: usize) -> Self {
         static DESCRIBE: std::sync::Once = std::sync::Once::new();
         DESCRIBE.call_once(|| {
             metrics::describe_counter!(
@@ -127,24 +127,25 @@ impl Metrics {
         });
 
         Self {
-            bytes_read: metrics::counter!("shuffle_slice_bytes_read", "shard_id" => shard_id.to_string()),
-            flushes: metrics::counter!("shuffle_slice_flushes", "shard_id" => shard_id.to_string()),
-            reads_started: metrics::counter!("shuffle_slice_reads_started", "shard_id" => shard_id.to_string()),
-            reads_stopped: metrics::counter!("shuffle_slice_reads_stopped", "shard_id" => shard_id.to_string()),
-            tailing_reads: metrics::gauge!("shuffle_slice_tailing_reads", "shard_id" => shard_id.to_string()),
-            stalled_reads: metrics::gauge!("shuffle_slice_stalled_reads", "shard_id" => shard_id.to_string()),
-            replays_started: metrics::counter!("shuffle_slice_replays_started", "shard_id" => shard_id.to_string()),
-            replays_stopped: metrics::counter!("shuffle_slice_replays_stopped", "shard_id" => shard_id.to_string()),
+            bytes_read: metrics::counter!("shuffle_slice_bytes_read", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            flushes: metrics::counter!("shuffle_slice_flushes", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            reads_started: metrics::counter!("shuffle_slice_reads_started", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            reads_stopped: metrics::counter!("shuffle_slice_reads_stopped", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            tailing_reads: metrics::gauge!("shuffle_slice_tailing_reads", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            stalled_reads: metrics::gauge!("shuffle_slice_stalled_reads", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            replays_started: metrics::counter!("shuffle_slice_replays_started", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            replays_stopped: metrics::counter!("shuffle_slice_replays_stopped", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
             last_source_published_at: (0..num_cohorts)
                 .map(|cohort| {
                     metrics::gauge!(
                         "shuffle_slice_last_source_published_at_time_seconds",
                         "shard_id" => shard_id.to_string(),
+                        "priority" => priority.to_string(),
                         "cohort" => cohort.to_string(),
                     )
                 })
                 .collect(),
-            rounds: metrics::counter!("shuffle_slice_rounds", "shard_id" => shard_id.to_string()),
+            rounds: metrics::counter!("shuffle_slice_rounds", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
         }
     }
 }

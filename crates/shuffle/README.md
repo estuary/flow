@@ -17,8 +17,10 @@ and ad-hoc collection reads.
 
 The system is built from three layered gRPC RPCs, defined in
 `go/protocols/shuffle/shuffle.proto`, each implemented as an async actor
-and forming a hierarchy. For M shards, the system uses M Slice
-streams and M² Log streams (each Slice opens one Log RPC to every shard):
+and forming a hierarchy. For M shards and P distinct binding priorities
+(see Concepts), the system uses M·P Slice streams and M²·P Log
+streams (each Slice opens one Log RPC to every shard).
+With a single priority, which is typical:
 
 ```
 Coordinator (external caller, typically runs on shard-000)
@@ -42,9 +44,9 @@ external coordinator (e.g. shard-000 of a derivation or materialization).
 Manages the session lifecycle, routes discovered journals to Slices,
 and aggregates progress into checkpoints.
 
-**Slice** (`slice/`): Per-shard RPC opened by the Session. Each Slice
-watches journal listings for its assigned bindings, reads documents from
-journals, sequences them, validates them, extracts shuffle keys, and routes
+**Slice** (`slice/`): Per-(shard, priority) RPC opened by the Session. Each Slice
+watches journal listings for its assigned bindings (of its priority), reads documents
+from journals, sequences them, validates them, extracts shuffle keys, and routes
 documents to the appropriate Log RPC(s) based on key hash.
 
 **Log** (`log/`): Per-shard RPC opened by each Slice. All Slices
@@ -100,20 +102,15 @@ which drops their request channels and cascades EOF down to those peers and
 their peers in turn. Racing the request stream catches the *upstream* going
 away mid-open.
 
-The Log rendezvous is the subtle case. `M` Slices connect to each Log shard; the
-invocation that connects last runs the `LogActor`, while the earlier `M-1` park.
-A parked invocation must remain cancel-observant, so it selects its own
-completion signal against `response_tx.closed()` (fired when its Slice
-client drops its receiver) and reaps *only its own* slot under the `log_joins`
-mutex (dropping the whole entry when it removed the last live slot),
-so a stale partial rendezvous can't wedge the map or poison
-a retry.
+The Log rendezvous (`log::LogJoin`) is the subtle case. Each Log shard is
+joined by `M·P` Slices, and the last to connect runs the `LogActor`. The
+others park, and remain cancel-observant while they do (`log::handler`).
 
 #### No deadlines, by design
 
 There are deliberately **no** open-phase deadlines. Every transient failure
-surfaces as an error that self-heals via `try_join_all` and the Go retry loop,
-so a timeout would add flapping that would only paper over a true regression,
+surfaces as an error that self-heals via `crate::try_join_all_eager` and coordinator
+retry, so a timeout would add flapping that would only paper over a true regression,
 and makes the ensemble more difficult to debug (a stable wedge is far easier
 to inspect).
 
@@ -126,9 +123,19 @@ for AuthN and AuthZ scoping to the requested task topology.
 
 ### Concepts
 
-**Shard Topology**: A session has N **shards**, each owning a disjoint range of the 2D
+**Shard Topology**: A session has M **shards**, each owning a disjoint range of the 2D
 (key_hash, r_clock) space. Shards tile the full `[0, 0xFFFFFFFF]` range
-in both dimensions. Each shard runs one Slice RPC actor and one Log RPC actor.
+in both dimensions. Each shard runs a Slice RPC actor of each priority, and one
+Log RPC actor.
+
+**Priorities**: Bindings may have different priorities, and documents of
+higher-priority bindings are shuffled ahead of those of lower ones. Each
+distinct priority is processed independently: every shard runs a separate
+Slice of each priority (`binding::distinct_priorities`), which reads only
+bindings of that priority, and flushes and reports progress on its own.
+Documents of different priorities meet only at each Log's merge, which takes
+higher-priority documents first (§8). Most tasks use only the default
+priority, and so run one Slice per shard.
 
 **Span**: A single run of CONTINUE_TXN documents by one producer in one journal,
 without an interleaving ACK. The producer's first CONTINUE_TXN *opens* a span and
@@ -233,9 +240,11 @@ document (see `slice/replay.rs`).
 **Per-shard RPCs → shared streams**: The legacy system starts an RPC per
 (shard, journal) pair, which doesn't scale: at M=10 shards with N=100k
 journals, that's up to M×N = 1M concurrent RPCs, and each ACK is broadcast
-to every shard. This implementation uses M + M² streams total (M Slice RPCs + M²
-Log RPCs), independent of journal count. At M=10 with N=100k, that's 110 streams
-instead of 1M. Listing watches are also distributed across shards (each
+to every shard. This implementation uses M·P + M²·P streams total
+(M·P Slice RPCs + M²·P Log RPCs, for P distinct priorities),
+independent of journal count. At M=10 and P=1 with N=100k,
+that's 110 streams instead of 1M.
+Listing watches are also distributed across shards (each
 watches ~B/M bindings) rather than duplicated on every shard.
 
 **In-memory staging → disk-backed logs**: The legacy system holds shuffled
@@ -266,16 +275,16 @@ resume checkpoint frontier. The Session:
    plus `Source` structs — one per distinct source collection, following the
    spec's declared indirection. Schema validators and journal clients are built
    per Source, so bindings fanning in on one collection share them.
-2. Opens a Slice RPC to every shard (shard 0 is in-process; others are
-   remote gRPC calls).
+2. Opens a Slice RPC of every priority to every shard (those of shard 0 are
+   in-process; others are remote gRPC calls).
 3. Sends `Opened` to the coordinator, then reads the resume checkpoint
    `Frontier`.
 4. Sends `Start` to all Slices, which triggers journal listing watches.
 
 ### 2. Journal Discovery
 
-Each Slice watches Gazette journal listings for its assigned bindings
-(round-robin by `binding.index % shard_count`). The Slice sends a
+Each Slice watches Gazette journal listings for its assigned bindings: those
+of its priority, round-robin by `binding.index % shard_count`. The Slice sends a
 `ListingAdded` for each journal. The Slice sends one `ListingSnapshotComplete`
 when a binding's initial snapshot is fully delivered, empty snapshots included.
 
@@ -298,7 +307,7 @@ Within the candidate set, a stable hash of `(journal_name, read_suffix)`
 selects the target shard. The Session constructs a `StartRead` message
 containing the journal spec, binding index, and the per-journal producer
 checkpoint extracted from the resume frontier, then sends it to the
-target Slice.
+target shard's Slice of the binding's priority.
 
 Only one Slice lists each binding. When the Session has received a
 `ListingSnapshotComplete` for every binding, it puts an `InitialReadsStarted` on
@@ -326,11 +335,10 @@ flags) and validates the document against the binding's schema.
 
 ### 5. Ready-Read Heap and Clock Gating
 
-Parsed documents enter a heap ordered by (priority DESC, adjusted_clock ASC),
-where `adjusted_clock = clock + read_delay`. `ReadHeap` also tracks reads which
-are probing or pending broker I/O, and the Slice drains its top only once no
-unstarted, probing, or non-tailing read could preempt it
-(`ReadHeap::resolved_top`).
+Parsed documents enter a heap ordered by clock adjusted by `read_delay`.
+`ReadHeap` also tracks reads which are probing or pending broker I/O, and the
+Slice drains its top only once no unstarted, probing, or non-tailing read could
+preempt it (`ReadHeap::resolved_top`).
 
 A single non-tailing read therefore head-of-line-blocks the whole Slice's
 drain, so I/O stalls on individual journals matter.
@@ -350,7 +358,7 @@ cross-transform ordering guarantees.
 
 Each consumed document also records its clock on the
 `shuffle_slice_last_source_published_at_time_seconds` gauge, labeled by
-cohort: how far this shard's shuffled read has progressed in source
+priority and cohort: how far this shard's shuffled read has progressed in source
 published-at time. `time() - gauge` is the shard's read lag, and max - min
 across sibling shards is their skew — the measure of how tightly remapped
 routing (§7) actually couples shards. Clocks are only comparable within a
@@ -602,4 +610,4 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
 - `merge.rs`: Merge order (`Position`).
 - `frontier.rs`: Frontier types, reduction, causal hint resolution,
   chunked encode/decode, and drain.
-- `binding.rs`: Binding and Source configuration, partition filtering.
+- `binding.rs`: Binding and Source configuration, partition filtering, and priorities.
