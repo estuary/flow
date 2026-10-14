@@ -252,11 +252,11 @@ aws-config = "1"
 aws-types = "1"
 aws-credential-types = "1"
 aws-msk-iam-sasl-signer = "1"
-# Default features minus "rustls", which selects the legacy rustls 0.21 client.
+# Default features minus "rustls", which selects the legacy rustls 0.21 client,
+# and "sigv4a", which we don't use and which pulls in an ECDSA stack.
 aws-sdk-sts = { version = "1", default-features = false, features = [
     "default-https-client",
     "rt-tokio",
-    "sigv4a",
 ] }
 
 # Used for the agent http server
