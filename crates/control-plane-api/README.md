@@ -14,6 +14,10 @@ Public AWS planes always use their derived colocated trial bucket; local and
 non-AWS planes use the GCS trial bucket. Provision the matching AWS bucket and
 permissions before opening a plane for signup.
 
+`tenants.rs` provides shared provisioning for GraphQL onboarding and test fixtures;
+callers supply tenant metadata and collection and recovery storage mappings.
+The GraphQL layer owns signup validation and MSA consent.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.
