@@ -254,7 +254,19 @@ async fn create_tenant(
             .data_plane_by_catalog_name(name)
             .is_some_and(|plane| plane.can_sign())
     });
-    let (collection_storage, recovery_storage) = storage::specs(public_planes, data_plane)?;
+    if public_planes.is_empty() {
+        return Err(async_graphql::Error::new(
+            "there are no open public data-planes to place a new tenant on",
+        ));
+    }
+    if !public_planes.iter().any(|plane| plane == data_plane) {
+        return Err(async_graphql::Error::new(format!(
+            "{data_plane} is not an available public data-plane"
+        )));
+    }
+    // Preserve the remaining planes' newest-first order after the selected plane.
+    public_planes.sort_by_key(|plane| plane != data_plane);
+    let (collection_storage, recovery_storage) = storage::specs(public_planes);
 
     let metadata = if survey.is_null() {
         serde_json::json!({})

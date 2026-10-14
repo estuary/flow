@@ -12,24 +12,11 @@ fn trial_bucket_name(plane: &str) -> Option<(String, String)> {
     Some((format!("estuary-trial-{region}-{}", &digest[..8]), region))
 }
 
-/// `planes` comes from the open public planes query, ordered by descending ID.
-pub(super) fn specs(
-    mut planes: Vec<String>,
-    data_plane: &str,
-) -> async_graphql::Result<(serde_json::Value, serde_json::Value)> {
-    if planes.is_empty() {
-        return Err(async_graphql::Error::new(
-            "there are no open public data-planes to place a new tenant on",
-        ));
-    }
-    if !planes.iter().any(|plane| plane == data_plane) {
-        return Err(async_graphql::Error::new(format!(
-            "{data_plane} is not a selectable public data-plane"
-        )));
-    }
-
-    // Preserve the remaining planes' newest-first order after the selected plane.
-    planes.sort_by_key(|plane| plane != data_plane);
+/// `planes` must be nonempty, with the selected default plane first.
+pub(super) fn specs(planes: Vec<String>) -> (serde_json::Value, serde_json::Value) {
+    let data_plane = planes
+        .first()
+        .expect("storage specs require a default plane");
 
     let mut store = match trial_bucket_name(data_plane) {
         Some((bucket, region)) => {
@@ -40,7 +27,7 @@ pub(super) fn specs(
     let recovery = serde_json::json!({"stores": [store.clone()]});
     store["prefix"] = serde_json::json!("collection-data/");
     let tenant = serde_json::json!({"stores": [store], "data_planes": planes});
-    Ok((tenant, recovery))
+    (tenant, recovery)
 }
 
 #[cfg(test)]
@@ -67,7 +54,7 @@ mod tests {
     }
 
     #[test]
-    fn selection_and_storage() {
+    fn storage_specs() {
         let planes: Vec<String> = [
             "ops/dp/public/gcp-europe-west1-c1",
             "ops/dp/public/aws-us-east-1-c2",
@@ -76,8 +63,7 @@ mod tests {
         .map(String::from)
         .into();
 
-        let (tenant, recovery) =
-            super::specs(planes.clone(), "ops/dp/public/gcp-europe-west1-c1").unwrap();
+        let (tenant, recovery) = super::specs(planes.clone());
         insta::assert_json_snapshot!((tenant, recovery), @r#"
         [
           {
@@ -104,8 +90,11 @@ mod tests {
           }
         ]
         "#);
-        let (tenant, recovery) =
-            super::specs(planes.clone(), "ops/dp/public/aws-us-east-1-c1").unwrap();
+        let (tenant, recovery) = super::specs(vec![
+            planes[2].clone(),
+            planes[0].clone(),
+            planes[1].clone(),
+        ]);
         insta::assert_json_snapshot!((tenant, recovery), @r#"
         [
           {
@@ -140,11 +129,9 @@ mod tests {
             "ops/dp/public/test",
             "ops/dp/public/local-flow-cluster",
         ] {
-            let (tenant, _) = super::specs(vec![plane.to_string()], plane).unwrap();
+            let (tenant, _) = super::specs(vec![plane.to_string()]);
             assert_eq!(tenant["stores"][0]["provider"], "GCS");
             assert_eq!(tenant["data_planes"], serde_json::json!([plane]));
         }
-        assert!(super::specs(vec![], "ops/dp/public/aws-us-east-1-c1").is_err());
-        assert!(super::specs(planes, "ops/dp/public/missing").is_err());
     }
 }
