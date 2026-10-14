@@ -1,5 +1,5 @@
 use crate::integration_tests::harness::TestHarness;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, DurationRound, TimeDelta, Utc};
 use control_plane_api::alerts::{AlertAction, ResolveAlert, apply_alert_actions};
 use models::status::AlertType;
 
@@ -695,17 +695,14 @@ async fn test_data_movement_stalled_end_to_end() {
     "#);
 
     // Now simulate data movement and re-run to assert resolution.
-    sqlx::query!(
-        r#"insert into catalog_stats_hourly
-             (catalog_name, grain, ts, flow_document,
-              bytes_written_by_me, bytes_written_to_me, bytes_read_by_me)
-           values
-             ('acme/team-a/stalled', 'hourly', date_trunc('hour', now()),
-              '{}', 1024, 0, 0)"#,
+    seed_bytes_written(
+        &harness,
+        catalog_stats::Grain::Hourly,
+        "acme/team-a/stalled",
+        Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap(),
+        1024,
     )
-    .execute(&pool)
-    .await
-    .expect("failed to insert catalog_stats_hourly row");
+    .await;
 
     harness.run_pending_controller("acme/team-a/stalled").await;
     let resolved = harness.get_controller_state("acme/team-a/stalled").await;
@@ -740,6 +737,34 @@ fn current_alerts(state: &crate::controllers::ControllerState) -> &models::statu
             panic!("controller status is Uninitialized; did the controller run?")
         }
     }
+}
+
+/// Seeds a catalog stats row at `ts` in which `catalog_name` wrote `bytes`.
+async fn seed_bytes_written(
+    harness: &TestHarness,
+    grain: catalog_stats::Grain,
+    catalog_name: &str,
+    ts: DateTime<Utc>,
+    bytes: u64,
+) {
+    let stats = catalog_stats::CatalogStats {
+        meta: ops::Meta {
+            uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+        },
+        catalog_name: catalog_name.to_string(),
+        ts,
+        stats_summary: catalog_stats::StatsSummary {
+            written_by_me: ops::stats::DocsAndBytes {
+                docs_total: 1,
+                bytes_total: bytes,
+            },
+            ..Default::default()
+        },
+        task_stats: Default::default(),
+    };
+    catalog_stats::test_util::seed_rows(&harness.catalog_stats, &[(grain, stats)])
+        .await
+        .expect("failed to seed catalog stats");
 }
 
 /// Schedules the controller task for `catalog_name` to re-run on the
@@ -812,10 +837,10 @@ async fn test_abandon_per_task_thresholds() {
     )
     .await;
 
-    // Idle scenario: fresh status (no pre-existing alerts), with
-    // `catalog_stats_daily` showing the last data movement was 45 days
-    // ago. `last_user_pub_at` is None because we never published
-    // anything — abandon treats that as "no recent user activity".
+    // Idle scenario: fresh status (no pre-existing alerts), with daily
+    // catalog stats showing the last data movement was 45 days ago.
+    // `last_user_pub_at` is None because we never published anything —
+    // abandon treats that as "no recent user activity".
     let fresh_status = serde_json::json!({
         "type": "Capture",
         "publications": {"history": []},
@@ -823,19 +848,16 @@ async fn test_abandon_per_task_thresholds() {
         "alerts": {}
     });
     insert_capture_with_status(&pool, "acme/idle", chrono::Duration::days(50), fresh_status).await;
-    sqlx::query!(
-        r#"
-        insert into catalog_stats_daily
-          (catalog_name, grain, ts, flow_document,
-           bytes_written_by_me, bytes_written_to_me, bytes_read_by_me, bytes_read_from_me)
-        values ($1, 'daily', $2, '{}', 1024, 0, 0, 0)
-        "#,
+    seed_bytes_written(
+        &harness,
+        catalog_stats::Grain::Daily,
         "acme/idle",
-        forty_five_days_ago,
+        forty_five_days_ago
+            .duration_trunc(TimeDelta::days(1))
+            .unwrap(),
+        1024,
     )
-    .execute(&pool)
-    .await
-    .expect("seed catalog_stats_daily row");
+    .await;
 
     // First pass: per-task thresholds exceed the observed staleness, so
     // neither alert fires.
@@ -1003,17 +1025,14 @@ async fn test_data_movement_stalled_refires_after_resolution() {
     );
 
     // Phase 2: Data flows, alert resolves.
-    sqlx::query!(
-        r#"insert into catalog_stats_hourly
-             (catalog_name, grain, ts, flow_document,
-              bytes_written_by_me, bytes_written_to_me, bytes_read_by_me)
-           values
-             ('acme/refiring', 'hourly', date_trunc('hour', now()),
-              '{}', 512, 0, 0)"#,
+    seed_bytes_written(
+        &harness,
+        catalog_stats::Grain::Hourly,
+        "acme/refiring",
+        Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap(),
+        512,
     )
-    .execute(&pool)
-    .await
-    .unwrap();
+    .await;
 
     harness.run_pending_controller("acme/refiring").await;
     let resolved = harness.get_controller_state("acme/refiring").await;
@@ -1023,8 +1042,7 @@ async fn test_data_movement_stalled_refires_after_resolution() {
     );
 
     // Phase 3: Data stops again. Remove the stats row and re-run.
-    sqlx::query!("delete from catalog_stats_hourly where catalog_name = 'acme/refiring'")
-        .execute(&pool)
+    catalog_stats::test_util::delete_rows_with_prefix(&harness.catalog_stats, "acme/refiring")
         .await
         .unwrap();
 
