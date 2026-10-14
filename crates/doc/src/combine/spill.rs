@@ -1044,7 +1044,7 @@ mod test {
             }
 
             let start = spill.spill.seek(io::SeekFrom::Current(0)).unwrap();
-            spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
+            (spec, _) = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
             let end = spill.spill.seek(io::SeekFrom::Current(0)).unwrap();
             ranges.push(start..end);
         }

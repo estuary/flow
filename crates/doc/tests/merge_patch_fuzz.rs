@@ -138,7 +138,7 @@ fn reduce_combiner(input: Vec<ArbitraryValue>) -> bool {
 
     // Drain `memtable_2` using a SpillDrainer.
     let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
-    let spec = memtable_2.spill(&mut spill, 1 << 18).unwrap();
+    let (spec, _alloc) = memtable_2.spill(&mut spill, 1 << 18).unwrap();
     let (mut spill, ranges) = spill.into_parts();
 
     let mut spill_drainer =
