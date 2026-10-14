@@ -370,18 +370,6 @@ async fn test_injected_ops_collections_are_not_locked() {
     // here in order to exercise the passthrough path at all.
     let ops_user = harness.setup_tenant("ops.us-central1.v1").await;
 
-    // The migrations seed a storage mapping for `ops.us-central1.v1/` which does not
-    // permit any data planes, and `setup_tenant` leaves it in place (`on conflict do
-    // nothing`). Permit the test data plane so the ops collections can be published.
-    sqlx::query(
-        r#"update storage_mappings
-        set spec = '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}], "data_planes": ["ops/dp/public/test"]}'
-        where catalog_prefix = 'ops.us-central1.v1/'"#,
-    )
-    .execute(&harness.pool)
-    .await
-    .expect("failed to update ops storage mapping");
-
     let ops_names = control_plane_api::publications::specs::get_ops_collection_names();
     let ops_draft = |collection: serde_json::Value| {
         let collections = ops_names
