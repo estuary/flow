@@ -2039,6 +2039,49 @@ mod test {
         );
     }
 
+    // P1's open span `+300` is held in `unresolved` by a hint at 20s. P1's
+    // recovery commits at 30s, past that hint, so the delta can't be reduced
+    // into `unresolved` (see `Frontier::first_unaccounted`). Instead it
+    // resolves the hint conservatively, closing P1 at the cut floor -500 of P2,
+    // and `unresolved` promotes to `ready`. The delta's own hint at 30s then
+    // holds it in `unresolved`, so its -900 for P1 doesn't reach `ready`.
+    // `ready` resumes without a replay of P1's span.
+    #[test]
+    fn test_conservative_resolution_closes_open_span() {
+        let mut pipeline = test_pipeline();
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf(
+                "journal/A",
+                0,
+                vec![pf(0x01, 10, 20, 300), pf(0x02, 15, 0, -500)],
+            )],
+            vec![],
+        );
+        ingest_progressed(
+            &mut pipeline,
+            vec![
+                jf("journal/A", 0, vec![pf(0x01, 30, 0, -900)]),
+                jf("journal/B", 1, vec![pf(0x01, 20, 30, 100)]),
+            ],
+            vec![],
+        );
+        pipeline.request().unwrap();
+        let ready = pipeline.take_ready().expect("resolved checkpoint");
+
+        insta::assert_snapshot!(
+            format!(
+                "ready: {:?}\nunresolved: {:?}",
+                frontier_readout(&ready),
+                frontier_readout(&pipeline.unresolved),
+            ),
+            @r#"
+        ready: [("journal/A", 0, [(20, 20, -500), (15, 0, -500)], 0, 0)]
+        unresolved: [("journal/A", 0, [(30, 0, -900)], 0, 0), ("journal/B", 1, [(20, 30, 100)], 0, 0)]
+        "#
+        );
+    }
+
     #[test]
     fn test_routing() {
         let topology = test_topology(
