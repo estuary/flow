@@ -6,7 +6,8 @@ capability mask or prefix scope, because the new credential would not preserve
 those restrictions. Tenant creation in `server/public/graphql/tenant.rs` also
 rejects either restriction before provisioning a tenant. Its `tenant/storage.rs`
 helper derives collection and recovery storage mappings. Tenant provisioning,
-those mappings, and MSA consent commit together.
+those mappings, and MSA consent commit together. Tenant names containing
+`estuary` are reserved after case, accent, and Unicode confusable normalization.
 `dataPlane` is required and must name an open public plane with ready signing
 keys, matching `publicDataPlanes`. Keyless planes are excluded from the tenant
 storage mapping as well.

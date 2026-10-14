@@ -78,6 +78,7 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 unicode-normalization = { workspace = true }
+unicode-security = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 validator = { workspace = true }
