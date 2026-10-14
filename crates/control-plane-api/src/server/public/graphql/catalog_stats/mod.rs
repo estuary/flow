@@ -123,8 +123,7 @@ fn cursor_of(bucket: &types::CatalogStats) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key)
 }
 
-/// The client is absent when the deployment has no BigTable configured, in
-/// which case this query is the only thing that stops working.
+/// The client is absent when the deployment has no BigTable configured.
 fn client(
     ctx: &async_graphql::Context<'_>,
 ) -> async_graphql::Result<std::sync::Arc<catalog_stats::Client>> {

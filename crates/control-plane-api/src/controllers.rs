@@ -1,5 +1,4 @@
 use crate::TextJson;
-use anyhow::Context;
 use chrono::DurationRound;
 use chrono::prelude::*;
 use models::{CatalogType, Id};
@@ -124,7 +123,7 @@ pub async fn fetch_last_data_movement_ts(
     let today = now.duration_trunc(chrono::TimeDelta::days(1))?;
     let range = (today - chrono::TimeDelta::days(59))..(today + chrono::TimeDelta::days(1));
 
-    let rows = collect_stats(client.fetch_range_for_names(
+    let rows = catalog_stats::collect_stats(client.fetch_range_for_names(
         &[catalog_name],
         catalog_stats::Grain::Daily,
         range,
@@ -292,7 +291,7 @@ pub async fn fetch_bytes_processed_since(
     let start = since.duration_trunc(chrono::TimeDelta::hours(1))?;
     let end = now.duration_trunc(chrono::TimeDelta::hours(1))? + chrono::TimeDelta::hours(1);
 
-    let rows = collect_stats(client.fetch_range_for_names(
+    let rows = catalog_stats::collect_stats(client.fetch_range_for_names(
         &[catalog_name],
         catalog_stats::Grain::Hourly,
         start..end,
@@ -306,45 +305,6 @@ pub async fn fetch_bytes_processed_since(
             s.written_by_me.bytes_total + s.written_to_me.bytes_total + s.read_by_me.bytes_total
         })
         .sum())
-}
-
-/// Consecutive transient failures tolerated by a catalog stats read before it
-/// fails. The client backs off between attempts, and a failed read fails the
-/// controller run, which is itself retried.
-const STATS_READ_MAX_RETRIES: usize = 3;
-const STATS_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-async fn collect_stats(
-    stream: impl futures::Stream<Item = catalog_stats::RetryResult<catalog_stats::CatalogStats>>,
-) -> anyhow::Result<Vec<catalog_stats::CatalogStats>> {
-    tokio::time::timeout(STATS_READ_TIMEOUT, async {
-        let mut stream = std::pin::pin!(stream);
-        let mut rows = Vec::new();
-
-        while let Some(item) = futures::StreamExt::next(&mut stream).await {
-            let err = match item {
-                Ok(row) => {
-                    rows.push(row);
-                    continue;
-                }
-                Err(err) => err,
-            };
-            // The client keeps the stream alive after a transient failure, but ends
-            // it after any other, which must not read as a complete result.
-            if !err.inner.is_transient() || err.attempt >= STATS_READ_MAX_RETRIES {
-                return Err(anyhow::Error::new(err.inner).context("reading catalog stats"));
-            }
-            tracing::warn!(
-                attempt = err.attempt,
-                error = %err.inner,
-                "retrying catalog stats read",
-            );
-        }
-
-        Ok(rows)
-    })
-    .await
-    .context("timed out reading catalog stats")?
 }
 
 #[tracing::instrument(level = "debug", skip(txn, status, controller_version))]

@@ -276,6 +276,44 @@ impl Client {
     }
 }
 
+/// Consecutive transient failures tolerated by a catalog stats read before it
+/// fails. The client backs off between attempts.
+const STATS_READ_MAX_RETRIES: usize = 3;
+const STATS_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+pub async fn collect_stats(
+    stream: impl futures::Stream<Item = RetryResult<CatalogStats>>,
+) -> anyhow::Result<Vec<CatalogStats>> {
+    tokio::time::timeout(STATS_READ_TIMEOUT, async {
+        let mut stream = std::pin::pin!(stream);
+        let mut rows = Vec::new();
+
+        while let Some(item) = futures::StreamExt::next(&mut stream).await {
+            let err = match item {
+                Ok(row) => {
+                    rows.push(row);
+                    continue;
+                }
+                Err(err) => err,
+            };
+            // The client keeps the stream alive after a transient failure, but ends
+            // it after any other, which must not read as a complete result.
+            if !err.inner.is_transient() || err.attempt >= STATS_READ_MAX_RETRIES {
+                return Err(anyhow::Error::new(err.inner).context("reading catalog stats"));
+            }
+            tracing::warn!(
+                attempt = err.attempt,
+                error = %err.inner,
+                "retrying catalog stats read",
+            );
+        }
+
+        Ok(rows)
+    })
+    .await
+    .context("timed out reading catalog stats")?
+}
+
 fn backoff(attempt: usize) -> std::time::Duration {
     match attempt {
         0 => std::time::Duration::ZERO,
