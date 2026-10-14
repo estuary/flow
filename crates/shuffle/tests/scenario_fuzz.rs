@@ -30,12 +30,50 @@ const PARTITION_CATEGORIES: &[&str] = &["cat-0", "cat-1", "cat-2", "cat-3", "cat
 
 type ProducerId = u8;
 type PartitionId = u8;
+/// A scanned (binding, producer, counter, partition).
+type Scanned = (u16, ProducerId, u64, PartitionId);
+/// Clocks of written documents, by (producer, counter).
+type DocClocks = HashMap<(ProducerId, u64), uuid::Clock>;
 
 #[derive(Clone, Debug)]
 struct TestCase {
     num_shards: usize,
     num_producers: usize,
     rounds: Vec<Round>,
+    /// Window of a second binding of the collection, if any.
+    window: Option<Window>,
+}
+
+/// A `notBefore` / `notAfter` window of a second binding of the fuzzed
+/// collection, which reads its journals alongside the first and so shares its
+/// causal hints. Bounds are in microsecond ticks of the producers' clocks above
+/// UNIX_EPOCH: each producer ticks once per document and commit, from
+/// UNIX_EPOCH. The window suppresses appends, but its bounds are far below any
+/// fragment's mod time, so it opens no read-start byte gap.
+#[derive(Clone, Copy, Debug)]
+struct Window {
+    not_before: u64,
+    not_after: Option<u64>,
+}
+
+impl Window {
+    fn clock(ticks: u64) -> uuid::Clock {
+        uuid::Clock::from_unix(0, (ticks * 1_000) as u32)
+    }
+
+    fn timestamp(ticks: u64) -> pbjson_types::Timestamp {
+        pbjson_types::Timestamp {
+            seconds: 0,
+            nanos: (ticks * 1_000) as i32,
+        }
+    }
+
+    fn contains(&self, clock: uuid::Clock) -> bool {
+        clock >= Self::clock(self.not_before)
+            && self
+                .not_after
+                .is_none_or(|not_after| clock < Self::clock(not_after))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -148,10 +186,24 @@ impl Arbitrary for TestCase {
             rounds.push(Round { actions, crash });
         }
 
+        // A producer ticks at most MAX_ROUNDS * (MAX_CONTINUES + 1) times, and
+        // windows span from before its first tick to past its last.
+        const TICKS: u64 = (MAX_ROUNDS * (MAX_CONTINUES + 1)) as u64;
+        let window = bool::arbitrary(g).then(|| {
+            let not_before = u64::arbitrary(g) % (TICKS / 2);
+            let not_after =
+                bool::arbitrary(g).then(|| not_before + 1 + u64::arbitrary(g) % (TICKS / 2));
+            Window {
+                not_before,
+                not_after,
+            }
+        });
+
         TestCase {
             num_shards,
             num_producers,
             rounds,
+            window,
         }
     }
 
@@ -317,9 +369,25 @@ async fn reset_data_plane(harness: &SharedHarness) -> anyhow::Result<()> {
 // Publisher helpers
 // ---------------------------------------------------------------------------
 
-fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
+/// Build the materialization task of `spec`, with a second binding of its
+/// collection under `window`, if any.
+fn build_task(spec: &flow::MaterializationSpec, window: Option<Window>) -> shuffle::proto::Task {
+    let mut spec = spec.clone();
+
+    if let Some(Window {
+        not_before,
+        not_after,
+    }) = window
+    {
+        let mut binding = spec.bindings[0].clone();
+        binding.journal_read_suffix = format!("{}/window", binding.journal_read_suffix);
+        binding.not_before = Some(Window::timestamp(not_before));
+        binding.not_after = not_after.map(Window::timestamp);
+        spec.bindings.push(binding);
+    }
+
     shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Materialization(spec.clone())),
+        task: Some(shuffle::proto::task::Task::Materialization(spec)),
     }
 }
 
@@ -455,19 +523,31 @@ impl Oracle {
         self.round_expected.clear();
     }
 
-    /// Verify scanned entries match expected for this round.
+    /// Verify scanned entries match expected for this round: every committed
+    /// document of binding 0, and of the `window` binding 1 those of its clocks.
     /// Returns Ok(()) on success, Err(message) on failure.
-    fn verify_round(&self, scanned: &[(ProducerId, u64, PartitionId)]) -> Result<(), String> {
+    fn verify_round(
+        &self,
+        scanned: &[Scanned],
+        window: Option<Window>,
+        doc_clocks: &DocClocks,
+    ) -> Result<(), String> {
         // Build expected set.
-        let mut expected: HashSet<(ProducerId, u64, PartitionId)> = HashSet::new();
+        let mut expected: HashSet<Scanned> = HashSet::new();
         for (&prod, entries) in &self.round_expected {
             for &(counter, partition) in entries {
-                expected.insert((prod, counter, partition));
+                expected.insert((0, prod, counter, partition));
+
+                if let Some(window) = window
+                    && window.contains(doc_clocks[&(prod, counter)])
+                {
+                    expected.insert((1, prod, counter, partition));
+                }
             }
         }
 
         // Build actual set.
-        let actual: HashSet<(ProducerId, u64, PartitionId)> = scanned.iter().cloned().collect();
+        let actual: HashSet<Scanned> = scanned.iter().cloned().collect();
 
         if expected == actual {
             return Ok(());
@@ -487,11 +567,51 @@ impl Oracle {
 // Action execution
 // ---------------------------------------------------------------------------
 
+/// Enqueue the next document of `prod_id` to `partition`, recording its clock
+/// into `doc_clocks`. Returns its journal and clock.
+async fn enqueue_doc(
+    state: &mut ProdState,
+    prod_id: ProducerId,
+    partition: PartitionId,
+    flags: uuid::Flags,
+    doc_clocks: &mut DocClocks,
+) -> (String, uuid::Clock) {
+    let counter = state.counter;
+    let mut clock = uuid::Clock::default();
+
+    let appender = state
+        .publisher
+        .enqueue(
+            |u| {
+                (_, clock, _) = uuid::parse(u).unwrap();
+                Ok((
+                    0,
+                    serde_json::json!({
+                        "_meta": {"uuid": u.to_string()},
+                        "id": format!("p{prod_id}-c{counter}"),
+                        "category": PARTITION_CATEGORIES[partition as usize],
+                        "counter": counter,
+                    }),
+                ))
+            },
+            flags,
+        )
+        .await
+        .unwrap();
+
+    let journal = appender.journal().to_string();
+    doc_clocks.insert((prod_id, counter), clock);
+    state.counter += 1;
+
+    (journal, clock)
+}
+
 /// Write a round's actions to journals. Returns commit clocks for producers
 /// that committed in this round (for polling termination).
 async fn write_actions(
     producers: &mut HashMap<ProducerId, ProdState>,
     actions: &HashMap<ProducerId, Action>,
+    doc_clocks: &mut DocClocks,
 ) -> HashMap<ProducerId, uuid::Clock> {
     let mut commit_clocks: HashMap<ProducerId, uuid::Clock> = HashMap::new();
 
@@ -500,62 +620,31 @@ async fn write_actions(
 
         match action {
             Action::OutsideTxn { partition } => {
-                let counter = state.counter;
-                let partition = *partition;
-                let mut captured_clock = uuid::Clock::default();
+                let (journal, clock) = enqueue_doc(
+                    state,
+                    prod_id,
+                    *partition,
+                    uuid::Flags::OUTSIDE_TXN,
+                    doc_clocks,
+                )
+                .await;
 
-                let appender = state
-                    .publisher
-                    .enqueue(
-                        |u| {
-                            let (_, clock, _) = uuid::parse(u).unwrap();
-                            captured_clock = clock;
-                            Ok((
-                                0,
-                                serde_json::json!({
-                                    "_meta": {"uuid": u.to_string()},
-                                    "id": format!("p{prod_id}-c{counter}"),
-                                    "category": PARTITION_CATEGORIES[partition as usize],
-                                    "counter": counter,
-                                }),
-                            ))
-                        },
-                        uuid::Flags::OUTSIDE_TXN,
-                    )
-                    .await
-                    .unwrap();
-
-                state.counter += 1;
-                state.last_committed_clock = captured_clock;
-                state
-                    .journal_committed_clocks
-                    .insert(appender.journal().to_string(), captured_clock);
+                state.last_committed_clock = clock;
+                state.journal_committed_clocks.insert(journal, clock);
 
                 state.publisher.flush().await.unwrap();
-                commit_clocks.insert(prod_id, captured_clock);
+                commit_clocks.insert(prod_id, clock);
             }
             Action::ContinueAck { continues } => {
                 for &partition in continues {
-                    let counter = state.counter;
-                    state
-                        .publisher
-                        .enqueue(
-                            |u| {
-                                Ok((
-                                    0,
-                                    serde_json::json!({
-                                        "_meta": {"uuid": u.to_string()},
-                                        "id": format!("p{prod_id}-c{counter}"),
-                                        "category": PARTITION_CATEGORIES[partition as usize],
-                                        "counter": counter,
-                                    }),
-                                ))
-                            },
-                            uuid::Flags::CONTINUE_TXN,
-                        )
-                        .await
-                        .unwrap();
-                    state.counter += 1;
+                    enqueue_doc(
+                        state,
+                        prod_id,
+                        partition,
+                        uuid::Flags::CONTINUE_TXN,
+                        doc_clocks,
+                    )
+                    .await;
                 }
                 state.publisher.flush().await.unwrap();
                 let (producer_id, commit_clock, journals) = state.publisher.commit_intents();
@@ -575,26 +664,14 @@ async fn write_actions(
             Action::ContinueOnly { continues } => {
                 // Write CONTINUEs and leave the span open (no ACK).
                 for &partition in continues {
-                    let counter = state.counter;
-                    state
-                        .publisher
-                        .enqueue(
-                            |u| {
-                                Ok((
-                                    0,
-                                    serde_json::json!({
-                                        "_meta": {"uuid": u.to_string()},
-                                        "id": format!("p{prod_id}-c{counter}"),
-                                        "category": PARTITION_CATEGORIES[partition as usize],
-                                        "counter": counter,
-                                    }),
-                                ))
-                            },
-                            uuid::Flags::CONTINUE_TXN,
-                        )
-                        .await
-                        .unwrap();
-                    state.counter += 1;
+                    enqueue_doc(
+                        state,
+                        prod_id,
+                        partition,
+                        uuid::Flags::CONTINUE_TXN,
+                        doc_clocks,
+                    )
+                    .await;
                 }
                 state.publisher.flush().await.unwrap();
                 // No commit: the span stays open across rounds/crashes.
@@ -617,26 +694,14 @@ async fn write_actions(
             }
             Action::ContinueRollback { continues } => {
                 for &partition in continues {
-                    let counter = state.counter;
-                    state
-                        .publisher
-                        .enqueue(
-                            |u| {
-                                Ok((
-                                    0,
-                                    serde_json::json!({
-                                        "_meta": {"uuid": u.to_string()},
-                                        "id": format!("p{prod_id}-c{counter}"),
-                                        "category": PARTITION_CATEGORIES[partition as usize],
-                                        "counter": counter,
-                                    }),
-                                ))
-                            },
-                            uuid::Flags::CONTINUE_TXN,
-                        )
-                        .await
-                        .unwrap();
-                    state.counter += 1;
+                    enqueue_doc(
+                        state,
+                        prod_id,
+                        partition,
+                        uuid::Flags::CONTINUE_TXN,
+                        doc_clocks,
+                    )
+                    .await;
                 }
                 state.publisher.flush().await.unwrap();
                 let (_producer_id, _tick_clock, journals) = state.publisher.commit_intents();
@@ -717,14 +782,16 @@ fn record_oracle_with_counters(
 // Polling and scanning helpers
 // ---------------------------------------------------------------------------
 
-/// Check whether every committing producer is visible in at least one journal.
+/// Check whether every committing producer is visible in at least one journal
+/// of each of `bindings`.
 fn polling_complete(
     frontier: &shuffle::Frontier,
     commit_clocks: &HashMap<ProducerId, uuid::Clock>,
+    bindings: u16,
 ) -> bool {
     commit_clocks
         .iter()
-        .all(|(&prod_id, &clock)| commit_visible(frontier, prod_id, clock))
+        .all(|(&prod_id, &clock)| commit_visible(frontier, prod_id, clock, bindings))
 }
 
 /// Offset of `(journal, binding, producer)` within `frontier`, or None if it
@@ -744,17 +811,24 @@ fn producer_offset(
         .map(|pf| pf.offset)
 }
 
-/// Does `frontier` show `prod_id` committed at-or-past `expected_clock`?
+/// Does `frontier` show `prod_id` committed at-or-past `expected_clock`, in
+/// some journal of each of `bindings`? A window binding reports commits as
+/// they're read, whether or not it appends their documents.
 fn commit_visible(
     frontier: &shuffle::Frontier,
     prod_id: ProducerId,
     expected_clock: uuid::Clock,
+    bindings: u16,
 ) -> bool {
     let producer = make_producer_id(prod_id);
-    frontier.journals.iter().any(|jf| {
-        jf.producers
-            .iter()
-            .any(|pf| pf.producer == producer && pf.last_commit >= expected_clock)
+    (0..bindings).all(|binding| {
+        frontier.journals.iter().any(|jf| {
+            jf.binding == binding
+                && jf
+                    .producers
+                    .iter()
+                    .any(|pf| pf.producer == producer && pf.last_commit >= expected_clock)
+        })
     })
 }
 
@@ -876,7 +950,7 @@ fn update_open_spans(
 }
 
 /// Parse a scanned entry into (ProducerId, counter, PartitionId).
-fn parse_entry(entry: &shuffle::log::reader::Entry) -> (ProducerId, u64, PartitionId) {
+fn parse_entry(entry: &shuffle::log::reader::Entry) -> Scanned {
     let doc = serde_json::to_value(doc::SerPolicy::noop().on(entry.doc.doc.get()))
         .expect("serialize doc");
 
@@ -900,7 +974,12 @@ fn parse_entry(entry: &shuffle::log::reader::Entry) -> (ProducerId, u64, Partiti
         .expect("id should be p{N}-c{M}");
     let producer_id: u8 = prod_str.parse().expect("producer id should be numeric");
 
-    (producer_id, counter, partition_id)
+    (
+        entry.meta.binding.to_native(),
+        producer_id,
+        counter,
+        partition_id,
+    )
 }
 
 /// Drive FrontierScan, collecting all committed entries.
@@ -908,7 +987,7 @@ fn collect_scanned_entries(
     frontier: &shuffle::Frontier,
     log_dir: &std::path::Path,
     shard_state: &mut Vec<Option<(Reader, VecDeque<Remainder>)>>,
-) -> Vec<(ProducerId, u64, PartitionId)> {
+) -> Vec<Scanned> {
     let mut entries = Vec::new();
 
     for (shard_index, state_slot) in shard_state.iter_mut().enumerate() {
@@ -981,7 +1060,9 @@ async fn run_test_case_inner(
     }
 
     let mut oracle = Oracle::new();
-    let task = build_task(&harness.materialization_spec);
+    let mut doc_clocks = DocClocks::new();
+    let task = build_task(&harness.materialization_spec, test_case.window);
+    let bindings = 1 + test_case.window.is_some() as u16;
     let service = &harness.service;
     let shards = build_shards(
         test_case.num_shards as u32,
@@ -1019,7 +1100,7 @@ async fn run_test_case_inner(
         // STEP 1: WRITE (skip if pre-written in previous round's step 5).
         if !next_round_pre_written {
             tracing::debug!("    step 1: writing actions...");
-            write_actions(&mut producers, &round.actions).await;
+            write_actions(&mut producers, &round.actions, &mut doc_clocks).await;
         } else {
             tracing::debug!("    step 1: skipped (pre-written)");
         }
@@ -1083,7 +1164,7 @@ async fn run_test_case_inner(
                 );
 
                 if round_frontier.unresolved_hints == 0
-                    && polling_complete(&round_frontier, &commit_clocks)
+                    && polling_complete(&round_frontier, &commit_clocks, bindings)
                 {
                     tracing::debug!("polling is complete");
                     break;
@@ -1113,7 +1194,7 @@ async fn run_test_case_inner(
         // that hints no longer gate every committed producer.
         if !is_last && !round.crash {
             let next_round = &test_case.rounds[round_idx + 1];
-            write_actions(&mut producers, &next_round.actions).await;
+            write_actions(&mut producers, &next_round.actions, &mut doc_clocks).await;
             next_round_pre_written = true;
         }
 
@@ -1225,7 +1306,7 @@ async fn run_test_case_inner(
                 // Commits it took are done; the rest are re-delivered by the
                 // restarted session.
                 commit_clocks.retain(|&prod_id, &mut clock| {
-                    !commit_visible(&round_frontier, prod_id, clock)
+                    !commit_visible(&round_frontier, prod_id, clock, bindings)
                 });
 
                 recovery = recovery.reduce(std::mem::take(&mut round_frontier));
@@ -1255,7 +1336,7 @@ async fn run_test_case_inner(
                     round_frontier = round_frontier.reduce(delta);
 
                     if round_frontier.unresolved_hints == 0
-                        && polling_complete(&round_frontier, &commit_clocks)
+                        && polling_complete(&round_frontier, &commit_clocks, bindings)
                     {
                         break;
                     }
@@ -1275,9 +1356,11 @@ async fn run_test_case_inner(
                 &mut shard_state,
             ));
         }
-        oracle.verify_round(&scanned).map_err(|e| {
-            format!("Round {round_idx} verification failed: {e}\n  Test case: {test_case:?}")
-        })?;
+        oracle
+            .verify_round(&scanned, test_case.window, &doc_clocks)
+            .map_err(|e| {
+                format!("Round {round_idx} verification failed: {e}\n  Test case: {test_case:?}")
+            })?;
         oracle.clear_round();
 
         // STEP 8: ACCUMULATE.
@@ -1316,6 +1399,7 @@ fn regression_cases() -> Vec<TestCase> {
         TestCase {
             num_shards: 3,
             num_producers: 3,
+            window: None,
             rounds: vec![round(
                 vec![
                     (0, Action::OutsideTxn { partition: 2 }),
@@ -1335,6 +1419,7 @@ fn regression_cases() -> Vec<TestCase> {
         TestCase {
             num_shards: 2,
             num_producers: 1,
+            window: None,
             rounds: vec![
                 round(
                     vec![(
@@ -1357,6 +1442,7 @@ fn regression_cases() -> Vec<TestCase> {
         TestCase {
             num_shards: 2,
             num_producers: 4,
+            window: None,
             rounds: vec![
                 round(vec![], false),
                 round(
@@ -1472,6 +1558,6 @@ fn prop(input: TestCase) -> quickcheck::TestResult {
 
     match harness.runtime.block_on(run_test_case(harness, input)) {
         Ok(()) => quickcheck::TestResult::passed(),
-        Err(_msg) => quickcheck::TestResult::failed(),
+        Err(msg) => quickcheck::TestResult::error(msg),
     }
 }
