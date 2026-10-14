@@ -103,11 +103,11 @@ pub use service::{DEFAULT_SHUFFLE_DISK_LIMIT_BYTES, Service};
 pub const PRODUCER_STALENESS_HORIZON: std::time::Duration =
     std::time::Duration::from_secs(24 * 60 * 60);
 
-/// Margin added to the clock sampled by
-/// [`slice::read::ReadState::sample_gap_floor`].
+/// Margin added to the clock which sets a read's gap floor
+/// ([`slice::read::ReadState::take_gap_floor`]).
 ///
 /// It covers producer clock skew only: offset order is not clock order, so an
-/// ACK the gap removed may post-date the sample.
+/// ACK the gap removed may post-date that clock.
 pub const CAUSAL_HINT_GAP_MARGIN: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// Return the current wall-clock time as a `uuid::Clock`.

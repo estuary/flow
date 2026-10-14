@@ -175,15 +175,30 @@ impl ProgressState {
         self.flushed = std::mem::take(&mut self.flushed).reduce(frontier);
     }
 
+    /// Raise the gap floor of `(journal, binding)`, to be reported with the
+    /// next progress. A floor isn't flushed: it only discharges hints, and isn't
+    /// log content, so it's reported without awaiting the Slice's flush or merge.
+    pub fn on_gap_floor(&mut self, journal: &str, binding: u16, floor: uuid::Clock) {
+        self.flushed = std::mem::take(&mut self.flushed).reduce(crate::Frontier {
+            journals: vec![crate::JournalFrontier {
+                journal: journal.into(),
+                binding,
+                gap_floor: floor,
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+    }
+
     /// Is progress ready to report? True iff a request is outstanding AND
-    /// we've accumulated flushed progress. Idempotent — gate `take_progressed()`
-    /// on this so a failed permit reservation can be retried.
+    /// we've accumulated flushed progress, or a gap floor which may discharge
+    /// a peer's hints.
     pub fn has_progressed(&self) -> bool {
         self.requested && !self.flushed.journals.is_empty()
     }
 
     /// Unconditionally clear the outstanding request and accumulated flushed
-    /// progress, returning the latter. Callers should gate on `has_progressed()`.
+    /// progress, returning the latter.
     pub fn take_progressed(&mut self) -> crate::Frontier {
         self.requested = false;
         std::mem::take(&mut self.flushed)
