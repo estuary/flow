@@ -672,7 +672,7 @@ pub fn finish_txn(
                     offset,
                 }],
                 bytes_read_delta: bytes_read,
-                bytes_behind_delta: 0,
+                ..Default::default()
             }
         })
         .collect();
@@ -787,8 +787,7 @@ mod test {
                     hinted_commit: uuid::Clock::from_u64(0),
                     offset: -(lsn as i64),
                 }],
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
+                ..Default::default()
             }],
             vec![lsn],
         )

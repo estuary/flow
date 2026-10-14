@@ -220,12 +220,8 @@ optimistically from the latest journal offset, so when an uncommitted
 transaction later commits it must perform bounded "replay reads" to re-read
 that data — a routine, high-latency part of steady-state reading. This
 implementation reads forward and stages open spans into the log inline,
-so steady-state reading never replays. Replay is confined to restart recovery:
-a `(binding, journal)` read resumes from its checkpoint's cut floor
-(`M = max|offset|` across producer entries), and a producer whose open span
-begins before `M` is *gapped* — its skipped range is recovered by a single
-bounded historical replay, triggered lazily by the producer's first newer
-document (see `slice/replay.rs`).
+so steady-state reading never replays. Replay is confined to restart recovery,
+of *gapped* producers only.
 
 **Per-shard RPCs → shared streams**: The legacy system starts an RPC per
 (shard, journal) pair, which doesn't scale: at M=10 shards with N=100k

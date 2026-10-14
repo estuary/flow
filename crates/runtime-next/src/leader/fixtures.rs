@@ -36,8 +36,7 @@ pub(crate) fn journal_frontier(
         journal: journal.into(),
         binding,
         producers,
-        bytes_read_delta: 0,
-        bytes_behind_delta: 0,
+        ..Default::default()
     }
 }
 

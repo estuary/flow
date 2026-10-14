@@ -1284,11 +1284,8 @@ mod test {
                     hinted_commit: Clock::from_u64(0),
                     offset: -500,
                 }],
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
+                ..Default::default()
             }],
-            flushed_lsn: vec![],
-            unresolved_hints: 0,
             ..Default::default()
         };
 

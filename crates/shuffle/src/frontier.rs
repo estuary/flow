@@ -114,6 +114,12 @@ pub struct JournalFrontier {
     /// Positive when the reader is falling behind, negative when catching up.
     /// Summed during reduction.
     pub bytes_behind_delta: i64,
+    /// Largest `last_commit` of a producer which this entry has forgotten:
+    /// one removed by [`Self::prune_stale_producers`]. A clock at-or-below it,
+    /// of a producer absent from `producers`, may be one this entry once
+    /// covered. Never encoded, and so zero in every delta. Maximized during
+    /// reduction.
+    pub prune_floor: Clock,
 }
 
 impl JournalFrontier {
@@ -133,7 +139,74 @@ impl JournalFrontier {
         );
         self.bytes_read_delta += other.bytes_read_delta;
         self.bytes_behind_delta += other.bytes_behind_delta;
+        self.prune_floor = self.prune_floor.max(other.prune_floor);
         self
+    }
+
+    /// Remove this entry's retired producers, raising `prune_floor` to the
+    /// `last_commit` of each one removed and passing it to `on_pruned`.
+    ///
+    /// A retired producer no longer writes the journal. Pruning bounds a
+    /// Frontier which would otherwise carry every producer forever.
+    /// A producer is pruned only when **all** of:
+    ///
+    /// 1. It has no unresolved hint, and `protected` doesn't claim it.
+    /// 2. It's closed (`offset < 0`).
+    /// 3. Its `offset.abs()` is below the entry's cut floor.
+    /// 4. Its `last_commit` trails the entry's newest `last_commit` by at least
+    ///    [`crate::PRODUCER_STALENESS_HORIZON`].
+    ///
+    /// Pruning relaxes the Frontier invariant's coverage of closes (see
+    /// [`Frontier`]), but loses nothing:
+    ///
+    /// - Condition 3 retains every producer at the cut floor, so the floor
+    ///   never regresses. Reads resume at it, and never re-read the content
+    ///   of a forgotten producer below it.
+    /// - Condition 2 retains open spans, so a gapped producer which resumes is
+    ///   still replayed (`slice/replay.rs`).
+    /// - A forgotten producer which resumes sequences afresh from the cut floor.
+    ///   Its closes below the floor were covered, and won't be read again.
+    ///
+    /// Forgetting a producer does cost liveness. A pruned producer can be the
+    /// target of a future backfill's causal hints, which nothing
+    /// forward-looking will resolve: its journal is read past its commits, and
+    /// the producer is retired. `prune_floor` is what keeps such a hint
+    /// dischargeable, as the hint is bounded by the pruned `last_commit`.
+    pub fn prune_stale_producers(
+        &mut self,
+        protected: impl Fn(Producer) -> bool,
+        mut on_pruned: impl FnMut(&ProducerFrontier),
+    ) {
+        let newest_commit = self
+            .producers
+            .iter()
+            .map(|p| p.last_commit)
+            .max()
+            .unwrap_or_default();
+
+        let cut_floor = self
+            .producers
+            .iter()
+            .map(|p| p.offset.abs())
+            .max()
+            .unwrap_or_default();
+
+        let mut prune_floor = self.prune_floor;
+
+        self.producers.retain(|p| {
+            let stale = p.hinted_commit <= p.last_commit
+                && !protected(p.producer)
+                && p.offset < 0
+                && p.offset.abs() < cut_floor
+                && Clock::delta(newest_commit, p.last_commit) >= crate::PRODUCER_STALENESS_HORIZON;
+
+            if stale {
+                prune_floor = prune_floor.max(p.last_commit);
+                on_pruned(p);
+            }
+            !stale
+        });
+        self.prune_floor = prune_floor;
     }
 
     /// Advance `last_commit` on producers of `self` up to each one's
@@ -239,6 +312,7 @@ impl JournalFrontier {
                     .collect(),
                 bytes_read_delta: jf.bytes_read_delta,
                 bytes_behind_delta: jf.bytes_behind_delta,
+                ..Default::default()
             }
         })
     }
@@ -321,10 +395,10 @@ impl JournalFrontier {
 ///    open span's `+begin` is carried by its producer's entry.
 ///
 /// The consequence is that resuming the read at `M` loses nothing, which is
-/// what makes a Frontier a resumption point at all. Below `M`, a re-read
-/// document sequences as a duplicate of a covered close; a re-read rollback
-/// re-discards; and an open span is recovered from its `+begin` by gap-replay,
-/// triggered by its producer's next activity (see `slice/replay.rs`).
+/// what makes a Frontier a resumption point at all. Content below `M` is never
+/// read again, with one exception. An open span is recovered from its `+begin`
+/// by gap-replay of its producer alone, triggered by that producer's next
+/// activity (see `slice/replay.rs`).
 ///
 /// The closed/open asymmetry follows from what is owed downstream. A committing
 /// close's documents are owed even if the producer then goes silent forever, so
@@ -347,15 +421,12 @@ impl JournalFrontier {
 /// theirs since. This is what makes the union of durable frontier rows written
 /// at differing cuts coherent.
 ///
-/// One deliberate, bounded deviation exists: shard recovery prunes ancient,
-/// closed, far-behind producers, forgetting their coverage. See
-/// `runtime_next::shard::recovery::prune_committed_frontier`, which documents
-/// why the resulting double-processing risk is bounded and accepted.
-///
-/// Forgetting a producer costs liveness as well as coverage, so the prune also
-/// carries a liveness contract. A pruned producer can be the target of a future
-/// backfill's causal hints, which nothing forward-looking will ever resolve —
-/// its journal is read at the head and the producer is retired. What keeps such
+/// Pruning relaxes clause 2: a forgotten producer's closes are no longer
+/// covered by its `last_commit`. This loses nothing (see
+/// [`JournalFrontier::prune_stale_producers`]), but it does carry a liveness
+/// contract. A pruned producer can be the target of a future backfill's causal
+/// hints, which nothing forward-looking will ever resolve — its journal is
+/// read at the head and the producer is retired. What keeps such
 /// a hint dischargeable is [`Completed`], which deems any clock at least
 /// [`crate::PRODUCER_STALENESS_HORIZON`] older than a binding's promoted
 /// progress to be completed for that binding. Pruning uses the same constant for
@@ -983,8 +1054,7 @@ impl Frontier {
                         journal: jf.journal.clone(),
                         binding: jf.binding,
                         producers,
-                        bytes_read_delta: 0,
-                        bytes_behind_delta: 0,
+                        ..Default::default()
                     })
                 }
             })
@@ -2541,6 +2611,57 @@ mod test {
         let mut completed = Completed::new(vec![0]);
         completed.binding_max[0] = Clock::from_u64(last_ack);
         assert!(completed.is_horizon_stale(0, Clock::from_u64(dropped)));
+    }
+
+    #[test]
+    fn test_prune_stale_producers() {
+        let leader = HORIZON_SECS + 1_000_000;
+
+        let mut entry = jf(
+            "j/old",
+            0,
+            vec![
+                pf(0x01, leader, 0, -500),         // Newest commit -> retain.
+                pf(0x02, 1_000, 0, -900),          // Ancient, but at the cut floor -> retain.
+                pf(0x03, 1_000, 0, -100),          // Ancient and closed -> prune.
+                pf(0x05, 900_000, 0, -200),        // Ancient and closed -> prune.
+                pf(0x07, 1_000, 0, 300),           // Ancient, but open -> retain.
+                pf(0x09, leader - 1_000, 0, -100), // Recent -> retain.
+                pf(0x0b, 1_000, 2_000, -100),      // Unresolved hint -> retain.
+                pf(0x0d, 1_000, 0, -100),          // Protected -> retain.
+                pf(0x0f, 0, 0, 400),               // Never committed, open -> retain.
+            ],
+        );
+        entry.prune_floor = from_secs(500);
+
+        let mut pruned = Vec::new();
+        entry.prune_stale_producers(
+            |producer| producer == crate::testing::producer(0x0d),
+            |p| pruned.push(pf_tuple(p)),
+        );
+
+        assert_eq!(pruned, vec![(1_000, 0, -100), (900_000, 0, -200)]);
+        assert_eq!(
+            entry.producers.iter().map(pf_tuple).collect::<Vec<_>>(),
+            vec![
+                (leader, 0, -500),
+                (1_000, 0, -900),
+                (1_000, 0, 300),
+                (leader - 1_000, 0, -100),
+                (1_000, 2_000, -100),
+                (1_000, 0, -100),
+                (0, 0, 400),
+            ],
+        );
+        // Raised to the largest pruned `last_commit`, from its prior value.
+        assert_eq!(entry.prune_floor, from_secs(900_000));
+
+        // Pruning again is a no-op, and never lowers the floor.
+        entry.prune_stale_producers(
+            |producer| producer == crate::testing::producer(0x0d),
+            |_| panic!("nothing is stale"),
+        );
+        assert_eq!(entry.prune_floor, from_secs(900_000));
     }
 
     #[test]

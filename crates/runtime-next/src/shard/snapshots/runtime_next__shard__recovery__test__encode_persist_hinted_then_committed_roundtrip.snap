@@ -41,6 +41,7 @@ DecodedRecover {
             ],
             bytes_read_delta: 0,
             bytes_behind_delta: 0,
+            prune_floor: Clock(0s 0ns),
         },
         JournalFrontier {
             journal: "acme/events/001",
@@ -55,6 +56,7 @@ DecodedRecover {
             ],
             bytes_read_delta: 0,
             bytes_behind_delta: 0,
+            prune_floor: Clock(0s 0ns),
         },
     ],
     hinted_frontier: [
@@ -77,6 +79,7 @@ DecodedRecover {
             ],
             bytes_read_delta: 0,
             bytes_behind_delta: 0,
+            prune_floor: Clock(0s 0ns),
         },
         JournalFrontier {
             journal: "acme/events/001",
@@ -91,6 +94,7 @@ DecodedRecover {
             ],
             bytes_read_delta: 0,
             bytes_behind_delta: 0,
+            prune_floor: Clock(0s 0ns),
         },
     ],
 }

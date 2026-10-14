@@ -803,8 +803,7 @@ mod test {
                     hinted_commit: proto_gazette::uuid::Clock::default(),
                     offset: 101,
                 }],
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
+                ..Default::default()
             },
             shuffle::JournalFrontier {
                 journal: "journal/shared".into(),
@@ -815,8 +814,7 @@ mod test {
                     hinted_commit: proto_gazette::uuid::Clock::default(),
                     offset: 202,
                 }],
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
+                ..Default::default()
             },
         ]);
 
@@ -890,15 +888,14 @@ mod test {
         assert!(recovered.binding_gap_floors.is_empty());
     }
 
-    /// `scan` drops stale `FC:` producers (old clock AND far behind in bytes)
-    /// from both the recovered frontier and the DB, but never an `FH:`-protected
-    /// producer's committed baseline.
+    /// `scan` drops retired `FC:` producers (old clock AND closed) from both the
+    /// recovered frontier and the DB, but never an `FH:`-protected producer's
+    /// committed baseline.
     #[tokio::test]
     async fn scan_prunes_stale_committed_frontier() {
         let db = RocksDB::open(None).await.unwrap();
         let producer = |tag: u8| proto_gazette::uuid::Producer::from_bytes([0x01, tag, 0, 0, 0, 0]);
         let clock_secs = |s: u64| proto_gazette::uuid::Clock::from_unix(s, 0);
-        const GIB: i64 = 1024 * 1024 * 1024;
 
         let pf = |tag: u8, last_commit_secs: u64, offset: i64| shuffle::ProducerFrontier {
             producer: producer(tag),
@@ -910,19 +907,17 @@ mod test {
             journal: "j/s".into(),
             binding: 0,
             producers: vec![
-                pf(0x11, 1_000_000, -20 * GIB), // fresh leader: pins group clock + 20 GiB read offset
-                pf(0x22, 0, 0),                 // old clock + 20 GiB behind -> pruned
-                pf(0x33, 0, 0),                 // same, but FH-protected below -> retained
+                pf(0x11, 1_000_000, -500), // fresh leader: pins group clock and cut floor
+                pf(0x22, 0, -100),         // old clock and closed -> pruned
+                pf(0x33, 0, -100),         // same, but FH-protected below -> retained
             ],
-            bytes_read_delta: 0,
-            bytes_behind_delta: 0,
+            ..Default::default()
         }]);
         let hinted = shuffle::JournalFrontier::encode(&[shuffle::JournalFrontier {
             journal: "j/s".into(),
             binding: 0,
             producers: vec![pf(0x33, 42, 7)],
-            bytes_read_delta: 0,
-            bytes_behind_delta: 0,
+            ..Default::default()
         }]);
 
         let db = db

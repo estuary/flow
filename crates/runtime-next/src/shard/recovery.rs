@@ -7,9 +7,9 @@
 //! `(key, value)` pair from a full `rocksdb::DB` scan on session startup,
 //! folding singleton state directly into a `proto::Recover` while collecting
 //! frontier entries separately for final sort and proto encoding.
-//! [`prune_committed_frontier`] then drops stale `FC:` entries (conservatively;
-//! see [`shuffle::PRODUCER_STALENESS_HORIZON`] / [`FRONTIER_PRUNE_BYTE_HORIZON`])
-//! so `shard::rocksdb` can delete them from the DB before returning `Recover`.
+//! [`prune_committed_frontier`] then drops retired `FC:` producers (see
+//! [`shuffle::JournalFrontier::prune_stale_producers`]) so `shard::rocksdb`
+//! can delete them from the DB before returning `Recover`.
 //!
 //! `{state_key}` below is the binding-stable `state_key` field of
 //! `flow::MaterializationSpec.Binding` — distinct from `journal_read_suffix`,
@@ -95,14 +95,6 @@ pub const KEY_HINTED_CLOSE: &[u8] = b"hinted-close";
 pub const KEY_LAST_APPLIED: &[u8] = b"last-applied";
 /// Trigger parameters (JSON `models::TriggerVariables`).
 pub const KEY_TRIGGER_PARAMS: &[u8] = b"trigger-params";
-
-/// Minimum journal byte distance between a committed-frontier producer's read
-/// offset and the furthest-along read offset of the same `(journal, state_key)`
-/// before the stale producer becomes a pruning candidate. Byte distance is the
-/// real operational cost of keeping an old open span replayable: a retained
-/// positive-offset entry forces the next session to re-read from that offset.
-/// See [`prune_committed_frontier`].
-pub const FRONTIER_PRUNE_BYTE_HORIZON: i64 = 8 * 1024 * 1024 * 1024;
 
 /// A single write effect contributed by a `Persist`. Values are carried as
 /// [`Bytes`] so shared allocations (e.g. a proto-decoded
@@ -785,8 +777,7 @@ fn decode_frontier_entry(
             journal: journal.into(),
             binding,
             producers: vec![producer],
-            bytes_read_delta: 0,
-            bytes_behind_delta: 0,
+            ..Default::default()
         });
     }
 
@@ -802,44 +793,10 @@ fn decode_frontier_entry(
 /// issue the matching RocksDB deletes. `JournalFrontier`s left without any
 /// producers are removed from `committed`.
 ///
-/// This prune is a deliberate, bounded relaxation of the Frontier invariant
-/// (canonically stated on `shuffle::Frontier`): a pruned producer's committing
-/// closes below the journal's cut floor lose their coverage, so a re-read of
-/// that content would sequence its documents afresh rather than as duplicates.
-/// The accepted risk is bounded double-processing, and the conditions below are
-/// what bound it.
-///
-/// Pruning is conservative: within a `(journal, binding)` group — equivalently a
-/// `(journal, state_key)` group, since each state_key maps to a single binding —
-/// a producer `P` is pruned only when **all** of:
-///
-/// 1. No `FH:` (hinted) entry exists for the same `(journal, binding, producer)`
-///    — a hinted producer's committed entry is its idempotent-replay baseline,
-///    where coverage is load-bearing, and must be retained.
-/// 2. `P.last_commit` trails the group's newest `last_commit` by at least
-///    [`shuffle::PRODUCER_STALENESS_HORIZON`].
-/// 3. `P`'s read offset (`offset.abs()`) trails the group's furthest-along read
-///    offset by at least [`FRONTIER_PRUNE_BYTE_HORIZON`].
-///
-/// Conditions 2 and 3 are the clock and byte horizons which bound the deviation:
-/// a producer is forgotten only once it is both ancient and far behind, so its
-/// forgotten content is overwhelmingly likely to never be re-read.
-///
-/// Condition 2's horizon is *shared* with the session, and that sharing is
-/// load-bearing for liveness rather than merely tidy. A pruned producer can be
-/// the target of a future backfill's causal hints: a re-read of an old ACK
-/// re-extracts a hint naming `P` in a sibling binding's journal, which is being
-/// read at its head and will never emit another `P` commit. `shuffle::Completed`
-/// is what keeps such a hint dischargeable — it deems any clock at least
-/// [`shuffle::PRODUCER_STALENESS_HORIZON`] older than a binding's promoted
-/// progress to be completed for that binding — and it can only do so because
-/// this prune uses the same horizon. A hint naming `P` is bounded by
-/// `P.last_commit`, which condition 2 placed a full horizon behind the group's
-/// newest commit, itself a *retained* producer and hence part of the binding's
-/// promoted progress. Pruning with a smaller clock horizon than hint completion
-/// would therefore strand those hints until the session's
-/// causal-hint-resolution timeout, restart, and strand them again; sharing one
-/// constant makes that impossible by construction.
+/// The arbiter of "stale" is [`shuffle::JournalFrontier::prune_stale_producers`].
+/// Here, a producer is also protected if an `FH:` (hinted) entry exists for
+/// the same `(journal, binding, producer)`: a hinted producer's committed entry is its
+/// idempotent-replay baseline.
 ///
 /// `committed` and `hinted` are the per-`(journal, binding)` chunks collected by
 /// [`decode_recover_key_value`]; both are grouped (consecutive RocksDB key
@@ -861,32 +818,12 @@ pub fn prune_committed_frontier(
     let mut pruned = Vec::new();
 
     committed.retain_mut(|jf| {
-        let group_clock = jf
-            .producers
-            .iter()
-            .map(|p| p.last_commit)
-            .max()
-            .unwrap_or_default();
-        let group_offset = jf
-            .producers
-            .iter()
-            .map(|p| p.offset.unsigned_abs())
-            .max()
-            .unwrap_or(0);
+        let (journal, binding) = (jf.journal.clone(), jf.binding);
 
-        jf.producers.retain(|p| {
-            let stale = !protected.contains(&(jf.journal.as_ref(), jf.binding, p.producer))
-                && uuid::Clock::delta(group_clock, p.last_commit)
-                    >= shuffle::PRODUCER_STALENESS_HORIZON
-                && group_offset.saturating_sub(p.offset.unsigned_abs())
-                    >= FRONTIER_PRUNE_BYTE_HORIZON as u64;
-
-            if stale {
-                pruned.push((jf.journal.clone(), jf.binding, p.producer));
-            }
-            !stale
-        });
-
+        jf.prune_stale_producers(
+            |producer| protected.contains(&(journal.as_ref(), binding, producer)),
+            |p| pruned.push((journal.clone(), binding, p.producer)),
+        );
         !jf.producers.is_empty()
     });
 
@@ -1780,32 +1717,31 @@ mod test {
             producers,
             bytes_read_delta: 0,
             bytes_behind_delta: 0,
+            ..Default::default()
         }
     }
-
-    const GIB: i64 = 1024 * 1024 * 1024;
 
     #[test]
     fn prune_committed_frontier_policy() {
         // `j/old` exists only on binding 0; `j/two` exists on bindings 0 and 1.
-        // Within `(j/old, binding 0)`, 0xff is the "fresh" producer pinning the
-        // group's latest clock (~11.5 days) and read offset (20 GiB); the other
-        // producers each exercise one prune predicate.
+        // Within `(j/old, binding 0)`, 0xff pins the group's newest commit
+        // (~11.5 days), and the other producers each exercise one prune predicate.
         let mut committed = vec![
             jf(
                 "j/old",
                 0,
                 vec![
-                    pf(0xff, 1_000_000, -20 * GIB), // group clock/offset leader
-                    pf(0xaa, 0, 5 * GIB),           // old clock AND 15 GiB behind -> prune
-                    pf(0xbb, 0, 8 * GIB),           // old clock AND 12 GiB behind -> prune
-                    pf(0xcc, 0, 13 * GIB), // old clock but only 7 GiB behind (< 8 GiB) -> retain
-                    pf(0xdd, 999_000, 0),  // 20 GiB behind but only 1000s old (< horizon) -> retain
-                    pf(0xee, 0, GIB),      // old + 19 GiB behind, but FH-protected -> retain
+                    pf(0xff, 1_000_000, -500), // newest commit -> retain
+                    pf(0x99, 0, -900),         // old clock, but at the cut floor -> retain
+                    pf(0xaa, 0, -100),         // old clock AND closed -> prune
+                    pf(0xbb, 0, -200),         // old clock AND closed -> prune
+                    pf(0xcc, 0, 300),          // old clock, but open -> retain
+                    pf(0xdd, 999_000, -100),   // only 1000s old (< horizon) -> retain
+                    pf(0xee, 0, -100),         // old and closed, but FH-protected -> retain
                 ],
             ),
-            jf("j/two", 0, vec![pf(0xff, 5, -GIB)]), // group's only producer (the leader) -> retain
-            jf("j/two", 1, vec![pf(0xaa, 0, GIB)]),  // group's only producer (the leader) -> retain
+            jf("j/two", 0, vec![pf(0xff, 5, -100)]), // group's only producer -> retain
+            jf("j/two", 1, vec![pf(0xaa, 0, -100)]), // group's only producer -> retain
         ];
         // 0xee on (j/old, binding 0) is hinted: its committed entry is the
         // idempotent-replay baseline and must survive pruning.
@@ -1826,7 +1762,7 @@ mod test {
             ],
         );
 
-        // Surviving producers of (j/old, binding 0): ff, cc, dd, ee.
+        // Surviving producers of (j/old, binding 0): 99, cc, dd, ee, ff.
         let old0 = &committed[0];
         assert_eq!(old0.journal.as_ref(), "j/old");
         let mut survivors: Vec<u8> = old0
@@ -1835,7 +1771,7 @@ mod test {
             .map(|p| p.producer.as_bytes()[1])
             .collect();
         survivors.sort();
-        assert_eq!(survivors, vec![0xcc, 0xdd, 0xee, 0xff]);
+        assert_eq!(survivors, vec![0x99, 0xcc, 0xdd, 0xee, 0xff]);
 
         // Both (j/two, _) journals retained intact.
         assert_eq!(committed.len(), 3);
@@ -1873,18 +1809,18 @@ mod test {
                 "j/one",
                 0,
                 vec![
-                    pf(0xff, 1_000_000, -20 * GIB), // Group clock & offset leader.
-                    pf(0xaa, 1_000_000 - horizon, -2 * GIB), // Exactly at the horizon.
-                    pf(0xbb, 500_000, -GIB),        // Far past it.
-                    pf(0xcc, 1_000_000 - horizon + 1, -3 * GIB), // Just inside it: retained.
+                    pf(0xff, 1_000_000, -2_000),             // Group clock & offset leader.
+                    pf(0xaa, 1_000_000 - horizon, -200),     // Exactly at the horizon.
+                    pf(0xbb, 500_000, -100),                 // Far past it.
+                    pf(0xcc, 1_000_000 - horizon + 1, -300), // Just inside it: retained.
                 ],
             ),
             jf(
                 "j/two",
                 1,
                 vec![
-                    pf(0xff, 2_000_000, -30 * GIB), // Group clock & offset leader.
-                    pf(0xdd, 1_800_000, -9 * GIB),  // Past the horizon.
+                    pf(0xff, 2_000_000, -3_000), // Group clock & offset leader.
+                    pf(0xdd, 1_800_000, -900),   // Past the horizon.
                 ],
             ),
         ];

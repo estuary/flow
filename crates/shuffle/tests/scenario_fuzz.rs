@@ -873,8 +873,7 @@ fn project_hints(
                     binding: jf.binding,
                     journal: jf.journal.clone(),
                     producers,
-                    bytes_read_delta: 0,
-                    bytes_behind_delta: 0,
+                    ..Default::default()
                 })
             }
         })

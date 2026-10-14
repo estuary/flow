@@ -36,6 +36,7 @@ expression: snap
                     ],
                     bytes_read_delta: 800,
                     bytes_behind_delta: -300,
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/B",
@@ -50,6 +51,7 @@ expression: snap
                     ],
                     bytes_read_delta: 1200,
                     bytes_behind_delta: 5000,
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -142,6 +144,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/C",
@@ -156,6 +159,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -187,6 +191,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -257,6 +262,7 @@ expression: snap
                     ],
                     bytes_read_delta: 500,
                     bytes_behind_delta: 500,
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/B",
@@ -277,6 +283,7 @@ expression: snap
                     ],
                     bytes_read_delta: 2000,
                     bytes_behind_delta: 2000,
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/C",
@@ -291,6 +298,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -372,6 +380,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/X",
@@ -386,6 +395,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/X",
@@ -400,6 +410,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -476,6 +487,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -507,6 +519,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -573,6 +586,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/B",
@@ -587,6 +601,7 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [

@@ -138,6 +138,7 @@ pub fn build_flush_frontier(
             producers,
             bytes_read_delta,
             bytes_behind_delta,
+            ..Default::default()
         });
 
         // Update the baselines for the next delta computation.
@@ -182,8 +183,7 @@ pub fn build_flush_frontier(
                 binding,
                 journal,
                 producers,
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
+                ..Default::default()
             }
         })
         .collect();
