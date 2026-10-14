@@ -584,6 +584,7 @@ mod test {
         assert_eq!(counts, (0, 0));
     }
 
+    // Make absolutely sure that a tenant can't be created without record of consent.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes"))
@@ -598,16 +599,38 @@ mod test {
         let token = server.make_access_token(ALICE, Some("untrusted@example.test"));
         let response: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
         insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""Failed to record consent""#);
-        let counts: (i64, i64, i64) = sqlx::query_as(
-            "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
-                    (SELECT count(*) FROM internal.tenant_consent WHERE user_id = $1),
-                    (SELECT count(*) FROM user_grants WHERE user_id = $1)",
+        let counts: serde_json::Value = sqlx::query_scalar(
+            "SELECT json_build_object(
+                'tenants', (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
+                'consent', (SELECT count(*) FROM internal.tenant_consent WHERE user_id = $1),
+                'user_grants', (SELECT count(*) FROM user_grants WHERE user_id = $1),
+                'role_grants', (SELECT count(*) FROM role_grants WHERE subject_role = 'acmeCo/' OR object_role = 'acmeCo/'),
+                'storage_mappings', (SELECT count(*) FROM storage_mappings WHERE catalog_prefix IN ('acmeCo/', 'recovery/acmeCo/')),
+                'alert_subscriptions', (SELECT count(*) FROM alert_subscriptions WHERE catalog_prefix = 'acmeCo/')
+            )",
         )
         .bind(ALICE)
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(counts, (0, 0, 0));
+        insta::assert_json_snapshot!(counts, @r#"
+        {
+          "alert_subscriptions": 0,
+          "consent": 0,
+          "role_grants": 0,
+          "storage_mappings": 0,
+          "tenants": 0,
+          "user_grants": 0
+        }
+        "#);
+
+        sqlx::query("UPDATE auth.users SET email = 'alice@example.test' WHERE id = $1")
+            .bind(ALICE)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let retry: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
+        assert!(retry.get("errors").is_none(), "{retry}");
     }
 
     #[sqlx::test(
@@ -762,29 +785,5 @@ mod test {
             tenant, "caféCo/",
             "valid accented names are stored unchanged"
         );
-    }
-
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(path = "../../../fixtures", scripts("data_planes"))
-    )]
-    async fn tenant_create_rollback(pool: sqlx::PgPool) {
-        let server = server(&pool).await;
-        let token = server.make_access_token(ALICE, None);
-        // Fail consent recording after provisioning has populated every table.
-        sqlx::raw_sql("CREATE FUNCTION internal.reject_signup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test failure'; END $$; CREATE TRIGGER reject_signup BEFORE INSERT ON internal.tenant_consent FOR EACH ROW EXECUTE FUNCTION internal.reject_signup();")
-            .execute(&pool).await.unwrap();
-        let req = request("acmeCo");
-        let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
-        assert!(response.get("errors").is_some(), "{response}");
-        let count: i64 = sqlx::query_scalar("SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/') + (SELECT count(*) FROM user_grants WHERE object_role = 'acmeCo/') + (SELECT count(*) FROM role_grants WHERE subject_role = 'acmeCo/' OR object_role = 'acmeCo/') + (SELECT count(*) FROM storage_mappings WHERE catalog_prefix IN ('acmeCo/', 'recovery/acmeCo/')) + (SELECT count(*) FROM alert_subscriptions WHERE catalog_prefix = 'acmeCo/')")
-            .fetch_one(&pool).await.unwrap();
-        assert_eq!(count, 0);
-        sqlx::query("DROP TRIGGER reject_signup ON internal.tenant_consent")
-            .execute(&pool)
-            .await
-            .unwrap();
-        let retry: serde_json::Value = server.graphql(&req, Some(&token)).await;
-        assert!(retry.get("errors").is_none(), "{retry}");
     }
 }
