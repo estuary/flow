@@ -828,10 +828,6 @@ mod test {
                 binding: 1,
                 clock: 600,
             }],
-            binding_gap_floors: vec![shuffle::proto::frontier::BindingGapFloor {
-                binding: 1,
-                clock: 900,
-            }],
             ..frontier.clone()
         };
 
@@ -840,6 +836,7 @@ mod test {
                 &proto::Persist {
                     committed_frontier: Some(committed_frontier.clone()),
                     hinted_frontier: Some(frontier),
+                    gap_floors: std::collections::BTreeMap::from([(1, 900)]),
                     ..Default::default()
                 },
                 &["z-binding", "a-binding"],
@@ -879,13 +876,12 @@ mod test {
             committed_frontier.latest_backfill_complete
         );
         assert_eq!(
-            recovered.binding_gap_floors,
-            committed_frontier.binding_gap_floors
+            recover.gap_floors,
+            std::collections::BTreeMap::from([(1, 900)])
         );
         let recovered = recover.hinted_frontier.as_ref().unwrap();
         assert!(recovered.latest_backfill_begin.is_empty());
         assert!(recovered.latest_backfill_complete.is_empty());
-        assert!(recovered.binding_gap_floors.is_empty());
     }
 
     /// `scan` drops retired `FC:` producers (old clock AND closed) from both the

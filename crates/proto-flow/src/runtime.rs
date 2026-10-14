@@ -576,6 +576,10 @@ pub struct Recover {
     /// keys by the scan.
     #[prost(btree_map = "uint32, fixed64", tag = "11")]
     pub active_backfills: ::prost::alloc::collections::BTreeMap<u32, u64>,
+    /// Gap floors, keyed by binding index: each the maximum `gap_floor` of any
+    /// journal of the binding. Resolved from "GF:{state_key}" keys by the scan.
+    #[prost(btree_map = "uint32, fixed64", tag = "12")]
+    pub gap_floors: ::prost::alloc::collections::BTreeMap<u32, u64>,
 }
 /// Persist is sent by the leader to shard zero when state must be durably
 /// written. Each field maps to a contractual WriteBatch effect on shard
@@ -666,6 +670,12 @@ pub struct Persist {
     /// Effect: after the WriteBatch commits, scan and reply `Recover` not `Persisted`.
     #[prost(bool, tag = "17")]
     pub rescan: bool,
+    /// Gap floors, keyed by binding index: each the maximum `gap_floor` of any
+    /// journal of the binding, cumulative over the session. Only bindings whose
+    /// floor rose since the prior Persist are present.
+    /// Effect: Put fixed64-LE under "GF:{state_key}" (state_key resolved by the encoder).
+    #[prost(btree_map = "uint32, fixed64", tag = "20")]
+    pub gap_floors: ::prost::alloc::collections::BTreeMap<u32, u64>,
     /// The active-backfill change this transaction observed, if any. At most one
     /// per commit — a backfill control signal stands alone in its transaction.
     #[prost(oneof = "persist::ActiveBackfillChange", tags = "18, 19")]

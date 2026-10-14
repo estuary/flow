@@ -20,6 +20,7 @@ DecodedRecover {
         },
         trigger_params_json: b"",
         active_backfills: {},
+        gap_floors: {},
     },
     committed_frontier: [
         JournalFrontier {
@@ -41,6 +42,7 @@ DecodedRecover {
             ],
             bytes_read_delta: 0,
             bytes_behind_delta: 0,
+            gap_floor: Clock(0s 0ns),
             prune_floor: Clock(0s 0ns),
         },
         JournalFrontier {
@@ -56,6 +58,7 @@ DecodedRecover {
             ],
             bytes_read_delta: 0,
             bytes_behind_delta: 0,
+            gap_floor: Clock(0s 0ns),
             prune_floor: Clock(0s 0ns),
         },
     ],
@@ -79,6 +82,7 @@ DecodedRecover {
             ],
             bytes_read_delta: 0,
             bytes_behind_delta: 0,
+            gap_floor: Clock(0s 0ns),
             prune_floor: Clock(0s 0ns),
         },
         JournalFrontier {
@@ -94,6 +98,7 @@ DecodedRecover {
             ],
             bytes_read_delta: 0,
             bytes_behind_delta: 0,
+            gap_floor: Clock(0s 0ns),
             prune_floor: Clock(0s 0ns),
         },
     ],

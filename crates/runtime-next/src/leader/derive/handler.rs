@@ -195,6 +195,7 @@ where
             publisher,
             session,
             task,
+            gap_floors,
         } = startup::run(
             build,
             drop_v1_rollback,
@@ -215,9 +216,6 @@ where
         let tail = fsm::Tail::Recover(fsm::TailRecover {
             ack_intents: pending_ack_intents,
         });
-
-        // Seed from the durable floors: a Persist overwrites each `GF:` row.
-        let gap_floors = committed_frontier.binding_gap_floors.clone();
 
         let legacy_checkpoint = if drop_v1_rollback {
             None

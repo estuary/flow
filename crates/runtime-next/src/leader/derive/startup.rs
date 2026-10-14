@@ -26,6 +26,8 @@ pub(super) struct Startup<P: crate::Publisher, S: crate::leader::ShuffleSession,
     pub session: S,
     // Task definition.
     pub task: Task,
+    // Durable gap floors, keyed by binding index.
+    pub gap_floors: BTreeMap<u16, uuid::Clock>,
 }
 
 #[tracing::instrument(
@@ -118,6 +120,7 @@ pub(super) async fn run<
         .await
         .context("receiving Recover fan-in")?;
     let connector_state_json = recover.connector_state_json.clone();
+    let gap_floors = frontier_mapping::recovered_gap_floors(&recover.gap_floors);
     let scanned = Baseline::from_recover(recover)?;
 
     tracing::debug!(
@@ -207,7 +210,8 @@ pub(super) async fn run<
 
     // No hints are possible (asserted in `Baseline::from_recover`), so the resume
     // Frontier is exactly the durable committed Frontier.
-    let resume_frontier = committed_frontier.clone();
+    let mut resume_frontier = committed_frontier.clone();
+    resume_frontier.hydrate_gap_floors(&gap_floors);
 
     let shuffle_task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::Derivation(spec)),
@@ -226,6 +230,7 @@ pub(super) async fn run<
         publisher,
         session,
         task,
+        gap_floors,
     })
 }
 
@@ -260,7 +265,8 @@ impl Baseline {
             connector_state_json: _,
             max_keys,
             trigger_params_json: _,
-            active_backfills: _, // capture-only state
+            active_backfills: _, // Capture-only state.
+            gap_floors: _,       // Inert to reconciliation.
         } = recover;
 
         // Derivations never track max-keys or a hinted frontier.

@@ -8363,6 +8363,9 @@ impl serde::Serialize for Persist {
         if self.rescan {
             len += 1;
         }
+        if !self.gap_floors.is_empty() {
+            len += 1;
+        }
         if self.active_backfill_change.is_some() {
             len += 1;
         }
@@ -8434,6 +8437,11 @@ impl serde::Serialize for Persist {
         if self.rescan {
             struct_ser.serialize_field("rescan", &self.rescan)?;
         }
+        if !self.gap_floors.is_empty() {
+            let v: std::collections::HashMap<_, _> = self.gap_floors.iter()
+                .map(|(k, v)| (k, v.to_string())).collect();
+            struct_ser.serialize_field("gapFloors", &v)?;
+        }
         if let Some(v) = self.active_backfill_change.as_ref() {
             match v {
                 persist::ActiveBackfillChange::Begin(v) => {
@@ -8487,6 +8495,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
             "trigger_params_json",
             "triggerParams",
             "rescan",
+            "gap_floors",
+            "gapFloors",
             "begin",
             "complete_binding",
             "completeBinding",
@@ -8511,6 +8521,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
             DeleteTriggerParams,
             TriggerParamsJson,
             Rescan,
+            GapFloors,
             Begin,
             CompleteBinding,
             __SkipField__,
@@ -8552,6 +8563,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
                             "deleteTriggerParams" | "delete_trigger_params" => Ok(GeneratedField::DeleteTriggerParams),
                             "triggerParams" | "trigger_params_json" => Ok(GeneratedField::TriggerParamsJson),
                             "rescan" => Ok(GeneratedField::Rescan),
+                            "gapFloors" | "gap_floors" => Ok(GeneratedField::GapFloors),
                             "begin" => Ok(GeneratedField::Begin),
                             "completeBinding" | "complete_binding" => Ok(GeneratedField::CompleteBinding),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -8590,6 +8602,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
                 let mut delete_trigger_params__ = None;
                 let mut trigger_params_json__ = None;
                 let mut rescan__ = None;
+                let mut gap_floors__ = None;
                 let mut active_backfill_change__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -8713,6 +8726,15 @@ impl<'de> serde::Deserialize<'de> for Persist {
                             }
                             rescan__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::GapFloors => {
+                            if gap_floors__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("gapFloors"));
+                            }
+                            gap_floors__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<::pbjson::private::NumberDeserialize<u32>, ::pbjson::private::NumberDeserialize<u64>>>()?
+                                    .into_iter().map(|(k,v)| (k.0, v.0)).collect()
+                            );
+                        }
                         GeneratedField::Begin => {
                             if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
                                 if active_backfill_change__.is_some() {
@@ -8750,6 +8772,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
                     delete_trigger_params: delete_trigger_params__.unwrap_or_default(),
                     trigger_params_json: trigger_params_json__.unwrap_or_default(),
                     rescan: rescan__.unwrap_or_default(),
+                    gap_floors: gap_floors__.unwrap_or_default(),
                     active_backfill_change: active_backfill_change__,
                 })
             }
@@ -8972,6 +8995,9 @@ impl serde::Serialize for Recover {
         if !self.active_backfills.is_empty() {
             len += 1;
         }
+        if !self.gap_floors.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Recover", len)?;
         if !self.ack_intents.is_empty() {
             let v: std::collections::HashMap<_, _> = self.ack_intents.iter()
@@ -9022,6 +9048,11 @@ impl serde::Serialize for Recover {
                 .map(|(k, v)| (k, v.to_string())).collect();
             struct_ser.serialize_field("activeBackfills", &v)?;
         }
+        if !self.gap_floors.is_empty() {
+            let v: std::collections::HashMap<_, _> = self.gap_floors.iter()
+                .map(|(k, v)| (k, v.to_string())).collect();
+            struct_ser.serialize_field("gapFloors", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -9054,6 +9085,8 @@ impl<'de> serde::Deserialize<'de> for Recover {
             "triggerParams",
             "active_backfills",
             "activeBackfills",
+            "gap_floors",
+            "gapFloors",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -9069,6 +9102,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
             MaxKeys,
             TriggerParamsJson,
             ActiveBackfills,
+            GapFloors,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -9102,6 +9136,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
                             "maxKeys" | "max_keys" => Ok(GeneratedField::MaxKeys),
                             "triggerParams" | "trigger_params_json" => Ok(GeneratedField::TriggerParamsJson),
                             "activeBackfills" | "active_backfills" => Ok(GeneratedField::ActiveBackfills),
+                            "gapFloors" | "gap_floors" => Ok(GeneratedField::GapFloors),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -9132,6 +9167,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
                 let mut max_keys__ = None;
                 let mut trigger_params_json__ = None;
                 let mut active_backfills__ = None;
+                let mut gap_floors__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AckIntents => {
@@ -9219,6 +9255,15 @@ impl<'de> serde::Deserialize<'de> for Recover {
                                     .into_iter().map(|(k,v)| (k.0, v.0)).collect()
                             );
                         }
+                        GeneratedField::GapFloors => {
+                            if gap_floors__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("gapFloors"));
+                            }
+                            gap_floors__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<::pbjson::private::NumberDeserialize<u32>, ::pbjson::private::NumberDeserialize<u64>>>()?
+                                    .into_iter().map(|(k,v)| (k.0, v.0)).collect()
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -9236,6 +9281,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
                     max_keys: max_keys__.unwrap_or_default(),
                     trigger_params_json: trigger_params_json__.unwrap_or_default(),
                     active_backfills: active_backfills__.unwrap_or_default(),
+                    gap_floors: gap_floors__.unwrap_or_default(),
                 })
             }
         }
