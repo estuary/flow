@@ -259,7 +259,7 @@ where
     .await?;
 
     // Read C:Opened from the connector.
-    let verify = crate::verify("Materialize", "Opened", "connector");
+    let verify = crate::verify_connector("Materialize", "Opened");
     let next = connector::next(&mut connector_rx, logger, connector::unwrap_materialize);
     let opened = match verify.not_eof(next.await)? {
         materialize::Response {

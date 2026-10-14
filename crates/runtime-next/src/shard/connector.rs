@@ -107,8 +107,7 @@ pub(crate) fn prefer_error(
     while let Ok(item) = connector_rx.try_recv() {
         match item {
             Err(status) => {
-                return crate::verify(source, "connector response", "connector")
-                    .fail_status(status);
+                return crate::verify_connector(source, "connector response").fail_status(status);
             }
             Ok(proto::Response {
                 kind: Some(proto::response::Kind::Log(log)),
@@ -146,8 +145,7 @@ mod tests {
         );
         assert_eq!(
             format!("{err:#}"),
-            "Materialize error (expected connector response) from connector: \
-             commit failed: refusing to commit store table"
+            "commit failed: refusing to commit store table"
         );
 
         // A healthy connector leaves the leader's error in place, as does a

@@ -126,6 +126,18 @@ pub fn verify<'p>(source: &'static str, expect: &'static str, peer: &'p str) -> 
         source,
         expect,
         peer,
+        wrap_status: true,
+    }
+}
+
+/// Like [`verify`], but a connector's error status passes through unwrapped,
+/// as it's already written for users.
+pub fn verify_connector(source: &'static str, expect: &'static str) -> Verify<'static> {
+    Verify {
+        source,
+        expect,
+        peer: "connector",
+        wrap_status: false,
     }
 }
 
@@ -133,6 +145,7 @@ pub struct Verify<'p> {
     source: &'static str,
     expect: &'static str,
     peer: &'p str,
+    wrap_status: bool,
 }
 
 impl Verify<'_> {
@@ -190,7 +203,11 @@ impl Verify<'_> {
     #[must_use]
     #[cold]
     pub fn fail_status(&self, status: tonic::Status) -> anyhow::Error {
-        self.fail_err(status_to_anyhow(status))
+        let err = status_to_anyhow(status);
+        if !self.wrap_status {
+            return err;
+        }
+        self.fail_err(err)
     }
 }
 
@@ -290,8 +307,13 @@ mod tests {
             ),
             (
                 "a Verify annotation of a status",
-                super::verify("capture", "spec response", "connector")
+                super::verify("capture", "Opened", "leader")
                     .fail_status(tonic::Status::invalid_argument("bad config")),
+            ),
+            (
+                "a connector's status, which Verify passes through",
+                super::verify_connector("capture", "Captured")
+                    .fail_status(tonic::Status::unknown("error performing backfill")),
             ),
         ]
     }
@@ -338,8 +360,11 @@ mod tests {
           Unavailable: broker is down: connection reset
           read by its peer: broker is down: connection reset (Unavailable)
         a Verify annotation of a status
-          InvalidArgument: capture error (expected spec response) from connector: bad config
-          read by its peer: capture error (expected spec response) from connector: bad config (InvalidArgument)
+          InvalidArgument: capture error (expected Opened) from leader: bad config
+          read by its peer: capture error (expected Opened) from leader: bad config (InvalidArgument)
+        a connector's status, which Verify passes through
+          Unknown: error performing backfill
+          read by its peer: error performing backfill
         "#);
     }
 

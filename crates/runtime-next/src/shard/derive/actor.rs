@@ -530,7 +530,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         accumulator: &mut crate::Accumulator,
         resp: Option<tonic::Result<derive::Response>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify("Derive", "connector response", "connector");
+        let verify = crate::verify_connector("Derive", "connector response");
         let resp = verify.not_eof(resp)?;
 
         if let Some(derive::response::Kind::Published(derive::response::Published { doc_json })) =
