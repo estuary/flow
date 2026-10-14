@@ -953,13 +953,15 @@ async fn resume_from_checkpoint(
     // ---- Construct modified resume frontier with unresolved hints. ----
     // Simulate a crash with a recovery that requires us to read from the beginning,
     // through a hinted frontier.
-    let mut resume_frontier = phase1_frontier.clone();
-    for jf in &mut resume_frontier.journals {
+    let mut journals = phase1_frontier.journals.clone();
+    for jf in &mut journals {
         for pf in &mut jf.producers {
             (pf.hinted_commit, pf.last_commit) = (pf.last_commit, uuid::Clock::zero());
             pf.offset = 0;
         }
     }
+    // Rebuild, to count the hints we just introduced.
+    let resume_frontier = shuffle::Frontier::new(journals, Vec::new()).unwrap();
 
     // ---- Phase 2: write more data, resume from modified frontier. ----
     pub_.enqueue(

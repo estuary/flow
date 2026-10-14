@@ -198,13 +198,17 @@ pub fn merge_frontier_into_checkpoint<S: AsRef<str>>(
 /// `offset` are zeroed. The result is reduced with the recovered
 /// committed Frontier when composing a session's resume Frontier.
 pub fn project_hinted(mut frontier: shuffle::Frontier) -> shuffle::Frontier {
+    let mut unresolved_hints = 0;
     for jf in &mut frontier.journals {
         for pf in &mut jf.producers {
             pf.hinted_commit = pf.last_commit;
             pf.last_commit = uuid::Clock::zero();
             pf.offset = 0;
+            unresolved_hints += (pf.hinted_commit > pf.last_commit) as usize;
         }
     }
+    // `reduce` adjusts this count incrementally, so it must be exact.
+    frontier.unresolved_hints = unresolved_hints;
     frontier
 }
 

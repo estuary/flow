@@ -98,7 +98,7 @@ impl ProducerFrontier {
 }
 
 /// Frontier state for a single journal under a specific binding.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct JournalFrontier {
     /// Journal name.
     pub journal: Box<str>,
@@ -118,41 +118,22 @@ pub struct JournalFrontier {
 
 impl JournalFrontier {
     /// Reduce two JournalFrontier entries for the same (journal, binding)
-    /// by sorted-merging their producer lists. Matching producers are reduced
+    /// by merging their producer lists. Matching producers are reduced
     /// via `ProducerFrontier::reduce`; unmatched producers pass through.
-    pub fn reduce(self, other: Self) -> Self {
-        let mut merged = Vec::with_capacity(self.producers.len() + other.producers.len());
-        let mut a = self.producers.into_iter().peekable();
-        let mut b = other.producers.into_iter().peekable();
-
-        loop {
-            match (a.peek(), b.peek()) {
-                (Some(pa), Some(pb)) => match pa.producer.cmp(&pb.producer) {
-                    std::cmp::Ordering::Less => merged.push(a.next().unwrap()),
-                    std::cmp::Ordering::Greater => merged.push(b.next().unwrap()),
-                    std::cmp::Ordering::Equal => {
-                        merged.push(a.next().unwrap().reduce(b.next().unwrap()));
-                    }
-                },
-                (Some(_), None) => {
-                    merged.extend(a);
-                    break;
-                }
-                (None, _) => {
-                    merged.extend(b);
-                    break;
-                }
-            }
+    pub fn reduce(mut self, mut other: Self) -> Self {
+        // Reduction is symmetric, so fold the shorter list into the longer.
+        if self.producers.len() < other.producers.len() {
+            std::mem::swap(&mut self.producers, &mut other.producers);
         }
-        merged.shrink_to_fit();
-
-        Self {
-            journal: self.journal,
-            binding: self.binding,
-            producers: merged,
-            bytes_read_delta: self.bytes_read_delta + other.bytes_read_delta,
-            bytes_behind_delta: self.bytes_behind_delta + other.bytes_behind_delta,
-        }
+        merge_into(
+            &mut self.producers,
+            other.producers,
+            |base, item| base.producer.cmp(&item.producer),
+            |base, item| *base = base.clone().reduce(item),
+        );
+        self.bytes_read_delta += other.bytes_read_delta;
+        self.bytes_behind_delta += other.bytes_behind_delta;
+        self
     }
 
     /// Advance `last_commit` on producers of `self` up to each one's
@@ -576,79 +557,70 @@ impl Frontier {
     /// new journals from the delta are added, base journals absent from the
     /// delta are preserved unchanged, and matching `(journal, binding)` entries
     /// are reduced via `JournalFrontier::reduce` (maximizing clocks).
-    /// Both inputs may contain non-unique keys, which are reduced to single entries.
+    /// Both inputs must be sorted and unique on `(journal, binding)`.
+    ///
+    /// Reduction is symmetric, so the shorter journal list is folded into the
+    /// longer one in place. Reducing a small delta into a large cumulative
+    /// Frontier costs O(delta · log(base / delta)), plus one pass over the
+    /// base only if the delta adds journals, and `unresolved_hints` is
+    /// adjusted for just the entries the delta touched.
     pub fn reduce(self, other: Self) -> Self {
-        let flushed_lsn = Self::merge_flushed_lsn(self.flushed_lsn, other.flushed_lsn);
-        let latest_backfill_begin =
-            Self::merge_binding_clocks(self.latest_backfill_begin, other.latest_backfill_begin);
-        let latest_backfill_complete = Self::merge_binding_clocks(
-            self.latest_backfill_complete,
-            other.latest_backfill_complete,
+        // On a tie `other` is the base, so that of two journal-less Frontiers
+        // `other`'s `unresolved_hints` is kept, as it always has been.
+        let (mut base, delta) = if self.journals.len() > other.journals.len() {
+            (self, other)
+        } else {
+            (other, self)
+        };
+        let Self {
+            journals: delta_journals,
+            flushed_lsn: delta_flushed_lsn,
+            latest_backfill_begin: delta_backfill_begin,
+            latest_backfill_complete: delta_backfill_complete,
+            binding_gap_floors: delta_gap_floors,
+            unresolved_hints: delta_unresolved_hints,
+        } = delta;
+
+        base.flushed_lsn =
+            Self::merge_flushed_lsn(std::mem::take(&mut base.flushed_lsn), delta_flushed_lsn);
+        base.latest_backfill_begin = Self::merge_binding_clocks(
+            std::mem::take(&mut base.latest_backfill_begin),
+            delta_backfill_begin,
         );
-        let binding_gap_floors =
-            Self::merge_binding_clocks(self.binding_gap_floors, other.binding_gap_floors);
+        base.latest_backfill_complete = Self::merge_binding_clocks(
+            std::mem::take(&mut base.latest_backfill_complete),
+            delta_backfill_complete,
+        );
+        base.binding_gap_floors = Self::merge_binding_clocks(
+            std::mem::take(&mut base.binding_gap_floors),
+            delta_gap_floors,
+        );
 
-        if self.journals.is_empty() {
-            return Self {
-                flushed_lsn,
-                latest_backfill_begin,
-                latest_backfill_complete,
-                binding_gap_floors,
-                ..other
-            };
-        } else if other.journals.is_empty() {
-            return Self {
-                flushed_lsn,
-                latest_backfill_begin,
-                latest_backfill_complete,
-                binding_gap_floors,
-                ..self
-            };
+        if delta_journals.is_empty() {
+            return base;
         }
 
-        let mut merged = Vec::with_capacity(self.journals.len() + other.journals.len());
-        let mut a = self.journals.into_iter().peekable();
-        let mut b = other.journals.into_iter().peekable();
+        // Max-merging can either create or eliminate unresolved-ness, so
+        // re-count each reduced entry. Inserted entries carry their count.
+        let mut unresolved_hints = base.unresolved_hints + delta_unresolved_hints;
 
-        loop {
-            match (a.peek(), b.peek()) {
-                (Some(ja), Some(jb)) => {
-                    let ord = ja
-                        .journal
-                        .as_ref()
-                        .cmp(jb.journal.as_ref())
-                        .then(ja.binding.cmp(&jb.binding));
+        merge_into(
+            &mut base.journals,
+            delta_journals,
+            |base, item| {
+                (base.journal.as_ref(), base.binding).cmp(&(item.journal.as_ref(), item.binding))
+            },
+            |base, item| {
+                unresolved_hints -=
+                    count_producer_hints(&base.producers) + count_producer_hints(&item.producers);
+                *base = std::mem::take(base).reduce(item);
+                unresolved_hints += count_producer_hints(&base.producers);
+            },
+        );
+        debug_assert_eq!(unresolved_hints, count_unresolved_hints(&base.journals));
+        base.unresolved_hints = unresolved_hints;
 
-                    match ord {
-                        std::cmp::Ordering::Less => merged.push(a.next().unwrap()),
-                        std::cmp::Ordering::Greater => merged.push(b.next().unwrap()),
-                        std::cmp::Ordering::Equal => {
-                            merged.push(a.next().unwrap().reduce(b.next().unwrap()));
-                        }
-                    }
-                }
-                (Some(_), None) => {
-                    merged.extend(a);
-                    break;
-                }
-                (None, _) => {
-                    merged.extend(b);
-                    break;
-                }
-            }
-        }
-        merged.shrink_to_fit();
-
-        // Max-merging can either create or eliminate unresolved-ness, so recompute.
-        let unresolved_hints = count_unresolved_hints(&merged);
-        Self {
-            journals: merged,
-            flushed_lsn,
-            latest_backfill_begin,
-            latest_backfill_complete,
-            binding_gap_floors,
-            unresolved_hints,
-        }
+        base
     }
 
     /// Set every unresolved hint to zero. Call this on a coordinator's cumulative
@@ -1214,9 +1186,88 @@ impl Completed {
 fn count_unresolved_hints(journals: &[JournalFrontier]) -> usize {
     journals
         .iter()
-        .flat_map(|jf| &jf.producers)
+        .map(|jf| count_producer_hints(&jf.producers))
+        .sum()
+}
+
+fn count_producer_hints(producers: &[ProducerFrontier]) -> usize {
+    producers
+        .iter()
         .filter(|p| p.hinted_commit > p.last_commit)
         .count()
+}
+
+/// Locate the target of `cmp` within sorted `items`, as `binary_search_by`
+/// does, but probing outward from the front: the cost is logarithmic in the
+/// target's distance from the front rather than in `items.len()`. Walking a
+/// short sorted sequence through a long one by galloping from each previous
+/// position is what keeps small-into-large merges and lookups cheap.
+pub(crate) fn gallop_by<T>(
+    items: &[T],
+    mut cmp: impl FnMut(&T) -> std::cmp::Ordering,
+) -> Result<usize, usize> {
+    let mut bound = 1;
+    while bound < items.len() && cmp(&items[bound - 1]) == std::cmp::Ordering::Less {
+        bound *= 2;
+    }
+    // items[bound/2 - 1] (if any) precedes the target, and items[bound - 1]
+    // (if any) does not.
+    let lo = bound / 2;
+    let hi = bound.min(items.len());
+
+    match items[lo..hi].binary_search_by(cmp) {
+        Ok(index) => Ok(lo + index),
+        Err(index) => Err(lo + index),
+    }
+}
+
+/// Merge sorted and unique `delta` into sorted and unique `base` in place,
+/// where `cmp` orders a `base` item against a `delta` item. `fold` reduces a
+/// delta item into its matching base item, and unmatched delta items are
+/// inserted.
+///
+/// Each delta item is found by galloping from the previous one, so the cost is
+/// O(delta · log(base / delta)), plus one pass over `base` only if a delta item
+/// is inserted.
+fn merge_into<T>(
+    base: &mut Vec<T>,
+    delta: Vec<T>,
+    cmp: impl Fn(&T, &T) -> std::cmp::Ordering,
+    mut fold: impl FnMut(&mut T, T),
+) {
+    let mut inserts = Vec::new();
+    let mut next = 0;
+
+    for item in delta {
+        match gallop_by(&base[next..], |probe| cmp(probe, &item)) {
+            Ok(index) => {
+                next += index;
+                fold(&mut base[next], item);
+                next += 1;
+            }
+            Err(index) => {
+                next += index;
+                inserts.push(item);
+            }
+        }
+    }
+    if inserts.is_empty() {
+        return;
+    }
+
+    let mut merged = Vec::with_capacity(base.len() + inserts.len());
+    let mut inserts = inserts.into_iter().peekable();
+
+    for item in base.drain(..) {
+        while let Some(insert) =
+            inserts.next_if(|insert| cmp(&item, insert) == std::cmp::Ordering::Greater)
+        {
+            merged.push(insert);
+        }
+        merged.push(item);
+    }
+    merged.extend(inserts);
+    *base = merged;
 }
 
 #[cfg(test)]
@@ -1632,6 +1683,53 @@ mod test {
                 .journals
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn test_gallop_by_matches_binary_search() {
+        for len in 0..40usize {
+            let items: Vec<usize> = (0..len).map(|i| i * 2 + 1).collect();
+            for target in 0..=(len * 2 + 2) {
+                assert_eq!(
+                    gallop_by(&items, |probe| probe.cmp(&target)),
+                    items.binary_search(&target),
+                    "len {len} target {target}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_merge_into() {
+        // Each delta is folded into (odd) matches, or inserted (even) at the
+        // front, middle, and back of `base`, through both sides of the
+        // insertion splice.
+        for delta in [
+            vec![],
+            vec![(0, 10)],
+            vec![(1, 10), (5, 10)],
+            vec![(0, 10), (2, 10), (3, 10), (10, 10), (12, 10)],
+            vec![(4, 10), (6, 10), (8, 10)],
+            vec![(9, 10), (11, 10)],
+        ] {
+            let mut base: Vec<(u32, u32)> = vec![(1, 1), (3, 1), (5, 1), (7, 1), (9, 1)];
+
+            let mut expect = base.clone();
+            for (key, value) in &delta {
+                match expect.binary_search_by_key(key, |(k, _)| *k) {
+                    Ok(index) => expect[index].1 += value,
+                    Err(index) => expect.insert(index, (*key, *value)),
+                }
+            }
+
+            merge_into(
+                &mut base,
+                delta.clone(),
+                |base, item| base.0.cmp(&item.0),
+                |base, item| base.1 += item.1,
+            );
+            assert_eq!(base, expect, "delta {delta:?}");
+        }
     }
 
     #[test]
