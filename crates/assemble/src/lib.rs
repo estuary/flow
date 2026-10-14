@@ -615,7 +615,7 @@ pub fn compression_codec(t: models::CompressionCodec) -> broker::CompressionCode
 pub fn pb_datetime(t: &time::OffsetDateTime) -> pbjson_types::Timestamp {
     pbjson_types::Timestamp {
         seconds: t.unix_timestamp() as i64,
-        nanos: 0, // Deliberately truncated.
+        nanos: t.nanosecond() as i32,
     }
 }
 
@@ -787,6 +787,18 @@ mod test {
         assert_eq!(
             super::extract_generation_id_suffix("capture/some/task/name"),
             models::Id::zero()
+        );
+    }
+
+    #[test]
+    fn pb_datetime_keeps_sub_second_precision() {
+        let t = time::OffsetDateTime::from_unix_timestamp_nanos(1_791_881_704_420_384_000).unwrap();
+        assert_eq!(
+            super::pb_datetime(&t),
+            pbjson_types::Timestamp {
+                seconds: 1_791_881_704,
+                nanos: 420_384_000,
+            }
         );
     }
 }

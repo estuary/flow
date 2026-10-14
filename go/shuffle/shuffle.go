@@ -178,10 +178,10 @@ func notBeforeAfter(notBefore, notAfter *types.Timestamp) (message.Clock, messag
 		a message.Clock = math.MaxUint64
 	)
 	if m := notBefore; m != nil {
-		b = message.NewClock(time.Unix(m.Seconds, 0))
+		b = message.NewClock(time.Unix(m.Seconds, int64(m.Nanos)))
 	}
 	if m := notAfter; m != nil {
-		a = message.NewClock(time.Unix(m.Seconds, 0))
+		a = message.NewClock(time.Unix(m.Seconds, int64(m.Nanos)))
 	}
 	return b, a
 }

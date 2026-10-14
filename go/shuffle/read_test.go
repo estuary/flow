@@ -12,6 +12,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
+	"github.com/gogo/protobuf/types"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
@@ -465,6 +466,15 @@ func TestHRWRegression(t *testing.T) {
 	require.Equal(t, 1, pickHRW(h, ring, 1, 4))
 	require.Equal(t, 2, pickHRW(h, ring, 2, 4))
 	require.Equal(t, 2, pickHRW(h, ring, 2, 3))
+}
+
+func TestNotBeforeAfterKeepsSubSecondPrecision(t *testing.T) {
+	var ts = &types.Timestamp{Seconds: 1791881704, Nanos: 420384000}
+	var before, after = notBeforeAfter(ts, ts)
+
+	var want = time.Unix(1791881704, 420384000).UTC()
+	require.Equal(t, want, before.AsTime().UTC())
+	require.Equal(t, want, after.AsTime().UTC())
 }
 
 func TestShuffleMemberOrdering(t *testing.T) {
