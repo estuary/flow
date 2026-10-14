@@ -326,20 +326,22 @@ flags) and validates the document against the binding's schema.
 
 ### 5. Ready-Read Heap and Clock Gating
 
-Parsed documents enter a priority heap (`ReadyReadHeap`) ordered by
-(priority DESC, adjusted_clock ASC), where `adjusted_clock = clock +
-read_delay`. The Slice does not drain until the Session's `InitialReadsStarted`
-arrives, all pending reads are tailing, and no read still probes its write head.
-No unstarted read and no unresolved read can then preempt the heap top.
+Parsed documents enter a heap ordered by (priority DESC, adjusted_clock ASC),
+where `adjusted_clock = clock + read_delay`. `ReadHeap` also tracks reads which
+are probing or pending broker I/O, and the Slice drains its top only once no
+unstarted, probing, or non-tailing read could preempt it
+(`ReadHeap::resolved_top`).
 
 A single non-tailing read therefore head-of-line-blocks the whole Slice's
-drain, so I/O stalls on individual journals matter. A read is only
-(re-)parked into `pending_reads` after a now-or-never poll fails to yield
-its next batch (`park_or_process`); a read with content already buffered is
-processed immediately rather than counted as blocked. Reads that genuinely
-park while non-tailing are tracked in `stalled` and surfaced — by transition
-— on the `stall` event track and the `shuffle_slice_stalled_reads` gauge, so
-an operator can sample *which* journals are blocking and for how long.
+drain, so I/O stalls on individual journals matter.
+
+A read is only (re-)pushed into `ReadHeap::pending` after a now-or-never poll
+fails to yield its next batch (`process_or_await`); a read with content
+already buffered is processed immediately rather than counted as blocked.
+Reads that genuinely await I/O while non-tailing are tracked in `stalled` and
+surfaced — by transition — on the `stall` event track and the
+`shuffle_slice_stalled_reads` gauge, so an operator can sample *which*
+journals are blocking and for how long.
 
 Before processing the heap top, the Slice gates on wall-clock time: if
 `adjusted_clock` is in the future (due to `read_delay`), the actor
@@ -578,7 +580,9 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
   - `replay.rs`: Bounded historical replay of a gapped producer's span on
     restart recovery.
   - `routing.rs`: Clock rotation and shard routing.
-  - `heap.rs`: Priority heap for ready reads.
+  - `heap.rs`: ReadHeap of a Slice's reads and the heap of their ready
+    documents, which classifies its top.
+  - `state.rs`: Flush and progress state machines.
 - `log/`: Log actor, append merge heap, flush IO.
   - `log/block/`: Zero-copy types for working with segmented log blocks.
 - `frontier.rs`: Frontier types, reduction, causal hint resolution,

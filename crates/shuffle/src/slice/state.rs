@@ -263,7 +263,7 @@ pub struct ResolvedCheckpoint {
     pub hinted: ProducerMap<uuid::Clock>,
 }
 
-/// Resolve a checkpoint into a start offset, initial ProducerStates, and the
+/// Resolve a checkpoint into a resume offset, initial ProducerStates, and the
 /// causal hints those states must read through.
 pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> ResolvedCheckpoint {
     let mut producers = ProducerMap::<ProducerState>::with_capacity_and_hasher(

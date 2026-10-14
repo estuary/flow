@@ -1,4 +1,4 @@
-use super::{LazyJournalClient, SliceActor, heap::ReadyReadHeap, state};
+use super::{LazyJournalClient, SliceActor, heap::ReadHeap, state};
 use anyhow::Context;
 use futures::{StreamExt, stream};
 use proto_flow::shuffle;
@@ -162,14 +162,9 @@ where
         slice_response_tx,
         log_prev_journal: vec![String::new(); log_request_tx.len()],
         log_request_tx,
-        pending_probes: stream::FuturesUnordered::new(),
-        pending_reads: stream::FuturesUnordered::new(),
         parser: simd_doc::SimdParser::new(1_000_000),
-        ready_read_heap: ReadyReadHeap::new(),
+        heap: ReadHeap::new(),
         replay: None,
-        tailing_reads: 0,
-        stalled_reads: Default::default(),
-        initial_reads_started: false,
         metrics,
     }
     .serve(slice_request_rx, log_response_rx)

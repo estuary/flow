@@ -316,16 +316,20 @@ async fn list_base_set(
         // Probe where a read of this journal would begin once fragments before
         // `not_before` are fast-forwarded, along with its current write head.
         // A probed offset already at the write head means all content precedes
-        // `not_before`: the read is caught up and the journal may never appear
-        // in a Frontier, so it must not join the read-through set.
-        let (offset, write_head, _header) = shuffle::slice::read::probe_read_start(
-            client.clone(),
-            &spec.name,
+        // `not_before`: the read is caught up and the journal may never be read,
+        // so it must not join the read-through set.
+        let broker::ReadResponse {
+            offset, write_head, ..
+        } = shuffle::slice::read::probe_read(
+            &client,
+            &broker::ReadRequest {
+                journal: spec.name.clone(),
+                begin_mod_time,
+                do_not_proxy: true,
+                min_etcd_revision: journal.create_revision,
+                ..Default::default()
+            },
             "ad-hoc",
-            None,
-            journal.create_revision,
-            0,
-            begin_mod_time,
         )
         .await?;
 
