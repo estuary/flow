@@ -336,7 +336,7 @@ pub mod slice_request {
     }
     /// Progress asks the Slice to report its frontier of queued progress.
     /// The Session maintains exactly one Progress/Progressed cycle in-flight per Slice.
-    /// The Slice responds once at least one Flush/Flushed cycle has completed
+    /// The Slice responds once at least one flush cycle has completed
     /// since its last Progressed response. If queued progress is already
     /// available, the response is immediate.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
@@ -399,12 +399,16 @@ pub mod slice_response {
     }
 }
 /// LogRequest is sent by Slices to each shard's Log.
+/// The first is an Open. All that follow are a round: zero or more Appends,
+/// and optionally a Flush. A round that starts a Flush goes to every Log, and
+/// otherwise only to Logs for which it has Appends.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LogRequest {
     #[prost(message, optional, tag = "1")]
     pub open: ::core::option::Option<log_request::Open>,
-    #[prost(message, optional, tag = "2")]
-    pub append: ::core::option::Option<log_request::Append>,
+    /// Appends of the round, in the order of the Slice's merge over read journals.
+    #[prost(message, repeated, tag = "2")]
+    pub appends: ::prost::alloc::vec::Vec<log_request::Append>,
     #[prost(message, optional, tag = "3")]
     pub flush: ::core::option::Option<log_request::Flush>,
 }
@@ -429,8 +433,11 @@ pub mod log_request {
         #[prost(uint32, tag = "4")]
         pub log_shard_index: u32,
     }
-    /// Append sends a document to be written to the log.
-    /// The Log actor merges across Slice streams, ordering by (priority, clock).
+    /// Append is a document to be merged into the written log.
+    /// The Log actor merges across Slice streams, ordering by
+    /// (priority, adjusted clock).
+    /// Journal names are delta-encoded against the Slice's preceding Append to
+    /// this Log, across and within rounds.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Append {
         /// Number of bytes to truncate from the preceding name.
@@ -474,11 +481,12 @@ pub mod log_request {
         #[prost(uint32, tag = "11")]
         pub source_byte_length: u32,
     }
-    /// Flush requests a durability barrier.
+    /// Flush requests a durability barrier, and the Log responds with a Flushed
+    /// of its cycle once the Appends of this and all prior rounds of the Slice
+    /// are durable.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Flush {
         /// Cycle number for correlating Flush with Flushed response.
-        /// Allows pipelining if we later want multiple in-flight flushes.
         #[prost(uint64, tag = "1")]
         pub cycle: u64,
     }

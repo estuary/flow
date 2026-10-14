@@ -1,12 +1,12 @@
 //! Log RPC: receives documents from Slices, merges them by priority/clock,
 //! and writes to on-disk storage. The Log protocol handles append and flush
-//! only. Consumer dequeue is out-of-band.
+//! only. Consumers read log files out-of-band.
 //!
-//! Dequeue contract: the coordinator reads documents from log files up to
+//! Read contract: the coordinator reads documents from log files up to
 //! the `last_commit` clock reported in the NextCheckpoint delta.
 //!
 //! Documents from rolled-back transactions (where the producer's ACK never
-//! advances past their clock) remain in log files but are never dequeued.
+//! advances past their clock) remain in log files but are filtered on read.
 //! They idle harmlessly until the session ends and log files are cleaned up.
 
 use futures::stream::BoxStream;
@@ -77,8 +77,8 @@ impl std::fmt::Debug for Lsn {
 
 mod actor;
 mod block;
+mod buffer;
 mod handler;
-mod heap;
 pub mod reader;
 mod state;
 pub mod writer;
@@ -207,7 +207,7 @@ pub(crate) struct LogJoinSlot {
 
 #[derive(Clone)]
 pub(crate) struct Metrics {
-    /// Total Append messages drained from the heap into the current block.
+    /// Total Append messages drained from the merge into the current block.
     appends: metrics::Counter,
     /// Total source bytes of those Appends (sum of `source_byte_length`),
     /// approximating the bytes of input that resulted in log entries.
@@ -219,6 +219,8 @@ pub(crate) struct Metrics {
     /// Current on-disk backlog across all living sealed segments. Set on each
     /// segment seal and on each reclaim from compression / unlink.
     disk_backlog_bytes: metrics::Gauge,
+    /// Total rounds received from Slices.
+    rounds: metrics::Counter,
 }
 
 impl Metrics {
@@ -228,7 +230,7 @@ impl Metrics {
             metrics::describe_counter!(
                 "shuffle_log_appends",
                 metrics::Unit::Count,
-                "Append messages drained from the heap into the current block",
+                "Append messages drained from the merge into the current block",
             );
             metrics::describe_counter!(
                 "shuffle_log_bytes_appended",
@@ -250,6 +252,11 @@ impl Metrics {
                 metrics::Unit::Bytes,
                 "current on-disk backlog across all living sealed segments",
             );
+            metrics::describe_counter!(
+                "shuffle_log_rounds",
+                metrics::Unit::Count,
+                "rounds received from Slices",
+            );
         });
 
         Self {
@@ -258,6 +265,7 @@ impl Metrics {
             flushes: metrics::counter!("shuffle_log_flushes", "shard_id" => shard_id.to_string()),
             segments_sealed: metrics::counter!("shuffle_log_segments_sealed", "shard_id" => shard_id.to_string()),
             disk_backlog_bytes: metrics::gauge!("shuffle_log_disk_backlog_bytes", "shard_id" => shard_id.to_string()),
+            rounds: metrics::counter!("shuffle_log_rounds", "shard_id" => shard_id.to_string()),
         }
     }
 }

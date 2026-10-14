@@ -93,7 +93,7 @@ where
     // so teardown cascades. `Start` arrives only after we send `Opened`, so any
     // message here means the Session (or its RPC) went away: we abort likewise.
     // This mirrors the Session handler's open-phase EOF cascade.
-    let (log_request_tx, log_response_rx): (Vec<_>, Vec<_>) = tokio::select! {
+    let (log_channels, log_response_rx): (Vec<_>, Vec<_>) = tokio::select! {
         result = futures::future::try_join_all((0..shards.len()).map(|log_shard_index| {
             open_log_rpc(
                 &service,
@@ -111,7 +111,7 @@ where
 
     tracing::info!(
         session_id,
-        log_count = log_request_tx.len(),
+        log_count = log_channels.len(),
         "Slice opened all Log RPCs"
     );
 
@@ -160,8 +160,7 @@ where
         flush: state::FlushState::new(),
         progress: state::ProgressState::new(),
         slice_response_tx,
-        log_prev_journal: vec![String::new(); log_request_tx.len()],
-        log_request_tx,
+        rounds: super::rounds::Rounds::new(log_channels),
         parser: simd_doc::SimdParser::new(1_000_000),
         heap: ReadHeap::new(),
         replay: None,
@@ -186,7 +185,7 @@ async fn open_log_rpc(
     shards: &[shuffle::Shard],
     log_shard_index: u32,
 ) -> anyhow::Result<(
-    mpsc::Sender<shuffle::LogRequest>,
+    super::rounds::LogChannel,
     stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>,
 )> {
     let verify = proto_grpc::verify(
@@ -194,7 +193,7 @@ async fn open_log_rpc(
         "Opened",
         &shards[log_shard_index as usize].endpoint,
     );
-    let (request_tx, request_rx) = crate::new_channel::<shuffle::LogRequest>();
+    let (request_tx, request_rx) = crate::new_channel();
 
     // Spawn or dial RPC, yielding a boxed response stream.
     let request_rx = tokio_stream::wrappers::ReceiverStream::new(request_rx);
@@ -230,7 +229,7 @@ async fn open_log_rpc(
                 slice_shard_index,
                 log_shard_index,
             }),
-            append: None,
+            appends: Vec::new(),
             flush: None,
         },
     )?;
@@ -240,7 +239,7 @@ async fn open_log_rpc(
         shuffle::LogResponse {
             opened: Some(shuffle::log_response::Opened {}),
             ..
-        } => Ok((request_tx, response_rx)),
+        } => Ok((super::rounds::LogChannel::new(request_tx), response_rx)),
 
         response => Err(verify.fail_msg(response)),
     }
