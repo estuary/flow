@@ -1,4 +1,6 @@
 use crate::TextJson;
+use anyhow::Context;
+use chrono::DurationRound;
 use chrono::prelude::*;
 use models::{CatalogType, Id};
 use serde_json::value::RawValue;
@@ -112,25 +114,38 @@ pub async fn fetch_last_user_publication_at(
     .await
 }
 
+/// Returns the start of the most recent day, among the 60 days ending with the
+/// day of `now`, in which `catalog_name` read or wrote any bytes.
 pub async fn fetch_last_data_movement_ts(
     catalog_name: &str,
-    db: impl sqlx::PgExecutor<'static>,
-) -> sqlx::Result<Option<DateTime<Utc>>> {
-    sqlx::query_scalar!(
-        r#"
-        select ts
-        from catalog_stats_daily
-        where catalog_name = $1
-            and ts > now() - interval '60 days'
-            and (bytes_written_by_me + bytes_read_by_me
-                + bytes_written_to_me + bytes_read_from_me) > 0
-        order by ts desc
-        limit 1
-        "#,
-        catalog_name,
-    )
-    .fetch_optional(db)
-    .await
+    now: DateTime<Utc>,
+    client: &catalog_stats::Client,
+) -> anyhow::Result<Option<DateTime<Utc>>> {
+    let today = now.duration_trunc(chrono::TimeDelta::days(1))?;
+    let range = (today - chrono::TimeDelta::days(59))..(today + chrono::TimeDelta::days(1));
+
+    let rows = collect_stats(client.fetch_range_for_names(
+        &[catalog_name],
+        catalog_stats::Grain::Daily,
+        range,
+    ))
+    .await?;
+
+    // Rows of a single name arrive in ascending `ts` order. A reversed scan
+    // could stop at the first match, but the client only resumes ascending
+    // scans after a transient failure.
+    Ok(rows
+        .iter()
+        .rev()
+        .find(|row| {
+            let s = &row.stats_summary;
+            s.written_by_me.bytes_total
+                + s.read_by_me.bytes_total
+                + s.written_to_me.bytes_total
+                + s.read_from_me.bytes_total
+                > 0
+        })
+        .map(|row| row.ts))
 }
 
 /// Computes the effective `AlertConfig` for `catalog_name` by deep-merging
@@ -259,32 +274,77 @@ pub async fn fetch_legacy_data_movement_stalled_threshold(
     Ok(Some(chrono::Duration::milliseconds((secs * 1000.0) as i64)))
 }
 
-/// Returns total bytes processed for `catalog_name` from `since` onward using
+/// Returns total bytes processed for `catalog_name` from `since` through `now` using
 /// `catalog_stats_hourly`.
 ///
 /// The sum includes `bytes_written_by_me`, `bytes_written_to_me`, and
 /// `bytes_read_by_me`. The lower bound is rounded down to the containing hour
 /// to match the table's hourly grain.
+/// The upper bound includes the hour containing `now`.
 pub async fn fetch_bytes_processed_since(
     catalog_name: &str,
     since: DateTime<Utc>,
-    db: impl sqlx::PgExecutor<'static>,
-) -> sqlx::Result<i64> {
-    sqlx::query_scalar!(
-        r#"
-        select coalesce(
-            sum(bytes_written_by_me + bytes_written_to_me + bytes_read_by_me),
-            0
-        )::bigint as "bytes!: i64"
-        from catalog_stats_hourly
-        where catalog_name = $1
-            and ts >= date_trunc('hour', $2::timestamptz)
-        "#,
-        catalog_name,
-        since,
-    )
-    .fetch_one(db)
+    now: DateTime<Utc>,
+    client: &catalog_stats::Client,
+) -> anyhow::Result<u64> {
+    // Hourly rows are keyed by the start of their hour, so an unaligned `since`
+    // would sort after the row of the hour containing it, and skip that row.
+    let start = since.duration_trunc(chrono::TimeDelta::hours(1))?;
+    let end = now.duration_trunc(chrono::TimeDelta::hours(1))? + chrono::TimeDelta::hours(1);
+
+    let rows = collect_stats(client.fetch_range_for_names(
+        &[catalog_name],
+        catalog_stats::Grain::Hourly,
+        start..end,
+    ))
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let s = &row.stats_summary;
+            s.written_by_me.bytes_total + s.written_to_me.bytes_total + s.read_by_me.bytes_total
+        })
+        .sum())
+}
+
+/// Consecutive transient failures tolerated by a catalog stats read before it
+/// fails. The client backs off between attempts, and a failed read fails the
+/// controller run, which is itself retried.
+const STATS_READ_MAX_RETRIES: usize = 3;
+const STATS_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+async fn collect_stats(
+    stream: impl futures::Stream<Item = catalog_stats::RetryResult<catalog_stats::CatalogStats>>,
+) -> anyhow::Result<Vec<catalog_stats::CatalogStats>> {
+    tokio::time::timeout(STATS_READ_TIMEOUT, async {
+        let mut stream = std::pin::pin!(stream);
+        let mut rows = Vec::new();
+
+        while let Some(item) = futures::StreamExt::next(&mut stream).await {
+            let err = match item {
+                Ok(row) => {
+                    rows.push(row);
+                    continue;
+                }
+                Err(err) => err,
+            };
+            // The client keeps the stream alive after a transient failure, but ends
+            // it after any other, which must not read as a complete result.
+            if !err.inner.is_transient() || err.attempt >= STATS_READ_MAX_RETRIES {
+                return Err(anyhow::Error::new(err.inner).context("reading catalog stats"));
+            }
+            tracing::warn!(
+                attempt = err.attempt,
+                error = %err.inner,
+                "retrying catalog stats read",
+            );
+        }
+
+        Ok(rows)
+    })
     .await
+    .context("timed out reading catalog stats")?
 }
 
 #[tracing::instrument(level = "debug", skip(txn, status, controller_version))]
@@ -510,5 +570,246 @@ mod test {
                 "provenance": provenance,
             })
         );
+    }
+
+    /// Seeds one row per `(name, ts, summary)` under `prefix`, which is cleared
+    /// first because the emulator is shared and never truncated.
+    async fn seed(
+        client: &catalog_stats::Client,
+        grain: catalog_stats::Grain,
+        prefix: &str,
+        rows: Vec<(
+            &str,
+            chrono::DateTime<chrono::Utc>,
+            catalog_stats::StatsSummary,
+        )>,
+    ) {
+        catalog_stats::test_util::delete_rows_with_prefix(client, prefix)
+            .await
+            .unwrap();
+
+        let rows: Vec<_> = rows
+            .into_iter()
+            .map(|(name, ts, stats_summary)| {
+                let stats = catalog_stats::CatalogStats {
+                    meta: ops::Meta {
+                        uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+                    },
+                    catalog_name: format!("{prefix}{name}"),
+                    ts,
+                    stats_summary,
+                    task_stats: Default::default(),
+                };
+                (grain, stats)
+            })
+            .collect();
+
+        catalog_stats::test_util::seed_rows(client, &rows)
+            .await
+            .unwrap();
+    }
+
+    fn bytes(bytes_total: u64) -> ops::stats::DocsAndBytes {
+        ops::stats::DocsAndBytes {
+            docs_total: 1,
+            bytes_total,
+        }
+    }
+
+    #[tokio::test]
+    async fn last_data_movement_ts_window() {
+        use chrono::TimeZone as _;
+
+        let client = catalog_stats::test_util::connect_emulator("estuary-local").await;
+        let prefix = "ctest-controllers/last-data-movement/";
+        let now = chrono::Utc.with_ymd_and_hms(2026, 5, 5, 10, 30, 0).unwrap();
+        let day = |ago: i64| {
+            chrono::Utc.with_ymd_and_hms(2026, 5, 5, 0, 0, 0).unwrap()
+                - chrono::TimeDelta::days(ago)
+        };
+
+        seed(
+            &client,
+            catalog_stats::Grain::Daily,
+            prefix,
+            vec![
+                // Moved bytes only on the day before the 60-day window.
+                (
+                    "outside",
+                    day(60),
+                    catalog_stats::StatsSummary {
+                        written_by_me: bytes(10),
+                        ..Default::default()
+                    },
+                ),
+                // Also moved bytes on the first day of the window.
+                (
+                    "oldest",
+                    day(60),
+                    catalog_stats::StatsSummary {
+                        written_by_me: bytes(10),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "oldest",
+                    day(59),
+                    catalog_stats::StatsSummary {
+                        written_to_me: bytes(10),
+                        ..Default::default()
+                    },
+                ),
+                // Later days that moved no bytes don't count.
+                (
+                    "latest",
+                    day(3),
+                    catalog_stats::StatsSummary {
+                        read_by_me: bytes(10),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "latest",
+                    day(1),
+                    catalog_stats::StatsSummary {
+                        txn_count: 4,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "latest",
+                    day(0),
+                    catalog_stats::StatsSummary {
+                        usage_seconds: 60,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "today",
+                    day(0),
+                    catalog_stats::StatsSummary {
+                        read_from_me: bytes(10),
+                        ..Default::default()
+                    },
+                ),
+            ],
+        )
+        .await;
+
+        let mut results = Vec::new();
+        for name in ["outside", "oldest", "latest", "today", "missing"] {
+            let ts = super::fetch_last_data_movement_ts(&format!("{prefix}{name}"), now, &client)
+                .await
+                .unwrap();
+            results.push((name, ts));
+        }
+
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            (
+                "outside",
+                None,
+            ),
+            (
+                "oldest",
+                Some(
+                    2026-03-07T00:00:00Z,
+                ),
+            ),
+            (
+                "latest",
+                Some(
+                    2026-05-02T00:00:00Z,
+                ),
+            ),
+            (
+                "today",
+                Some(
+                    2026-05-05T00:00:00Z,
+                ),
+            ),
+            (
+                "missing",
+                None,
+            ),
+        ]
+        "#);
+    }
+
+    #[tokio::test]
+    async fn bytes_processed_since_window() {
+        use chrono::TimeZone as _;
+
+        let client = catalog_stats::test_util::connect_emulator("estuary-local").await;
+        let prefix = "ctest-controllers/bytes-processed/";
+        let name = format!("{prefix}task");
+        let hour = |h: u32| chrono::Utc.with_ymd_and_hms(2026, 5, 5, h, 0, 0).unwrap();
+
+        seed(
+            &client,
+            catalog_stats::Grain::Hourly,
+            prefix,
+            vec![
+                // Before the hour containing `since`.
+                (
+                    "task",
+                    hour(6),
+                    catalog_stats::StatsSummary {
+                        written_by_me: bytes(1),
+                        ..Default::default()
+                    },
+                ),
+                // The hour containing `since`.
+                (
+                    "task",
+                    hour(7),
+                    catalog_stats::StatsSummary {
+                        written_by_me: bytes(10),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "task",
+                    hour(9),
+                    catalog_stats::StatsSummary {
+                        written_to_me: bytes(100),
+                        ..Default::default()
+                    },
+                ),
+                // The hour containing `now`. Bytes read from the task are
+                // not processed by it.
+                (
+                    "task",
+                    hour(10),
+                    catalog_stats::StatsSummary {
+                        read_by_me: bytes(1000),
+                        read_from_me: bytes(5000),
+                        ..Default::default()
+                    },
+                ),
+                // After the hour containing `now`.
+                (
+                    "task",
+                    hour(11),
+                    catalog_stats::StatsSummary {
+                        written_by_me: bytes(10000),
+                        ..Default::default()
+                    },
+                ),
+            ],
+        )
+        .await;
+
+        let since = chrono::Utc.with_ymd_and_hms(2026, 5, 5, 7, 15, 0).unwrap();
+        let now = chrono::Utc.with_ymd_and_hms(2026, 5, 5, 10, 30, 0).unwrap();
+        let processed = super::fetch_bytes_processed_since(&name, since, now, &client)
+            .await
+            .unwrap();
+        assert_eq!(processed, 1110);
+
+        let none_yet = super::fetch_bytes_processed_since(&name, hour(12), hour(13), &client)
+            .await
+            .unwrap();
+        assert_eq!(none_yet, 0);
     }
 }

@@ -1,5 +1,5 @@
 use crate::integration_tests::harness::TestHarness;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, DurationRound, TimeDelta, Utc};
 use control_plane_api::alerts::{AlertAction, ResolveAlert, apply_alert_actions};
 use models::status::AlertType;
 
@@ -695,17 +695,14 @@ async fn test_data_movement_stalled_end_to_end() {
     "#);
 
     // Now simulate data movement and re-run to assert resolution.
-    sqlx::query!(
-        r#"insert into catalog_stats_hourly
-             (catalog_name, grain, ts, flow_document,
-              bytes_written_by_me, bytes_written_to_me, bytes_read_by_me)
-           values
-             ('acme/team-a/stalled', 'hourly', date_trunc('hour', now()),
-              '{}', 1024, 0, 0)"#,
+    seed_bytes_written(
+        &harness,
+        catalog_stats::Grain::Hourly,
+        "acme/team-a/stalled",
+        Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap(),
+        1024,
     )
-    .execute(&pool)
-    .await
-    .expect("failed to insert catalog_stats_hourly row");
+    .await;
 
     harness.run_pending_controller("acme/team-a/stalled").await;
     let resolved = harness.get_controller_state("acme/team-a/stalled").await;
@@ -727,6 +724,156 @@ async fn test_data_movement_stalled_end_to_end() {
     );
 }
 
+#[tokio::test]
+async fn test_catalog_stats_timeout_releases_controller() {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let mut harness = TestHarness::init("catalog_stats_timeout_releases_controller").await;
+    harness.setup_tenant("acme").await;
+    let pool = harness.pool.clone();
+    let name = "acme/stats-timeout";
+    insert_capture_for_controller(&pool, name, chrono::Duration::hours(3)).await;
+    harness
+        .upsert_alert_config(
+            name,
+            serde_json::json!({ "dataMovementStalled": { "condition": { "stalledFor": "1h" } } }),
+        )
+        .await;
+    let firing = harness.run_pending_controller(name).await;
+    let first_ts = current_alerts(&firing)[&AlertType::DataMovementStalled].first_ts;
+    let alert_id: models::Id = sqlx::query_scalar(
+        "select id from alert_history where catalog_name = $1 and alert_type = 'data_movement_stalled'",
+    )
+    .bind(name)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    seed_bytes_written(
+        &harness,
+        catalog_stats::Grain::Hourly,
+        name,
+        Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap(),
+        512,
+    )
+    .await;
+
+    let read_started = Arc::new(tokio::sync::Notify::new());
+    let routes = axum::Router::new().route(
+        "/google.bigtable.v2.Bigtable/ReadRows",
+        axum::routing::post({
+            let read_started = read_started.clone();
+            move || {
+                let read_started = read_started.clone();
+                async move {
+                    read_started.notify_one();
+                    std::future::pending::<axum::response::Response>().await
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_routes(routes.into())
+            .serve_with_incoming(futures::stream::unfold(listener, |listener| async move {
+                Some((listener.accept().await.map(|(stream, _)| stream), listener))
+            }))
+            .await
+            .unwrap();
+    });
+    let client = catalog_stats::Client::connect(&catalog_stats::BigtableConfig {
+        project: "estuary-local".to_string(),
+        instance: "estuary-local".to_string(),
+        emulator_host: Some(address.to_string()),
+    })
+    .await
+    .unwrap();
+    harness.set_controller_catalog_stats(Arc::new(client));
+    sqlx::query(
+        "update internal.tasks set wake_at = now() - interval '1 minute' where task_id = (select controller_task_id from live_specs where catalog_name = $1)",
+    )
+    .bind(name)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+    let mut permit = semaphore.clone().acquire_owned().await.unwrap();
+    let executor = automations::Server::new().register(harness.controller_exec.clone());
+    let heartbeat_timeout = Duration::from_secs(300);
+    let mut tasks = automations::server::dequeue_tasks(
+        &mut permit,
+        &pool,
+        &executor,
+        &[automations::task_types::LIVE_SPEC_CONTROLLER.0],
+        heartbeat_timeout,
+    )
+    .await
+    .unwrap();
+    assert_eq!(tasks.len(), 1);
+    let mut run = Box::pin(automations::executors::poll_task(
+        tasks.pop().unwrap(),
+        heartbeat_timeout,
+    ));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::select! {
+            () = read_started.notified() => (),
+            result = &mut run => panic!("controller completed before the stalled read: {result:?}"),
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(semaphore.available_permits(), 0);
+
+    // Keep PostgreSQL work on real time; only advance the blocked stats read.
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(31)).await;
+    tokio::time::resume();
+    tokio::time::timeout(Duration::from_secs(5), &mut run)
+        .await
+        .expect("controller did not time out its stats read")
+        .unwrap();
+    assert_eq!(semaphore.available_permits(), 1);
+    server.abort();
+
+    let failed = harness.get_controller_state(name).await;
+    assert_eq!(failed.failures, 1);
+    assert!(
+        failed
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("timed out reading catalog stats")
+    );
+    assert_eq!(
+        current_alerts(&failed)[&AlertType::DataMovementStalled].first_ts,
+        first_ts
+    );
+    assert!(harness.assert_controller_pending(name).await > Utc::now());
+    let resolved_at: Option<DateTime<Utc>> =
+        sqlx::query_scalar("select resolved_at from alert_history where id = $1")
+            .bind(alert_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(resolved_at.is_none());
+
+    harness.set_controller_catalog_stats(harness.catalog_stats.clone());
+    let recovered = harness.run_pending_controller(name).await;
+    assert_eq!(recovered.failures, 0);
+    assert!(recovered.error.is_none());
+    assert!(!current_alerts(&recovered).contains_key(&AlertType::DataMovementStalled));
+    let resolved_at: Option<DateTime<Utc>> =
+        sqlx::query_scalar("select resolved_at from alert_history where id = $1")
+            .bind(alert_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(resolved_at.is_some());
+}
+
 /// Extracts the `alerts` map from the controller status regardless of
 /// spec type variant.
 fn current_alerts(state: &crate::controllers::ControllerState) -> &models::status::Alerts {
@@ -740,6 +887,34 @@ fn current_alerts(state: &crate::controllers::ControllerState) -> &models::statu
             panic!("controller status is Uninitialized; did the controller run?")
         }
     }
+}
+
+/// Seeds a catalog stats row at `ts` in which `catalog_name` wrote `bytes`.
+async fn seed_bytes_written(
+    harness: &TestHarness,
+    grain: catalog_stats::Grain,
+    catalog_name: &str,
+    ts: DateTime<Utc>,
+    bytes: u64,
+) {
+    let stats = catalog_stats::CatalogStats {
+        meta: ops::Meta {
+            uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+        },
+        catalog_name: catalog_name.to_string(),
+        ts,
+        stats_summary: catalog_stats::StatsSummary {
+            written_by_me: ops::stats::DocsAndBytes {
+                docs_total: 1,
+                bytes_total: bytes,
+            },
+            ..Default::default()
+        },
+        task_stats: Default::default(),
+    };
+    catalog_stats::test_util::seed_rows(&harness.catalog_stats, &[(grain, stats)])
+        .await
+        .expect("failed to seed catalog stats");
 }
 
 /// Schedules the controller task for `catalog_name` to re-run on the
@@ -823,19 +998,16 @@ async fn test_abandon_per_task_thresholds() {
         "alerts": {}
     });
     insert_capture_with_status(&pool, "acme/idle", chrono::Duration::days(50), fresh_status).await;
-    sqlx::query!(
-        r#"
-        insert into catalog_stats_daily
-          (catalog_name, grain, ts, flow_document,
-           bytes_written_by_me, bytes_written_to_me, bytes_read_by_me, bytes_read_from_me)
-        values ($1, 'daily', $2, '{}', 1024, 0, 0, 0)
-        "#,
+    seed_bytes_written(
+        &harness,
+        catalog_stats::Grain::Daily,
         "acme/idle",
-        forty_five_days_ago,
+        forty_five_days_ago
+            .duration_trunc(TimeDelta::days(1))
+            .unwrap(),
+        1024,
     )
-    .execute(&pool)
-    .await
-    .expect("seed catalog_stats_daily row");
+    .await;
 
     // First pass: per-task thresholds exceed the observed staleness, so
     // neither alert fires.
@@ -1003,17 +1175,14 @@ async fn test_data_movement_stalled_refires_after_resolution() {
     );
 
     // Phase 2: Data flows, alert resolves.
-    sqlx::query!(
-        r#"insert into catalog_stats_hourly
-             (catalog_name, grain, ts, flow_document,
-              bytes_written_by_me, bytes_written_to_me, bytes_read_by_me)
-           values
-             ('acme/refiring', 'hourly', date_trunc('hour', now()),
-              '{}', 512, 0, 0)"#,
+    seed_bytes_written(
+        &harness,
+        catalog_stats::Grain::Hourly,
+        "acme/refiring",
+        Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap(),
+        512,
     )
-    .execute(&pool)
-    .await
-    .unwrap();
+    .await;
 
     harness.run_pending_controller("acme/refiring").await;
     let resolved = harness.get_controller_state("acme/refiring").await;
@@ -1023,8 +1192,7 @@ async fn test_data_movement_stalled_refires_after_resolution() {
     );
 
     // Phase 3: Data stops again. Remove the stats row and re-run.
-    sqlx::query!("delete from catalog_stats_hourly where catalog_name = 'acme/refiring'")
-        .execute(&pool)
+    catalog_stats::test_util::delete_rows_with_prefix(&harness.catalog_stats, "acme/refiring")
         .await
         .unwrap();
 

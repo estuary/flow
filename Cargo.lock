@@ -111,6 +111,7 @@ dependencies = [
  "billing-types",
  "build",
  "bytes",
+ "catalog-stats",
  "chrono",
  "clap",
  "colored_json",

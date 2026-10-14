@@ -90,6 +90,8 @@ pub trait ControlPlane: Send + Sync {
         live_spec_id: Id,
     ) -> anyhow::Result<Option<DateTime<Utc>>>;
 
+    /// Returns the start of the most recent of the last 60 days in which
+    /// `catalog_name` read or wrote any bytes, from daily catalog stats.
     async fn fetch_last_data_movement_ts(
         &self,
         catalog_name: String,
@@ -116,11 +118,12 @@ pub trait ControlPlane: Send + Sync {
     /// Returns total bytes processed for `catalog_name` since `since` using
     /// `catalog_stats_hourly`. Includes bytes written by this task, written to
     /// this task, and read by this task.
+    /// The window includes the hours containing `since` and the current time.
     async fn fetch_bytes_processed_since(
         &self,
         catalog_name: String,
         since: DateTime<Utc>,
-    ) -> anyhow::Result<i64>;
+    ) -> anyhow::Result<u64>;
 
     async fn delete_shard_failures(
         &self,
@@ -248,6 +251,7 @@ pub struct PGControlPlane {
     pub auto_discover_probability: f64,
     pub controller_publication_cooldown: chrono::Duration,
     pub controller_config: std::sync::Arc<crate::controllers::ControllerConfig>,
+    pub catalog_stats: Arc<catalog_stats::Client>,
 }
 
 impl PGControlPlane {
@@ -261,6 +265,7 @@ impl PGControlPlane {
         auto_discover_probability: f64,
         controller_publication_cooldown: chrono::Duration,
         controller_config: crate::controllers::ControllerConfig,
+        catalog_stats: Arc<catalog_stats::Client>,
     ) -> Self {
         Self {
             pool,
@@ -272,6 +277,7 @@ impl PGControlPlane {
             auto_discover_probability,
             controller_publication_cooldown,
             controller_config: std::sync::Arc::new(controller_config),
+            catalog_stats,
         }
     }
 
@@ -454,9 +460,13 @@ impl ControlPlane for PGControlPlane {
         &self,
         catalog_name: String,
     ) -> anyhow::Result<Option<DateTime<Utc>>> {
-        controllers::fetch_last_data_movement_ts(&catalog_name, &self.pool)
-            .await
-            .context("fetching last data movement")
+        controllers::fetch_last_data_movement_ts(
+            &catalog_name,
+            self.current_time(),
+            &self.catalog_stats,
+        )
+        .await
+        .context("fetching last data movement")
     }
 
     async fn resolved_alert_config(
@@ -484,10 +494,15 @@ impl ControlPlane for PGControlPlane {
         &self,
         catalog_name: String,
         since: DateTime<Utc>,
-    ) -> anyhow::Result<i64> {
-        controllers::fetch_bytes_processed_since(&catalog_name, since, &self.pool)
-            .await
-            .context("fetching bytes processed")
+    ) -> anyhow::Result<u64> {
+        controllers::fetch_bytes_processed_since(
+            &catalog_name,
+            since,
+            self.current_time(),
+            &self.catalog_stats,
+        )
+        .await
+        .context("fetching bytes processed")
     }
 
     async fn delete_shard_failures(

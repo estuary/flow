@@ -126,8 +126,8 @@ async fn test_abandoned_task_detection_and_resolution() {
     test_shard_failed_fires_abandonment_alert(&mut harness, CatalogType::Collection, "pandas/luck")
         .await;
 
-    // Idle detection exercises `fetch_abandonment_timestamps()` with real SQL
-    // against `publication_specs` and `catalog_stats_daily`.
+    // Idle detection exercises `fetch_abandonment_timestamps()` against real
+    // `publication_specs` rows and daily catalog stats in the emulator.
     test_idle_fires_when_no_data_and_old(&mut harness, CatalogType::Capture, "pandas/capture")
         .await;
 
@@ -174,8 +174,8 @@ async fn test_shard_failed_fires_abandonment_alert(
 }
 
 /// Idle detection: old task with no data movement and no user publication.
-/// In the test DB, catalog_stats_daily is empty and all publications use the
-/// system user, so both last_data_movement_ts and last_user_pub_at are NULL.
+/// The tenant has no catalog stats and all publications use the system user,
+/// so both last_data_movement_ts and last_user_pub_at are NULL.
 /// Combined with old created_at, this should trigger TaskIdle.
 async fn test_idle_fires_when_no_data_and_old(
     harness: &mut TestHarness,
