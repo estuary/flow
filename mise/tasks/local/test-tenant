@@ -80,13 +80,14 @@ if [ -z "${TENANT_EXISTS}" ]; then
     ELAPSED=0
     TIMEOUT=120
     while true; do
-        PLANES=$(curl --fail-with-body -sS --max-time 10 \
+        # Transient HTTP, transport, or invalid-response failures should retry.
+        if PLANES=$(curl --fail-with-body -sS --max-time 10 \
             "http://localhost:${AGENT_PORT}/api/graphql" \
             -H "Authorization: Bearer ${FLOW_AUTH_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d '{"query":"{ publicDataPlanes(first: 1) { edges { node { name } } } }"}')
-        DATA_PLANE=$(jq -r '.data.publicDataPlanes.edges[0].node.name // empty' <<< "${PLANES}")
-        if [ -n "${DATA_PLANE}" ]; then
+            -d '{"query":"{ publicDataPlanes(first: 1) { edges { node { name } } } }"}') &&
+            DATA_PLANE=$(jq -r '.data.publicDataPlanes.edges[0].node.name // empty' <<< "${PLANES}") &&
+            [ -n "${DATA_PLANE}" ]; then
             break
         fi
         sleep 1
@@ -103,6 +104,11 @@ if [ -z "${TENANT_EXISTS}" ]; then
 
     TERMS_ID=$(psql "${PGURL}" -tAqc \
         "SELECT id FROM internal.legal_terms WHERE type = 'msa' ORDER BY version DESC LIMIT 1")
+    if [ -z "${TERMS_ID}" ]; then
+        echo "Error: no MSA terms row found in internal.legal_terms" >&2
+        echo "Hint: apply the legal-terms migrations to this stack's database before provisioning a tenant." >&2
+        exit 1
+    fi
     REQUEST=$(jq -n --arg name "${TENANT}" --arg terms "${TERMS_ID}" --arg plane "${DATA_PLANE}" '{
         query: "mutation($name: String!, $terms: Id!, $plane: String!) { tenantCreate(name: $name, submittingUserAgreesToTermsId: $terms, dataPlane: $plane) }",
         variables: {name: $name, terms: $terms, plane: $plane}

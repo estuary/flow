@@ -246,13 +246,7 @@ async fn create_tenant(
         return Err(async_graphql::Error::new(TENANT_UNAVAILABLE_MESSAGE));
     }
 
-    let mut public_planes: Vec<String> = sqlx::query_scalar(
-        "SELECT data_plane_name FROM data_planes
-         WHERE starts_with(data_plane_name, 'ops/dp/public/') AND NOT closed
-         ORDER BY id DESC",
-    )
-    .fetch_all(&mut **txn)
-    .await?;
+    let mut public_planes = crate::tenants::open_public_planes(txn).await?;
     // Match publicDataPlanes: managed planes are registered before their HMAC
     // material is ready, and cannot receive tenants until they can sign claims.
     public_planes.retain(|name| {

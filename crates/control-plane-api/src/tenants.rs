@@ -2,6 +2,16 @@
 
 use sqlx::types::Uuid;
 
+pub async fn open_public_planes(conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar(
+        "SELECT data_plane_name FROM data_planes
+         WHERE starts_with(data_plane_name, 'ops/dp/public/') AND NOT closed
+         ORDER BY id DESC",
+    )
+    .fetch_all(conn)
+    .await
+}
+
 pub async fn is_user_provisioned(
     user_id: Uuid,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -99,14 +109,9 @@ pub async fn provision_test_tenant(
         .await
         .expect("insert auth user");
 
-    let public_planes: Vec<String> = sqlx::query_scalar(
-        "SELECT data_plane_name FROM data_planes
-         WHERE starts_with(data_plane_name, 'ops/dp/public/') AND NOT closed
-         ORDER BY id DESC",
-    )
-    .fetch_all(&mut *txn)
-    .await
-    .expect("fetch test data planes");
+    let public_planes = open_public_planes(&mut txn)
+        .await
+        .expect("fetch test data planes");
     let tenant_storage = serde_json::json!({
         "stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}],
         "data_planes": public_planes,
