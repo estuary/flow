@@ -28,6 +28,22 @@ PipelineSnapshot {
                 gap_floor: Clock(0s 0ns),
                 prune_floor: Clock(0s 0ns),
             },
+            JournalFrontier {
+                journal: "journal/C",
+                binding: 1,
+                producers: [
+                    ProducerFrontier {
+                        producer: Producer(05:00:00:00:00:00),
+                        last_commit: Clock(10s 0ns),
+                        hinted_commit: Clock(0s 0ns),
+                        offset: -50,
+                    },
+                ],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+                gap_floor: Clock(0s 0ns),
+                prune_floor: Clock(0s 0ns),
+            },
         ],
         flushed_lsn: [],
         latest_backfill_begin: {},

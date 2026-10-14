@@ -69,37 +69,43 @@ pub const FLAGS_SCHEMA_VALID: u16 = 0x8000;
 
 pub use binding::{Binding, Source};
 pub use client::SessionClient;
-pub use frontier::{Completed, Frontier, JournalFrontier, ProducerFrontier};
+pub use frontier::{Accounted, Frontier, JournalFrontier, ProducerFrontier};
 pub use service::{DEFAULT_SHUFFLE_DISK_LIMIT_BYTES, Service};
 
 /// Clock distance at which a producer's commits become ancient history.
-/// The constant has a DUAL role, and that duality is its contract:
 ///
-/// - The runtime may **prune** — durably forget — a producer of a shard's
-///   committed frontier only once that producer trails its journal group's
-///   newest commit by at least this horizon. See
-///   [`JournalFrontier::prune_stale_producers`].
-/// - The session may deem a Clock **completed** for a binding once that
-///   binding's promoted read progress carries a commit at least this horizon
-///   newer, whatever producer the clock names. See [`frontier::Completed`].
+/// A closed producer is pruned (forgotten) from a `(journal, binding)` entry
+/// only once its `last_commit` trails the entry's newest commit by at least
+/// this horizon ([`JournalFrontier::prune_stale_producers`]).
+/// The runtime prunes a shard's committed frontier this way at recovery.
+/// The session prunes its cumulative Frontier as it takes checkpoints.
 ///
-/// One constant for both is what makes them sound together: the runtime forgets
-/// only what the session can horizon-clear. A pruned producer `P` is gone from
-/// the completed-clock ledger forever, so a binding which is later backfilled
-/// and re-extracts a causal hint targeting `P` can neither resolve that hint by
-/// observing `P`'s ACK (P's journal is read at its head, and P is retired) nor
-/// clear it by per-producer completion (`P` is unknown). Only the horizon rule
-/// discharges such a hint — and it always can, because the hint is bounded by
-/// `P.last_commit`, which the prune's own clock condition placed at least this
-/// horizon behind the group's newest commit, itself a retained producer and so
-/// part of the binding's promoted progress. Were the prune horizon the smaller
-/// of the two, such hints would instead stall until
-/// [`CAUSAL_HINT_RESOLUTION_TIMEOUT`] tore the session down — and the next
-/// session would resume before the hinting ACK and repeat, forever.
+/// A later backfill can re-extract a causal hint naming a pruned producer.
+/// Its ACK can't resolve the hint: the journal is read past it, and the
+/// producer is retired. Only the entry's `prune_floor` can discharge it
+/// ([`JournalFrontier::accounts_for`]), and it always does:
 ///
-/// The same argument applies to checkpoints migrated from V1, which Gazette's
-/// `message.Sequencer` pruned by clock alone at 24 hours. That, and not any
-/// need of V2 itself, is why this horizon is 24 hours.
+/// 1. The hint is at-or-below the producer's pruned `last_commit`.
+/// 2. If the session pruned the producer, it raised `prune_floor` to that
+///    `last_commit`.
+/// 3. If the producer was pruned before the session, it trailed its journal's
+///    newest commit by at least this horizon. That commit was retained, and
+///    the session seeds `prune_floor` to it less this horizon
+///    ([`Frontier::seed_prune_floors`]).
+///
+/// Step 3 requires that no prior prune forgot a producer nearer than this
+/// horizon. Otherwise its hints stall until [`CAUSAL_HINT_RESOLUTION_TIMEOUT`]
+/// tears down the session. The next session resumes before the hinting ACK,
+/// and repeats forever.
+///
+/// Checkpoints migrated from V1 are subject to step 3 as well. Gazette's
+/// `message.Sequencer` pruned them per journal by clock alone at 24 hours.
+/// That, and not any need of V2 itself, is why this horizon is 24 hours.
+///
+/// The horizon must also stay well above producer clock skew plus append delay.
+/// `prune_floor` accounts for the clocks of every absent producer, including
+/// one the entry has never read. A hint naming such a producer, at a clock
+/// below the floor, is discharged though its ACK is unread.
 pub const PRODUCER_STALENESS_HORIZON: std::time::Duration =
     std::time::Duration::from_secs(24 * 60 * 60);
 
