@@ -26,8 +26,10 @@
 //! But most queries will also need a few other attributes, not all of which are well documented.
 //! Other important attributes are:
 //!
-//! - `extern_enums("CatalogType", "AlertType", ...)`: Any enums that are returned by your query will named in
+//! - `extern_enums("CatalogType", "Capability", ...)`: Any enums that are returned by your query will named in
 //!   this attribute in order for them to have the proper types in the query resonse.
+//!   A released flowctl fails to deserialize a value which its extern enum doesn't have, so enums which
+//!   gain values over time (like `AlertType`) map to a string type instead.
 //! - `response_derives`, `variables_derives`: A string with a comma-separated list of derives for either the response
 //!   or variables struct. For example `response_derives = "Debug,Serialize"`
 //!
