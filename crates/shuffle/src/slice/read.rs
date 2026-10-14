@@ -193,7 +193,7 @@ pub struct Meta {
 
 /// ReadyRead is a ReadLines which has one or more parsed documents.
 pub struct ReadyRead {
-    /// The underlying read stream, returned to pending_reads when `tail` is exhausted.
+    /// The underlying read stream, which awaits I/O once the tail is exhausted.
     pub inner: super::ReadLines,
     /// Head document content.
     pub doc: doc::OwnedArchivedNode,
@@ -284,45 +284,30 @@ pub fn extract_metas(
     Ok(out)
 }
 
-/// Probe where a read starting at `offset` with the given `begin_mod_time` will
-/// actually begin, along with the journal's current write head.
-/// Returns `(start_offset, write_head, header)`.
+/// Probe where a read of `request` will actually begin, by a non-blocking,
+/// metadata-only read of it.
 ///
-/// We issue a non-blocking, metadata-only read at `offset` with `begin_mod_time`
-/// wired in. The broker fast-forwards over any fragments that fall before
-/// `begin_mod_time` (or over holes in the offset space) and replies with a single
-/// metadata response before closing the stream — `Status OK` with a covering
-/// fragment if eligible content exists, or `OFFSET_NOT_YET_AVAILABLE` if every
-/// fragment was filtered. Either way the response carries:
-///   * `offset`: the fast-forwarded start, at-or-after the requested `offset`, and
+/// The broker fast-forwards over any fragments that fall before
+/// `begin_mod_time` (or over holes in the offset space) and replies with a
+/// single metadata response before closing the stream — `Status OK` with a
+/// covering fragment if eligible content exists, or `OFFSET_NOT_YET_AVAILABLE`
+/// if every fragment was filtered. Either way the response carries:
+///   * `offset`: the fast-forwarded start, at-or-after the request `offset`, and
 ///   * `write_head`: the journal's current write head.
 ///
-/// `start_offset == write_head` means the read is caught up: all content up to the
-/// head precedes `begin_mod_time`. Starting the read at `start_offset` rather than
-/// a stale `offset` below the head is both correct — the skipped bytes precede
-/// `begin_mod_time` and would be filtered by the read regardless — and necessary
-/// to classify a caught-up read as tailing rather than stalled.
-pub async fn probe_read_start(
-    client: gazette::journal::Client,
-    journal: &str,
+/// A probed `offset == write_head` means the read is caught up: all content up
+/// to the head precedes `begin_mod_time`.
+pub async fn probe_read(
+    client: &gazette::journal::Client,
+    request: &broker::ReadRequest,
     binding_state_key: &str,
-    header: Option<broker::Header>,
-    journal_create_revision: i64,
-    offset: i64,
-    begin_mod_time: i64,
-) -> anyhow::Result<(i64, i64, Option<broker::Header>)> {
+) -> anyhow::Result<broker::ReadResponse> {
     use futures::StreamExt;
 
-    let stream = client.read(broker::ReadRequest {
-        journal: journal.to_string(),
-        offset,
-        begin_mod_time,
+    let stream = client.clone().read(broker::ReadRequest {
         block: false,
-        do_not_proxy: true,
-        header,
         metadata_only: true,
-        min_etcd_revision: journal_create_revision,
-        ..Default::default()
+        ..request.clone()
     });
     tokio::pin!(stream);
 
@@ -332,9 +317,12 @@ pub async fn probe_read_start(
         match stream.next().await {
             None => {
                 let Some(resp) = metadata else {
-                    panic!("metadata-only read of {journal} ended without a response")
+                    panic!(
+                        "metadata-only read of {} ended without a response",
+                        request.journal
+                    )
                 };
-                return Ok((resp.offset, resp.write_head, resp.header));
+                return Ok(resp);
             }
             Some(Err(gazette::RetryError {
                 attempt,
@@ -355,8 +343,8 @@ pub async fn probe_read_start(
                     service_kit::event!(
                         tracing::Level::WARN,
                         "read",
-                        binding = binding_state_key.to_string(),
-                        journal = journal.to_string(),
+                        binding_state_key = binding_state_key.to_string(),
+                        journal = request.journal.clone(),
                         attempt,
                         err = service_kit::event::debug(err),
                         "transient error probing journal read start (will retry)",
@@ -364,7 +352,7 @@ pub async fn probe_read_start(
                 } else {
                     return Err(map_read_error(
                         err,
-                        journal,
+                        &request.journal,
                         binding_state_key,
                         "probing read start",
                     ));
@@ -373,12 +361,57 @@ pub async fn probe_read_start(
             Some(Ok(resp)) => {
                 assert!(
                     metadata.is_none(),
-                    "metadata-only read of {journal} yielded more than one response",
+                    "metadata-only read of {} yielded more than one response",
+                    request.journal,
                 );
                 metadata = Some(resp);
             }
         }
     }
+}
+
+/// Start the blocking read of `request`, which resumes from its `offset` (the
+/// resume offset) but begins at the offset found by `probe_read` (the probed
+/// offset). Starting at the probed offset rather than a stale resume offset
+/// below the head is both correct — the skipped bytes precede `begin_mod_time`
+/// and would be filtered by the read regardless — and necessary to classify a
+/// caught-up read as tailing rather than stalled.
+pub async fn start_read(
+    client: gazette::journal::Client,
+    mut request: broker::ReadRequest,
+    read_id: u32,
+    binding_state_key: String,
+) -> super::heap::Probed {
+    use futures::StreamExt;
+
+    let probed = probe_read(&client, &request, &binding_state_key).await?;
+    let tailing = probed.offset >= probed.write_head;
+
+    service_kit::event!(
+        tracing::Level::DEBUG,
+        "read",
+        read_id,
+        binding_state_key,
+        journal = request.journal.clone(),
+        resume_offset = request.offset,
+        probed_offset = probed.offset,
+        tailing,
+        write_head = probed.write_head,
+        "probed journal read start",
+    );
+
+    let resume_offset = std::mem::replace(&mut request.offset, probed.offset);
+    request.header = probed.header;
+
+    Ok((
+        resume_offset,
+        probed.offset,
+        Box::pin(gazette::journal::read::ReadLines::new(
+            client.read(request).boxed(),
+            read_id,
+            tailing,
+        )) as super::ReadLines,
+    ))
 }
 
 /// Classification of a `ReadLines` failure.

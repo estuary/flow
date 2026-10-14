@@ -52,8 +52,8 @@ pub(crate) struct Metrics {
     reads_stopped: metrics::Counter,
     /// Number of active reads currently tailing their journal write head.
     tailing_reads: metrics::Gauge,
-    /// Number of reads currently pending AND non-tailing: parked awaiting broker
-    /// I/O while behind their write head, head-of-line-blocking the heap drain.
+    /// Number of reads currently pending AND non-tailing: awaiting broker I/O
+    /// while behind their write head, head-of-line-blocking the heap drain.
     stalled_reads: metrics::Gauge,
     /// Replays triggered (a gapped producer's first newer CONTINUE or ACK).
     /// `replays_started - replays_stopped` is the in-flight count.
