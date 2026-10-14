@@ -1,0 +1,184 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/connectors/task.rs
+expression: results
+---
+{
+  "liveCapture": {
+    "requests": [
+      {
+        "config": {
+          "config": {
+            "live": true
+          },
+          "image": "source/test:test"
+        },
+        "connectorType": 7,
+        "dataPlaneId": "111111fffe111111",
+        "protocol": "capture"
+      }
+    ],
+    "response": {
+      "data": {
+        "connectorSpec": {
+          "defaultCaptureInterval": "01:02:03",
+          "disableBackfill": false,
+          "documentationUrl": "https://example.test/capture",
+          "endpointSpecSchema": {
+            "title": "capture",
+            "type": "object"
+          },
+          "id": "6666666600000000",
+          "imageTag": ":test",
+          "protocol": "capture",
+          "resourceSpecSchema": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "liveMaterializationOfDraft": {
+    "requests": [
+      {
+        "config": {
+          "config": {
+            "live": true
+          },
+          "image": "materialize/test:test"
+        },
+        "connectorType": 8,
+        "dataPlaneId": "111111fffe111111",
+        "protocol": "materialize"
+      }
+    ],
+    "response": {
+      "data": {
+        "connectorSpec": {
+          "defaultCaptureInterval": null,
+          "disableBackfill": false,
+          "documentationUrl": "https://example.test/materialization",
+          "endpointSpecSchema": {
+            "title": "materialization",
+            "type": "object"
+          },
+          "id": "6666666600000001",
+          "imageTag": ":test",
+          "protocol": "materialization",
+          "resourceSpecSchema": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "missing": {
+    "requests": [],
+    "response": {
+      "data": {
+        "connectorSpec": null
+      }
+    }
+  },
+  "newCapture": {
+    "requests": [
+      {
+        "config": {
+          "config": {
+            "new": true
+          },
+          "image": "source/test:test"
+        },
+        "connectorType": 7,
+        "dataPlaneId": "222222fffe222222",
+        "protocol": "capture"
+      }
+    ],
+    "response": {
+      "data": {
+        "connectorSpec": {
+          "defaultCaptureInterval": "01:02:03",
+          "disableBackfill": false,
+          "documentationUrl": "https://example.test/capture",
+          "endpointSpecSchema": {
+            "title": "capture",
+            "type": "object"
+          },
+          "id": "6666666600000000",
+          "imageTag": ":test",
+          "protocol": "capture",
+          "resourceSpecSchema": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "newDekafMaterialization": {
+    "requests": [
+      {
+        "config": {
+          "config": {
+            "new": true
+          },
+          "variant": "foo"
+        },
+        "connectorType": 10,
+        "dataPlaneId": "111111fffe111111",
+        "protocol": "materialize"
+      }
+    ],
+    "response": {
+      "data": {
+        "connectorSpec": {
+          "defaultCaptureInterval": null,
+          "disableBackfill": false,
+          "documentationUrl": "https://example.test/materialization",
+          "endpointSpecSchema": {
+            "title": "materialization",
+            "type": "object"
+          },
+          "id": null,
+          "imageTag": ":v1",
+          "protocol": "materialization",
+          "resourceSpecSchema": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "stagedCapture": {
+    "requests": [
+      {
+        "config": {
+          "config": {
+            "staged": true
+          },
+          "image": "source/multi-tag-test:v2"
+        },
+        "connectorType": 7,
+        "dataPlaneId": "111111fffe111111",
+        "protocol": "capture"
+      }
+    ],
+    "response": {
+      "data": {
+        "connectorSpec": {
+          "defaultCaptureInterval": null,
+          "disableBackfill": false,
+          "documentationUrl": "https://example.test/capture",
+          "endpointSpecSchema": {
+            "title": "capture",
+            "type": "object"
+          },
+          "id": null,
+          "imageTag": ":v2",
+          "protocol": "capture",
+          "resourceSpecSchema": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

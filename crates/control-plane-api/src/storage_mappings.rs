@@ -100,6 +100,46 @@ pub async fn fetch_storage_mappings(
     .await
 }
 
+/// Select the data plane in which to dial the connector of task `catalog_name`:
+/// its live data plane, or else one permitted by its storage mapping.
+/// The subject must be able to read the selected plane, which must be dialable.
+/// Failures which a refreshed Snapshot may resolve carry a `tonic::Status`.
+pub(crate) fn select_task_data_plane<'s>(
+    snapshot: &'s crate::Snapshot,
+    subject: &models::authz::Subject,
+    catalog_name: &str,
+    catalog_type: models::CatalogType,
+    live_data_plane_id: Option<models::Id>,
+    requested_data_plane_name: Option<&str>,
+) -> anyhow::Result<&'s crate::server::snapshot::DataPlane> {
+    let data_plane_error = || tonic::Status::not_found("data plane not found or unauthorized");
+    let data_plane_name = if let Some(live_data_plane_id) = live_data_plane_id {
+        let current_data_plane_name = &snapshot
+            .data_plane_by_id(live_data_plane_id)
+            .ok_or_else(data_plane_error)?
+            .data_plane_name;
+        if requested_data_plane_name.is_some_and(|selected| selected != current_data_plane_name) {
+            anyhow::bail!("data plane differs from the live {catalog_type}");
+        }
+        current_data_plane_name.as_str()
+    } else {
+        snapshot
+            .storage_mapping_for(catalog_name)
+            .and_then(|mapping| {
+                let (prefix, data_planes) = mapping
+                    .ok_or_else(|| anyhow::anyhow!("no storage mapping for {catalog_type}"))?;
+                select_data_plane(prefix.as_str(), data_planes, requested_data_plane_name)
+            })
+            .inspect_err(|_| snapshot.request_refresh())?
+    };
+    Ok(snapshot
+        .is_user_authorized(subject, data_plane_name, models::Capability::Read)
+        .then(|| snapshot.data_plane_by_catalog_name(data_plane_name))
+        .flatten()
+        .filter(|data_plane| data_plane.connector_route().is_ok())
+        .ok_or_else(data_plane_error)?)
+}
+
 /// Select a permitted explicit plane, or the matched mapping's first plane.
 /// The exact `ops/` mapping permits any explicit plane: platform infrastructure
 /// is provisioned across data planes without enumerating the fleet in its mapping.

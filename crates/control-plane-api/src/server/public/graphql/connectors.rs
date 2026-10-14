@@ -1,5 +1,6 @@
 mod protocol;
 mod tags;
+mod task;
 
 use crate::{
     envelope::{Envelope, Locale},
@@ -176,20 +177,50 @@ const DEFAULT_PAGE_SIZE: usize = 20;
 
 #[async_graphql::Object]
 impl ConnectorsQuery {
-    /// Resolve the spec for a full OCI image name (e.g.
-    /// "ghcr.io/estuary/source-postgres:v1"). If the requested tag is not
-    /// available, falls back to the default tag. Check the returned `imageTag`
-    /// field to see which tag was actually resolved.
+    /// Resolve a connector spec, given either `fullImageName` or `catalogName`.
+    ///
+    /// For a full OCI image name (e.g. "ghcr.io/estuary/source-postgres:v1"),
+    /// if the requested tag is not available, falls back to the default tag.
+    /// Check the returned `imageTag` field to see which tag was actually resolved.
+    ///
+    /// For the name of a capture or materialization, its connector is asked for
+    /// its spec in the task's data plane, using the task as staged in `draftId`
+    /// or else as it's live. Returns null if the task is neither staged nor live.
     pub async fn connector_spec(
         &self,
         ctx: &Context<'_>,
         #[graphql(
             desc = "the full OCI image name, including the version tag, e.g. 'ghcr.io/estuary/source-foo:v1'"
         )]
-        full_image_name: String,
+        full_image_name: Option<String>,
+        #[graphql(desc = "the name of a capture or materialization")] catalog_name: Option<
+            models::Name,
+        >,
+        #[graphql(
+            desc = "a draft from which to read `catalogName`, falling back to its live definition if the draft has no entry for it"
+        )]
+        draft_id: Option<Id>,
+        #[graphql(
+            desc = "the data plane in which to resolve a `catalogName` which isn't live. Selected automatically when omitted."
+        )]
+        data_plane: Option<String>,
     ) -> async_graphql::Result<Option<ConnectorSpec>> {
         let env = ctx.data::<Envelope>()?;
         let _claims = env.claims()?;
+
+        let full_image_name = match (full_image_name, catalog_name) {
+            (Some(full_image_name), None) if draft_id.is_none() && data_plane.is_none() => {
+                full_image_name
+            }
+            (None, Some(catalog_name)) => {
+                return task::resolve(ctx, catalog_name, draft_id, data_plane).await;
+            }
+            _ => {
+                return Err(async_graphql::Error::new(
+                    "provide either 'fullImageName', or 'catalogName' with optional 'draftId' and 'dataPlane'",
+                ));
+            }
+        };
 
         let (image, tag) = models::split_image_tag(&full_image_name);
         if tag.is_empty() {

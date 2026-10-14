@@ -764,9 +764,9 @@ and resources.
 """
 type ConnectorSpec {
 	"""
-	The database ID of the connector_tags row backing this spec.
+	The database ID of the connector_tags row backing this spec, if there is one.
 	"""
-	id: Id! @deprecated(reason: "Not intended to be part of the public API. To be removed once downstream components no longer depend on this field.")
+	id: Id @deprecated(reason: "Not intended to be part of the public API. To be removed once downstream components no longer depend on this field.")
 	"""
 	The OCI Image tag this spec was resolved from, including the leading `:`. For example `:v1`.
 	This may differ from the requested tag if the request fell back to the default.
@@ -2603,16 +2603,33 @@ type QueryRoot {
 	"""
 	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection!
 	"""
-	Resolve the spec for a full OCI image name (e.g.
-	"ghcr.io/estuary/source-postgres:v1"). If the requested tag is not
-	available, falls back to the default tag. Check the returned `imageTag`
-	field to see which tag was actually resolved.
+	Resolve a connector spec, given either `fullImageName` or `catalogName`.
+	
+	For a full OCI image name (e.g. "ghcr.io/estuary/source-postgres:v1"),
+	if the requested tag is not available, falls back to the default tag.
+	Check the returned `imageTag` field to see which tag was actually resolved.
+	
+	For the name of a capture or materialization, its connector is asked for
+	its spec in the task's data plane, using the task as staged in `draftId`
+	or else as it's live. Returns null if the task is neither staged nor live.
 	"""
 	connectorSpec(
 		"""
 		the full OCI image name, including the version tag, e.g. 'ghcr.io/estuary/source-foo:v1'
 		"""
-		fullImageName: String!
+		fullImageName: String,
+		"""
+		the name of a capture or materialization
+		"""
+		catalogName: Name,
+		"""
+		a draft from which to read `catalogName`, falling back to its live definition if the draft has no entry for it
+		"""
+		draftId: Id,
+		"""
+		the data plane in which to resolve a `catalogName` which isn't live. Selected automatically when omitted.
+		"""
+		dataPlane: String
 	): ConnectorSpec
 	"""
 	Returns information about a single connector. At least one parameter
