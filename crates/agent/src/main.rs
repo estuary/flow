@@ -388,6 +388,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             )) as Arc<dyn control_plane_api::billing::BillingProvider>
         });
     let tenant_controller_billing_provider = billing_provider.clone();
+    let tenant_controller_catalog_stats = catalog_stats.clone();
 
     let sprites = args
         .sprites_token
@@ -449,6 +450,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             ))
             .register(agent::tenant_controller::TenantController::new(
                 tenant_controller_billing_provider,
+                tenant_controller_catalog_stats,
             ));
 
         if args.serve_alert_notifications {
