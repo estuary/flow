@@ -36,6 +36,7 @@ PipelineSnapshot {
                 ],
                 bytes_read_delta: 500,
                 bytes_behind_delta: 2000,
+                prune_floor: Clock(0s 0ns),
             },
             JournalFrontier {
                 journal: "journal/B",
@@ -50,6 +51,7 @@ PipelineSnapshot {
                 ],
                 bytes_read_delta: 300,
                 bytes_behind_delta: -100,
+                prune_floor: Clock(0s 0ns),
             },
             JournalFrontier {
                 journal: "journal/C",
@@ -64,6 +66,7 @@ PipelineSnapshot {
                 ],
                 bytes_read_delta: 150,
                 bytes_behind_delta: 800,
+                prune_floor: Clock(0s 0ns),
             },
             JournalFrontier {
                 journal: "journal/D",
@@ -78,6 +81,7 @@ PipelineSnapshot {
                 ],
                 bytes_read_delta: 100,
                 bytes_behind_delta: 400,
+                prune_floor: Clock(0s 0ns),
             },
         ],
         flushed_lsn: [

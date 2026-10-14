@@ -1,6 +1,6 @@
 ---
 source: crates/shuffle/src/session/state.rs
-expression: "&pipeline.ready"
+expression: "&pipeline.pipelines[0].ready"
 ---
 Frontier {
     journals: [
@@ -17,6 +17,7 @@ Frontier {
             ],
             bytes_read_delta: 1200,
             bytes_behind_delta: 5000,
+            prune_floor: Clock(0s 0ns),
         },
         JournalFrontier {
             journal: "journal/B",
@@ -31,6 +32,7 @@ Frontier {
             ],
             bytes_read_delta: 900,
             bytes_behind_delta: -300,
+            prune_floor: Clock(0s 0ns),
         },
     ],
     flushed_lsn: [],

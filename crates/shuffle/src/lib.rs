@@ -78,7 +78,7 @@ pub use service::{DEFAULT_SHUFFLE_DISK_LIMIT_BYTES, Service};
 /// - The runtime may **prune** — durably forget — a producer of a shard's
 ///   committed frontier only once that producer trails its journal group's
 ///   newest commit by at least this horizon. See
-///   `runtime_next::shard::recovery::prune_committed_frontier`.
+///   [`JournalFrontier::prune_stale_producers`].
 /// - The session may deem a Clock **completed** for a binding once that
 ///   binding's promoted read progress carries a commit at least this horizon
 ///   newer, whatever producer the clock names. See [`frontier::Completed`].

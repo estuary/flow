@@ -19,6 +19,7 @@ PipelineSnapshot {
                 ],
                 bytes_read_delta: 750,
                 bytes_behind_delta: 3000,
+                prune_floor: Clock(0s 0ns),
             },
         ],
         flushed_lsn: [],

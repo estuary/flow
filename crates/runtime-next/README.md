@@ -240,14 +240,11 @@ only ever writes `FC:` deltas.
 
 ## Committed-frontier pruning
 
-The startup scan also drops ancient, closed, far-behind `FC:` producers
+The startup scan also drops retired `FC:` producers
 (`shard::recovery::prune_committed_frontier`), bounding the frontier a shard
-carries forever. This deliberately relaxes the Frontier invariant, and both
-horizons it uses are load-bearing: `FRONTIER_PRUNE_BYTE_HORIZON` is local, but
-the *clock* horizon is `shuffle::PRODUCER_STALENESS_HORIZON`, shared with the
-session's `shuffle::Completed`. Pruning forgets a producer, so only the
-session's matching horizon rule can still discharge a later backfill's causal
-hints naming it. Read both doc comments before touching either.
+carries forever. Pruning loses nothing (`JournalFrontier::prune_stale_producers`),
+and the shuffle session's matching horizon rule discharges the hints that a
+future backfill of a peer binding may produce.
 
 ## Binding gap floors (`GF:`)
 
