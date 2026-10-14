@@ -129,8 +129,8 @@ fn run_sequence(seq: Vec<(u8, u8, bool, bool)>) -> Result<(), FuzzError> {
     for (i, (seq_key, seq_value, mut is_reduce, use_embedded)) in seq.into_iter().enumerate() {
         // Spill the spill-path memtable periodically to produce multiple segments.
         if i % 15 == 0 {
-            let spec = memtable_spill.spill(&mut spill, chunk_target).unwrap();
-            memtable_spill = combine::MemTable::new(spec);
+            let (spec, alloc) = memtable_spill.spill(&mut spill, chunk_target).unwrap();
+            memtable_spill = combine::MemTable::new_in(spec, alloc);
         }
 
         // Each key can have at most one front (is_reduce) document.
@@ -187,7 +187,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool, bool)>) -> Result<(), FuzzError> {
     let mut mem_drainer = memtable_mem.try_into_drainer()?;
 
     // Spill the final memtable_spill and drain via SpillDrainer.
-    let spec = memtable_spill.spill(&mut spill, chunk_target).unwrap();
+    let (spec, _alloc) = memtable_spill.spill(&mut spill, chunk_target).unwrap();
     let (spill, ranges) = spill.into_parts();
     let mut spill_drainer = combine::SpillDrainer::new(spec, spill, &ranges, Vec::new().into())?;
 

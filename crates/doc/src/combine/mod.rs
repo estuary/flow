@@ -198,6 +198,11 @@ impl Accumulator {
     /// Obtain an MemTable with available capacity.
     /// If the held MemTable is already over-capacity, it is first spilled and
     /// then replaced with a new instance, which is then returned.
+    /// The new instance re-uses the spilled allocator.
+    /// `Bump::reset()` keeps the allocator's newest chunk, which is its largest
+    /// because chunk sizes double.
+    /// Pages of that chunk that were already touched stay mapped,
+    /// so the new instance fills them without page faults.
     pub fn memtable(&mut self) -> Result<&MemTable, Error> {
         let Self {
             memtable: Some(memtable),
@@ -209,12 +214,12 @@ impl Accumulator {
         };
 
         if bump_mem_used(memtable.alloc()) > BUMP_THRESHOLD {
-            let spec = self
+            let (spec, alloc) = self
                 .memtable
                 .take()
                 .unwrap()
                 .spill(spill, CHUNK_TARGET_SIZE)?;
-            self.memtable = Some(MemTable::new(spec));
+            self.memtable = Some(MemTable::new_in(spec, alloc));
         }
 
         Ok(self.memtable.as_ref().unwrap())
@@ -252,8 +257,11 @@ impl Accumulator {
                 drainer: memtable.try_into_drainer()?,
             })
         } else {
-            // Spill the final MemTable segment.
-            let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE)?;
+            // Spill the final MemTable segment, and drop its allocator.
+            // Tasks often idle between transactions, and the allocator's memory is
+            // released for that time. `into_new_accumulator` builds the next
+            // Accumulator with a fresh allocator.
+            let (spec, _) = memtable.spill(&mut spill, CHUNK_TARGET_SIZE)?;
             let (spill, ranges) = spill.into_parts();
 
             // Empty when nothing was truncated, so segment stamping short-circuits.
@@ -666,6 +674,31 @@ mod test {
     }
 
     #[test]
+    fn test_accumulator_reuses_allocator_across_spills() {
+        let mut acc = Accumulator::new(make_spec(), tempfile::tempfile().unwrap()).unwrap();
+
+        // Like spill::test::exhaust_alloc, the reservation is never written,
+        // so it costs address space rather than resident memory.
+        let layout = std::alloc::Layout::from_size_align(BUMP_THRESHOLD + 1, 8).unwrap();
+
+        let mut capacities = Vec::new();
+        for _ in 0..3 {
+            acc.memtable().unwrap().alloc().alloc_layout(layout);
+            let alloc = acc.memtable().unwrap().alloc(); // Spills and resets.
+
+            assert_eq!(bump_mem_used(alloc), 0);
+            capacities.push(alloc.chunk_capacity());
+        }
+
+        // The first spill keeps the reservation's chunk.
+        // Each later reservation fits within that chunk.
+        // A new chunk would be at least twice as large, and reset() would keep it.
+        // So equal capacities show no new chunk was allocated.
+        assert!(capacities[0] > BUMP_THRESHOLD);
+        assert_eq!(capacities, vec![capacities[0]; 3]);
+    }
+
+    #[test]
     fn test_accumulator_with_spill() {
         let spill = tempfile::tempfile().unwrap();
         let spec = make_spec();
@@ -682,13 +715,13 @@ mod test {
         }
 
         // Force a spill by taking the memtable and spilling it.
-        let spec = acc
+        let (spec, alloc) = acc
             .memtable
             .take()
             .unwrap()
             .spill(&mut acc.spill, CHUNK_TARGET_SIZE)
             .unwrap();
-        acc.memtable = Some(MemTable::new(spec));
+        acc.memtable = Some(MemTable::new_in(spec, alloc));
 
         // Add more documents to a fresh memtable (second segment).
         for doc_json in [
