@@ -155,20 +155,6 @@ impl TenantMutation {
             ));
         }
 
-        // Lock this user to prevent concurrent tenant create mutations.
-        sqlx::query!(
-            "SELECT id FROM auth.users WHERE id = $1 FOR UPDATE",
-            claims.sub
-        )
-        .fetch_one(&mut *txn)
-        .await?;
-
-        if crate::tenants::is_user_provisioned(claims.sub, &mut txn).await? {
-            return Err(async_graphql::Error::new(
-                "Cannot provision a new tenant because the user has existing grants",
-            ));
-        }
-
         let tenant_name = create_tenant(
             env.snapshot(),
             claims.sub,
@@ -230,6 +216,20 @@ async fn create_tenant(
         .collect();
     if unaccented_name.contains("estuary") {
         return Err(async_graphql::Error::new(TENANT_UNAVAILABLE_MESSAGE));
+    }
+
+    // Lock this user to prevent concurrent tenant create mutations.
+    sqlx::query!(
+        "SELECT id FROM auth.users WHERE id = $1 FOR UPDATE",
+        user_id
+    )
+    .fetch_one(&mut **txn)
+    .await?;
+
+    if crate::tenants::is_user_provisioned(user_id, txn).await? {
+        return Err(async_graphql::Error::new(
+            "Cannot provision a new tenant because the user has existing grants",
+        ));
     }
 
     let tenant_name = format!("{}/", name);
@@ -689,6 +689,16 @@ mod test {
                 .await
                 .unwrap();
         insta::assert_json_snapshot!(metadata, @r#"{}"#);
+
+        // Name validation keeps precedence even after the user owns a tenant.
+        for (name, expected) in [
+            ("invalid/name", "Invalid organization name"),
+            ("Ａcme", "Invalid organization name"),
+            ("estuary", super::TENANT_UNAVAILABLE_MESSAGE),
+        ] {
+            let response: serde_json::Value = server.graphql(&request(name), Some(&token)).await;
+            assert_eq!(response["errors"][0]["message"], expected, "{response}");
+        }
 
         let response: serde_json::Value = server.graphql(&request("anotherCo"), Some(&token)).await;
         assert_eq!(
