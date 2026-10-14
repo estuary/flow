@@ -943,6 +943,52 @@ impl Frontier {
         Ok(frontier)
     }
 
+    /// Partition this Frontier into `parts` Frontiers, moving the entries of
+    /// each binding into part `part_of(binding)`. Per-shard `flushed_lsn` is
+    /// of no binding, and is cloned into every part.
+    pub fn partition_bindings(self, parts: usize, part_of: impl Fn(u16) -> usize) -> Vec<Frontier> {
+        let Self {
+            journals,
+            flushed_lsn,
+            latest_backfill_begin,
+            latest_backfill_complete,
+            binding_gap_floors,
+            unresolved_hints: _,
+        } = self;
+
+        let mut out: Vec<Frontier> = (0..parts)
+            .map(|_| Frontier {
+                flushed_lsn: flushed_lsn.clone(),
+                ..Default::default()
+            })
+            .collect();
+
+        // Each part's journals are a subsequence of `journals`, and so remain
+        // sorted and unique on (journal, binding).
+        for jf in journals {
+            out[part_of(jf.binding)].journals.push(jf);
+        }
+        for (binding, clock) in latest_backfill_begin {
+            out[part_of(binding)]
+                .latest_backfill_begin
+                .insert(binding, clock);
+        }
+        for (binding, clock) in latest_backfill_complete {
+            out[part_of(binding)]
+                .latest_backfill_complete
+                .insert(binding, clock);
+        }
+        for (binding, clock) in binding_gap_floors {
+            out[part_of(binding)]
+                .binding_gap_floors
+                .insert(binding, clock);
+        }
+        for part in &mut out {
+            part.unresolved_hints = count_unresolved_hints(&part.journals);
+        }
+        out
+    }
+
     /// Extract producers with unresolved causal hints (`hinted_commit > last_commit`)
     /// into a new Frontier, filtering out journals that have no such producers.
     /// Used at startup to project read-through state from `resume_checkpoint`.
@@ -2033,6 +2079,82 @@ mod test {
                 .journals
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn test_partition_bindings() {
+        let f = Frontier {
+            journals: vec![
+                jf("journal/A", 0, vec![pf(0x01, 50, 200, -100)]), // unresolved
+                jf("journal/A", 1, vec![pf(0x01, 100, 0, -100)]),
+                jf("journal/B", 0, vec![pf(0x03, 100, 0, -200)]),
+                jf("journal/C", 2, vec![pf(0x05, 0, 300, 0)]), // unresolved
+            ],
+            flushed_lsn: vec![Lsn::from_u64(10)],
+            latest_backfill_begin: BTreeMap::from([(0, Clock::from_u64(9))]),
+            latest_backfill_complete: BTreeMap::from([(1, Clock::from_u64(8))]),
+            binding_gap_floors: BTreeMap::from([(2, Clock::from_u64(7))]),
+            unresolved_hints: 2,
+        };
+
+        // Bindings 0 and 2 are of part 0, and binding 1 of part 1.
+        let parts = f.partition_bindings(2, |binding| (binding == 1) as usize);
+
+        insta::assert_debug_snapshot!(parts.iter().map(|part| (
+            part.journals.iter().map(|j| (&*j.journal, j.binding)).collect::<Vec<_>>(),
+            &part.flushed_lsn,
+            &part.latest_backfill_begin,
+            &part.latest_backfill_complete,
+            &part.binding_gap_floors,
+            part.unresolved_hints,
+        )).collect::<Vec<_>>(), @r#"
+        [
+            (
+                [
+                    (
+                        "journal/A",
+                        0,
+                    ),
+                    (
+                        "journal/B",
+                        0,
+                    ),
+                    (
+                        "journal/C",
+                        2,
+                    ),
+                ],
+                [
+                    0/10,
+                ],
+                {
+                    0: Clock(0s 36ns),
+                },
+                {},
+                {
+                    2: Clock(0s 28ns),
+                },
+                2,
+            ),
+            (
+                [
+                    (
+                        "journal/A",
+                        1,
+                    ),
+                ],
+                [
+                    0/10,
+                ],
+                {},
+                {
+                    1: Clock(0s 32ns),
+                },
+                {},
+                0,
+            ),
+        ]
+        "#);
     }
 
     #[test]

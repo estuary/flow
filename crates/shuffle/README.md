@@ -443,15 +443,22 @@ request pending, it sends the accumulated frontier as a `Frontier`.
 
 ### 11. Checkpoint Pipeline
 
-The Session's `CheckpointPipeline` is a four-stage state machine that
-promotes progress through: `progressed` → `unresolved` → `ready`.
+The Session runs a `CheckpointPipeline` of each priority: a state machine that
+promotes progress through `progressed` → `unresolved` → `ready`.
+Causal hints resolve only within a cohort, and a cohort is of one priority, so
+hints resolve independently within each pipeline.
+
+`CheckpointState` answers the coordinator's requests by reducing across the
+per-priority pipelines (see "Anchoring", below).
 
 **Causal hints** gate promotion. When a producer writes to journals
 spanning multiple bindings within a single transaction, the ACK document
 in one journal carries hints about commits expected in other journals.
 Progress stays in `unresolved` until all hinted journals confirm the
 producer committed — this prevents the checkpoint from advancing past
-transactions that are only partially visible.
+transactions that are only partially visible. A priority's stalled hints time
+out after `CAUSAL_HINT_RESOLUTION_TIMEOUT`, counting only time during which a
+coordinator request is outstanding.
 
 Unaccounted `progressed` is held back behind `unresolved` so that newer
 progress — which may itself add fresh hints — can't indefinitely starve
@@ -531,16 +538,8 @@ ratcheted floor, and the next session re-reads only the novel tail.
 In the recovery case, `unresolved` can carry hints whose resolution
 requires reading tens of GB before `ready` becomes available. To avoid
 keeping the coordinator idle (and log segments unscannable) during that
-window, `take_ready` may emit a *peek* of `unresolved` instead: a
-`Frontier` carrying `unresolved_hints == true` and zeroed byte deltas.
-A peek is emitted only when `unresolved` has made progress — any
-producer's `last_commit` advancing — since the last emission.
-
-The same "did `unresolved` make progress?" signal disarms the `on_tick`
-stall timeout: it fires only when no progress at all occurs between
-two consecutive ticks, and only while a coordinator request is
-outstanding — with nobody waiting on a checkpoint, zero progress is
-routine.
+window, `CheckpointState::take_ready` may emit a *peek* of `unresolved` instead:
+a `Frontier` carrying `unresolved_hints == true` and zeroed byte deltas.
 
 A peek also carries `latest_backfill_begin` eagerly (cloned from
 `unresolved`, which retains it for the eventual resolved `ready`), as
@@ -551,6 +550,16 @@ boundary are never combined. The begin clock only becomes durable
 checkpoint state once its causal hints resolve and it rides a fully-resolved
 `ready`. `latest_backfill_complete` is surfaced the same way — eagerly on a peek
 and durably on a resolved `ready` — but plays no part in classification.
+
+#### Anchoring
+
+A priority is *anchored* once a peek surfaces its `unresolved` to the
+coordinator, whose open transaction then can't close until those hints
+resolve. While any priority is anchored, requests are answered by peeks, which
+carry other priorities' `ready` (it holds no hints) but never their
+`unresolved`. Once none is anchored, every priority's `ready` is taken together
+as a resolved checkpoint. A recovery session starts with its resumed hints
+already anchored. `CheckpointState` documents the exact rules.
 
 ### 12. Coordinator Receives Checkpoint
 
@@ -588,7 +597,7 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
 
 ## Modules
 
-- `session/`: Session actor, checkpoint pipeline, journal routing.
+- `session/`: Session actor, per-priority checkpoint pipelines (`CheckpointState`), journal routing.
 - `slice/`: Slice actor, journal reading, document sequencing, key
   extraction, Append routing, flush/progress state machines.
   - `listing.rs`: Gazette journal listing subscriber.
