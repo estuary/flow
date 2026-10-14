@@ -18,8 +18,19 @@ insert into auth.users (id, email) values
 insert into public.directives (catalog_prefix, spec, token) values
   ('ops/', '{"type":"acceptDemoTenant"}', '14c0beec-422f-4e95-94f1-567107b26840');
 
--- Provision the local ops tenant directly; its grants and mappings are seeded below.
-insert into public.tenants (tenant) values ('ops.us-central1.v1/');
+-- Mirror provision_tenant for the local ops tenant, including its alert subscription.
+-- Its user and role grants and storage mappings are seeded below.
+insert into public.tenants (tenant, detail) values ('ops.us-central1.v1/', 'applied via seed');
+
+-- Keep these alert types aligned with models::status::AlertType::is_default.
+insert into public.alert_subscriptions (catalog_prefix, email, include_alert_types) values
+  ('ops.us-central1.v1/', 'support@estuary.dev', array[
+    'data_movement_stalled',
+    'free_trial',
+    'free_trial_ending',
+    'free_trial_stalled',
+    'missing_payment_method'
+  ]::public.alert_type[]);
 
 insert into public.role_grants (subject_role, object_role, capability) values
   -- Local ops tasks may access public data planes.
