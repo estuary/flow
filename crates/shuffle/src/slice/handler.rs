@@ -214,10 +214,7 @@ async fn open_log_rpc(
 
     let mut response_rx = if log_shard_index == slice_shard_index {
         tracing::debug!("spawning in-process Log RPC");
-        tokio_stream::wrappers::ReceiverStream::new(
-            service.spawn_log(proto_grpc::Authorizer::trusted_local(), request_rx.map(Ok)),
-        )
-        .boxed()
+        service.spawn_log(proto_grpc::Authorizer::trusted_local(), request_rx.map(Ok))
     } else {
         let endpoint = &shards[log_shard_index as usize].endpoint;
         tracing::debug!(log_shard_index, endpoint=%endpoint, "dialing remote Log RPC");
@@ -246,7 +243,7 @@ async fn open_log_rpc(
                 priorities: priorities.to_vec(),
             }),
             appends: Vec::new(),
-            flush: None,
+            barrier: None,
         },
     )?;
 

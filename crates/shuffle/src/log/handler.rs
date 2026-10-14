@@ -24,6 +24,7 @@ pub(crate) async fn serve_log<R>(
     authz: proto_grpc::Authorizer,
     request_rx: R,
     response_tx: mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
+    acked_tx: tokio::sync::watch::Sender<u64>,
 ) -> anyhow::Result<()>
 where
     R: futures::Stream<Item = tonic::Result<shuffle::LogRequest>> + Send + Unpin + 'static,
@@ -33,7 +34,7 @@ where
     // instrumentation included.
     let handler = service.registry.register("shuffle.log");
     let span = handler.span();
-    serve_log_inner(service, authz, request_rx, response_tx, handler)
+    serve_log_inner(service, authz, request_rx, response_tx, acked_tx, handler)
         .instrument(span)
         .await
 }
@@ -43,6 +44,7 @@ async fn serve_log_inner<R>(
     authz: proto_grpc::Authorizer,
     mut request_rx: R,
     response_tx: mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
+    acked_tx: tokio::sync::watch::Sender<u64>,
     mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<()>
 where
@@ -148,6 +150,7 @@ where
         join.slices[slice] = Some(LogJoinSlot {
             request_rx: request_rx.boxed(),
             response_tx,
+            acked_tx,
             complete_tx,
         });
 
@@ -216,11 +219,13 @@ where
     // releasing each slot's parked sibling as we take ownership.
     let mut log_response_tx = Vec::with_capacity(slice_count);
     let mut log_request_rx = Vec::with_capacity(slice_count);
+    let mut acked_tx = Vec::with_capacity(slice_count);
 
     for connection in connections {
         let LogJoinSlot {
             request_rx,
             response_tx,
+            acked_tx: slot_acked_tx,
             complete_tx,
         } = connection.unwrap();
 
@@ -230,6 +235,7 @@ where
 
         log_response_tx.push(response_tx);
         log_request_rx.push(request_rx);
+        acked_tx.push(slot_acked_tx);
     }
 
     // Send Opened response to all Slices.
@@ -267,6 +273,7 @@ where
         flush: state::FlushState::new(slice_count),
         disk: state::DiskState::new(shuffle_disk_limit_bytes),
         log_response_tx,
+        acked_tx,
         metrics,
     }
     .serve(log_request_rx)

@@ -274,7 +274,10 @@ impl Topology {
 /// has resolved all resumption hints.
 ///
 /// Each priority times out its own stalled causal hints whether or not it's
-/// anchored, and isn't disarmed by the progress of other priorities.
+/// anchored, and isn't disarmed by the progress of other priorities. A
+/// priority can stall behind the backlog of a gating higher priority (see the
+/// crate README), but should that outlast the timeout, on restart the next
+/// session completes that backlog before starting the priority that stalled.
 pub struct CheckpointState {
     /// Pipeline of each of the session's priorities, indexed as
     /// `Topology::priorities`.

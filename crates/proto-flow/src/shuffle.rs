@@ -407,8 +407,14 @@ pub mod slice_response {
 }
 /// LogRequest is sent by Slices to each shard's Log.
 /// The first is an Open. All that follow are a round: zero or more Appends,
-/// and optionally a Flush. A round that starts a Flush goes to every Log, and
-/// otherwise only to Logs for which it has Appends.
+/// closed by a Barrier. Every round goes to every Log.
+///
+/// Slices are flow-controlled by the archived bytes of documents they consume,
+/// whether or not those documents are appended. Each round's Barrier carries the
+/// round's consumed archived bytes as its quota, which is the same at every Log,
+/// and a Log releases a Barrier's quota (LogResponse.Acked) as it merges the
+/// Barrier. A Slice consumes no further than a window of quota which some Log
+/// hasn't released. The Slice (alone) sizes and enforces its window.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LogRequest {
     #[prost(message, optional, tag = "1")]
@@ -417,7 +423,7 @@ pub struct LogRequest {
     #[prost(message, repeated, tag = "2")]
     pub appends: ::prost::alloc::vec::Vec<log_request::Append>,
     #[prost(message, optional, tag = "3")]
-    pub flush: ::core::option::Option<log_request::Flush>,
+    pub barrier: ::core::option::Option<log_request::Barrier>,
 }
 /// Nested message and enum types in `LogRequest`.
 pub mod log_request {
@@ -492,14 +498,45 @@ pub mod log_request {
         #[prost(uint32, tag = "11")]
         pub source_byte_length: u32,
     }
-    /// Flush requests a durability barrier, and the Log responds with a Flushed
-    /// of its cycle once the Appends of this and all prior rounds of the Slice
-    /// are durable.
+    /// Barrier closes a round, and is queued behind its Appends.
+    ///
+    /// Logs merge Appends and Barriers in (priority DESC, adjusted_clock ASC)
+    /// order, where a Slice's merge position is its priority and its next queued
+    /// Append or Barrier. A Slice with nothing queued gates the merge at the
+    /// position of its last Barrier, and the Log awaits its next round, unless
+    /// that Barrier was caught up. Until its first round, a Slice is presumed not
+    /// caught up at position zero: nothing of its priority or lower may merge
+    /// without first hearing from it. A Slice of lower priority therefore merges
+    /// only once every higher-priority Slice is caught up and drained.
+    ///
+    /// As a Barrier merges, the Log releases its quota and its flush request, if any.
+    /// A Slice's progress is thus reported only once the merge has passed the
+    /// position through which it was consumed, whether or not the Slice appended.
+    ///
+    /// A Slice may send Appends which fall below a prior Barrier, such as when
+    /// a source producer's clock regresses, or a gapped producer replays. Their
+    /// order of merge is best-effort. However, a Barrier never falls below an
+    /// Append the Slice has already sent, which Logs verify (a property required
+    /// for the liveness of their merge).
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Flush {
-        /// Cycle number for correlating Flush with Flushed response.
+    pub struct Barrier {
+        /// If non-zero, requests a log flush of this cycle. The Log responds with a
+        /// Flushed of the cycle once this Barrier has merged, and the Appends of
+        /// this and all prior rounds of the Slice are durable.
         #[prost(uint64, tag = "1")]
-        pub cycle: u64,
+        pub flush_cycle: u64,
+        /// Adjusted clock (clock + read_delay) through which the Slice has consumed:
+        /// the greatest of any document it has dequeued, appended or not.
+        #[prost(fixed64, tag = "2")]
+        pub adjusted_clock: u64,
+        /// Archived bytes of the documents the Slice dequeued in this round.
+        #[prost(uint64, tag = "3")]
+        pub quota: u64,
+        /// Whether the Slice has no document due: all of its reads are tailing, or
+        /// have stopped at the recovery frontier, or its next document awaits its
+        /// read delay. A caught-up Slice with nothing queued doesn't gate the merge.
+        #[prost(bool, tag = "4")]
+        pub caught_up: bool,
     }
 }
 /// LogResponse is sent by the Log actor back to each Slice.
@@ -509,6 +546,8 @@ pub struct LogResponse {
     pub opened: ::core::option::Option<log_response::Opened>,
     #[prost(message, optional, tag = "2")]
     pub flushed: ::core::option::Option<log_response::Flushed>,
+    #[prost(message, optional, tag = "3")]
+    pub acked: ::core::option::Option<log_response::Acked>,
 }
 /// Nested message and enum types in `LogResponse`.
 pub mod log_response {
@@ -521,7 +560,7 @@ pub mod log_response {
     /// report ProgressDelta to the Session.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Flushed {
-        /// Cycle number from the corresponding Flush request.
+        /// Cycle number of the Barrier which requested this flush.
         #[prost(uint64, tag = "1")]
         pub cycle: u64,
         /// Log head position after all preceding appends are durable.
@@ -529,5 +568,13 @@ pub mod log_response {
         /// documents appended before this flush.
         #[prost(uint64, tag = "2")]
         pub flushed_lsn: u64,
+    }
+    /// Acked releases the Slice's window of quota.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Acked {
+        /// Cumulative quota of the Slice's Barriers which the Log has merged since
+        /// the RPC opened. It never decreases.
+        #[prost(uint64, tag = "1")]
+        pub quota: u64,
     }
 }

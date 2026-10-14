@@ -1,105 +1,138 @@
 use proto_flow::shuffle;
+use proto_gazette::uuid;
 
-/// SliceBuffer holds one Slice's current round at a Log until it merges.
+/// SliceBuffer holds one Slice's rounds at a Log until they merge.
+/// Each round is the Slice's Appends, closed by a Barrier.
 ///
-/// A Log reads a Slice's next round only once its current round has merged
-/// (`is_drained`). Until then the Log doesn't read the Slice's request stream,
-/// and HTTP/2 flow control holds back the Slice.
+/// Entries pop in arrival order: the order of the Slice's own merge over its
+/// journal reads. The queue front defines this Slice's position in the merge.
+/// A Barrier is never below an Append the Slice has sent (`on_round` verifies).
 ///
-/// Appends pop in arrival order: the order of the Slice's own merge over its
-/// journal reads. A round's flush request is released as its last Append pops.
+/// Popping a Barrier adds its quota to `released`, which frees room in the
+/// Slice's window. It also yields the Barrier's flush request, if any.
+///
+/// While nothing is queued, the Slice gates the merge at the position of its
+/// last Barrier, unless that Barrier was caught up (`next_merge`).
 /// See "Log Merge and Output" and "Flush Cycle" of the crate README.
 pub struct SliceBuffer {
-    /// Priority of the Slice, at which its Appends merge.
+    /// Priority of the Slice, at which its entries merge.
     priority: i32,
-    /// Unmerged Appends of the current round, in arrival order.
-    queue: std::collections::VecDeque<shuffle::log_request::Append>,
-    /// Cycle of the current round's flush request, released once its Appends merge.
-    flush_cycle: Option<u64>,
+    /// Position at which the Slice gates the merge while nothing is queued:
+    /// that of its last Barrier. None if that Barrier was caught up.
+    /// Until its first round, a Slice gates at zero.
+    gate: Option<uuid::Clock>,
+    /// Greatest adjusted clock of any received Append.
+    /// Every Barrier must be at-or-above.
+    append_hwm: uuid::Clock,
+    /// Unmerged Appends and Barriers, in arrival order.
+    queue: std::collections::VecDeque<Entry>,
+    /// Lifetime quota of merged Barriers, which releases the Slice's window.
+    released: u64,
     /// Journal of the last-popped Append. Journal names are delta-encoded
     /// against the Slice's previous Append to this Log, and are decoded as
     /// Appends pop in that same arrival order.
     journal: String,
 }
 
-/// An Append popped from a SliceBuffer for its merge.
-pub struct Popped<'a> {
-    pub append: shuffle::log_request::Append,
-    /// Delta-decoded journal name of the Append.
-    pub journal: &'a str,
-    /// Cycle of a flush which is released by this Append's merge.
-    pub flush_cycle: Option<u64>,
+enum Entry {
+    Append(shuffle::log_request::Append),
+    Barrier(shuffle::log_request::Barrier),
+}
+
+/// An entry popped from a SliceBuffer for its merge.
+pub enum Popped<'a> {
+    Append {
+        append: shuffle::log_request::Append,
+        /// Delta-decoded journal name of the Append.
+        journal: &'a str,
+    },
+    /// A merged Barrier, whose quota is released.
+    Barrier {
+        /// Cycle of a flush which is released by the Barrier's merge.
+        flush_cycle: Option<u64>,
+    },
 }
 
 impl SliceBuffer {
     pub fn new(priority: i32) -> Self {
         Self {
             priority,
+            gate: Some(uuid::Clock::zero()),
+            append_hwm: uuid::Clock::zero(),
             queue: Default::default(),
-            flush_cycle: None,
+            released: 0,
             journal: String::new(),
         }
     }
 
-    /// Apply a Slice's received round, which must follow the merge of its
-    /// prior round. Returns the round's flush cycle if it's released
-    /// immediately, because the round has no Appends.
+    /// Verify and apply a Slice's received round,
+    /// whose Barrier must be at or above each Append the Slice has sent.
     pub fn on_round(
         &mut self,
         appends: Vec<shuffle::log_request::Append>,
-        flush: Option<shuffle::log_request::Flush>,
-    ) -> Option<u64> {
-        assert!(
-            self.is_drained(),
-            "a round is read only once its prior round merges"
-        );
-
-        let flush_cycle = flush.map(|shuffle::log_request::Flush { cycle }| cycle);
-        if appends.is_empty() {
-            return flush_cycle;
+        barrier: shuffle::log_request::Barrier,
+    ) -> anyhow::Result<()> {
+        for append in appends {
+            self.append_hwm = self.append_hwm.max(crate::merge::adjusted_clock(&append));
+            self.queue.push_back(Entry::Append(append));
         }
-        self.queue.extend(appends);
-        self.flush_cycle = flush_cycle;
-        None
-    }
 
-    /// Whether the current round has merged, and the Slice's next round may be read.
-    pub fn is_drained(&self) -> bool {
-        self.queue.is_empty()
-    }
-
-    /// Merge position of the next Append to pop.
-    pub fn peek_position(&self) -> Option<crate::merge::Position> {
-        self.queue
-            .front()
-            .map(|append| crate::merge::Position::from_append(self.priority, append))
-    }
-
-    /// Pop the next arrival-order Append for its merge.
-    pub fn pop(&mut self) -> Popped<'_> {
-        let append = self
-            .queue
-            .pop_front()
-            .expect("pop requires a queued Append");
-
-        if append.journal_name_truncate_delta != 0 || !append.journal_name_suffix.is_empty() {
-            gazette::delta::decode(
-                &mut self.journal,
-                append.journal_name_truncate_delta,
-                &append.journal_name_suffix,
+        if barrier.adjusted_clock < self.append_hwm.as_u64() {
+            anyhow::bail!(
+                "Slice's Barrier {} is below a prior Append at {}",
+                barrier.adjusted_clock,
+                self.append_hwm.as_u64(),
             );
         }
+        // The gate matters only once the queue drains through this Barrier,
+        // assuming it's still the Slice's last.
+        self.gate = (!barrier.caught_up).then(|| uuid::Clock::from_u64(barrier.adjusted_clock));
+        self.queue.push_back(Entry::Barrier(barrier));
 
-        let flush_cycle = if self.queue.is_empty() {
-            self.flush_cycle.take()
-        } else {
-            None
-        };
+        Ok(())
+    }
 
-        Popped {
-            append,
-            journal: &self.journal,
-            flush_cycle,
+    /// Lifetime quota of merged Barriers, which releases the Slice's window.
+    pub fn released(&self) -> u64 {
+        self.released
+    }
+
+    /// Merge position of the next entry to pop.
+    pub fn peek_position(&self) -> Option<crate::merge::Position> {
+        self.queue.front().map(|entry| match entry {
+            Entry::Append(append) => crate::merge::Position::from_append(self.priority, append),
+            Entry::Barrier(barrier) => crate::merge::Position {
+                priority: self.priority,
+                adjusted_clock: uuid::Clock::from_u64(barrier.adjusted_clock),
+            },
+        })
+    }
+
+    /// Pop the next arrival-order entry for its merge.
+    pub fn pop(&mut self) -> Popped<'_> {
+        match self.queue.pop_front().expect("pop requires a queued entry") {
+            Entry::Append(append) => {
+                if append.journal_name_truncate_delta != 0 || !append.journal_name_suffix.is_empty()
+                {
+                    gazette::delta::decode(
+                        &mut self.journal,
+                        append.journal_name_truncate_delta,
+                        &append.journal_name_suffix,
+                    );
+                }
+                Popped::Append {
+                    append,
+                    journal: &self.journal,
+                }
+            }
+            Entry::Barrier(shuffle::log_request::Barrier {
+                quota, flush_cycle, ..
+            }) => {
+                self.released += quota;
+                Popped::Barrier {
+                    flush_cycle: (flush_cycle != 0).then_some(flush_cycle),
+                }
+            }
         }
     }
 }
@@ -107,11 +140,14 @@ impl SliceBuffer {
 /// The next step of a Log's merge across its Slice buffers.
 #[derive(Debug, PartialEq, Eq)]
 pub enum NextMerge {
-    /// No Appends are queued.
+    /// Nothing is queued, and no Slice gates the merge.
     Idle,
-    /// Queued Appends of `slice` may merge in arrival order, while each is at
+    /// The merge awaits a next round of `slice`, whose gate orders before
+    /// every queued entry.
+    Gated { slice: usize },
+    /// Queued entries of `slice` may merge in arrival order, while each is at
     /// or before `through`. `through` is the least position of any peer Slice.
-    /// It changes only when a round is read, so a run of `slice` Appends may
+    /// It changes only when a round is read, so a run of `slice` entries may
     /// merge without calling `next_merge` again.
     Ready {
         slice: usize,
@@ -119,33 +155,52 @@ pub enum NextMerge {
     },
 }
 
-/// Determine the next step of the merge across `slices`: the Slice whose next
-/// Append is least in merge order (breaking ties by Slice index), through the
-/// least next Append of its peers. Slices with nothing queued don't
-/// participate, so order across Slices is best-effort.
+/// Determine the next step of the merge across `slices`.
+///
+/// Each Slice has a merge position. It's that of its next queued entry or,
+/// if nothing is queued, that of its gate. A Slice with neither is skipped.
+///
+/// The Slice with the least position goes next. A tie goes to an entry over
+/// a gate, and then to the lower Slice index. If the least is a gate, the
+/// merge waits on that Slice (`Gated`). If it's an entry, that Slice merges
+/// through the least position of its peers (`Ready`).
+///
+/// An entry must win a tie with a gate for the merge to be live
+/// (see `super::actor::LogActor`).
 pub fn next_merge(slices: &[SliceBuffer]) -> NextMerge {
-    let mut least: Option<(crate::merge::Position, usize)> = None;
+    // The `least` (position, is_gate, slice) of queued entries and gates,
+    // and the second-least merge-`through` Position of its peers.
+    let mut least = None;
     let mut through = crate::merge::Position::MAX;
 
     for (index, slice) in slices.iter().enumerate() {
-        let Some(position) = slice.peek_position() else {
-            continue;
+        let (position, is_gate) = match (slice.peek_position(), slice.gate) {
+            (Some(position), _) => (position, false),
+            (None, Some(gate)) => {
+                let position = crate::merge::Position {
+                    priority: slice.priority,
+                    adjusted_clock: gate,
+                };
+                (position, true)
+            }
+            (None, None) => continue,
         };
-        if let Some((prior, _)) = least {
-            if position >= prior {
+        if let Some((prior, prior_is_gate, _)) = least {
+            if (position, is_gate) >= (prior, prior_is_gate) {
                 through = through.min(position);
             } else {
                 through = prior;
-                least = Some((position, index));
+                least = Some((position, is_gate, index));
             }
         } else {
-            least = Some((position, index));
+            least = Some((position, is_gate, index));
         }
     }
 
     match least {
         None => NextMerge::Idle,
-        Some((_, slice)) => NextMerge::Ready { slice, through },
+        Some((_, true, slice)) => NextMerge::Gated { slice },
+        Some((_, false, slice)) => NextMerge::Ready { slice, through },
     }
 }
 
@@ -162,10 +217,24 @@ mod test {
         }
     }
 
+    fn barrier(clock: u64, quota: u64, flush_cycle: u64) -> shuffle::log_request::Barrier {
+        shuffle::log_request::Barrier {
+            adjusted_clock: clock,
+            quota,
+            caught_up: false,
+            flush_cycle,
+        }
+    }
+
+    fn caught_up(clock: u64) -> shuffle::log_request::Barrier {
+        shuffle::log_request::Barrier {
+            caught_up: true,
+            ..barrier(clock, 0, 0)
+        }
+    }
+
     #[test]
     fn test_slice_buffer_and_merge() {
-        let flush = |cycle| Some(shuffle::log_request::Flush { cycle });
-
         // Steps record their observations, with positions as p{priority}@{clock}.
         let mut trace = Vec::new();
         let mut note = |step: &str, observed: String| trace.push(format!("{step} -> {observed}"));
@@ -174,104 +243,140 @@ mod test {
             u64::MAX => "MAX".to_string(),
             clock => format!("p{}@{clock}", p.priority),
         };
-        let fmt_pop = |popped: Popped| {
-            format!(
-                "clock {}, released: {:?}",
-                popped.append.clock, popped.flush_cycle
-            )
+        let fmt_pop = |popped: Popped| match popped {
+            Popped::Append { append, journal } => format!("append @{} {journal:?}", append.clock),
+            Popped::Barrier { flush_cycle } => format!("barrier, flush: {flush_cycle:?}"),
         };
         let fmt_merge = |m: NextMerge| match m {
             NextMerge::Ready { slice, through } => {
                 format!("Ready(slice: {slice}, through: {})", fmt_position(through))
             }
-            m => format!("{m:?}"),
+            NextMerge::Gated { slice } => format!("Gated(slice: {slice})"),
+            NextMerge::Idle => "Idle".to_string(),
         };
-        let fmt_peek = |s: &SliceBuffer| format!("{:?}", s.peek_position().map(fmt_position));
+        let round = |s: &mut SliceBuffer, appends, barrier| s.on_round(appends, barrier).unwrap();
 
-        // A flush of a round without Appends is released immediately.
+        // Entries pop in arrival order, across rounds, whatever their positions.
+        // A Barrier releases its quota, and its flush.
         let mut s = SliceBuffer::new(0);
-        let released = s.on_round(Vec::new(), flush(3));
-        note("on_round([], flush 3)", format!("{released:?}"));
-
-        // Appends pop in arrival order, whatever their positions, and a round's
-        // flush is released by the pop of its last Append.
-        let released = s.on_round(vec![append(30), append(20), append(25)], flush(7));
-        note("on_round([30, 20, 25], flush 7)", format!("{released:?}"));
-        for _ in 0..3 {
-            note("peek", fmt_peek(&s));
-            note("pop", fmt_pop(s.pop()));
+        round(&mut s, vec![append(30), append(20)], barrier(30, 100, 0));
+        round(&mut s, vec![append(25)], barrier(35, 50, 7));
+        round(&mut s, Vec::new(), barrier(40, 10, 0));
+        while s.peek_position().is_some() {
+            let position = fmt_position(s.peek_position().unwrap());
+            note(&format!("pop {position}"), fmt_pop(s.pop()));
+            note("released", s.released().to_string());
         }
-        note("drained", format!("{}", s.is_drained()));
+
+        // A Barrier below a prior Append is an error.
+        let result = s.on_round(vec![append(60)], barrier(50, 0, 0));
+        note(
+            "on_round([60], barrier @50)",
+            format!("{:?}", result.map_err(|err| err.to_string())),
+        );
 
         // Journal names are delta-decoded as Appends pop.
+        let mut s = SliceBuffer::new(0);
         let named = |truncate: i32, suffix: &str| shuffle::log_request::Append {
             journal_name_truncate_delta: truncate,
             journal_name_suffix: suffix.to_string(),
             ..append(1)
         };
-        s.on_round(
+        round(
+            &mut s,
             vec![
                 named(0, "acmeCo/one/pivot=00"),
                 named(0, ""),
                 named(2, "11"),
             ],
-            None,
+            barrier(1, 0, 0),
         );
-        let journals: Vec<_> = (0..3).map(|_| s.pop().journal.to_string()).collect();
+        let journals: Vec<_> = (0..3)
+            .map(|_| match s.pop() {
+                Popped::Append { journal, .. } => journal.to_string(),
+                Popped::Barrier { .. } => unreachable!(),
+            })
+            .collect();
         note("delta-decoded", format!("{journals:?}"));
 
         // Merge runs as `LogActor::merge_block` does: in arrival order, while
-        // the Slice's next Append is at or before `through`.
+        // the Slice's next entry is at or before `through`.
         let merge_run = |slices: &mut [SliceBuffer]| {
             let NextMerge::Ready { slice, through } = next_merge(slices) else {
                 return fmt_merge(next_merge(slices));
             };
             let priority = slices[slice].priority;
             let mut merged = Vec::new();
-            while slices[slice]
-                .peek_position()
-                .is_some_and(|position| position <= through)
+            while let Some(position) = slices[slice].peek_position()
+                && position <= through
             {
-                let Popped {
-                    append,
-                    flush_cycle,
-                    ..
-                } = slices[slice].pop();
-                let released = flush_cycle.map_or(String::new(), |c| format!(" released {c}"));
-                merged.push(format!("p{priority}@{}{released}", append.clock));
+                merged.push(match slices[slice].pop() {
+                    Popped::Append { append, .. } => format!("p{priority}@{}", append.clock),
+                    Popped::Barrier { flush_cycle } => {
+                        let flush = flush_cycle.map_or(String::new(), |c| format!(" flush {c}"));
+                        format!("|p{priority}@{}{flush}", position.adjusted_clock.as_u64())
+                    }
+                });
             }
             format!("s{slice}: [{}]", merged.join(", "))
         };
 
-        // Merge: the Slice with the least next Append, through the least next
-        // Append of its peers. Slices with nothing queued don't participate.
+        // Merge runs until the merge must wait.
+        let drain = |slices: &mut [SliceBuffer]| {
+            let mut runs = Vec::new();
+            loop {
+                let run = merge_run(slices);
+                let waits = !run.starts_with('s');
+                runs.push(run);
+                if waits {
+                    return runs.join("; ");
+                }
+            }
+        };
+
         // Slice 0 is of priority 1, and Slices 1 and 2 of priority 0.
+        // Barriers are shown as |p{priority}@{clock}.
         let mut slices: Vec<_> = [1, 0, 0].map(SliceBuffer::new).into();
+
+        // Before its first round, a Slice gates every merge at zero.
         note("merge", fmt_merge(next_merge(&slices)));
+        for slice in slices.iter_mut() {
+            round(slice, Vec::new(), caught_up(0));
+        }
+        note("all caught up", drain(&mut slices));
 
-        slices[1].on_round(vec![append(100)], None);
-        note("s1 [p0@100]", fmt_merge(next_merge(&slices)));
+        // A Slice with nothing queued gates the merge at its last Barrier.
+        round(&mut slices[1], vec![append(100)], barrier(110, 0, 0));
+        round(&mut slices[2], Vec::new(), barrier(90, 0, 0));
+        note("s1 [p0@100]|110, s2 |90", drain(&mut slices));
 
-        slices[2].on_round(vec![append(90)], None);
-        note("s2 [p0@90]", fmt_merge(next_merge(&slices)));
+        // A Barrier requesting a flush merges only once the merge has passed
+        // it, though its Slice appended nothing.
+        round(&mut slices[2], Vec::new(), barrier(105, 0, 9));
+        note("s2 |105 flush 9", drain(&mut slices));
 
-        // The higher-priority Slice merges first, whatever its clock.
-        slices[0].on_round(vec![append(200)], None);
-        note("s0 [p1@200]", fmt_merge(next_merge(&slices)));
-        note("run", merge_run(&mut slices));
-        note("run", merge_run(&mut slices));
+        // Ties of entries break by Slice index, and an entry merges ahead of a
+        // peer's gate at an equal position.
+        round(&mut slices[2], vec![append(110)], barrier(110, 0, 0));
+        note("s2 [p0@110]|110", drain(&mut slices));
 
-        // Ties break by Slice index.
-        slices[2].on_round(vec![append(100)], None);
-        note("s2 [p0@100]", fmt_merge(next_merge(&slices)));
-        note("run", merge_run(&mut slices));
+        // The higher-priority Slice merges first, whatever its clock, and its
+        // gate holds back every lesser-priority entry until it's caught up.
+        round(&mut slices[1], vec![append(120)], barrier(120, 0, 0));
+        round(&mut slices[2], Vec::new(), caught_up(110));
+        round(&mut slices[0], vec![append(500)], barrier(500, 0, 0));
+        note(
+            "s1 [p0@120]|120, s2 caught up, s0 [p1@500]|500",
+            drain(&mut slices),
+        );
+        round(&mut slices[0], Vec::new(), caught_up(500));
+        note("s0 caught up", drain(&mut slices));
 
-        // A run continues through a lesser Append which follows, and through
-        // Appends equal to `through`, and releases its round's flush.
-        slices[1].on_round(vec![append(95), append(92), append(100)], flush(9));
-        note("s1 [95, 92, 100] flush 9", merge_run(&mut slices));
-        note("run", merge_run(&mut slices));
-        note("run", merge_run(&mut slices));
+        // A Slice's Appends may regress below its prior Barriers (here p0@125
+        // after |p0@140), and merge best-effort.
+        round(&mut slices[1], vec![append(130)], barrier(140, 0, 0));
+        round(&mut slices[1], vec![append(125)], barrier(150, 0, 0));
+        note("s1 [p0@130]|140, [p0@125]|150", drain(&mut slices));
 
         insta::assert_snapshot!(trace.join("\n"));
     }

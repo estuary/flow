@@ -76,22 +76,12 @@ Session request stream, the Session propagates this to its Slices by closing
 their request streams, and each Slice in turn to its Logs. Each actor observes
 the EOF, then drains its downstream peers' EOFs before exiting.
 
-This interacts subtly with disk back-pressure. When a Log engages back-pressure
-(§8), it stops merging a Slice's round, and so doesn't read the Slice's request
-stream — so the Log cannot observe its EOF. A Slice whose round is parked at a
-back-pressured Log therefore can't drain that Log to EOF, and shutdown wedges
-from the Log upward. Back-pressure normally releases only as the downstream
-coordinator consumes the local log and reclaims segments — which stops
-happening once the coordinator is shutting down.
-
-A coordinator breaks this by relieving the back-pressure out-of-band: it removes
-each shard's log segment files (`remove_shard_segments`). The co-located Log's
-sealed-segment reclaim observes the unlinks, drops `disk_backlog_bytes` below
-threshold, and releases back-pressure — so the parked Slice streams re-arm, reach
-EOF, and the whole topology drains. Because this discards any log not yet
-consumed, a coordinator does it only once it will request no further checkpoints,
-then calls `SessionClient::close()` (which blocks until the Session→Slice→Log
-topology has fully drained).
+A Log reads every Slice's rounds whether or not its merge is paused by disk
+back-pressure (§8), so it always observes each Slice's EOF. Once all have
+EOF'd, it exits, discarding any rounds still unmerged along with its log
+segments. A coordinator closes a Session (`SessionClient::close()`,
+which blocks until the Session→Slice→Log topology has fully drained) only once
+it will request no further checkpoints, so nothing it would read is lost.
 
 #### Teardown during the opening phase
 
@@ -132,10 +122,10 @@ Log RPC actor.
 higher-priority bindings are shuffled ahead of those of lower ones. Each
 distinct priority is processed independently: every shard runs a separate
 Slice of each priority (`binding::distinct_priorities`), which reads only
-bindings of that priority, and flushes and reports progress on its own.
-Documents of different priorities meet only at each Log's merge, which takes
-higher-priority documents first (§8). Most tasks use only the default
-priority, and so run one Slice per shard.
+bindings of that priority, has its own flow-control windows, and flushes and
+reports progress on its own. Documents of different priorities meet only at
+each Log's merge, which takes higher-priority documents first (§8). Most tasks
+use only the default priority, and so run one Slice per shard.
 
 **Span**: A single run of CONTINUE_TXN documents by one producer in one journal,
 without an interleaving ACK. The producer's first CONTINUE_TXN *opens* a span and
@@ -341,15 +331,12 @@ Slice drains its top only once no unstarted, probing, or non-tailing read could
 preempt it (`ReadHeap::resolved_top`).
 
 A single non-tailing read therefore head-of-line-blocks the whole Slice's
-drain, so I/O stalls on individual journals matter.
-
-A read is only (re-)pushed into `ReadHeap::pending` after a now-or-never poll
-fails to yield its next batch (`process_or_await`); a read with content
-already buffered is processed immediately rather than counted as blocked.
-Reads that genuinely await I/O while non-tailing are tracked in `stalled` and
-surfaced — by transition — on the `stall` event track and the
-`shuffle_slice_stalled_reads` gauge, so an operator can sample *which*
-journals are blocking and for how long.
+drain. Its last Barrier (§8) then gates every Log's merge at the position it
+has consumed through, which holds back later Appends of its priority, and of
+every lesser priority. Peer Slices fill their windows and stop reading too,
+so an I/O stall on one journal can pause the session. Stalled reads are
+surfaced on the `stall` event track and the `shuffle_slice_stalled_reads`
+gauge, so an operator can see *which* journals are blocking, and for how long.
 
 Before processing the heap top, the Slice gates on wall-clock time: if
 `adjusted_clock` is in the future (due to `read_delay`), the actor
@@ -380,7 +367,9 @@ The top document is sequenced against per-producer state using
 - **Duplicates**: Already-seen documents, covered by the producer's `last_commit`.
   Silently dropped.
 
-`notBefore` / `notAfter` bounds suppress log appends but not flush cycles and progress reporting.
+`notBefore` / `notAfter` bounds suppress log appends but not flush cycles and
+progress reporting. Nor do they exempt a document from flow control (§7): it's
+consumed whether or not it's appended.
 
 ### 7. Key Extraction and Append Routing
 
@@ -394,41 +383,63 @@ The document, its packed key, metadata, and journal context are buffered
 as an `Append` for each target Log. Journal names are delta-encoded across
 consecutive Appends to minimize wire overhead.
 
-#### Rounds
+#### Rounds and Flow Control
 
-A Slice sends its Appends to each Log in **rounds** (`slice::rounds`), as at
-most one `LogRequest` per round. A round ends when the Slice must wait or has
-consumed `ROUND_DOCUMENTS`. It carries any ready `Flush` to every Log, and
-otherwise goes only to Logs it has Appends for.
+A Slice sends its Appends to each Log in **rounds** (`slice::rounds`). Each
+round is closed by a **Barrier** (§8), and goes to every Log whether or not it
+has Appends for it.
+
+Slices are flow-controlled by **quota**: the archived bytes of the documents
+they consume, appended or not. A Log releases a round's quota once it merges
+the round's Barrier. A Slice may consume at most a **window** of quota beyond
+what every Log has released. That bounds its lead over the merge, and the
+memory each Log buffers for it.
 
 ### 8. Log Merge and Output
 
-Each Log holds one round of each Slice at a time (`log::buffer`), and merges
-across Slices in (priority DESC, adjusted_clock ASC) order into its on-disk log
-segments. The merge isn't gated on Slices without a round, so ordering across
-Slices is best-effort.
+Each Log buffers the rounds of each Slice (`log::buffer`), and merges them
+across Slices in (priority DESC, adjusted_clock ASC) order into its on-disk
+log segments.
 
-Back-pressure is enforced through HTTP/2 flow control: a Log reads a Slice's
-next round only once its current round has merged, so a Slice whose rounds
-don't merge soon blocks on sends, which blocks its journal reads. As the merge
-takes high-priority, earlier-clock documents first, back-pressure tends to fall
-on lower-priority and later ones. A Log also pauses its merge while its disk
-backlog is over its limit (`log::state::DiskState`).
+A **Barrier** marks the position a Slice has consumed through, appended or
+not. While a Slice has nothing queued at a Log, its last Barrier **gates**
+that Log's merge, unless the Slice was **caught up**: it had no document due.
+So:
+- Within a priority, Appends merge across shards in adjusted-clock order.
+- A priority is held back while any higher priority has a document due, as
+  through a backfill.
+- A priority isn't held back by higher-priority documents awaiting their read
+  delay.
+
+This order is precise only while Slices read a backlog. Once they're caught
+up, their Appends race by their wakes and merge best-effort, as do Appends of
+a replay or a regressed producer clock. `log::actor::LogActor` argues the
+merge's liveness.
+
+A Barrier carries the Slice's flush request (§9), which is released only once
+the Barrier merges. So a Slice's progress and causal hints reach the Session in
+merge order, whether or not it appends, and its flushes wait on any peer of
+its priority which is behind. A gated priority can't flush at all, so its
+checkpoints wait on higher priorities. Each priority has its own checkpoint
+pipeline (§11), so no other priority's checkpoints are held. Should a gated
+priority's causal hint outlast `CAUSAL_HINT_RESOLUTION_TIMEOUT`, the session
+restarts from the progress other priorities committed meanwhile.
+
+Back-pressure runs from a Log's disk back to the Slices' journal reads. A merge
+pauses while the disk can't keep up, and a paused merge releases no quota
+(`log::actor::LogActor`).
 
 `shuffle_slice_rounds` / `shuffle_log_rounds` count rounds.
 
 ### 9. Flush Cycle
 
-When the Slice observes a commit (ACK or OUTSIDE_TXN), it marks the
-flush as ready. If no flush is in-flight, the Slice's next round carries it:
+A commit (ACK or OUTSIDE_TXN) makes a flush ready, and the Slice's next round
+carries it on its Barrier. Each Log answers `Flushed` once it has merged that
+Barrier and made the Appends before it durable. Once every Log answers, the
+flush's `Frontier` joins the Slice's progress (`slice::state`).
 
-1. Builds a `Frontier` from unreported producer state and accumulated
-   causal hints, then drains `unreported` into `reported`.
-2. Sends the round to all Log shards, with `Flush { cycle }`.
-3. Each Log, once it has merged the Slice's Appends which preceded the flush,
-   performs its durability IO and responds `Flushed { cycle }`.
-4. When all Logs respond, the flush cycle completes and the frontier
-   is reduced into the Slice's accumulated progress.
+A Slice has one flush in flight. The next covers all it consumed meanwhile,
+which may run up to a window ahead of the merge.
 
 Flush and progress reporting are deliberately decoupled for latency
 pipelining: Slices flush autonomously after each commit without waiting
@@ -611,10 +622,11 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
   - `heap.rs`: ReadHeap of a Slice's reads and the heap of their ready
     documents, which classifies its top.
   - `state.rs`: Flush and progress state machines.
-  - `rounds.rs`: Rounds of Appends to Logs.
+  - `rounds.rs`: Rounds of Appends and Barriers to Logs, and the window of
+    quota.
 - `log/`: Log actor, per-Slice buffers and merge, flush IO.
-  - `buffer.rs`: Per-Slice buffers of a round's Appends, and the merge across
-    Slices.
+  - `buffer.rs`: Per-Slice buffers of Appends and Barriers, and the merge
+    across Slices.
   - `log/block/`: Zero-copy types for working with segmented log blocks.
 - `merge.rs`: Merge order (`Position`).
 - `frontier.rs`: Frontier types, reduction, causal hint resolution,
