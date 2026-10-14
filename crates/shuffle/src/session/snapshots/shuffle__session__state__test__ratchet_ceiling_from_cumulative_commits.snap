@@ -8,7 +8,7 @@ expression: frontier_readout(&recovery)
         1,
         [
             (
-                290,
+                250,
                 250,
                 -900,
             ),

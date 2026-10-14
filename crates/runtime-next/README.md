@@ -243,8 +243,8 @@ only ever writes `FC:` deltas.
 The startup scan also drops retired `FC:` producers
 (`shard::recovery::prune_committed_frontier`), bounding the frontier a shard
 carries forever. Pruning loses nothing (`JournalFrontier::prune_stale_producers`),
-and the shuffle session's matching horizon rule discharges the hints that a
-future backfill of a peer binding may produce.
+and the shuffle session's `prune_floor` discharges the hints that a future
+backfill of a peer binding may produce.
 
 ## Binding gap floors (`GF:`)
 

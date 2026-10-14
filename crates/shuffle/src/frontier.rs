@@ -222,6 +222,47 @@ impl JournalFrontier {
         self.prune_floor = prune_floor;
     }
 
+    /// Whether this entry of the session's cumulative Frontier accounts for
+    /// `clock` of `producer` — a commit, or a causal hint if `is_hint` — and by
+    /// which authority, in order of precedence:
+    ///
+    /// 1. [`Accounted::Commit`]: the producer's promoted `last_commit` is
+    ///    at-or-above `clock`. A producer's commits on one journal are in offset
+    ///    order, so this read has read through `clock`. A commit vouches for its
+    ///    own journal alone. A later transaction of the producer promotes once
+    ///    its own journals are read, and nothing orders that after reads of an
+    ///    earlier transaction's other journals.
+    /// 2. [`Accounted::PruneFloor`]: the producer is absent, and `clock` is
+    ///    at-or-below the `prune_floor` which bounds every forgotten clock.
+    ///    It never accounts for [`OBSERVED_COMMIT_FLOOR`], the `last_commit` of
+    ///    a producer which has never committed: the floor bounds forgotten
+    ///    commits, not open spans. So a novel producer's open span freezes
+    ///    the ratchet, whose cut then stays below the span's `+begin`, and
+    ///    the next session reads the span rather than replaying it.
+    /// 3. [`Accounted::GapFloor`], for hints only: `clock` is below the
+    ///    `gap_floor`, so its ACK is unreachable. A byte gap says nothing about
+    ///    whether a producer committed, so it never accounts for a commit.
+    pub fn accounts_for(
+        &self,
+        producer: Producer,
+        clock: Clock,
+        is_hint: bool,
+    ) -> Option<Accounted> {
+        match self
+            .producers
+            .binary_search_by(|p| p.producer.cmp(&producer))
+        {
+            Ok(index) if self.producers[index].last_commit >= clock => {
+                return Some(Accounted::Commit);
+            }
+            Err(_) if clock <= self.prune_floor && clock.as_u64() > OBSERVED_COMMIT_FLOOR => {
+                return Some(Accounted::PruneFloor);
+            }
+            _ => {}
+        }
+        (is_hint && clock < self.gap_floor).then_some(Accounted::GapFloor)
+    }
+
     /// Advance `last_commit` on producers of `self` up to each one's
     /// `hinted_commit` using progress from `other`.
     ///
@@ -441,12 +482,10 @@ impl JournalFrontier {
 /// [`JournalFrontier::prune_stale_producers`]), but it does carry a liveness
 /// contract. A pruned producer can be the target of a future backfill's causal
 /// hints, which nothing forward-looking will ever resolve — its journal is
-/// read at the head and the producer is retired. What keeps such
-/// a hint dischargeable is [`Completed`], which deems any clock at least
-/// [`crate::PRODUCER_STALENESS_HORIZON`] older than a binding's promoted
-/// progress to be completed for that binding. Pruning uses the same constant for
-/// its own clock condition, which is exactly what makes every pruned producer's
-/// hints clearable.
+/// read past them and the producer is retired. What keeps such a hint
+/// dischargeable is the entry's `prune_floor`, which bounds the clocks it has
+/// forgotten: see [`JournalFrontier::accounts_for`] and
+/// [`Frontier::seed_prune_floors`].
 #[derive(Debug, Clone, Default)]
 pub struct Frontier {
     /// Journals which constitute the frontier.
@@ -468,6 +507,15 @@ pub struct Frontier {
     pub unresolved_hints: usize,
 }
 
+/// The authority by which an entry of the session's cumulative Frontier
+/// accounts for a clock. See [`JournalFrontier::accounts_for`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Accounted {
+    Commit,
+    PruneFloor,
+    GapFloor,
+}
+
 /// The producer entry which made a delta unaccounted, as returned by
 /// [`Frontier::first_unaccounted`]. It's the diagnostic detail of an
 /// accounted-progress ratchet freeze.
@@ -481,9 +529,7 @@ pub struct Unaccounted {
     /// The delta clock which exceeds `ceiling`.
     pub clock: Clock,
     /// Highest commit of this producer which the pending checkpoint, its hints,
-    /// or its cohort's completed clocks can account for. The staleness-horizon
-    /// authority is per-binding rather than per-producer and so isn't folded in
-    /// here; an `Unaccounted` exists only because it did not apply either.
+    /// or its journal's promoted commits can account for.
     pub ceiling: Clock,
 }
 
@@ -795,148 +841,179 @@ impl Frontier {
         (advanced, resolved)
     }
 
-    /// Clear causal hints of `self` which [`Completed`] accounts for: either the
-    /// journal's cohort has completed the referenced producer commit, or the
-    /// clock trails the binding's promoted progress by at least
-    /// [`crate::PRODUCER_STALENESS_HORIZON`]. Such a hint is stale — it's held by
-    /// a journal reading from behind the cohort's frontier, such as a re-enabled
-    /// binding, which may never observe the ACK that would resolve it on the
-    /// forward path. The horizon rule additionally discharges hints whose
-    /// producer the runtime has durably pruned and so forgotten entirely. The
-    /// binding's gap floor ([`Completed::is_gap_stale`]) discharges hints which
-    /// trail it.
+    /// Clear causal hints of `self` which the session's `cumulative` Frontier
+    /// accounts for (see [`JournalFrontier::accounts_for`]). Such a hint is
+    /// stale: its actual read has already promoted past it, has forgotten it, or
+    /// can't reach it. It's typically held by a journal reading from behind its
+    /// peers, such as a re-enabled binding, which may never observe the ACK that
+    /// would resolve it on the forward path.
     ///
-    /// A producer left with neither a hint nor a commit is dropped, as is a
-    /// journal left with no producers. `unresolved_hints` is decremented for
-    /// each cleared hint.
+    /// A hint discharged by a gap floor stamps that floor onto its entry, so
+    /// the floor is delivered with exactly the checkpoint which relied on it.
+    /// A producer left with neither a hint nor a commit is dropped, as is an
+    /// entry left empty. `unresolved_hints` is decremented for each cleared hint.
     ///
-    /// Returns `(cleared_by_clock, cleared_by_horizon, cleared_by_gap_floor)`.
-    pub fn prune_hints(&mut self, completed: &Completed) -> (usize, usize, usize) {
-        let mut by_clock = 0usize;
-        let mut by_horizon = 0usize;
+    /// Returns counts of hints cleared `(by_commit, by_prune_floor, by_gap_floor)`.
+    pub fn prune_hints(&mut self, cumulative: &Frontier) -> (usize, usize, usize) {
+        let mut by_commit = 0usize;
+        let mut by_prune_floor = 0usize;
         let mut by_gap_floor = 0usize;
+        let mut next = 0;
 
         self.journals.retain_mut(|jf| {
-            let binding = jf.binding;
-            let mut discharged_by_gap_floor = false;
+            let Some(completed) = cumulative.gallop_journal(&mut next, &jf.journal, jf.binding)
+            else {
+                return true; // No authority over this journal.
+            };
+            let mut stamp_gap_floor = false;
 
             jf.producers.retain_mut(|pf| {
                 if pf.hinted_commit <= pf.last_commit {
                     return true; // Hint is already resolved.
                 }
-                if pf.hinted_commit <= completed.clock(binding, pf.producer) {
-                    by_clock += 1;
-                } else if completed.is_horizon_stale(binding, pf.hinted_commit) {
-                    by_horizon += 1;
-                } else if completed.is_gap_stale(binding, pf.hinted_commit) {
-                    by_gap_floor += 1;
-                    discharged_by_gap_floor = true;
-                } else {
-                    return true; // Hint is at the frontier.
+                match completed.accounts_for(pf.producer, pf.hinted_commit, true) {
+                    None => return true, // Hint is at the frontier.
+                    Some(Accounted::Commit) => by_commit += 1,
+                    Some(Accounted::PruneFloor) => by_prune_floor += 1,
+                    Some(Accounted::GapFloor) => {
+                        by_gap_floor += 1;
+                        stamp_gap_floor = true;
+                    }
                 }
-
                 // Hint is stale. Retain only if we also saw a commit.
                 pf.hinted_commit = Clock::zero();
                 pf.last_commit != Clock::zero()
             });
 
-            // Carry the floor with the entry it discharged, so it's delivered
-            // with exactly the checkpoint which relied on it.
-            if discharged_by_gap_floor {
-                jf.gap_floor = jf.gap_floor.max(completed.gap_floor(binding));
+            if stamp_gap_floor {
+                jf.gap_floor = jf.gap_floor.max(completed.gap_floor);
             }
             !jf.is_empty()
         });
 
-        self.unresolved_hints -= by_clock + by_horizon + by_gap_floor;
-        (by_clock, by_horizon, by_gap_floor)
+        self.unresolved_hints -= by_commit + by_prune_floor + by_gap_floor;
+        (by_commit, by_prune_floor, by_gap_floor)
     }
 
-    /// Judge whether `delta` is *accounted* for by `self` — an unresolved pending
-    /// checkpoint — together with the [`Completed`] accounting of its bindings.
+    /// Judge whether `delta` is *accounted* for by `self`, an unresolved
+    /// pending checkpoint, together with the session's `cumulative` Frontier.
     ///
-    /// A delta is accounted iff every producer entry of every journal reports
-    /// clocks — both read-derived commits and causal hints — which some
-    /// accounting authority covers. Two are per-producer **ceilings**: the
-    /// maximum of that producer's `last_commit` and `hinted_commit` in `self`,
-    /// and the clock its cohort has completed. Two are per-binding: the
-    /// staleness horizon, and, for hints only, the gap floor. A producer named
-    /// by neither of the first two has a zero ceiling, so a clock reported for it
-    /// is unaccounted unless a per-binding authority covers it.
+    /// Each producer entry of `delta` reports a read-derived commit and a
+    /// causal hint. Each clock must be covered by an accounting authority:
     ///
+    /// 1. The pending checkpoint's entry of the producer, if the clock is
+    ///    at-or-below its `last_commit` or `hinted_commit`.
+    /// 2. The cumulative Frontier's entry of the same `(journal, binding)`, per
+    ///    [`JournalFrontier::accounts_for`]: a promoted commit, the prune floor
+    ///    of a forgotten producer, or (for hints only) the gap floor.
+    ///
+    /// `delta` is accounted iff every clock of every entry is covered.
     /// Returns the first unaccounted entry in `(journal, binding, producer)`
     /// order, or None if `delta` is accounted.
     ///
     /// # Soundness
     ///
-    /// Four authorities account for a clock, and an accounted delta adds
-    /// nothing beyond them:
+    /// An accounted delta is reduced wholesale into the pending checkpoint
+    /// (`CheckpointPipeline::ratchet`). Otherwise the pending checkpoint's hints
+    /// resolve conservatively (`Frontier::resolve_hints`), and the delta waits
+    /// for the next checkpoint. Adoption must preserve two things: the
+    /// transactions the checkpoint commits, and the Frontier invariant.
     ///
-    /// 1. The pending checkpoint's own clocks and hints. A commit at-or-below
-    ///    `last_commit` is already covered; a clock at-or-below `hinted_commit`
-    ///    is within the causal extent the pending boundary already commits to.
-    /// 2. Commits the producer's cohort has completed. Such a commit reached a
-    ///    fully-resolved checkpoint, so its cross-journal extent is confirmed
-    ///    and re-reading it yields duplicates of covered closes.
-    /// 3. Clocks at least [`crate::PRODUCER_STALENESS_HORIZON`] older than the
-    ///    binding's promoted progress. This is the dual of the runtime's
-    ///    committed-frontier prune, which durably *forgets* a producer's
-    ///    coverage under the same horizon: the runtime is willing to accept the
-    ///    bounded double-processing of content that ancient, so the session is
-    ///    equally willing to account for it. Soundness rests on the horizon
-    ///    dwarfing intra-cohort source-clock skew, which is bounded by the Slice
-    ///    read heap and Log append leveling — both order by priority and then by
-    ///    adjusted clock, so a cohort's journals advance in near-lockstep and
-    ///    never drift a horizon apart.
-    /// 4. Hints, never commits, below the binding's gap floor. A read-start
-    ///    byte gap left such a hint's ACK unreachable, so holding the boundary
-    ///    for it gains nothing and may stall forever. A byte gap says nothing
-    ///    about whether a producer committed, so a commit past its ceiling
-    ///    still freezes the ratchet.
+    /// The committed transactions are what this judgment protects. Reduction
+    /// takes the max of each clock, and each authority bounds what that max
+    /// adds:
     ///
-    /// Open spans ride along as `+begin`s, as clause 2 of the Frontier
-    /// invariant prescribes. So the delta's entries jointly satisfy clauses 1
-    /// and 2 at the delta's own cut, and reducing them in preserves the invariant
-    /// with the true read offsets in place of the conservative `-M` bump. The
-    /// first commit or hint no authority can account for freezes the
-    /// ratchet. For a commit, rejecting its whole delta leaves the cut at the
-    /// prior accounted delta and therefore strictly below that commit's offset;
-    /// for a hint, rejection keeps its novel causal extent out of the pending
-    /// boundary.
+    /// - At-or-below the pending `last_commit`, a commit adds nothing. Up to
+    ///   the pending `hinted_commit`, it's the advance `resolve_hints` makes
+    ///   anyway, as it caps `last_commit` at `hinted_commit`. A hint up to
+    ///   either is already within the pending checkpoint's causal extent.
+    /// - At-or-below a promoted commit, a commit belongs to a checkpoint
+    ///   already taken, and a re-read sequences as a duplicate. Deltas report
+    ///   these routinely: a producer beginning a span carries its prior
+    ///   `last_commit`.
+    /// - At-or-below the prune floor, a commit of a forgotten producer is no
+    ///   newer than the `last_commit` pruning forgot
+    ///   ([`JournalFrontier::prune_stale_producers`]), so it belongs to a
+    ///   checkpoint already taken. [`crate::PRODUCER_STALENESS_HORIZON`] keeps
+    ///   the floor below the unread commits of other producers.
+    /// - Below the gap floor, a hint's ACK is unreachable, so holding the
+    ///   checkpoint for it gains nothing and may stall forever. A byte gap says
+    ///   nothing about whether a producer committed, so it never covers a
+    ///   commit.
+    ///
+    /// `ratchet` prunes the hints that `cumulative` covers before reducing, and
+    /// the rest lie within the pending checkpoint's own. So adoption adds no
+    /// hint, and newer progress can't starve the checkpoint's resolution. Once
+    /// resolved, an adopted checkpoint commits what the conservative path
+    /// would, except for clocks that `cumulative` already covers.
+    ///
+    /// The Frontier invariant needs something else: that each adopted delta is
+    /// the next delta of the read. The pending checkpoint and every delta
+    /// adopted since are consecutive deltas of one continuous read. Reducing in
+    /// the next delta of that read preserves the invariant at the delta's cut,
+    /// whether or not the delta is accounted. That cut has the read's true
+    /// offsets, including open spans' `+begin`s, in place of the conservative
+    /// `-M` bump.
+    ///
+    /// So rejection must be wholesale and sticky, to keep adopted deltas
+    /// consecutive. Within a journal, adopting only the accounted entries could
+    /// raise the cut floor past a rejected commit's offset, leaving its close
+    /// uncovered. Across deltas, adopting one after a rejected delta would skip
+    /// the rejected content. So the first rejection freezes the ratchet until
+    /// the next promotion (`CheckpointPipeline::ratchet_frozen`).
     pub fn first_unaccounted(
         &self,
         delta: &Frontier,
-        completed: &Completed,
+        cumulative: &Frontier,
     ) -> Option<Unaccounted> {
+        let (mut next_base, mut next_cumulative) = (0, 0);
+
         for delta_jf in &delta.journals {
             // The pending checkpoint may not carry this journal at all:
             // a read can report journals it never had.
             let base_producers = self
-                .find_journal(&delta_jf.journal, delta_jf.binding)
-                .map_or(&[][..], |index| self.journals[index].producers.as_slice());
+                .gallop_journal(&mut next_base, &delta_jf.journal, delta_jf.binding)
+                .map_or(&[][..], |jf| jf.producers.as_slice());
+            let completed = cumulative.gallop_journal(
+                &mut next_cumulative,
+                &delta_jf.journal,
+                delta_jf.binding,
+            );
 
             for delta_p in &delta_jf.producers {
-                let mut ceiling = completed.clock(delta_jf.binding, delta_p.producer);
+                let mut ceiling = Clock::zero();
 
                 if let Ok(index) =
                     base_producers.binary_search_by(|base_p| base_p.producer.cmp(&delta_p.producer))
                 {
                     let base_p = &base_producers[index];
-                    ceiling = ceiling.max(base_p.last_commit).max(base_p.hinted_commit);
+                    ceiling = base_p.last_commit.max(base_p.hinted_commit);
                 }
+                let accounted = |clock: Clock, is_hint: bool| {
+                    clock <= ceiling
+                        || completed.is_some_and(|completed| {
+                            completed
+                                .accounts_for(delta_p.producer, clock, is_hint)
+                                .is_some()
+                        })
+                };
 
-                let (kind, clock) = if delta_p.last_commit > ceiling
-                    && !completed.is_horizon_stale(delta_jf.binding, delta_p.last_commit)
-                {
+                let (kind, clock) = if !accounted(delta_p.last_commit, false) {
                     (UnaccountedKind::Commit, delta_p.last_commit)
-                } else if delta_p.hinted_commit > ceiling
-                    && !completed.is_horizon_stale(delta_jf.binding, delta_p.hinted_commit)
-                    && !completed.is_gap_stale(delta_jf.binding, delta_p.hinted_commit)
-                {
+                } else if !accounted(delta_p.hinted_commit, true) {
                     (UnaccountedKind::Hint, delta_p.hinted_commit)
                 } else {
                     continue;
                 };
+
+                if let Some(completed) = completed {
+                    if let Ok(index) = completed
+                        .producers
+                        .binary_search_by(|p| p.producer.cmp(&delta_p.producer))
+                    {
+                        ceiling = ceiling.max(completed.producers[index].last_commit);
+                    }
+                }
                 return Some(Unaccounted {
                     journal: delta_jf.journal.clone(),
                     binding: delta_jf.binding,
@@ -949,6 +1026,82 @@ impl Frontier {
         }
 
         None
+    }
+
+    /// Find the entry of `(journal, binding)`, galloping forward from `*next`
+    /// and leaving `*next` at its position. Successive lookups must be of
+    /// ascending keys, as when walking another Frontier's journals.
+    fn gallop_journal(
+        &self,
+        next: &mut usize,
+        journal: &str,
+        binding: u16,
+    ) -> Option<&JournalFrontier> {
+        match gallop_by(&self.journals[*next..], |jf| {
+            (jf.journal.as_ref(), jf.binding).cmp(&(journal, binding))
+        }) {
+            Ok(index) => {
+                *next += index;
+                Some(&self.journals[*next])
+            }
+            Err(index) => {
+                *next += index;
+                None
+            }
+        }
+    }
+
+    /// Seed the `prune_floor` of each journal of a resume checkpoint, which
+    /// becomes the session's cumulative Frontier. Producers were forgotten
+    /// before this session — by the runtime's prune, or by V1 — only once they
+    /// trailed their journal's newest commit by at least
+    /// [`crate::PRODUCER_STALENESS_HORIZON`], so that newest commit less the
+    /// horizon bounds every forgotten clock.
+    pub fn seed_prune_floors(&mut self) {
+        let horizon = (crate::PRODUCER_STALENESS_HORIZON.as_secs() * 10_000_000) << 4;
+
+        for jf in &mut self.journals {
+            let newest_commit = jf
+                .producers
+                .iter()
+                .map(|p| p.last_commit)
+                .max()
+                .unwrap_or_default();
+
+            let floor = Clock::from_u64(newest_commit.as_u64().saturating_sub(horizon));
+            jf.prune_floor = jf.prune_floor.max(floor);
+        }
+    }
+
+    /// Prune stale producers ([`JournalFrontier::prune_stale_producers`]) of
+    /// the journals `touched` names, or of every journal if None, returning
+    /// the number pruned. Prunes are possible only when a journal's newest
+    /// commit has advanced, so a session prunes only the journals of each
+    /// checkpoint it takes.
+    pub fn prune_stale_producers(&mut self, touched: Option<&Frontier>) -> usize {
+        let mut pruned = 0;
+
+        let Some(touched) = touched else {
+            for jf in &mut self.journals {
+                jf.prune_stale_producers(|_| false, |_| pruned += 1);
+            }
+            return pruned;
+        };
+
+        let mut next = 0;
+        for touched in &touched.journals {
+            let found = gallop_by(&self.journals[next..], |jf| {
+                (jf.journal.as_ref(), jf.binding).cmp(&(touched.journal.as_ref(), touched.binding))
+            });
+            match found {
+                Ok(index) => {
+                    next += index;
+                    self.journals[next].prune_stale_producers(|_| false, |_| pruned += 1);
+                }
+                Err(index) => next += index,
+            }
+        }
+        pruned
     }
 
     /// Encode this Frontier as a proto `shuffle::Frontier`, including
@@ -1134,130 +1287,6 @@ impl Frontier {
             write!(&mut out, "\n  … and {remaining} more unresolved hint(s)").unwrap();
         }
         out
-    }
-}
-
-/// Completed accounting: the clocks a binding no longer needs to see resolved.
-/// Consumed by [`Frontier::prune_hints`] and [`Frontier::first_unaccounted`].
-///
-/// It bundles three authorities over the single question "is this clock already
-/// accounted for?":
-///
-/// 1. `clocks`, the per-cohort ledger of producer commits which reached a
-///    fully-resolved checkpoint. A clock at-or-below a producer's entry is
-///    stale: that commit's cross-journal extent is already confirmed.
-/// 2. `binding_max`, the per-binding maximum of promoted read progress. Any
-///    clock trailing it by at least [`crate::PRODUCER_STALENESS_HORIZON`] is
-///    deemed completed for that binding, whatever producer it names. This is
-///    the dual of the runtime's committed-frontier prune, which durably forgets
-///    producers under the same horizon; without it, a hint targeting a
-///    forgotten producer could never be discharged at all.
-/// 3. `binding_gap_floor`, the per-binding clock below which a read-start byte
-///    gap left causal hints unreachable. Unlike the other two it discharges
-///    hints only.
-///
-/// The first two are gated on promotion, which is what makes them authorities on
-/// "this commit is done": a frontier reaches `ready` only once its own causal
-/// hints have resolved. The gap floor is instead ratcheted from `Progressed`
-/// deltas ahead of any promotion — sound because a byte gap is a fact about what
-/// a read can reach, not about a transaction's outcome.
-#[derive(Debug)]
-pub struct Completed {
-    /// Per-cohort map from Producer to its highest completed Clock.
-    clocks: Vec<crate::ProducerMap<Clock>>,
-    /// Per-binding maximum promoted commit Clock.
-    binding_max: Vec<Clock>,
-    /// Per-binding gap floor (zero = none).
-    binding_gap_floor: Vec<Clock>,
-    /// Maps binding index → cohort index (from `Binding::cohort`).
-    binding_cohorts: Vec<u32>,
-}
-
-impl Completed {
-    /// Build empty accounting over `binding_cohorts`, sizing the cohort ledger
-    /// from the largest cohort index that mapping names.
-    pub fn new(binding_cohorts: Vec<u32>) -> Self {
-        let num_cohorts = binding_cohorts
-            .iter()
-            .copied()
-            .max()
-            .map_or(0, |m| m as usize + 1);
-
-        Self {
-            clocks: vec![crate::ProducerMap::default(); num_cohorts],
-            binding_max: vec![Clock::zero(); binding_cohorts.len()],
-            binding_gap_floor: vec![Clock::zero(); binding_cohorts.len()],
-            binding_cohorts,
-        }
-    }
-
-    /// Number of cohorts this accounting spans, for diagnostics.
-    pub fn num_cohorts(&self) -> usize {
-        self.clocks.len()
-    }
-
-    /// Absorb a promoted `frontier` — one which reached `ready`, or a resume
-    /// checkpoint, which is the prior session's final promotion. Each producer's
-    /// commit is recorded against its cohort, and each binding's promoted
-    /// maximum is raised.
-    ///
-    /// Hint-only entries (`last_commit` of zero) and [`OBSERVED_COMMIT_FLOOR`]
-    /// floors need no special case: under `max` they are dominated by any real
-    /// commit, and a binding holding nothing else simply has no horizon yet.
-    pub fn update(&mut self, frontier: &Frontier) {
-        for jf in &frontier.journals {
-            let cohort = self.binding_cohorts[jf.binding as usize] as usize;
-            let clocks = &mut self.clocks[cohort];
-            let binding_max = &mut self.binding_max[jf.binding as usize];
-
-            for pf in &jf.producers {
-                clocks
-                    .entry(pf.producer)
-                    .and_modify(|c| c.update(pf.last_commit))
-                    .or_insert(pf.last_commit);
-                binding_max.update(pf.last_commit);
-            }
-        }
-    }
-
-    /// Highest Clock which `binding`'s cohort has completed for `producer`, or
-    /// zero if it names none. The first authority of the accounting query; pair
-    /// it with [`Self::is_horizon_stale`].
-    pub fn clock(&self, binding: u16, producer: Producer) -> Clock {
-        let cohort = self.binding_cohorts[binding as usize] as usize;
-        self.clocks[cohort]
-            .get(&producer)
-            .copied()
-            .unwrap_or(Clock::zero())
-    }
-
-    /// Whether `clock` trails `binding`'s promoted read progress by at least
-    /// [`crate::PRODUCER_STALENESS_HORIZON`], deeming it completed for that
-    /// binding whatever producer it names. The second authority of the
-    /// accounting query.
-    pub fn is_horizon_stale(&self, binding: u16, clock: Clock) -> bool {
-        Clock::delta(self.binding_max[binding as usize], clock) >= crate::PRODUCER_STALENESS_HORIZON
-    }
-
-    /// Raise each binding's gap floor to the largest `gap_floor` of its
-    /// journals in `frontier`.
-    pub fn advance_gap_floors(&mut self, frontier: &Frontier) {
-        for jf in &frontier.journals {
-            let floor = &mut self.binding_gap_floor[jf.binding as usize];
-            *floor = (*floor).max(jf.gap_floor);
-        }
-    }
-
-    /// Gap floor of `binding`, or zero if it has none.
-    pub fn gap_floor(&self, binding: u16) -> Clock {
-        self.binding_gap_floor[binding as usize]
-    }
-
-    /// Whether `clock` lies below `binding`'s gap floor, deeming the ACK it
-    /// references unreachable. The third authority of the accounting query; a
-    /// binding with no floor (zero) discharges nothing.
-    pub fn is_gap_stale(&self, binding: u16, clock: Clock) -> bool {
-        clock < self.binding_gap_floor[binding as usize]
     }
 }
 
@@ -1454,34 +1483,16 @@ mod test {
         }
     }
 
-    /// Horizon expressed in the whole seconds which `pf` and `completed` speak.
+    /// Horizon expressed in the whole seconds which `pf` speaks.
     const HORIZON_SECS: u64 = crate::PRODUCER_STALENESS_HORIZON.as_secs();
 
-    /// Build a `Completed` over `binding_cohorts`, injecting cohort-completed
-    /// clocks as `(cohort, producer_id, seconds)` and per-binding promoted
-    /// maxima as `(binding, seconds)`. Both are seeded directly rather than
-    /// through `update`, so a test states only the accounting it cares about.
-    fn completed(
-        binding_cohorts: Vec<u32>,
-        clocks: &[(usize, u8, u64)],
-        binding_max: &[(usize, u64)],
-    ) -> Completed {
-        let mut completed = Completed::new(binding_cohorts);
-
-        for &(cohort, id, seconds) in clocks {
-            completed.clocks[cohort].insert(crate::testing::producer(id), from_secs(seconds));
+    /// `entry` of a cumulative Frontier, with floors given in seconds.
+    fn with_floors(entry: JournalFrontier, prune_floor: u64, gap_floor: u64) -> JournalFrontier {
+        JournalFrontier {
+            prune_floor: from_secs(prune_floor),
+            gap_floor: from_secs(gap_floor),
+            ..entry
         }
-        for &(binding, seconds) in binding_max {
-            completed.binding_max[binding] = from_secs(seconds);
-        }
-        completed
-    }
-
-    /// `Completed` seeding no authority but `binding`'s gap floor, isolating it.
-    fn gap_completed(binding: usize, seconds: u64) -> Completed {
-        let mut completed = Completed::new(vec![0u32, 0]);
-        completed.binding_gap_floor[binding] = from_secs(seconds);
-        completed
     }
 
     /// Clock at `seconds` past the unix epoch, matching `testing::pf`'s
@@ -2329,17 +2340,30 @@ mod test {
                 jf("journal/B", 0, vec![pf(0x09, 10_000, floor - 1, -500)]),
                 // At the floor: retained, until some other authority covers it.
                 jf("journal/C", 0, vec![pf(0x09, 10_000, floor, -500)]),
-                // Binding 1 has no floor of its own, so nothing applies — not
-                // even to a hint far below binding 0's floor.
-                jf("journal/D", 1, vec![pf(0x09, 10_000, below, -500)]),
+                // A floor is of its journal alone: journal/D has none, though
+                // binding 0's other journals do.
+                jf("journal/D", 0, vec![pf(0x09, 10_000, below, -500)]),
+                // Nor does journal/A under binding 1.
+                jf("journal/A", 1, vec![pf(0x09, 10_000, below, -500)]),
             ],
-            unresolved_hints: 4,
+            unresolved_hints: 5,
             ..Default::default()
         };
-        let completed = gap_completed(0, floor);
+        f.journals
+            .sort_by(|a, b| (&a.journal, a.binding).cmp(&(&b.journal, b.binding)));
 
-        assert_eq!(f.prune_hints(&completed), (0, 0, 2));
-        assert_eq!(f.unresolved_hints, 2);
+        let cumulative = Frontier::new(
+            vec![
+                with_floors(jf("journal/A", 0, vec![]), 0, floor),
+                with_floors(jf("journal/B", 0, vec![]), 0, floor),
+                with_floors(jf("journal/C", 0, vec![]), 0, floor),
+            ],
+            vec![],
+        )
+        .unwrap();
+
+        assert_eq!(f.prune_hints(&cumulative), (0, 0, 2));
+        assert_eq!(f.unresolved_hints, 3);
 
         let readout: Vec<_> = f
             .journals
@@ -2347,6 +2371,7 @@ mod test {
             .map(|jf| {
                 (
                     &*jf.journal,
+                    jf.binding,
                     jf.producers.iter().map(pf_tuple).collect::<Vec<_>>(),
                     jf.gap_floor.to_unix().0,
                 )
@@ -2356,10 +2381,11 @@ mod test {
         assert_eq!(
             readout,
             vec![
-                ("journal/A", vec![], floor),
-                ("journal/B", vec![(10_000, 0, -500)], floor),
-                ("journal/C", vec![(10_000, floor, -500)], 0),
-                ("journal/D", vec![(10_000, below, -500)], 0),
+                ("journal/A", 0, vec![], floor),
+                ("journal/A", 1, vec![(10_000, below, -500)], 0),
+                ("journal/B", 0, vec![(10_000, 0, -500)], floor),
+                ("journal/C", 0, vec![(10_000, floor, -500)], 0),
+                ("journal/D", 0, vec![(10_000, below, -500)], 0),
             ],
         );
     }
@@ -2367,12 +2393,16 @@ mod test {
     #[test]
     fn test_gap_floor_accounts_hints_but_never_commits() {
         let floor = 500_000;
-        let completed = gap_completed(0, floor);
+        let cumulative = Frontier::new(
+            vec![with_floors(jf("journal/A", 0, vec![]), 0, floor)],
+            vec![],
+        )
+        .unwrap();
 
         let judge = |delta: Vec<JournalFrontier>| {
             let delta = Frontier::new(delta, vec![]).unwrap();
             Frontier::default()
-                .first_unaccounted(&delta, &completed)
+                .first_unaccounted(&delta, &cumulative)
                 .map(|u| match u.kind {
                     UnaccountedKind::Commit => "commit",
                     UnaccountedKind::Hint => "hint",
@@ -2454,13 +2484,19 @@ mod test {
             unresolved_hints: 2,
             ..Default::default()
         };
-        // Cohort 0 serves binding 0; cohort 1 serves binding 1 and has completed
-        // producer 0x07 at 600s. No binding has promoted progress, so the
-        // staleness horizon never fires and only the clock ceilings are in play.
-        let completed = completed(vec![0u32, 1], &[(1, 0x07, 600)], &[]);
+        // The session has promoted producer 0x07 at 600s on journal/C under
+        // binding 1, and at 900s on journal/D. No floors are in play.
+        let cumulative = Frontier::new(
+            vec![
+                jf("journal/C", 1, vec![pf(0x07, 600, 0, -100)]),
+                jf("journal/D", 1, vec![pf(0x07, 900, 0, -100)]),
+            ],
+            vec![],
+        )
+        .unwrap();
         let judge = |delta: Vec<JournalFrontier>| {
             let delta = Frontier::new(delta, vec![]).unwrap();
-            base.first_unaccounted(&delta, &completed).map(|u| {
+            base.first_unaccounted(&delta, &cumulative).map(|u| {
                 (
                     u.journal.to_string(),
                     match u.kind {
@@ -2474,9 +2510,9 @@ mod test {
         };
 
         // Accounted: at the hint (journal/A P1), at a durable last_commit
-        // (journal/A P5), and at a cohort-completed clock for a producer the base
+        // (journal/A P5), and at a promoted commit for a producer the base
         // never names (journal/C P7). Hints are also accounted when the pending
-        // frontier or completed clocks already cover them.
+        // frontier or promoted commits already cover them.
         assert_eq!(
             judge(vec![
                 jf(
@@ -2498,9 +2534,9 @@ mod test {
             judge(vec![jf("journal/A", 0, vec![pf(0x01, 201, 0, -700)])]),
             Some(("journal/A".to_string(), "commit", 201, 200)),
         );
-        // Unaccounted: a producer named by neither the base nor its cohort's
-        // completed clocks, so its ceiling is zero. Reported in (journal,
-        // binding, producer) order, after the accounted journal/A entry.
+        // Unaccounted: a producer named by neither the base nor the cumulative
+        // Frontier, so its ceiling is zero. Reported in (journal, binding,
+        // producer) order, after the accounted journal/A entry.
         assert_eq!(
             judge(vec![
                 jf("journal/A", 0, vec![pf(0x01, 200, 0, -700)]),
@@ -2508,11 +2544,17 @@ mod test {
             ]),
             Some(("journal/C".to_string(), "commit", 5, 0)),
         );
-        // The cohort ledger is per-cohort: 0x07's completion in cohort 1 says
-        // nothing about binding 0's cohort.
+        // A promoted commit vouches for its own journal alone: 0x07's commits
+        // on journal/C and journal/D say nothing of journal/A ...
         assert_eq!(
             judge(vec![jf("journal/A", 0, vec![pf(0x07, 600, 0, -700)])]),
             Some(("journal/A".to_string(), "commit", 600, 0)),
+        );
+        // ... and its 900s commit on journal/D doesn't cover a 700s hint onto
+        // journal/C, which has promoted only 600s.
+        assert_eq!(
+            judge(vec![jf("journal/C", 1, vec![pf(0x07, 0, 700, 0)])]),
+            Some(("journal/C".to_string(), "hint", 700, 600)),
         );
         // Binding is part of the key: journal/C under binding 0 does not match
         // the base's journal/C under binding 1.
@@ -2535,12 +2577,12 @@ mod test {
     }
 
     #[test]
-    fn test_first_unaccounted_horizon() {
-        // Binding 0's promoted progress sits at `leader`; binding 1 (cohort 1)
-        // has none, which isolates the horizon to the binding that earned it.
+    fn test_first_unaccounted_prune_floor() {
+        // journal/Z under binding 0 has forgotten producers through `stale`,
+        // and retains producer 0x03's old commit. Binding 1 has no entry.
         let leader = HORIZON_SECS + 100_000;
-        let stale = leader - HORIZON_SECS; // Exactly at the horizon.
-        let live = leader - 22_800; // Well inside it.
+        let stale = leader - HORIZON_SECS;
+        let live = leader - 22_800;
 
         let base = Frontier {
             journals: vec![jf("journal/A", 0, vec![pf(0x01, 250_000, 260_000, -100)])],
@@ -2548,10 +2590,22 @@ mod test {
             unresolved_hints: 1,
             ..Default::default()
         };
-        let completed = completed(vec![0u32, 1], &[], &[(0, leader)]);
+        let cumulative = Frontier::new(
+            vec![with_floors(
+                jf(
+                    "journal/Z",
+                    0,
+                    vec![pf(0x01, leader, 0, -900), pf(0x03, 1_000, 0, -100)],
+                ),
+                stale,
+                0,
+            )],
+            vec![],
+        )
+        .unwrap();
         let judge = |delta: Vec<JournalFrontier>| {
             let delta = Frontier::new(delta, vec![]).unwrap();
-            base.first_unaccounted(&delta, &completed).map(|u| {
+            base.first_unaccounted(&delta, &cumulative).map(|u| {
                 (
                     match u.kind {
                         UnaccountedKind::Commit => "commit",
@@ -2563,32 +2617,42 @@ mod test {
             })
         };
 
-        // A hint naming a producer the base and its cohort both know nothing of —
-        // the pruned-producer case — is accounted by the horizon alone, so the
-        // ratchet does not freeze and the hint never enters the boundary.
+        // A hint naming a forgotten producer — the pruned-producer case — is
+        // accounted by the prune floor alone, so the ratchet does not freeze
+        // and the hint never enters the boundary.
         assert_eq!(
             judge(vec![jf("journal/Z", 0, vec![pf(0x09, 0, stale, 0)])]),
             None
         );
-        // An ancient commit for the same unknown producer is likewise accounted.
+        // An ancient commit of the same producer is likewise accounted.
         assert_eq!(
             judge(vec![jf("journal/Z", 0, vec![pf(0x09, stale, 0, -700)])]),
             None,
         );
-        // The horizon is applied to commit and hint independently: this entry's
-        // commit is stale (accounted) while its hint is live (not).
+        // A novel producer's open span is not: its OBSERVED_COMMIT_FLOOR is
+        // not a forgotten commit.
+        assert!(matches!(
+            judge(vec![jf(
+                "journal/Z",
+                0,
+                vec![pf_raw(0x09, OBSERVED_COMMIT_FLOOR, 0, 700)]
+            )]),
+            Some(("commit", _, 0)),
+        ));
+        // The floor applies to commit and hint independently: this entry's
+        // commit is covered (accounted) while its hint is above it (not).
         assert_eq!(
             judge(vec![jf("journal/Z", 0, vec![pf(0x09, stale, live, 0)])]),
             Some(("hint", live, 0)),
         );
-        // A live hint for an unknown producer remains unaccounted — the horizon
-        // does not weaken ordinary ratchet judgment.
+        // The floor covers only forgotten producers: 0x03 is retained, so its
+        // unread commit below the floor is not accounted.
         assert_eq!(
-            judge(vec![jf("journal/Z", 0, vec![pf(0x09, 0, live, 0)])]),
-            Some(("hint", live, 0)),
+            judge(vec![jf("journal/Z", 0, vec![pf(0x03, 0, stale, 0)])]),
+            Some(("hint", stale, 1_000)),
         );
-        // Binding 1 has no promoted progress, so its sentinel is zero and the
-        // very same stale clock is unaccounted there.
+        // Binding 1's journal/Z has no entry, so the very same clock is
+        // unaccounted there.
         assert_eq!(
             judge(vec![jf("journal/Z", 1, vec![pf(0x09, 0, stale, 0)])]),
             Some(("hint", stale, 0)),
@@ -2596,15 +2660,47 @@ mod test {
     }
 
     // Gazette's V1 `message.Sequencer` prunes a producer whose newest raw clock
-    // is below `LastAck - ((24h / 100ns) << 4)`. The largest such clock must be
-    // horizon-stale against that `LastAck`.
+    // is below its journal's `LastAck - ((24h / 100ns) << 4)`. The largest such
+    // clock must be covered by the prune floor seeded from that `LastAck`.
     #[test]
-    fn test_horizon_covers_gazette_prune() {
+    fn test_seeded_prune_floor_covers_gazette_prune() {
         let last_ack = from_secs(HORIZON_SECS + 100_000).as_u64() | 0xf;
         let dropped = last_ack - ((24 * 60 * 60 * 10_000_000) << 4) - 1;
-        let mut completed = Completed::new(vec![0]);
-        completed.binding_max[0] = Clock::from_u64(last_ack);
-        assert!(completed.is_horizon_stale(0, Clock::from_u64(dropped)));
+
+        let mut cumulative = Frontier::new(
+            vec![jf(
+                "journal/A",
+                0,
+                vec![ProducerFrontier {
+                    last_commit: Clock::from_u64(last_ack),
+                    ..pf(0x01, 0, 0, -100)
+                }],
+            )],
+            vec![],
+        )
+        .unwrap();
+        cumulative.seed_prune_floors();
+
+        assert_eq!(
+            cumulative.journals[0].accounts_for(
+                crate::testing::producer(0x09),
+                Clock::from_u64(dropped),
+                false
+            ),
+            Some(Accounted::PruneFloor),
+        );
+        // A seed never lowers a floor, and an entry with no commit seeds none.
+        let mut entry = Frontier::new(
+            vec![with_floors(
+                jf("journal/A", 0, vec![pf(0x01, 0, 50, 0)]),
+                40,
+                0,
+            )],
+            vec![],
+        )
+        .unwrap();
+        entry.seed_prune_floors();
+        assert_eq!(entry.journals[0].prune_floor, from_secs(40));
     }
 
     #[test]
@@ -2660,150 +2756,134 @@ mod test {
 
     #[test]
     fn test_prune_hints() {
-        // Binding 0's promoted progress sits at `leader`; binding 1 shares its
-        // cohort but has no progress of its own, isolating the clock authority.
         let leader = HORIZON_SECS + 100_000;
-        let stale = leader - HORIZON_SECS; // Exactly at the horizon.
+        let stale = leader - HORIZON_SECS;
 
         let mut f = Frontier {
             journals: vec![
-                // Wholly unknown producer, hint-only: horizon-cleared, then
-                // dropped for want of a commit, emptying its journal.
+                // A forgotten producer, hint-only: cleared by the prune floor,
+                // then dropped for want of a commit, emptying its journal.
                 jf("journal/A", 0, vec![pf(0x09, 0, stale, 0)]),
                 // Same, but read progress keeps the producer (and journal) alive.
                 jf("journal/B", 0, vec![pf(0x09, 10_000, stale, -500)]),
-                // One second inside the horizon: retained.
+                // One second above the prune floor: retained.
                 jf("journal/C", 0, vec![pf(0x09, 10_000, stale + 1, -500)]),
-                // Comfortably at the frontier: retained.
-                jf("journal/D", 0, vec![pf(0x09, 10_000, leader - 1, -500)]),
-                // Cleared by its cohort's completed clock, not the horizon:
-                // binding 1 has no sentinel at all.
+                // A journal the cumulative Frontier knows nothing of: retained.
+                jf("journal/D", 0, vec![pf(0x09, 10_000, stale, -500)]),
+                // Cleared by its journal's promoted commit.
                 jf("journal/E", 1, vec![pf(0x01, 1_000, 5_000, -500)]),
+                // A commit vouches for its own journal alone: P1's on journal/E
+                // says nothing of journal/F, which hasn't promoted it.
+                jf("journal/F", 1, vec![pf(0x01, 1_000, 5_000, -500)]),
+                // The prune floor covers only forgotten producers: P9 is
+                // retained on journal/G, short of its hint.
+                jf("journal/G", 0, vec![pf(0x09, 0, 2_000, 0)]),
             ],
             flushed_lsn: vec![],
-            unresolved_hints: 5,
+            unresolved_hints: 7,
             ..Default::default()
         };
-        let completed = completed(vec![0u32, 0], &[(0, 0x01, 5_000)], &[(0, leader)]);
-
-        assert_eq!(f.prune_hints(&completed), (1, 2, 0));
-        assert_eq!(f.unresolved_hints, 2);
-
-        insta::assert_debug_snapshot!(f.journals.iter().map(|jf| {
-            (&*jf.journal, jf.binding, jf.producers.iter().map(pf_tuple).collect::<Vec<_>>())
-        }).collect::<Vec<_>>(), @r#"
-        [
-            (
-                "journal/B",
-                0,
-                [
-                    (
-                        10000,
+        let cumulative = Frontier::new(
+            vec![
+                with_floors(
+                    jf("journal/A", 0, vec![pf(0x01, leader, 0, -900)]),
+                    stale,
+                    0,
+                ),
+                with_floors(
+                    jf("journal/B", 0, vec![pf(0x01, leader, 0, -900)]),
+                    stale,
+                    0,
+                ),
+                with_floors(
+                    jf("journal/C", 0, vec![pf(0x01, leader, 0, -900)]),
+                    stale,
+                    0,
+                ),
+                jf("journal/E", 1, vec![pf(0x01, 5_000, 0, -900)]),
+                jf("journal/F", 1, vec![pf(0x03, 9_000, 0, -900)]),
+                with_floors(
+                    jf(
+                        "journal/G",
                         0,
-                        -500,
+                        vec![pf(0x01, leader, 0, -900), pf(0x09, 1_000, 0, -100)],
                     ),
-                ],
-            ),
-            (
-                "journal/C",
-                0,
-                [
-                    (
-                        10000,
-                        100001,
-                        -500,
-                    ),
-                ],
-            ),
-            (
-                "journal/D",
-                0,
-                [
-                    (
-                        10000,
-                        186399,
-                        -500,
-                    ),
-                ],
-            ),
-            (
-                "journal/E",
-                1,
-                [
-                    (
-                        1000,
-                        0,
-                        -500,
-                    ),
-                ],
-            ),
-        ]
-        "#);
+                    stale,
+                    0,
+                ),
+            ],
+            vec![],
+        )
+        .unwrap();
+
+        assert_eq!(f.prune_hints(&cumulative), (1, 2, 0));
+        assert_eq!(f.unresolved_hints, 4);
+
+        let readout: Vec<_> = f
+            .journals
+            .iter()
+            .map(|jf| {
+                (
+                    &*jf.journal,
+                    jf.binding,
+                    jf.producers.iter().map(pf_tuple).collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            readout,
+            vec![
+                ("journal/B", 0, vec![(10_000, 0, -500)]),
+                ("journal/C", 0, vec![(10_000, stale + 1, -500)]),
+                ("journal/D", 0, vec![(10_000, stale, -500)]),
+                ("journal/E", 1, vec![(1_000, 0, -500)]),
+                ("journal/F", 1, vec![(1_000, 5_000, -500)]),
+                ("journal/G", 0, vec![(0, 2_000, 0)]),
+            ],
+        );
     }
 
     #[test]
-    fn test_completed_update() {
-        // Bindings 0 and 1 share cohort 0; binding 2 is alone in cohort 1.
-        let mut completed = Completed::new(vec![0, 0, 1]);
-        assert_eq!(completed.num_cohorts(), 2);
-
-        completed.update(&Frontier {
-            journals: vec![
-                jf(
-                    "journal/A",
-                    0,
-                    vec![pf(0x01, 500, 0, -100), pf(0x03, 900, 0, -100)],
-                ),
-                jf("journal/B", 1, vec![pf(0x01, 700, 0, -100)]),
-                jf("journal/C", 2, vec![pf(0x05, 0, 800, 0)]),
-            ],
-            ..Default::default()
-        });
-
-        // The cohort ledger max-merges its bindings: P1 takes binding 1's newer
-        // 700s, and cohort 1 knows nothing of either.
-        assert_eq!(
-            completed.clock(0, crate::testing::producer(0x01)),
-            from_secs(700)
-        );
-        assert_eq!(
-            completed.clock(1, crate::testing::producer(0x01)),
-            from_secs(700)
-        );
-        assert_eq!(
-            completed.clock(0, crate::testing::producer(0x03)),
-            from_secs(900)
-        );
-        assert_eq!(
-            completed.clock(2, crate::testing::producer(0x01)),
-            Clock::zero()
-        );
-
-        // Sentinels are per-binding, from that binding's journals only. Binding
-        // 2 holds nothing but a hint, which is no promoted commit at all.
-        assert_eq!(completed.binding_max[0], from_secs(900));
-        assert_eq!(completed.binding_max[1], from_secs(700));
-        assert_eq!(completed.binding_max[2], Clock::zero());
-
-        // A further promotion advances both, and only upward.
-        completed.update(&Frontier {
-            journals: vec![jf(
-                "journal/A",
+    fn test_frontier_prune_stale_producers() {
+        let leader = HORIZON_SECS + 100_000;
+        let stale = |journal: &str| {
+            jf(
+                journal,
                 0,
-                vec![pf(0x01, 400, 0, -1), pf(0x03, 1_200, 0, -1)],
-            )],
-            ..Default::default()
-        });
+                vec![pf(0x01, leader, 0, -900), pf(0x03, 1_000, 0, -100)],
+            )
+        };
+        let mut cumulative = Frontier::new(
+            vec![stale("journal/A"), stale("journal/B"), stale("journal/C")],
+            vec![],
+        )
+        .unwrap();
+
+        // Only journals of `touched` are pruned. journal/Z is unknown, and skipped.
+        let touched = Frontier::new(
+            vec![jf("journal/B", 0, vec![]), jf("journal/Z", 0, vec![])],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(cumulative.prune_stale_producers(Some(&touched)), 1);
+
+        let readout: Vec<_> = cumulative
+            .journals
+            .iter()
+            .map(|jf| (&*jf.journal, jf.producers.len(), jf.prune_floor.to_unix().0))
+            .collect();
         assert_eq!(
-            completed.clock(0, crate::testing::producer(0x01)),
-            from_secs(700),
-            "a regressing clock is ignored",
+            readout,
+            vec![
+                ("journal/A", 2, 0),
+                ("journal/B", 1, 1_000),
+                ("journal/C", 2, 0)
+            ],
         );
-        assert_eq!(
-            completed.clock(0, crate::testing::producer(0x03)),
-            from_secs(1_200)
-        );
-        assert_eq!(completed.binding_max[0], from_secs(1_200));
+
+        // With no `touched`, every journal is pruned.
+        assert_eq!(cumulative.prune_stale_producers(None), 2);
+        assert!(cumulative.journals.iter().all(|jf| jf.producers.len() == 1));
     }
 
     #[test]

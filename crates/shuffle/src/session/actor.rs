@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 
 /// SessionActor implements the main event loop of a shuffle Session RPC.
 pub struct SessionActor {
-    /// Immutable session configuration: topology, bindings, resume checkpoint.
+    /// Immutable session configuration: topology and bindings.
     pub topology: super::state::Topology,
     /// Checkpoint state machine over the pipeline of each priority.
     pub checkpoint: super::state::CheckpointState,
@@ -272,7 +272,10 @@ impl SessionActor {
 
                 let routed = self.topology.route_read(&added)?;
 
-                if let Some((slice, start_read)) = self.topology.build_start_read(&routed, added) {
+                if let Some((slice, start_read)) =
+                    self.topology
+                        .build_start_read(&routed, added, self.checkpoint.cumulative())
+                {
                     self.slice_requests.push_back((
                         slice,
                         shuffle::SliceRequest {
@@ -362,7 +365,7 @@ mod test {
 
         let priorities = crate::binding::distinct_priorities(&bindings);
         let checkpoint = super::super::state::CheckpointState::new(
-            resume_checkpoint.clone(),
+            resume_checkpoint,
             &bindings,
             priorities.clone(),
             shard_count,
@@ -373,7 +376,7 @@ mod test {
             shards,
             bindings,
             priorities,
-            resume_checkpoint,
+            recovery_session: checkpoint.recovery_session(),
         };
         let (slice_request_tx, slice_request_rx): (Vec<_>, Vec<_>) = (0..slice_count)
             .map(|_| crate::new_channel::<shuffle::SliceRequest>())

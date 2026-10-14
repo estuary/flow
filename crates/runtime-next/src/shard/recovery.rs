@@ -1719,25 +1719,20 @@ mod test {
     }
 
     // INVARIANT GUARD for the duality between this crate's committed-frontier
-    // prune and the shuffle session's horizon-based hint completion. Pruning
+    // prune and the shuffle session's prune-floor hint completion. Pruning
     // durably forgets a producer, so nothing can ever resolve a later backfill's
-    // causal hint naming it; `shuffle::Completed` must therefore be able to clear
-    // every such hint, and the only reason it can is that both sides key off the
-    // one `shuffle::PRODUCER_STALENESS_HORIZON`.
+    // causal hint naming it; the session's seeded prune floors must therefore
+    // cover every such hint, and the only reason they can is that both sides key
+    // off the one `shuffle::PRODUCER_STALENESS_HORIZON`.
     //
-    // The assertion is the strongest form available: for EVERY pruned producer, a
-    // hint at its `last_commit` — the largest clock any hint naming it can carry —
-    // is discharged by accounting seeded exactly as `CheckpointPipeline::new`
-    // seeds it, from the POST-prune retained frontier. If this test fails, the two
-    // horizons have diverged and the session will crash-loop in production.
+    // The assertion: for EVERY pruned producer, a hint at its `last_commit` is
+    // discharged by a cumulative Frontier seeded from the POST-prune retained
+    // frontier. If this test fails, the two have diverged and the session will
+    // crash-loop in production.
     #[test]
     fn prune_and_hint_completion_are_dual() {
         let horizon = shuffle::PRODUCER_STALENESS_HORIZON.as_secs();
 
-        // Bindings 0 and 1 sit in distinct cohorts, so a producer retained under
-        // one binding cannot vouch for the same producer pruned under the other:
-        // the horizon is the sole authority in play.
-        let binding_cohorts = vec![0u32, 1];
         let mut committed = vec![
             jf(
                 "j/one",
@@ -1773,12 +1768,14 @@ mod test {
         let pruned = prune_committed_frontier(&mut committed, &[]);
         assert_eq!(pruned.len(), 3, "0xaa, 0xbb and 0xdd are pruned");
 
-        // Seed accounting from the retained frontier the way the session does.
-        let mut completed = shuffle::Completed::new(binding_cohorts);
-        completed.update(&shuffle::Frontier {
-            journals: committed.clone(),
-            ..Default::default()
-        });
+        // Seed the cumulative Frontier from the retained frontier the way the
+        // session does.
+        let mut retained = committed.clone();
+        for jf in &mut retained {
+            jf.producers.sort_by_key(|p| p.producer);
+        }
+        let mut cumulative = shuffle::Frontier::new(retained, Vec::new()).unwrap();
+        cumulative.seed_prune_floors();
 
         let hint_frontier = |journal: &str, binding: u16, producer, clock| shuffle::Frontier {
             journals: vec![jf(
@@ -1800,10 +1797,10 @@ mod test {
             let mut f = hint_frontier(journal, *binding, *producer, clock);
 
             assert_eq!(
-                f.prune_hints(&completed),
+                f.prune_hints(&cumulative),
                 (0, 1, 0),
                 "pruned {journal} binding={binding} producer={producer:?} \
-                 must be horizon-cleared",
+                 must be cleared by its prune floor",
             );
             assert_eq!(f.unresolved_hints, 0);
             assert!(f.journals.is_empty(), "the hint-only entry is dropped");
@@ -1813,21 +1810,21 @@ mod test {
             let f = hint_frontier(journal, *binding, *producer, clock);
             assert!(
                 shuffle::Frontier::default()
-                    .first_unaccounted(&f, &completed)
+                    .first_unaccounted(&f, &cumulative)
                     .is_none()
             );
         }
 
         // The guard is not vacuous: a live hint of a RETAINED producer — one above
-        // its completed clock yet well inside the horizon — is untouched, which is
-        // what makes ordinary causal-hint sequencing work at all.
+        // its promoted commit — is untouched, which is what makes ordinary
+        // causal-hint sequencing work at all.
         let mut f = hint_frontier(
             &committed[0].journal,
             0,
             uuid::Producer::from_bytes(producer_id(0xcc)),
             uuid::Clock::from_unix(950_000, 0),
         );
-        assert_eq!(f.prune_hints(&completed), (0, 0, 0));
+        assert_eq!(f.prune_hints(&cumulative), (0, 0, 0));
         assert_eq!(f.unresolved_hints, 1);
     }
 

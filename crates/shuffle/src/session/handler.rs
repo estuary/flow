@@ -132,19 +132,19 @@ where
 
     let slice_count = slice_request_tx.len();
 
+    let checkpoint = super::state::CheckpointState::new(
+        resume_checkpoint,
+        &bindings,
+        priorities.clone(),
+        shards.len(),
+    );
     let topology = super::state::Topology {
         session_id,
         shards,
         bindings,
         priorities,
-        resume_checkpoint,
+        recovery_session: checkpoint.recovery_session(),
     };
-    let checkpoint = super::state::CheckpointState::new(
-        topology.resume_checkpoint.clone(),
-        &topology.bindings,
-        topology.priorities.clone(),
-        topology.shards.len(),
-    );
 
     handler.set_phase("running");
 

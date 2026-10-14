@@ -193,6 +193,11 @@ never written. The response does not say which.
 are unreachable, because a byte gap at the read's start skipped their ACKs
 (`JournalFrontier::gap_floor`). It discharges hints, never producer commits.
 
+**Prune floor**: The largest clock of a producer which a `(journal, binding)`
+entry of the session's cumulative Frontier has forgotten
+(`JournalFrontier::prune_floor`). It discharges hints onto, and accounts for
+commits of, forgotten producers.
+
 **Remainder**: An already-read log block holding entries not yet committed at
 the reading shard's frontier, carried into later scans until they are
 (`log/reader/scan.rs`). A remainder holds its segment file open, and a segment
@@ -475,31 +480,23 @@ sends it as a single `Frontier` message.
 Hints can be cyclic: `unresolved` may resolve hints carried by `progressed`.
 Similarly, a re-enabled binding can re-visit hints which have long since
 been resolved. `progressed` is therefore pruned (`Frontier::prune_hints`)
-at promotion against `frontier::Completed` — the pipeline's accounting of
-what is already done. It holds a per-cohort ledger of producer commits, plus
-a per-binding maximum of promoted progress which deems any clock at least
-`PRODUCER_STALENESS_HORIZON` older to be completed — both written only on
-promotion to `ready`. That horizon rule is the dual of `runtime-next`'s
-committed-frontier prune, which forgets producers by the same constant: it is
-what keeps a hint naming a forgotten producer dischargeable at all.
-
-The third authority, the gap floor, applies only to hints. It takes effect as
-soon as a floor arrives, so it can release a waiting `unresolved` at any time.
-A floor rides its own journal's entry, and is also stamped onto the entry of
-each hint it discharges, so it reaches the coordinator with the checkpoint
-which relied on it.
+at promotion against the session's **cumulative Frontier**
+(`CheckpointState::cumulative`): the resume checkpoint, reduced with every
+promotion to `ready`. Reads also start from it. Each `(journal, binding)`
+entry accounts for a hint onto it by a promoted commit, its prune floor, or
+its gap floor (`JournalFrontier::accounts_for`). Only the hinted entry's own
+evidence counts: a producer's later transaction can promote on other journals
+before this hint's ACK is read.
 
 #### Accounted-progress ratchet
 
-While a checkpoint is held unresolved, each incoming delta is judged
-(`Frontier::first_unaccounted`) against the boundary that checkpoint
-defines. A delta is **accounted** when every producer commit and causal
-hint it reports is already covered by one of the three authorities: the
-pending frontier's own clocks and hints, a commit the producer's cohort
-has completed, or the staleness horizon. A hint — never a commit — may
-additionally be covered by a gap floor. Accounted progress folds
-into the unresolved boundary, adopting the read's true offsets; unaccounted
-progress is held back for the next boundary.
+While a checkpoint is held `unresolved`, progress which it already accounts
+for folds into it, adopting the read's true offsets
+(`Frontier::first_unaccounted`). Other progress is held back for the next
+boundary. Recovery is the ratchet's primary use. Without it, a recovery
+session's one checkpoint would keep its old cut floor, and the next session
+would re-read the whole hinted span. `CheckpointPipeline` gives the full
+argument.
 
 #### Idempotent recovery is a session of its own
 
@@ -511,7 +508,7 @@ checkpoint, make it so:
 
 - The Session starts reads only for `(journal, binding)` pairs carrying
   an unresolved hint (`Topology::build_start_read` returns None otherwise,
-  gated on `resume_checkpoint.unresolved_hints`). Every other journal —
+  gated on `Topology::recovery_session`). Every other journal —
   including one newly listed mid-recovery — is the next session's work.
 - Each such read parks the moment its own hints resolve
   (`slice::read::Park`): it drops its in-hand batch and its journal read
@@ -530,14 +527,6 @@ would. That restart is what bounds the replay's disk: the one unbounded
 term, tailing past the hinted frontier while a lower-priority cohort
 still resolves, is gone, so the replay fits within the same
 `estuary.dev/shuffle-disk-limit` the crashed session ran under.
-
-Recovery is the ratchet's primary use case. Without it, the one-shot
-recovery session would discard every true replay offset in `progressed`,
-leaving its checkpoint at the old cut floor so that the next session
-re-reads the whole hinted span. Recovery has just one unresolved
-generation, so its first unaccounted delta freezes the ratchet for the
-rest of the session; conservative hint resolution then lands at the
-ratcheted floor, and the next session re-reads only the novel tail.
 
 #### Peeks of partial progress
 
