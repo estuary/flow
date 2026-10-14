@@ -182,8 +182,7 @@ struct Args {
     #[clap(long, env = "RUNTIME_V2_NEW_DERIVATIONS", default_value = "false")]
     runtime_v2_new_derivations: bool,
 
-    /// Catalog Stats configuration. When provided, the catalogStats GraphQL queries
-    /// to read stats are enabled.
+    /// Required BigTable configuration for controller and GraphQL stats.
     #[command(flatten)]
     catalog_stats_config: control_plane_api::catalog_stats::CatalogStatsConfig,
 
@@ -370,6 +369,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let controller_publication_cooldown =
         chrono::Duration::from_std(args.controller_publication_cooldown)?;
     let alert_config_defaults = args.controller_config.alert_config_defaults();
+    let catalog_stats =
+        control_plane_api::catalog_stats::connect(args.catalog_stats_config).await?;
     let control_plane = agent::PGControlPlane::new(
         pg_pool.clone(),
         system_user_id,
@@ -380,6 +381,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         args.auto_discover_probability,
         controller_publication_cooldown,
         args.controller_config,
+        catalog_stats.clone(),
     );
 
     let billing_provider: Option<Arc<dyn control_plane_api::billing::BillingProvider>> =
@@ -389,8 +391,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             )) as Arc<dyn control_plane_api::billing::BillingProvider>
         });
     let tenant_controller_billing_provider = billing_provider.clone();
-    let catalog_stats =
-        control_plane_api::catalog_stats::connect(args.catalog_stats_config).await?;
 
     let sprites = args
         .sprites_token
@@ -398,7 +398,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
         billing_provider,
-        catalog_stats,
+        Some(catalog_stats),
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),

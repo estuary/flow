@@ -16,6 +16,7 @@ async-process = { path = "../async-process" }
 automations = { path = "../automations" }
 billing-types = { path = "../billing-types" }
 build = { path = "../build" }
+catalog-stats = { path = "../catalog-stats" }
 control-plane-api = { path = "../control-plane-api" }
 dekaf = { path = "../dekaf" }
 doc = { path = "../doc" }
@@ -80,10 +81,11 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 assemble = { path = "../assemble" }
+catalog-stats = { path = "../catalog-stats", features = ["test_util"] }
 control-plane-api = { path = "../control-plane-api", features = [
     "test-support",
 ] }
 insta = { workspace = true }
 md5 = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 uuid = { workspace = true }

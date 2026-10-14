@@ -176,6 +176,8 @@ pub struct TestHarness {
     pub control_plane: TestControlPlane,
     pub test_name: String,
     pub pool: sqlx::PgPool,
+    /// BigTable emulator holding the catalog stats that controllers read.
+    pub catalog_stats: Arc<catalog_stats::Client>,
     pub publisher: Publisher,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
@@ -229,6 +231,8 @@ impl HarnessBuilder {
         let pool = sqlx::PgPool::connect(&fixed_database_url())
             .await
             .expect("Failed to connect to database");
+        let catalog_stats =
+            Arc::new(catalog_stats::test_util::connect_emulator("estuary-local").await);
 
         let builds_root = tempdir().expect("Failed to create tempdir");
 
@@ -283,6 +287,7 @@ impl HarnessBuilder {
                 1.0, // auto_discover_probability
                 publication_cooldown,
                 crate::controllers::ControllerConfig::default(),
+                catalog_stats.clone(),
             ),
             snapshot_replace.clone(),
         );
@@ -293,6 +298,7 @@ impl HarnessBuilder {
         let mut harness = TestHarness {
             test_name,
             pool,
+            catalog_stats,
             publisher,
             builds_root,
             connectors,
@@ -506,17 +512,8 @@ impl TestHarness {
             ),
             del_alert_history as (
                 delete from alert_history
-            ),
-            del_inferred_schemas as (
-                delete from inferred_schemas
-            ),
-            del_hourly_stats as (
-                delete from catalog_stats_hourly
-            ),
-            del_daily_stats as (
-                delete from catalog_stats_daily
             )
-            delete from catalog_stats_monthly;"#,
+            delete from inferred_schemas;"#,
             system_user_id
         )
         .execute(&self.pool)
@@ -539,10 +536,25 @@ impl TestHarness {
         &mut self.control_plane
     }
 
+    pub fn set_controller_catalog_stats(&mut self, client: Arc<catalog_stats::Client>) {
+        self.control_plane.inner.catalog_stats = client;
+        self.controller_exec =
+            crate::controllers::LiveSpecControllerExecutor::new(self.control_plane.clone());
+    }
+
     /// Setup a new tenant with the given name, and return the id of the user
     /// who has `admin` capabilities to it, using shared tenant provisioning
     /// with test storage mappings.
+    ///
+    /// Clears its catalog stats because the emulator outlives each test.
     pub async fn setup_tenant(&self, tenant: &str) -> sqlx::types::Uuid {
+        catalog_stats::test_util::delete_rows_with_prefix(
+            &self.catalog_stats,
+            &format!("{tenant}/"),
+        )
+        .await
+        .expect("failed to clear tenant catalog stats");
+
         let email = format!("{tenant}@{}.test", self.test_name.replace(' ', "-"));
         let meta = serde_json::json!({
             "picture": format!("http://{tenant}.test/avatar"),
@@ -2194,7 +2206,7 @@ impl ControlPlane for TestControlPlane {
         &self,
         catalog_name: String,
         since: DateTime<Utc>,
-    ) -> anyhow::Result<i64> {
+    ) -> anyhow::Result<u64> {
         self.inner
             .fetch_bytes_processed_since(catalog_name, since)
             .await
