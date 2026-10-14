@@ -23,7 +23,7 @@ pub async fn update_quotas(
             let wait = (next_retry - now)
                 .to_std()
                 .unwrap_or(std::time::Duration::from_secs(60));
-            return Ok(Outcome::WaitForRetry(wait));
+            return Ok(Outcome::Sleep(wait));
         }
     }
 
@@ -46,7 +46,7 @@ pub async fn update_quotas(
                 ?backoff,
                 "failed while updating tenant quotas: {err:#}",
             );
-            Ok(Outcome::WaitForRetry(backoff))
+            Ok(Outcome::Sleep(backoff))
         }
     }
 }
@@ -141,7 +141,7 @@ mod tests {
 
     use super::super::Tenant;
     use super::{Outcome, QuotaUpdateStatus, update_quotas};
-    use crate::tenant_controller::PaymentProvider;
+    use crate::tenant_controller::{PaymentProvider, PlanKind};
     use control_plane_api::billing::{BillingProvider, InMemoryBillingProvider};
     use std::sync::Arc;
 
@@ -193,6 +193,8 @@ mod tests {
             billing_name: None,
             billing_address: None,
             payment_provider: None,
+            plan_kind: PlanKind::SelfServe,
+            trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
@@ -210,6 +212,8 @@ mod tests {
             billing_name: None,
             billing_address: None,
             payment_provider: None,
+            plan_kind: PlanKind::SelfServe,
+            trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
@@ -248,6 +252,8 @@ mod tests {
             billing_name: None,
             billing_address: None,
             payment_provider: None,
+            plan_kind: PlanKind::SelfServe,
+            trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
@@ -279,6 +285,8 @@ mod tests {
             billing_name: None,
             billing_address: None,
             payment_provider: Some(PaymentProvider::External),
+            plan_kind: PlanKind::SelfServe,
+            trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
@@ -302,6 +310,8 @@ mod tests {
             billing_name: None,
             billing_address: None,
             payment_provider: None,
+            plan_kind: PlanKind::SelfServe,
+            trial_start: None,
         };
 
         let mut status = QuotaUpdateStatus::default();

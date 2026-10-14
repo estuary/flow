@@ -17,7 +17,7 @@ pub async fn reconcile(
             let wait = (next_retry - now)
                 .to_std()
                 .unwrap_or(std::time::Duration::from_secs(60));
-            return Ok(Outcome::WaitForRetry(wait));
+            return Ok(Outcome::Sleep(wait));
         }
     }
 
@@ -39,7 +39,7 @@ pub async fn reconcile(
                 ?backoff,
                 "billing contact reconciliation failed: {err:#}",
             );
-            Ok(Outcome::WaitForRetry(backoff))
+            Ok(Outcome::Sleep(backoff))
         }
     }
 }
@@ -125,7 +125,7 @@ mod tests {
         BillingProvider, CUSTOMER_NAME_METADATA_KEY, InMemoryBillingProvider,
     };
 
-    use super::super::Tenant;
+    use super::super::{PlanKind, Tenant};
     use super::{Outcome, TaskStatus, reconcile};
 
     const TENANT: &str = "acmeCo/";
@@ -142,6 +142,8 @@ mod tests {
             billing_name: name.map(str::to_string),
             billing_address: address,
             payment_provider: None,
+            plan_kind: PlanKind::SelfServe,
+            trial_start: None,
         }
     }
 
@@ -369,7 +371,7 @@ mod tests {
             &tenant_row(None, None, Some(serde_json::json!("not an address"))),
         )
         .await;
-        assert!(matches!(outcome, Outcome::WaitForRetry(_)));
+        assert!(matches!(outcome, Outcome::Sleep(_)));
         assert_eq!(status.failures, 1);
         assert!(status.next_retry.is_some());
         assert!(status.last_error.is_some());
@@ -379,7 +381,7 @@ mod tests {
         let mismatch = tenant_row(Some("new@example.com"), None, None);
         let baseline = provider.update_billing_profile_call_count();
         let outcome = run(&pool, &provider, &mut status, &mismatch).await;
-        assert!(matches!(outcome, Outcome::WaitForRetry(_)));
+        assert!(matches!(outcome, Outcome::Sleep(_)));
         assert_eq!(provider.update_billing_profile_call_count() - baseline, 0);
 
         // A success (once the retry window has elapsed) resets the failure state.
