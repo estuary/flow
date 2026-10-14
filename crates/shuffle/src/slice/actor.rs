@@ -234,9 +234,11 @@ impl SliceActor {
         let out = stream::FuturesUnordered::new();
 
         for binding in &self.topology.bindings {
-            // Use modulo round-robin to assign bindings to slice shards.
-            if binding.index % self.topology.shards.len() as u16
-                != self.topology.slice_shard_index as u16
+            // Use modulo round-robin to assign the bindings of our priority to
+            // its Slices across shards.
+            if binding.priority != self.topology.priority
+                || binding.index % self.topology.shards.len() as u16
+                    != self.topology.slice_shard_index as u16
             {
                 continue;
             }
@@ -326,6 +328,14 @@ impl SliceActor {
             .bindings
             .get(binding_index as usize)
             .context("StartRead invalid binding")?;
+
+        if binding.priority != self.topology.priority {
+            anyhow::bail!(
+                "StartRead of binding {binding_index} with priority {} is not of this Slice's priority {}",
+                binding.priority,
+                self.topology.priority,
+            );
+        }
 
         let binding_state_key = binding.state_key().to_string();
         let client = (*self.topology.journal_clients[binding.source as usize]).clone();
@@ -591,7 +601,6 @@ impl SliceActor {
         };
 
         self.heap.push_ready(ReadyReadEntry {
-            priority: binding.priority,
             adjusted_clock: ready_read.meta.clock + binding.read_delay,
             inner: Some(Box::new(ready_read)),
         });
@@ -777,9 +786,7 @@ impl SliceActor {
         // Pop the heap entry now that any Appends are buffered.
         // Crucially: we now cannot fail to consume this document.
         let ReadyReadEntry {
-            priority,
-            inner: ready_read,
-            ..
+            inner: ready_read, ..
         } = self.heap.pop_ready().unwrap();
         let ready_read = ready_read.unwrap();
 
@@ -859,7 +866,6 @@ impl SliceActor {
 
         match ready_read.advance() {
             Ok(ready_read) => self.heap.push_ready(ReadyReadEntry {
-                priority,
                 adjusted_clock: ready_read.meta.clock + read_delay,
                 inner: Some(ready_read),
             }),

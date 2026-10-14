@@ -177,7 +177,8 @@ pub(crate) fn lz4_compress(raw: &[u8]) -> anyhow::Result<Vec<u8>> {
 pub const BLOCK_HEADER_LEN: usize = 8;
 
 /// LogJoin coordinates multiple Slice streams connecting to the same Log.
-/// Each Log shard receives connections from all Slices (M connections total).
+/// Each Log shard receives connections from the Slice of every priority at
+/// every shard (M·P connections total, for M shards and P distinct priorities).
 ///
 /// The map is keyed by `(directory, session_id, log_shard_index)` in
 /// [`crate::Service`]. Including `session_id` makes retries collision-free by
@@ -186,9 +187,13 @@ pub const BLOCK_HEADER_LEN: usize = 8;
 /// `session_id` is a u32 of time-nanos and can collide across concurrent tasks
 /// on one sidecar.
 pub(crate) struct LogJoin {
-    /// One slot per Slice, indexed by `slice_shard_index`. `None` until that
-    /// Slice connects (or after its slot is reaped on abort).
-    shards: Vec<Option<LogJoinSlot>>,
+    /// Distinct priorities of the session's bindings, in descending order,
+    /// which every Slice's Open must agree upon.
+    priorities: Vec<i32>,
+    /// One slot per Slice, indexed by priority then shard: the Slice of
+    /// `priorities[p]` at shard `s` is `p * shard_count + s`.
+    /// `None` until that Slice connects (or after its slot is reaped on abort).
+    slices: Vec<Option<LogJoinSlot>>,
 }
 
 /// A single Slice's connection to a Log rendezvous.

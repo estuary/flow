@@ -12,8 +12,23 @@ pub struct Topology {
     pub session_id: u32,
     /// Ordered shard topology: each shard owns a disjoint key range.
     pub shards: Vec<shuffle::Shard>,
+    /// Distinct priorities of the session's bindings, in descending order.
+    /// Slices are indexed by priority then shard: that of `priorities[p]` at
+    /// shard `s` is `p * shards.len() + s`.
+    pub priorities: Vec<i32>,
     /// Index of this Log RPC within `shards`.
     pub log_shard_index: u32,
+}
+
+impl Topology {
+    /// Shard and priority of the Slice at index `slice`.
+    pub fn slice(&self, slice: usize) -> (&shuffle::Shard, i32) {
+        let shard_count = self.shards.len();
+        (
+            &self.shards[slice % shard_count],
+            self.priorities[slice / shard_count],
+        )
+    }
 }
 
 /// On-disk backlog of a Log's sealed segments, which engages back-pressure of

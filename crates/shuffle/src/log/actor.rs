@@ -259,10 +259,11 @@ impl LogActor {
         slice: usize,
         log_request: tonic::Result<shuffle::LogRequest>,
     ) -> anyhow::Result<()> {
+        let (shard, _) = self.topology.slice(slice);
         let verify = proto_grpc::verify(
             "LogRequest",
             "round of Appends and optional Flush",
-            &self.topology.shards[slice].endpoint,
+            &shard.endpoint,
         );
         let log_request = verify.ok(log_request)?;
 
@@ -320,8 +321,9 @@ impl LogActor {
             flush_cycle,
         } = self.slices[slice].pop();
 
+        let priority = self.topology.slice(slice).1;
         let producer = uuid::Producer::from_i64(append.producer);
-        let position = crate::merge::Position::from_append(&append);
+        let position = crate::merge::Position::from_append(priority, &append);
         self.block.accumulate(journal, producer, &append);
 
         tracing::trace!(

@@ -17,10 +17,13 @@ impl Position {
         adjusted_clock: proto_gazette::uuid::Clock::from_u64(u64::MAX),
     };
 
-    /// Merge position of an Append.
-    pub const fn from_append(append: &proto_flow::shuffle::log_request::Append) -> Self {
+    /// Merge position of an Append of a Slice having `priority`.
+    pub const fn from_append(
+        priority: i32,
+        append: &proto_flow::shuffle::log_request::Append,
+    ) -> Self {
         Self {
-            priority: append.priority,
+            priority,
             adjusted_clock: adjusted_clock(append),
         }
     }

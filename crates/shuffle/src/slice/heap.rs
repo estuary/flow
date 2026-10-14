@@ -17,7 +17,7 @@ pub struct ReadHeap {
     /// their journal's write head, and may yet preempt the heap top.
     /// Every other pending read is tailing.
     stalled: std::collections::HashSet<u32>,
-    /// Ready documents of reads, ordered on (priority, adjusted clock).
+    /// Ready documents of reads, ordered on adjusted clock.
     ready: std::collections::BinaryHeap<ReadyReadEntry>,
 }
 
@@ -55,13 +55,11 @@ pub enum ResolvedTop {
 /// ReadyReadEntry holds the ordering fields for a ReadyRead.
 /// We keep this struct small to optimize heap sift operations.
 pub struct ReadyReadEntry {
-    /// Binding priority (higher = more urgent).
-    pub priority: i32,
     /// Adjusted clock of the document (publication + read_delay).
     pub adjusted_clock: uuid::Clock,
     /// The actual document data, accessed by pointer indirection.
     /// Always `Some` in normal usage; `Option` allows test construction
-    /// without a real ReadyRead (Ord only uses `priority` and `adjusted_clock`).
+    /// without a real ReadyRead (Ord only uses `adjusted_clock`).
     pub inner: Option<Box<ReadyRead>>,
 }
 
@@ -194,9 +192,7 @@ impl std::fmt::Debug for ReadHeap {
 impl Ord for ReadyReadEntry {
     #[inline]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.priority
-            .cmp(&other.priority)
-            .then(self.adjusted_clock.cmp(&other.adjusted_clock).reverse())
+        self.adjusted_clock.cmp(&other.adjusted_clock).reverse()
     }
 }
 
@@ -219,66 +215,24 @@ impl Eq for ReadyReadEntry {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::cmp::Ordering;
     use std::collections::BinaryHeap;
-
-    fn test_entry(priority: i32, clock: u64) -> ReadyReadEntry {
-        ReadyReadEntry {
-            priority,
-            adjusted_clock: uuid::Clock::from_u64(clock),
-            inner: None,
-        }
-    }
 
     #[test]
     fn test_heap_ordering() {
-        // BinaryHeap is a max-heap: pop() returns the greatest element.
-        // ReadyReadEntry::Ord should yield Greatest for max priority,
-        // then min adjusted_clock (via .reverse()).
-
-        assert_eq!(
-            test_entry(2, 100).cmp(&test_entry(1, 100)),
-            Ordering::Greater,
-            "higher priority wins"
-        );
-        assert_eq!(
-            test_entry(1, 50).cmp(&test_entry(1, 100)),
-            Ordering::Greater,
-            "earlier clock wins at same priority"
-        );
-        assert_eq!(
-            test_entry(1, 100).cmp(&test_entry(1, 100)),
-            Ordering::Equal,
-            "equal"
-        );
-        assert_eq!(
-            test_entry(0, 100).cmp(&test_entry(-1, 50)),
-            Ordering::Greater,
-            "default priority beats a negative priority"
-        );
-
-        // Verify pop order from a real BinaryHeap.
+        // BinaryHeap is a max-heap: pop() returns the greatest element,
+        // which ReadyReadEntry::Ord makes the least adjusted clock.
         let mut heap = BinaryHeap::new();
-        heap.push(test_entry(1, 200));
-        heap.push(test_entry(2, 100));
-        heap.push(test_entry(1, 50));
-        heap.push(test_entry(2, 300));
-        heap.push(test_entry(-1, 10));
-
+        for clock in [200, 100, 50, 300, 100] {
+            heap.push(ReadyReadEntry {
+                adjusted_clock: uuid::Clock::from_u64(clock),
+                inner: None,
+            });
+        }
         let pops: Vec<_> = std::iter::from_fn(|| heap.pop())
-            .map(|e| (e.priority, e.adjusted_clock.as_u64()))
+            .map(|e| e.adjusted_clock.as_u64())
             .collect();
 
-        assert_eq!(
-            pops,
-            vec![
-                (2, 100), // high priority, early clock
-                (2, 300), // high priority, late clock
-                (1, 50),  // low priority, early clock
-                (1, 200), // low priority, late clock
-                (-1, 10), // negative priority is drained last
-            ]
-        );
+        assert_eq!(pops, vec![50, 100, 100, 200, 300]);
     }
 
     #[tokio::test]
@@ -293,7 +247,6 @@ mod test {
         // `resolved_top` refreshes `now` from the wall-clock, so clocks are relative to it.
         let base = crate::now_clock().to_unix().0;
         let entry = |offset: i64| ReadyReadEntry {
-            priority: 0,
             adjusted_clock: uuid::Clock::from_unix(base.checked_add_signed(offset).unwrap(), 0),
             inner: None,
         };
