@@ -155,6 +155,20 @@ impl TenantMutation {
             ));
         }
 
+        // Lock this user to prevent concurrent tenant create mutations.
+        sqlx::query!(
+            "SELECT id FROM auth.users WHERE id = $1 FOR UPDATE",
+            claims.sub
+        )
+        .fetch_one(&mut *txn)
+        .await?;
+
+        if crate::tenants::is_user_provisioned(claims.sub, &mut txn).await? {
+            return Err(async_graphql::Error::new(
+                "Cannot provision a new tenant because the user has existing grants",
+            ));
+        }
+
         let tenant_name = create_tenant(
             env.snapshot(),
             claims.sub,
@@ -183,8 +197,11 @@ impl TenantMutation {
         txn.commit().await?;
 
         tracing::info!(user_id = %claims.sub, tenant = %tenant_name, "created tenant");
-        // Nested Tenant resolvers could retry authorization with the pre-creation
-        // snapshot, replaying this mutation after it has already committed.
+
+        // We might normally return the Tenant here, but that would require nested resolvers
+        // to check authorization against a snapshot missing the newly created grants.
+        // That could trigger a retry of the entire request, replaying this mutation
+        // after it has already committed. So we just return a boolean.
         Ok(true)
     }
 }
@@ -215,19 +232,6 @@ async fn create_tenant(
         return Err(async_graphql::Error::new(TENANT_UNAVAILABLE_MESSAGE));
     }
 
-    // Lock this user to prevent concurrent tenant create mutations.
-    sqlx::query!(
-        "SELECT id FROM auth.users WHERE id = $1 FOR UPDATE",
-        user_id
-    )
-    .fetch_one(&mut **txn)
-    .await?;
-
-    if crate::tenants::is_user_provisioned(user_id, txn).await? {
-        return Err(async_graphql::Error::new(
-            "Cannot provision a new tenant because the user has existing grants",
-        ));
-    }
     let tenant_name = format!("{}/", name);
     let banned = sqlx::query!(
         r#"
@@ -258,10 +262,17 @@ async fn create_tenant(
     });
     let (tenant_storage, recovery_storage) = storage::specs(public_planes, data_plane)?;
 
+    let metadata = if survey.is_null() {
+        serde_json::json!({})
+    } else {
+        serde_json::json!({ "onboardingSurvey": survey })
+    };
+
     crate::tenants::provision_tenant(
         Some("created via tenantCreate".to_string()),
         name,
         user_id,
+        metadata,
         tenant_storage,
         recovery_storage,
         txn,
@@ -278,24 +289,6 @@ async fn create_tenant(
         }
         err.into()
     })?;
-    let metadata = if survey.is_null() {
-        serde_json::json!({})
-    } else {
-        serde_json::json!({ "onboardingSurvey": survey })
-    };
-
-    sqlx::query!(
-        r#"UPDATE public.tenants
-           SET created_by = $1,
-               metadata = metadata || $2::jsonb
-           WHERE tenant = $3"#,
-        user_id,
-        metadata,
-        &tenant_name as &str,
-    )
-    .execute(&mut **txn)
-    .await?;
-
     Ok(tenant_name)
 }
 
@@ -774,8 +767,8 @@ mod test {
     async fn tenant_create_rollback(pool: sqlx::PgPool) {
         let server = server(&pool).await;
         let token = server.make_access_token(ALICE, None);
-        // Fail the metadata write after provisioning has populated every table.
-        sqlx::raw_sql("CREATE FUNCTION internal.reject_signup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test failure'; END $$; CREATE TRIGGER reject_signup BEFORE UPDATE OF metadata ON public.tenants FOR EACH ROW EXECUTE FUNCTION internal.reject_signup();")
+        // Fail consent recording after provisioning has populated every table.
+        sqlx::raw_sql("CREATE FUNCTION internal.reject_signup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test failure'; END $$; CREATE TRIGGER reject_signup BEFORE INSERT ON internal.tenant_consent FOR EACH ROW EXECUTE FUNCTION internal.reject_signup();")
             .execute(&pool).await.unwrap();
         let req = request("acmeCo");
         let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
@@ -783,7 +776,7 @@ mod test {
         let count: i64 = sqlx::query_scalar("SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/') + (SELECT count(*) FROM user_grants WHERE object_role = 'acmeCo/') + (SELECT count(*) FROM role_grants WHERE subject_role = 'acmeCo/' OR object_role = 'acmeCo/') + (SELECT count(*) FROM storage_mappings WHERE catalog_prefix IN ('acmeCo/', 'recovery/acmeCo/')) + (SELECT count(*) FROM alert_subscriptions WHERE catalog_prefix = 'acmeCo/')")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(count, 0);
-        sqlx::query("DROP TRIGGER reject_signup ON public.tenants")
+        sqlx::query("DROP TRIGGER reject_signup ON internal.tenant_consent")
             .execute(&pool)
             .await
             .unwrap();

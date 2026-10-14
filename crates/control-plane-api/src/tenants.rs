@@ -26,6 +26,7 @@ pub async fn provision_tenant(
     detail: Option<String>,
     tenant: &str,
     tenant_user_id: Uuid,
+    metadata: serde_json::Value,
     tenant_storage: serde_json::Value,
     recovery_storage: serde_json::Value,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -60,7 +61,7 @@ pub async fn provision_tenant(
             insert into alert_subscriptions (catalog_prefix, email, include_alert_types)
             values ($2, (select email from auth.users where id = $1 limit 1), $6)
         )
-        insert into tenants (tenant, detail) values ($2, $3);
+        insert into tenants (tenant, detail, created_by, metadata) values ($2, $3, $1, $7);
         "#,
         tenant_user_id as Uuid,
         &prefix as &str,
@@ -68,6 +69,7 @@ pub async fn provision_tenant(
         tenant_storage,
         recovery_storage,
         &default_alert_types as &[models::status::AlertType],
+        metadata,
     )
     .execute(&mut **txn)
     .await?;
@@ -117,6 +119,7 @@ pub async fn provision_test_tenant(
         Some("test tenant".to_string()),
         tenant,
         user_id,
+        serde_json::json!({}),
         tenant_storage,
         recovery_storage,
         &mut txn,
