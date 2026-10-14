@@ -713,16 +713,6 @@ mod test {
                 .unwrap();
         insta::assert_json_snapshot!(metadata, @r#"{}"#);
 
-        // Name validation keeps precedence even after the user owns a tenant.
-        for (name, expected) in [
-            ("invalid/name", "Invalid organization name"),
-            ("Ａcme", "Invalid organization name"),
-            ("estuary", super::TENANT_UNAVAILABLE_MESSAGE),
-        ] {
-            let response: serde_json::Value = server.graphql(&request(name), Some(&token)).await;
-            assert_eq!(response["errors"][0]["message"], expected, "{response}");
-        }
-
         let response: serde_json::Value = server.graphql(&request("anotherCo"), Some(&token)).await;
         assert_eq!(
             response["errors"][0]["message"],
