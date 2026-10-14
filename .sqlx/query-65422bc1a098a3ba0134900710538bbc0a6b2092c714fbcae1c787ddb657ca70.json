@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT tenant as \"tenant!\", billing_emails, billing_name, billing_address, payment_provider as \"payment_provider: PaymentProvider\"\n        FROM tenants\n        WHERE controller_task_id = $1\n        ",
+  "query": "\n        SELECT tenant as \"tenant!\", billing_emails, billing_name, billing_address, payment_provider as \"payment_provider: PaymentProvider\", plan_kind as \"plan_kind: PlanKind\", trial_start\n        FROM tenants\n        WHERE controller_task_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -70,6 +70,39 @@
             "name": "payment_provider"
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "plan_kind: PlanKind",
+        "type_info": {
+          "Custom": {
+            "name": "plan_kind_type",
+            "kind": {
+              "Enum": [
+                "self_serve",
+                "contract",
+                "internal"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "plan_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "trial_start",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "trial_start"
+          }
+        }
       }
     ],
     "parameters": {
@@ -82,8 +115,10 @@
       false,
       true,
       true,
+      true,
+      false,
       true
     ]
   },
-  "hash": "5c681bf8b1624c584f3c0580ce51155915229e09fbb106cac29635f09a4ad02a"
+  "hash": "65422bc1a098a3ba0134900710538bbc0a6b2092c714fbcae1c787ddb657ca70"
 }
