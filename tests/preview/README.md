@@ -10,9 +10,10 @@ a checked-in snapshot under `snapshots/`. Sources are either a sibling
 materialization tests feed transactions from a `*-fixture.ndjson` — documents
 separated by `{"commit": true}` markers — in place of live journal reads.
 
-Snapshot files are named by `pytest-insta` from the test's node ID
-(`preview_test_<module>__<test-fn>__<name>`), so renaming a directory, file, or
-test function orphans its snapshot.
+Snapshot files are named by `pytest-insta` from the test's module and function,
+with their `test_` prefixes dropped (`<module>__<test-fn>__<name>`), so renaming
+a file or test function orphans its snapshot. An orphaned snapshot doesn't fail:
+pytest-insta writes a new one and the test passes without comparing anything.
 
 To run them:
 * Install [Poetry](https://python-poetry.org/) for python.
