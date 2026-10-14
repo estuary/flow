@@ -33,11 +33,10 @@ pub struct ParseArgs {
     pub config_file: Option<String>,
 
     /// Path to a file with the data to parse. Defaults to '-', which represents stdin.
-    /// Passing a value other that '-' will default the filename in the config to the given file.
-    /// Some formats, like Excel files, can't really be parsed in a single pass. You need to be
-    /// able to seek around the file. This option enables those files to be passed as files, which
-    /// allows the parser to avoid duplicating the work of writing the stream to a temporary file.
-    /// Note that that's not actually implemented yet, but that's the intent of this option.
+    /// Passing a value other than '-' defaults the filename in the config to that path, and
+    /// opens the file directly as a seekable input rather than buffering stdin to a temporary
+    /// file. Seek-oriented formats (parquet, Excel) can then read footers and row groups
+    /// without a full pre-read.
     #[clap(long = "file", default_value = "-")]
     pub file: String,
 }
