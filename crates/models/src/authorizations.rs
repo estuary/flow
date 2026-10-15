@@ -41,13 +41,17 @@ impl ControlClaims {
         use serde::{Deserialize, de::value};
         crate::authz::Subject {
             user_id: self.sub,
-            prefix_scope: self.prefix_scope.as_ref().map(|scope| {
-                let mut scope = scope.clone();
-                if !scope.ends_with('/') {
-                    scope.push('/');
-                }
-                scope
-            }),
+            prefix_scopes: self
+                .prefix_scope
+                .iter()
+                .map(|scope| {
+                    let mut scope = scope.clone();
+                    if !scope.ends_with('/') {
+                        scope.push('/');
+                    }
+                    scope
+                })
+                .collect(),
             capability_mask: self.capability_mask.as_ref().map(|mask| {
                 mask.iter()
                     .filter_map(|name| {
@@ -451,7 +455,10 @@ mod test {
         ] {
             payload["prefix_scope"] = scope.clone();
             let claims: ControlClaims = serde_json::from_value(payload.clone()).unwrap();
-            assert_eq!(claims.subject().prefix_scope.as_deref(), expected);
+            assert_eq!(
+                claims.subject().prefix_scopes,
+                expected.into_iter().map(String::from).collect::<Vec<_>>()
+            );
             let round_trip: ControlClaims =
                 serde_json::from_value(serde_json::to_value(&claims).unwrap()).unwrap();
             assert_eq!(round_trip.subject(), claims.subject());
@@ -565,7 +572,7 @@ mod test {
                 Subject {
                     user_id,
                     capability_mask: *expected_mask,
-                    prefix_scope: None,
+                    prefix_scopes: Vec::new(),
                 },
                 "{payload}"
             );

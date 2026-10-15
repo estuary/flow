@@ -7,9 +7,8 @@ use serde::{Deserialize, Serialize};
 pub struct Subject {
     pub user_id: uuid::Uuid,
     pub capability_mask: Option<CapabilitySet>,
-    /// Intersects user's reachable nodes with this prefix and its reachable nodes.
-    /// None is unrestricted.
-    pub prefix_scope: Option<String>,
+    /// Intersects the user's reachable nodes with each prefix and its reachable nodes.
+    pub prefix_scopes: Vec<String>,
 }
 
 impl Subject {
@@ -18,7 +17,7 @@ impl Subject {
         Self {
             user_id,
             capability_mask: None,
-            prefix_scope: None,
+            prefix_scopes: Vec::new(),
         }
     }
 }
