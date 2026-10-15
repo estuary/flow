@@ -247,6 +247,11 @@ expression: "&schema"
           "description": "When true, a publication will delete this capture.",
           "type": "boolean"
         },
+        "egress": {
+          "title": "Egress this capture's connector is held to.",
+          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus those listed. Only an execution which\nenforces egress, such as VMM execution (`vmm: true`), may run a task\nwhich declares it; any other fails the task.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
+          "$ref": "#/$defs/Egress"
+        },
         "endpoint": {
           "title": "Endpoint to capture from.",
           "$ref": "#/$defs/CaptureEndpoint"
@@ -289,6 +294,11 @@ expression: "&schema"
         "shards": {
           "title": "Template for shards of this capture task.",
           "$ref": "#/$defs/ShardTemplate"
+        },
+        "vmm": {
+          "title": "Run this capture's connector within a VMM.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only on the V2 runtime. A data plane which\ncannot run the connector within a VMM fails the invocation: it never\nfalls back to an ordinary container.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -511,6 +521,11 @@ expression: "&schema"
       "description": "Derive specifies how a collection is derived from other collections.",
       "type": "object",
       "properties": {
+        "egress": {
+          "title": "Egress this derivation's connector is held to.",
+          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus those listed. Only an execution which\nenforces egress, such as VMM execution (`vmm: true`), may run a task\nwhich declares it; any other fails the task.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
+          "$ref": "#/$defs/Egress"
+        },
         "redactSalt": {
           "title": "Salt used for redacting sensitive fields in derived documents.",
           "description": "When provided, this base64-encoded salt is used instead of a generated one.",
@@ -549,6 +564,11 @@ expression: "&schema"
         "using": {
           "title": "The selected runtime for this derivation.",
           "$ref": "#/$defs/DeriveUsing"
+        },
+        "vmm": {
+          "title": "Run this derivation's connector within a VMM.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only on the V2 runtime. A data plane which\ncannot run the connector within a VMM fails the invocation: it never\nfalls back to an ordinary container.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -729,6 +749,24 @@ expression: "&schema"
       "additionalProperties": false,
       "required": [
         "module"
+      ]
+    },
+    "Egress": {
+      "description": "Egress a task declares: the host names its connector may reach.",
+      "type": "object",
+      "properties": {
+        "hosts": {
+          "title": "Host names the connector may reach.",
+          "description": "These add to the hosts the connector and its image already declare,\nand an empty list adds none. `api.acmeco.example` matches only itself.\n`*.acmeco.example` matches every name beneath `acmeco.example`, at any\ndepth, but not `acmeco.example` itself: list both to reach both.\nA wildcard may not cover a public suffix, such as `*.com`.\nNames are case-insensitive, have no trailing dot, and are written in\npunycode (`xn--`) where they are not ASCII.\n\nA permitted name is reachable on any port, but only at public\naddresses: private, loopback, link-local and other special-purpose\naddresses, and TCP port 25, are never reachable.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "hosts"
       ]
     },
     "Field": {
@@ -988,6 +1026,11 @@ expression: "&schema"
           "description": "When true, a publication will delete this materialization.",
           "type": "boolean"
         },
+        "egress": {
+          "title": "Egress this materialization's connector is held to.",
+          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus those listed. Only an execution which\nenforces egress, such as VMM execution (`vmm: true`), may run a task\nwhich declares it; any other fails the task.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
+          "$ref": "#/$defs/Egress"
+        },
         "endpoint": {
           "title": "Endpoint to materialize into.",
           "$ref": "#/$defs/MaterializationEndpoint"
@@ -1059,6 +1102,11 @@ expression: "&schema"
               "type": "null"
             }
           ]
+        },
+        "vmm": {
+          "title": "Run this materialization's connector within a VMM.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only on the V2 runtime. A data plane which\ncannot run the connector within a VMM fails the invocation: it never\nfalls back to an ordinary container.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,

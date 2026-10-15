@@ -1,0 +1,75 @@
+---
+source: crates/connector/src/vmm/plan.rs
+expression: table
+---
+# no label, PUBLIC plane, egress omitted
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults)
+{"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
+
+# no label, PUBLIC plane, egress empty
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults)
+{"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
+
+# no label, PUBLIC plane, egress hosts
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); *.svc.acmeco.example, api.acmeco.example, ok.acmeco.example (task egress.hosts)
+{"allowedNames":["pypi.org","files.pythonhosted.org","*.svc.acmeco.example","api.acmeco.example","ok.acmeco.example"],"egress":"public"}
+
+# no label, PRIVATE plane, egress omitted
+VMM egress permits any public destination: the task declares no egress, and this data plane does not require one
+{"allowAll":true,"egress":"public"}
+
+# no label, PRIVATE plane, egress empty
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults)
+{"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
+
+# no label, PRIVATE plane, egress hosts
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); *.svc.acmeco.example, api.acmeco.example, ok.acmeco.example (task egress.hosts)
+{"allowedNames":["pypi.org","files.pythonhosted.org","*.svc.acmeco.example","api.acmeco.example","ok.acmeco.example"],"egress":"public"}
+
+# no label, LOCAL plane, egress omitted
+VMM egress permits any public destination: the task declares no egress, and this data plane does not require one
+{"allowAll":true,"egress":"public"}
+
+# no label, LOCAL plane, egress empty
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults)
+{"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
+
+# no label, LOCAL plane, egress hosts
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); *.svc.acmeco.example, api.acmeco.example, ok.acmeco.example (task egress.hosts)
+{"allowedNames":["pypi.org","files.pythonhosted.org","*.svc.acmeco.example","api.acmeco.example","ok.acmeco.example"],"egress":"public"}
+
+# a label, PUBLIC plane, egress omitted
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example (image label)
+{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example"],"egress":"public"}
+
+# a label, PUBLIC plane, egress empty
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example (image label)
+{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example"],"egress":"public"}
+
+# a label, PUBLIC plane, egress hosts
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example (image label); *.svc.acmeco.example, ok.acmeco.example (task egress.hosts)
+{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example","*.svc.acmeco.example","ok.acmeco.example"],"egress":"public"}
+
+# a label, PRIVATE plane, egress omitted
+VMM egress permits any public destination: the task declares no egress, and this data plane does not require one
+{"allowAll":true,"egress":"public"}
+
+# a label, PRIVATE plane, egress empty
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example (image label)
+{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example"],"egress":"public"}
+
+# a label, PRIVATE plane, egress hosts
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example (image label); *.svc.acmeco.example, ok.acmeco.example (task egress.hosts)
+{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example","*.svc.acmeco.example","ok.acmeco.example"],"egress":"public"}
+
+# a label, LOCAL plane, egress omitted
+VMM egress permits any public destination: the task declares no egress, and this data plane does not require one
+{"allowAll":true,"egress":"public"}
+
+# a label, LOCAL plane, egress empty
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example (image label)
+{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example"],"egress":"public"}
+
+# a label, LOCAL plane, egress hosts
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example (image label); *.svc.acmeco.example, ok.acmeco.example (task egress.hosts)
+{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example","*.svc.acmeco.example","ok.acmeco.example"],"egress":"public"}

@@ -1,0 +1,27 @@
+---
+source: crates/connector-vmm-tests/tests/release.rs
+expression: release(&setup)
+---
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: could not list stack 'acme''s systemd units
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, the host boundary included, since a launcher may still be running. Stop it, then run this task again to release:
+  builder connector-vmm-kvm-0
+  image sha256:0000
+  boundary sha256:0000
+  route blackhole 192.31.196.240/28 metric 4000
+  netns connector-vmm-kvm
+  link vmm-kvm0
+  dir <tmp>/root/platform-0
+  dropin <tmp>/home/.config/systemd/user/flow-reactor@local-acme-cluster-10299.service.d/connector-vmm.conf
+  stack acme local-acme-cluster <tmp>/checkout
+  network fv_0000000000000001
+  container fv_0000000000000001
+  dir <tmp>/root/launcher-0
+  network fv_0000000000000002
+  container fv_0000000000000002
+--- calls
+mise run local:stop
+  in <tmp>/checkout
+systemctl --user list-units --no-legend --plain --state=active,activating,deactivating,reloading,failed flow-*@acme.service flow-*@acme.target flow-*@local-acme-cluster.service flow-*@local-acme-cluster.target flow-*@local-acme-cluster-*.service flow-*@local-acme-cluster-*.target

@@ -140,7 +140,8 @@ types.
 
 - **`TaskService::new`** (`task_service.rs`) — CGO constructor invoked by Go
   on shard assignment. Wires the data-plane environment (FQDN, control API,
-  signing and verification keys), constructs a `connector::Service` and the
+  signing and verification keys, and the `CONNECTOR_VMM_*` VMM capability),
+  constructs a `connector::Service` and the
   `shard::Service` which routes to it, and serves both over a per-shard Unix
   domain socket. Each shard gets its own tokio runtime of
   `FLOW_RUNTIME_WORKER_THREADS` workers (default one), so raising it multiplies
@@ -462,3 +463,5 @@ controller must discard a target recorded under a session that ended.
   materialize,derive}_v2.go`); without the flag the legacy runtime is used.
   derive-sqlite threads its recorded SQLite VFS to the connector and runs on an
   ephemeral shard-zero RocksDB (SQLite is authoritative).
+- Every connector Apply and Open starts with its built spec's `execution`,
+  which the connector service requires and admits (see `crates/connector`).

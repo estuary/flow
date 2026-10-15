@@ -732,6 +732,7 @@ expression: outcome.built_materializations
             sync_schedule_json: b"",
             linked_collections: [],
             secrets: {},
+            execution: None,
         },
         previous_spec: MaterializationSpec {
             name: "testing/materialize",
@@ -858,6 +859,7 @@ expression: outcome.built_materializations
             sync_schedule_json: b"",
             linked_collections: [],
             secrets: {},
+            execution: None,
         },
         is_touch: 0,
         dependency_hash: eea0c2493934ba84,

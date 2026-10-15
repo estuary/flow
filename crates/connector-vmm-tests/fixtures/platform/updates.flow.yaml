@@ -1,0 +1,30 @@
+import:
+  - greetings.flow.yaml
+
+collections:
+  acmeCo/vmm-python/updates:
+    schema:
+      type: object
+      properties:
+        n: { type: integer }
+        fresh: { type: [string, "null"] }
+        held: { type: [string, "null"] }
+        uid: { type: integer }
+        mount: { type: string }
+        options: { type: string }
+      required: [n, uid, mount, options]
+    key: [/n]
+    derive:
+      using:
+        python:
+          module: updates.py
+      vmm: true
+      egress:
+        hosts: []
+      shards:
+        flags:
+          enable-runtime-v2: "true"
+      transforms:
+        - name: fromGreetings
+          source: { name: acmeCo/vmm-python/greetings }
+          shuffle: any

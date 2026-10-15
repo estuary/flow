@@ -1,0 +1,89 @@
+---
+source: crates/connector/src/vmm.rs
+expression: table
+---
+## memory bytes
+"1073741824" => 1073741824
+"1g" => 1073741824
+"1536m" => 1610612736
+"1.5g" => 1610612736
+"0.5m" => 524288
+"1.05g" => 1127428915
+"0.000000001g" => 1
+"1.999999999m" => 2097151
+"0" => 0
+"18446744073709551615" => 18446744073709551615
+"17179869183.999999999g" => 18446744073709551614
+"18446744073709551616" => error: is too large: number too large to fit in target type
+"17179869184g" => error: is too large
+"1G" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1.5G" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1gb" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1GiB" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1k" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1t" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"512 m" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1g " => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+" 1g" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1e3m" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1_000m" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"+1g" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"-1g" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+".5g" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1.g" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1.0000000001g" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1073741823.7" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"0x40000000" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"1.5gg" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"g" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+"" => error: expected whole bytes, or a decimal number of at most nine fraction digits suffixed m (MiB) or g (GiB), such as 1536m or 1.5g
+
+## guest memory MiB, less 256 MiB of overhead
+"1g" => 768
+"1.5g" => 1280
+"1280m" => 1024
+"1073741823" => 767
+"0.1g" => error: leaves no guest RAM
+"257m" => 1
+"256m" => error: leaves no guest RAM
+"4294967551m" => 4294967295
+"4294967552m" => error: leaves 4294967296 MiB of guest RAM, above 4294967295
+"18446744073709551615" => error: leaves 17592186044159 MiB of guest RAM, above 4294967295
+
+## guest vCPUs
+"2" => 2
+"1.5" => 2
+"0.5" => 1
+"0.000000001" => 1
+"0.0000000001" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"1.0" => 1
+"255" => 255
+"254.1" => 255
+"256" => error: is 256 vCPUs, above 255
+"0" => error: is no CPU at all
+"0.0" => error: is no CPU at all
+"1." => error: expected a decimal number of CPUs, with at most nine fraction digits
+".5" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"-1" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"+1" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"1e3" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"" => error: expected a decimal number of CPUs, with at most nine fraction digits
+"99999999999999999999" => error: is too large: number too large to fit in target type
+
+## disk MiB
+"2048" => 2048
+"1" => 1
+"0" => error: is an empty disk
+"8796093022207" => 8796093022207
+"8796093022208" => error: is above the largest disk, 8796093022207 MiB
+"+5" => error: expected a whole number of MiB
+"2g" => error: expected a whole number of MiB
+" 5" => error: expected a whole number of MiB
+
+## memory overhead MiB
+"256" => 256
+"1" => 1
+"0" => error: leaves the VMM no memory of its own
+"4294967295" => 4294967295
+"4294967296" => error: is above 4294967295 MiB
+"64m" => error: expected a whole number of MiB

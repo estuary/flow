@@ -116,6 +116,25 @@ pub struct MaterializationDef {
     /// A configuration using `secrets` may not also be sealed with `sops`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<Secret, JsonPointer>,
+    /// # Run this materialization's connector within a VMM.
+    /// When true, every invocation of the connector runs within a VMM rather
+    /// than an ordinary container. Only connectors which are eligible for VMM
+    /// execution may request it, and only on the V2 runtime. A data plane which
+    /// cannot run the connector within a VMM fails the invocation: it never
+    /// falls back to an ordinary container.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub vmm: bool,
+    /// # Egress this materialization's connector is held to.
+    /// Declaring egress, even with no hosts, holds the connector to the hosts
+    /// of its connector and image, plus those listed. Only an execution which
+    /// enforces egress, such as VMM execution (`vmm: true`), may run a task
+    /// which declares it; any other fails the task.
+    /// When omitted, the data plane decides: a public data plane holds a VMM
+    /// to its connector's and image's hosts, while a private data plane lets
+    /// it reach any public destination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "super::Egress")]
+    pub egress: Option<super::Egress>,
     /// # Bound collections to materialize into the endpoint.
     pub bindings: Vec<MaterializationBinding>,
     /// # Template for shards of this materialization task.
@@ -269,6 +288,8 @@ impl MaterializationDef {
             target_naming: None,
             endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
             secrets: BTreeMap::new(),
+            vmm: false,
+            egress: None,
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),
             expect_pub_id: None,

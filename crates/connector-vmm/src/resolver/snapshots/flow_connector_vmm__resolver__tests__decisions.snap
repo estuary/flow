@@ -1,0 +1,130 @@
+---
+source: crates/connector-vmm/src/resolver/mod.rs
+expression: log
+---
+# allowed name, TTL below the floor (t+0s)
+name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/90] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=50
+set: delete [] add [93.184.216.10 timeout 90s]
+
+# the same name again: delete and re-add (t+1s)
+name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/90] targets=[] refreshed=[93.184.216.10]
+answer: rcode=0 ancount=1 bytes=50
+set: delete [93.184.216.10] add [93.184.216.10 timeout 90s]
+
+# the question in mixed case (t+2s)
+name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/90] targets=[] refreshed=[93.184.216.10]
+answer: rcode=0 ancount=1 bytes=50
+set: delete [93.184.216.10] add [93.184.216.10 timeout 90s]
+
+# a label below an exact name (t+3s)
+name=files.pypi.org qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=32
+
+# a name that only looks like one (t+4s)
+name=notpypi.org qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=29
+
+# an exact name with labels after it (t+5s)
+name=pypi.org.evil.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
+
+# a label below a wildcard (t+6s)
+name=eu.mirror.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.80/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=82
+set: delete [] add [93.184.216.80 timeout 300s]
+
+# labels nested below a wildcard (t+7s)
+name=a.eu.mirror.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.81/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=86
+set: delete [] add [93.184.216.81 timeout 300s]
+
+# a wildcard's own base (t+8s)
+name=mirror.acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
+
+# a name that only ends like a wildcard's base (t+9s)
+name=notmirror.acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=42
+
+# a wildcard's subdomain with labels after it (t+10s)
+name=eu.mirror.acmeco.example.evil.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=55
+
+# a dot inside a label, posing as an exact name (t+11s)
+name=artifacts\\046acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=42
+
+# a dot inside a label, posing as a wildcard's subdomain (t+12s)
+name=eu\\046mirror.acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=42
+
+# a name nobody listed (t+13s)
+name=evil.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=30
+
+# AAAA for an allowed name (t+14s)
+name=pypi.org qtype=28 outcome=aaaa-empty addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=0 bytes=26
+
+# AAAA for a name nobody listed (t+15s)
+name=evil.example qtype=28 outcome=aaaa-empty addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=0 bytes=30
+
+# a type the resolver does not gate (t+16s)
+name=pypi.org qtype=15 outcome=ungated addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=50
+
+# two questions in one query (t+17s)
+name= qtype=0 outcome=ungated addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=68
+
+# an answer pointing inward (t+18s)
+name=metadata.acmeco.example qtype=1 outcome=refused-private=169.254.169.254 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=41
+
+# TTL above the cap (t+19s)
+name=long.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.50/3600] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=72
+set: delete [] add [93.184.216.50 timeout 3600s]
+
+# the same address, shorter TTL (t+20s)
+name=short.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.50/90] targets=[] refreshed=[93.184.216.50]
+answer: rcode=0 ancount=1 bytes=74
+set: delete [93.184.216.50] add [93.184.216.50 timeout 3599s]
+
+# the same address twice in one answer (t+21s)
+name=dup.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.60/500] targets=[] refreshed=[]
+answer: rcode=0 ancount=2 bytes=104
+set: delete [] add [93.184.216.60 timeout 500s]
+
+# an A record in another class (t+22s)
+name=chaos.acmeco.example qtype=1 outcome=resolved addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=74
+
+# a CNAME chain (t+23s)
+name=artifacts.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.40/200] targets=[assets.acmeco.example/90] refreshed=[]
+answer: rcode=0 ancount=2 bytes=138
+set: delete [] add [93.184.216.40 timeout 200s]
+
+# the remembered target, queried directly (t+24s)
+name=assets.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.41/200] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=76
+set: delete [] add [93.184.216.41 timeout 200s]
+
+# a label below the remembered target (t+25s)
+name=x.assets.acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=41
+
+# a CNAME with no address behind it (t+26s)
+name=cdnonly.acmeco.example qtype=1 outcome=resolved addresses=[] targets=[edge.acmeco.example/120] refreshed=[]
+answer: rcode=0 ancount=1 bytes=95
+
+# the target of that CNAME (t+27s)
+name=edge.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.42/600] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=72
+set: delete [] add [93.184.216.42 timeout 600s]
+
+# the remembered target once it has expired (t+400s)
+name=assets.acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
