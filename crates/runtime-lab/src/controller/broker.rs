@@ -306,15 +306,24 @@ fn reclaim_dir(dir: &Path, skip: &Path) -> anyhow::Result<()> {
         Err(err) => return Err(err).with_context(|| format!("reading {}", dir.display())),
     };
     for entry in entries {
-        let entry = entry?;
+        let entry = entry.with_context(|| format!("reading {}", dir.display()))?;
         let path = entry.path();
         if path == skip {
             continue;
         }
-        let meta = entry.metadata()?;
-        if meta.is_dir() {
+        // The broker concurrently removes and renames its own spool and
+        // fragment files, so an entry may vanish after read_dir listed it.
+        let (is_dir, modified) = match entry
+            .metadata()
+            .and_then(|meta| Ok((meta.is_dir(), meta.modified()?)))
+        {
+            Ok(stat) => stat,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(err).with_context(|| format!("stat {}", path.display())),
+        };
+        if is_dir {
             reclaim_dir(&path, skip)?;
-        } else if meta.modified()?.elapsed().unwrap_or_default() > RECLAIM_GRACE {
+        } else if modified.elapsed().unwrap_or_default() > RECLAIM_GRACE {
             match std::fs::remove_file(&path) {
                 Ok(()) => {}
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
