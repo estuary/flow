@@ -4,6 +4,7 @@ pub mod json;
 pub mod parquet;
 pub mod protobuf;
 pub mod sanitize;
+pub mod xml;
 
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
@@ -200,6 +201,7 @@ fn parser_for(format: Format) -> Box<dyn Parser> {
         Format::W3cExtendedLog => character_separated::new_w3c_extended_log_parser(),
         Format::Avro => avro::new_parser(),
         Format::Parquet => parquet::new_parser(),
+        Format::Xml(xml_config) => xml::new_parser(xml_config),
         unsupported => Box::new(UnsupportedParser(unsupported)),
     }
 }
@@ -317,6 +319,8 @@ fn format_for_content_type(content_type: &str) -> Option<Format> {
         "text/csv" => Some(Format::Csv(Default::default())),
         "text/tab-separated-values" => Some(Format::Csv(Default::default())),
         "application/vnd.apache.parquet" => Some(Format::Parquet),
+        "application/xml" => Some(Format::Xml(Default::default())),
+        "text/xml" => Some(Format::Xml(Default::default())),
         _ => None,
     }
 }
@@ -329,7 +333,7 @@ fn format_for_file_extension(extension: &str) -> Option<Format> {
         "avro" => Some(Format::Avro),
         "xls" | "xlsx" | "xlsm" => Some(Format::Excel),
         "parquet" => Some(Format::Parquet),
-        "xml" => Some(Format::Xml),
+        "xml" => Some(Format::Xml(Default::default())),
         "ods" => Some(Format::Ods),
         _ => None,
     }
@@ -508,6 +512,23 @@ mod test {
         assert_format_eq(Some(Format::Json), &conf);
         conf.content_type = Some("wat".to_string());
         assert_format_eq(None, &conf);
+    }
+
+    #[test]
+    fn xml_format_is_determined_from_extension_or_content_type() {
+        let mut conf = ParseConfig {
+            filename: Some("booking.xml".to_string()),
+            ..Default::default()
+        };
+        assert_format_eq(Some(Format::Xml(Default::default())), &conf);
+        conf.filename = Some("booking.xml.gz".to_string());
+        assert_format_eq(Some(Format::Xml(Default::default())), &conf);
+
+        conf.filename = Some("whatever.whatever".to_string());
+        for content_type in ["application/xml", "text/xml", "text/xml; charset=utf-8"] {
+            conf.content_type = Some(content_type.to_string());
+            assert_format_eq(Some(Format::Xml(Default::default())), &conf);
+        }
     }
 
     fn assert_format_eq(expected: Option<Format>, config: &ParseConfig) {

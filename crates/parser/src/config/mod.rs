@@ -1,5 +1,6 @@
 pub mod character_separated;
 pub mod protobuf;
+pub mod xml;
 
 use encoding_rs::Encoding;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
@@ -322,11 +323,15 @@ pub enum Format {
     #[schemars(title = "Parquet")]
     Parquet,
 
+    /// XML documents. Each file's root element, or each element matching the configured
+    /// record path, is emitted as a JSON document.
+    #[serde(rename = "xml")]
+    #[schemars(title = "XML")]
+    Xml(#[serde(default)] xml::XmlConfig),
+
     /// Placeholders for files types that are unsupported at this time.
     #[schemars(skip)]
     Excel,
-    #[schemars(skip)]
-    Xml,
     #[schemars(skip)]
     Ods, // Open-document spreadsheet, for LibreOffice, etc.
 }
@@ -342,7 +347,7 @@ impl fmt::Display for Format {
             Format::W3cExtendedLog => "w3cExtendedLog",
             Format::Excel => "excel",
             Format::Parquet => "parquet",
-            Format::Xml => "xml",
+            Format::Xml(_) => "xml",
             Format::Ods => "ods",
         };
         f.write_str(s)
@@ -715,7 +720,7 @@ mod test {
         // `Deserialize` impl for `Format` that deserializes the `config` using two passes. On the
         // first pass, deserialize it into a `Value` or `RawValue`. Then, once the target variant
         // (and thus the target type of `config`) is known, deserialize that as the typed value.
-        let types = ["json", "auto", "avro", "w3cExtendedLog"];
+        let types = ["json", "auto", "avro", "w3cExtendedLog", "xml"];
         for ty in types {
             let config = json!({
                 "format": {
@@ -730,6 +735,44 @@ mod test {
                 result
             );
         }
+    }
+
+    #[test]
+    fn xml_config_is_deserialized() {
+        for config in [json!(null), json!({})] {
+            let parsed: ParseConfig = serde_json::from_value(json!({
+                "format": {"type": "xml", "config": config}
+            }))
+            .expect("deserialize config");
+            assert_eq!(Format::Xml(Default::default()), parsed.format);
+        }
+
+        let parsed: ParseConfig = serde_json::from_value(json!({
+            "format": {
+                "type": "xml",
+                "config": {
+                    "recordPath": "/Orders/Order",
+                    "arrayElements": ["Tag", "Note"],
+                }
+            }
+        }))
+        .expect("deserialize config");
+        let expected = Format::Xml(xml::XmlConfig {
+            record_path: Some("/Orders/Order".to_string()),
+            array_elements: vec!["Tag".to_string(), "Note".to_string()],
+        });
+        assert_eq!(expected, parsed.format);
+
+        // Round-trips through serialization, which omits default values.
+        let serialized = serde_json::to_value(&parsed.format).unwrap();
+        assert_eq!(
+            json!({"type": "xml", "config": {"recordPath": "/Orders/Order", "arrayElements": ["Tag", "Note"]}}),
+            serialized
+        );
+        assert_eq!(
+            parsed.format,
+            serde_json::from_value::<Format>(serialized).unwrap()
+        );
     }
 
     // Just documenting what might otherwise be surprising behavior.

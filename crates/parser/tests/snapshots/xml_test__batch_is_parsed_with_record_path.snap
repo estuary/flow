@@ -1,0 +1,40 @@
+---
+source: crates/parser/tests/xml_test.rs
+expression: result.parsed
+---
+[
+  {
+    "Order": {
+      "@id": "1",
+      "Customer": "Acme",
+      "Line": [
+        {
+          "@qty": "2",
+          "@sku": "A-1"
+        }
+      ]
+    }
+  },
+  {
+    "Order": {
+      "@id": "2",
+      "Customer": "Example Co",
+      "Line": [
+        {
+          "@qty": "1",
+          "@sku": "B-2"
+        },
+        {
+          "@qty": "5",
+          "@sku": "C-3"
+        }
+      ]
+    }
+  },
+  {
+    "Order": {
+      "@id": "3",
+      "Customer": "Acme & Sons <Wholesale>"
+    }
+  }
+]
