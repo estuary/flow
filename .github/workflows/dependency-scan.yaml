@@ -1,0 +1,89 @@
+name: Dependency Scan
+permissions:
+  contents: read
+
+# Each language has one dependency set for the whole repo: the Cargo workspace
+# resolves every crate into Cargo.lock, go.mod is the only Go module, and
+# poetry.lock the only Python project. A pull request is scanned for just the
+# languages whose dependencies it touches, against that language's whole
+# lockfile, so a vulnerability published since the last change in that
+# language also blocks it. The nightly run scans every language on master, to
+# catch newly published vulnerabilities in dependencies no pull request is
+# touching.
+on:
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-scan:
+    name: Dependency Scan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+
+      # Runs on every pull request, rather than filtering the workflow by path,
+      # so this can be a required check: a workflow skipped by its path filter
+      # leaves a required check pending forever.
+      - name: Select lockfiles
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          ALL="Cargo.lock go.mod poetry.lock"
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "lockfiles=${ALL}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Changed paths come from the API rather than git history, which
+          # would need a deep clone of this repo. The endpoint caps at 3000
+          # files, and a list at the cap may be missing paths.
+          gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --jq '.[].filename' > changed.txt
+          if [ "$(wc -l < changed.txt)" -ge 3000 ]; then
+            echo "Pull request lists 3000 or more files; scanning every language"
+            echo "lockfiles=${ALL}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          rust=false go=false python=false
+          while IFS= read -r path || [ -n "$path" ]; do
+            case "$path" in
+              Cargo.lock | Cargo.toml | crates/*/Cargo.toml) rust=true ;;
+              go.mod | go.sum) go=true ;;
+              pyproject.toml | poetry.lock) python=true ;;
+              # A change to the scan itself, or to the Trivy version pinned in
+              # mise.toml, verifies itself against every language.
+              trivy.yaml | .trivyignore.yaml | mise.toml | mise/tasks/ci/trivy | .github/workflows/dependency-scan.yaml)
+                rust=true go=true python=true ;;
+            esac
+          done < changed.txt
+
+          lockfiles=""
+          if [ "$rust" = true ]; then lockfiles+=" Cargo.lock"; fi
+          if [ "$go" = true ]; then lockfiles+=" go.mod"; fi
+          if [ "$python" = true ]; then lockfiles+=" poetry.lock"; fi
+          echo "Lockfiles to scan:${lockfiles:- none}"
+          echo "lockfiles=${lockfiles# }" >> "$GITHUB_OUTPUT"
+
+      - name: Install Trivy
+        if: steps.select.outputs.lockfiles != ''
+        uses: jdx/mise-action@9dc7d5dd454262207dea3ab5a06a3df6afc8ff26 # v3.4.1
+        with:
+          install_args: github:aquasecurity/trivy
+
+      - name: Scan
+        if: steps.select.outputs.lockfiles != ''
+        run: mise run ci:trivy ${{ steps.select.outputs.lockfiles }}

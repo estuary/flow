@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Fail on HIGH or CRITICAL vulnerabilities in dependency lockfiles"
+
+# Scans the lockfiles named as arguments, or every language's when none are
+# given. Severity, exit code and the ignore list come from trivy.yaml.
+#
+# Go is scanned through go.mod: Trivy does not read go.sum as a lockfile.
+if [ "$#" -eq 0 ]; then
+    set -- Cargo.lock go.mod poetry.lock
+fi
+
+# Trivy takes one target per run. Scan them all before failing, so one run
+# reports every language that needs attention.
+status=0
+for lockfile in "$@"; do
+    trivy fs "$lockfile" || status=1
+done
+exit "$status"
