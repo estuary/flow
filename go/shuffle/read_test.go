@@ -18,6 +18,7 @@ import (
 	"go.gazette.dev/core/brokertest"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/message"
 )
 
 func TestReadBuilding(t *testing.T) {
@@ -475,6 +476,12 @@ func TestNotBeforeAfterKeepsSubSecondPrecision(t *testing.T) {
 	var want = time.Unix(1791881704, 420384000).UTC()
 	require.Equal(t, want, before.AsTime().UTC())
 	require.Equal(t, want, after.AsTime().UTC())
+
+	// Mirrors the subscriber filter: clock >= notBefore passes.
+	var justBefore = message.NewClock(time.Unix(1791881704, 420383000))
+	var atBound = message.NewClock(time.Unix(1791881704, 420384000))
+	require.True(t, justBefore < before)
+	require.True(t, atBound >= before)
 }
 
 func TestShuffleMemberOrdering(t *testing.T) {
