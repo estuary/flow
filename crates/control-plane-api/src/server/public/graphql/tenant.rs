@@ -209,9 +209,12 @@ async fn create_tenant(
     let unaccented_name: String = name
         .nfkd()
         .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
-        .flat_map(char::to_lowercase)
         .collect();
-    if unaccented_name.contains("estuary") {
+    // Skeletons map visually confusable characters across scripts to a common form.
+    let skeleton: String = unicode_security::skeleton(&unaccented_name).collect();
+    static RESERVED_NAME: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new("(?i)estuary").unwrap());
+    if RESERVED_NAME.is_match(&skeleton) {
         return Err(async_graphql::Error::new(TENANT_UNAVAILABLE_MESSAGE));
     }
 
@@ -748,6 +751,11 @@ mod test {
             "ÉSTŮARY",
             "my-éstůary-org",
             "eśtüàry",
+            "еstuary",        // Cyrillic е
+            "estυary",        // Greek υ
+            "estuаrу",        // Cyrillic а and у
+            "ЕSTUАRУ",        // Uppercase Cyrillic Е, А, and У
+            "my-éѕtuаry-org", // Accents and Cyrillic ѕ and а
         ] {
             let response: serde_json::Value = server.graphql(&request(name), Some(&token)).await;
             assert_eq!(
