@@ -453,4 +453,106 @@ mod test {
             assert!(response["data"].is_null(), "{response}");
         }
     }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn publication_for_id_checks_catalog_read(pool: sqlx::PgPool) {
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let bob = uuid::Uuid::from_bytes([0x22; 16]);
+
+        // Alice can read the capture, but her delegate-only path through the
+        // fixture's aliceCo/out/ -> aliceCo/data/ grant conveys no CatalogRead.
+        // Bob can read both through a viewer bundle with no legacy capability.
+        sqlx::raw_sql(
+            r#"
+            UPDATE user_grants
+            SET object_role = 'aliceCo/in/', capability = 'none', bundles = '{viewer}'
+            WHERE user_id = '11111111-1111-1111-1111-111111111111';
+            INSERT INTO auth.users (id, email)
+            VALUES ('22222222-2222-2222-2222-222222222222', 'bob@example.com');
+            INSERT INTO user_grants (user_id, object_role, capability, bundles) VALUES
+                ('11111111-1111-1111-1111-111111111111', 'aliceCo/out/', 'none', '{delegate}'),
+                ('22222222-2222-2222-2222-222222222222', 'aliceCo/', 'none', '{viewer}');
+            UPDATE live_specs SET writes_to = ARRAY['aliceCo/data/foo']
+            WHERE catalog_name = 'aliceCo/in/capture-foo';
+            INSERT INTO publication_specs (live_spec_id, pub_id, spec, spec_type, user_id)
+            SELECT id, '0000000000000002', '{"schema":{"type":"object"},"key":[]}', spec_type,
+                   '11111111-1111-1111-1111-111111111111'
+            FROM live_specs WHERE catalog_name = 'aliceCo/data/foo';
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server = crate::test_server::TestServer::start(
+            pool.clone(),
+            crate::test_server::snapshot(pool, false).await,
+        )
+        .await;
+        let mut responses = serde_json::Map::new();
+
+        for (name, user_id) in [
+            ("bundle_only_reader", bob),
+            ("delegate_without_catalog_read", alice),
+        ] {
+            let token = server.make_access_token(user_id, None);
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({"query": r#"
+                        query {
+                            liveSpecs(by: { names: ["aliceCo/in/capture-foo"] }) {
+                                edges { node { liveSpec { writesTo { edges { node {
+                                    catalogName
+                                    userCapability
+                                    liveSpec { catalogType }
+                                    publicationForId(id: "0000000000000002") {
+                                        publicationId catalogType model
+                                    }
+                                } } } } } }
+                            }
+                        }
+                    "#}),
+                    Some(&token),
+                )
+                .await;
+            assert!(response.get("errors").is_none(), "{response}");
+            responses.insert(
+                name.to_string(),
+                response["data"]["liveSpecs"]["edges"][0]["node"]["liveSpec"]["writesTo"]["edges"]
+                    [0]["node"]
+                    .clone(),
+            );
+        }
+
+        insta::assert_json_snapshot!(responses, @r#"
+        {
+          "bundle_only_reader": {
+            "catalogName": "aliceCo/data/foo",
+            "liveSpec": {
+              "catalogType": "collection"
+            },
+            "publicationForId": {
+              "catalogType": "collection",
+              "model": {
+                "key": [],
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "publicationId": "0000000000000002"
+            },
+            "userCapability": null
+          },
+          "delegate_without_catalog_read": {
+            "catalogName": "aliceCo/data/foo",
+            "liveSpec": null,
+            "publicationForId": null,
+            "userCapability": "read"
+          }
+        }
+        "#);
+    }
 }
