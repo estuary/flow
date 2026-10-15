@@ -12,11 +12,13 @@ import (
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
+	"github.com/gogo/protobuf/types"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/message"
 )
 
 func TestReadBuilding(t *testing.T) {
@@ -465,6 +467,21 @@ func TestHRWRegression(t *testing.T) {
 	require.Equal(t, 1, pickHRW(h, ring, 1, 4))
 	require.Equal(t, 2, pickHRW(h, ring, 2, 4))
 	require.Equal(t, 2, pickHRW(h, ring, 2, 3))
+}
+
+func TestNotBeforeAfterKeepsSubSecondPrecision(t *testing.T) {
+	var ts = &types.Timestamp{Seconds: 1791881704, Nanos: 420384000}
+	var before, after = notBeforeAfter(ts, ts)
+
+	var want = time.Unix(1791881704, 420384000).UTC()
+	require.Equal(t, want, before.AsTime().UTC())
+	require.Equal(t, want, after.AsTime().UTC())
+
+	// Mirrors the subscriber filter: clock >= notBefore passes.
+	var justBefore = message.NewClock(time.Unix(1791881704, 420383000))
+	var atBound = message.NewClock(time.Unix(1791881704, 420384000))
+	require.True(t, justBefore < before)
+	require.True(t, atBound >= before)
 }
 
 func TestShuffleMemberOrdering(t *testing.T) {
