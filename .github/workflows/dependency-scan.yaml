@@ -29,7 +29,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       # Runs on every pull request, rather than filtering the workflow by path,
       # so this can be a required check: a workflow skipped by its path filter
