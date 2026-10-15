@@ -209,11 +209,12 @@ async fn create_tenant(
     let unaccented_name: String = name
         .nfkd()
         .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
-        .flat_map(char::to_lowercase)
         .collect();
     // Skeletons map visually confusable characters across scripts to a common form.
     let skeleton: String = unicode_security::skeleton(&unaccented_name).collect();
-    if skeleton.contains("estuary") {
+    static RESERVED_NAME: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new("(?i)estuary").unwrap());
+    if RESERVED_NAME.is_match(&skeleton) {
         return Err(async_graphql::Error::new(TENANT_UNAVAILABLE_MESSAGE));
     }
 
