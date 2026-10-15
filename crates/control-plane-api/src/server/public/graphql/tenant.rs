@@ -442,7 +442,7 @@ mod test {
             let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
             assert_eq!(
                 response["errors"][0]["message"],
-                format!("{plane} is not a selectable public data-plane")
+                format!("{plane} is not an available public data-plane")
             );
         }
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM user_grants WHERE user_id = $1")
@@ -485,7 +485,7 @@ mod test {
         let mut req = request("acmeCo");
         req["variables"]["dataPlane"] = "ops/dp/public/az-westeurope-c3".into();
         let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
-        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""ops/dp/public/az-westeurope-c3 is not a selectable public data-plane""#);
+        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""ops/dp/public/az-westeurope-c3 is not an available public data-plane""#);
         let counts: (i64, i64, i64, i64) = sqlx::query_as(
             "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
                     (SELECT count(*) FROM storage_mappings WHERE catalog_prefix IN ('acmeCo/', 'recovery/acmeCo/')),
