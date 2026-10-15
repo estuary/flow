@@ -14,6 +14,16 @@ Public AWS planes always use their derived colocated trial bucket; local and
 non-AWS planes use the GCS trial bucket. Provision the matching AWS bucket and
 permissions before opening a plane for signup.
 
+`Envelope` accepts `X-Estuary-Scope-Prefix: acmeCo/` on authenticated requests.
+It narrows the effective claims through the existing `prefix_scope` policy, so
+clients can switch tenants using an unscoped bearer without obtaining a new token.
+A token already carrying a prefix scope only accepts a matching header (using the
+token's trailing-slash normalization); conflicting scopes return HTTP 400 rather
+than replacing the token ceiling. Empty, malformed, or repeated headers also
+return HTTP 400; a header without authentication returns HTTP 401.
+Credential-creation guards apply to header-scoped requests too. No header means
+unchanged token behavior. This is request scoping, not persisted credential scope.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.

@@ -169,6 +169,7 @@ pub fn build_router(
         "Last-Modified",
         "Pragma",
         "Authorization",
+        "X-Estuary-Scope-Prefix",
     ]
     .into_iter()
     .map(|h| h.parse().unwrap())
