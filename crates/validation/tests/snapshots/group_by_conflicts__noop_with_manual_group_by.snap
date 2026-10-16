@@ -21,7 +21,9 @@ expression: "(selections, errors)"
                 MaterializationDef {
                     source: None,
                     target_naming: None,
-                    on_incompatible_schema_change: Abort,
+                    on_incompatible_schema_change: Some(
+                        Abort,
+                    ),
                     endpoint: Connector(
                         ConnectorConfig {
                             image: "an/image:test",

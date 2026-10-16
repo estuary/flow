@@ -1,0 +1,84 @@
+---
+source: crates/validation/tests/group_by_conflicts.rs
+expression: "(selections, errors)"
+---
+(
+    [
+        (
+            [
+                FieldSelection {
+                    keys: [
+                        "f_one",
+                        "f_two",
+                    ],
+                    values: [],
+                    document: "",
+                    field_config_json_map: {},
+                },
+            ],
+            Some(
+                MaterializationDef {
+                    source: None,
+                    target_naming: None,
+                    on_incompatible_schema_change: None,
+                    endpoint: Connector(
+                        ConnectorConfig {
+                            image: "an/image:test",
+                            config: RawValue(
+                                {},
+                            ),
+                        },
+                    ),
+                    secrets: {},
+                    bindings: [
+                        MaterializationBinding {
+                            resource: RawValue(
+                                {"_meta":{"path":["a"]},"table":"a"},
+                            ),
+                            source: Collection(
+                                Collection(
+                                    "the/collection",
+                                ),
+                            ),
+                            disable: false,
+                            priority: 0,
+                            fields: MaterializationFields {
+                                group_by: [],
+                                require: {},
+                                exclude: [],
+                                recommended: Usize(
+                                    1,
+                                ),
+                            },
+                            backfill: 1,
+                            on_incompatible_schema_change: Some(
+                                Backfill,
+                            ),
+                        },
+                    ],
+                    shards: ShardTemplate {
+                        disable: false,
+                        min_txn_duration: None,
+                        max_txn_duration: None,
+                        hot_standbys: None,
+                        ring_buffer_size: None,
+                        read_channel_size: None,
+                        shuffle_disk_limit: None,
+                        log_level: None,
+                        flags: {},
+                    },
+                    expect_pub_id: None,
+                    triggers: None,
+                    sync_schedule: None,
+                    delete: false,
+                    reset: false,
+                },
+            ),
+            [
+                "backfilled binding [\"a\"] due to group-by change from [\"f_one\"] to [\"f_one\", \"f_two\"]",
+            ],
+            [],
+        ),
+    ],
+    [],
+)
