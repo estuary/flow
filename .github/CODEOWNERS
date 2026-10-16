@@ -1,0 +1,9 @@
+# Changes to these files can let a vulnerable dependency ship, either by adding
+# an exception or by weakening or disabling the Dependency Scan, so they need
+# operations' approval. This file is listed too, so the ownership itself
+# cannot be removed without that approval.
+/.trivyignore.yaml                        @estuary/operations
+/trivy.yaml                               @estuary/operations
+/.github/workflows/dependency-scan.yaml   @estuary/operations
+/mise/tasks/ci/trivy                      @estuary/operations
+/.github/CODEOWNERS                       @estuary/operations
