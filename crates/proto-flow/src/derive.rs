@@ -67,10 +67,9 @@ pub mod request {
             tag = "5"
         )]
         pub shuffle_key_types: ::prost::alloc::vec::Vec<i32>,
-        /// URL which roots the current Flow project.
-        ///
-        /// Derivation connectors should use this URL to generate any project-level
-        /// files which are returned with Response.Validated.generated_files.
+        /// URL of the directory of this task's specification, without a trailing
+        /// slash. The connector must locate each file it generates underneath this
+        /// URL, and return them with Response.Validated.generated_files.
         #[prost(string, tag = "6")]
         pub project_root: ::prost::alloc::string::String,
         /// Map of relative JSON pointers to the derivation specification,
@@ -328,8 +327,7 @@ pub mod response {
         /// Keys are absolute URLs of the generated resource, and values are its
         /// generated file content.
         ///
-        /// This can include project-level files, which should be underneath
-        /// Request.Validate.project_root.
+        /// Each key must be underneath Request.Validate.project_root.
         ///
         /// When run in certain contexts within a user's local development environment,
         /// reads of Flow specifications use a relaxed handling for missing configuration

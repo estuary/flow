@@ -232,12 +232,10 @@ pub enum Error {
         types: Vec<ShuffleType>,
         given_types: Vec<ShuffleType>,
     },
-    #[error("connector returned an invalid generated file URL {url:?}")]
-    InvalidGeneratedFileUrl {
-        url: String,
-        #[source]
-        detail: url::ParseError,
-    },
+    #[error(
+        "connector returned generated file {url:?}, which isn't a URL underneath the project root {root:?}"
+    )]
+    InvalidGeneratedFileUrl { url: String, root: String },
     #[error(transparent)]
     Connector {
         #[from]

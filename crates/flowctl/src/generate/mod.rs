@@ -15,7 +15,6 @@ pub struct Generate {
 impl Generate {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         let source = build::arg_source_to_url(&self.source, false)?;
-        let project_root = build::project_root(&source);
 
         let mut draft = local_specs::load(&source).await;
         sources::inline_draft_catalog(&mut draft);
@@ -43,7 +42,7 @@ impl Generate {
             })
             .collect();
 
-        build::write_files(&project_root, files)?;
+        build::write_files(files)?;
 
         let () = local_specs::generate_files(ctx, draft).await?;
         Ok(())

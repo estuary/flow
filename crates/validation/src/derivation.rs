@@ -30,7 +30,6 @@ pub async fn walk_all_derivations(
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
     noop_derivations: bool,
-    project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
     init_vector: &[u8],
     errors: &mut tables::Errors,
@@ -65,7 +64,6 @@ pub async fn walk_all_derivations(
                 dependencies,
                 imports,
                 noop_derivations,
-                project_root,
                 storage_mappings,
                 init_vector,
                 &mut local_errors,
@@ -173,7 +171,6 @@ async fn walk_derivation(
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
     noop_derivations: bool,
-    project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
     init_vector: &[u8],
     errors: &mut tables::Errors,
@@ -292,6 +289,8 @@ async fn walk_derivation(
         secrets,
         shards,
     } = model;
+
+    let project_root = super::project_root(&scope.flatten());
 
     let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
 
@@ -516,7 +515,7 @@ async fn walk_derivation(
         collection: built_collection.spec.clone(),
         transforms: transforms_validate,
         shuffle_key_types: shuffle_key_types_spec.iter().map(|t| *t as i32).collect(),
-        project_root: project_root.to_string(),
+        project_root: project_root.clone(),
         import_map,
         last_collection: live_spec.cloned(),
         last_version: if expect_build_id.is_zero() {
@@ -529,7 +528,7 @@ async fn walk_derivation(
     };
     linked::install_derive_validate(&mut validate_request, interner, indirect_specs);
 
-    let (validated_response, network_ports, config_schema_json) = super::validate_connector(
+    let (mut validated_response, network_ports, config_schema_json) = super::validate_connector(
         scope,
         connectors,
         noop_derivations || shards.disable,
@@ -559,9 +558,16 @@ async fn walk_derivation(
         errors,
     );
 
+    super::validate_generated_files(
+        scope,
+        &project_root,
+        &mut validated_response.generated_files,
+        errors,
+    );
+
     let derive::response::Validated {
         transforms: transforms_validated,
-        generated_files,
+        generated_files: _,
     } = &validated_response;
 
     if transforms_validate_len != transforms_validated.len() {
@@ -570,17 +576,6 @@ async fn walk_derivation(
             got: transforms_validated.len(),
         }
         .push(scope, errors);
-    }
-
-    // Sanity check the URLs of generated files.
-    for (maybe_url, _) in generated_files {
-        if let Err(err) = url::Url::parse(&maybe_url) {
-            Error::InvalidGeneratedFileUrl {
-                url: maybe_url.clone(),
-                detail: err,
-            }
-            .push(scope, errors)
-        }
     }
 
     // Join transform models and their Validate requests with their Validated responses.

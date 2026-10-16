@@ -104,7 +104,6 @@ pub async fn build(
     connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
 ) -> anyhow::Result<BTreeMap<String, TaskSpec>> {
     let source = build::arg_source_to_url(&source.to_string_lossy(), false)?;
-    let project_root = build::project_root(&source);
 
     // We never use a file root jail when loading on a user's machine.
     let draft = build::load(&source, std::path::Path::new("/")).await;
@@ -125,7 +124,6 @@ pub async fn build(
         false,
         false,
         false,
-        &project_root,
         draft,
         live,
     )

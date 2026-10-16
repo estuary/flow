@@ -89,7 +89,6 @@ async fn build_catalog(
 
     let build_id_str = build_id.to_string();
     let db_path = builds_dir.join(&build_id_str);
-    let project_root = url::Url::parse("file:///").unwrap();
     let source = url::Url::parse("file:///flow.json").unwrap();
 
     // Generate a random initialization vector for the validation.
@@ -100,7 +99,6 @@ async fn build_catalog(
     let built = validation::validate(
         pub_id,
         build_id,
-        &project_root,
         connectors,
         &draft,
         &live,

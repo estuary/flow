@@ -840,8 +840,8 @@ message BuildAPI {
     // The Docker network the connectors are given access to during catalog
     // builds.
     string connector_network = 5;
-    // URL which roots the Flow project.
-    string project_root = 6;
+
+    reserved 6;
   }
 }
 
