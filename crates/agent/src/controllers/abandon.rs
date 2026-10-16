@@ -62,6 +62,7 @@ pub async fn evaluate_abandoned<C: ControlPlane>(
     state: &ControllerState,
     control_plane: &C,
     alert_cfg: &ResolvedAlertConfig,
+    alert_events: &mut Alerts,
 ) -> anyhow::Result<Option<NextRun>> {
     // Tasks without shards (disabled, Dekaf, etc.) don't need abandon monitoring.
     if !has_task_shards(state) {
@@ -87,7 +88,19 @@ pub async fn evaluate_abandoned<C: ControlPlane>(
     let timestamps =
         fetch_abandonment_timestamps(alerts_status, state, control_plane, now, &config).await?;
 
+    let existing = [
+        AlertType::TaskAutoDisabledFailing,
+        AlertType::TaskAutoDisabledIdle,
+    ]
+    .map(|ty| (ty, alerts_status.contains_key(&ty)));
     let disable_reason = evaluate_alerts(alerts_status, state, now, timestamps, &config, alert_cfg);
+    for (ty, already_present) in existing {
+        if !already_present {
+            if let Some(occurrence) = alerts_status.get(&ty) {
+                alert_events.insert(ty, occurrence.clone());
+            }
+        }
+    }
 
     if let Some(reason) = disable_reason.filter(|reason| auto_disable_enabled(alert_cfg, *reason)) {
         if maybe_disable_task(reason, state, publications, control_plane).await? {

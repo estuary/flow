@@ -1,6 +1,6 @@
 use crate::controllers::{
     ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, ResolvedAlertConfig,
-    abandon, activation, backoff_data_plane_activate, backoff_publication_failure,
+    abandon, activation, alerts, backoff_data_plane_activate, backoff_publication_failure,
     coalesce_results, config_update, data_movement,
     dependencies::Dependencies,
     periodic,
@@ -8,18 +8,24 @@ use crate::controllers::{
     republish,
 };
 use anyhow::Context;
+use chrono::{DateTime, Utc};
+use control_plane_api::controllers::Message;
 use itertools::Itertools;
 use models::{
     MaterializationEndpoint, ModelDef, SourceType,
     status::{
-        Alerts,
+        AlertType, Alerts,
         connector::ConfigUpdate,
-        materialization::{MaterializationStatus, SourceCaptureStatus},
+        materialization::{AutoDisabledBinding, MaterializationStatus, SourceCaptureStatus},
         publications::PublicationStatus,
     },
 };
 use std::collections::BTreeSet;
 use tables::{LiveRow, utils::pointer_for_schema};
+
+/// Key of the alert `extra` field which holds the auto-disabled bindings,
+/// read by the notification template as `arguments.bindings`.
+const EXTRA_BINDINGS: &str = "bindings";
 
 pub async fn update<C: ControlPlane>(
     status: &mut MaterializationStatus,
@@ -28,6 +34,7 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::MaterializationDef,
     alert_cfg: &ResolvedAlertConfig,
+    alert_events: &mut models::status::Alerts,
 ) -> anyhow::Result<Option<NextRun>> {
     publication_status::clear_pending_publication_next_after(&mut status.publications);
 
@@ -157,6 +164,7 @@ pub async fn update<C: ControlPlane>(
         state,
         control_plane,
         alert_cfg,
+        alert_events,
     )
     .await;
 
@@ -184,6 +192,59 @@ pub async fn update<C: ControlPlane>(
             republish_result.map(|_| None),
         ],
     )
+}
+
+/// Must run before fallible controller work: inbox messages are consumed
+/// even when the controller returns an error.
+pub fn update_auto_disabled_bindings(
+    status: &mut MaterializationStatus,
+    events: &Inbox,
+    model: &models::MaterializationDef,
+    now: DateTime<Utc>,
+    alert_events: &mut Alerts,
+) {
+    let published = events.iter().filter_map(|(_, message)| match message {
+        Some(Message::SpecPublished {
+            auto_disabled_bindings,
+            ..
+        }) => Some(auto_disabled_bindings),
+        _ => None,
+    });
+    let new_bindings = published.flatten().cloned().collect::<Vec<_>>();
+    for binding in &new_bindings {
+        status
+            .auto_disabled_bindings
+            .retain(|b| b.resource_path != binding.resource_path);
+        status.auto_disabled_bindings.push(binding.clone());
+    }
+
+    let disabled: BTreeSet<Vec<String>> = model
+        .bindings
+        .iter()
+        .filter(|b| b.disable)
+        .map(|b| validation::load_resource_meta_path(b.resource.get().as_bytes()))
+        .collect();
+    status
+        .auto_disabled_bindings
+        .retain(|b| disabled.contains(&b.resource_path));
+
+    if new_bindings.is_empty() {
+        return;
+    }
+    alerts::set_alert_firing(
+        alert_events,
+        AlertType::BindingsAutoDisabled,
+        now,
+        AutoDisabledBinding::describe(&new_bindings),
+        new_bindings.len() as u32,
+        models::CatalogType::Materialization,
+    );
+    let bindings = serde_json::to_value(&new_bindings).expect("auto-disabled bindings serialize");
+    alert_events
+        .get_mut(&AlertType::BindingsAutoDisabled)
+        .expect("alert is firing")
+        .extra
+        .insert(EXTRA_BINDINGS.to_string(), bindings);
 }
 
 async fn source_capture_update<C: ControlPlane>(
@@ -445,4 +506,87 @@ fn update_linked_materialization(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use models::status::materialization::AutoDisabledReason;
+
+    fn binding(path: &str, disable: bool) -> models::MaterializationBinding {
+        models::MaterializationBinding {
+            resource: models::RawValue::from_value(
+                &serde_json::json!({ "_meta": { "path": [path] }, "table": path }),
+            ),
+            source: models::Source::Collection(models::Collection::new(format!("acmeCo/{path}"))),
+            disable,
+            priority: 0,
+            fields: Default::default(),
+            backfill: 0,
+            on_incompatible_schema_change: None,
+        }
+    }
+
+    fn published(pub_id: u8, paths: &[&str]) -> Inbox {
+        let auto_disabled_bindings = paths
+            .iter()
+            .map(|path| AutoDisabledBinding {
+                resource_path: vec![path.to_string()],
+                collection: models::Collection::new(format!("acmeCo/{path}")),
+                reason: AutoDisabledReason::IncompatibleSchemaChange,
+                detail: format!("publication {pub_id}"),
+                pub_id: models::Id::new([pub_id; 8]),
+            })
+            .collect();
+        [(
+            models::Id::zero(),
+            Some(Message::SpecPublished {
+                pub_id: models::Id::new([pub_id; 8]),
+                auto_disabled_bindings,
+            }),
+        )]
+        .into()
+    }
+
+    #[test]
+    fn test_update_auto_disabled_bindings() {
+        let now: DateTime<Utc> = "2026-10-14T18:00:00Z".parse().unwrap();
+        let mut status = MaterializationStatus::default();
+        let mut model = models::MaterializationDef::example();
+        let mut events = Alerts::new();
+
+        model.bindings = vec![binding("a", true), binding("b", true), binding("c", false)];
+        update_auto_disabled_bindings(
+            &mut status,
+            &published(1, &["a", "b"]),
+            &model,
+            now,
+            &mut events,
+        );
+        assert_eq!(status.auto_disabled_bindings.len(), 2);
+        assert_eq!(events[&AlertType::BindingsAutoDisabled].count, 2);
+        assert!(!status.alerts.contains_key(&AlertType::BindingsAutoDisabled));
+
+        // The event contains both publications, including reports pruned from status.
+        events.clear();
+        model.bindings = vec![binding("a", true), binding("c", false)];
+        let mut inbox = published(2, &["a"]);
+        inbox.extend(published(3, &["b", "c", "d"]));
+        update_auto_disabled_bindings(&mut status, &inbox, &model, now, &mut events);
+        assert_eq!(status.auto_disabled_bindings.len(), 1);
+        assert_eq!(status.auto_disabled_bindings[0].detail, "publication 2");
+        let event = &events[&AlertType::BindingsAutoDisabled];
+        assert_eq!(event.count, 4);
+        assert_eq!(event.extra[EXTRA_BINDINGS].as_array().unwrap().len(), 4);
+
+        events.clear();
+        update_auto_disabled_bindings(&mut status, &Inbox::new(), &model, now, &mut events);
+        assert_eq!(status.auto_disabled_bindings.len(), 1);
+        assert!(events.is_empty());
+
+        model.bindings[0].disable = false;
+        update_auto_disabled_bindings(&mut status, &Inbox::new(), &model, now, &mut events);
+        assert!(status.auto_disabled_bindings.is_empty());
+        assert!(events.is_empty());
+    }
 }

@@ -10,6 +10,8 @@ use uuid::Uuid;
 async fn test_abandoned_task_detection_and_resolution() {
     let mut harness = TestHarness::init("test_abandoned_tasks").await;
     let _user_id = harness.setup_tenant("pandas").await;
+    sqlx::query("update alert_subscriptions set include_alert_types = include_alert_types || array['task_auto_disabled_idle', 'task_auto_disabled_failing']::alert_type[] where catalog_prefix = 'pandas/'")
+        .execute(&harness.pool).await.unwrap();
 
     // Disable the check interval so evaluations run on every controller wake.
     let mut config = (*harness.control_plane().controller_config()).clone();
@@ -244,8 +246,53 @@ async fn test_auto_disable_idle(
     .await;
     override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
 
+    // Publication retries must not emit another event.
+    for _ in 0..2 {
+        harness.control_plane().fail_next_build(
+            catalog_name,
+            crate::integration_tests::harness::InjectBuildError::new(
+                tables::synthetic_scope(task_type, catalog_name),
+                anyhow::anyhow!("disable publication failure"),
+            ),
+        );
+        harness.run_pending_controller(catalog_name).await;
+    }
+    let count: i64 = sqlx::query_scalar(
+        "select count(*) from alert_history where catalog_name = $1 and alert_type = $2",
+    )
+    .bind(catalog_name)
+    .bind(AlertType::TaskAutoDisabledIdle)
+    .fetch_one(&harness.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        count, 1,
+        "publication retries must not produce another event"
+    );
+    let event = harness
+        .assert_alert_event(catalog_name, AlertType::TaskAutoDisabledIdle)
+        .await;
+    event.assert_emails_sent(&["pandas@test_abandoned_tasks.test"]);
+    let state = harness.get_controller_state(catalog_name).await;
+    assert!(
+        state
+            .current_status
+            .alerts_status()
+            .unwrap()
+            .contains_key(&AlertType::TaskAutoDisabledIdle)
+    );
+
     harness.run_pending_controller(catalog_name).await;
     harness.run_pending_controllers(None).await;
+    let count: i64 = sqlx::query_scalar(
+        "select count(*) from alert_history where catalog_name = $1 and alert_type = $2",
+    )
+    .bind(catalog_name)
+    .bind(AlertType::TaskAutoDisabledIdle)
+    .fetch_one(&harness.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
 
     let state = harness.get_controller_state(catalog_name).await;
     let spec = state.live_spec.as_ref().expect("spec should exist");
@@ -311,8 +358,53 @@ async fn test_auto_disable_failing(
 
     // Run the controller: it should fire TaskAutoDisabledFailing AND publish
     // shards.disable = true, then re-enter and process the disabled spec.
+    // Publication retries must not emit another event.
+    for _ in 0..2 {
+        harness.control_plane().fail_next_build(
+            catalog_name,
+            crate::integration_tests::harness::InjectBuildError::new(
+                tables::synthetic_scope(task_type, catalog_name),
+                anyhow::anyhow!("disable publication failure"),
+            ),
+        );
+        harness.run_pending_controller(catalog_name).await;
+    }
+    let count: i64 = sqlx::query_scalar(
+        "select count(*) from alert_history where catalog_name = $1 and alert_type = $2",
+    )
+    .bind(catalog_name)
+    .bind(AlertType::TaskAutoDisabledFailing)
+    .fetch_one(&harness.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        count, 1,
+        "publication retries must not produce another event"
+    );
+    let event = harness
+        .assert_alert_event(catalog_name, AlertType::TaskAutoDisabledFailing)
+        .await;
+    event.assert_emails_sent(&["pandas@test_abandoned_tasks.test"]);
+    let state = harness.get_controller_state(catalog_name).await;
+    assert!(
+        state
+            .current_status
+            .alerts_status()
+            .unwrap()
+            .contains_key(&AlertType::TaskAutoDisabledFailing)
+    );
+
     harness.run_pending_controller(catalog_name).await;
     harness.run_pending_controllers(None).await;
+    let count: i64 = sqlx::query_scalar(
+        "select count(*) from alert_history where catalog_name = $1 and alert_type = $2",
+    )
+    .bind(catalog_name)
+    .bind(AlertType::TaskAutoDisabledFailing)
+    .fetch_one(&harness.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
 
     // Verify the spec is now disabled.
     let state = harness.get_controller_state(catalog_name).await;

@@ -90,9 +90,8 @@ impl automations::Outcome for Outcome {
         } = self;
 
         if live_spec_deleted && error.is_none() {
-            // Clean up any open alerts without sending resolution
-            // notifications, since the task is being deleted.
-            control_plane_api::alerts::cleanup_open_alerts(&catalog_name, txn)
+            // Deletion cancels pending notifications and retains alert history.
+            control_plane_api::alerts::cleanup_alerts_for_deleted_spec(&catalog_name, txn)
                 .await
                 .context("resolving alerts for deleted spec")?;
 
@@ -182,12 +181,14 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
         };
         // Note that `failures` here only counts the number of _consecutive_
         // failures, and resets to 0 on any sucessful update.
+        let mut alert_events = models::status::Alerts::new();
         let (next_status, failures, error, next_run) = run_controller(
             state,
             inbox,
             task_id,
             &controller_state,
             &*self.control_plane,
+            &mut alert_events,
         )
         .await;
 
@@ -196,14 +197,24 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
             let id_gen_shard = rand::rng().random_range(1u16..1024u16);
             let mut id_gen = models::IdGenerator::new(id_gen_shard);
             let alert_status = next_status.alerts_status();
-            evaluate_controller_alerts(
+            let mut actions = evaluate_controller_alerts(
                 controller_state.catalog_name.as_str(),
                 alert_status,
                 pool,
                 &mut id_gen,
             )
             .await
-            .context("evaluating controller alerts")?
+            .context("evaluating controller alerts")?;
+            for (alert_type, occurrence) in alert_events {
+                actions.push(alerts::AlertAction::Fire(alerts::FireAlert {
+                    id: id_gen.next(),
+                    catalog_name: controller_state.catalog_name.to_string(),
+                    alert_type,
+                    fired_at: occurrence.first_ts,
+                    base_arguments: serde_json::from_value(serde_json::to_value(occurrence)?)?,
+                }));
+            }
+            actions
         };
 
         Ok(Outcome {
@@ -260,7 +271,7 @@ fn to_alert_view(
     alert_status: &models::status::Alerts,
 ) -> anyhow::Result<Vec<AlertViewRow>> {
     let mut results = Vec::with_capacity(alert_status.len());
-    for (key, status_alert) in alert_status.iter() {
+    for (key, status_alert) in alert_status.iter().filter(|(ty, _)| !ty.is_event()) {
         // Convert the controller's alert status into alert arguments, by detouring through a sj::Value.
         let args_val = serde_json::to_value(status_alert.clone())?;
         let arguments = serde_json::from_value::<alerts::ArgsObject>(args_val)?;
@@ -288,13 +299,20 @@ async fn run_controller<C: ControlPlane>(
     _task_id: Id,
     controller_state: &ControllerState,
     control_plane: &C,
+    alert_events: &mut models::status::Alerts,
 ) -> (ControllerStatus, i32, Option<String>, Option<NextRun>) {
     let mut next_status = controller_state.current_status.clone();
     tracing::debug!(?inbox, "inbox events");
     task_state.messages_processed += inbox.len() as u64;
 
-    let result =
-        controller_update(&mut next_status, controller_state, &*inbox, control_plane).await;
+    let result = controller_update(
+        &mut next_status,
+        controller_state,
+        &*inbox,
+        control_plane,
+        alert_events,
+    )
+    .await;
     let result_parts = match result {
         Ok(next) => {
             task_state.total_successes += 1;
