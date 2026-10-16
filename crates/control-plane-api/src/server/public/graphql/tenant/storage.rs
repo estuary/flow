@@ -134,4 +134,28 @@ mod tests {
             assert_eq!(tenant["data_planes"], serde_json::json!([plane]));
         }
     }
+
+    #[test]
+    fn stores_are_trial() {
+        // Validation defaults `onIncompatibleSchemaChange` to `disableBinding`
+        // for collections in trial storage, as identified by `Store::is_trial`.
+        // Every store created here must be recognized as a trial store.
+        for plane in [
+            "ops/dp/public/aws-us-east-1-c1",
+            "ops/dp/public/aws-eu-west-1-c1",
+            "ops/dp/public/gcp-europe-west1-c1",
+            "ops/dp/public/azure-eastus2-c1",
+            "ops/dp/public/local-flow-cluster",
+        ] {
+            let (tenant, recovery) = super::specs(vec![plane.to_string()], plane).unwrap();
+
+            for store in [&tenant["stores"], &recovery["stores"]]
+                .into_iter()
+                .flat_map(|stores| stores.as_array().unwrap())
+            {
+                let store: models::Store = serde_json::from_value(store.clone()).unwrap();
+                assert!(store.is_trial(), "{plane}: {store:?}");
+            }
+        }
+    }
 }

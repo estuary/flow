@@ -20,6 +20,14 @@ query {
             }
         }
     }
+    storageMappings(filter: { catalogPrefix: { startsWith: "ravens/" } }) {
+        edges {
+            node {
+                catalogPrefix
+                isTrial
+            }
+        }
+    }
 }
 "#;
 
@@ -29,7 +37,6 @@ fn materialization(sightings: serde_json::Value, nests_priority: i32) -> serde_j
             "endpoint": {
                 "connector": { "image": "materialize/test:test", "config": {} }
             },
-            "onIncompatibleSchemaChange": "disableBinding",
             "bindings": [
                 sightings,
                 {
@@ -52,7 +59,8 @@ fn materialization_draft(
 #[tokio::test]
 async fn test_bindings_auto_disabled() {
     let mut harness = TestHarness::init("bindings_auto_disabled").await;
-    // The policy is explicit so this test does not depend on trial storage.
+    // Test tenants are provisioned with `estuary-trial` storage, so bindings
+    // default to `onIncompatibleSchemaChange: disableBinding`.
     let user_id = harness.setup_tenant("ravens").await;
 
     let schema = json!({
@@ -170,6 +178,16 @@ async fn test_bindings_auto_disabled() {
                   ]
                 }
               }
+            }
+          }
+        ]
+      },
+      "storageMappings": {
+        "edges": [
+          {
+            "node": {
+              "catalogPrefix": "ravens/",
+              "isTrial": true
             }
           }
         ]
