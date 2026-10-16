@@ -188,7 +188,6 @@ pub struct TestHarness {
     /// Replaces the Snapshot behind `snapshot_watch`.
     snapshot_replace: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
-    pub directive_exec: crate::directives::DirectiveHandler,
     pub alert_sender: self::alerts::TestSender,
     pub runtime_v2_new_captures: bool,
     pub runtime_v2_new_materializations: bool,
@@ -290,7 +289,6 @@ impl HarnessBuilder {
 
         let controller_exec =
             crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
-        let directive_exec = crate::directives::DirectiveHandler;
 
         let mut harness = TestHarness {
             test_name,
@@ -303,7 +301,6 @@ impl HarnessBuilder {
             snapshot_replace,
             control_plane,
             controller_exec,
-            directive_exec,
             control_plane_app: None,
             alert_sender: alerts::TestSender::new(),
             runtime_v2_new_captures: false,
@@ -1150,7 +1147,6 @@ impl TestHarness {
                     snapshot_watch: self.snapshot_watch.clone(),
                 })
             }
-            task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
             task_types::TENANT_ALERT_EVALS => Server::new().register(
                 crate::alerts::new_tenant_alerts_executor(std::time::Duration::from_mins(5)),
             ),

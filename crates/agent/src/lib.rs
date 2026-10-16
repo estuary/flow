@@ -2,7 +2,6 @@ pub mod alerts;
 pub(crate) mod connector_tags;
 pub mod controllers;
 pub(crate) mod controlplane;
-mod directives;
 mod discovers;
 pub mod publications;
 pub mod tenant_controller;
@@ -12,7 +11,6 @@ pub(crate) mod integration_tests;
 
 pub use connector_tags::TagExecutor;
 pub use controlplane::{ControlPlane, PGControlPlane};
-pub use directives::DirectiveHandler;
 pub use discovers::DiscoverExecutor;
 use lazy_static::lazy_static;
 pub use models::{CatalogType, Id};

@@ -9,7 +9,6 @@ pub mod connector_tags;
 pub mod connectors;
 pub mod controllers;
 pub mod data_plane;
-pub mod directives;
 pub mod discovers;
 pub mod draft;
 mod envelope;

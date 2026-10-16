@@ -57,7 +57,6 @@ Registered task types in `task_types` module:
 - `PUBLICATIONS` - Processes catalog publications
 - `DISCOVERS` - Runs connector discovery jobs
 - `EVOLUTIONS` - Handles schema evolution tasks
-- `APPLIED_DIRECTIVES` - Processes applied directives
 - `CONNECTOR_TAGS` - Manages connector tag updates
 - `DATA_PLANE_MIGRATION` - Migrates tasks between data planes
 - `ALERT_NOTIFICATIONS` - Sends notifications as alerts fire and resolve

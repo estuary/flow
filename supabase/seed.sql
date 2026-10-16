@@ -14,10 +14,6 @@ insert into auth.users (id, email) values
   ('44444444-4444-4444-4444-444444444444', 'dave@example.com')
 ;
 
--- Public directive which allows a user to access a demo tenant.
-insert into public.directives (catalog_prefix, spec, token) values
-  ('ops/', '{"type":"acceptDemoTenant"}', '14c0beec-422f-4e95-94f1-567107b26840');
-
 -- Mirror provision_tenant for the local ops tenant, including its alert subscription.
 -- Its user and role grants and storage mappings are seeded below.
 insert into public.tenants (tenant, detail) values ('ops.us-central1.v1/', 'applied via seed');
