@@ -1,0 +1,116 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/plan.rs
+expression: plans
+---
+[
+    (
+        "self-serve without a trial",
+        SelfServe(
+            SelfServePlan {
+                phase: Free,
+                trial: None,
+                collection_method: ChargeDefaultPaymentMethod,
+            },
+        ),
+    ),
+    (
+        "self-serve with a future trial",
+        SelfServe(
+            SelfServePlan {
+                phase: Free,
+                trial: Some(
+                    TrialPeriod {
+                        start: 2026-11-01,
+                        end: 2026-12-01,
+                    },
+                ),
+                collection_method: ChargeDefaultPaymentMethod,
+            },
+        ),
+    ),
+    (
+        "self-serve trial starting today",
+        SelfServe(
+            SelfServePlan {
+                phase: Trial,
+                trial: Some(
+                    TrialPeriod {
+                        start: 2026-10-14,
+                        end: 2026-11-14,
+                    },
+                ),
+                collection_method: ChargeDefaultPaymentMethod,
+            },
+        ),
+    ),
+    (
+        "self-serve trial ending today",
+        SelfServe(
+            SelfServePlan {
+                phase: Paid,
+                trial: Some(
+                    TrialPeriod {
+                        start: 2026-09-14,
+                        end: 2026-10-14,
+                    },
+                ),
+                collection_method: ChargeDefaultPaymentMethod,
+            },
+        ),
+    ),
+    (
+        "self-serve paid by sent invoice",
+        SelfServe(
+            SelfServePlan {
+                phase: Paid,
+                trial: Some(
+                    TrialPeriod {
+                        start: 2025-01-31,
+                        end: 2025-02-28,
+                    },
+                ),
+                collection_method: SendInvoice,
+            },
+        ),
+    ),
+    (
+        "contract with included usage",
+        Contract(
+            ContractPlan {
+                included_usage: IncludedUsage {
+                    data_gb: Some(
+                        1000,
+                    ),
+                    task_hours: Some(
+                        1440,
+                    ),
+                },
+                collection_method: SendInvoice,
+                payment_provider: GcpMarketplace,
+            },
+        ),
+    ),
+    (
+        "contract with unlimited data and a trial_start",
+        Contract(
+            ContractPlan {
+                included_usage: IncludedUsage {
+                    data_gb: None,
+                    task_hours: Some(
+                        0,
+                    ),
+                },
+                collection_method: ChargeDefaultPaymentMethod,
+                payment_provider: Stripe,
+            },
+        ),
+    ),
+    (
+        "internal",
+        Internal(
+            InternalPlan {
+                detail: None,
+            },
+        ),
+    ),
+]
