@@ -85,5 +85,60 @@ impl PublicationsQuery {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct PublicationsMutation;
+
+#[async_graphql::Object]
+impl PublicationsMutation {
+    /// Queue a publication of the draft `draftId`, which the caller must own.
+    /// The caller needs `SpecEdit` on every specification the publication
+    /// would change, which can include live specifications connected to a
+    /// drafted collection, and `CatalogRead` on every other name the draft
+    /// references. Building, validation and the commit happen afterwards:
+    /// poll `publication(id)` until `status.type` is no longer `queued`. A
+    /// successful publication that is not a dry run deletes the draft.
+    async fn create_publication(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+        draft_id: models::Id,
+        #[graphql(desc = "Build and validate without committing.")] dry_run: bool,
+        #[graphql(
+            desc = "Data plane for specifications this publication creates; existing specifications keep theirs. Chosen automatically when omitted. A plane that cannot be used fails the publication, not this request."
+        )]
+        default_data_plane: Option<String>,
+        #[graphql(desc = "Optional free-text description recorded on the publication.")]
+        detail: Option<String>,
+    ) -> async_graphql::Result<Publication> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let subject = env.claims()?.subject();
+
+        let (id, logs_token) = match crate::publications::submit::submit(
+            &env.pg_pool,
+            env.snapshot(),
+            &subject,
+            draft_id,
+            dry_run,
+            default_data_plane.as_deref(),
+            detail.as_deref(),
+        )
+        .await
+        {
+            Ok(queued) => queued,
+            Err(error) => match error.downcast::<tonic::Status>() {
+                Ok(status) => env.authorization_outcome(Err(status)).await?.1,
+                Err(error) => return Err(error.into()),
+            },
+        };
+        Ok(Publication {
+            id,
+            draft_id,
+            dry_run,
+            status: models::publications::StatusType::Queued.into(),
+            pub_id: None,
+            logs_token,
+        })
+    }
+}
+
 #[cfg(test)]
 mod test;
