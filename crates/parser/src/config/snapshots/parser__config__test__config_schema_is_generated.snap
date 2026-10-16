@@ -546,6 +546,48 @@ expression: schema
           "required": [
             "type"
           ]
+        },
+        {
+          "title": "XML",
+          "description": "XML documents. Each file's root element, or each element matching the configured\nrecord path, is emitted as a JSON document.",
+          "type": "object",
+          "properties": {
+            "config": {
+              "title": "XML",
+              "description": "Configuration for parsing XML documents into JSON.\n\nElements are converted using the following rules:\n- Each document holds its element under the element's own name, such as `{\"Order\": {...}}`.\n- An element with only text content becomes a JSON string.\n- An element with attributes or child elements becomes a JSON object. Attributes are\n  prefixed with `@`, and any text content is placed under `#text`.\n- Child elements that occur more than once become JSON arrays. Elements named in\n  `arrayElements` always become arrays, even if they only occur once.\n- All values are strings. Namespace prefixes are removed from names.",
+              "type": "object",
+              "properties": {
+                "arrayElements": {
+                  "title": "Array Elements",
+                  "description": "Names of elements that should always be represented as arrays, even when an element\ncontains only a single occurrence of them. Use this for repeated elements, so that the\nshape of documents does not change depending on how many occurrences a file contains.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "recordPath": {
+                  "title": "Record Path",
+                  "description": "The path of the element to emit as a document, for example `/Orders/Order`.\nEach matching element becomes a separate document. If empty, the root element of\neach file is emitted as a single document.",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "examples": [
+                    "/Orders/Order"
+                  ]
+                }
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "xml",
+              "default": "xml"
+            }
+          },
+          "required": [
+            "type",
+            "config"
+          ]
         }
       ],
       "required": [
