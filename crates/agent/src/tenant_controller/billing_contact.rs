@@ -3,10 +3,11 @@ use std::sync::Arc;
 use super::{TaskStatus, Tenant};
 use crate::tenant_controller::{outcome::Outcome, retry_backoff};
 use anyhow::Context;
-use control_plane_api::billing::{BillingProvider, CUSTOMER_NAME_METADATA_KEY};
+use control_plane_api::billing::{self, BillingProvider, CUSTOMER_NAME_METADATA_KEY};
 
 pub async fn reconcile(
     status: &mut TaskStatus,
+    pool: &sqlx::PgPool,
     tenant_row: &Tenant,
     billing_provider: &Option<Arc<dyn BillingProvider>>,
 ) -> anyhow::Result<Outcome> {
@@ -20,7 +21,7 @@ pub async fn reconcile(
         }
     }
 
-    match do_reconcile(tenant_row, billing_provider).await {
+    match do_reconcile(pool, tenant_row, billing_provider).await {
         Ok(()) => {
             status.failures = 0;
             status.next_retry = None;
@@ -44,6 +45,7 @@ pub async fn reconcile(
 }
 
 async fn do_reconcile(
+    pool: &sqlx::PgPool,
     tenant_row: &Tenant,
     billing_provider: &Option<Arc<dyn BillingProvider>>,
 ) -> anyhow::Result<()> {
@@ -51,8 +53,7 @@ async fn do_reconcile(
         return Ok(());
     };
 
-    let customer = provider
-        .find_customer(&tenant_row.tenant)
+    let customer = billing::find_customer(pool, provider.as_ref(), &tenant_row.tenant)
         .await
         .context("looking up Stripe customer")?;
     let Some(customer) = customer else {
@@ -171,10 +172,23 @@ mod tests {
 
     // Seed a customer for `TENANT` with the given pre-existing Stripe state.
     async fn customer_with(
+        pool: &sqlx::PgPool,
         email: Option<&str>,
         name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> Arc<InMemoryBillingProvider> {
+        sqlx::query(
+            "insert into tenants (id, tenant, stripe_customer_id) values (internal.id_generator(), $1, $2) on conflict (tenant) do nothing",
+        )
+        .bind(TENANT)
+        .bind(CUSTOMER_ID)
+        .execute(pool)
+        .await
+        .unwrap();
+        billing_types::record_customer_id(pool, TENANT, &CUSTOMER_ID.parse().unwrap())
+            .await
+            .unwrap();
+
         let provider = InMemoryBillingProvider::new();
         provider.add_customer(TENANT, CUSTOMER_ID, None);
         provider
@@ -184,17 +198,22 @@ mod tests {
         Arc::new(provider)
     }
 
+    // The test row records `CUSTOMER_ID`, matching production customer lookup.
     async fn run(
+        pool: &sqlx::PgPool,
         provider: &Arc<InMemoryBillingProvider>,
         status: &mut TaskStatus,
         row: &Tenant,
     ) -> Outcome {
         let provider: Option<Arc<dyn BillingProvider>> = Some(provider.clone());
-        reconcile(status, row, &provider).await.unwrap()
+        reconcile(status, pool, row, &provider).await.unwrap()
     }
 
     async fn current_customer(provider: &InMemoryBillingProvider) -> stripe::Customer {
-        provider.find_customer(TENANT).await.unwrap().unwrap()
+        provider
+            .retrieve_customer(&CUSTOMER_ID.parse().unwrap())
+            .await
+            .unwrap()
     }
 
     fn metadata_name(customer: &stripe::Customer) -> Option<&str> {
@@ -208,9 +227,10 @@ mod tests {
     // A NULL billing column means "no desired value": it never counts as a
     // mismatch and is never pushed to Stripe, and a change to one field leaves the
     // others untouched rather than clearing them.
-    #[tokio::test]
-    async fn null_db_fields_do_not_clear_stripe() {
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn null_db_fields_do_not_clear_stripe(pool: sqlx::PgPool) {
         let provider = customer_with(
+            &pool,
             Some("existing@example.com"),
             Some("Existing Name"),
             Some(address("New York")),
@@ -220,6 +240,7 @@ mod tests {
         // All-NULL desired: no mismatch, no write, existing values intact.
         let baseline = provider.update_billing_profile_call_count();
         let outcome = run(
+            &pool,
             &provider,
             &mut TaskStatus::default(),
             &tenant_row(None, None, None),
@@ -236,6 +257,7 @@ mod tests {
         // provider's leave-unchanged-on-None contract preserves them.
         let baseline = provider.update_billing_profile_call_count();
         run(
+            &pool,
             &provider,
             &mut TaskStatus::default(),
             &tenant_row(Some("new@example.com"), None, None),
@@ -254,12 +276,13 @@ mod tests {
 
     // The billing name is written to and compared against customer metadata rather
     // than `Customer.name`, which Flow sets to the tenant slug.
-    #[tokio::test]
-    async fn writes_name_to_metadata_not_customer_name() {
-        let provider = customer_with(None, None, None).await;
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn writes_name_to_metadata_not_customer_name(pool: sqlx::PgPool) {
+        let provider = customer_with(&pool, None, None, None).await;
 
         let baseline = provider.update_billing_profile_call_count();
         run(
+            &pool,
             &provider,
             &mut TaskStatus::default(),
             &tenant_row(None, Some("Acme Billing"), None),
@@ -277,29 +300,30 @@ mod tests {
 
     // A missing Stripe customer (or an unconfigured provider) is a clean no-op
     // that stays Idle, so no retry backoff accrues.
-    #[tokio::test]
-    async fn missing_customer_is_idle() {
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn missing_customer_is_idle(pool: sqlx::PgPool) {
         let empty = Arc::new(InMemoryBillingProvider::new());
         let row = tenant_row(Some("new@example.com"), None, None);
         let mut status = TaskStatus::default();
 
-        let outcome = run(&empty, &mut status, &row).await;
+        let outcome = run(&pool, &empty, &mut status, &row).await;
         assert!(matches!(outcome, Outcome::Idle));
         assert_eq!(status.failures, 0);
 
         // No provider at all is likewise idle.
-        let outcome = reconcile(&mut status, &row, &None).await.unwrap();
+        let outcome = reconcile(&mut status, &pool, &row, &None).await.unwrap();
         assert!(matches!(outcome, Outcome::Idle));
     }
 
     // Address changes are detected field-by-field, and the stored JSONB
     // round-trips into `stripe::Address`. An unchanged address is a no-op.
-    #[tokio::test]
-    async fn reconciles_address_changes() {
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn reconciles_address_changes(pool: sqlx::PgPool) {
         // Changed address -> one write, new value applied.
-        let provider = customer_with(None, None, Some(address("New York"))).await;
+        let provider = customer_with(&pool, None, None, Some(address("New York"))).await;
         let baseline = provider.update_billing_profile_call_count();
         run(
+            &pool,
             &provider,
             &mut TaskStatus::default(),
             &tenant_row(None, None, Some(stored_address("Boston"))),
@@ -313,9 +337,10 @@ mod tests {
         );
 
         // Identical address -> no write.
-        let provider = customer_with(None, None, Some(address("Boston"))).await;
+        let provider = customer_with(&pool, None, None, Some(address("Boston"))).await;
         let baseline = provider.update_billing_profile_call_count();
         run(
+            &pool,
             &provider,
             &mut TaskStatus::default(),
             &tenant_row(None, None, Some(stored_address("Boston"))),
@@ -331,13 +356,14 @@ mod tests {
     // The retry/backoff state machine: a failure records the failure and schedules
     // a retry; while that retry is pending reconcile short-circuits without
     // touching Stripe; a later success clears the state.
-    #[tokio::test]
-    async fn retry_backoff_state_machine() {
-        let provider = customer_with(None, None, None).await;
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn retry_backoff_state_machine(pool: sqlx::PgPool) {
+        let provider = customer_with(&pool, None, None, None).await;
         let mut status = TaskStatus::default();
 
         // A failure (here, an un-deserializable stored address) records a retry.
         let outcome = run(
+            &pool,
             &provider,
             &mut status,
             &tenant_row(None, None, Some(serde_json::json!("not an address"))),
@@ -352,13 +378,13 @@ mod tests {
         // real mismatch is left untouched until the backoff elapses.
         let mismatch = tenant_row(Some("new@example.com"), None, None);
         let baseline = provider.update_billing_profile_call_count();
-        let outcome = run(&provider, &mut status, &mismatch).await;
+        let outcome = run(&pool, &provider, &mut status, &mismatch).await;
         assert!(matches!(outcome, Outcome::WaitForRetry(_)));
         assert_eq!(provider.update_billing_profile_call_count() - baseline, 0);
 
         // A success (once the retry window has elapsed) resets the failure state.
         status.next_retry = None;
-        let outcome = run(&provider, &mut status, &mismatch).await;
+        let outcome = run(&pool, &provider, &mut status, &mismatch).await;
         assert!(matches!(outcome, Outcome::Idle));
         assert_eq!(status.failures, 0);
         assert!(status.next_retry.is_none());

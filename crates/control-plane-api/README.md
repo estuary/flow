@@ -18,6 +18,11 @@ permissions before opening a plane for signup.
 callers supply tenant metadata and collection and recovery storage mappings.
 The GraphQL layer owns signup validation and MSA consent.
 
+Billing customer resolution uses `tenants.stripe_customer_id`. A NULL ID is missing;
+the API does not search Stripe metadata to infer a customer. Setup creates and
+records a customer when none is recorded, while a deleted recorded customer is
+left for an operator to resolve.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.

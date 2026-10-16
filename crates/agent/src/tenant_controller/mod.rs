@@ -123,7 +123,8 @@ impl Executor for TenantController {
         }
 
         let result =
-            billing_contact::reconcile(billing_status, &tenant, &self.billing_provider).await?;
+            billing_contact::reconcile(billing_status, pool, &tenant, &self.billing_provider)
+                .await?;
         let result = result.combine(
             quotas::update_quotas(quota_status, pool, &tenant, &self.billing_provider).await?,
         );

@@ -1,5 +1,5 @@
 use super::super::filters;
-use super::loaders::{ChargeDataLoader, CustomerDataLoader, StripeInvoiceKey, StripeInvoiceLoader};
+use super::loaders::{ChargeDataLoader, StripeInvoiceLoader};
 use super::payment_methods::{CardPaymentMethodDetails, UsBankAccountPaymentMethodDetails};
 use crate::billing::{DbInvoiceRow, InvoiceCursor, InvoiceQuery, InvoiceType};
 use anyhow::Context as _;
@@ -85,7 +85,7 @@ pub struct Invoice {
     pub line_items: async_graphql::Json<serde_json::Value>,
     pub extra: async_graphql::Json<serde_json::Value>,
     #[graphql(skip)]
-    tenant: String,
+    stripe_invoice_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
@@ -186,24 +186,21 @@ impl Invoice {
             subtotal: row.subtotal,
             line_items: async_graphql::Json(row.line_items.0),
             extra: async_graphql::Json(row.extra.0),
-            tenant: row.billed_prefix,
+            stripe_invoice_id: row.stripe_invoice_id,
         }
     }
 
+    /// The finalized Stripe invoice for this bill, if one is available. Draft
+    /// invoices and bills without a recorded invoice return `null`.
     async fn stripe_invoice(&self, ctx: &Context<'_>) -> Result<Option<stripe::Invoice>> {
-        let customer_loader = ctx.data::<DataLoader<CustomerDataLoader>>()?;
-        let Some(customer) = customer_loader.load_one(self.tenant.clone()).await? else {
+        let Some(invoice_id) = &self.stripe_invoice_id else {
             return Ok(None);
         };
+        let invoice_id: stripe::InvoiceId = invoice_id
+            .parse()
+            .map_err(|_| async_graphql::Error::new("invalid recorded Stripe invoice ID"))?;
         let loader = ctx.data::<DataLoader<StripeInvoiceLoader>>()?;
-        loader
-            .load_one(StripeInvoiceKey {
-                customer_id: customer.id,
-                date_start: self.date_start.clone(),
-                date_end: self.date_end.clone(),
-                invoice_type: self.invoice_type,
-            })
-            .await
+        loader.load_one(invoice_id).await
     }
 }
 
@@ -305,21 +302,38 @@ mod tests {
         let tenant = "invoicefields";
         let user_id = provision_test_tenant(&pool, tenant).await;
 
-        insert_billing_historical(&pool, tenant, "2024-02-01", 2500, "Manual").await;
+        // February's invoice is paid and March's is still a draft, which is
+        // hidden from the tenant. April's bill has no recorded invoice.
+        for month in ["2024-02-01", "2024-03-01", "2024-04-01"] {
+            insert_billing_historical(&pool, tenant, month, 2500, "Usage").await;
+        }
+        for (month, invoice_id) in [("2024-02-01", "in_paid"), ("2024-03-01", "in_draft")] {
+            sqlx::query(
+                "update internal.billing_historicals set stripe_invoice_id = $1 where billed_month = $2::timestamptz",
+            )
+            .bind(invoice_id)
+            .bind(month)
+            .execute(&pool)
+            .await
+            .expect("record invoice ID");
+        }
 
         let mock = billing::InMemoryBillingProvider::new();
-        mock.add_customer("invoicefields/", "cus_invoice", None);
-        mock.add_invoice(
-            "cus_invoice",
-            stripe::Invoice {
-                amount_due: Some(2600),
-                status: Some(stripe::InvoiceStatus::Paid),
-                invoice_pdf: Some("https://example.test/invoice.pdf".to_string()),
-                hosted_invoice_url: Some("https://example.test/hosted".to_string()),
-                payment_intent: Some(stripe::Expandable::Id("pi_test_123".parse().unwrap())),
-                ..Default::default()
-            },
-        );
+        mock.add_invoice(stripe::Invoice {
+            id: "in_paid".parse().unwrap(),
+            amount_due: Some(2600),
+            status: Some(stripe::InvoiceStatus::Paid),
+            invoice_pdf: Some("https://example.test/invoice.pdf".to_string()),
+            hosted_invoice_url: Some("https://example.test/hosted".to_string()),
+            payment_intent: Some(stripe::Expandable::Id("pi_test_123".parse().unwrap())),
+            ..Default::default()
+        });
+        mock.add_invoice(stripe::Invoice {
+            id: "in_draft".parse().unwrap(),
+            amount_due: Some(2500),
+            status: Some(stripe::InvoiceStatus::Draft),
+            ..Default::default()
+        });
         mock.add_payment_intent(stripe::PaymentIntent {
             id: "pi_test_123".parse().unwrap(),
             latest_charge: Some(stripe::Expandable::Object(Box::new(stripe::Charge {
@@ -350,14 +364,15 @@ mod tests {
                           tenant(name: "invoicefields/") {
                             billing {
                               invoices(
-                                first: 1
+                                first: 10
                                 filter: {
                                   invoiceType: { eq: FINAL }
-                                  dateStart: { gt: "2024-01-31", lt: "2024-02-02" }
+                                  dateStart: { gt: "2024-01-31", lt: "2024-05-01" }
                                 }
                               ) {
                                 edges {
                                   node {
+                                    dateStart
                                     amountDue
                                     status
                                     invoicePdf
