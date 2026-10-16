@@ -48,6 +48,22 @@ fn fixed_database_url() -> String {
         .expect("FLOW_PG_URL must be set — run integration tests via 'mise run'")
 }
 
+/// The emulator's port is per-stack, so the ambient mise env is required.
+async fn catalog_stats_emulator() -> Arc<catalog_stats::Client> {
+    let port = std::env::var("FLOW_PORT_BIGTABLE")
+        .expect("FLOW_PORT_BIGTABLE must be set — run integration tests via 'mise run'");
+
+    let client = catalog_stats::Client::connect(&catalog_stats::BigtableConfig {
+        project: "estuary-local".to_string(),
+        instance: "estuary-local".to_string(),
+        emulator_host: Some(format!("localhost:{port}")),
+    })
+    .await
+    .expect("BigTable emulator must be running: `mise run local:bigtable`");
+
+    Arc::new(client)
+}
+
 pub fn set_of(names: &[&str]) -> BTreeSet<String> {
     names.into_iter().map(|n| n.to_string()).collect()
 }
@@ -176,6 +192,8 @@ pub struct TestHarness {
     pub control_plane: TestControlPlane,
     pub test_name: String,
     pub pool: sqlx::PgPool,
+    /// BigTable emulator holding the catalog stats that controllers read.
+    pub catalog_stats: Arc<catalog_stats::Client>,
     pub publisher: Publisher,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
@@ -230,6 +248,7 @@ impl HarnessBuilder {
         let pool = sqlx::PgPool::connect(&fixed_database_url())
             .await
             .expect("Failed to connect to database");
+        let catalog_stats = catalog_stats_emulator().await;
 
         let builds_root = tempdir().expect("Failed to create tempdir");
 
@@ -284,6 +303,7 @@ impl HarnessBuilder {
                 1.0, // auto_discover_probability
                 publication_cooldown,
                 crate::controllers::ControllerConfig::default(),
+                catalog_stats.clone(),
             ),
             snapshot_replace.clone(),
         );
@@ -296,6 +316,7 @@ impl HarnessBuilder {
         let mut harness = TestHarness {
             test_name,
             pool,
+            catalog_stats,
             publisher,
             builds_root,
             connectors,
@@ -510,17 +531,8 @@ impl TestHarness {
             ),
             del_alert_history as (
                 delete from alert_history
-            ),
-            del_inferred_schemas as (
-                delete from inferred_schemas
-            ),
-            del_hourly_stats as (
-                delete from catalog_stats_hourly
-            ),
-            del_daily_stats as (
-                delete from catalog_stats_daily
             )
-            delete from catalog_stats_monthly;"#,
+            delete from inferred_schemas;"#,
             system_user_id
         )
         .execute(&self.pool)
@@ -548,7 +560,17 @@ impl TestHarness {
     /// as the beta onboarding directive, so the user_grants, role_grants,
     /// storage_mappings, and tenants tables should all look just like they
     /// would in production.
+    ///
+    /// Also clears the tenant's catalog stats, because the BigTable emulator
+    /// outlives each test and is shared with other crates' tests.
     pub async fn setup_tenant(&self, tenant: &str) -> sqlx::types::Uuid {
+        catalog_stats::test_util::delete_rows_with_prefix(
+            &self.catalog_stats,
+            &format!("{tenant}/"),
+        )
+        .await
+        .expect("failed to clear tenant catalog stats");
+
         let email = format!("{tenant}@{}.test", self.test_name.replace(' ', "-"));
         let meta = serde_json::json!({
             "picture": format!("http://{tenant}.test/avatar"),
@@ -2198,7 +2220,7 @@ impl ControlPlane for TestControlPlane {
         &self,
         catalog_name: String,
         since: DateTime<Utc>,
-    ) -> anyhow::Result<i64> {
+    ) -> anyhow::Result<u64> {
         self.inner
             .fetch_bytes_processed_since(catalog_name, since)
             .await

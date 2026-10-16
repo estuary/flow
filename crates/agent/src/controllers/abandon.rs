@@ -74,7 +74,7 @@ pub async fn evaluate_abandoned<C: ControlPlane>(
 
     let check_interval_minutes = config.abandon_check_interval.num_minutes().max(1) as u32;
 
-    // Throttle evaluations to avoid excessive catalog_stats_daily queries.
+    // Throttle evaluations to avoid excessive daily catalog stats reads.
     if let Some(last) = abandon_status.last_evaluated {
         let remaining = config.abandon_check_interval - (now - last);
         if remaining > chrono::Duration::zero() {
