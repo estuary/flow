@@ -83,8 +83,7 @@ async fn do_update_quotas(
         return Ok(());
     };
 
-    let customer = provider
-        .find_customer(&tenant.tenant)
+    let customer = billing::find_customer(pool, provider.as_ref(), &tenant.tenant)
         .await
         .context("looking up Stripe customer")?;
 
@@ -150,7 +149,7 @@ mod tests {
     const TENANT_2: &str = "acmeCo2GtQuotas/";
     const CUSTOMER_ID: &str = "cus_test";
 
-    async fn any_customer(tenant_name: &str) -> Arc<InMemoryBillingProvider> {
+    async fn any_customer(pool: &sqlx::PgPool, tenant_name: &str) -> Arc<InMemoryBillingProvider> {
         let provider = InMemoryBillingProvider::new();
         provider.add_customer(tenant_name, CUSTOMER_ID, None);
         provider
@@ -162,6 +161,9 @@ mod tests {
             .unwrap();
         provider
             .update_customer_billing_profile(&CUSTOMER_ID.parse().unwrap(), None, None, None)
+            .await
+            .unwrap();
+        billing_types::record_customer_id(pool, tenant_name, &CUSTOMER_ID.parse().unwrap())
             .await
             .unwrap();
         Arc::new(provider)
@@ -182,7 +184,7 @@ mod tests {
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn quota_update_no_customer(pool: sqlx::PgPool) {
         let tenant_name = "test_name";
-        let provider = any_customer(tenant_name).await;
+        let provider = any_customer(&pool, tenant_name).await;
         let tenant = Tenant {
             tenant: "AnotherTenantName".to_string(),
             billing_email: None,
@@ -198,7 +200,7 @@ mod tests {
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn quota_update_no_tenant_in_db(pool: sqlx::PgPool) {
         let tenant_name = "test_name";
-        let provider = any_customer(tenant_name).await;
+        let provider = any_customer(&pool, tenant_name).await;
         let tenant = Tenant {
             tenant: tenant_name.to_string(),
             billing_email: None,
@@ -236,7 +238,7 @@ mod tests {
         fixtures(path = "fixtures", scripts("quotas"))
     )]
     async fn quota_update_success_set_in_stripe(pool: sqlx::PgPool) {
-        let provider = any_customer(TENANT_1).await;
+        let provider = any_customer(&pool, TENANT_1).await;
         let tenant = Tenant {
             tenant: TENANT_1.to_string(),
             billing_email: None,
@@ -263,6 +265,9 @@ mod tests {
         // default payment method configured but is configured inside of stripe.
         let provider = InMemoryBillingProvider::new();
         provider.add_customer(TENANT_1, CUSTOMER_ID, None);
+        billing_types::record_customer_id(&pool, TENANT_1, &CUSTOMER_ID.parse().unwrap())
+            .await
+            .unwrap();
 
         let provider = Arc::new(provider);
         let tenant = Tenant {
@@ -287,7 +292,7 @@ mod tests {
         fixtures(path = "fixtures", scripts("quotas"))
     )]
     async fn quota_update_success_pre_configured(pool: sqlx::PgPool) {
-        let provider = any_customer(TENANT_2).await;
+        let provider = any_customer(&pool, TENANT_2).await;
         let tenant = Tenant {
             tenant: TENANT_2.to_string(),
             billing_email: None,

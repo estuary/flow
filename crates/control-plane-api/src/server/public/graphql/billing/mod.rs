@@ -139,21 +139,8 @@ mod tests {
         .expect("attach test payment method")
     }
 
-    async fn wait_for_customer_searchable(
-        provider: &dyn billing::BillingProvider,
-        tenant: &str,
-    ) -> stripe::Customer {
-        for _ in 0..30 {
-            if let Ok(Some(customer)) = provider.find_customer(tenant).await {
-                return customer;
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        }
-        panic!("customer for tenant '{tenant}' never became searchable after 60s");
-    }
-
     /// Exercises every Stripe API call made by the billing GraphQL mutations:
-    ///   - Customer search, create, update
+    ///   - Customer retrieve, create, update
     ///   - SetupIntent create
     ///   - PaymentMethod list, detach
     #[ignore = "requires STRIPE_API_KEY set to a Stripe testmode key"]
@@ -175,7 +162,7 @@ mod tests {
             Arc::new(StripeBillingProvider::new(stripe_key));
         let server = test_server::TestServer::start_with_config(
             pool.clone(),
-            test_server::snapshot(pool, true).await,
+            test_server::snapshot(pool.clone(), true).await,
             Some(provider.clone()),
             None,
             models::AlertConfig::default(),
@@ -204,9 +191,11 @@ mod tests {
             "setup intent should return a client secret: {response:?}"
         );
 
-        // Stripe's customer-search index lags writes by seconds; the mutations
-        // below all depend on search to find the customer.
-        let customer = wait_for_customer_searchable(provider.as_ref(), &format!("{tenant}/")).await;
+        // The setup intent recorded the customer it created, so the mutations
+        // below retrieve it by ID rather than racing Stripe's search index.
+        let customer = billing::require_customer(&pool, provider.as_ref(), &format!("{tenant}/"))
+            .await
+            .expect("setup intent recorded the tenant's customer");
 
         // Attach payment methods directly via the Stripe API (what Stripe.js
         // would do client-side after the SetupIntent completes).

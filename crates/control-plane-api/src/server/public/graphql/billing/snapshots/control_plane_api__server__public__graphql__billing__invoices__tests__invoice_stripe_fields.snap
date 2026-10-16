@@ -1,6 +1,6 @@
 ---
 source: crates/control-plane-api/src/server/public/graphql/billing/invoices.rs
-assertion_line: 454
+assertion_line: 399
 expression: response
 ---
 {
@@ -11,7 +11,28 @@ expression: response
           "edges": [
             {
               "node": {
+                "amountDue": null,
+                "dateStart": "2024-04-01",
+                "hostedInvoiceUrl": null,
+                "invoicePdf": null,
+                "paymentDetails": null,
+                "status": null
+              }
+            },
+            {
+              "node": {
+                "amountDue": null,
+                "dateStart": "2024-03-01",
+                "hostedInvoiceUrl": null,
+                "invoicePdf": null,
+                "paymentDetails": null,
+                "status": null
+              }
+            },
+            {
+              "node": {
                 "amountDue": 2600,
+                "dateStart": "2024-02-01",
                 "hostedInvoiceUrl": "https://example.test/hosted",
                 "invoicePdf": "https://example.test/invoice.pdf",
                 "paymentDetails": {

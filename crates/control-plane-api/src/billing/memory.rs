@@ -1,12 +1,11 @@
 use super::BillingProvider;
-use billing_types::TENANT_METADATA_KEY;
 use std::sync::Mutex;
 
 #[derive(Debug, Default)]
 struct State {
     customers: Vec<stripe::Customer>,
     payment_methods: Vec<(stripe::CustomerId, stripe::PaymentMethod)>,
-    invoices: Vec<(stripe::CustomerId, stripe::Invoice)>,
+    invoices: Vec<stripe::Invoice>,
     payment_intents: Vec<stripe::PaymentIntent>,
     setup_intent_counter: u64,
     update_billing_profile_calls: usize,
@@ -67,46 +66,37 @@ impl InMemoryBillingProvider {
             .push((customer_id.parse().unwrap(), pm));
     }
 
-    pub fn add_invoice(&self, customer_id: &str, invoice: stripe::Invoice) {
-        self.state
-            .lock()
-            .unwrap()
-            .invoices
-            .push((customer_id.parse().unwrap(), invoice));
+    /// Mark a customer deleted, as Stripe does: it's still retrievable by ID
+    /// and marked with Stripe's deleted flag.
+    pub fn delete_customer(&self, id: &str) {
+        let mut state = self.state.lock().unwrap();
+        for customer in state.customers.iter_mut().filter(|c| c.id.as_str() == id) {
+            customer.deleted = true;
+        }
+    }
+
+    pub fn add_invoice(&self, invoice: stripe::Invoice) {
+        self.state.lock().unwrap().invoices.push(invoice);
     }
 
     pub fn add_payment_intent(&self, pi: stripe::PaymentIntent) {
         self.state.lock().unwrap().payment_intents.push(pi);
     }
-
-    fn customer_search_tenant(query: &str) -> Option<&str> {
-        let prefix = format!(r#"metadata["{}"]:""#, TENANT_METADATA_KEY);
-        query
-            .strip_prefix(&prefix)
-            .and_then(|rest| rest.strip_suffix('"'))
-    }
 }
 
 #[async_trait::async_trait]
 impl BillingProvider for InMemoryBillingProvider {
-    async fn search_customers(&self, query: &str) -> anyhow::Result<Vec<stripe::Customer>> {
+    async fn retrieve_customer(
+        &self,
+        customer_id: &stripe::CustomerId,
+    ) -> anyhow::Result<stripe::Customer> {
         let state = self.state.lock().unwrap();
-        let Some(tenant) = Self::customer_search_tenant(query) else {
-            return Ok(state.customers.clone());
-        };
-
-        Ok(state
+        state
             .customers
             .iter()
-            .filter(|customer| {
-                customer
-                    .metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.get(TENANT_METADATA_KEY))
-                    .is_some_and(|value| value == tenant)
-            })
+            .find(|c| &c.id == customer_id)
             .cloned()
-            .collect())
+            .ok_or_else(|| anyhow::anyhow!("customer not found: {customer_id}"))
     }
 
     async fn create_customer(
@@ -214,14 +204,16 @@ impl BillingProvider for InMemoryBillingProvider {
         Ok(method)
     }
 
-    async fn search_invoices(&self, query: &str) -> anyhow::Result<Vec<stripe::Invoice>> {
+    async fn retrieve_invoice(
+        &self,
+        invoice_id: &stripe::InvoiceId,
+    ) -> anyhow::Result<Option<stripe::Invoice>> {
         let state = self.state.lock().unwrap();
         Ok(state
             .invoices
             .iter()
-            .filter(|(customer_id, _)| query.contains(customer_id.as_str()))
-            .map(|(_, invoice)| invoice.clone())
-            .collect())
+            .find(|invoice| &invoice.id == invoice_id)
+            .cloned())
     }
 
     async fn retrieve_payment_intent(

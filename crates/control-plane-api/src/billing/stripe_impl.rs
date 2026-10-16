@@ -1,7 +1,6 @@
 use super::BillingProvider;
-use billing_types::{
-    SearchParams, customer_create_idempotency_key, stripe_search, tenant_metadata,
-};
+use anyhow::Context;
+use billing_types::{customer_create_idempotency_key, tenant_metadata};
 
 /// Production `BillingProvider` backed by the Stripe API.
 #[derive(Clone)]
@@ -30,46 +29,11 @@ impl StripeBillingProvider {
 
 #[async_trait::async_trait]
 impl BillingProvider for StripeBillingProvider {
-    async fn search_customers(&self, query: &str) -> anyhow::Result<Vec<stripe::Customer>> {
-        stripe_search(
-            &self.client,
-            "customers",
-            SearchParams {
-                query: query.to_string(),
-                ..Default::default()
-            },
-        )
-        .await
-    }
-
-    /// Stripe's customer-search index is eventually consistent and can even be
-    /// non-monotonic: a customer that matched a moment ago may transiently drop
-    /// out of a later search. Every caller of `require_customer` (setting or
-    /// deleting a payment method) only reaches it after a SetupIntent has
-    /// already created the customer, so a search miss is virtually always index
-    /// lag rather than a true absence. Retry a bounded number of times with
-    /// exponential backoff before surfacing the error, overriding the trait's
-    /// single-shot default.
-    async fn require_customer(&self, tenant: &str) -> anyhow::Result<stripe::Customer> {
-        const MAX_ATTEMPTS: u32 = 6;
-        const MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
-
-        let mut delay = std::time::Duration::from_millis(500);
-        for attempt in 1..=MAX_ATTEMPTS {
-            if let Some(customer) = self.find_customer(tenant).await? {
-                return Ok(customer);
-            }
-            if attempt < MAX_ATTEMPTS {
-                tracing::debug!(
-                    tenant,
-                    attempt,
-                    "Stripe customer search missed; retrying after index lag"
-                );
-                tokio::time::sleep(delay).await;
-                delay = (delay * 2).min(MAX_DELAY);
-            }
-        }
-        anyhow::bail!("no Stripe customer exists for tenant '{tenant}'")
+    async fn retrieve_customer(
+        &self,
+        customer_id: &stripe::CustomerId,
+    ) -> anyhow::Result<stripe::Customer> {
+        Ok(stripe::Customer::retrieve(&self.client, customer_id, &[]).await?)
     }
 
     async fn create_customer(
@@ -97,10 +61,10 @@ impl BillingProvider for StripeBillingProvider {
         }
 
         let description = format!("Represents the billing entity for Flow tenant '{tenant}'");
-        // Stripe's customer-search index lags writes by seconds, so two near-
-        // simultaneous `find_or_create_customer` calls can both miss in search
-        // and both create. Pinning a deterministic Idempotency-Key per tenant
-        // collapses retries inside Stripe's 24h idempotency window.
+        // Two near-simultaneous `find_or_create_customer` calls can both find
+        // no customer and both create one. Pinning a deterministic
+        // Idempotency-Key per tenant collapses them, and retries, inside
+        // Stripe's 24h idempotency window.
         let client = self
             .client
             .clone()
@@ -196,16 +160,15 @@ impl BillingProvider for StripeBillingProvider {
         Ok(pm)
     }
 
-    async fn search_invoices(&self, query: &str) -> anyhow::Result<Vec<stripe::Invoice>> {
-        stripe_search(
-            &self.client,
-            "invoices",
-            SearchParams {
-                query: query.to_string(),
-                ..Default::default()
-            },
-        )
-        .await
+    async fn retrieve_invoice(
+        &self,
+        invoice_id: &stripe::InvoiceId,
+    ) -> anyhow::Result<Option<stripe::Invoice>> {
+        match stripe::Invoice::retrieve(&self.client, invoice_id, &[]).await {
+            Ok(invoice) => Ok(Some(invoice)),
+            Err(stripe::StripeError::Stripe(err)) if err.http_status == 404 => Ok(None),
+            Err(err) => Err(err).with_context(|| format!("retrieving Stripe invoice {invoice_id}")),
+        }
     }
 
     async fn retrieve_payment_intent(
