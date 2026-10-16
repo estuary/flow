@@ -1,7 +1,10 @@
 use clap::Parser;
 
+mod backfill;
 mod publish;
 mod send;
+#[cfg(test)]
+mod stripe_stub;
 mod stripe_utils;
 
 #[derive(Debug, Parser)]
@@ -14,6 +17,7 @@ pub struct Cli {
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
+    BackfillStripeIds(backfill::BackfillStripeIds),
     PublishInvoices(publish::PublishInvoice),
     SendInvoices(send::SendInvoices),
 }
@@ -21,6 +25,7 @@ pub enum Command {
 impl Cli {
     pub async fn run(&self) -> anyhow::Result<()> {
         match &self.cmd {
+            Command::BackfillStripeIds(args) => backfill::backfill(args).await,
             Command::PublishInvoices(publish_invoice) => {
                 publish::do_publish_invoices(publish_invoice).await
             }
