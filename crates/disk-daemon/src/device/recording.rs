@@ -1,9 +1,5 @@
 use crate::proto;
 
-/// Receives one disk's mutations from its [`Recorder`], in order. `recv` returns
-/// `None` once the recorder is dropped and every mutation has been taken.
-pub type Recorded = tokio::sync::mpsc::Receiver<Mutation>;
-
 /// One recorded mutation or horizon copy, which the writer appends as one record.
 pub struct Mutation {
     /// The write, punch, or copy, encoded.
@@ -11,6 +7,10 @@ pub struct Mutation {
     /// Whether this, the first mutation of its delta, opened a horizon.
     pub opens_horizon: bool,
 }
+
+/// Receives one disk's mutations from its [`Recorder`], in order. `recv` returns
+/// `None` once the recorder is dropped and every mutation has been taken.
+pub type Recorded = tokio::sync::mpsc::Receiver<Mutation>;
 
 /// Create a channel holding `capacity` mutations, waking `waker` whenever a
 /// reservation it refused may be tried again.

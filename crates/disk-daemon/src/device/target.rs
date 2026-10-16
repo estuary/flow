@@ -5,10 +5,6 @@ use crate::image;
 use crate::proto;
 use crate::ublk;
 
-/// Most blocks one horizon copy reads, so a copy is a mutation of the same order
-/// as the largest device request.
-const COPY_BLOCKS: u32 = ublk::MAX_IO_BUF_BYTES / crate::BLOCK_SIZE;
-
 /// The disk's ublk target, which answers its requests and records each mutation
 /// for the journal writer.
 ///
@@ -62,37 +58,6 @@ impl Target {
     /// Size of the disk, in blocks.
     pub fn blocks(&self) -> u32 {
         self.image.blocks()
-    }
-
-    /// Close admission, ending the delta, and return whether it discharged the
-    /// open horizon. That horizon is dropped now: a failed commit ends the
-    /// attachment anyway.
-    pub fn close_admission(&mut self) -> anyhow::Result<bool> {
-        if let Admission::Failed(failed) = &self.admission {
-            anyhow::bail!("device {} failed: {failed:#}", self.dev_id);
-        }
-        self.admission = Admission::Closed;
-        let recorded = std::mem::take(&mut self.recorded);
-
-        let Some(horizon) = &mut self.horizon else {
-            return Ok(false);
-        };
-        // An empty delta commits nothing, so completes nothing.
-        if recorded && horizon.pending() == 0 {
-            self.horizon = None;
-            return Ok(true);
-        }
-        () = horizon.cut();
-        Ok(false)
-    }
-
-    /// Reopen admission with the next delta's journal `range`.
-    pub fn resume_admission(&mut self, range: u64) {
-        self.range = range;
-
-        if matches!(self.admission, Admission::Closed) {
-            self.admission = Admission::Open;
-        }
     }
 
     /// Handle a request. A read is answered at once.
@@ -159,6 +124,10 @@ impl Target {
     /// far as the copy budget this delta's mutations earned allows. Copies yield to
     /// mutations, running only while admission is open and nothing is parked.
     pub fn compact(&mut self) {
+        /// Most blocks one horizon copy reads, so a copy is a mutation of the same
+        /// order as the largest device request.
+        const COPY_BLOCKS: u32 = ublk::MAX_IO_BUF_BYTES / crate::BLOCK_SIZE;
+
         let Some(horizon) = &mut self.horizon else {
             return;
         };
@@ -189,6 +158,37 @@ impl Target {
                 opens_horizon: false,
             });
             self.recorded = true;
+        }
+    }
+
+    /// Close admission, ending the delta, and return whether it discharged the
+    /// open horizon. That horizon is dropped now: a failed commit ends the
+    /// attachment anyway.
+    pub fn close_admission(&mut self) -> anyhow::Result<bool> {
+        if let Admission::Failed(failed) = &self.admission {
+            anyhow::bail!("device {} failed: {failed:#}", self.dev_id);
+        }
+        self.admission = Admission::Closed;
+        let recorded = std::mem::take(&mut self.recorded);
+
+        let Some(horizon) = &mut self.horizon else {
+            return Ok(false);
+        };
+        // An empty delta commits nothing, so completes nothing.
+        if recorded && horizon.pending() == 0 {
+            self.horizon = None;
+            return Ok(true);
+        }
+        () = horizon.cut();
+        Ok(false)
+    }
+
+    /// Reopen admission with the next delta's journal `range`.
+    pub fn resume_admission(&mut self, range: u64) {
+        self.range = range;
+
+        if matches!(self.admission, Admission::Closed) {
+            self.admission = Admission::Open;
         }
     }
 

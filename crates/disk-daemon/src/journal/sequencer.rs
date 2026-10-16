@@ -2,43 +2,6 @@ use crate::proto;
 use anyhow::Context;
 use proto_gazette::uuid;
 
-/// What one record does to the delta a replay holds.
-#[derive(Debug, PartialEq)]
-pub struct Step {
-    /// Producer of an uncommitted delta which this record displaced, and which the
-    /// replay must drop before anything else.
-    pub displaced: Option<uuid::Producer>,
-    /// How to handle this record after dropping any displaced delta.
-    pub action: Action,
-}
-
-/// What becomes of one record.
-#[derive(Debug, PartialEq)]
-pub enum Action {
-    /// Nothing: it changes no disk content, repeats a record already sequenced, or is
-    /// a fragment of a displaced delta.
-    Skip,
-    /// Hold it, as the first or a later record of the delta held.
-    Hold,
-    /// Apply the delta held, which this acknowledgement commits.
-    Commit,
-}
-
-/// What a recovered acknowledgement does, judged against what a replay sequenced.
-#[derive(Debug, PartialEq)]
-pub enum RecoveredAck {
-    /// Already committed, so there is nothing to append. Either it is at or below its
-    /// writer's last commit, which a client whose state went back may hand over, or
-    /// the replay saw no records of its writer, so they are all below the floor.
-    Committed,
-    /// It commits the delta the replay holds, so appending it commits that delta.
-    Commits,
-    /// It commits records this replay no longer holds: part of the delta held, or a
-    /// delta another producer displaced, or a delta whose records are not in the
-    /// journal. Appending it would fail every replay from then on.
-    Refused,
-}
-
 /// Sequencing state of one replay of a disk from its journal.
 #[derive(Default)]
 pub struct Sequencer {
@@ -172,6 +135,43 @@ impl Sequencer {
 
         Some(held)
     }
+}
+
+/// What one record does to the delta a replay holds.
+#[derive(Debug, PartialEq)]
+pub struct Step {
+    /// Producer of an uncommitted delta which this record displaced, and which the
+    /// replay must drop before anything else.
+    pub displaced: Option<uuid::Producer>,
+    /// How to handle this record after dropping any displaced delta.
+    pub action: Action,
+}
+
+/// What becomes of one record.
+#[derive(Debug, PartialEq)]
+pub enum Action {
+    /// Nothing: it changes no disk content, repeats a record already sequenced, or is
+    /// a fragment of a displaced delta.
+    Skip,
+    /// Hold it, as the first or a later record of the delta held.
+    Hold,
+    /// Apply the delta held, which this acknowledgement commits.
+    Commit,
+}
+
+/// What a recovered acknowledgement does, judged against what a replay sequenced.
+#[derive(Debug, PartialEq)]
+pub enum RecoveredAck {
+    /// Already committed, so there is nothing to append. Either it is at or below its
+    /// writer's last commit, which a client whose state went back may hand over, or
+    /// the replay saw no records of its writer, so they are all below the floor.
+    Committed,
+    /// It commits the delta the replay holds, so appending it commits that delta.
+    Commits,
+    /// It commits records this replay no longer holds: part of the delta held, or a
+    /// delta another producer displaced, or a delta whose records are not in the
+    /// journal. Appending it would fail every replay from then on.
+    Refused,
 }
 
 /// The clocks [`uuid::sequence`] transitions for one producer.

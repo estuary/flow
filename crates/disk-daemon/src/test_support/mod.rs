@@ -57,6 +57,37 @@ pub fn frame<'a>(records: impl IntoIterator<Item = &'a proto::DiskRecord>) -> by
     framed
 }
 
+/// Render chunk ranges and run-length encoded data for compact snapshots.
+pub fn render_chunk(chunk: &crate::proto::Chunk) -> String {
+    let range = crate::chunk::covered_blocks(chunk);
+    let what = match &chunk.content {
+        Some(crate::proto::chunk::Content::Data(data)) if data.is_empty() => {
+            "empty data (one zeroed block)".to_string()
+        }
+        Some(crate::proto::chunk::Content::Data(data)) => {
+            format!("data len {} [{}]", data.len(), run_lengths(data))
+        }
+        Some(crate::proto::chunk::Content::Punch(blocks)) => format!("punch {blocks}"),
+        None => "no content".to_string(),
+    };
+    format!("blocks {}..{}: {what}", range.start, range.end)
+}
+
+/// Render bytes as runs of one value, such as `0xabx4096 0x00x4`.
+pub fn run_lengths(data: &[u8]) -> String {
+    let mut runs: Vec<(u8, usize)> = Vec::new();
+    for &byte in data {
+        match runs.last_mut() {
+            Some((value, count)) if *value == byte => *count += 1,
+            _ => runs.push((byte, 1)),
+        }
+    }
+    runs.iter()
+        .map(|(value, count)| format!("{value:#04x}x{count}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Each allocated block of `image`, paired with the byte it is filled with: a
 /// readable report of what a replay left allocated.
 pub fn allocated(image: &crate::image::Image) -> Vec<(u32, u8)> {
@@ -91,37 +122,6 @@ pub fn render_blocks(blocks: &[(u32, u8)]) -> String {
         .map(|(range, fill)| format!("{}..{} filled {fill:#04x}", range.start, range.end))
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-/// Render chunk ranges and run-length encoded data for compact snapshots.
-pub fn render_chunk(chunk: &crate::proto::Chunk) -> String {
-    let range = crate::chunk::covered_blocks(chunk);
-    let what = match &chunk.content {
-        Some(crate::proto::chunk::Content::Data(data)) if data.is_empty() => {
-            "empty data (one zeroed block)".to_string()
-        }
-        Some(crate::proto::chunk::Content::Data(data)) => {
-            format!("data len {} [{}]", data.len(), run_lengths(data))
-        }
-        Some(crate::proto::chunk::Content::Punch(blocks)) => format!("punch {blocks}"),
-        None => "no content".to_string(),
-    };
-    format!("blocks {}..{}: {what}", range.start, range.end)
-}
-
-/// Render bytes as runs of one value, such as `0xabx4096 0x00x4`.
-pub fn run_lengths(data: &[u8]) -> String {
-    let mut runs: Vec<(u8, usize)> = Vec::new();
-    for &byte in data {
-        match runs.last_mut() {
-            Some((value, count)) if *value == byte => *count += 1,
-            _ => runs.push((byte, 1)),
-        }
-    }
-    runs.iter()
-        .map(|(value, count)| format!("{value:#04x}x{count}"))
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// The recorded stream, replayed onto a fresh image, reproduces the image `served`:

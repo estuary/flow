@@ -36,7 +36,7 @@ impl Device {
         horizon: Option<horizon::Horizon>,
         policy: horizon::Policy,
     ) -> anyhow::Result<(Self, Recorded)> {
-        let (device, recorded) = Self::serve(control, image, queue_depth, horizon, policy)?;
+        let (device, recorded) = Self::add(control, image, queue_depth, horizon, policy)?;
 
         // A failure here tears the device down by dropping `device`.
         () = control.start_dev(device.dev_id)?;
@@ -91,7 +91,7 @@ impl Device {
     }
 
     /// Set up the device and owner without starting it.
-    fn serve(
+    fn add(
         control: &std::sync::Arc<ublk::Control>,
         image: image::Image,
         queue_depth: u16,

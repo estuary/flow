@@ -12,52 +12,6 @@ use crate::proto;
 use anyhow::Context;
 use proto_gazette::{broker, fixed_framing};
 
-/// Continue from the replay's next record boundary. `Some(head)` reads to a
-/// broker-confirmed head; `None` tails until cancelled or an error occurs.
-/// [`Replay::take`] checks any offset jump returned by the broker.
-pub async fn read(
-    client: &gazette::journal::Client,
-    journal: &str,
-    through: Option<i64>,
-    replay: &mut Replay,
-) -> anyhow::Result<()> {
-    let (end_offset, block) = match through {
-        Some(head) => (head, false),
-        None => (0, true),
-    };
-
-    let stream = client.clone().read(broker::ReadRequest {
-        journal: journal.to_string(),
-        offset: replay.offset,
-        end_offset,
-        block,
-        ..Default::default()
-    });
-    futures::pin_mut!(stream);
-
-    // Content of this read which is not yet unpacked into records. A record may
-    // straddle the responses which carry it.
-    let mut buf = bytes::BytesMut::new();
-
-    while let Some(response) = futures::StreamExt::next(&mut stream).await {
-        let response = match response {
-            Ok(response) => response,
-            Err(gazette::RetryError { attempt, inner }) if inner.is_transient() => {
-                tracing::warn!(journal, attempt, %inner, "journal read failed (will retry)");
-                continue;
-            }
-            Err(gazette::RetryError { inner, .. }) => {
-                return Err(anyhow::Error::new(inner).context(format!("reading {journal}")));
-            }
-        };
-
-        () = replay
-            .take(&mut buf, response.offset, &response.content)
-            .with_context(|| format!("replaying {journal}"))?;
-    }
-    Ok(())
-}
-
 /// Image and sequencing state shared by backfill, tailing, and promotion.
 pub struct Replay {
     /// The disk's committed state, rebuilt so far.
@@ -239,6 +193,52 @@ impl Replay {
 
         Ok(applied)
     }
+}
+
+/// Continue from the replay's next record boundary. `Some(head)` reads to a
+/// broker-confirmed head; `None` tails until cancelled or an error occurs.
+/// [`Replay::take`] checks any offset jump returned by the broker.
+pub async fn read(
+    client: &gazette::journal::Client,
+    journal: &str,
+    through: Option<i64>,
+    replay: &mut Replay,
+) -> anyhow::Result<()> {
+    let (end_offset, block) = match through {
+        Some(head) => (head, false),
+        None => (0, true),
+    };
+
+    let stream = client.clone().read(broker::ReadRequest {
+        journal: journal.to_string(),
+        offset: replay.offset,
+        end_offset,
+        block,
+        ..Default::default()
+    });
+    futures::pin_mut!(stream);
+
+    // Content of this read which is not yet unpacked into records. A record may
+    // straddle the responses which carry it.
+    let mut buf = bytes::BytesMut::new();
+
+    while let Some(response) = futures::StreamExt::next(&mut stream).await {
+        let response = match response {
+            Ok(response) => response,
+            Err(gazette::RetryError { attempt, inner }) if inner.is_transient() => {
+                tracing::warn!(journal, attempt, %inner, "journal read failed (will retry)");
+                continue;
+            }
+            Err(gazette::RetryError { inner, .. }) => {
+                return Err(anyhow::Error::new(inner).context(format!("reading {journal}")));
+            }
+        };
+
+        () = replay
+            .take(&mut buf, response.offset, &response.content)
+            .with_context(|| format!("replaying {journal}"))?;
+    }
+    Ok(())
 }
 
 /// A recovery horizon this replay has opened.

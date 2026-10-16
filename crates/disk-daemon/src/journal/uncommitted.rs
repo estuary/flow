@@ -37,18 +37,6 @@ impl UncommittedDelta {
         })
     }
 
-    /// Bytes held, in memory and spilled.
-    #[cfg(test)]
-    pub fn len(&self) -> u64 {
-        self.spilled + self.buffered.len() as u64
-    }
-
-    /// Whether no record is held. Every framed record is at least its header long.
-    #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     /// Hold `framed`, the journal's own bytes of one record. Records spill whole, so
     /// the file always ends at a record boundary.
     pub(super) fn push(&mut self, framed: &[u8]) -> anyhow::Result<()> {
@@ -101,6 +89,18 @@ impl UncommittedDelta {
         self.buffered = bytes::BytesMut::new();
 
         Ok(())
+    }
+
+    /// Bytes held, in memory and spilled.
+    #[cfg(test)]
+    pub fn len(&self) -> u64 {
+        self.spilled + self.buffered.len() as u64
+    }
+
+    /// Whether no record is held. Every framed record is at least its header long.
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

@@ -173,6 +173,36 @@ impl Attachment {
     }
 }
 
+/// Check an `Open` before anything is created for it, returning its journal and the
+/// device's block count. `device_size` is the one durable geometry an attachment
+/// supplies, because the block size is [`crate::BLOCK_SIZE`] for every disk.
+fn check_open(open: proto::Open) -> anyhow::Result<(String, u32)> {
+    let proto::Open {
+        journal,
+        device_size,
+    } = open;
+
+    if journal.is_empty() {
+        return Err(crate::invalid_argument(
+            "the attachment named no journal".to_string(),
+        ));
+    }
+    if device_size == 0 || !device_size.is_multiple_of(crate::BLOCK_SIZE as u64) {
+        return Err(crate::invalid_argument(format!(
+            "device size {device_size} must be a non-zero multiple of the {} byte block size",
+            crate::BLOCK_SIZE,
+        )));
+    }
+    let blocks = device_size / crate::BLOCK_SIZE as u64;
+
+    if blocks > u32::MAX as u64 {
+        return Err(crate::invalid_argument(format!(
+            "a device of {blocks} blocks exceeds the 2^32 which a chunk indexes",
+        )));
+    }
+    Ok((journal, blocks as u32))
+}
+
 async fn next(
     requests: &mut tonic::Streaming<proto::Request>,
     ended: &tokio_util::sync::CancellationToken,
@@ -268,7 +298,7 @@ impl MountedDisk {
         let mount = match mounted {
             Ok(mount) => mount,
             Err(err) => {
-                () = tear_down(None, device, writer).await;
+                () = take_apart(None, device, writer).await;
                 return Err(err);
             }
         };
@@ -329,13 +359,13 @@ impl MountedDisk {
             writer,
         } = self;
 
-        tear_down(Some(mount), device, writer).await
+        take_apart(Some(mount), device, writer).await
     }
 }
 
 /// Take a disk apart in the one order which cannot deadlock. `mount` is `None` for
 /// a disk which failed before it was mounted.
-async fn tear_down(
+async fn take_apart(
     mount: Option<filesystem::Mount>,
     mut device: device::Device,
     writer: journal::Writer,
@@ -358,36 +388,6 @@ async fn tear_down(
     drop(writer);
 
     tracing::info!(dev_id, "closed a disk");
-}
-
-/// Check an `Open` before anything is created for it, returning its journal and the
-/// device's block count. `device_size` is the one durable geometry an attachment
-/// supplies, because the block size is [`crate::BLOCK_SIZE`] for every disk.
-fn check_open(open: proto::Open) -> anyhow::Result<(String, u32)> {
-    let proto::Open {
-        journal,
-        device_size,
-    } = open;
-
-    if journal.is_empty() {
-        return Err(crate::invalid_argument(
-            "the attachment named no journal".to_string(),
-        ));
-    }
-    if device_size == 0 || !device_size.is_multiple_of(crate::BLOCK_SIZE as u64) {
-        return Err(crate::invalid_argument(format!(
-            "device size {device_size} must be a non-zero multiple of the {} byte block size",
-            crate::BLOCK_SIZE,
-        )));
-    }
-    let blocks = device_size / crate::BLOCK_SIZE as u64;
-
-    if blocks > u32::MAX as u64 {
-        return Err(crate::invalid_argument(format!(
-            "a device of {blocks} blocks exceeds the 2^32 which a chunk indexes",
-        )));
-    }
-    Ok((journal, blocks as u32))
 }
 
 #[cfg(test)]

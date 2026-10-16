@@ -1,11 +1,3 @@
-/// One bit per device block, used for allocation and pending horizon copies.
-/// Plain words suffice because each bitmap has one owner. Block indices fit
-/// `u32`; `Open` rejects larger devices.
-pub type Bitmap = bitvec::vec::BitVec<u64, bitvec::order::Lsb0>;
-
-/// A trimmed tail is at most one block.
-static ZEROES: [u8; crate::BLOCK_SIZE as usize] = [0; crate::BLOCK_SIZE as usize];
-
 /// An image and the bitmap which tracks what it has allocated.
 pub struct Image {
     file: std::fs::File,
@@ -82,6 +74,9 @@ impl Image {
     pub fn apply(&mut self, chunk: &crate::proto::Chunk) -> std::io::Result<()> {
         use crate::proto;
 
+        /// A trimmed tail is at most one block.
+        static ZEROES: [u8; crate::BLOCK_SIZE as usize] = [0; crate::BLOCK_SIZE as usize];
+
         let Some(content) = &chunk.content else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -139,6 +134,11 @@ impl Image {
         block as u64 * crate::BLOCK_SIZE as u64
     }
 }
+
+/// One bit per device block, used for allocation and pending horizon copies.
+/// Plain words suffice because each bitmap has one owner. Block indices fit
+/// `u32`; `Open` rejects larger devices.
+pub type Bitmap = bitvec::vec::BitVec<u64, bitvec::order::Lsb0>;
 
 #[cfg(test)]
 mod test {

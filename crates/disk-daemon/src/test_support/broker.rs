@@ -5,69 +5,6 @@ use proto_gazette::{broker, fixed_framing, uuid};
 /// blocks a replay left allocated, so a small disk keeps that report readable.
 pub const BLOCKS: u32 = 64;
 
-/// The scenario's end of a writer's recording channel, where a device would be.
-pub type Recorder = tokio::sync::mpsc::Sender<crate::device::Mutation>;
-
-/// A journal's parsed UUID: who wrote a record, when, and what it is.
-pub type UuidParts = (uuid::Producer, uuid::Clock, uuid::Flags);
-
-/// `chunks` as one recorded mutation, which opens no horizon.
-pub fn mutation(chunks: Vec<proto::Chunk>) -> crate::device::Mutation {
-    crate::device::Mutation {
-        chunks,
-        opens_horizon: false,
-    }
-}
-
-/// One block of `fill`, as a device records a write of it.
-pub fn write(block: u32, fill: u8) -> crate::device::Mutation {
-    mutation(crate::chunk::encode_write(
-        block,
-        &bytes::Bytes::from(vec![fill; crate::BLOCK_SIZE as usize]),
-    ))
-}
-
-/// Render `records` one per line: its kind, who appended it, and what it carries.
-/// Authors are random, so they are numbered in order of first appearance.
-pub fn render(records: &[(UuidParts, proto::DiskRecord)]) -> String {
-    let mut authors: Vec<uuid::Producer> = Vec::new();
-
-    for ((producer, _clock, _flags), _record) in records {
-        if !authors.contains(producer) {
-            authors.push(*producer);
-        }
-    }
-
-    records
-        .iter()
-        .map(|((producer, _clock, flags), record)| {
-            let kind = if flags.is_outside() {
-                "fence"
-            } else if flags.is_ack() {
-                "ack"
-            } else {
-                "continue"
-            };
-            let mut carries: Vec<String> = record.chunks.iter().map(super::render_chunk).collect();
-
-            if record.opens_horizon {
-                carries.push("opens a horizon".to_string());
-            }
-            let author = authors
-                .iter()
-                .position(|author| author == producer)
-                .unwrap()
-                + 1;
-            let author = format!("author {author}");
-
-            format!("{kind:<10}{author:<10}{}", carries.join(", "))
-                .trim_end()
-                .to_string()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 pub struct Fixture {
     /// Brokers as the writer under test reaches them, signed exactly as the daemon
     /// signs.
@@ -300,4 +237,67 @@ impl Fixture {
         }
         panic!("{journal} did not advance past {head}");
     }
+}
+
+/// The scenario's end of a writer's recording channel, where a device would be.
+pub type Recorder = tokio::sync::mpsc::Sender<crate::device::Mutation>;
+
+/// `chunks` as one recorded mutation, which opens no horizon.
+pub fn mutation(chunks: Vec<proto::Chunk>) -> crate::device::Mutation {
+    crate::device::Mutation {
+        chunks,
+        opens_horizon: false,
+    }
+}
+
+/// One block of `fill`, as a device records a write of it.
+pub fn write(block: u32, fill: u8) -> crate::device::Mutation {
+    mutation(crate::chunk::encode_write(
+        block,
+        &bytes::Bytes::from(vec![fill; crate::BLOCK_SIZE as usize]),
+    ))
+}
+
+/// A journal's parsed UUID: who wrote a record, when, and what it is.
+pub type UuidParts = (uuid::Producer, uuid::Clock, uuid::Flags);
+
+/// Render `records` one per line: its kind, who appended it, and what it carries.
+/// Authors are random, so they are numbered in order of first appearance.
+pub fn render(records: &[(UuidParts, proto::DiskRecord)]) -> String {
+    let mut authors: Vec<uuid::Producer> = Vec::new();
+
+    for ((producer, _clock, _flags), _record) in records {
+        if !authors.contains(producer) {
+            authors.push(*producer);
+        }
+    }
+
+    records
+        .iter()
+        .map(|((producer, _clock, flags), record)| {
+            let kind = if flags.is_outside() {
+                "fence"
+            } else if flags.is_ack() {
+                "ack"
+            } else {
+                "continue"
+            };
+            let mut carries: Vec<String> = record.chunks.iter().map(super::render_chunk).collect();
+
+            if record.opens_horizon {
+                carries.push("opens a horizon".to_string());
+            }
+            let author = authors
+                .iter()
+                .position(|author| author == producer)
+                .unwrap()
+                + 1;
+            let author = format!("author {author}");
+
+            format!("{kind:<10}{author:<10}{}", carries.join(", "))
+                .trim_end()
+                .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

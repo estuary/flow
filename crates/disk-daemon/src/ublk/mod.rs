@@ -25,14 +25,6 @@ pub const MAX_IO_BUF_BYTES: u32 = 128 * 1024;
 /// requests between.
 pub const MAX_DISCARD_BYTES: u32 = 16 << 20;
 
-pub fn char_path(dev_id: u32) -> std::path::PathBuf {
-    format!("/dev/ublkc{dev_id}").into()
-}
-
-pub fn block_path(dev_id: u32) -> std::path::PathBuf {
-    format!("/dev/ublkb{dev_id}").into()
-}
-
 /// Queue limits for a device of `blocks` × [`crate::BLOCK_SIZE`].
 ///
 /// `attrs` leaves `UBLK_ATTR_VOLATILE_CACHE` clear, so the kernel issues no flush
@@ -71,6 +63,14 @@ pub fn params(blocks: u32) -> sys::UblkParams {
         },
         ..Default::default()
     }
+}
+
+pub fn char_path(dev_id: u32) -> std::path::PathBuf {
+    format!("/dev/ublkc{dev_id}").into()
+}
+
+pub fn block_path(dev_id: u32) -> std::path::PathBuf {
+    format!("/dev/ublkb{dev_id}").into()
 }
 
 /// The kernel's array of pending requests for one queue, mapped read-only from

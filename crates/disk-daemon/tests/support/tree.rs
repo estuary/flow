@@ -1,8 +1,5 @@
 use disk_daemon::BLOCK_SIZE;
 
-/// Bytes of a disk block, which is the granularity of everything the daemon encodes.
-pub const BLOCK: usize = BLOCK_SIZE as usize;
-
 /// Files a case wrote through a mount, and the content each must read back.
 ///
 /// Paths are relative to the directory the tree was written into, so a case which
@@ -127,6 +124,9 @@ impl Tree {
         ))
     }
 }
+
+/// Bytes of a disk block, which is the granularity of everything the daemon encodes.
+pub const BLOCK: usize = BLOCK_SIZE as usize;
 
 /// Content in which every third block is entirely zero. Both trailing-zero trimming
 /// and empty-data chunks then occur.

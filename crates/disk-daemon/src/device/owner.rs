@@ -3,20 +3,6 @@ use super::target;
 use super::wake;
 use anyhow::Context;
 
-/// What [`spawn`] hands an owner thread to serve one disk's device.
-pub(super) struct Inputs {
-    /// Kernel device ID.
-    pub dev_id: u32,
-    /// Character device used to exchange request data.
-    pub cdev: std::fs::File,
-    /// Image and admission state transferred to the owner.
-    pub target: target::Target,
-    /// Shared with the recording channel so freeing a slot wakes the owner.
-    pub waker: wake::Waker,
-    /// Requests the device may have outstanding.
-    pub queue_depth: u16,
-}
-
 /// Serve `inputs` from a thread of its own. This returns once every tag of the
 /// queue has a fetch in flight. The caller then starts the device.
 pub(super) fn spawn(
@@ -64,6 +50,20 @@ pub(super) fn spawn(
         });
     }
     Ok((commands, thread))
+}
+
+/// What [`spawn`] hands an owner thread to serve one disk's device.
+pub(super) struct Inputs {
+    /// Kernel device ID.
+    pub dev_id: u32,
+    /// Character device used to exchange request data.
+    pub cdev: std::fs::File,
+    /// Image and admission state transferred to the owner.
+    pub target: target::Target,
+    /// Shared with the recording channel so freeing a slot wakes the owner.
+    pub waker: wake::Waker,
+    /// Requests the device may have outstanding.
+    pub queue_depth: u16,
 }
 
 /// What one disk's owner thread holds.

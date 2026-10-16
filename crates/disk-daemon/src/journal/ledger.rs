@@ -16,12 +16,6 @@ pub(super) struct Ledger {
     horizon: Option<i64>,
 }
 
-/// A delta which has been cut and awaits commit.
-struct Prepared {
-    ack: bytes::Bytes,
-    completes_horizon: bool,
-}
-
 impl Ledger {
     pub(super) fn new(producer: uuid::Producer, horizon: Option<i64>) -> Self {
         Self {
@@ -133,6 +127,12 @@ impl Ledger {
             opens_horizon,
         }
     }
+}
+
+/// A delta which has been cut and awaits commit.
+struct Prepared {
+    ack: bytes::Bytes,
+    completes_horizon: bool,
 }
 
 #[cfg(test)]

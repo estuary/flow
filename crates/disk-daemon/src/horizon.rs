@@ -7,33 +7,6 @@
 
 use crate::image;
 
-/// When a horizon opens, and how quickly it is discharged.
-#[derive(Clone, Copy, Debug)]
-pub struct Policy {
-    /// Journal range above the floor, as a multiple of the live allocated size,
-    /// beyond which a horizon opens.
-    pub open_ratio: f64,
-    /// Unchanged bytes a delta may copy per byte it changed.
-    pub copy_ratio: f64,
-    /// Range below which no horizon opens, whatever the ratio says. It keeps a
-    /// small disk from compacting constantly.
-    pub minimum_bytes: u64,
-}
-
-impl Policy {
-    /// Whether a journal `range` of bytes above the floor opens a horizon over
-    /// a disk holding `allocated` bytes.
-    pub fn opens(&self, range: u64, allocated: u64) -> bool {
-        let scaled = (allocated as f64 * self.open_ratio) as u64;
-        range > std::cmp::max(self.minimum_bytes, scaled)
-    }
-
-    /// Bytes of unchanged data a delta which changed `changed` bytes may copy.
-    pub fn budget(&self, changed: u64) -> u64 {
-        (changed as f64 * self.copy_ratio) as u64
-    }
-}
-
 /// Pending blocks of an open horizon.
 pub struct Horizon {
     /// Blocks not yet discharged by a mutation or copy.
@@ -113,6 +86,33 @@ impl Horizon {
         self.copied += bytes;
         self.cursor = range.end;
         self.published(range);
+    }
+}
+
+/// When a horizon opens, and how quickly it is discharged.
+#[derive(Clone, Copy, Debug)]
+pub struct Policy {
+    /// Journal range above the floor, as a multiple of the live allocated size,
+    /// beyond which a horizon opens.
+    pub open_ratio: f64,
+    /// Unchanged bytes a delta may copy per byte it changed.
+    pub copy_ratio: f64,
+    /// Range below which no horizon opens, whatever the ratio says. It keeps a
+    /// small disk from compacting constantly.
+    pub minimum_bytes: u64,
+}
+
+impl Policy {
+    /// Whether a journal `range` of bytes above the floor opens a horizon over
+    /// a disk holding `allocated` bytes.
+    pub fn opens(&self, range: u64, allocated: u64) -> bool {
+        let scaled = (allocated as f64 * self.open_ratio) as u64;
+        range > std::cmp::max(self.minimum_bytes, scaled)
+    }
+
+    /// Bytes of unchanged data a delta which changed `changed` bytes may copy.
+    pub fn budget(&self, changed: u64) -> u64 {
+        (changed as f64 * self.copy_ratio) as u64
     }
 }
 

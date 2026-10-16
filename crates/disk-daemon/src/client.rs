@@ -1,49 +1,5 @@
 use crate::proto;
 
-pub type Result<T> = std::result::Result<T, Error>;
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("could not connect to the disk daemon")]
-    Connect(#[from] tonic::transport::Error),
-    #[error("the disk daemon rejected the request: {}", .0.message())]
-    Invalid(tonic::Status),
-    #[error("another attachment took ownership of this disk: {}", .0.message())]
-    Fenced(tonic::Status),
-    #[error("the broker rejected the attachment credentials: {}", .0.message())]
-    Unauthorized(tonic::Status),
-    #[error("the disk daemon is unavailable: {}", .0.message())]
-    Unavailable(tonic::Status),
-    #[error("the disk attachment failed (gRPC code {:?}): {}", .0.code(), .0.message())]
-    Failed(tonic::Status),
-    #[error("the disk attachment ended")]
-    Ended,
-    #[error("unexpected reply from the disk daemon: {0}")]
-    Unexpected(String),
-}
-
-impl Error {
-    pub fn is_transient(&self) -> bool {
-        matches!(self, Self::Connect(_) | Self::Unavailable(_))
-    }
-
-    fn of(status: tonic::Status) -> Self {
-        match status.code() {
-            tonic::Code::InvalidArgument | tonic::Code::FailedPrecondition => Self::Invalid(status),
-            tonic::Code::Aborted => Self::Fenced(status),
-            tonic::Code::Unauthenticated | tonic::Code::PermissionDenied => {
-                Self::Unauthorized(status)
-            }
-            tonic::Code::Unavailable => Self::Unavailable(status),
-            _ => Self::Failed(status),
-        }
-    }
-
-    fn unexpected(reply: proto::response::Response) -> Self {
-        Self::Unexpected(format!("{reply:?}"))
-    }
-}
-
 #[derive(Clone)]
 pub struct Client {
     channel: tonic::transport::Channel,
@@ -272,5 +228,49 @@ impl Disk {
         () = self.send(request).await?;
 
         self.reply().await
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("could not connect to the disk daemon")]
+    Connect(#[from] tonic::transport::Error),
+    #[error("the disk daemon rejected the request: {}", .0.message())]
+    Invalid(tonic::Status),
+    #[error("another attachment took ownership of this disk: {}", .0.message())]
+    Fenced(tonic::Status),
+    #[error("the broker rejected the attachment credentials: {}", .0.message())]
+    Unauthorized(tonic::Status),
+    #[error("the disk daemon is unavailable: {}", .0.message())]
+    Unavailable(tonic::Status),
+    #[error("the disk attachment failed (gRPC code {:?}): {}", .0.code(), .0.message())]
+    Failed(tonic::Status),
+    #[error("the disk attachment ended")]
+    Ended,
+    #[error("unexpected reply from the disk daemon: {0}")]
+    Unexpected(String),
+}
+
+impl Error {
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::Connect(_) | Self::Unavailable(_))
+    }
+
+    fn of(status: tonic::Status) -> Self {
+        match status.code() {
+            tonic::Code::InvalidArgument | tonic::Code::FailedPrecondition => Self::Invalid(status),
+            tonic::Code::Aborted => Self::Fenced(status),
+            tonic::Code::Unauthenticated | tonic::Code::PermissionDenied => {
+                Self::Unauthorized(status)
+            }
+            tonic::Code::Unavailable => Self::Unavailable(status),
+            _ => Self::Failed(status),
+        }
+    }
+
+    fn unexpected(reply: proto::response::Response) -> Self {
+        Self::Unexpected(format!("{reply:?}"))
     }
 }
