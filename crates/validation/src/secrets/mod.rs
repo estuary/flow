@@ -32,6 +32,9 @@ impl<'a> Context<'a> {
         let (config, image) = match endpoint {
             models::CaptureEndpoint::Connector(config) => (&config.config, Some(&config.image)),
             models::CaptureEndpoint::Local(config) => (&config.config, None),
+            // A user-authored connector has no image identity, and secrets
+            // are merged into its `config`.
+            models::CaptureEndpoint::Python(python) => (&python.config, None),
         };
         Self {
             secrets,

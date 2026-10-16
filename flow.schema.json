@@ -310,6 +310,19 @@
           ]
         },
         {
+          "title": "A Python connector.",
+          "type": "object",
+          "properties": {
+            "python": {
+              "$ref": "#/$defs/CapturePython"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "python"
+          ]
+        },
+        {
           "title": "A local command (development only).",
           "type": "object",
           "properties": {
@@ -323,6 +336,28 @@
           ]
         }
       ]
+    },
+    "CapturePython": {
+      "description": "A capture implemented by a user-authored Python connector,\nwritten with the Estuary connector development kit (CDK).",
+      "type": "object",
+      "properties": {
+        "config": {
+          "title": "Endpoint configuration of the connector.",
+          "description": "The configuration is described by `spec.configSchema`, and is parsed\nby the connector's endpoint configuration model.\nIt may not have a `_python` property.",
+          "$ref": "#/$defs/Value"
+        },
+        "files": {
+          "title": "Files of this Python project.",
+          "description": "The capture's directory is named for the final component of the\ncapture's name (`acmeCo/source-acme` has directory `source-acme/`),\nand its `source-acme/__init__.py` exports a CDK `Connector` class.\nA `pyproject.toml` declaring the project's dependencies is also required.\nA `uv.lock` pins its dependencies exactly, and is otherwise resolved\nwhen the capture is published. `.venv/` and `flow_generated/` are reserved.",
+          "$ref": "#/$defs/CustomConnectorFiles"
+        },
+        "spec": {
+          "title": "Connector specification of this capture.",
+          "description": "Its schemas describe the capture's `config` and the resource\nconfiguration of each binding, and generate the `EndpointConfig`\nand `ResourceConfig` types of the connector.",
+          "$ref": "#/$defs/CustomConnectorSpec"
+        }
+      },
+      "additionalProperties": false
     },
     "Collection": {
       "description": "Collection names are paths of Unicode letters, numbers, '-', '_', or '.'.\nEach path component is separated by a slash '/',\nand a name may not begin or end in a '/'.",

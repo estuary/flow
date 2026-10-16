@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 mod alert_config;
 pub mod authorizations;
 pub mod authz;
+mod capture_python;
 mod captures;
 mod catalogs;
 pub mod collate;
@@ -39,6 +40,7 @@ pub use crate::alert_config::{
     TaskIdleCondition, TaskIdleConfig,
 };
 pub use crate::labels::{Label, LabelSelector, LabelSet};
+pub use capture_python::CapturePython;
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};

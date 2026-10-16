@@ -1,6 +1,6 @@
 ---
 source: crates/validation/src/custom.rs
-expression: "[derive_typescript_connector(&derived, &typescript, &v1),\nderive_typescript_connector(&derived, &typescript, &v2),\nderive_typescript_connector(&derived, &typescript, &local),\nderive_python_connector(&derived, &python, &v1),\nderive_python_connector(&derived, &python, &v2),]"
+expression: "[derive_typescript_connector(&derived, &typescript, &v1),\nderive_typescript_connector(&derived, &typescript, &v2),\nderive_typescript_connector(&derived, &typescript, &local),\nderive_python_connector(&derived, &python, &v1),\nderive_python_connector(&derived, &python, &v2),\ncapture_python_connector(&name, &capture,\n&shards(&[(models::ENABLE_RUNTIME_V2, \"false\")])),\ncapture_python_connector(&name, &capture, &local),]"
 ---
 [
     ConnectorConfig {
@@ -31,6 +31,18 @@ expression: "[derive_typescript_connector(&derived, &typescript, &v1),\nderive_t
         image: "ghcr.io/estuary/derive-python:stable",
         config: RawValue(
             {"_python":{"collection":"acmeCo/derived","files":{"derived/__init__.py":"class Derivation: pass\n","derived/helpers.py":null,"pyproject.toml":"[project]\n"},"spec":{}},"region":"north"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/capture-python:stable",
+        config: RawValue(
+            {"_python":{"capture":"acmeCo/sources/source-acme","files":{"pyproject.toml":null,"source-acme/__init__.py":""},"spec":{"configSchema":{"properties":{"credentials":{"type":"object"}},"type":"object"},"oauth2":{"accessTokenUrlTemplate":"https://acme.example/token","authUrlTemplate":"https://acme.example/authorize","provider":"acme"}}},"credentials":{"client_id":"an-id"}},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/capture-python:local",
+        config: RawValue(
+            {"_python":{"capture":"acmeCo/sources/source-acme","files":{"pyproject.toml":null,"source-acme/__init__.py":""},"spec":{"configSchema":{"properties":{"credentials":{"type":"object"}},"type":"object"},"oauth2":{"accessTokenUrlTemplate":"https://acme.example/token","authUrlTemplate":"https://acme.example/authorize","provider":"acme"}}},"credentials":{"client_id":"an-id"}},
         ),
     },
 ]

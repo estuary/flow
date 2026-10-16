@@ -898,6 +898,24 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
+            models::CaptureEndpoint::Python(models::CapturePython {
+                files,
+                config,
+                spec,
+            }) => {
+                tasks.push(
+                    async move {
+                        let scope = scope.push_prop("endpoint");
+                        let scope = scope.push_prop("python");
+                        futures::join!(
+                            self.load_config(scope.push_prop("config"), config),
+                            self.load_files(scope.push_prop("files"), files),
+                            self.load_custom_spec(scope.push_prop("spec"), spec),
+                        );
+                    }
+                    .boxed(),
+                );
+            }
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {

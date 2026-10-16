@@ -1,6 +1,5 @@
 use crate::{local_connector, local_specs};
 use anyhow::{Context, bail};
-use proto_flow::{capture, flow};
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -82,16 +81,8 @@ pub async fn do_oauth(
         capture.capture.as_str()
     );
 
-    let spec_req = match &model.endpoint {
-        models::CaptureEndpoint::Connector(config) => capture::request::Spec {
-            connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: serde_json::to_string(&config).unwrap().into(),
-        },
-        models::CaptureEndpoint::Local(config) => capture::request::Spec {
-            connector_type: flow::capture_spec::ConnectorType::Local as i32,
-            config_json: serde_json::to_string(config).unwrap().into(),
-        },
-    };
+    let spec_req =
+        validation::capture_spec_request(&capture.capture, &model.endpoint, &model.shards);
 
     // Get the task spec's oauth field
     let router = ctx.local_connector_router();

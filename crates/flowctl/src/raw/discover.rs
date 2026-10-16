@@ -1,5 +1,5 @@
 use crate::{local_connector, local_specs};
-use proto_flow::{capture, flow};
+use proto_flow::capture;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -66,21 +66,21 @@ pub async fn do_discover(
 
     let secrets = assemble::secrets(&model_clone.secrets);
 
-    let discover = match &model_clone.endpoint {
-        models::CaptureEndpoint::Connector(config) => capture::request::Discover {
-            name: capture.capture.to_string(),
-            connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: serde_json::to_string(&config).unwrap().into(),
-            created_at: String::new(),
-            secrets,
-        },
-        models::CaptureEndpoint::Local(config) => capture::request::Discover {
-            name: capture.capture.to_string(),
-            connector_type: flow::capture_spec::ConnectorType::Local as i32,
-            config_json: serde_json::to_string(config).unwrap().into(),
-            created_at: String::new(),
-            secrets,
-        },
+    let capture::request::Spec {
+        connector_type,
+        config_json,
+    } = validation::capture_spec_request(
+        &capture.capture,
+        &model_clone.endpoint,
+        &model_clone.shards,
+    );
+
+    let discover = capture::request::Discover {
+        name: capture.capture.to_string(),
+        connector_type,
+        config_json,
+        created_at: String::new(),
+        secrets,
     };
 
     let router = ctx.local_connector_router();

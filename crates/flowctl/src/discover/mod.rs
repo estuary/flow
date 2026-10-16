@@ -100,8 +100,11 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
             let tag = extract_connector_tag_id(ctx, &config.image)
                 .await
                 .context("extracting connector tag ID from capture endpoint")?;
-            (tag, &config.config)
+            (Some(tag), &config.config)
         }
+        // A python capture has no connector tag. The control plane discovers
+        // it with the `config` of the row, and the `files` of the drafted capture.
+        models::CaptureEndpoint::Python(python) => (None, &python.config),
         models::CaptureEndpoint::Local(_) => {
             anyhow::bail!("You must use `raw discover` for local connectors");
         }
@@ -175,7 +178,8 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
 #[derive(serde::Serialize)]
 struct CreateDiscoverRow<'a> {
     capture_name: &'a str,
-    connector_tag_id: models::Id,
+    /// None for a python capture.
+    connector_tag_id: Option<models::Id>,
     data_plane_name: &'a str,
     draft_id: models::Id,
     endpoint_config: &'a models::RawValue,

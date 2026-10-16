@@ -439,6 +439,14 @@ test://example/catalog.yaml:
           config: { address: db.example.com }
       secrets:
         vendorCo/oauth/connectors/source/image/oauth-client: /credentials/token
+    acmeCo/source-python:
+      endpoint:
+        python:
+          files: { pyproject.toml: "", source-python/__init__.py: "" }
+      secrets:
+        # Named for the image a Python capture actually runs.
+        vendorCo/oauth/connectors/ghcr.io/estuary/capture-python/oauth-client: /credentials
+      bindings: []
   collections:
     acmeCo/rollups:
       derive:

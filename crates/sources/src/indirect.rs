@@ -276,6 +276,27 @@ fn indirect_capture(
             ("connector", config)
         }
         models::CaptureEndpoint::Local(models::LocalConfig { config, .. }) => ("local", config),
+        models::CaptureEndpoint::Python(models::CapturePython {
+            files,
+            config,
+            spec,
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("endpoint");
+            let scope = scope.push_prop("python");
+
+            indirect_files(scope, files, imports, resources);
+            indirect_custom_spec(
+                scope.push_prop("spec"),
+                spec,
+                base,
+                ext,
+                imports,
+                resources,
+                threshold,
+            );
+            ("python", config)
+        }
     };
     indirect(
         Scope::new(scope)
