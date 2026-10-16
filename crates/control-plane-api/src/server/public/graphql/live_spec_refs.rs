@@ -135,7 +135,7 @@ impl LiveSpecRef {
         ctx: &Context<'_>,
         id: models::Id,
     ) -> async_graphql::Result<Option<publication_history::SpecPublicationHistoryItem>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
 
