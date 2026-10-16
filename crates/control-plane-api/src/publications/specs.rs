@@ -789,11 +789,12 @@ pub async fn resolve_live_specs(
             let (catalog_type, reads_from, writes_to) = spec_meta(draft, catalog_name);
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
-            // If the spec is included in the draft, then the user must have admin capability to it.
+            // If the spec is included in the draft, then the user must have `SpecEdit` to it.
             if verify_user_authz
-                && !matches!(
-                    snapshot.user_capability(subject, catalog_name),
-                    Some(Capability::Admin)
+                && !snapshot.is_user_authorized(
+                    subject,
+                    catalog_name,
+                    models::authz::Capability::SpecEdit,
                 )
             {
                 snapshot.request_refresh();
@@ -855,14 +856,16 @@ pub async fn resolve_live_specs(
         // access capability to them as long as they are not drafted.
         } else if !ops_collection_names.contains(&spec_row.catalog_name) {
             // This is a live spec that is not included in the draft.
-            // The user needs read capability to it because it was referenced by one of the specs
-            // in their draft. Note that the _user_ does not need `Capability::Write` as long as
+            // The user needs `CatalogRead` to it because it was referenced by one of the specs
+            // in their draft. Note that the _user_ does not need write access as long as
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
             if verify_user_authz
-                && !snapshot
-                    .user_capability(subject, &spec_row.catalog_name)
-                    .is_some_and(|c| c >= Capability::Read)
+                && !snapshot.is_user_authorized(
+                    subject,
+                    &spec_row.catalog_name,
+                    models::authz::Capability::CatalogRead,
+                )
             {
                 snapshot.request_refresh();
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);

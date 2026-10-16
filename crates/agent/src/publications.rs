@@ -207,7 +207,7 @@ impl PublicationsExecutor {
                     new_derivations: self.runtime_v2_new_derivations,
                 },
                 ExpandDraft {
-                    filter_user_has_admin: true,
+                    filter_user_can_edit: true,
                     snapshot,
                 },
             ),
