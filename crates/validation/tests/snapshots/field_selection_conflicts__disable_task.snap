@@ -65,6 +65,7 @@ expression: "(selections, errors)"
             [
                 "disabling materialization due to incompatible field selection of binding [\"a\"] (onIncompatibleSchemaChange: disableTask)",
             ],
+            [],
         ),
     ],
     [],

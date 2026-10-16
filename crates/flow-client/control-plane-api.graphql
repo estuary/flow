@@ -218,6 +218,7 @@ enum AlertType {
 	task_idle
 	task_auto_disabled_idle
 	background_publication_failed
+	bindings_auto_disabled
 }
 
 """
@@ -256,6 +257,43 @@ input AlertsBy {
 	and resolved alerts will be returned.
 	"""
 	active: Boolean
+}
+
+"""
+A binding which Flow disabled, and why.
+"""
+type AutoDisabledBinding {
+	"""
+	Resource path of the disabled binding.
+	"""
+	resourcePath: [String!]!
+	"""
+	Source collection of the disabled binding.
+	"""
+	collection: Collection!
+	"""
+	Why Flow disabled the binding.
+	"""
+	reason: AutoDisabledReason!
+	"""
+	Description of the change that caused Flow to disable the binding.
+	"""
+	detail: String!
+	"""
+	The publication which disabled the binding.
+	"""
+	pubId: Id!
+}
+
+"""
+Reason that Flow disabled a binding.
+"""
+enum AutoDisabledReason {
+	"""
+	A schema change was incompatible with the binding's target resource,
+	and its `onIncompatibleSchemaChange` is `disableBinding`.
+	"""
+	INCOMPATIBLE_SCHEMA_CHANGE
 }
 
 type AutoDiscoverFailure {
@@ -872,6 +910,10 @@ type Controller {
 	Present for captures, collections, and materializations.
 	"""
 	abandon: AbandonStatus
+	"""
+	Only present for materializations.
+	"""
+	autoDisabledBindings: [AutoDisabledBinding!]
 	updatedAt: DateTime!
 }
 
@@ -3113,9 +3155,10 @@ enum StatusSummaryType {
 	"""
 	TASK_DISABLED
 	"""
-	Something isn't fully working, but the condition is expected to clear
-	automatically soon. Nothing to worry about as long as the condition
-	doesn't persist for too long.
+	Something isn't fully working, but the task is running. Either the
+	condition is expected to clear automatically soon, and is nothing to
+	worry about unless it persists, or it needs action from the user but
+	doesn't stop the task.
 	"""
 	WARNING
 	"""

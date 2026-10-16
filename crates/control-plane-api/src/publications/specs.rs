@@ -149,6 +149,7 @@ async fn update_live_specs(
     let mut data_plane_ids: Vec<Id> = Vec::with_capacity(n_specs);
     let mut is_touches = Vec::with_capacity(n_specs);
     let mut dependency_hashes = Vec::with_capacity(n_specs);
+    let mut auto_disabled_bindings = Vec::with_capacity(n_specs);
 
     for r in output
         .built
@@ -170,6 +171,7 @@ async fn update_live_specs(
         data_plane_ids.push(r.data_plane_id);
         is_touches.push(r.is_touch());
         dependency_hashes.push(r.dependency_hash.as_deref());
+        auto_disabled_bindings.push(None);
     }
     for r in output
         .built
@@ -195,6 +197,7 @@ async fn update_live_specs(
         data_plane_ids.push(r.data_plane_id);
         is_touches.push(r.is_touch());
         dependency_hashes.push(r.dependency_hash.as_deref());
+        auto_disabled_bindings.push(None);
     }
     for r in output
         .built
@@ -216,6 +219,10 @@ async fn update_live_specs(
         data_plane_ids.push(r.data_plane_id);
         is_touches.push(r.is_touch());
         dependency_hashes.push(r.dependency_hash.as_deref());
+        auto_disabled_bindings.push(
+            Some(crate::TextJson(r.auto_disabled_bindings.as_slice()))
+                .filter(|bindings| !bindings.is_empty()),
+        );
     }
     for r in output
         .built
@@ -237,6 +244,7 @@ async fn update_live_specs(
         data_plane_ids.push(models::Id::zero());
         is_touches.push(r.is_touch());
         dependency_hashes.push(r.dependency_hash.as_deref());
+        auto_disabled_bindings.push(None);
     }
 
     let updates = db::update_live_specs(
@@ -255,6 +263,7 @@ async fn update_live_specs(
         &data_plane_ids,
         &is_touches,
         &dependency_hashes,
+        &auto_disabled_bindings,
         txn,
     )
     .await?;
@@ -1139,6 +1148,145 @@ mod test {
                 panic!("expected success for example: {example}, but got error: {error:?}");
             }
         }
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn test_spec_published_messages(pool: sqlx::PgPool) {
+        let names = ["acmeCo/materialize-a", "acmeCo/materialize-b"];
+        let disabled = vec![models::status::AutoDisabledBinding {
+            resource_path: vec!["orders".to_string()],
+            collection: models::Collection::new("acmeCo/orders"),
+            reason: models::status::AutoDisabledReason::IncompatibleSchemaChange,
+            detail: "group-by key changed from [\"id\"] to [\"order_id\"]".to_string(),
+            pub_id: Id::new([1; 8]),
+        }];
+
+        // Publish both specs, where only the first has auto-disabled bindings.
+        // Then publish them again with the reverse. The controller task of the
+        // second spec is running, so its message is queued into `inbox_next`.
+        let model = to_raw_value(Some(&serde_json::json!({})), crate::TextJson).unwrap();
+
+        for (pub_id, with_disabled) in [(Id::new([1; 8]), 0), (Id::new([2; 8]), 1)] {
+            let auto_disabled_bindings: Vec<_> = (0..2)
+                .map(|i| (i == with_disabled).then(|| crate::TextJson(disabled.as_slice())))
+                .collect();
+
+            let mut txn = pool.begin().await.unwrap();
+            db::update_live_specs(
+                pub_id,
+                pub_id,
+                &[
+                    Id::new([0, 0, 0, 0, 0, 0, 0, 1]),
+                    Id::new([0, 0, 0, 0, 0, 0, 0, 2]),
+                ],
+                &names.map(String::from),
+                &[models::CatalogType::Materialization; 2],
+                &[model.clone(), model.clone()],
+                &[model.clone(), model.clone()],
+                &[Id::zero(), Id::zero()],
+                &[None, None],
+                &[None, None],
+                &[None, None],
+                &[None, None],
+                &[Id::zero(), Id::zero()],
+                &[false, false],
+                &[None, None],
+                &auto_disabled_bindings,
+                &mut txn,
+            )
+            .await
+            .unwrap();
+            txn.commit().await.unwrap();
+
+            if with_disabled == 0 {
+                sqlx::query(
+                    r#"update internal.tasks set heartbeat = now()
+                    where task_id = (select controller_task_id from live_specs where catalog_name = $1)"#,
+                )
+                .bind(names[1])
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+        }
+
+        let inboxes: Vec<(String, Option<serde_json::Value>, Option<serde_json::Value>)> =
+            sqlx::query_as(
+                r#"select ls.catalog_name::text, to_json(t.inbox), to_json(t.inbox_next)
+            from live_specs ls join internal.tasks t on t.task_id = ls.controller_task_id
+            order by ls.catalog_name"#,
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+        insta::assert_json_snapshot!(inboxes, @r#"
+        [
+          [
+            "acmeCo/materialize-a",
+            [
+              [
+                "00:00:00:00:00:00:00:00",
+                {
+                  "auto_disabled_bindings": [
+                    {
+                      "collection": "acmeCo/orders",
+                      "detail": "group-by key changed from [\"id\"] to [\"order_id\"]",
+                      "pub_id": "0101010101010101",
+                      "reason": "incompatible_schema_change",
+                      "resource_path": [
+                        "orders"
+                      ]
+                    }
+                  ],
+                  "pub_id": "01:01:01:01:01:01:01:01",
+                  "type": "spec_published"
+                }
+              ],
+              [
+                "00:00:00:00:00:00:00:00",
+                {
+                  "pub_id": "02:02:02:02:02:02:02:02",
+                  "type": "spec_published"
+                }
+              ]
+            ],
+            null
+          ],
+          [
+            "acmeCo/materialize-b",
+            [
+              [
+                "00:00:00:00:00:00:00:00",
+                {
+                  "pub_id": "01:01:01:01:01:01:01:01",
+                  "type": "spec_published"
+                }
+              ]
+            ],
+            [
+              [
+                "00:00:00:00:00:00:00:00",
+                {
+                  "auto_disabled_bindings": [
+                    {
+                      "collection": "acmeCo/orders",
+                      "detail": "group-by key changed from [\"id\"] to [\"order_id\"]",
+                      "pub_id": "0101010101010101",
+                      "reason": "incompatible_schema_change",
+                      "resource_path": [
+                        "orders"
+                      ]
+                    }
+                  ],
+                  "pub_id": "02:02:02:02:02:02:02:02",
+                  "type": "spec_published"
+                }
+              ]
+            ]
+          ]
+        ]
+        "#);
     }
 
     #[sqlx::test(migrations = "../../supabase/migrations")]

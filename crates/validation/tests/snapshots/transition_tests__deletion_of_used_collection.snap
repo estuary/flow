@@ -906,6 +906,7 @@ Outcome {
             model_fixes: [
               "disabled binding of deleted collection the/collection"
             ],
+            auto_disabled_bindings: [],
             validated: Validated {
                 bindings: [],
             },

@@ -1,6 +1,6 @@
 use crate::controllers::{
     ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, ResolvedAlertConfig,
-    abandon, activation, backoff_data_plane_activate, backoff_publication_failure,
+    abandon, activation, alerts, backoff_data_plane_activate, backoff_publication_failure,
     coalesce_results, config_update, data_movement,
     dependencies::Dependencies,
     periodic,
@@ -8,18 +8,24 @@ use crate::controllers::{
     republish,
 };
 use anyhow::Context;
+use chrono::{DateTime, Utc};
+use control_plane_api::controllers::Message;
 use itertools::Itertools;
 use models::{
     MaterializationEndpoint, ModelDef, SourceType,
     status::{
-        Alerts,
+        AlertType, Alerts,
         connector::ConfigUpdate,
-        materialization::{MaterializationStatus, SourceCaptureStatus},
+        materialization::{AutoDisabledBinding, MaterializationStatus, SourceCaptureStatus},
         publications::PublicationStatus,
     },
 };
 use std::collections::BTreeSet;
 use tables::{LiveRow, utils::pointer_for_schema};
+
+/// Key of the alert `extra` field which holds the auto-disabled bindings,
+/// read by the notification template as `arguments.bindings`.
+const EXTRA_BINDINGS: &str = "bindings";
 
 pub async fn update<C: ControlPlane>(
     status: &mut MaterializationStatus,
@@ -184,6 +190,68 @@ pub async fn update<C: ControlPlane>(
             republish_result.map(|_| None),
         ],
     )
+}
+
+/// Records the bindings which publications disabled due to
+/// `onIncompatibleSchemaChange`, as reported by their `SpecPublished` messages,
+/// and fires the `BindingsAutoDisabled` alert while any of them remain
+/// disabled in the live `model`.
+///
+/// The executor consumes inbox messages whether or not the controller update
+/// succeeds, so this must run before anything which can fail or return early.
+/// A publication commits its `SpecPublished` message and live spec together,
+/// so `model` reflects every publication which sent a message in `events`.
+pub fn update_auto_disabled_bindings(
+    status: &mut MaterializationStatus,
+    events: &Inbox,
+    model: &models::MaterializationDef,
+    now: DateTime<Utc>,
+) {
+    let published = events.iter().filter_map(|(_, message)| match message {
+        Some(Message::SpecPublished {
+            auto_disabled_bindings,
+            ..
+        }) => Some(auto_disabled_bindings),
+        _ => None,
+    });
+    for binding in published.flatten() {
+        status
+            .auto_disabled_bindings
+            .retain(|b| b.resource_path != binding.resource_path);
+        status.auto_disabled_bindings.push(binding.clone());
+    }
+
+    // Drop bindings which were since re-enabled or removed.
+    let disabled: BTreeSet<Vec<String>> = model
+        .bindings
+        .iter()
+        .filter(|b| b.disable)
+        .map(|b| validation::load_resource_meta_path(b.resource.get().as_bytes()))
+        .collect();
+    status
+        .auto_disabled_bindings
+        .retain(|b| disabled.contains(&b.resource_path));
+
+    if status.auto_disabled_bindings.is_empty() {
+        alerts::resolve_alert(&mut status.alerts, AlertType::BindingsAutoDisabled);
+        return;
+    }
+    alerts::set_alert_firing(
+        &mut status.alerts,
+        AlertType::BindingsAutoDisabled,
+        now,
+        AutoDisabledBinding::describe(&status.auto_disabled_bindings),
+        status.auto_disabled_bindings.len() as u32,
+        models::CatalogType::Materialization,
+    );
+    let bindings = serde_json::to_value(&status.auto_disabled_bindings)
+        .expect("auto-disabled bindings serialize");
+    status
+        .alerts
+        .get_mut(&AlertType::BindingsAutoDisabled)
+        .expect("alert is firing")
+        .extra
+        .insert(EXTRA_BINDINGS.to_string(), bindings);
 }
 
 async fn source_capture_update<C: ControlPlane>(
@@ -411,4 +479,97 @@ fn update_linked_materialization(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use models::status::materialization::AutoDisabledReason;
+
+    fn binding(path: &str, disable: bool) -> models::MaterializationBinding {
+        models::MaterializationBinding {
+            resource: models::RawValue::from_value(
+                &serde_json::json!({ "_meta": { "path": [path] }, "table": path }),
+            ),
+            source: models::Source::Collection(models::Collection::new(format!("acmeCo/{path}"))),
+            disable,
+            priority: 0,
+            fields: Default::default(),
+            backfill: 0,
+            on_incompatible_schema_change: None,
+        }
+    }
+
+    fn published(pub_id: u8, paths: &[&str]) -> Inbox {
+        let auto_disabled_bindings = paths
+            .iter()
+            .map(|path| AutoDisabledBinding {
+                resource_path: vec![path.to_string()],
+                collection: models::Collection::new(format!("acmeCo/{path}")),
+                reason: AutoDisabledReason::IncompatibleSchemaChange,
+                detail: format!("publication {pub_id}"),
+                pub_id: models::Id::new([pub_id; 8]),
+            })
+            .collect();
+        [(
+            models::Id::zero(),
+            Some(Message::SpecPublished {
+                pub_id: models::Id::new([pub_id; 8]),
+                auto_disabled_bindings,
+            }),
+        )]
+        .into()
+    }
+
+    fn summarize(status: &MaterializationStatus) -> (Vec<String>, Option<(u32, String)>) {
+        (
+            status
+                .auto_disabled_bindings
+                .iter()
+                .map(|b| format!("{}: {}", b.resource_path.join("."), b.detail))
+                .collect(),
+            status
+                .alerts
+                .get(&AlertType::BindingsAutoDisabled)
+                .map(|alert| (alert.count, alert.extra[EXTRA_BINDINGS].to_string())),
+        )
+    }
+
+    #[test]
+    fn test_update_auto_disabled_bindings() {
+        let now: DateTime<Utc> = "2026-10-14T18:00:00Z".parse().unwrap();
+        let mut status = MaterializationStatus::default();
+        let mut model = models::MaterializationDef::example();
+
+        // A publication disables `a` and `b`.
+        model.bindings = vec![binding("a", true), binding("b", true), binding("c", false)];
+        update_auto_disabled_bindings(&mut status, &published(1, &["a", "b"]), &model, now);
+        let (paths, alert) = summarize(&status);
+        assert_eq!(paths, ["a: publication 1", "b: publication 1"]);
+        assert_eq!(alert.unwrap().0, 2);
+
+        // A later publication removes `b` and disables `a` again,
+        // which replaces its entry.
+        model.bindings = vec![binding("a", true), binding("c", false)];
+        update_auto_disabled_bindings(&mut status, &published(2, &["a"]), &model, now);
+        let (paths, alert) = summarize(&status);
+        assert_eq!(paths, ["a: publication 2"]);
+        let (count, bindings) = alert.unwrap();
+        assert_eq!(count, 1);
+        assert!(bindings.contains("publication 2"), "{bindings}");
+        assert_eq!(
+            status.alerts[&AlertType::BindingsAutoDisabled].first_ts,
+            now,
+            "alert remains open"
+        );
+
+        // A run without messages leaves the entry of the still-disabled `a`.
+        update_auto_disabled_bindings(&mut status, &Inbox::new(), &model, now);
+        assert_eq!(summarize(&status).0, ["a: publication 2"]);
+
+        // `a` is re-enabled, which resolves the alert.
+        model.bindings[0].disable = false;
+        update_auto_disabled_bindings(&mut status, &Inbox::new(), &model, now);
+        assert_eq!(summarize(&status), (Vec::<String>::new(), None));
+    }
 }
