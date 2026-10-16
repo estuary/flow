@@ -5,7 +5,9 @@ use anyhow::Context;
 
 /// Handle to an attachment's journal writer.
 pub struct Writer {
+    /// Prepare and acknowledge requests to the task.
     commands: tokio::sync::mpsc::Sender<Command>,
+    /// The attachment's token, cancelled by `abandon`.
     ended: tokio_util::sync::CancellationToken,
     /// Returns the failure that ended the writer, if no request received it.
     task: Option<tokio::task::JoinHandle<Option<anyhow::Error>>>,

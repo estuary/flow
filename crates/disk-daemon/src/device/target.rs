@@ -7,9 +7,6 @@ use crate::ublk;
 
 /// The disk's ublk target, which answers its requests and records each mutation
 /// for the journal writer.
-///
-/// Mutations are recorded, applied, and answered one at a time in arrival order,
-/// so backpressure cannot reorder them or split one across deltas.
 pub(super) struct Target {
     /// Kernel device ID, which names this disk in logs and errors.
     dev_id: u32,
@@ -26,8 +23,7 @@ pub(super) struct Target {
     /// Horizon opening thresholds and copy budget.
     policy: horizon::Policy,
     /// The next delta's journal range above the floor, which decides whether it
-    /// opens a horizon. Zero until the bootstrap commit resumes admission, so setup
-    /// writes open no horizon.
+    /// opens a horizon.
     range: u64,
     /// Whether the delta since the last cut has recorded anything.
     recorded: bool,
@@ -121,8 +117,7 @@ impl Target {
     }
 
     /// Copy runs of the open horizon's pending blocks into the recording channel, as
-    /// far as the copy budget this delta's mutations earned allows. Copies yield to
-    /// mutations, running only while admission is open and nothing is parked.
+    /// far as the copy budget this delta's mutations earned allows.
     pub fn compact(&mut self) {
         /// Most blocks one horizon copy reads, so a copy is a mutation of the same
         /// order as the largest device request.
@@ -162,8 +157,7 @@ impl Target {
     }
 
     /// Close admission, ending the delta, and return whether it discharged the
-    /// open horizon. That horizon is dropped now: a failed commit ends the
-    /// attachment anyway.
+    /// open horizon.
     pub fn close_admission(&mut self) -> anyhow::Result<bool> {
         if let Admission::Failed(failed) = &self.admission {
             anyhow::bail!("device {} failed: {failed:#}", self.dev_id);
@@ -216,7 +210,7 @@ impl Target {
             Ok(()) => queue::Reply::Done(bytes),
             // This mutation was already sent to the writer, but the image refused it,
             // perhaps after taking part of it. Its delta must never commit, so refuse
-            // every later cut: the attachment ends, and replay discards the delta.
+            // every later cut.
             Err(err) => {
                 if matches!(self.admission, Admission::Open) {
                     let err = anyhow::Error::new(err).context("applying a mutation to the image");

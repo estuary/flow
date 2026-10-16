@@ -90,18 +90,6 @@ impl UncommittedDelta {
 
         Ok(())
     }
-
-    /// Bytes held, in memory and spilled.
-    #[cfg(test)]
-    pub fn len(&self) -> u64 {
-        self.spilled + self.buffered.len() as u64
-    }
-
-    /// Whether no record is held. Every framed record is at least its header long.
-    #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 }
 
 /// Decode each complete record in `buf` and pass it to `each`. A trailing partial
@@ -124,7 +112,7 @@ fn unpack(
 }
 
 #[cfg(test)]
-mod test {
+pub(super) mod test {
     use super::{READ_BYTES, SPILL_BYTES, UncommittedDelta};
     use crate::proto;
     use crate::test_support;
@@ -158,6 +146,11 @@ mod test {
         test_support::record(producer, 0, uuid::Flags::CONTINUE_TXN, chunks)
     }
 
+    /// Bytes `uncommitted` holds, in memory and spilled.
+    pub(in crate::journal) fn held(uncommitted: &UncommittedDelta) -> u64 {
+        uncommitted.spilled + uncommitted.buffered.len() as u64
+    }
+
     /// Hold `records`, framed exactly as the journal frames them.
     fn hold(uncommitted: &mut UncommittedDelta, records: &[proto::DiskRecord]) {
         for record in records {
@@ -189,7 +182,7 @@ mod test {
     fn row(step: &str, uncommitted: &UncommittedDelta) -> String {
         format!(
             "{step:<13}held {:<8}file {}",
-            uncommitted.len(),
+            held(uncommitted),
             uncommitted.file.metadata().unwrap().len(),
         )
     }
@@ -209,7 +202,7 @@ mod test {
 
             hold(&mut uncommitted, &records);
             assert!(
-                uncommitted.len() > 8 * READ_BYTES as u64,
+                held(&uncommitted) > 8 * READ_BYTES as u64,
                 "many held fills of delta"
             );
             let step = row("hold", &uncommitted);
@@ -301,7 +294,7 @@ mod test {
             &mut uncommitted,
             &[write(a, 0, 2, 0xaa), write(a, 1, 1, 0xbb)],
         );
-        let prior_len = uncommitted.len();
+        let prior_len = held(&uncommitted);
         writeln!(trace, "{}", row("hold prior", &uncommitted)).unwrap();
 
         let (read, result) = drained(&mut uncommitted);
@@ -311,7 +304,7 @@ mod test {
 
         let next = [write(a, 1, 1, 0xcc), write(a, 2, 1, 0xdd)];
         hold(&mut uncommitted, &next);
-        assert!(uncommitted.len() < prior_len, "the next delta is shorter");
+        assert!(held(&uncommitted) < prior_len, "the next delta is shorter");
         writeln!(trace, "{}", row("hold next", &uncommitted)).unwrap();
 
         let (read, result) = drained(&mut uncommitted);

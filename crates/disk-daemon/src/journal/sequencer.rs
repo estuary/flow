@@ -6,9 +6,8 @@ use proto_gazette::uuid;
 #[derive(Default)]
 pub struct Sequencer {
     /// Sequencing state of each producer of the range.
-    producers: std::collections::HashMap<uuid::Producer, Sequence>,
-    /// Producer of the held delta. Cleared on commit or displacement by another
-    /// producer's delta records.
+    producers: std::collections::HashMap<uuid::Producer, ProducerState>,
+    /// Producer of the held delta.
     open: Option<uuid::Producer>,
 }
 
@@ -25,10 +24,21 @@ impl Sequencer {
             action,
         };
 
-        if clock == uuid::Clock::zero() {
-            // A fence.
+        // A fence is the only OUTSIDE_TXN record this daemon appends, and the only
+        // record at a zero clock. It changes no content, so it is never sequenced.
+        if flags.is_outside() {
+            anyhow::ensure!(
+                clock == uuid::Clock::zero(),
+                "an OUTSIDE_TXN record of {producer:?} at {clock:?}, though a fence's clock is zero",
+            );
+            () = ensure_no_chunks(record, "a fence")?;
+
             return Ok(step(Action::Skip));
         }
+        anyhow::ensure!(
+            clock != uuid::Clock::zero(),
+            "a record of {producer:?} at a zero clock, though only a fence's clock is zero",
+        );
 
         let state = self.producers.entry(producer).or_default();
 
@@ -37,13 +47,17 @@ impl Sequencer {
             clock,
             &mut state.last_commit,
             &mut state.max_continue,
-        )?;
+        )
+        .with_context(|| {
+            format!(
+                "sequencing a record of {producer:?} at {clock:?} (last_commit {:?}, max_continue {:?})",
+                state.last_commit, state.max_continue,
+            )
+        })?;
 
         match outcome {
             uuid::SequenceOutcome::OutsideCommit | uuid::SequenceOutcome::OutsideDuplicate => {
-                anyhow::bail!(
-                    "an OUTSIDE_TXN record of {producer:?} at {clock:?}, though a fence's clock is zero",
-                )
+                unreachable!("an OUTSIDE_TXN record returns before it's sequenced")
             }
             uuid::SequenceOutcome::ContinueBeginSpan => {
                 let displaced = self.displace(producer);
@@ -176,7 +190,7 @@ pub enum RecoveredAck {
 
 /// The clocks [`uuid::sequence`] transitions for one producer.
 #[derive(Default, Clone, Copy)]
-struct Sequence {
+struct ProducerState {
     /// Clock of the producer's last commit.
     last_commit: uuid::Clock,
     /// Greatest clock of the producer's uncommitted records, or zero where it has
@@ -349,14 +363,24 @@ mod test {
         ");
     }
 
+    /// An acknowledgement commits the whole delta held. One which rolls back records
+    /// this replay sequenced is refused, as is one which commits only part of them.
     #[test]
-    fn test_an_acknowledgement_which_rolls_back_is_refused() {
-        let trace = trace(&[Write('a', 5), Ack('a', 6), Write('a', 7), Ack('a', 6)]);
+    fn test_an_acknowledgement_of_less_than_the_delta_held_is_refused() {
+        let trace = [
+            trace(&[Write('a', 5), Ack('a', 6), Write('a', 7), Ack('a', 6)]),
+            trace(&[Write('a', 5), Write('a', 7), Ack('a', 6)]),
+        ]
+        .join("\n");
         insta::assert_snapshot!(trace, @"
         write a@5           open a  hold
         ack a@6             open -  commit
         write a@7           open a  hold
         ack a@6             open a  refused: acknowledgement of Producer(61:00:00:00:00:61) at Clock(0s 6000ns) rolls back records this replay sequenced
+
+        write a@5           open a  hold
+        write a@7           open a  hold
+        ack a@6             open a  refused: sequencing a record of Producer(61:00:00:00:00:61) at Clock(0s 6000ns) (last_commit Clock(0s 0ns), max_continue Clock(0s 7000ns)): unexpected ACK_TXN which only partially acknowledges preceding CONTINUE_TXN messages
         ");
     }
 

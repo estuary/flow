@@ -1,10 +1,3 @@
-//! Rebuilds a disk image from its journal, for standby playback and promotion.
-//!
-//! A delta's records are held until its acknowledgement, then applied together.
-//! Applying them sooner could put the image ahead of the client's checkpoint.
-//! Deltas apply in journal order, which the writer's acknowledgement barrier makes
-//! their commit order.
-
 use super::{sequencer, uncommitted};
 use crate::horizon;
 use crate::image;
@@ -355,9 +348,9 @@ mod test {
                 true => "-".to_string(),
                 false => blocks.join(" "),
             };
-            let held = match replay.uncommitted.is_empty() {
-                true => "-".to_string(),
-                false => replay.uncommitted.len().to_string(),
+            let held = match super::uncommitted::test::held(&replay.uncommitted) {
+                0 => "-".to_string(),
+                held => held.to_string(),
             };
             let horizon = match &replay.horizon {
                 Some(open) => format!("{} pending {}", open.at, open.blocks.pending()),
@@ -655,7 +648,11 @@ mod test {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
-        let cases: [(&str, proto::DiskRecord); 2] = [
+        let zero_clock = bytes::Bytes::copy_from_slice(
+            uuid::build(a, uuid::Clock::zero(), uuid::Flags::CONTINUE_TXN).as_bytes(),
+        );
+
+        let cases: [(&str, proto::DiskRecord); 4] = [
             (
                 "a short UUID",
                 proto::DiskRecord {
@@ -668,6 +665,20 @@ mod test {
                 proto::DiskRecord {
                     chunks: vec![chunk::encode_punch(0, 1)],
                     ..ack(a, 9)
+                },
+            ),
+            (
+                "a fence with a chunk",
+                proto::DiskRecord {
+                    chunks: vec![chunk::encode_punch(0, 1)],
+                    ..test_support::fence(a)
+                },
+            ),
+            (
+                "a zero-clock write",
+                proto::DiskRecord {
+                    uuid: zero_clock,
+                    ..write(a, 1, 0, 0xaa)
                 },
             ),
         ];
@@ -685,6 +696,8 @@ mod test {
         insta::assert_snapshot!(out, @"
         a short UUID          record carries no message UUID: invalid length: expected 16 bytes, found 5
         an ack with a chunk   an acknowledgement carries 1 chunks, which change disk content it does not commit
+        a fence with a chunk  a fence carries 1 chunks, which change disk content it does not commit
+        a zero-clock write    a record of Producer(61:00:00:00:00:61) at a zero clock, though only a fence's clock is zero
         ");
     }
 
