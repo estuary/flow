@@ -40,6 +40,11 @@ use std::io;
 /// resource usage on adversarial input.
 const MAX_DEPTH: usize = 256;
 
+/// Maximum size of a single record, in megabytes of XML input. A record is built in memory
+/// before it's emitted, so larger records are rejected. Without a record path the record is
+/// the whole file, so this mostly catches batch files that should set one.
+const MAX_RECORD_MB: u64 = 64;
+
 /// Number of bytes to inspect when looking for a byte order mark or an encoding declaration.
 const PROLOG_PEEK_BYTES: usize = 1024;
 
@@ -90,6 +95,11 @@ pub enum XmlError {
     )]
     TooDeep { position: u64, path: String },
 
+    #[error(
+        "XML record is larger than the {MAX_RECORD_MB}MB maximum at byte {position} (within '{path}'). If this file contains many records, set \"Record Path\" in the XML format settings to the repeated element, such as '/Orders/Order', so that each one becomes its own document"
+    )]
+    RecordTooLarge { position: u64, path: String },
+
     #[error("unexpected end of file: element '{path}' was never closed")]
     UnexpectedEof { path: String },
 
@@ -138,6 +148,7 @@ impl XmlParser {
             array_elements: self.config.array_elements.iter().cloned().collect(),
             outer: Vec::new(),
             stack: Vec::new(),
+            record_start: 0,
             record_count: 0,
             done: false,
             single_names: HashSet::new(),
@@ -348,6 +359,8 @@ struct XmlIter<R: io::BufRead> {
     /// The currently open elements of the record that's being built. The first element is the
     /// record itself, and this is empty when we're not within a record.
     stack: Vec<ElementBuilder>,
+    /// Byte position at which the record that's being built began.
+    record_start: u64,
     record_count: u64,
     done: bool,
     /// Names of child elements that occurred only once within some parent element, and names
@@ -485,6 +498,14 @@ impl<R: io::BufRead> XmlIter<R> {
             });
         }
 
+        let position = self.reader.buffer_position();
+        if !self.stack.is_empty() && position - self.record_start > MAX_RECORD_MB * 1024 * 1024 {
+            return Err(XmlError::RecordTooLarge {
+                position,
+                path: self.current_path(),
+            });
+        }
+
         if let Some(parent) = self.stack.last_mut() {
             parent.text.end_run();
             let element = self.new_element(name, start)?;
@@ -503,6 +524,7 @@ impl<R: io::BufRead> XmlIter<R> {
         };
 
         if is_record {
+            self.record_start = self.reader.buffer_position();
             let name = self.outer.pop().unwrap();
             let element = self.new_element(name, start)?;
             self.stack.push(element);
