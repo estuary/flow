@@ -1,5 +1,4 @@
 pub mod accept_demo_tenant;
-pub mod beta_onboard;
 
 use crate::TextJson;
 use chrono::{DateTime, Utc};

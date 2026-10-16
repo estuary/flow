@@ -183,8 +183,11 @@ impl TenantMutation {
         txn.commit().await?;
 
         tracing::info!(user_id = %claims.sub, tenant = %tenant_name, "created tenant");
-        // Nested Tenant resolvers could retry authorization with the pre-creation
-        // snapshot, replaying this mutation after it has already committed.
+
+        // We might normally return the Tenant here, but that would require nested resolvers
+        // to check authorization against a snapshot missing the newly created grants.
+        // That could trigger a retry of the entire request, replaying this mutation
+        // after it has already committed. So we just return a boolean.
         Ok(true)
     }
 }
@@ -226,11 +229,12 @@ async fn create_tenant(
     .fetch_one(&mut **txn)
     .await?;
 
-    if crate::directives::beta_onboard::is_user_provisioned(user_id, txn).await? {
+    if crate::tenants::is_user_provisioned(user_id, txn).await? {
         return Err(async_graphql::Error::new(
             "Cannot provision a new tenant because the user has existing grants",
         ));
     }
+
     let tenant_name = format!("{}/", name);
     let banned = sqlx::query!(
         r#"
@@ -245,13 +249,7 @@ async fn create_tenant(
         return Err(async_graphql::Error::new(TENANT_UNAVAILABLE_MESSAGE));
     }
 
-    let mut public_planes: Vec<String> = sqlx::query_scalar(
-        "SELECT data_plane_name FROM data_planes
-         WHERE starts_with(data_plane_name, 'ops/dp/public/') AND NOT closed
-         ORDER BY id DESC",
-    )
-    .fetch_all(&mut **txn)
-    .await?;
+    let mut public_planes = crate::tenants::open_public_planes(txn).await?;
     // Match publicDataPlanes: managed planes are registered before their HMAC
     // material is ready, and cannot receive tenants until they can sign claims.
     public_planes.retain(|name| {
@@ -259,14 +257,33 @@ async fn create_tenant(
             .data_plane_by_catalog_name(name)
             .is_some_and(|plane| plane.can_sign())
     });
-    let (tenant_storage, recovery_storage) = storage::specs(public_planes, data_plane)?;
+    if public_planes.is_empty() {
+        return Err(async_graphql::Error::new(
+            "there are no open public data-planes to place a new tenant on",
+        ));
+    }
+    if !public_planes.iter().any(|plane| plane == data_plane) {
+        return Err(async_graphql::Error::new(format!(
+            "{data_plane} is not an available public data-plane"
+        )));
+    }
+    // Preserve the remaining planes' newest-first order after the selected plane.
+    public_planes.sort_by_key(|plane| plane != data_plane);
+    let (collection_storage, recovery_storage) = storage::specs(public_planes);
 
-    crate::directives::beta_onboard::provision_tenant(
-        // TODO: remove unused email param when retiring betaOnboard directive
-        "",
+    let metadata = if survey.is_null() {
+        serde_json::json!({})
+    } else {
+        serde_json::json!({ "onboardingSurvey": survey })
+    };
+
+    crate::tenants::provision_tenant(
         Some("created via tenantCreate".to_string()),
         name,
         user_id,
+        metadata,
+        collection_storage,
+        recovery_storage,
         txn,
     )
     .await
@@ -281,37 +298,6 @@ async fn create_tenant(
         }
         err.into()
     })?;
-    // Keep the legacy directive's provisioning behavior unchanged. Its initial
-    // mappings and these replacements are committed atomically with the tenant.
-    sqlx::query(
-        "UPDATE storage_mappings SET spec = CASE WHEN catalog_prefix = $1 THEN $2::json ELSE $3::json END
-         WHERE catalog_prefix = $1 OR catalog_prefix = $4",
-    )
-    .bind(&tenant_name)
-    .bind(tenant_storage)
-    .bind(recovery_storage)
-    .bind(format!("recovery/{tenant_name}"))
-    .execute(&mut **txn)
-    .await?;
-
-    let metadata = if survey.is_null() {
-        serde_json::json!({})
-    } else {
-        serde_json::json!({ "onboardingSurvey": survey })
-    };
-
-    sqlx::query!(
-        r#"UPDATE public.tenants
-           SET created_by = $1,
-               metadata = metadata || $2::jsonb
-           WHERE tenant = $3"#,
-        user_id,
-        metadata,
-        &tenant_name as &str,
-    )
-    .execute(&mut **txn)
-    .await?;
-
     Ok(tenant_name)
 }
 
@@ -459,7 +445,7 @@ mod test {
             let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
             assert_eq!(
                 response["errors"][0]["message"],
-                format!("{plane} is not a selectable public data-plane")
+                format!("{plane} is not an available public data-plane")
             );
         }
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM user_grants WHERE user_id = $1")
@@ -502,7 +488,7 @@ mod test {
         let mut req = request("acmeCo");
         req["variables"]["dataPlane"] = "ops/dp/public/az-westeurope-c3".into();
         let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
-        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""ops/dp/public/az-westeurope-c3 is not a selectable public data-plane""#);
+        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""ops/dp/public/az-westeurope-c3 is not an available public data-plane""#);
         let counts: (i64, i64, i64, i64) = sqlx::query_as(
             "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
                     (SELECT count(*) FROM storage_mappings WHERE catalog_prefix IN ('acmeCo/', 'recovery/acmeCo/')),
@@ -613,6 +599,7 @@ mod test {
         assert_eq!(counts, (0, 0));
     }
 
+    // Make absolutely sure that a tenant can't be created without record of consent.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes"))
@@ -627,16 +614,38 @@ mod test {
         let token = server.make_access_token(ALICE, Some("untrusted@example.test"));
         let response: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
         insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""Failed to record consent""#);
-        let counts: (i64, i64, i64) = sqlx::query_as(
-            "SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
-                    (SELECT count(*) FROM internal.tenant_consent WHERE user_id = $1),
-                    (SELECT count(*) FROM user_grants WHERE user_id = $1)",
+        let counts: serde_json::Value = sqlx::query_scalar(
+            "SELECT json_build_object(
+                'tenants', (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/'),
+                'consent', (SELECT count(*) FROM internal.tenant_consent WHERE user_id = $1),
+                'user_grants', (SELECT count(*) FROM user_grants WHERE user_id = $1),
+                'role_grants', (SELECT count(*) FROM role_grants WHERE subject_role = 'acmeCo/' OR object_role = 'acmeCo/'),
+                'storage_mappings', (SELECT count(*) FROM storage_mappings WHERE catalog_prefix IN ('acmeCo/', 'recovery/acmeCo/')),
+                'alert_subscriptions', (SELECT count(*) FROM alert_subscriptions WHERE catalog_prefix = 'acmeCo/')
+            )",
         )
         .bind(ALICE)
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(counts, (0, 0, 0));
+        insta::assert_json_snapshot!(counts, @r#"
+        {
+          "alert_subscriptions": 0,
+          "consent": 0,
+          "role_grants": 0,
+          "storage_mappings": 0,
+          "tenants": 0,
+          "user_grants": 0
+        }
+        "#);
+
+        sqlx::query("UPDATE auth.users SET email = 'alice@example.test' WHERE id = $1")
+            .bind(ALICE)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let retry: serde_json::Value = server.graphql(&request("acmeCo"), Some(&token)).await;
+        assert!(retry.get("errors").is_none(), "{retry}");
     }
 
     #[sqlx::test(
@@ -786,29 +795,5 @@ mod test {
             tenant, "caféCo/",
             "valid accented names are stored unchanged"
         );
-    }
-
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(path = "../../../fixtures", scripts("data_planes"))
-    )]
-    async fn tenant_create_rollback(pool: sqlx::PgPool) {
-        let server = server(&pool).await;
-        let token = server.make_access_token(ALICE, None);
-        // Fail the metadata write after provisioning has populated every table.
-        sqlx::raw_sql("CREATE FUNCTION internal.reject_signup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test failure'; END $$; CREATE TRIGGER reject_signup BEFORE UPDATE OF metadata ON public.tenants FOR EACH ROW EXECUTE FUNCTION internal.reject_signup();")
-            .execute(&pool).await.unwrap();
-        let req = request("acmeCo");
-        let response: serde_json::Value = server.graphql(&req, Some(&token)).await;
-        assert!(response.get("errors").is_some(), "{response}");
-        let count: i64 = sqlx::query_scalar("SELECT (SELECT count(*) FROM tenants WHERE tenant = 'acmeCo/') + (SELECT count(*) FROM user_grants WHERE object_role = 'acmeCo/') + (SELECT count(*) FROM role_grants WHERE subject_role = 'acmeCo/' OR object_role = 'acmeCo/') + (SELECT count(*) FROM storage_mappings WHERE catalog_prefix IN ('acmeCo/', 'recovery/acmeCo/')) + (SELECT count(*) FROM alert_subscriptions WHERE catalog_prefix = 'acmeCo/')")
-            .fetch_one(&pool).await.unwrap();
-        assert_eq!(count, 0);
-        sqlx::query("DROP TRIGGER reject_signup ON public.tenants")
-            .execute(&pool)
-            .await
-            .unwrap();
-        let retry: serde_json::Value = server.graphql(&req, Some(&token)).await;
-        assert!(retry.get("errors").is_none(), "{retry}");
     }
 }

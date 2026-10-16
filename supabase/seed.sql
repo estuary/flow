@@ -14,22 +14,27 @@ insert into auth.users (id, email) values
   ('44444444-4444-4444-4444-444444444444', 'dave@example.com')
 ;
 
--- Public directive which allows a new user to provision a new tenant.
+-- Public directive which allows a user to access a demo tenant.
 insert into public.directives (catalog_prefix, spec, token) values
-  ('ops/', '{"type":"clickToAccept"}', 'd4a37dd7-1bf5-40e3-b715-60c4edd0f6dc'),
-  ('ops/', '{"type":"betaOnboard"}', '453e00cd-e12a-4ce5-b12d-3837aa385751'),
   ('ops/', '{"type":"acceptDemoTenant"}', '14c0beec-422f-4e95-94f1-567107b26840');
 
--- Provision the ops/ tenant owned by the support@estuary.dev user.
-with accounts_root_user as (
-  select (select id from auth.users where email = 'support@estuary.dev' limit 1) as accounts_id
-)
-insert into public.applied_directives (directive_id, user_id, user_claims)
-  select d.id, a.accounts_id, '{"requestedTenant":"ops.us-central1.v1"}'
-    from public.directives d, accounts_root_user a
-    where catalog_prefix = 'ops/' and spec = '{"type":"betaOnboard"}';
+-- Mirror provision_tenant for the local ops tenant, including its alert subscription.
+-- Its user and role grants and storage mappings are seeded below.
+insert into public.tenants (tenant, detail) values ('ops.us-central1.v1/', 'applied via seed');
+
+-- Keep these alert types aligned with models::status::AlertType::is_default.
+insert into public.alert_subscriptions (catalog_prefix, email, include_alert_types) values
+  ('ops.us-central1.v1/', 'support@estuary.dev', array[
+    'data_movement_stalled',
+    'free_trial',
+    'free_trial_ending',
+    'free_trial_stalled',
+    'missing_payment_method'
+  ]::public.alert_type[]);
 
 insert into public.role_grants (subject_role, object_role, capability) values
+  -- Local ops tasks may access public data planes.
+  ('ops.us-central1.v1/', 'ops/dp/public/', 'read'),
   -- L1 roll-ups can read task logs & stats.
   ('ops/rollups/L1/', 'ops/tasks/', 'read'),
   -- L1 roll-ups tasks can write to themselves.

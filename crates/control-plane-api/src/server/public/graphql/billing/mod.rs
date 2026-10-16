@@ -26,7 +26,7 @@ pub(crate) mod test_util {
     use std::sync::Arc;
 
     pub async fn provision_test_tenant(pool: &sqlx::PgPool, tenant: &str) -> uuid::Uuid {
-        crate::directives::beta_onboard::provision_test_tenant(
+        crate::tenants::provision_test_tenant(
             pool,
             tenant,
             &format!("{tenant}@example.test"),

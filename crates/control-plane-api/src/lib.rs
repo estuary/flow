@@ -24,6 +24,7 @@ pub mod secrets;
 pub mod server;
 pub mod sprites;
 pub mod storage_mappings;
+pub mod tenants;
 mod text_json;
 
 #[cfg(test)]

@@ -1,4 +1,16 @@
+//! Shared tenant provisioning for GraphQL onboarding and test fixtures.
+
 use sqlx::types::Uuid;
+
+pub async fn open_public_planes(conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar(
+        "SELECT data_plane_name FROM data_planes
+         WHERE starts_with(data_plane_name, 'ops/dp/public/') AND NOT closed
+         ORDER BY id DESC",
+    )
+    .fetch_all(conn)
+    .await
+}
 
 pub async fn is_user_provisioned(
     user_id: Uuid,
@@ -20,41 +32,13 @@ pub async fn is_user_provisioned(
     Ok(exists.is_some())
 }
 
-// tenant_exists is true if the given tenant exists (case invariant).
-pub async fn tenant_exists(
-    tenant: &str,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<bool> {
-    let prefix = format!("{tenant}/");
-
-    let illegal = sqlx::query!(
-        r#"
-        select 1 as "exists" from internal.illegal_tenant_names
-        where lower(name) = lower($1::catalog_tenant)
-        "#,
-        prefix.clone() as String,
-    )
-    .fetch_optional(&mut **txn)
-    .await?;
-
-    let exists = sqlx::query!(
-        r#"
-        select 1 as "exists" from tenants
-        where lower(tenant) = lower($1::catalog_tenant)
-        "#,
-        prefix as String,
-    )
-    .fetch_optional(&mut **txn)
-    .await?;
-
-    Ok(illegal.is_some() || exists.is_some())
-}
-
 pub async fn provision_tenant(
-    accounts_user_email: &str,
     detail: Option<String>,
     tenant: &str,
     tenant_user_id: Uuid,
+    metadata: serde_json::Value,
+    collection_storage: serde_json::Value,
+    recovery_storage: serde_json::Value,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
     let prefix = format!("{tenant}/");
@@ -64,17 +48,8 @@ pub async fn provision_tenant(
         .filter(models::status::AlertType::is_default)
         .collect();
 
-    // Note that the gcp-us-central1-c1 (combustible-cronut) data-plane is excluded here.
-    // It was deprecated and is no longer functional (no tasks run in it), but its
-    // production `data_planes` row still exists, so it must still be filtered out.
     sqlx::query!(
         r#"with
-        accounts_root_user as (
-            -- Precondition: the accounts root user must exist.
-            -- Use a sub-select to select either one match or an explicit null row,
-            -- which will then fail a not-null constraint.
-            select (select id from auth.users where email = $4 limit 1) as accounts_id
-        ),
         grant_user_admin_to_tenant as (
             insert into user_grants (user_id, object_role, capability, detail) values
                 ($1, $2, 'admin', $3)
@@ -86,37 +61,25 @@ pub async fn provision_tenant(
                 ($2, 'ops/dp/public/', 'read', $3) -- Tenant may access public data-planes.
             on conflict do nothing
         ),
-        public_planes as (
-            select json_agg(
-                data_plane_name
-                order by case when data_plane_name = 'ops/dp/public/aws-us-east-1-c1' then 0 else 1 end asc,
-                id desc
-            ) as arr
-            from data_planes
-            where starts_with(data_plane_name, 'ops/dp/public/')
-            and data_plane_name <> 'ops/dp/public/gcp-us-central1-c1'
-            and data_plane_name <> 'ops/dp/public/gcp-us-central1-c2'
-        ),
         create_storage_mappings as (
             insert into storage_mappings (catalog_prefix, spec, detail) values
-                ($2, json_build_object(
-                    'stores', '[{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}]'::json,
-                    'data_planes', (select arr from public_planes)
-                ), $3),
-                ('recovery/' || $2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3)
-            on conflict do nothing
+                ($2, $4::json, $3),
+                ('recovery/' || $2, $5::json, $3)
+            on conflict (catalog_prefix) do update set spec = excluded.spec
         ),
         create_alert_subscription as (
             insert into alert_subscriptions (catalog_prefix, email, include_alert_types)
-            values ($2, (select email from auth.users where id = $1 limit 1), $5)
+            values ($2, (select email from auth.users where id = $1 limit 1), $6)
         )
-        insert into tenants (tenant, detail) values ($2, $3);
+        insert into tenants (tenant, detail, created_by, metadata) values ($2, $3, $1, $7);
         "#,
         tenant_user_id as Uuid,
         &prefix as &str,
         detail.clone() as Option<String>,
-        accounts_user_email as &str,
+        collection_storage,
+        recovery_storage,
         &default_alert_types as &[models::status::AlertType],
+        metadata,
     )
     .execute(&mut **txn)
     .await?;
@@ -146,11 +109,24 @@ pub async fn provision_test_tenant(
         .await
         .expect("insert auth user");
 
+    let public_planes = open_public_planes(&mut txn)
+        .await
+        .expect("fetch test data planes");
+    let collection_storage = serde_json::json!({
+        "stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}],
+        "data_planes": public_planes,
+    });
+    let recovery_storage = serde_json::json!({
+        "stores": [{"provider": "GCS", "bucket": "estuary-trial"}],
+    });
+
     provision_tenant(
-        "support@estuary.dev",
         Some("test tenant".to_string()),
         tenant,
         user_id,
+        serde_json::json!({}),
+        collection_storage,
+        recovery_storage,
         &mut txn,
     )
     .await

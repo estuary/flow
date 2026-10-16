@@ -937,9 +937,8 @@ async fn add_private_plane(harness: &mut TestHarness) {
         .await;
 }
 
-// Neither `storage_mappings` nor `data_planes` are reset between tests, so a
-// tenant's mapping reflects whichever planes existed when its first test
-// provisioned it. Pin the mapping to just the default test plane so that
+// `data_planes` is not reset between tests, so provisioning a tenant permits
+// public planes left by earlier tests. Pin the mapping to the test plane so that
 // data-plane resolution (and its error suggestions) are deterministic.
 async fn pin_storage_mapping_planes(harness: &TestHarness, catalog_prefix: &str) {
     sqlx::query!(
@@ -1233,8 +1232,6 @@ async fn test_publication_no_data_plane() {
     "#);
 }
 
-// Uses its own `lynx` tenant: `storage_mappings` is not reset between tests,
-// so mutating the shared `cats/` mapping would leak into other tests.
 #[tokio::test]
 async fn test_publication_storage_mapping_unreadable_plane() {
     let mut harness = TestHarness::init("test_publication_storage_mapping_unreadable_plane").await;

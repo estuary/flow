@@ -6,8 +6,6 @@ use tracing::info;
 use validator::Validate;
 
 pub mod accept_demo_tenant;
-pub mod beta_onboard;
-pub mod click_to_accept;
 
 /// JobStatus is the possible outcomes of a handled directive operation.
 #[derive(Debug, Deserialize, Serialize)]
@@ -35,23 +33,11 @@ impl JobStatus {
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum Directive {
-    BetaOnboard(beta_onboard::Directive),
-    ClickToAccept(click_to_accept::Directive),
     AcceptDemoTenant(accept_demo_tenant::Directive),
 }
 
 #[derive(Clone)]
-pub struct DirectiveHandler {
-    accounts_user_email: String,
-}
-
-impl DirectiveHandler {
-    pub fn new(accounts_user_email: String) -> Self {
-        Self {
-            accounts_user_email,
-        }
-    }
-}
+pub struct DirectiveHandler;
 
 impl automations::Executor for DirectiveHandler {
     const TASK_TYPE: automations::TaskType = automations::task_types::APPLIED_DIRECTIVES;
@@ -120,10 +106,6 @@ impl DirectiveHandler {
 
         let status = match serde_json::from_str::<Directive>(row.directive_spec.0.get()) {
             Err(err) => JobStatus::invalid_directive(err.into()),
-            Ok(Directive::BetaOnboard(d)) => {
-                beta_onboard::apply(d, row, &self.accounts_user_email, txn).await?
-            }
-            Ok(Directive::ClickToAccept(d)) => click_to_accept::apply(d, row, txn).await?,
             Ok(Directive::AcceptDemoTenant(d)) => accept_demo_tenant::apply(d, row, txn).await?,
         };
         Ok(status)

@@ -433,6 +433,13 @@ other services must be `docker network connect supabase_network_<stack>`'d first
 
 ## Provisioning tenant credentials
 
+`local:test-tenant` provisions through GraphQL `tenantCreate`. For a new tenant,
+it waits for `publicDataPlanes` to return an open public plane with ready signing
+keys, selects that plane, and submits acceptance of the latest MSA terms ID from
+`internal.legal_terms`. The selected user must not already administer a tenant;
+use another seeded user to provision an additional tenant. If the tenant already
+exists, the task skips provisioning and emits fresh credentials.
+
 ```bash
 mise run local:test-tenant --tenant acmeCo --user alice@example.com
 # Credentials are written to ${FLOW_STACK_DIR}/test-tenant-<tenant>.env
