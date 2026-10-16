@@ -21,7 +21,7 @@ pub use abandon::AbandonStatus;
 pub use activation::ActivationStatus;
 pub use capture::AutoDiscoverStatus;
 pub use collection::InferredSchemaStatus;
-pub use materialization::SourceCaptureStatus;
+pub use materialization::{AutoDisabledBinding, AutoDisabledReason, SourceCaptureStatus};
 pub use publications::PublicationStatus;
 
 /// Response type for the status endpoint
@@ -172,6 +172,16 @@ impl ControllerStatus {
             ControllerStatus::Capture(status) => status.abandon.as_ref(),
             ControllerStatus::Collection(status) => status.abandon.as_ref(),
             ControllerStatus::Materialization(status) => status.abandon.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Only present for materializations.
+    async fn auto_disabled_bindings(&self) -> Option<&[AutoDisabledBinding]> {
+        match self {
+            ControllerStatus::Materialization(status) => {
+                Some(status.auto_disabled_bindings.as_slice())
+            }
             _ => None,
         }
     }
@@ -408,6 +418,13 @@ mod test {
             },
             alerts: Default::default(),
             abandon: None,
+            auto_disabled_bindings: vec![AutoDisabledBinding {
+                resource_path: vec!["snails".to_string(), "shells".to_string()],
+                collection: crate::Collection::new("snails/shells"),
+                reason: AutoDisabledReason::IncompatibleSchemaChange,
+                detail: "group-by key changed from [\"id\"] to [\"shell_id\"]".to_string(),
+                pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
+            }],
         });
 
         let as_json = serde_json::to_string_pretty(&status).expect("failed to serialize status");

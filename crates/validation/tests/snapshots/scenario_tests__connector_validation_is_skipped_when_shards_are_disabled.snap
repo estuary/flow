@@ -450,6 +450,7 @@ Outcome {
               }
             },
             model_fixes: [],
+            auto_disabled_bindings: [],
             validated: Validated {
                 bindings: [],
             },

@@ -35,6 +35,7 @@ pub enum AlertType {
     TaskIdle,
     TaskAutoDisabledIdle,
     BackgroundPublicationFailed,
+    BindingsAutoDisabled,
 }
 
 impl std::fmt::Display for AlertType {
@@ -58,6 +59,7 @@ impl AlertType {
             AlertType::TaskIdle => "task_idle",
             AlertType::TaskAutoDisabledIdle => "task_auto_disabled_idle",
             AlertType::BackgroundPublicationFailed => "background_publication_failed",
+            AlertType::BindingsAutoDisabled => "bindings_auto_disabled",
         }
     }
 
@@ -75,6 +77,7 @@ impl AlertType {
             AlertType::FreeTrialStalled,
             AlertType::MissingPaymentMethod,
             AlertType::BackgroundPublicationFailed,
+            AlertType::BindingsAutoDisabled,
         ]
     }
 
@@ -94,6 +97,7 @@ impl AlertType {
             AlertType::TaskIdle => None,
             AlertType::TaskAutoDisabledIdle => None,
             AlertType::BackgroundPublicationFailed => None,
+            AlertType::BindingsAutoDisabled => None,
         }
     }
 
@@ -112,6 +116,7 @@ impl AlertType {
             AlertType::TaskIdle => "Task Idle",
             AlertType::TaskAutoDisabledIdle => "Task Auto-Disabled (Idle)",
             AlertType::BackgroundPublicationFailed => "Background Publication Failed",
+            AlertType::BindingsAutoDisabled => "Bindings Auto-Disabled",
         }
     }
 
@@ -154,6 +159,9 @@ impl AlertType {
             AlertType::BackgroundPublicationFailed => {
                 "Triggers when an automated background publication fails. Affected tasks are unlikely to function until the issue is addressed."
             }
+            AlertType::BindingsAutoDisabled => {
+                "Triggers when a materialization binding is automatically disabled because of an incompatible schema change, and resolves when every such binding is re-enabled or removed."
+            }
         }
     }
 
@@ -171,6 +179,8 @@ impl AlertType {
         match self {
             AlertType::AutoDiscoverFailed => false,
             AlertType::BackgroundPublicationFailed => false,
+            // The alert is the only notification that a binding was disabled.
+            AlertType::BindingsAutoDisabled => true,
             AlertType::DataMovementStalled => true,
             AlertType::FreeTrial => true,
             AlertType::FreeTrialEnding => true,
@@ -189,6 +199,7 @@ impl AlertType {
         match self {
             AlertType::AutoDiscoverFailed => false,
             AlertType::BackgroundPublicationFailed => false,
+            AlertType::BindingsAutoDisabled => false,
             AlertType::DataMovementStalled => false,
             AlertType::FreeTrial => true,
             AlertType::FreeTrialEnding => true,

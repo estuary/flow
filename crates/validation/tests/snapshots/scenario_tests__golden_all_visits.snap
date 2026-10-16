@@ -6468,6 +6468,7 @@ Outcome {
             model_fixes: [
               "updated resource /_meta of 1 bindings"
             ],
+            auto_disabled_bindings: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -7040,6 +7041,7 @@ Outcome {
             model_fixes: [
               "updated resource /_meta of 2 bindings"
             ],
+            auto_disabled_bindings: [],
             validated: Validated {
                 bindings: [
                     Binding {
