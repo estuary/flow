@@ -61,7 +61,6 @@ pub type Connectors<'a> = dyn Fn(
 pub async fn validate(
     pub_id: models::Id,
     build_id: models::Id,
-    project_root: &url::Url,
     connectors: &Connectors<'_>,
     draft: &tables::DraftCatalog,
     live: &tables::LiveCatalog,
@@ -151,7 +150,6 @@ pub async fn validate(
         &dependencies,
         &draft.imports,
         noop_derivations,
-        project_root,
         &live.storage_mappings,
         init_vector,
         &mut derive_errors,
@@ -519,6 +517,52 @@ fn validate_resource_paths<'a>(
         }
         .push(scope.push_prop("bindings").push_item(r_i), errors);
     }
+}
+
+/// Root of a task's project: the directory of the specification which
+/// defines the task. It has no trailing slash, because connectors join it
+/// with a relative path as `{project_root}/{path}`.
+fn project_root(scope: &url::Url) -> String {
+    let mut root = scope.clone();
+    root.set_fragment(None);
+    let root = root.join("./").unwrap_or(root);
+
+    root.as_str()
+        .strip_suffix('/')
+        .unwrap_or(root.as_str())
+        .to_string()
+}
+
+/// Remove, with an error, each of a connector's generated files whose key
+/// isn't a URL underneath the task's `project_root`, or whose path has an
+/// encoded `/`. flowctl writes the generated files of a build even if it
+/// has errors, and this removal is what keeps those writes within each
+/// task's project.
+fn validate_generated_files(
+    scope: Scope,
+    project_root: &str,
+    generated_files: &mut std::collections::BTreeMap<String, String>,
+    errors: &mut tables::Errors,
+) {
+    let prefix = format!("{project_root}/");
+
+    generated_files.retain(|maybe_url, _content| {
+        // Parsing resolves `..` segments, including encoded ones like `%2e%2e`.
+        // It leaves an encoded `/` in place, which a writer then decodes into
+        // a separator. That would let a segment hide `..` components, so it's
+        // rejected.
+        let ok = url::Url::parse(maybe_url).is_ok_and(|url| {
+            url.as_str().starts_with(&prefix) && !url.path().to_ascii_lowercase().contains("%2f")
+        });
+        if !ok {
+            Error::InvalidGeneratedFileUrl {
+                url: maybe_url.clone(),
+                root: project_root.to_string(),
+            }
+            .push(scope, errors);
+        }
+        ok
+    });
 }
 
 /// Look up an unprefixed shard feature flag by name, returning its value.

@@ -35,8 +35,7 @@ pub(crate) async fn generate_files(
         mut draft, built, ..
     } = validate(ctx, true, false, true, sources, ops::tracing_log_handler).await;
 
-    let project_root = build::project_root(&draft.fetches[0].resource);
-    build::generate_files(&project_root, &built)?;
+    build::generate_files(&draft.fetches[0].resource, &built)?;
 
     draft.errors = draft
         .errors
@@ -75,9 +74,6 @@ async fn validate(
     draft: tables::DraftCatalog,
     log_handler: impl ops::LogHandler,
 ) -> build::Output {
-    let source = &draft.fetches[0].resource.clone();
-    let project_root = build::project_root(source);
-
     let mut live = Resolver {
         pg: ctx.pg.clone(),
         access_token: ctx.access_token(),
@@ -100,7 +96,6 @@ async fn validate(
             noop_captures,
             noop_derivations,
             noop_materializations,
-            &project_root,
             draft,
             live,
         )
@@ -136,8 +131,8 @@ pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Re
 }
 
 // Indirect specifications so that larger configurations, etc become reference
-// resources, then write them out if they're under the project root.
-// Nothing is written if tasks conflict over the content of a resource.
+// resources, then write them out (see `write_resources`). Nothing is written if
+// tasks conflict over the content of a resource.
 pub(crate) fn indirect_and_write_resources(
     mut draft: tables::DraftCatalog,
 ) -> anyhow::Result<tables::DraftCatalog> {
@@ -145,15 +140,17 @@ pub(crate) fn indirect_and_write_resources(
     write_resources(surface_errors(draft.into_result())?)
 }
 
+// Write out the local resources of `draft` which are underneath the directory
+// of its root source (see `build::write_files`). Every catalog is rebuilt from
+// its models, which drops its comments and formatting, so a catalog outside
+// that directory, such as one imported by a `../` path, is left as it is.
 pub(crate) fn write_resources(
     mut draft: tables::DraftCatalog,
 ) -> anyhow::Result<tables::DraftCatalog> {
-    let source = &draft.fetches[0].resource.clone();
-    let project_root = build::project_root(source);
     ::sources::rebuild_catalog_resources(&mut draft);
 
     build::write_files(
-        &project_root,
+        &draft.fetches[0].resource,
         draft
             .resources
             .iter()

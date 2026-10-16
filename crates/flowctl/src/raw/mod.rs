@@ -319,7 +319,6 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     } = build.clone();
 
     let source_url = build::arg_source_to_url(&source, false)?;
-    let project_root = build::project_root(&source_url);
 
     let draft = build::load(&source_url, std::path::Path::new(&file_root)).await;
     let draft = local_specs::surface_errors(draft.into_result())?;
@@ -335,7 +334,6 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
         false, // Don't no-op captures.
         false, // Don't no-op derivations.
         false, // Don't no-op materializations.
-        &project_root,
         draft,
         live,
     )

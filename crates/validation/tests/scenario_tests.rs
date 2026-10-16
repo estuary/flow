@@ -1492,6 +1492,26 @@ driver:
 }
 
 #[test]
+fn test_generated_file_outside_project() {
+    // The derivation's project root is `test://example`.
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+driver:
+  derivations:
+    testing/from-array-key:
+      generatedFiles:
+        test://example/flow_generated/ok.sql: generated content
+        test://example-other/outside.sql: generated content
+        test://elsewhere/outside.sql: generated content
+        test://example/x%2F..%2F..%2Fescape.sql: generated content
+        test://example/x%2e%2e/%2E%2E/escape.sql: generated content
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_collection_inferred_schema_is_unchanged() {
     let outcome = common::run(include_str!("schema_inference.yaml"), "{}");
     insta::assert_debug_snapshot!(outcome);
