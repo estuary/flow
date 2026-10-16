@@ -1,6 +1,5 @@
 use anyhow::Context;
 use itertools::Itertools;
-use models::Capability;
 use std::future::Future;
 
 /// Initialize a draft prior to build/validation. This may add additional specs to the draft.
@@ -45,11 +44,11 @@ where
 
 /// An `Initialize` that expands the draft to touch live specs that read from or write to
 /// any drafted collections. This may optionally filter the specs based on whether the user
-/// has `admin` capability to them.
+/// has `SpecEdit` to them.
 pub struct ExpandDraft<'a> {
     /// Whether to filter specs based on the user's capability. If true, then only specs for which
-    /// the user has `admin` capability will be added to the draft.
-    pub filter_user_has_admin: bool,
+    /// the user has `SpecEdit` will be added to the draft.
+    pub filter_user_can_edit: bool,
     /// Authorization Snapshot pinned for the publication, against which the
     /// user-capability filter is evaluated. Held as a field — rather than
     /// threaded through `Initialize::initialize` — because this is the only
@@ -62,7 +61,7 @@ impl Initialize for ExpandDraft<'_> {
         level = "debug",
         skip_all,
         err,
-        fields(filter_user_has_admin = self.filter_user_has_admin)
+        fields(filter_user_can_edit = self.filter_user_can_edit)
     )]
     async fn initialize(
         &self,
@@ -80,8 +79,8 @@ impl Initialize for ExpandDraft<'_> {
             .collect::<Vec<_>>();
         let all_drafted_specs = draft.all_spec_names().collect::<Vec<_>>();
 
-        let capability_filter = if self.filter_user_has_admin {
-            Some(Capability::Admin)
+        let capability_filter = if self.filter_user_can_edit {
+            Some(models::authz::Capability::SpecEdit)
         } else {
             None
         };
