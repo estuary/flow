@@ -431,6 +431,7 @@ impl<R: io::BufRead> XmlIter<R> {
                 }
                 Event::Text(text) => {
                     let text = text.xml_content(self.version);
+                    self.check_record_size()?;
                     match self.stack.last_mut() {
                         Some(top) => top.text.push_text(&text),
                         None => self.check_outside_text(&text)?,
@@ -438,6 +439,7 @@ impl<R: io::BufRead> XmlIter<R> {
                 }
                 Event::CData(cdata) => {
                     let text = cdata.xml_content(self.version);
+                    self.check_record_size()?;
                     match self.stack.last_mut() {
                         Some(top) => top.text.push_literal(&text),
                         None => self.check_outside_text(&text)?,
@@ -445,6 +447,7 @@ impl<R: io::BufRead> XmlIter<R> {
                 }
                 Event::GeneralRef(reference) => {
                     let resolved = self.resolve_reference(&reference)?;
+                    self.check_record_size()?;
                     match self.stack.last_mut() {
                         Some(top) => top.text.push_literal(&resolved),
                         None => self.check_outside_text(&resolved)?,
@@ -486,6 +489,19 @@ impl<R: io::BufRead> XmlIter<R> {
         Ok(())
     }
 
+    /// Rejects the current record once it spans more than `MAX_RECORD_MB` of input. It's called
+    /// whenever an element or text is added to a record, so that neither can grow it unbounded.
+    fn check_record_size(&self) -> Result<(), XmlError> {
+        let position = self.reader.buffer_position();
+        if !self.stack.is_empty() && position - self.record_start > MAX_RECORD_MB * 1024 * 1024 {
+            return Err(XmlError::RecordTooLarge {
+                position,
+                path: self.current_path(),
+            });
+        }
+        Ok(())
+    }
+
     /// Handles the start of an element. Returns false if the element was skipped entirely
     /// because it can't contain any records, in which case there will be no matching end event.
     fn start_element(&mut self, start: &BytesStart, is_empty: bool) -> Result<bool, XmlError> {
@@ -498,13 +514,7 @@ impl<R: io::BufRead> XmlIter<R> {
             });
         }
 
-        let position = self.reader.buffer_position();
-        if !self.stack.is_empty() && position - self.record_start > MAX_RECORD_MB * 1024 * 1024 {
-            return Err(XmlError::RecordTooLarge {
-                position,
-                path: self.current_path(),
-            });
-        }
+        self.check_record_size()?;
 
         if let Some(parent) = self.stack.last_mut() {
             parent.text.end_run();
@@ -905,6 +915,15 @@ mod test {
         let depth = MAX_DEPTH;
         let content = format!("{}x{}", "<a>".repeat(depth), "</a>".repeat(depth));
         parse_with(XmlConfig::default(), content).expect("max depth should be allowed");
+    }
+
+    #[test]
+    fn oversized_text_only_record_is_rejected() {
+        // The record has no child elements, so only the checks on text events can catch it.
+        let section = format!("<![CDATA[{}]]>", "a".repeat(1024 * 1024));
+        let content = format!("<R>{}</R>", section.repeat(MAX_RECORD_MB as usize + 1));
+        let err = parse_with(XmlConfig::default(), content).unwrap_err();
+        assert!(err.contains("larger than the 64MB maximum"), "{err}");
     }
 
     #[test]
