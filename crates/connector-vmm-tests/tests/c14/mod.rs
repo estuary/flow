@@ -130,8 +130,8 @@ fn wheel(dir: &std::path::Path) -> (Wheel, Arc<Vec<u8>>) {
 }
 
 /// Serves `body` at `path` on `listener`, one connection at a time (the one
-/// installer here makes few requests), and appends each answered request to
-/// `evidence` as it ends.
+/// installer here makes few requests), and records each answered request, in
+/// `evidence` and `served`, before it closes the connection.
 fn serve(
     listener: std::net::TcpListener,
     path: String,
@@ -154,7 +154,7 @@ fn serve(
 
     let server = std::thread::spawn(move || {
         while !shared_stop.load(std::sync::atomic::Ordering::SeqCst) {
-            let stream = match listener.accept() {
+            let mut stream = match listener.accept() {
                 Ok((stream, _)) => stream,
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(20));
@@ -164,9 +164,13 @@ fn serve(
             };
             // Copied, so the lock is not held across the connection's IO.
             let mode = *shared_state.lock().unwrap();
-            let record = answer(stream, &path, &body, mode, t0, &shared_stop);
+            let record = answer(&mut stream, &path, &body, mode, t0, &shared_stop);
             append(&evidence, record.clone());
             shared_served.lock().unwrap().push(record);
+            // Only now, so a client which has read to the FIN finds its
+            // request served. A cut is a FIN after the bytes written, not a
+            // reset that could drop them.
+            let _ = stream.shutdown(std::net::Shutdown::Both);
         }
     });
     Endpoint {
@@ -178,11 +182,11 @@ fn serve(
     }
 }
 
-/// Answers one connection, within `CONNECTION` of its accept: each read and
-/// write is bounded, and the body is written in chunks between which a stop
-/// or the deadline ends it.
+/// Answers one connection, within `CONNECTION` of its accept, leaving its
+/// close to the caller: each read and write is bounded, and the body is
+/// written in chunks between which a stop or the deadline ends it.
 fn answer(
-    mut stream: std::net::TcpStream,
+    stream: &mut std::net::TcpStream,
     path: &str,
     body: &[u8],
     (mode, phase): (Mode, &'static str),
@@ -279,8 +283,6 @@ fn answer(
             Err(e) => format!("write failed: {e}"),
         }
     };
-    // A cut is a FIN after the bytes written, not a reset that could drop them.
-    let _ = stream.shutdown(std::net::Shutdown::Both);
 
     serde_json::json!({
         "served": phase, "mode": format!("{mode:?}"), "accepted_ms": accepted_ms,
