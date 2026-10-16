@@ -18,6 +18,7 @@ pub struct CreatedDiscover {
     pub data_plane_name: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub logs_token: Uuid,
 }
 
 /// Queues discovery using the capture's staged definition, or its live definition
@@ -152,7 +153,7 @@ pub async fn create(
             draft_id, capture_name, connector_tag_id, endpoint_config,
             update_only, data_plane_name
         ) VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id AS "id!: models::Id", created_at, updated_at
+        RETURNING id AS "id!: models::Id", created_at, updated_at, logs_token
         "#,
         draft_id as models::Id,
         capture_name,
@@ -169,6 +170,7 @@ pub async fn create(
         data_plane_name,
         created_at: row.created_at,
         updated_at: row.updated_at,
+        logs_token: row.logs_token,
     })
 }
 

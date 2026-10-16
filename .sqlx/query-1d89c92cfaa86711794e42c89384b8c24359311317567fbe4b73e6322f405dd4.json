@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO discovers (\n            draft_id, capture_name, connector_tag_id, endpoint_config,\n            update_only, data_plane_name\n        ) VALUES ($1, $2, $3, $4, $5, $6)\n        RETURNING id AS \"id!: models::Id\", created_at, updated_at\n        ",
+  "query": "\n        INSERT INTO discovers (\n            draft_id, capture_name, connector_tag_id, endpoint_config,\n            update_only, data_plane_name\n        ) VALUES ($1, $2, $3, $4, $5, $6)\n        RETURNING id AS \"id!: models::Id\", created_at, updated_at, logs_token\n        ",
   "describe": {
     "columns": [
       {
@@ -33,6 +33,17 @@
           "Table": {
             "table": "discovers",
             "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "logs_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "logs_token"
           }
         }
       }
@@ -78,8 +89,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "8dc9722aaeae926a290bef3d7f09da15907549455162e92fda32dc017819ae24"
+  "hash": "1d89c92cfaa86711794e42c89384b8c24359311317567fbe4b73e6322f405dd4"
 }
