@@ -70,7 +70,7 @@ filter = '''
 test-group = 'capped-shard-reconfiguration'
 
 [[profile.default.overrides]]
-filter = 'package(agent) and (test(discovers::) + test(directives::) + test(integration_tests::))'
+filter = 'package(agent) and (test(discovers::) + test(integration_tests::))'
 test-group = 'serial-db-tests'
 
 [[profile.default.overrides]]

@@ -36,7 +36,6 @@ pub mod task_types {
     pub const PUBLICATIONS: TaskType = TaskType(3);
     pub const DISCOVERS: TaskType = TaskType(4);
     pub const EVOLUTIONS: TaskType = TaskType(5);
-    pub const APPLIED_DIRECTIVES: TaskType = TaskType(6);
     pub const CONNECTOR_TAGS: TaskType = TaskType(7);
     pub const DATA_PLANE_MIGRATION: TaskType = TaskType(8);
     /// Sends notifications when alerts are fired or resolved
