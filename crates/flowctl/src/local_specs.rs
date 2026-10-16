@@ -137,11 +137,12 @@ pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Re
 
 // Indirect specifications so that larger configurations, etc become reference
 // resources, then write them out if they're under the project root.
+// Nothing is written if tasks conflict over the content of a resource.
 pub(crate) fn indirect_and_write_resources(
     mut draft: tables::DraftCatalog,
 ) -> anyhow::Result<tables::DraftCatalog> {
     ::sources::indirect_large_files(&mut draft, 1 << 9);
-    write_resources(draft)
+    write_resources(surface_errors(draft.into_result())?)
 }
 
 pub(crate) fn write_resources(
