@@ -42,6 +42,7 @@ mod live_specs;
 mod logs;
 mod prefixes;
 mod publication_history;
+mod publications;
 mod refresh_tokens;
 mod sandboxes;
 mod scalars;
@@ -138,6 +139,7 @@ pub struct QueryRoot(
     catalog_stats::CatalogStatsQuery,
     sandboxes::SandboxesQuery,
     discovers::DiscoversQuery,
+    publications::PublicationsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
