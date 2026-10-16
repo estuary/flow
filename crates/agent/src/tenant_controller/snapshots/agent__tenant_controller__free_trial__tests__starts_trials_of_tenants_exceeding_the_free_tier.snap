@@ -1,0 +1,60 @@
+---
+source: crates/agent/src/tenant_controller/free_trial.rs
+expression: results
+---
+[
+  {
+    "nextCheck": "2026-05-21T10:53:17Z",
+    "tenant": "freeTrialAtLimits/",
+    "trialStart": null,
+    "waitSeconds": 69797
+  },
+  {
+    "nextCheck": "2026-05-20T20:45:06Z",
+    "tenant": "freeTrialDailyHours/",
+    "trialStart": "2026-05-20",
+    "waitSeconds": 18906
+  },
+  {
+    "nextCheck": "2026-05-20T22:33:56Z",
+    "tenant": "freeTrialStaleDay/",
+    "trialStart": null,
+    "waitSeconds": 25436
+  },
+  {
+    "nextCheck": "2026-05-21T06:43:55Z",
+    "tenant": "freeTrialMonthlyHours/",
+    "trialStart": "2026-05-20",
+    "waitSeconds": 54835
+  },
+  {
+    "nextCheck": "2026-05-20T21:36:13Z",
+    "tenant": "freeTrialMonthlyBytes/",
+    "trialStart": "2026-05-20",
+    "waitSeconds": 21973
+  },
+  {
+    "nextCheck": "2026-05-21T01:05:00Z",
+    "tenant": "freeTrialLastMonth/",
+    "trialStart": null,
+    "waitSeconds": 34500
+  },
+  {
+    "nextCheck": "2026-05-21T11:24:58Z",
+    "tenant": "freeTrialNested/",
+    "trialStart": null,
+    "waitSeconds": 71698
+  },
+  {
+    "nextCheck": null,
+    "tenant": "freeTrialStarted/",
+    "trialStart": "2026-04-02",
+    "waitSeconds": null
+  },
+  {
+    "nextCheck": "2026-05-20T18:22:14Z",
+    "tenant": "freeTrialNoStats/",
+    "trialStart": null,
+    "waitSeconds": 10334
+  }
+]

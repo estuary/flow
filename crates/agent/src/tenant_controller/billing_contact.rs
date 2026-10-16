@@ -141,6 +141,7 @@ mod tests {
             billing_name: name.map(str::to_string),
             billing_address: address,
             payment_provider: None,
+            trial_start: None,
         }
     }
 

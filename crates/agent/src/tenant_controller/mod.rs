@@ -1,4 +1,14 @@
+//! The tenant controller is a per-tenant automations task which:
+//! - reconciles the tenant's billing contact to its Stripe customer,
+//! - raises the tenant's quotas once it has a payment method, and
+//! - starts the tenant's free trial once its usage exceeds the free tier.
+//!
+//! Billing contact and quotas react to wake messages, sent when billing
+//! details change. The free trial check runs daily, at a time of day fixed
+//! per tenant so that checks of all tenants spread across the day.
+
 mod billing_contact;
+mod free_trial;
 mod outcome;
 mod quotas;
 
@@ -44,15 +54,24 @@ pub struct TenantControllerState {
     pub billing_contact: Option<TaskStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quota_status: Option<quotas::QuotaUpdateStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free_trial: Option<free_trial::FreeTrialStatus>,
 }
 
 pub struct TenantController {
     billing_provider: Option<Arc<dyn BillingProvider>>,
+    catalog_stats: Option<Arc<catalog_stats::Client>>,
 }
 
 impl TenantController {
-    pub fn new(billing_provider: Option<Arc<dyn BillingProvider>>) -> Self {
-        Self { billing_provider }
+    pub fn new(
+        billing_provider: Option<Arc<dyn BillingProvider>>,
+        catalog_stats: Option<Arc<catalog_stats::Client>>,
+    ) -> Self {
+        Self {
+            billing_provider,
+            catalog_stats,
+        }
     }
 }
 
@@ -62,6 +81,7 @@ pub(crate) struct Tenant {
     pub billing_name: Option<String>,
     pub billing_address: Option<serde_json::Value>,
     pub payment_provider: Option<PaymentProvider>,
+    pub trial_start: Option<chrono::NaiveDate>,
 }
 
 async fn fetch_tenant_by_controller_task(
@@ -71,7 +91,7 @@ async fn fetch_tenant_by_controller_task(
     let row = sqlx::query_as!(
         Tenant,
         r#"
-        SELECT tenant as "tenant!", billing_email, billing_name, billing_address, payment_provider as "payment_provider: PaymentProvider"
+        SELECT tenant as "tenant!", billing_email, billing_name, billing_address, payment_provider as "payment_provider: PaymentProvider", trial_start
         FROM tenants
         WHERE controller_task_id = $1
         "#,
@@ -122,15 +142,103 @@ impl Executor for TenantController {
             quota_status.task_status.next_retry = None;
         }
 
-        let result =
-            billing_contact::reconcile(billing_status, &tenant, &self.billing_provider).await?;
-        let result = result.combine(
-            quotas::update_quotas(quota_status, pool, &tenant, &self.billing_provider).await?,
+        // Billing contact and quotas each search Stripe for the tenant's
+        // customer, so they run only when woken by a message or to retry their
+        // own failure. Daily polls for the free trial check must not fan out
+        // into a Stripe search per tenant.
+        let mut result = Outcome::Idle;
+        if woken_by_message || billing_status.failures != 0 {
+            result = result.combine(
+                billing_contact::reconcile(billing_status, &tenant, &self.billing_provider).await?,
+            );
+        }
+        if woken_by_message || quota_status.task_status.failures != 0 {
+            result = result.combine(
+                quotas::update_quotas(quota_status, pool, &tenant, &self.billing_provider).await?,
+            );
+        }
+
+        let free_trial_status = state.free_trial.get_or_insert_with(Default::default);
+        result = result.combine(
+            free_trial::check(
+                free_trial_status,
+                pool,
+                &tenant,
+                &self.catalog_stats,
+                chrono::Utc::now(),
+            )
+            .await?,
         );
 
-        match result {
-            Outcome::Idle => Ok(Action::Suspend),
-            Outcome::WaitForRetry(duration) => Ok(Action::Sleep(duration)),
+        match result.wait() {
+            None => Ok(Action::Suspend),
+            Some(duration) => Ok(Action::Sleep(duration)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use control_plane_api::billing::InMemoryBillingProvider;
+
+    const TENANT: &str = "tenantControllerPoll/";
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn only_messages_reconcile_billing(pool: sqlx::PgPool) {
+        // The tenant's desired billing email differs from its Stripe
+        // customer's, so each billing reconciliation updates the customer.
+        let provider = Arc::new(InMemoryBillingProvider::new());
+        provider.add_customer(TENANT, "cus_test", None);
+
+        let client = free_trial::tests::emulator().await;
+        catalog_stats::test_util::delete_rows_with_prefix(&client, TENANT)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO tenants (tenant, billing_email) VALUES ($1, 'billing@acme.co')")
+            .bind(TENANT)
+            .execute(&pool)
+            .await
+            .unwrap();
+        // The AFTER INSERT trigger records the controller, so read it back.
+        let task_id: models::Id =
+            sqlx::query_scalar("SELECT controller_task_id FROM tenants WHERE tenant = $1")
+                .bind(TENANT)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        let controller = TenantController::new(Some(provider.clone()), Some(client));
+        let mut state = TenantControllerState::default();
+        let mut inbox = std::collections::VecDeque::new();
+        let one_day = std::time::Duration::from_secs(86_400);
+
+        // A timer-driven poll checks for a free trial and sleeps until the
+        // next check, without touching Stripe.
+        let action = controller
+            .poll(&pool, task_id, None, &mut state, &mut inbox)
+            .await
+            .unwrap();
+        assert!(
+            matches!(action, Action::Sleep(wait) if wait <= one_day),
+            "{action:?}"
+        );
+        assert_eq!(provider.update_billing_profile_call_count(), 0);
+        let next_check = state.free_trial.as_ref().unwrap().next_check;
+        assert!(next_check.is_some());
+
+        // A wake message reconciles billing, and keeps the scheduled check.
+        inbox.push_back((models::Id::zero(), Some(Message::Wake)));
+        let action = controller
+            .poll(&pool, task_id, None, &mut state, &mut inbox)
+            .await
+            .unwrap();
+        assert!(
+            matches!(action, Action::Sleep(wait) if wait <= one_day),
+            "{action:?}"
+        );
+        assert_eq!(provider.update_billing_profile_call_count(), 1);
+        assert_eq!(state.free_trial.as_ref().unwrap().next_check, next_check);
     }
 }
