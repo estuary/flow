@@ -18,6 +18,11 @@ permissions before opening a plane for signup.
 callers supply tenant metadata and collection and recovery storage mappings.
 The GraphQL layer owns signup validation and MSA consent.
 
+`publications/submit.rs` authorizes and queues GraphQL publications with a hash
+of the expanded draft. The executor verifies it after expansion on every attempt,
+before applying runtime defaults. A null hash preserves PostgREST publication
+behavior.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.

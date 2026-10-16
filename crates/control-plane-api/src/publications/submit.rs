@@ -54,6 +54,7 @@ pub async fn submit(
     super::ExpandDraft {
         filter_user_can_edit: true,
         snapshot,
+        expected_content_hash: None,
     }
     .initialize(
         pool,
@@ -89,10 +90,11 @@ pub async fn submit(
     // the checks above. The `create_publication_task` trigger creates the
     // executor's task within this statement, so the row and its task are
     // created together or not at all.
+    let draft_content_hash = crate::draft::content_hash(&draft);
     let row = sqlx::query!(
         r#"
-        INSERT INTO publications (user_id, draft_id, dry_run, data_plane_name, detail)
-        SELECT d.user_id, d.id, $3, $4, $5
+        INSERT INTO publications (user_id, draft_id, dry_run, data_plane_name, detail, draft_content_hash)
+        SELECT d.user_id, d.id, $3, $4, $5, $6
         FROM drafts d WHERE d.id = $1 AND d.user_id = $2
         RETURNING id AS "id!: models::Id", logs_token
         "#,
@@ -101,6 +103,7 @@ pub async fn submit(
         dry_run,
         default_data_plane,
         detail,
+        draft_content_hash,
     )
     .fetch_optional(pool)
     .await?

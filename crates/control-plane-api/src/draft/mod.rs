@@ -40,6 +40,38 @@ pub async fn load_draft(
     Ok(draft)
 }
 
+/// Hashes publication inputs, including deletions, expected publication IDs,
+/// and touch operations. Tables iterate in catalog-name order.
+pub fn content_hash(draft: &tables::DraftCatalog) -> String {
+    use sha2::Digest;
+
+    fn hash_rows<R: tables::DraftRow>(hasher: &mut sha2::Sha256, rows: &[R])
+    where
+        R::Key: AsRef<str>,
+    {
+        for row in rows {
+            serde_json::to_writer(
+                &mut *hasher,
+                &(
+                    row.spec_type(),
+                    row.catalog_name().as_ref(),
+                    row.model(),
+                    row.expect_pub_id(),
+                    row.is_touch(),
+                ),
+            )
+            .expect("draft specification is serializable");
+        }
+    }
+
+    let mut hasher = sha2::Sha256::new();
+    hash_rows(&mut hasher, &draft.captures);
+    hash_rows(&mut hasher, &draft.collections);
+    hash_rows(&mut hasher, &draft.materializations);
+    hash_rows(&mut hasher, &draft.tests);
+    hex::encode(hasher.finalize())
+}
+
 pub async fn upsert_draft_catalog(
     draft_id: Id,
     catalog: &tables::DraftCatalog,

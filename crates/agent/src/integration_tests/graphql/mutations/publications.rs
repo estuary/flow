@@ -83,10 +83,47 @@ async fn lookup(
 #[tokio::test]
 async fn test_graphql_publication_commits_and_reports() {
     let mut harness = TestHarness::init("graphql_publication_commits").await;
+    harness.runtime_v2_new_captures = true;
     let alice = harness.setup_tenant("aliceCo").await;
     let draft_id = harness
         .create_draft(alice, "initial", capture_draft("source/test:test"))
         .await;
+
+    let id = submit(&mut harness, alice, draft_id, false, Some("via graphql")).await;
+
+    // Changing a model after submission invalidates its authorization even
+    // when the staged names stay the same.
+    sqlx::query(
+        r#"
+        UPDATE draft_specs
+        SET spec = jsonb_set(spec::jsonb, '{endpoint,connector,config}', '{"changed":true}')::json
+        WHERE draft_id = $1 AND spec_type = 'capture'
+        "#,
+    )
+    .bind(draft_id)
+    .execute(&harness.pool)
+    .await
+    .unwrap();
+    let result = harness.run_queued_publication(id).await;
+    assert_eq!(
+        result.status.r#type,
+        control_plane_api::publications::StatusType::PublishFailed
+    );
+    assert_eq!(result.pub_id, None);
+    assert_eq!(
+        result.errors,
+        [(
+            String::new(),
+            "initializing draft: draft content changed after publication was submitted".to_string()
+        )]
+    );
+    for name in ["aliceCo/data/foo", "aliceCo/in/cap"] {
+        harness.assert_live_spec_hard_deleted(name).await;
+    }
+    let draft = control_plane_api::draft::load_draft(draft_id, &harness.pool)
+        .await
+        .unwrap();
+    assert_eq!(draft.spec_count(), 2);
 
     let id = submit(&mut harness, alice, draft_id, false, Some("via graphql")).await;
 
