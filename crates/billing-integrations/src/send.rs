@@ -1,7 +1,6 @@
-use crate::stripe_utils::{Invoice, fetch_invoices};
+use crate::stripe_utils::Invoice;
 use anyhow::Context;
-use billing_types::{InvoiceSearch, InvoiceType, StatusFilter};
-use chrono::{Datelike, Duration, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate, Utc};
 use clap::Args;
 use futures::{
     TryFutureExt,
@@ -11,7 +10,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use num_format::{Locale, ToFormattedString};
 use std::collections::HashSet;
-use stripe::{Client, FinalizeInvoiceParams, Invoice as StripeInvoice};
+use stripe::{Client, FinalizeInvoiceParams, Invoice as StripeInvoice, InvoiceId};
 
 const PROGRESS_BAR_TEMPLATE: &str = "{spinner} [{elapsed_precise}] [{bar:40}] {pos}/{len} {msg}";
 
@@ -22,6 +21,9 @@ pub struct SendInvoices {
     /// Stripe API key.
     #[clap(long)]
     pub stripe_api_key: String,
+    /// Control-plane DB connection string
+    #[clap(long)]
+    pub connection_string: String,
     /// The month to send invoices for: YYYY-MM (also accepts YYYY-MM-01)
     #[clap(long, value_parser = crate::parse_month)]
     pub month: NaiveDate,
@@ -42,113 +44,50 @@ pub struct SendInvoices {
 pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
     let stripe_client = Client::new(cmd.stripe_api_key.to_owned())
         .with_strategy(stripe::RequestStrategy::ExponentialBackoff(4));
-    let month_start = cmd.month.format("%Y-%m-%d").to_string();
     let month_human_repr = cmd.month.format("%B %Y");
-    tracing::info!("Fetching Stripe invoices to process for {month_human_repr}");
+    tracing::info!("Loading invoice targets from the database for {month_human_repr}");
 
-    let draft_final_query = InvoiceSearch {
-        invoice_type: Some(InvoiceType::Final),
-        period_start: Some(&month_start),
-        status: StatusFilter::Only(stripe::InvoiceStatus::Draft),
-        ..Default::default()
+    // 1. Load the month's bills, then fetch each bill's recorded invoice
+    let db_pool = crate::connect_db(&cmd.connection_string, 1).await?;
+    let invoice_rows =
+        crate::publish::load_invoices(&db_pool, cmd.month, &cmd.tenants, &cmd.exclude_tenants)
+            .await
+            .context("Loading invoice targets from billing database")?;
+    db_pool.close().await;
+
+    let mut draft_invoices = Vec::new();
+    let mut finalized_invoices = Vec::new();
+    let mut failures = 0;
+    for row in invoice_rows {
+        let metadata = row.metadata();
+        match retrieve_recorded_invoice(&stripe_client, row.stripe_invoice_id.as_deref(), &metadata)
+            .await
+        {
+            Ok(Some(invoice)) => match invoice.status() {
+                Some(stripe::InvoiceStatus::Draft) => draft_invoices.push(invoice),
+                Some(stripe::InvoiceStatus::Open) => finalized_invoices.push(invoice),
+                _ => {
+                    tracing::info!(tenant = %metadata.tenant, stripe_invoice_id = ?row.stripe_invoice_id, "Skipping invoice that is no longer draft or open")
+                }
+            },
+            Ok(None) => {
+                tracing::info!(tenant = %metadata.tenant, invoice_type = %metadata.invoice_type, "Skipping invoice target without a recorded Stripe invoice ID")
+            }
+            Err(error) => {
+                failures += 1;
+                tracing::error!(tenant = %metadata.tenant, stripe_invoice_id = ?row.stripe_invoice_id, error = %format!("{error:#}"), "Failed to retrieve recorded Stripe invoice");
+            }
+        }
     }
-    .to_query();
-    let open_final_query = InvoiceSearch {
-        invoice_type: Some(InvoiceType::Final),
-        period_start: Some(&month_start),
-        status: StatusFilter::Only(stripe::InvoiceStatus::Open),
-        ..Default::default()
-    }
-    .to_query();
-
-    // Separate queries for manual invoices (we'll filter dates client-side)
-    let draft_manual_query = InvoiceSearch {
-        invoice_type: Some(InvoiceType::Manual),
-        status: StatusFilter::Only(stripe::InvoiceStatus::Draft),
-        ..Default::default()
-    }
-    .to_query();
-    let open_manual_query = InvoiceSearch {
-        invoice_type: Some(InvoiceType::Manual),
-        status: StatusFilter::Only(stripe::InvoiceStatus::Open),
-        ..Default::default()
-    }
-    .to_query();
-
-    // 1. Fetch invoices: final invoices with exact date match + all manual invoices
-    let (
-        mut draft_final_invoices,
-        mut finalized_final_invoices,
-        draft_manual_invoices,
-        finalized_manual_invoices,
-    ) = futures::try_join!(
-        fetch_invoices(&stripe_client, &draft_final_query),
-        fetch_invoices(&stripe_client, &open_final_query),
-        fetch_invoices(&stripe_client, &draft_manual_query),
-        fetch_invoices(&stripe_client, &open_manual_query)
-    )?;
-
-    // Filter manual invoices by date range client-side
-    let month_start_date = cmd.month;
-    let month_end_date = if month_start_date.month0() == 11 {
-        // December is month0 = 11
-        NaiveDate::from_ymd_opt(month_start_date.year() + 1, 1, 1).unwrap() - Duration::days(1)
-    } else {
-        NaiveDate::from_ymd_opt(month_start_date.year(), month_start_date.month0() + 2, 1).unwrap()
-            - Duration::days(1)
-    };
-
-    let filter_manual_invoices =
-        |invoices: Vec<crate::stripe_utils::Invoice>| -> Vec<crate::stripe_utils::Invoice> {
-            invoices
-                .into_iter()
-                .filter(|inv| match (inv.period_start(), inv.period_end()) {
-                    (Some(start_str), Some(end_str)) => {
-                        let start = NaiveDate::parse_from_str(&start_str, "%Y-%m-%d")
-                            .expect("period_start metadata should be a valid date");
-                        let end = NaiveDate::parse_from_str(&end_str, "%Y-%m-%d")
-                            .expect("period_end metadata should be a valid date");
-                        start <= month_end_date && end >= month_start_date
-                    }
-                    _ => false,
-                })
-                .collect()
-        };
-
-    let filtered_draft_manual = filter_manual_invoices(draft_manual_invoices);
-    let filtered_finalized_manual = filter_manual_invoices(finalized_manual_invoices);
-
-    // Combine final and manual invoices
-    draft_final_invoices.extend(filtered_draft_manual);
-    finalized_final_invoices.extend(filtered_finalized_manual);
-
-    // Rename for consistency with rest of function
-    let mut draft_invoices = draft_final_invoices;
-    let mut finalized_invoices = finalized_final_invoices;
 
     tracing::info!(
         "Fetched {} draft invoices for {month_human_repr}.",
         draft_invoices.len()
     );
 
-    // Filter out any excluded tenants
-    draft_invoices.retain(|inv| !cmd.exclude_tenants.contains(&inv.tenant()));
-    finalized_invoices.retain(|inv| !cmd.exclude_tenants.contains(&inv.tenant()));
-
-    if !cmd.all_tenants {
-        // If a list of tenants is provided, filter to only those tenants
-        draft_invoices.retain(|inv| cmd.tenants.contains(&inv.tenant()));
-        finalized_invoices.retain(|inv| cmd.tenants.contains(&inv.tenant()));
-    }
-
-    tracing::info!(
-        "Running against {} draft invoices for {month_human_repr}.",
-        draft_invoices.len()
-    );
-
     let selected_drafts = draft_invoices.len();
     draft_invoices = update_draft_collection_methods(&stripe_client, draft_invoices).await?;
-    let mut failures = selected_drafts - draft_invoices.len();
+    failures += selected_drafts - draft_invoices.len();
 
     if !draft_invoices.is_empty() {
         print_invoice_table("Invoices to finalize", &draft_invoices);
@@ -186,6 +125,21 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn retrieve_recorded_invoice(
+    stripe_client: &Client,
+    recorded_id: Option<&str>,
+    metadata: &billing_types::InvoiceMetadata,
+) -> anyhow::Result<Option<Invoice>> {
+    let Some(recorded_id) = recorded_id else {
+        return Ok(None);
+    };
+    let invoice_id: InvoiceId = recorded_id
+        .parse()
+        .with_context(|| format!("Invalid recorded Stripe invoice ID {recorded_id}"))?;
+    let invoice = StripeInvoice::retrieve(stripe_client, &invoice_id, &["customer"]).await?;
+    Ok(Some(Invoice::with_metadata(invoice, metadata.clone())))
+}
+
 /// Invoices that are created with the `charge_automatically` collection method
 /// can only proceed if the customer has a payment method on file. If not, the
 /// invoice's collection method must be changed to 'send_invoice' and a due date
@@ -194,36 +148,24 @@ async fn update_draft_collection_methods(
     stripe_client: &Client,
     mut to_update: Vec<Invoice>,
 ) -> anyhow::Result<Vec<Invoice>> {
-    // Search results and an earlier publish run may have stale payment-method state.
-    let mut refreshed = Vec::new();
+    let mut valid = Vec::new();
     let mut needs_update = HashSet::new();
     for inv in to_update {
-        let result = async {
-            let current = Invoice::from(
-                StripeInvoice::retrieve(stripe_client, inv.id(), &["customer"]).await?,
-            );
-            anyhow::ensure!(
-                current.status() == Some(stripe::InvoiceStatus::Draft),
-                "invoice is no longer a draft"
-            );
-            let needs_update = collection_method_needs_update(&current)
-                .context("Invalid draft collection configuration; rerun publish-invoices")?;
-            Ok::<_, anyhow::Error>((current, needs_update))
-        }
-        .await;
-        match result {
-            Ok((current, update)) => {
+        match collection_method_needs_update(&inv)
+            .context("Invalid draft collection configuration; rerun publish-invoices")
+        {
+            Ok(update) => {
                 if update {
-                    needs_update.insert(current.id().clone());
+                    needs_update.insert(inv.id().clone());
                 }
-                refreshed.push(current);
+                valid.push(inv);
             }
             Err(error) => {
                 tracing::error!(invoice = %inv.id(), tenant = %inv.tenant(), error = %format!("{error:#}"), "Skipping invoice")
             }
         }
     }
-    to_update = refreshed;
+    to_update = valid;
 
     // Modify the table row for those that need to be updated showing the transition
     let table_rows = to_update
@@ -287,7 +229,7 @@ async fn update_collection_methods(
         match res {
             Ok(mut invoice) => {
                 invoice.customer = inv.customer.clone();
-                updated.push(Invoice::from(invoice));
+                updated.push(Invoice::with_metadata(invoice, inv.metadata().clone()));
             }
             Err(e) => {
                 tracing::error!(
@@ -338,12 +280,13 @@ async fn finalize_invoices(
         async move {
             // The operator can pause at the prompt. Re-read before enabling collection,
             // and require another send run if the approved collection decision changed.
-            let current = Invoice::from(
+            let current = Invoice::with_metadata(
                 StripeInvoice::retrieve(stripe_client, row.id(), &["customer"])
                     .await
                     .with_context(|| {
                         format!("Refreshing invoice {} before finalization", row.id())
                     })?,
+                row.metadata().clone(),
             );
             anyhow::ensure!(
                 current.status() == Some(stripe::InvoiceStatus::Draft),
@@ -378,7 +321,7 @@ async fn finalize_invoices(
             .context(
                 "Invoice was finalized but could not be read back; check Stripe before retrying",
             )?;
-            Ok(Invoice::from(invoice))
+            Ok(Invoice::with_metadata(invoice, row.metadata().clone()))
         }
         .map_err(move |error: anyhow::Error| error.context(context))
     });
@@ -480,8 +423,9 @@ async fn update_auto_advance(
     let mut failures = 0;
     for inv in invoices {
         let res: anyhow::Result<stripe::Invoice> = async {
-            let current = Invoice::from(
-                StripeInvoice::retrieve(stripe_client, inv.id(), &["customer"]).await?
+            let current = Invoice::with_metadata(
+                StripeInvoice::retrieve(stripe_client, inv.id(), &["customer"]).await?,
+                inv.metadata().clone(),
             );
             anyhow::ensure!(
                 current.status() == Some(stripe::InvoiceStatus::Open),
@@ -608,36 +552,71 @@ async fn prompt_to_continue(message: &str) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stripe_stub::stripe_stub;
+    use billing_types::InvoiceType;
 
     fn invoice(manual: bool, has_payment_method: bool) -> Invoice {
-        Invoice::from(stripe::Invoice {
-            id: "in_test".parse().unwrap(),
-            status: Some(stripe::InvoiceStatus::Draft),
-            collection_method: Some(stripe::CollectionMethod::ChargeAutomatically),
-            customer: Some(stripe::Expandable::Object(Box::new(stripe::Customer {
-                id: "cus_test".parse().unwrap(),
-                invoice_settings: Some(stripe::InvoiceSettingCustomerSetting {
-                    default_payment_method: has_payment_method
-                        .then(|| stripe::Expandable::Id("pm_test".parse().unwrap())),
+        Invoice::with_metadata(
+            stripe::Invoice {
+                id: "in_test".parse().unwrap(),
+                status: Some(stripe::InvoiceStatus::Draft),
+                collection_method: Some(stripe::CollectionMethod::ChargeAutomatically),
+                customer: Some(stripe::Expandable::Object(Box::new(stripe::Customer {
+                    id: "cus_test".parse().unwrap(),
+                    invoice_settings: Some(stripe::InvoiceSettingCustomerSetting {
+                        default_payment_method: has_payment_method
+                            .then(|| stripe::Expandable::Id("pm_test".parse().unwrap())),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
+                }))),
+                metadata: None,
                 ..Default::default()
-            }))),
-            metadata: Some(
-                billing_types::InvoiceMetadata {
-                    tenant: "acmeCo/".to_string(),
-                    invoice_type: if manual {
-                        InvoiceType::Manual
-                    } else {
-                        InvoiceType::Final
-                    },
-                    period_start: "2026-08-01".to_string(),
-                    period_end: "2026-08-31".to_string(),
-                }
-                .to_metadata_map(),
-            ),
+            },
+            billing_types::InvoiceMetadata {
+                tenant: "acmeCo/".to_string(),
+                invoice_type: if manual {
+                    InvoiceType::Manual
+                } else {
+                    InvoiceType::Final
+                },
+                period_start: "2026-08-01".to_string(),
+                period_end: "2026-08-31".to_string(),
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn recorded_id_is_retrieved_directly_and_keeps_database_context() {
+        let response_invoice = stripe::Invoice {
+            id: "in_recorded".parse().unwrap(),
+            status: Some(stripe::InvoiceStatus::Draft),
+            collection_method: Some(stripe::CollectionMethod::SendInvoice),
+            metadata: None,
             ..Default::default()
-        })
+        };
+        let (client, requests) = stripe_stub(vec![(
+            axum::http::StatusCode::OK,
+            serde_json::to_value(&response_invoice).unwrap(),
+        )])
+        .await;
+        let metadata = billing_types::InvoiceMetadata {
+            tenant: "db-tenant/".to_string(),
+            invoice_type: InvoiceType::Manual,
+            period_start: "2026-07-15".to_string(),
+            period_end: "2026-09-14".to_string(),
+        };
+        let invoice = retrieve_recorded_invoice(&client, Some("in_recorded"), &metadata)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(invoice.tenant(), "db-tenant/");
+        assert!(invoice.is_manual());
+        assert_eq!(invoice.metadata().period_start, "2026-07-15");
+        assert_eq!(
+            *requests.lock().unwrap(),
+            ["GET /v1/invoices/in_recorded?expand[0]=customer"]
+        );
     }
 
     #[test]
@@ -663,35 +642,6 @@ mod tests {
             usage.collection_method = None;
             assert!(collection_method_needs_update(&usage).is_err());
         }
-    }
-
-    async fn stripe_stub(
-        responses: Vec<(axum::http::StatusCode, serde_json::Value)>,
-    ) -> (
-        stripe::Client,
-        std::sync::Arc<std::sync::Mutex<Vec<String>>>,
-    ) {
-        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let recorded = requests.clone();
-        let responses = std::sync::Arc::new(std::sync::Mutex::new(responses.into_iter()));
-        let app = axum::Router::new().fallback(move |method: axum::http::Method, uri: axum::http::Uri| {
-            let recorded = recorded.clone();
-            let responses = responses.clone();
-            async move {
-                recorded.lock().unwrap().push(format!("{method} {}", uri.path()));
-                let (status, body) = responses.lock().unwrap().next().unwrap_or((
-                    axum::http::StatusCode::BAD_REQUEST,
-                    serde_json::json!({"error": {"type": "invalid_request_error", "message": "unexpected request"}}),
-                ));
-                (status, axum::Json(body))
-            }
-        });
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}/", listener.local_addr().unwrap());
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        (stripe::Client::from_url(url.as_str(), "test"), requests)
     }
 
     #[tokio::test]
@@ -720,9 +670,9 @@ mod tests {
             [
                 "POST /v1/invoices/in_test",
                 "POST /v1/invoices/in_success",
-                "GET /v1/invoices/in_success",
+                "GET /v1/invoices/in_success?expand[0]=customer",
                 "POST /v1/invoices/in_success/finalize",
-                "GET /v1/invoices/in_success",
+                "GET /v1/invoices/in_success?expand[0]=customer",
             ]
         );
     }
@@ -740,7 +690,10 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        assert_eq!(*requests.lock().unwrap(), ["GET /v1/invoices/in_test"]);
+        assert_eq!(
+            *requests.lock().unwrap(),
+            ["GET /v1/invoices/in_test?expand[0]=customer"]
+        );
     }
 
     #[tokio::test]
@@ -759,9 +712,12 @@ mod tests {
             let (client, requests) = stripe_stub(vec![response.clone(), response]).await;
             // The second response is used only when collection is allowed.
             let expected = if valid {
-                vec!["GET /v1/invoices/in_test", "POST /v1/invoices/in_test"]
+                vec![
+                    "GET /v1/invoices/in_test?expand[0]=customer",
+                    "POST /v1/invoices/in_test",
+                ]
             } else {
-                vec!["GET /v1/invoices/in_test"]
+                vec!["GET /v1/invoices/in_test?expand[0]=customer"]
             };
             let failures = update_auto_advance(&client, vec![current]).await.unwrap();
             assert_eq!(failures, usize::from(!valid));
