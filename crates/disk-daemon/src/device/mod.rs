@@ -124,13 +124,15 @@ impl Device {
             .set_params(dev_id, &ublk::params(image.blocks()))
             .map_err(delete)?;
 
-        let (commands, thread) = owner::spawn(owner::Inputs {
+        let (commands, received) = std::sync::mpsc::channel();
+        let thread = owner::spawn(
             dev_id,
             cdev,
-            target: target::Target::new(dev_id, image, recorder, horizon, policy),
-            waker: waker.clone(),
+            waker.clone(),
             queue_depth,
-        })
+            target::Target::new(dev_id, image, recorder, horizon, policy),
+            received,
+        )
         .map_err(delete)?;
 
         let device = Self {
