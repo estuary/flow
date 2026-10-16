@@ -253,7 +253,13 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                         &state.control_plane_jwt_decode_keys,
                     )?;
 
-                    if verified.claims().aud != "authenticated" {
+                    if verified.claims().aud != "authenticated"
+                        && !crate::server::oauth::accepts_access_token(
+                            &state,
+                            verified.claims(),
+                            token,
+                        )
+                    {
                         return Err(tonic::Status::unauthenticated(
                             "authorization bearer claims missing required `aud` of 'authenticated'",
                         )

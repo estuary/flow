@@ -1,5 +1,9 @@
 # control-plane-api
 
+`server/oauth` owns OAuth authorization, dashboard consent, token exchange, and
+connection revocation. See [its README](src/server/oauth/README.md) for agent
+configuration, the dashboard contract, and MCP resource integration.
+
 Service-account API keys are minted by `server/public/graphql/service_accounts.rs`.
 Like refresh-token creation, API-key creation rejects access tokens carrying a
 capability mask or prefix scope, because the new credential would not preserve

@@ -12,6 +12,7 @@ mod authorize_user_secret;
 mod authorize_user_task;
 mod create_data_plane;
 mod error;
+pub mod oauth;
 pub mod public;
 pub mod snapshot;
 mod task_residency;
@@ -37,6 +38,8 @@ pub enum Rejection {
 
 /// App is the wired application state of the control-plane API.
 pub struct App {
+    /// Optional OAuth authorization-server configuration.
+    pub oauth: Option<Arc<oauth::Config>>,
     pub id_generator: std::sync::Mutex<models::IdGenerator>,
     pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
     pub catalog_stats: Option<Arc<catalog_stats::Client>>,
@@ -68,6 +71,7 @@ impl App {
         stripe_webhook_secret: Option<String>,
     ) -> Self {
         Self {
+            oauth: None,
             id_generator: std::sync::Mutex::new(id_generator),
             billing_provider,
             catalog_stats,
@@ -227,6 +231,7 @@ pub fn build_router(
                 .on_failure(tower_http::trace::DefaultOnFailure::new().level(tracing::Level::INFO)),
         )
         .layer(cors)
+        .merge(oauth::router().layer(tower_http::cors::CorsLayer::permissive()))
         .with_state(app);
 
     Ok(main_router)

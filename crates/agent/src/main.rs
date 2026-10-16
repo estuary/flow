@@ -55,6 +55,23 @@ struct Args {
     #[derivative(Debug = "ignore")]
     #[clap(long = "stripe-webhook-secret", env = "STRIPE_WEBHOOK_SECRET")]
     stripe_webhook_secret: Option<String>,
+    /// Public HTTPS origin of the OAuth authorization server. Unset disables OAuth.
+    #[clap(long, env = "OAUTH_ISSUER_URL")]
+    oauth_issuer_url: Option<String>,
+    /// Dashboard route implementing the authenticated OAuth consent API.
+    #[clap(long, env = "OAUTH_CONSENT_URL", requires = "oauth_issuer_url")]
+    oauth_consent_url: Option<String>,
+    /// Exact resource URIs for which OAuth grants may be issued.
+    #[clap(
+        long,
+        env = "OAUTH_RESOURCE_URLS",
+        value_delimiter = ',',
+        requires = "oauth_issuer_url"
+    )]
+    oauth_resource_urls: Vec<String>,
+    /// Optional JSON array of pre-registered public clients. Others use CIMD.
+    #[clap(long, env = "OAUTH_CLIENTS_JSON", requires = "oauth_issuer_url")]
+    oauth_clients_json: Option<String>,
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
@@ -395,7 +412,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let sprites = args
         .sprites_token
         .map(|token| Arc::new(control_plane_api::sprites::Client::new(token)));
-    let api_app = Arc::new(App::new(
+    let mut api_app = App::new(
         agent::id_generator::with_random_shard(),
         billing_provider,
         catalog_stats,
@@ -405,7 +422,20 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         snapshot_watch.clone(),
         sprites,
         args.stripe_webhook_secret,
-    ));
+    );
+    if let Some(issuer) = args.oauth_issuer_url {
+        let consent = args.oauth_consent_url.ok_or_else(|| {
+            anyhow::anyhow!("OAUTH_CONSENT_URL is required when OAuth is enabled")
+        })?;
+        let clients = serde_json::from_str(args.oauth_clients_json.as_deref().unwrap_or("[]"))?;
+        api_app.oauth = Some(Arc::new(control_plane_api::server::oauth::Config::new(
+            issuer,
+            consent,
+            args.oauth_resource_urls,
+            clients,
+        )?));
+    }
+    let api_app = Arc::new(api_app);
     let api_router = control_plane_api::build_router(
         api_app.clone(),
         &args.allow_origin,
