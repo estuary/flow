@@ -838,6 +838,15 @@ async fn controller_update<C: ControlPlane>(
         return Ok(None);
     };
 
+    if let AnySpec::Materialization(m) = live_spec {
+        materialization::update_auto_disabled_bindings(
+            status.as_materialization_mut()?,
+            events,
+            m,
+            control_plane.current_time(),
+        );
+    }
+
     let alert_cfg = control_plane
         .resolved_alert_config(state.catalog_name.clone())
         .await

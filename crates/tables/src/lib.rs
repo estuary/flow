@@ -324,6 +324,9 @@ tables!(
         // Descriptions of automated model changes made during validation.
         // If non-empty then `is_touch` is false.
         val model_fixes: Vec<String>,
+        // Bindings which validation disabled due to `onIncompatibleSchemaChange`.
+        // Each is also described by `model_fixes`.
+        val auto_disabled_bindings: Vec<models::status::AutoDisabledBinding>,
         // Validated response which was used to build this spec.
         val validated: Option<proto_flow::materialize::response::Validated>,
         // Built specification of this materialization, or None if it's being deleted.
@@ -470,6 +473,7 @@ json_sql_types!(
     Vec<models::Id>,
     Vec<models::Store>,
     Vec<models::authz::CapabilityBundle>,
+    Vec<models::status::AutoDisabledBinding>,
     models::Capability,
     models::CaptureDef,
     models::CatalogType,

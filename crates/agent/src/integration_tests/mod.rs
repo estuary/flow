@@ -4,6 +4,7 @@
 //! connectors are not exercised as part of these.
 mod abandoned_tasks;
 mod alerts;
+mod auto_disabled_bindings;
 mod auto_discovers;
 mod collection_resets;
 mod config_updates;

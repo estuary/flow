@@ -15,6 +15,10 @@ pub enum Message {
     SpecPublished {
         /// The ID of the publication that touched or modified the spec.
         pub_id: models::Id,
+        /// Bindings which the publication disabled due to
+        /// `onIncompatibleSchemaChange`. Only materializations have these.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        auto_disabled_bindings: Vec<models::status::AutoDisabledBinding>,
     },
     /// Signals that a publication of the spec is necessary, and should be performed
     /// as soon as practical after the controller receives this message.
