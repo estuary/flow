@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+mod db;
 mod stripe_helpers;
+pub use db::record_customer_id;
 pub use stripe_helpers::{SearchParams, stripe_search};
 
 pub const TENANT_METADATA_KEY: &str = "estuary.dev/tenant_name";
@@ -90,13 +92,10 @@ pub fn customer_create_idempotency_key(tenant: &str) -> String {
     format!("flow-customer-create:{tenant}")
 }
 
-/// These 4 pieces of metadata link an invoice in Stripe to a row in `invoices_ext`. This is
-/// an area that could be improved in the future if needed, but presently `invoices_ext` does not
-/// model a single "primary key", which is why we need to use this compound identity. It composes:
-/// * "Final" invoices, which come from `internal.billing_historicals`, and use the natural key of
-///   `(tenant, billed_month)`. `billing_historicals` does not contain a primary key
-/// * "Manual" invoices, which come from `internal.manual_bills` which uses the natural key
-///   `(tenant, date_start, date_end)`, again not modelling a primary key.
+/// Tenant, bill type, and billing period attached to a Flow invoice in Stripe.
+/// These fields support historical backfill matching and batch selection by
+/// `send-invoices`. The bill's `stripe_invoice_id` records its invoice identity.
+/// Manual bill dates can be edited; publishing refreshes a draft's metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvoiceMetadata {
     pub tenant: String,

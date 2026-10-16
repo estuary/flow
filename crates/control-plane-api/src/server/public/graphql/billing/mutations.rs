@@ -62,17 +62,17 @@ impl BillingMutation {
         let stripe_address = billing_contact.address.map(stripe::Address::from);
 
         let provider = billing_provider(ctx)?;
-        let customer = provider
-            .as_ref()
-            .find_or_create_customer(
-                tenant.as_str(),
-                customer_email,
-                full_name.as_deref(),
-                billing_contact.name.as_deref(),
-                stripe_address,
-            )
-            .await
-            .map_err(|err| async_graphql::Error::new(err.to_string()))?;
+        let customer = billing::find_or_create_customer(
+            &env.pg_pool,
+            provider.as_ref(),
+            tenant.as_str(),
+            customer_email,
+            full_name.as_deref(),
+            billing_contact.name.as_deref(),
+            stripe_address,
+        )
+        .await
+        .map_err(|err| async_graphql::Error::new(err.to_string()))?;
 
         let setup_intent = provider
             .create_setup_intent(&customer.id, tenant.as_str())
@@ -98,9 +98,7 @@ impl BillingMutation {
         verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 
         let provider = billing_provider(ctx)?;
-        let customer = provider
-            .as_ref()
-            .require_customer(tenant.as_str())
+        let customer = billing::require_customer(&env.pg_pool, provider.as_ref(), tenant.as_str())
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))?;
         let methods =
@@ -170,9 +168,7 @@ impl BillingMutation {
         verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 
         let provider = billing_provider(ctx)?;
-        let customer = provider
-            .as_ref()
-            .require_customer(tenant.as_str())
+        let customer = billing::require_customer(&env.pg_pool, provider.as_ref(), tenant.as_str())
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))?;
         let methods =
@@ -241,6 +237,12 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
+    async fn record_customer_id(pool: &sqlx::PgPool, tenant: &str, id: &str) {
+        billing_types::record_customer_id(pool, tenant, &id.parse().unwrap())
+            .await
+            .unwrap();
+    }
+
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../../fixtures", scripts("data_planes", "alice"))
@@ -254,6 +256,7 @@ mod tests {
 
         let mock = billing::InMemoryBillingProvider::new();
         mock.add_customer("billingmock/", "cus_123", Some("pm_1"));
+        record_customer_id(&pool, "billingmock/", "cus_123").await;
         mock.add_payment_method(
             "cus_123",
             "pm_1",
@@ -285,6 +288,7 @@ mod tests {
             }),
         );
         mock.add_customer("billingvictim/", "cus_victim", Some("pm_v"));
+        record_customer_id(&pool, "billingvictim/", "cus_victim").await;
         mock.add_payment_method(
             "cus_victim",
             "pm_v",
@@ -429,6 +433,7 @@ mod tests {
 
         let mock = billing::InMemoryBillingProvider::new();
         mock.add_customer("contacttest/", "cus_ct", None);
+        record_customer_id(&pool, "contacttest/", "cus_ct").await;
 
         let (server, token) = start_server_and_token(&pool, user_id, tenant, Arc::new(mock)).await;
 
