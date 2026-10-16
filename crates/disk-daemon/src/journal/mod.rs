@@ -166,6 +166,11 @@ fn floor_change(
     })
 }
 
+/// The error of journal work which stopped because its attachment ended.
+fn attachment_ended() -> anyhow::Error {
+    proto_grpc::status_to_anyhow(tonic::Status::unavailable("the attachment ended"))
+}
+
 fn uuid_bytes(producer: uuid::Producer, clock: uuid::Clock, flags: uuid::Flags) -> bytes::Bytes {
     bytes::Bytes::copy_from_slice(uuid::build(producer, clock, flags).as_bytes())
 }

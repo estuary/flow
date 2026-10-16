@@ -53,7 +53,7 @@ Paths below are relative to `src/`.
 | `journal/lifecycle.rs` | Opening, standby playback, fencing, and promotion. |
 | `journal/mod.rs` | Append state shared by the lifecycle and writer, head confirmation, and parsing and setting the recovery-floor label. |
 | `journal/replay.rs`, `journal/sequencer.rs`, `journal/uncommitted.rs` | Replay I/O, pure sequencing decisions, and buffered uncommitted deltas. |
-| `journal/writer.rs`, `journal/ledger.rs` | Writer handle and the task behind it, and the pure delta ledger. |
+| `journal/writer.rs`, `journal/ledger.rs` | The writer, which appends mutations during a drain, and the pure delta ledger. |
 
 The wire contract and durable record schema are in
 [`disk.proto`](../../go/protocols/disk/disk.proto). Public modules are `client`

@@ -27,9 +27,7 @@ pub(crate) async fn run(
         disk: None,
     };
 
-    // A client which drops its stream ends the attachment, even mid-request: its
-    // broker calls give up, and its abandoned writer frees a format or mount which
-    // stalled behind a broker it cannot reach.
+    // A client which drops its stream ends the attachment.
     let ended = attachment.ended.clone();
     let outcome = tokio::select! {
         outcome = proto_grpc::catch_panic(attachment.serve(&mut requests, &responses)) => outcome,
@@ -88,7 +86,7 @@ impl Attachment {
 
         // Replay to the head `Open` observed before reading another request, so
         // `Opened` precedes any `Promote`.
-        let mut standby = self.open(journal, blocks).await?;
+        let mut standby = open_standby(&self.config, &self.ended, journal, blocks).await?;
         () = send(
             responses,
             proto::response::Response::Opened(proto::Opened {}),
@@ -127,7 +125,12 @@ impl Attachment {
         .await?;
 
         loop {
-            let response = match next(requests, &self.ended).await? {
+            let request = disk
+                .writer
+                .drain_while(next(requests, &self.ended))
+                .await??;
+
+            let response = match request {
                 None => return Ok(()),
                 Some(proto::request::Request::Prepare(proto::Prepare {})) => {
                     proto::response::Response::Prepared(proto::Prepared {
@@ -147,30 +150,23 @@ impl Attachment {
             () = send(responses, response).await?;
         }
     }
+}
 
-    /// Replay `journal` into a new image of `blocks` through the head it resolves,
-    /// and keep following it, without fencing or mounting anything.
-    async fn open(&self, journal: String, blocks: u32) -> anyhow::Result<journal::Standby> {
-        let image = image::Image::create(&self.config.image_dir, blocks)
-            .with_context(|| format!("creating an image in {:?}", self.config.image_dir))?;
+/// Replay `journal` into a new image of `blocks` through the head it resolves, and
+/// keep following it, without fencing or mounting anything.
+async fn open_standby(
+    config: &crate::daemon::Config,
+    ended: &tokio_util::sync::CancellationToken,
+    journal: String,
+    blocks: u32,
+) -> anyhow::Result<journal::Standby> {
+    let image = image::Image::create(&config.image_dir, blocks)
+        .with_context(|| format!("creating an image in {:?}", config.image_dir))?;
 
-        let uncommitted =
-            journal::UncommittedDelta::create(&self.config.image_dir).with_context(|| {
-                format!(
-                    "creating an uncommitted delta in {:?}",
-                    self.config.image_dir
-                )
-            })?;
+    let uncommitted = journal::UncommittedDelta::create(&config.image_dir)
+        .with_context(|| format!("creating an uncommitted delta in {:?}", config.image_dir))?;
 
-        journal::Standby::new(
-            &self.config.brokers,
-            journal,
-            self.ended.clone(),
-            image,
-            uncommitted,
-        )
-        .await
-    }
+    journal::Standby::new(&config.brokers, journal, ended.clone(), image, uncommitted).await
 }
 
 /// Check an `Open` before anything is created for it, returning its journal and the
@@ -281,23 +277,23 @@ impl MountedDisk {
         // A mount point names the device it presents.
         let mount_path = config.mount_dir.join(format!("disk-{}", device.dev_id()));
 
-        // Start draining before `mkfs` or mount writes can fill the bounded
-        // recording channel and stall the device.
-        let writer = promoted.serve(recorded);
+        let mut writer = promoted.into_writer(recorded);
 
-        // Failures must use ordered teardown: a plain drop could block this
-        // runtime thread stopping a device whose writer is retrying broker I/O.
-        let mounted = async {
-            if fresh {
-                () = filesystem::format(&block_path, peer).await?;
-            }
-            filesystem::Mount::new(&block_path, mount_path, peer).await
-        }
-        .await;
+        // Drain while `mkfs` and mount write to the device.
+        let mounted = writer
+            .drain_while(async {
+                if fresh {
+                    () = filesystem::format(&block_path, peer).await?;
+                }
+                filesystem::Mount::new(&block_path, mount_path, peer).await
+            })
+            .await;
 
+        // Use ordered teardown on failure. A plain drop stops the device on this
+        // runtime thread, which can block.
         let mount = match mounted {
-            Ok(mount) => mount,
-            Err(err) => {
+            Ok(Ok(mount)) => mount,
+            Ok(Err(err)) | Err(err) => {
                 () = take_apart(None, device, writer).await;
                 return Err(err);
             }
@@ -335,8 +331,13 @@ impl MountedDisk {
     async fn prepare(&mut self) -> anyhow::Result<Option<bytes::Bytes>> {
         let mount = self.mount.path().to_path_buf();
 
-        tokio::task::spawn_blocking(move || filesystem::sync(&mount))
-            .await?
+        // Drain during the sync, because it waits for the writes it flushes.
+        () = self
+            .writer
+            .drain_while(tokio::task::spawn_blocking(move || {
+                filesystem::sync(&mount)
+            }))
+            .await??
             .context("syncing a disk's filesystem")?;
 
         let discharged = self.device.close_admission().await?;
@@ -370,7 +371,9 @@ async fn take_apart(
     mut device: device::Device,
     writer: journal::Writer,
 ) {
-    () = writer.abandon();
+    // Drop the writer first, so that the unmount and the stop do not wait on the
+    // recording channel.
+    drop(writer);
 
     let dev_id = device.dev_id();
 
@@ -385,7 +388,6 @@ async fn take_apart(
         Ok(Err(err)) => tracing::error!(?err, dev_id, "failed to stop a device"),
         Err(panic) => tracing::error!(?panic, dev_id, "panicked stopping a device"),
     }
-    drop(writer);
 
     tracing::info!(dev_id, "closed a disk");
 }

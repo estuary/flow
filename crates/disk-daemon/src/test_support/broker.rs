@@ -46,8 +46,8 @@ impl Fixture {
             .expect("DataPlane graceful_stop");
     }
 
-    /// Open, fence, and promote `journal` as an attachment does, and serve a writer
-    /// from it over a recording channel the scenario sends to.
+    /// Open, fence, and promote `journal` as an attachment does. Return its writer and
+    /// the recording channel that feeds it.
     pub async fn open(&self, journal: &str) -> anyhow::Result<(Recorder, crate::journal::Writer)> {
         let (recorder, writer, _blocks) = self.recover(journal, None).await?;
 
@@ -64,7 +64,7 @@ impl Fixture {
         let (promoted, blocks) = self.promote(journal, ack).await?;
         let (recorder, recorded) = tokio::sync::mpsc::channel(64);
 
-        Ok((recorder, promoted.serve(recorded), blocks))
+        Ok((recorder, promoted.into_writer(recorded), blocks))
     }
 
     /// Open, fence, and promote `journal` as an attachment does, repairing `ack`, and
@@ -226,8 +226,8 @@ impl Fixture {
         })
     }
 
-    /// Wait for `journal`'s head to move past `head`: for an append a writer starts
-    /// on its own, which no flush of the scenario's awaits, to land.
+    /// Wait until the head of `journal` moves past `head`. Use this to wait for an
+    /// append from a drain, which no flush awaits.
     pub async fn advances(&self, journal: &str, head: i64) {
         for _ in 0..1000 {
             if self.head(journal).await > head {

@@ -5,7 +5,8 @@
 //! 1. [`Standby::new`] replays the journal to its head. The standby then keeps
 //!    tailing it with [`Standby::follow`] until promoted.
 //! 2. [`Standby::promote`] fences the previous writer and finishes replay.
-//! 3. [`Promoted::serve`] starts the [`writer::Writer`], which appends deltas.
+//! 3. [`Promoted::into_writer`] hands the journal to a [`writer::Writer`], which
+//!    appends deltas.
 
 use super::{replay, sequencer, uncommitted, writer};
 use crate::device;
@@ -81,11 +82,10 @@ impl Standby {
                 replay,
             })
         };
-        ended.run_until_cancelled(opening).await.unwrap_or_else(|| {
-            Err(proto_grpc::status_to_anyhow(tonic::Status::unavailable(
-                "the attachment ended",
-            )))
-        })
+        ended
+            .run_until_cancelled(opening)
+            .await
+            .unwrap_or_else(|| Err(super::attachment_ended()))
     }
 
     /// Tail the journal until reading it fails, and return that failure.
@@ -193,16 +193,11 @@ impl Standby {
         ended
             .run_until_cancelled(promoting)
             .await
-            .unwrap_or_else(|| {
-                Err(proto_grpc::status_to_anyhow(tonic::Status::unavailable(
-                    "the attachment ended",
-                )))
-            })
+            .unwrap_or_else(|| Err(super::attachment_ended()))
     }
 }
 
-/// A journal this attachment holds and has replayed, which [`Promoted::serve`] appends
-/// the disk's deltas to.
+/// A replayed journal which this attachment holds, ready for its [`writer::Writer`].
 pub struct Promoted {
     /// Journal ownership and recovery offsets after promotion.
     journal: super::Journal,
@@ -214,14 +209,14 @@ pub struct Promoted {
 }
 
 impl Promoted {
-    pub fn serve(self, recorded: device::Recorded) -> writer::Writer {
+    pub fn into_writer(self, recorded: device::Recorded) -> writer::Writer {
         let Self {
             journal,
             appender,
             horizon,
         } = self;
 
-        writer::Writer::spawn(journal, appender, horizon, recorded)
+        writer::Writer::new(journal, appender, horizon, recorded)
     }
 }
 
@@ -474,8 +469,7 @@ mod broker_test {
             .unwrap();
 
         // The append which lost the fence fails as `ABORTED`, which tells its client
-        // that another attachment owns the disk. Every later request reports the
-        // failure which ended the attachment.
+        // that another attachment owns the disk. The failure ends the attachment.
         let mut out = Vec::new();
         for what in ["fenced-out prepare", "later prepare"] {
             let err = first.prepare(false).await.unwrap_err();
@@ -483,7 +477,7 @@ mod broker_test {
         }
         insta::assert_snapshot!(out.join("\n"), @"
         fenced-out prepare  Aborted: journal acmeCo/disk/contended registers do not match (Aborted)
-        later prepare       no code: the attachment is over
+        later prepare       Unavailable: the attachment ended (Unavailable)
         ");
     }
 
@@ -653,10 +647,13 @@ mod broker_test {
         let ack = writer.prepare(false).await.unwrap().0.unwrap();
         () = writer.acknowledge(ack.clone()).await.unwrap();
 
-        // The next transaction writes, and the writer appends that write at once.
+        // The next transaction writes. The writer appends the write during a drain.
         let head = fixture.head(journal).await;
         recorder.try_send(broker::write(2, 0xbb)).unwrap();
-        () = fixture.advances(journal, head).await;
+        () = writer
+            .drain_while(fixture.advances(journal, head))
+            .await
+            .unwrap();
         drop((recorder, writer));
 
         // The client failed before it committed the next transaction, so its checkpoint
