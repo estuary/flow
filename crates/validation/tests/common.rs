@@ -486,7 +486,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     let validations = futures::executor::block_on(validation::validate(
         models::Id::new([32; 8]),
         models::Id::new([33; 8]),
-        &url::Url::parse("file:///project/root").unwrap(),
         &connectors,
         &draft,
         &live,

@@ -15,7 +15,6 @@ pub struct Generate {
 impl Generate {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         let source = build::arg_source_to_url(&self.source, false)?;
-        let project_root = build::project_root(&source);
 
         let mut draft = local_specs::load(&source).await;
         sources::inline_draft_catalog(&mut draft);
@@ -43,7 +42,7 @@ impl Generate {
             })
             .collect();
 
-        build::write_files(&project_root, files)?;
+        build::write_files(&source, files)?;
 
         let () = local_specs::generate_files(ctx, draft).await?;
         Ok(())
@@ -127,14 +126,14 @@ async fn generate_missing_capture_configs(
                 connector_type: flow::capture_spec::ConnectorType::Image as i32,
                 config_json: serde_json::to_string(config).unwrap().into(),
             },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
+            missing_url(&config.config),
         ),
         models::CaptureEndpoint::Local(config) => (
             capture::request::Spec {
                 connector_type: flow::capture_spec::ConnectorType::Local as i32,
                 config_json: serde_json::to_string(config).unwrap().into(),
             },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
+            missing_url(&config.config),
         ),
     };
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings
@@ -142,11 +141,7 @@ async fn generate_missing_capture_configs(
         .filter_map(
             |models::CaptureBinding {
                  resource, target, ..
-             }| {
-                serde_json::from_str(resource.get())
-                    .ok()
-                    .map(|u| (u, target.clone()))
-            },
+             }| { missing_url(resource).map(|u| (u, target.clone())) },
         )
         .collect();
 
@@ -192,12 +187,8 @@ async fn generate_missing_collection_configs(
     };
 
     let missing_config_url = match using {
-        models::DeriveUsing::Connector(config) => {
-            serde_json::from_str::<url::Url>(config.config.get()).ok()
-        }
-        models::DeriveUsing::Local(config) => {
-            serde_json::from_str::<url::Url>(config.config.get()).ok()
-        }
+        models::DeriveUsing::Connector(config) => missing_url(&config.config),
+        models::DeriveUsing::Local(config) => missing_url(&config.config),
         // TypeScript, Python, and SQLite always generate their own configs.
         // Other connectors may as well, and they'll override those generated here.
         models::DeriveUsing::Sqlite(_)
@@ -210,9 +201,7 @@ async fn generate_missing_collection_configs(
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = transforms
         .iter()
         .filter_map(|models::TransformDef { lambda, source, .. }| {
-            serde_json::from_str(lambda.get())
-                .ok()
-                .map(|u| (u, source.collection().clone()))
+            missing_url(lambda).map(|u| (u, source.collection().clone()))
         })
         .collect();
 
@@ -255,21 +244,21 @@ async fn generate_missing_materialization_configs(
                 connector_type: flow::materialization_spec::ConnectorType::Image as i32,
                 config_json: serde_json::to_string(config).unwrap().into(),
             },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
+            missing_url(&config.config),
         ),
         models::MaterializationEndpoint::Local(config) => (
             materialize::request::Spec {
                 connector_type: flow::materialization_spec::ConnectorType::Local as i32,
                 config_json: serde_json::to_string(config).unwrap().into(),
             },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
+            missing_url(&config.config),
         ),
         models::MaterializationEndpoint::Dekaf(config) => (
             materialize::request::Spec {
                 connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
                 config_json: serde_json::to_string(config).unwrap().into(),
             },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
+            missing_url(&config.config),
         ),
     };
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings
@@ -277,11 +266,7 @@ async fn generate_missing_materialization_configs(
         .filter_map(
             |models::MaterializationBinding {
                  resource, source, ..
-             }| {
-                serde_json::from_str(resource.get())
-                    .ok()
-                    .map(|u| (u, source.collection().clone()))
-            },
+             }| { missing_url(resource).map(|u| (u, source.collection().clone())) },
         )
         .collect();
 
@@ -302,6 +287,14 @@ async fn generate_missing_materialization_configs(
         missing_config_url,
         missing_resource_urls,
     )
+}
+
+/// URL of a missing config: inlining leaves an import which couldn't be loaded
+/// as the absolute URL it would have loaded. Only a value which `sources`
+/// treats as an import qualifies, so other strings which happen to parse as
+/// URLs aren't mistaken for files to write.
+fn missing_url(config: &models::RawValue) -> Option<url::Url> {
+    url::Url::parse(config.as_import_url()?).ok()
 }
 
 fn stub_missing_configs(

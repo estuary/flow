@@ -152,7 +152,6 @@ async fn build_ops_specs() -> BTreeMap<String, flow::CollectionSpec> {
         true, // No-op captures.
         true, // No-op derivations.
         true, // No-op materializations.
-        &url::Url::parse("file:///").unwrap(),
         draft,
         live,
     )

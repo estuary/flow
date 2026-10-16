@@ -148,10 +148,9 @@ type Request_Validate struct {
 	Transforms []*Request_Validate_Transform `protobuf:"bytes,4,rep,name=transforms,proto3" json:"transforms,omitempty"`
 	// JSON types of shuffle key components extracted by the transforms of this derivation.
 	ShuffleKeyTypes []flow.CollectionSpec_Derivation_ShuffleType `protobuf:"varint,5,rep,packed,name=shuffle_key_types,json=shuffleKeyTypes,proto3,enum=flow.CollectionSpec_Derivation_ShuffleType" json:"shuffle_key_types,omitempty"`
-	// URL which roots the current Flow project.
-	//
-	// Derivation connectors should use this URL to generate any project-level
-	// files which are returned with Response.Validated.generated_files.
+	// URL of the directory of this task's specification, without a trailing
+	// slash. The connector must locate each file it generates underneath this
+	// URL, and return them with Response.Validated.generated_files.
 	ProjectRoot string `protobuf:"bytes,6,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	// Map of relative JSON pointers to the derivation specification,
 	// and the absolute URL from which the location's content was resolved.
@@ -696,8 +695,7 @@ type Response_Validated struct {
 	// Keys are absolute URLs of the generated resource, and values are its
 	// generated file content.
 	//
-	// This can include project-level files, which should be underneath
-	// Request.Validate.project_root.
+	// Each key must be underneath Request.Validate.project_root.
 	//
 	// When run in certain contexts within a user's local development environment,
 	// reads of Flow specifications use a relaxed handling for missing configuration

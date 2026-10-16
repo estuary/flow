@@ -73,8 +73,8 @@ pub enum Command {
     /// Generate walks your local Flow catalog source file and its imports
     /// to gather collections, derivations, and associated JSON schemas.
     /// Your derivations generate associated project files and supplemental
-    /// type implementations which are then written into your project directory,
-    /// which is the top-level directory having a flow.yaml or flow.json file.
+    /// type implementations which are then written into its project directory,
+    /// which is the directory of the specification file that defines it.
     ///
     /// You then edit the generated stubs in your preferred editor to fill
     /// out implementations for your derivation transform lambdas.

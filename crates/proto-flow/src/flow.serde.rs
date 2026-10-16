@@ -93,9 +93,6 @@ impl serde::Serialize for build_api::Config {
         if !self.connector_network.is_empty() {
             len += 1;
         }
-        if !self.project_root.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("flow.BuildAPI.Config", len)?;
         if !self.build_id.is_empty() {
             struct_ser.serialize_field("buildId", &self.build_id)?;
@@ -113,9 +110,6 @@ impl serde::Serialize for build_api::Config {
         }
         if !self.connector_network.is_empty() {
             struct_ser.serialize_field("connectorNetwork", &self.connector_network)?;
-        }
-        if !self.project_root.is_empty() {
-            struct_ser.serialize_field("projectRoot", &self.project_root)?;
         }
         struct_ser.end()
     }
@@ -136,8 +130,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
             "sourceType",
             "connector_network",
             "connectorNetwork",
-            "project_root",
-            "projectRoot",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -147,7 +139,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
             Source,
             SourceType,
             ConnectorNetwork,
-            ProjectRoot,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -175,7 +166,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
                             "source" => Ok(GeneratedField::Source),
                             "sourceType" | "source_type" => Ok(GeneratedField::SourceType),
                             "connectorNetwork" | "connector_network" => Ok(GeneratedField::ConnectorNetwork),
-                            "projectRoot" | "project_root" => Ok(GeneratedField::ProjectRoot),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -200,7 +190,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
                 let mut source__ = None;
                 let mut source_type__ = None;
                 let mut connector_network__ = None;
-                let mut project_root__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::BuildId => {
@@ -233,12 +222,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
                             }
                             connector_network__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::ProjectRoot => {
-                            if project_root__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("projectRoot"));
-                            }
-                            project_root__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -250,7 +233,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
                     source: source__.unwrap_or_default(),
                     source_type: source_type__.unwrap_or_default(),
                     connector_network: connector_network__.unwrap_or_default(),
-                    project_root: project_root__.unwrap_or_default(),
                 })
             }
         }

@@ -1218,9 +1218,6 @@ pub mod build_api {
         /// builds.
         #[prost(string, tag = "5")]
         pub connector_network: ::prost::alloc::string::String,
-        /// URL which roots the Flow project.
-        #[prost(string, tag = "6")]
-        pub project_root: ::prost::alloc::string::String,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
