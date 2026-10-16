@@ -1,0 +1,19 @@
+---
+source: crates/sources/src/indirect.rs
+expression: "(errors, written)"
+---
+(
+    [
+        "test://example/catalog.yaml#/collections/acmeCo~1b~1orders: acmeCo/b/orders and acmeCo/a/orders both write test://example/orders.schema.yaml, with different content",
+    ],
+    [
+        (
+            "test://example/customers.schema.yaml",
+            "const: same\n",
+        ),
+        (
+            "test://example/orders.schema.yaml",
+            "const: a\n",
+        ),
+    ],
+)

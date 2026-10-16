@@ -5,6 +5,10 @@ use std::collections::BTreeMap;
 
 // Indirect sub-locations within `sources` into external resources which
 // are referenced through relative imports.
+//
+// Tasks may write a common resource only with identical content. Otherwise
+// the last write would win, and every task importing the resource would
+// silently get its content. Each conflicting write is an error of `draft`.
 pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) {
     let tables::DraftCatalog {
         captures,
@@ -14,8 +18,11 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
         materializations,
         resources,
         tests,
-        errors: _,
+        errors,
     } = draft;
+
+    // Each resource written by this pass, and the task which first wrote it.
+    let mut written = BTreeMap::new();
 
     for tables::DraftCapture {
         capture,
@@ -27,7 +34,9 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
     } in captures.iter_mut()
     {
         if let Some(model) = model {
-            indirect_capture(scope, capture, model, imports, resources, threshold);
+            let mut staged = tables::Resources::new();
+            indirect_capture(scope, capture, model, imports, &mut staged, threshold);
+            upsert_staged(scope, capture, staged, resources, &mut written, errors);
         }
     }
     for tables::DraftCollection {
@@ -40,7 +49,9 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
     } in collections.iter_mut()
     {
         if let Some(model) = model {
-            indirect_collection(scope, collection, model, imports, resources, threshold);
+            let mut staged = tables::Resources::new();
+            indirect_collection(scope, collection, model, imports, &mut staged, threshold);
+            upsert_staged(scope, collection, staged, resources, &mut written, errors);
         }
     }
     for tables::DraftMaterialization {
@@ -53,7 +64,23 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
     } in materializations.iter_mut()
     {
         if let Some(model) = model {
-            indirect_materialization(scope, materialization, model, imports, resources, threshold);
+            let mut staged = tables::Resources::new();
+            indirect_materialization(
+                scope,
+                materialization,
+                model,
+                imports,
+                &mut staged,
+                threshold,
+            );
+            upsert_staged(
+                scope,
+                materialization,
+                staged,
+                resources,
+                &mut written,
+                errors,
+            );
         }
     }
     for tables::DraftTest {
@@ -65,7 +92,44 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
     } in tests.iter_mut()
     {
         if let Some(model) = model {
-            indirect_test(scope, test, model, imports, resources, threshold);
+            let mut staged = tables::Resources::new();
+            indirect_test(scope, test, model, imports, &mut staged, threshold);
+            upsert_staged(scope, test, staged, resources, &mut written, errors);
+        }
+    }
+}
+
+/// Upsert each resource `staged` by the task `name` into `resources`,
+/// unless an earlier write of this pass gave it different content.
+/// `staged` keeps every write of the task, so that the task's own writes
+/// are also checked against each other.
+fn upsert_staged(
+    scope: &url::Url,
+    name: &impl AsRef<str>,
+    staged: tables::Resources,
+    resources: &mut tables::Resources,
+    written: &mut BTreeMap<url::Url, String>,
+    errors: &mut tables::Errors,
+) {
+    for row in staged {
+        let Some(other) = written.get(&row.resource) else {
+            written.insert(row.resource.clone(), name.as_ref().to_string());
+            row.upsert_if_changed(resources);
+            continue;
+        };
+        let current = resources
+            .get_key(&row.resource)
+            .expect("written resources are in `resources`");
+
+        if current.content_dom.get() != row.content_dom.get() {
+            errors.insert_row(
+                scope,
+                anyhow::anyhow!(
+                    "{} and {other} both write {}, with different content",
+                    name.as_ref(),
+                    row.resource,
+                ),
+            );
         }
     }
 }
@@ -581,13 +645,12 @@ fn indirect(
         return;
     };
 
-    tables::Resource {
+    resources.insert(tables::Resource {
         resource: resource.clone(),
         content_type,
         content,
         content_dom: std::mem::take(value),
-    }
-    .upsert_if_changed(resources);
+    });
 
     imports.insert_row(&scope, resource);
 
@@ -651,5 +714,44 @@ mod test {
             .collect();
 
         insta::assert_debug_snapshot!((values, written, imports));
+    }
+
+    #[test]
+    fn tasks_conflict_over_differing_resources() {
+        // Tasks of a flat layout share a directory. Collections named `orders`
+        // both write `orders.schema.yaml`, as do those named `customers`.
+        let fixture = serde_json::json!({
+            "test://example/catalog.yaml": {
+                "collections": {
+                    "acmeCo/a/orders": {"schema": {"const": "a"}, "key": ["/id"]},
+                    "acmeCo/b/orders": {"schema": {"const": "b"}, "key": ["/id"]},
+                    "acmeCo/a/customers": {"schema": {"const": "same"}, "key": ["/id"]},
+                    "acmeCo/b/customers": {"schema": {"const": "same"}, "key": ["/id"]},
+                },
+            },
+        });
+        let mut draft = crate::scenarios::evaluate_fixtures(Default::default(), &fixture);
+        assert!(draft.errors.is_empty(), "{:?}", draft.errors);
+
+        super::indirect_large_files(&mut draft, 0);
+
+        let errors: Vec<String> = draft
+            .errors
+            .iter()
+            .map(|tables::Error { scope, error }| format!("{scope}: {error}"))
+            .collect();
+        let written: Vec<(String, String)> = draft
+            .resources
+            .iter()
+            .filter(|r| r.resource.path() != "/catalog.yaml")
+            .map(|r| {
+                (
+                    r.resource.to_string(),
+                    String::from_utf8_lossy(&r.content).to_string(),
+                )
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!((errors, written));
     }
 }
