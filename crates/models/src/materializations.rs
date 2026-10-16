@@ -101,11 +101,9 @@ pub struct MaterializationDef {
     pub target_naming: Option<TargetNamingStrategy>,
     /// # Default handling of schema changes that are incompatible with the target resource.
     /// This can be overridden on a per-binding basis.
-    #[serde(
-        default,
-        skip_serializing_if = "OnIncompatibleSchemaChange::is_default"
-    )]
-    pub on_incompatible_schema_change: OnIncompatibleSchemaChange,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "OnIncompatibleSchemaChange")]
+    pub on_incompatible_schema_change: Option<OnIncompatibleSchemaChange>,
     /// # Endpoint to materialize into.
     pub endpoint: MaterializationEndpoint,
     /// # Secrets which are merged into the endpoint configuration.
@@ -200,9 +198,12 @@ pub struct MaterializationBinding {
 
     /// # Action to take when a schema change is rejected due to incompatibility.
     /// This setting is used to determine the action to take when a schema change
-    /// is rejected due to incompatibility with the target resource. By default,
-    /// the binding will have its `backfill` counter incremented, causing it to
-    /// be re-materialized from the source collection.
+    /// is rejected due to incompatibility with the target resource. If unset,
+    /// the materialization's `onIncompatibleSchemaChange` applies. If that is
+    /// also unset, the binding is disabled if its source collection is in
+    /// Estuary trial storage, which retains only recent data. Otherwise the
+    /// binding has its `backfill` counter incremented, causing it to be
+    /// re-materialized from the source collection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "OnIncompatibleSchemaChange")]
     pub on_incompatible_schema_change: Option<OnIncompatibleSchemaChange>,
@@ -276,7 +277,7 @@ impl MaterializationDef {
             sync_schedule: None,
             delete: false,
             reset: false,
-            on_incompatible_schema_change: OnIncompatibleSchemaChange::default(),
+            on_incompatible_schema_change: None,
         }
     }
 }

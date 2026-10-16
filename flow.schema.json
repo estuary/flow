@@ -933,7 +933,7 @@
         },
         "onIncompatibleSchemaChange": {
           "title": "Action to take when a schema change is rejected due to incompatibility.",
-          "description": "This setting is used to determine the action to take when a schema change\nis rejected due to incompatibility with the target resource. By default,\nthe binding will have its `backfill` counter incremented, causing it to\nbe re-materialized from the source collection.",
+          "description": "This setting is used to determine the action to take when a schema change\nis rejected due to incompatibility with the target resource. If unset,\nthe materialization's `onIncompatibleSchemaChange` applies. If that is\nalso unset, the binding is disabled if its source collection is in\nEstuary trial storage, which retains only recent data. Otherwise the\nbinding has its `backfill` counter incremented, causing it to be\nre-materialized from the source collection.",
           "$ref": "#/$defs/OnIncompatibleSchemaChange"
         },
         "priority": {

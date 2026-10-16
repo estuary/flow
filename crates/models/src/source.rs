@@ -23,19 +23,9 @@ pub enum OnIncompatibleSchemaChange {
     DisableTask,
 }
 
-impl Default for OnIncompatibleSchemaChange {
-    fn default() -> Self {
-        OnIncompatibleSchemaChange::Backfill
-    }
-}
-
 impl OnIncompatibleSchemaChange {
     pub fn example() -> Self {
         OnIncompatibleSchemaChange::Backfill
-    }
-
-    pub fn is_default(&self) -> bool {
-        self == &OnIncompatibleSchemaChange::default()
     }
 }
 
