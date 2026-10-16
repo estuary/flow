@@ -2,6 +2,8 @@ use clap::Parser;
 
 mod publish;
 mod send;
+#[cfg(test)]
+mod stripe_stub;
 mod stripe_utils;
 
 #[derive(Debug, Parser)]
@@ -55,18 +57,17 @@ mod tests {
         );
         for command in ["publish-invoices", "send-invoices"] {
             for month in ["2026-08", "2026-08-01", "2026-08-15", "2026-13", "invalid"] {
-                let mut args = vec![
+                let args = vec![
                     "billing-integrations",
                     command,
                     "--stripe-api-key",
+                    "test",
+                    "--connection-string",
                     "test",
                     "--all-tenants",
                     "--month",
                     month,
                 ];
-                if command == "publish-invoices" {
-                    args.extend(["--connection-string", "test"]);
-                }
                 assert_eq!(
                     super::Cli::try_parse_from(args).is_ok(),
                     matches!(month, "2026-08" | "2026-08-01"),

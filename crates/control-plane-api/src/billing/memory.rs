@@ -1,4 +1,5 @@
 use super::BillingProvider;
+use billing_types::TENANT_METADATA_KEY;
 use std::sync::Mutex;
 
 #[derive(Debug, Default)]
@@ -67,7 +68,7 @@ impl InMemoryBillingProvider {
     }
 
     /// Mark a customer deleted, as Stripe does: it's still retrievable by ID
-    /// and marked with Stripe's deleted flag.
+    /// but no longer matches searches.
     pub fn delete_customer(&self, id: &str) {
         let mut state = self.state.lock().unwrap();
         for customer in state.customers.iter_mut().filter(|c| c.id.as_str() == id) {
@@ -102,23 +103,17 @@ impl BillingProvider for InMemoryBillingProvider {
     async fn create_customer(
         &self,
         tenant: &str,
-        _user_email: &str,
-        _user_name: Option<&str>,
-        billing_name: Option<&str>,
+        email: Option<&str>,
         address: Option<stripe::Address>,
+        mut metadata: std::collections::HashMap<String, String>,
     ) -> anyhow::Result<stripe::Customer> {
         let mut state = self.state.lock().unwrap();
         let id = format!("cus_mock_{}", tenant.replace('/', ""));
-        // Mirror the Stripe impl: the billing name lives in customer metadata.
-        let mut metadata = billing_types::tenant_metadata(tenant);
-        if let Some(billing_name) = billing_name {
-            metadata.insert(
-                billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
-                billing_name.to_string(),
-            );
-        }
+        // Tenant identity is authoritative even if caller metadata conflicts.
+        metadata.insert(TENANT_METADATA_KEY.to_string(), tenant.to_string());
         let customer = stripe::Customer {
             id: id.parse().unwrap(),
+            email: email.map(str::to_string),
             address,
             metadata: Some(metadata),
             ..Default::default()

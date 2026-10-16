@@ -31,3 +31,4 @@ indicatif = { workspace = true }
 
 [dev-dependencies]
 axum = { workspace = true }
+insta = { workspace = true }

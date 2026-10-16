@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use billing_types::{
-    InvoiceMetadata, InvoiceSearch, InvoiceType, PaymentProvider, SearchParams,
-    customer_create_idempotency_key, customer_search_query, stripe_search, tenant_metadata,
+    BillingProvider, InvoiceMetadata, InvoiceType, PaymentProvider, StripeBillingProvider,
+    record_customer_id,
 };
 use chrono::{Duration, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
@@ -10,8 +10,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::Postgres;
 use sqlx::{Pool, postgres::PgPoolOptions, types::chrono::NaiveDate};
 use std::collections::HashMap;
-
-const CREATED_BY_BILLING_AUTOMATION: &str = "estuary.dev/created_by_automation";
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 #[clap(rename_all = "kebab_case")]
@@ -156,32 +154,30 @@ impl InvoiceResult {
     }
 }
 
+/// The Stripe invoice of a bill, as located during classification.
+enum ExistingInvoice {
+    Found(stripe::Invoice),
+    /// The bill's recorded invoice no longer exists: Stripe permanently deletes drafts.
+    Deleted(stripe::InvoiceId),
+}
+
 /// The outcome of the classify phase: what action should be taken for this invoice.
 enum InvoiceAction {
-    /// Invoice should not be created. Carries the skip reason and the
-    /// customer (if found) for potential clean-up of stale drafts.
     Skip {
         result: InvoiceResult,
         customer: Option<stripe::Customer>,
     },
-    /// Create a new invoice. `replace` is set when --recreate-existing
-    /// requires deleting an existing invoice first. `customer` is the customer
-    /// found during classification, or None when none exists yet (execute then
-    /// creates one).
     Create {
         replace: Option<stripe::InvoiceId>,
         customer: Option<stripe::Customer>,
     },
-    /// Update an existing draft invoice's line items. `customer` is the invoice's
-    /// owner, already found during classification.
     Update {
-        existing_invoice_id: stripe::InvoiceId,
+        existing_invoice: stripe::InvoiceId,
         customer: stripe::Customer,
     },
 }
 
 impl InvoiceAction {
-    /// The customer located during classification, if one exists in Stripe.
     fn customer(&self) -> Option<&stripe::Customer> {
         match self {
             InvoiceAction::Skip { customer, .. } | InvoiceAction::Create { customer, .. } => {
@@ -193,7 +189,7 @@ impl InvoiceAction {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, sqlx::FromRow)]
-struct Invoice {
+pub(crate) struct Invoice {
     subtotal: i64,
     line_items: sqlx::types::Json<Vec<LineItem>>,
     date_start: NaiveDate,
@@ -204,56 +200,131 @@ struct Invoice {
     has_full_pipeline: bool,
     payment_provider: PaymentProvider,
     tenant_trial_start: Option<NaiveDate>,
+    pub(crate) stripe_invoice_id: Option<String>,
+    stripe_customer_id: Option<String>,
 }
 
 impl Invoice {
-    pub async fn get_stripe_invoice(
+    /// Retrieve this bill's recorded Stripe invoice, if one exists.
+    async fn locate_invoice(
         &self,
-        client: &stripe::Client,
-        customer_id: &str,
-    ) -> anyhow::Result<Option<stripe::Invoice>> {
-        let date_start_repr = self.date_start.format("%F").to_string();
-        let date_end_repr = self.date_end.format("%F").to_string();
+        provider: &dyn BillingProvider,
+    ) -> anyhow::Result<Option<ExistingInvoice>> {
+        let Some(recorded) = &self.stripe_invoice_id else {
+            return Ok(None);
+        };
+        let invoice_id: stripe::InvoiceId = recorded
+            .parse()
+            .with_context(|| format!("invalid recorded Stripe invoice ID {recorded}"))?;
+        Ok(Some(match provider.retrieve_invoice(&invoice_id).await? {
+            Some(invoice) => ExistingInvoice::Found(invoice),
+            None => ExistingInvoice::Deleted(invoice_id),
+        }))
+    }
 
-        let invoice_search = stripe_search::<stripe::Invoice>(
-            &client,
-            "invoices",
-            SearchParams {
-                query: InvoiceSearch {
-                    customer_id: Some(customer_id),
-                    invoice_type: Some(self.invoice_type),
-                    period_start: Some(&date_start_repr),
-                    period_end: Some(&date_end_repr),
-                    ..Default::default()
-                }
-                .to_query(),
-                ..Default::default()
-            },
-        )
-        .await
-        .context("Searching for an invoice")?;
+    /// Record `invoice_id` as this bill's Stripe invoice (or clear it), provided
+    /// the bill's recorded invoice is still `expected`. A bill whose recorded
+    /// invoice changed, or which no longer exists because a manual bill's dates
+    /// were edited, is an error: the invoice would otherwise go unrecorded.
+    async fn record_invoice_id(
+        &self,
+        db_client: &Pool<Postgres>,
+        expected: Option<&str>,
+        invoice_id: Option<&stripe::InvoiceId>,
+    ) -> anyhow::Result<()> {
+        let invoice_id = invoice_id.map(stripe::InvoiceId::as_str);
+        let updated = match self.invoice_type {
+            InvoiceType::Final => sqlx::query!(
+                r#"
+                update internal.billing_historicals
+                set stripe_invoice_id = $3
+                where tenant = $1
+                  and date_trunc('month', billed_month)::date = $2
+                  and stripe_invoice_id is not distinct from $4
+                "#,
+                self.billed_prefix,
+                self.date_start,
+                invoice_id,
+                expected,
+            )
+            .execute(db_client)
+            .await?
+            .rows_affected(),
+            InvoiceType::Manual => sqlx::query!(
+                r#"
+                update internal.manual_bills
+                set stripe_invoice_id = $4
+                where tenant = $1
+                  and date_start = $2
+                  and date_end = $3
+                  and stripe_invoice_id is not distinct from $5
+                "#,
+                self.billed_prefix,
+                self.date_start,
+                self.date_end,
+                invoice_id,
+                expected,
+            )
+            .execute(db_client)
+            .await?
+            .rows_affected(),
+            InvoiceType::Preview => bail!("preview bills have no Stripe invoice"),
+        };
 
-        // Prefer a live invoice over a voided one: after --recreate-existing
-        // voids and recreates an invoice, both match this search, and
-        // classification should act on the replacement. A voided invoice is
-        // still returned when it's the only match, so that a voided manual
-        // invoice classifies as AlreadyProcessed rather than being recreated.
-        let mut voided = None;
-        for invoice in invoice_search {
-            if invoice.status != Some(stripe::InvoiceStatus::Void) {
-                return Ok(Some(invoice));
-            }
-            voided.get_or_insert(invoice);
+        match (updated, invoice_id) {
+            (1, _) => Ok(()),
+            (_, Some(invoice_id)) => bail!(
+                "The bill or its recorded invoice changed during this run, so Stripe invoice {invoice_id} isn't recorded for it"
+            ),
+            (_, None) => bail!(
+                "The bill or its recorded invoice changed during this run, so its recorded invoice isn't cleared"
+            ),
         }
-        Ok(voided)
+    }
+
+    /// Description, custom fields, and metadata of this bill's Stripe invoice.
+    fn invoice_details(
+        &self,
+    ) -> (
+        String,
+        Vec<stripe::CreateInvoiceCustomFields>,
+        InvoiceMetadata,
+    ) {
+        let date_start_human = self.date_start.format("%B %d %Y").to_string();
+        let date_end_human = self.date_end.format("%B %d %Y").to_string();
+
+        let description = format!(
+            "Your Flow bill for the billing period between {date_start_human} - {date_end_human}. Tenant: {tenant}",
+            tenant = self.billed_prefix
+        );
+        let custom_fields = vec![
+            stripe::CreateInvoiceCustomFields {
+                name: "Billing Period Start".to_string(),
+                value: date_start_human,
+            },
+            stripe::CreateInvoiceCustomFields {
+                name: "Billing Period End".to_string(),
+                value: date_end_human,
+            },
+        ];
+        (description, custom_fields, self.metadata())
+    }
+
+    pub(crate) fn metadata(&self) -> InvoiceMetadata {
+        InvoiceMetadata {
+            tenant: self.billed_prefix.to_owned(),
+            invoice_type: self.invoice_type,
+            period_start: self.date_start.format("%F").to_string(),
+            period_end: self.date_end.format("%F").to_string(),
+        }
     }
 
     /// Read-only classification: determines what action should be taken for this
     /// invoice without making any writes to Stripe.
-    #[tracing::instrument(skip(self, client), fields(tenant=self.billed_prefix, invoice_type=format!("{:?}",self.invoice_type), subtotal=format!("${:.2}", self.subtotal as f64 / 100.0)))]
+    #[tracing::instrument(skip(self, provider), fields(tenant=self.billed_prefix, invoice_type=format!("{:?}",self.invoice_type), subtotal=format!("${:.2}", self.subtotal as f64 / 100.0)))]
     async fn classify(
         &self,
-        client: &stripe::Client,
+        provider: &dyn BillingProvider,
         recreate_existing: bool,
     ) -> anyhow::Result<InvoiceAction> {
         match (&self.invoice_type, &self.extra) {
@@ -291,8 +362,25 @@ impl Invoice {
             });
         }
 
-        // Reuse this lookup for payment-method checks, invoice search, and execution.
-        let customer = find_customer(client, &self.billed_prefix).await?;
+        let customer = match self.stripe_customer_id.as_deref() {
+            Some(recorded) => {
+                let id: stripe::CustomerId = recorded
+                    .parse()
+                    .with_context(|| format!("invalid recorded Stripe customer ID {recorded}"))?;
+                let customer = provider
+                    .retrieve_customer(&id)
+                    .await
+                    .with_context(|| format!("Retrieving Stripe customer {id}"))?;
+                if customer.deleted {
+                    bail!(
+                        "Stripe customer {id} of tenant {tenant} is deleted; clear tenants.stripe_customer_id to invoice a new customer",
+                        tenant = self.billed_prefix
+                    );
+                }
+                Some(customer)
+            }
+            None => None,
+        };
 
         if let (InvoiceType::Final, Some(extra)) = (&self.invoice_type, &self.extra) {
             // If the outer Option is Some the inner should be too; treat a
@@ -328,115 +416,136 @@ impl Invoice {
             }
         }
 
-        let customer = match customer {
-            Some(c) => c,
-            // No customer in Stripe means no existing invoice is possible
+        let existing = self.locate_invoice(provider).await?;
+
+        let invoice = match existing {
             None => {
                 return Ok(InvoiceAction::Create {
                     replace: None,
-                    customer: None,
+                    customer,
                 });
             }
+            // The bill was invoiced, but its draft has since been deleted in
+            // Stripe. Like a voided invoice, that's taken as deliberate: it's
+            // only replaced under --recreate-existing, and never for a manual bill.
+            Some(ExistingInvoice::Deleted(invoice_id)) => {
+                if matches!(self.invoice_type, InvoiceType::Manual) {
+                    tracing::warn!(
+                        "Recorded manual invoice {invoice_id} no longer exists in Stripe, skipping"
+                    );
+                    return Ok(InvoiceAction::Skip {
+                        result: InvoiceResult::AlreadyProcessed,
+                        customer,
+                    });
+                }
+                if !recreate_existing {
+                    bail!(
+                        "Recorded invoice {invoice_id} no longer exists in Stripe. Pass --recreate-existing to create a replacement."
+                    );
+                }
+                tracing::warn!("Recorded invoice {invoice_id} no longer exists; replacing it");
+                return Ok(InvoiceAction::Create {
+                    replace: None,
+                    customer,
+                });
+            }
+            Some(ExistingInvoice::Found(invoice)) => invoice,
         };
 
-        let customer_id = customer.id.to_string();
-
-        if let Some(invoice) = self
-            .get_stripe_invoice(client, customer_id.as_str())
-            .await?
-        {
-            match invoice.status {
-                // Manual invoices are excluded from --recreate-existing: an
-                // already-sent (open) manual invoice must not be voided and
-                // reissued, and a manual draft is refreshed via the Update arm below.
-                Some(stripe::InvoiceStatus::Open | stripe::InvoiceStatus::Draft)
-                    if recreate_existing && !matches!(self.invoice_type, InvoiceType::Manual) =>
-                {
-                    Ok(InvoiceAction::Create {
-                        replace: Some(invoice.id),
-                        customer: Some(customer),
-                    })
-                }
-                // A voided invoice can be neither deleted nor updated, so treat
-                // it as absent and create a fresh replacement. This also
-                // recovers a --recreate-existing run that voided an open
-                // invoice but failed before creating its replacement. Without
-                // the flag, the unsupported-state error below keeps a voided
-                // invoice loud rather than silently re-billing the tenant.
-                Some(stripe::InvoiceStatus::Void)
-                    if recreate_existing && !matches!(self.invoice_type, InvoiceType::Manual) =>
-                {
-                    tracing::warn!(
-                        "Found voided invoice {id}; treating it as absent",
-                        id = invoice.id.to_string()
-                    );
-                    Ok(InvoiceAction::Create {
-                        replace: None,
-                        customer: Some(customer),
-                    })
-                }
-                Some(stripe::InvoiceStatus::Draft) => {
-                    tracing::debug!(
-                        "Found existing draft invoice {id}",
-                        id = invoice.id.to_string()
-                    );
-                    Ok(InvoiceAction::Update {
-                        existing_invoice_id: invoice.id,
-                        customer,
-                    })
-                }
-                Some(stripe::InvoiceStatus::Open)
-                    if matches!(self.invoice_type, InvoiceType::Manual) =>
-                {
-                    tracing::debug!(
-                        "Manual invoice {id} already open, skipping",
-                        id = invoice.id.to_string()
-                    );
-                    Ok(InvoiceAction::Skip {
-                        result: InvoiceResult::AlreadyProcessed,
-                        customer: Some(customer),
-                    })
-                }
-                Some(stripe::InvoiceStatus::Open) => {
-                    bail!(
-                        "Found open invoice {id}. Pass --recreate-existing to void and recreate this invoice.",
-                        id = invoice.id.to_string()
-                    )
-                }
-                Some(
-                    status @ (stripe::InvoiceStatus::Paid
-                    | stripe::InvoiceStatus::Void
-                    | stripe::InvoiceStatus::Uncollectible),
-                ) if matches!(self.invoice_type, InvoiceType::Manual) => {
-                    tracing::debug!(
-                        "Manual invoice {id} already in state {status}, skipping",
-                        id = invoice.id.to_string(),
-                        status = status
-                    );
-                    Ok(InvoiceAction::Skip {
-                        result: InvoiceResult::AlreadyProcessed,
-                        customer: Some(customer),
-                    })
-                }
-                Some(status) => {
-                    bail!(
-                        "Found invoice {id} in unsupported state {status}, skipping.",
-                        id = invoice.id.to_string(),
-                        status = status
-                    );
-                }
-                None => {
-                    bail!(
-                        "Unexpected missing status from invoice {id}",
-                        id = invoice.id.to_string()
-                    );
-                }
+        // A recorded invoice is located without the customer, which normally
+        // exists alongside it, but is needed below to update or replace it.
+        let Some(customer) = customer else {
+            bail!(
+                "Found invoice {id}, but tenant {tenant} has no Stripe customer",
+                id = invoice.id,
+                tenant = self.billed_prefix
+            );
+        };
+        match invoice.status {
+            // Manual invoices are excluded from --recreate-existing: an
+            // already-sent (open) manual invoice must not be voided and
+            // reissued, and a manual draft is refreshed via the Update arm below.
+            Some(stripe::InvoiceStatus::Open | stripe::InvoiceStatus::Draft)
+                if recreate_existing && !matches!(self.invoice_type, InvoiceType::Manual) =>
+            {
+                Ok(InvoiceAction::Create {
+                    replace: Some(invoice.id),
+                    customer: Some(customer),
+                })
             }
-        } else {
-            Ok(InvoiceAction::Create {
-                replace: None,
-                customer: Some(customer),
-            })
+            // A voided invoice cannot be deleted or updated. With
+            // --recreate-existing, treat it as absent and create a replacement;
+            // this also recovers a run that voided an open invoice but failed
+            // before creating its replacement. Without the flag, return the
+            // unsupported-state error.
+            Some(stripe::InvoiceStatus::Void)
+                if recreate_existing && !matches!(self.invoice_type, InvoiceType::Manual) =>
+            {
+                tracing::warn!(
+                    "Found voided invoice {id}; treating it as absent",
+                    id = invoice.id.to_string()
+                );
+                Ok(InvoiceAction::Create {
+                    replace: None,
+                    customer: Some(customer),
+                })
+            }
+            Some(stripe::InvoiceStatus::Draft) => {
+                tracing::debug!(
+                    "Found existing draft invoice {id}",
+                    id = invoice.id.to_string()
+                );
+                Ok(InvoiceAction::Update {
+                    existing_invoice: invoice.id,
+                    customer,
+                })
+            }
+            Some(stripe::InvoiceStatus::Open)
+                if matches!(self.invoice_type, InvoiceType::Manual) =>
+            {
+                tracing::debug!(
+                    "Manual invoice {id} already open, skipping",
+                    id = invoice.id.to_string()
+                );
+                Ok(InvoiceAction::Skip {
+                    result: InvoiceResult::AlreadyProcessed,
+                    customer: Some(customer),
+                })
+            }
+            Some(stripe::InvoiceStatus::Open) => {
+                bail!(
+                    "Found open invoice {id}. Pass --recreate-existing to void and recreate this invoice.",
+                    id = invoice.id.to_string()
+                )
+            }
+            Some(
+                status @ (stripe::InvoiceStatus::Paid
+                | stripe::InvoiceStatus::Void
+                | stripe::InvoiceStatus::Uncollectible),
+            ) if matches!(self.invoice_type, InvoiceType::Manual) => {
+                tracing::debug!(
+                    "Manual invoice {id} already in state {status}, skipping",
+                    id = invoice.id.to_string(),
+                    status = status
+                );
+                Ok(InvoiceAction::Skip {
+                    result: InvoiceResult::AlreadyProcessed,
+                    customer: Some(customer),
+                })
+            }
+            Some(status) => {
+                bail!(
+                    "Found invoice {id} in unsupported state {status}, skipping.",
+                    id = invoice.id.to_string(),
+                    status = status
+                );
+            }
+            None => {
+                bail!(
+                    "Unexpected missing status from invoice {id}",
+                    id = invoice.id.to_string()
+                );
+            }
         }
     }
 
@@ -445,25 +554,26 @@ impl Invoice {
     #[tracing::instrument(skip(self, client, db_client, action), fields(tenant=self.billed_prefix, invoice_type=format!("{:?}",self.invoice_type), subtotal=format!("${:.2}", self.subtotal as f64 / 100.0)))]
     async fn execute(
         &self,
+        provider: &dyn BillingProvider,
         client: &stripe::Client,
         db_client: &Pool<Postgres>,
         action: InvoiceAction,
         mode: ChargeType,
     ) -> anyhow::Result<InvoiceResult> {
-        let (replace, existing_invoice_id, found_customer) = match action {
+        let (replace, existing_invoice, found_customer) = match action {
             InvoiceAction::Skip { .. } => {
                 unreachable!("Skip actions are resolved by the caller and never executed")
             }
             InvoiceAction::Create { replace, customer } => (replace, None, customer),
             InvoiceAction::Update {
-                existing_invoice_id,
+                existing_invoice,
                 customer,
-            } => (None, Some(existing_invoice_id), Some(customer)),
+            } => (None, Some(existing_invoice), Some(customer)),
         };
-        let is_update = existing_invoice_id.is_some();
+        let is_update = existing_invoice.is_some();
 
         let customer =
-            ensure_customer_for_invoicing(client, db_client, &self.billed_prefix, found_customer)
+            ensure_customer_for_invoicing(provider, db_client, &self.billed_prefix, found_customer)
                 .await?;
 
         // Anything before 12:00:00 renders as the previous day in Stripe
@@ -484,11 +594,7 @@ impl Invoice {
             .expect("Error manipulating date")
             .timestamp();
 
-        let date_start_human = self.date_start.format("%B %d %Y").to_string();
-        let date_end_human = self.date_end.format("%B %d %Y").to_string();
-
-        let date_start_repr = self.date_start.format("%F").to_string();
-        let date_end_repr = self.date_end.format("%F").to_string();
+        let (description, custom_fields, metadata) = self.invoice_details();
 
         // Remove the existing invoice if --recreate-existing was used
         if let Some(ref replace_id) = replace {
@@ -544,7 +650,7 @@ impl Invoice {
             ChargeType::AutoCharge => None,
         };
 
-        let invoice = if let Some(existing_id) = existing_invoice_id {
+        let invoice = if let Some(existing_id) = existing_invoice {
             tracing::debug!(
                 "Updating existing invoice {id}",
                 id = existing_id.to_string()
@@ -573,6 +679,21 @@ impl Invoice {
                 }
             }
 
+            #[derive(Default, serde::Serialize)]
+            struct UpdateDraft<'a> {
+                #[serde(skip_serializing_if = "Option::is_none")]
+                collection_method: Option<stripe::CollectionMethod>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                due_date: Option<i64>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                description: Option<&'a str>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                custom_fields: Option<&'a [stripe::CreateInvoiceCustomFields]>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                metadata: Option<HashMap<String, String>>,
+            }
+            let mut update = UpdateDraft::default();
+
             // The create path sets the collection method from `mode`, but the update
             // path reuses whatever the invoice was originally created with. Reconcile
             // toward `send_invoice` only, so a manual invoice previously stored as
@@ -583,67 +704,64 @@ impl Invoice {
             if collection_method == stripe::CollectionMethod::SendInvoice
                 && existing.collection_method != Some(collection_method)
             {
-                #[derive(serde::Serialize)]
-                struct UpdateInvoice {
-                    collection_method: stripe::CollectionMethod,
-                    due_date: i64,
-                }
                 tracing::debug!(
                     "Reconciling collection method of invoice {id} to {collection_method:?}",
                     id = existing_id.to_string()
                 );
-                let updated: stripe::Invoice = client
-                    .post_form(
-                        &format!("/invoices/{existing_id}"),
-                        UpdateInvoice {
-                            collection_method,
-                            due_date: due_date.expect("send_invoice mode always sets a due date"),
-                        },
-                    )
-                    .await
-                    .context("Reconciling collection method of existing invoice")?;
-                updated
-            } else {
+                update.collection_method = Some(collection_method);
+                update.due_date = Some(due_date.expect("send_invoice mode always sets a due date"));
+            }
+
+            // A manual bill's dates can be edited after its invoice is drafted.
+            // Refresh its description, custom fields, and metadata together.
+            let current_metadata = existing
+                .metadata
+                .as_ref()
+                .and_then(InvoiceMetadata::from_metadata_map);
+            if current_metadata.as_ref() != Some(&metadata) {
+                tracing::debug!(
+                    "Refreshing billing period of invoice {id} from {current_metadata:?}",
+                    id = existing_id.to_string()
+                );
+                update.description = Some(&description);
+                update.custom_fields = Some(&custom_fields);
+                update.metadata = Some(metadata.to_metadata_map());
+            }
+
+            if update.collection_method.is_none() && update.metadata.is_none() {
                 existing
+            } else {
+                client
+                    .post_form(&format!("/invoices/{existing_id}"), update)
+                    .await
+                    .context("Updating existing draft invoice")?
             }
         } else {
-            let description_text = format!(
-                "Your Flow bill for the billing period between {date_start_human} - {date_end_human}. Tenant: {tenant}",
-                tenant = self.billed_prefix
-            );
             let invoice = stripe::Invoice::create(
                 client,
                 stripe::CreateInvoice {
                     customer: Some(customer.id.to_owned()),
                     due_date,
-                    description: Some(description_text.as_str()),
+                    description: Some(&description),
                     collection_method: Some(collection_method),
                     auto_advance: Some(false),
-                    custom_fields: Some(vec![
-                        stripe::CreateInvoiceCustomFields {
-                            name: "Billing Period Start".to_string(),
-                            value: date_start_human.to_owned(),
-                        },
-                        stripe::CreateInvoiceCustomFields {
-                            name: "Billing Period End".to_string(),
-                            value: date_end_human.to_owned(),
-                        },
-                    ]),
-                    metadata: Some(
-                        InvoiceMetadata {
-                            tenant: self.billed_prefix.to_owned(),
-                            invoice_type: self.invoice_type,
-                            period_start: date_start_repr,
-                            period_end: date_end_repr,
-                        }
-                        .to_metadata_map(),
-                    ),
+                    custom_fields: Some(custom_fields),
+                    metadata: Some(metadata.to_metadata_map()),
                     ..Default::default()
                 },
             )
             .await
             .context("Creating a new invoice")?;
             tracing::debug!("Created a new invoice {id}", id = invoice.id);
+
+            // Record the invoice before populating it, so a failure below leaves
+            // a recorded draft that the next run updates rather than duplicates.
+            self.record_invoice_id(
+                db_client,
+                self.stripe_invoice_id.as_deref(),
+                Some(&invoice.id),
+            )
+            .await?;
             invoice
         };
 
@@ -722,9 +840,64 @@ impl Invoice {
     }
 }
 
+pub(crate) async fn load_invoices(
+    pool: &sqlx::PgPool,
+    month: NaiveDate,
+    tenants: &[String],
+    exclude_tenants: &[String],
+) -> anyhow::Result<Vec<Invoice>> {
+    Ok(sqlx::query_as::<_, Invoice>(
+        r#"
+        select
+            date_start,
+            date_end,
+            billed_prefix,
+            invoice_type,
+            line_items,
+            subtotal::bigint as subtotal,
+            extra,
+            coalesce(dataflow.has_full_pipeline, false) as has_full_pipeline,
+            tenants.payment_provider,
+            tenants.trial_start as tenant_trial_start,
+            invoices_ext.stripe_invoice_id,
+            tenants.stripe_customer_id
+        from internal.invoices_ext
+        join tenants on tenants.tenant = billed_prefix
+        left join lateral(
+            select
+                sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') > 0
+                and sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'materialization') > 0
+                as has_full_pipeline
+            from catalog_stats_monthly
+            join live_specs on live_specs.catalog_name ^@ catalog_stats_monthly.catalog_name
+            where
+                catalog_stats_monthly.catalog_name = billed_prefix
+                and tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats_monthly.ts
+        ) as dataflow on true
+        where ((
+            date_start >= date_trunc('day', $1::date)
+            and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+            and invoice_type = 'final'
+        ) or (
+            date_start <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+            and date_end >= date_trunc('day', $1::date)
+            and invoice_type = 'manual'
+        ))
+        and (cardinality($2::text[]) = 0 or billed_prefix = any($2))
+        and not (billed_prefix = any($3))
+        "#,
+    )
+    .bind(month)
+    .bind(tenants)
+    .bind(exclude_tenants)
+    .fetch_all(pool)
+    .await?)
+}
+
 pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
     let stripe_client = stripe::Client::new(cmd.stripe_api_key.to_owned())
         .with_strategy(stripe::RequestStrategy::ExponentialBackoff(4));
+    let billing_provider = StripeBillingProvider::from_client(stripe_client.clone());
     let db_pool = PgPoolOptions::new()
         .max_connections(5)
         .after_connect(|conn, _meta| {
@@ -743,93 +916,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
 
     tracing::info!("Fetching billing data for {month_human_repr}");
 
-    let invoices: Vec<Invoice> = if cmd.tenants.len() > 0 {
-        sqlx::query_as!(
-            Invoice,
-            r#"
-                select
-                    date_start as "date_start!",
-                    date_end as "date_end!",
-                    billed_prefix as "billed_prefix!",
-                    invoice_type as "invoice_type!: InvoiceType",
-                    line_items as "line_items!: sqlx::types::Json<Vec<LineItem>>",
-                    subtotal::bigint as "subtotal!",
-                    extra as "extra: sqlx::types::Json<Option<Extra>>",
-                    coalesce(dataflow.has_full_pipeline, false) as "has_full_pipeline!",
-                    tenants.payment_provider as "payment_provider!: PaymentProvider",
-                    tenants.trial_start as tenant_trial_start
-                from internal.invoices_ext
-                join tenants on tenants.tenant = billed_prefix
-                left join lateral(
-                	select
-                		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') > 0
-                		and sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'materialization') > 0
-                		as has_full_pipeline
-                    from catalog_stats_monthly
-                    join live_specs on live_specs.catalog_name ^@ catalog_stats_monthly.catalog_name
-                    where
-                    	catalog_stats_monthly.catalog_name = billed_prefix
-                    	and tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats_monthly.ts
-                ) as dataflow on true
-                where ((
-                    date_start >= date_trunc('day', $1::date)
-                    and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
-                    and invoice_type = 'final'
-                ) or (
-                    date_start <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
-                    and date_end >= date_trunc('day', $1::date)
-                    and invoice_type = 'manual'
-                ))
-                and billed_prefix = any($2)
-            "#,
-            cmd.month,
-            &cmd.tenants[..]
-        )
-        .fetch_all(&db_pool)
-        .await?
-    } else {
-        sqlx::query_as!(
-            Invoice,
-            r#"
-                select
-                    date_start as "date_start!",
-                    date_end as "date_end!",
-                    billed_prefix as "billed_prefix!",
-                    invoice_type as "invoice_type!: InvoiceType",
-                    line_items as "line_items!: sqlx::types::Json<Vec<LineItem>>",
-                    subtotal::bigint as "subtotal!",
-                    extra as "extra: sqlx::types::Json<Option<Extra>>",
-                    coalesce(dataflow.has_full_pipeline, false) as "has_full_pipeline!",
-                    tenants.payment_provider as "payment_provider!: PaymentProvider",
-                    tenants.trial_start as tenant_trial_start
-                from internal.invoices_ext
-                join tenants on tenants.tenant = billed_prefix
-                left join lateral(
-                	select
-                		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') > 0
-                		and sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'materialization') > 0
-                		as has_full_pipeline
-                    from catalog_stats_monthly
-                    join live_specs on live_specs.catalog_name ^@ catalog_stats_monthly.catalog_name
-                    where
-                    	catalog_stats_monthly.catalog_name = billed_prefix
-                    	and tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats_monthly.ts
-                ) as dataflow on true
-                where (
-                    date_start >= date_trunc('day', $1::date)
-                    and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
-                    and invoice_type = 'final'
-                ) or (
-                    date_start <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
-                    and date_end >= date_trunc('day', $1::date)
-                    and invoice_type = 'manual'
-                )
-            "#,
-            cmd.month
-        )
-        .fetch_all(&db_pool)
-        .await?
-    };
+    let invoices = load_invoices(&db_pool, cmd.month, &cmd.tenants, &[]).await?;
 
     let mut invoice_type_counter: HashMap<InvoiceType, usize> = HashMap::new();
     invoices.iter().for_each(|invoice| {
@@ -858,10 +945,11 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
         .iter()
         .map(|response| {
             let client = stripe_client.clone();
+            let provider = billing_provider.clone();
             let db_pool = db_pool.clone();
 
             async move {
-                let result = process_invoice(cmd, &client, &db_pool, response).await?;
+                let result = process_invoice(cmd, &provider, &client, &db_pool, response).await?;
                 anyhow::Ok((
                     result,
                     response.subtotal,
@@ -950,12 +1038,13 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
 /// report. Skips optionally clean up a stale draft left behind in Stripe.
 async fn process_invoice(
     cmd: &PublishInvoice,
+    provider: &dyn BillingProvider,
     client: &stripe::Client,
     db_pool: &Pool<Postgres>,
     invoice: &Invoice,
 ) -> anyhow::Result<InvoiceResult> {
     let action = invoice
-        .classify(client, cmd.recreate_existing)
+        .classify(provider, cmd.recreate_existing)
         .await
         .with_context(|| {
             format!(
@@ -988,9 +1077,9 @@ async fn process_invoice(
     }
 
     let result = match (action, cmd.dry_run) {
-        (InvoiceAction::Skip { result, customer }, _) => {
+        (InvoiceAction::Skip { result, .. }, _) => {
             if cmd.clean_up {
-                clean_up_stale_draft(client, invoice, customer, cmd.dry_run).await;
+                clean_up_stale_draft(provider, client, db_pool, invoice, cmd.dry_run).await;
             }
             result
         }
@@ -1010,7 +1099,7 @@ async fn process_invoice(
         (InvoiceAction::Create { .. }, true) => InvoiceResult::Created(invoice.payment_provider),
         (InvoiceAction::Update { .. }, true) => InvoiceResult::Updated,
         (action, false) => invoice
-            .execute(client, db_pool, action, cmd.charge_type)
+            .execute(provider, client, db_pool, action, cmd.charge_type)
             .await
             .with_context(|| {
                 format!(
@@ -1032,51 +1121,48 @@ async fn process_invoice(
 }
 
 /// Best-effort removal of a stale draft invoice for a bill that was skipped:
-/// checks Stripe for a matching draft and deletes it (or reports it under
+/// checks Stripe for the bill's draft and deletes it (or reports it under
 /// --dry-run). Failures are logged rather than failing the run.
 async fn clean_up_stale_draft(
+    provider: &dyn BillingProvider,
     client: &stripe::Client,
+    db_client: &Pool<Postgres>,
     invoice: &Invoice,
-    customer: Option<stripe::Customer>,
     dry_run: bool,
 ) {
     let task_res: anyhow::Result<()> = async {
-        // Locally resolved skips do not carry a Stripe customer, so find it
-        // here when cleaning up stale drafts.
-        let customer = match customer {
-            Some(c) => c,
-            None => match find_customer(client, &invoice.billed_prefix).await? {
-                Some(c) => c,
-                None => return Ok(()),
-            },
+        let Some(ExistingInvoice::Found(stripe_invoice)) = invoice.locate_invoice(provider).await?
+        else {
+            return Ok(());
         };
-        let customer_id = customer.id.to_string();
-
-        if let Some(stripe_invoice) = invoice.get_stripe_invoice(client, &customer_id).await? {
-            if let Some(stripe::InvoiceStatus::Draft) = stripe_invoice.status {
-                if dry_run {
-                    tracing::warn!(
-                        tenant = invoice.billed_prefix.to_string(),
-                        "[dry-run] Would delete stale draft invoice {}",
-                        stripe_invoice.id
-                    );
-                } else {
-                    tracing::warn!(
-                        tenant = invoice.billed_prefix.to_string(),
-                        "Deleting draft invoice!"
-                    );
-                    stripe::Invoice::delete(client, &stripe_invoice.id).await?;
-                }
-            }
+        if stripe_invoice.status != Some(stripe::InvoiceStatus::Draft) {
+            return Ok(());
         }
+        if dry_run {
+            tracing::warn!(
+                tenant = invoice.billed_prefix.to_string(),
+                "[dry-run] Would delete stale draft invoice {}",
+                stripe_invoice.id
+            );
+            return Ok(());
+        }
+
+        tracing::warn!(
+            tenant = invoice.billed_prefix,
+            "Deleting stale draft invoice"
+        );
+        stripe::Invoice::delete(client, &stripe_invoice.id).await?;
+        invoice
+            .record_invoice_id(db_client, Some(stripe_invoice.id.as_str()), None)
+            .await?;
         Ok(())
     }
     .await;
 
     if let Err(e) = task_res {
         tracing::warn!(
-            "Failed to check for or clear potential leaked draft invoices for {}, this is probably not a problem: {e:#}",
-            invoice.billed_prefix.to_owned()
+            "Failed to delete or clear stale draft invoice for {}; inspect its recorded ID and recover it if needed: {e:#}",
+            invoice.billed_prefix
         );
     }
 }
@@ -1094,62 +1180,41 @@ fn manual_annotation(invoice: &Invoice) -> Option<String> {
     }
 }
 
-/// Read-only: search Stripe for an existing customer by tenant metadata.
-#[tracing::instrument(skip(client))]
-async fn find_customer(
-    client: &stripe::Client,
-    tenant: &str,
-) -> anyhow::Result<Option<stripe::Customer>> {
-    let mut customers: Vec<stripe::Customer> = stripe_search(
-        client,
-        "customers",
-        SearchParams {
-            query: customer_search_query(tenant),
-            ..Default::default()
-        },
-    )
-    .await
-    .context(format!("Searching for tenant {tenant}"))?;
-
-    if let Some(customer) = customers.drain(..).next() {
-        tracing::debug!("Found existing customer {id}", id = customer.id.to_string());
-        Ok(Some(customer))
-    } else {
-        Ok(None)
-    }
-}
-
-/// Ensures a Stripe customer exists for this tenant and is ready for invoicing.
-/// Uses `found` (the customer located during classification) when present,
-/// otherwise finds an existing customer or creates a new one (carrying the
-/// tenant's billing email and address from the control-plane DB), then ensures
-/// the customer has an email set (falling back to the earliest admin on the
-/// tenant if needed).
-#[tracing::instrument(skip(client, db_client, found))]
+/// Ensures the tenant has a Stripe customer ready for invoicing. Creates and
+/// records one when the database has no customer ID. New customers use the
+/// tenant's billing email and address. If the Stripe customer has no email,
+/// uses the earliest tenant admin's email.
+#[tracing::instrument(skip(provider, db_client, found))]
 async fn ensure_customer_for_invoicing(
-    client: &stripe::Client,
+    provider: &dyn BillingProvider,
     db_client: &Pool<Postgres>,
     tenant: &str,
     found: Option<stripe::Customer>,
 ) -> anyhow::Result<stripe::Customer> {
-    let existing = match found {
-        Some(customer) => Some(customer),
-        None => find_customer(client, tenant).await?,
-    };
-
-    let customer = if let Some(customer) = existing {
+    let customer = if let Some(customer) = found {
+        customer
+    } else if let Some(Some(recorded)) = sqlx::query_scalar::<_, Option<String>>(
+        "select stripe_customer_id from tenants where tenant = $1",
+    )
+    .bind(tenant)
+    .fetch_optional(db_client)
+    .await?
+    {
+        let id: stripe::CustomerId = recorded
+            .parse()
+            .with_context(|| format!("invalid recorded Stripe customer ID {recorded}"))?;
+        let customer = provider
+            .retrieve_customer(&id)
+            .await
+            .with_context(|| format!("Retrieving Stripe customer {id}"))?;
+        if customer.deleted {
+            bail!(
+                "Stripe customer {id} of tenant {tenant} is deleted; clear tenants.stripe_customer_id to invoice a new customer"
+            );
+        }
         customer
     } else {
         tracing::debug!("Creating new customer");
-        // Match the deterministic Idempotency-Key used by the GraphQL path so
-        // a setup-intent flow racing against billing automation can't produce
-        // a second customer for the same tenant. See `stripe_impl.rs`.
-        let create_client = client
-            .clone()
-            .with_strategy(stripe::RequestStrategy::Idempotent(
-                customer_create_idempotency_key(tenant),
-            ));
-
         let billing_row = tenant_billing_row(db_client, tenant).await?;
         let billing_email = billing_row
             .as_ref()
@@ -1160,27 +1225,17 @@ async fn ensure_customer_for_invoicing(
             .map(|v| serde_json::from_value::<stripe::Address>(v.clone()))
             .transpose()
             .context("deserializing billing_address")?;
+        let metadata = HashMap::from([(
+            "estuary.dev/created_by_automation".to_string(),
+            "true".to_string(),
+        )]);
+        let new_customer = provider
+            .create_customer(tenant, billing_email, billing_address, metadata)
+            .await?;
 
-        let description = format!("Represents the billing entity for Flow tenant '{tenant}'");
-        let new_customer = stripe::Customer::create(
-            &create_client,
-            stripe::CreateCustomer {
-                name: Some(tenant),
-                email: billing_email,
-                address: billing_address,
-                description: Some(description.as_str()),
-                metadata: Some({
-                    let mut metadata = tenant_metadata(tenant);
-                    metadata.insert(
-                        CREATED_BY_BILLING_AUTOMATION.to_string(),
-                        "true".to_string(),
-                    );
-                    metadata
-                }),
-                ..Default::default()
-            },
-        )
-        .await?;
+        record_customer_id(db_client, tenant, &new_customer.id)
+            .await
+            .context("Recording created customer")?;
 
         // No controller wake here: the customer is created with the DB's
         // billing email and address, and the billing name (customer metadata)
@@ -1213,15 +1268,9 @@ async fn ensure_customer_for_invoicing(
             },
         };
 
-        stripe::Customer::update(
-            client,
-            &customer.id,
-            stripe::UpdateCustomer {
-                email: Some(&email),
-                ..Default::default()
-            },
-        )
-        .await?;
+        provider
+            .update_customer_billing_profile(&customer.id, Some(&email), None, None)
+            .await?;
     }
     Ok(customer)
 }
@@ -1299,4 +1348,635 @@ async fn billing_email_available(
     }
 
     Ok(earliest_admin_email(db_client, tenant).await?.is_some())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stripe_stub::stripe_stub;
+    use axum::http::StatusCode;
+
+    const TENANT: &str = "acmeCo/";
+    const CUSTOMER_ID: &str = "cus_acme";
+
+    /// A $100 bill for `TENANT`: a manual bill spanning three months, or an
+    /// August usage bill that's eligible for invoicing.
+    fn bill(invoice_type: InvoiceType, recorded: Option<&str>) -> Invoice {
+        let (date_start, date_end) = match invoice_type {
+            InvoiceType::Manual => ("2026-07-15", "2026-09-14"),
+            _ => ("2026-08-01", "2026-08-31"),
+        };
+        Invoice {
+            subtotal: 10_000,
+            line_items: sqlx::types::Json(Vec::new()),
+            date_start: date_start.parse().unwrap(),
+            date_end: date_end.parse().unwrap(),
+            billed_prefix: TENANT.to_string(),
+            invoice_type,
+            extra: Some(sqlx::types::Json(Some(Extra {
+                trial_start: None,
+                trial_credit: None,
+                recurring_fee: None,
+                task_usage_hours: None,
+                processed_data_gb: Some(1.0),
+            }))),
+            has_full_pipeline: true,
+            payment_provider: PaymentProvider::Stripe,
+            tenant_trial_start: Some("2020-01-01".parse().unwrap()),
+            stripe_invoice_id: recorded.map(str::to_string),
+            stripe_customer_id: Some(CUSTOMER_ID.to_string()),
+        }
+    }
+
+    fn stripe_invoice(id: &str, status: stripe::InvoiceStatus, created: i64) -> stripe::Invoice {
+        stripe::Invoice {
+            id: id.parse().unwrap(),
+            status: Some(status),
+            created: Some(created),
+            ..Default::default()
+        }
+    }
+
+    fn customer() -> stripe::Customer {
+        stripe::Customer {
+            id: CUSTOMER_ID.parse().unwrap(),
+            email: Some("billing@acme.test".to_string()),
+            balance: Some(0),
+            ..Default::default()
+        }
+    }
+
+    fn ok(body: impl serde::Serialize) -> (StatusCode, serde_json::Value) {
+        (StatusCode::OK, serde_json::to_value(body).unwrap())
+    }
+
+    fn not_found() -> (StatusCode, serde_json::Value) {
+        (
+            StatusCode::NOT_FOUND,
+            serde_json::json!({"error": {
+                "type": "invalid_request_error",
+                "code": "resource_missing",
+                "message": "No such invoice",
+            }}),
+        )
+    }
+
+    fn describe(action: &InvoiceAction) -> String {
+        match action {
+            InvoiceAction::Skip { result, customer } => format!(
+                "skip: {}; customer {}",
+                result.message(false),
+                customer.as_ref().map_or("none", |c| c.id.as_str()),
+            ),
+            InvoiceAction::Create { replace, customer } => format!(
+                "create: replacing {:?}; customer {}",
+                replace.as_ref().map(|id| id.as_str()),
+                customer.as_ref().map_or("none", |c| c.id.as_str()),
+            ),
+            InvoiceAction::Update {
+                existing_invoice,
+                customer,
+            } => format!("update: {existing_invoice}; customer {}", customer.id,),
+        }
+    }
+
+    #[tokio::test]
+    async fn recorded_objects_are_retrieved_by_id() {
+        use stripe::InvoiceStatus::{Draft, Open};
+
+        let cases = [
+            (
+                bill(InvoiceType::Manual, Some("in_recorded")),
+                false,
+                ok(stripe_invoice("in_recorded", Draft, 1)),
+            ),
+            (
+                bill(InvoiceType::Manual, Some("in_recorded")),
+                false,
+                ok(stripe_invoice("in_recorded", Open, 1)),
+            ),
+            // A recorded invoice that was deleted isn't recreated for a manual
+            // bill, and is for a usage bill only under --recreate-existing.
+            (
+                bill(InvoiceType::Manual, Some("in_recorded")),
+                false,
+                not_found(),
+            ),
+            (
+                bill(InvoiceType::Final, Some("in_recorded")),
+                false,
+                not_found(),
+            ),
+            (
+                bill(InvoiceType::Final, Some("in_recorded")),
+                true,
+                not_found(),
+            ),
+            (
+                bill(InvoiceType::Final, Some("in_recorded")),
+                true,
+                ok(stripe_invoice("in_recorded", Open, 1)),
+            ),
+        ];
+
+        let mut outcomes = Vec::new();
+        for (bill, recreate_existing, invoice_response) in cases {
+            let (client, requests) = stripe_stub(vec![ok(customer()), invoice_response]).await;
+            let provider = StripeBillingProvider::from_client(client.clone());
+            let outcome = match bill.classify(&provider, recreate_existing).await {
+                Ok(action) => describe(&action),
+                Err(err) => format!("error: {err:#}"),
+            };
+            outcomes.push(format!(
+                "{:?} recreate={recreate_existing}: {outcome}",
+                bill.invoice_type
+            ));
+            assert_eq!(
+                *requests.lock().unwrap(),
+                ["GET /v1/customers/cus_acme", "GET /v1/invoices/in_recorded"],
+            );
+        }
+        insta::assert_snapshot!(outcomes.join("\n"), @r#"
+        Manual recreate=false: update: in_recorded; customer cus_acme
+        Manual recreate=false: skip: Skipping invoice already processed in a previous billing run; customer cus_acme
+        Manual recreate=false: skip: Skipping invoice already processed in a previous billing run; customer cus_acme
+        Final recreate=false: error: Recorded invoice in_recorded no longer exists in Stripe. Pass --recreate-existing to create a replacement.
+        Final recreate=true: create: replacing None; customer cus_acme
+        Final recreate=true: create: replacing Some("in_recorded"); customer cus_acme
+        "#);
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn created_customer_is_recorded_before_missing_email_fails(pool: sqlx::PgPool) {
+        sqlx::query("insert into tenants (id, tenant) values (internal.id_generator(), $1)")
+            .bind(TENANT)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let created = stripe::Customer {
+            id: "cus_created".parse().unwrap(),
+            email: None,
+            ..Default::default()
+        };
+        let (client, requests) = stripe_stub(vec![ok(created)]).await;
+        let provider = StripeBillingProvider::from_client(client);
+        let err = ensure_customer_for_invoicing(&provider, &pool, TENANT, None)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("No admins found"), "{err:#}");
+        assert_eq!(*requests.lock().unwrap(), ["POST /v1/customers"],);
+
+        let recorded: Option<String> =
+            sqlx::query_scalar("select stripe_customer_id from tenants where tenant = $1")
+                .bind(TENANT)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(recorded.as_deref(), Some("cus_created"));
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn execution_reuses_customer_id_recorded_after_classification(pool: sqlx::PgPool) {
+        sqlx::query("insert into tenants (id, tenant, stripe_customer_id) values (internal.id_generator(), $1, 'cus_acme')")
+            .bind(TENANT)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (client, requests) = stripe_stub(vec![ok(customer())]).await;
+        let provider = StripeBillingProvider::from_client(client);
+        let resolved = ensure_customer_for_invoicing(&provider, &pool, TENANT, None)
+            .await
+            .unwrap();
+        assert_eq!(resolved.id.as_str(), CUSTOMER_ID);
+        assert_eq!(*requests.lock().unwrap(), ["GET /v1/customers/cus_acme"]);
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn dry_run_execution_and_cleanup_are_read_only(pool: sqlx::PgPool) {
+        sqlx::query("insert into tenants (id, tenant, billing_email, stripe_customer_id) values (internal.id_generator(), $1, $2, 'cus_acme')")
+            .bind(TENANT)
+            .bind("billing@acme.test")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "insert into internal.billing_historicals (tenant, billed_month, report) values ($1, '2026-08-01', $2::jsonb)",
+        )
+        .bind(TENANT)
+        .bind(r#"{"billed_month":"2026-08-01T00:00:00Z"}"#)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id) values ($1, 10000, 'Update candidate', '2026-07-15', '2026-09-14', 'in_draft')",
+        )
+        .bind(TENANT)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id) values ($1, 10000, 'Cleanup candidate', '2025-01-01', '2025-01-31', 'in_stale')",
+        )
+        .bind(TENANT)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut cmd = PublishInvoice {
+            connection_string: String::new(),
+            stripe_api_key: String::new(),
+            tenants: vec![TENANT.to_string()],
+            all_tenants: false,
+            month: "2026-08-01".parse().unwrap(),
+            recreate_existing: false,
+            fail_fast: false,
+            charge_type: ChargeType::AutoCharge,
+            concurrency: 1,
+            clean_up: false,
+            dry_run: true,
+        };
+
+        // A null customer and invoice ID means no Stripe object is recorded;
+        // classification performs no metadata search or writes.
+        let mut candidate = bill(InvoiceType::Final, None);
+        candidate.stripe_customer_id = None;
+        let (client, requests) = stripe_stub(vec![]).await;
+        let provider = StripeBillingProvider::from_client(client.clone());
+        assert!(matches!(
+            process_invoice(&cmd, &provider, &client, &pool, &candidate)
+                .await
+                .unwrap(),
+            InvoiceResult::Created(PaymentProvider::Stripe)
+        ));
+        assert!(requests.lock().unwrap().is_empty());
+
+        // A recorded draft is retrieved by ID and left unchanged by preview.
+        let mut update = bill(InvoiceType::Manual, Some("in_draft"));
+        update.date_start = "2026-07-15".parse().unwrap();
+        update.date_end = "2026-09-14".parse().unwrap();
+        let (client, requests) = stripe_stub(vec![
+            ok(customer()),
+            ok(stripe_invoice("in_draft", stripe::InvoiceStatus::Draft, 1)),
+        ])
+        .await;
+        let provider = StripeBillingProvider::from_client(client.clone());
+        assert!(matches!(
+            process_invoice(&cmd, &provider, &client, &pool, &update)
+                .await
+                .unwrap(),
+            InvoiceResult::Updated
+        ));
+        assert_eq!(
+            *requests.lock().unwrap(),
+            ["GET /v1/customers/cus_acme", "GET /v1/invoices/in_draft",]
+        );
+
+        // Cleanup preview retrieves the recorded object but never deletes it.
+        cmd.clean_up = true;
+        let mut skipped = bill(InvoiceType::Manual, Some("in_stale"));
+        skipped.date_start = "2025-01-01".parse().unwrap();
+        skipped.date_end = "2025-01-31".parse().unwrap();
+        let (client, requests) = stripe_stub(vec![
+            ok(customer()),
+            ok(stripe_invoice("in_stale", stripe::InvoiceStatus::Open, 1)),
+            ok(stripe_invoice("in_stale", stripe::InvoiceStatus::Draft, 1)),
+        ])
+        .await;
+        let provider = StripeBillingProvider::from_client(client.clone());
+        assert!(matches!(
+            process_invoice(&cmd, &provider, &client, &pool, &skipped)
+                .await
+                .unwrap(),
+            InvoiceResult::AlreadyProcessed
+        ));
+        assert_eq!(
+            *requests.lock().unwrap(),
+            [
+                "GET /v1/customers/cus_acme",
+                "GET /v1/invoices/in_stale",
+                "GET /v1/invoices/in_stale",
+            ]
+        );
+        let ids: (Option<String>, Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+            "select stripe_customer_id, (select stripe_invoice_id from internal.billing_historicals where tenant = $1 and billed_month = '2026-08-01'), (select stripe_invoice_id from internal.manual_bills where tenant = $1 and date_start = '2026-07-15'), (select stripe_invoice_id from internal.manual_bills where tenant = $1 and date_start = '2025-01-01') from tenants where tenant = $1",
+        )
+        .bind(TENANT)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            ids,
+            (
+                Some("cus_acme".into()),
+                None,
+                Some("in_draft".into()),
+                Some("in_stale".into())
+            )
+        );
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn stale_draft_delete_failure_retains_recorded_id(pool: sqlx::PgPool) {
+        sqlx::query("insert into tenants (id, tenant) values (internal.id_generator(), $1)")
+            .bind(TENANT)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id) values ($1, 10000, 'Cleanup candidate', '2025-01-01', '2025-01-31', 'in_stale')",
+        )
+        .bind(TENANT)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let invoice = bill(InvoiceType::Manual, Some("in_stale"));
+        let mut invoice = invoice;
+        invoice.date_start = "2025-01-01".parse().unwrap();
+        invoice.date_end = "2025-01-31".parse().unwrap();
+        let (client, requests) = stripe_stub(vec![
+            ok(stripe_invoice("in_stale", stripe::InvoiceStatus::Draft, 1)),
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({"error":{"message":"failure"}}),
+            ),
+        ])
+        .await;
+        let provider = StripeBillingProvider::from_client(client.clone());
+        clean_up_stale_draft(&provider, &client, &pool, &invoice, false).await;
+
+        assert_eq!(
+            *requests.lock().unwrap(),
+            ["GET /v1/invoices/in_stale", "DELETE /v1/invoices/in_stale",]
+        );
+        let id: Option<String> = sqlx::query_scalar(
+            "select stripe_invoice_id from internal.manual_bills where tenant = $1 and date_start = '2025-01-01'",
+        )
+        .bind(TENANT)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(id.as_deref(), Some("in_stale"));
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn stale_draft_delete_success_clears_recorded_id(pool: sqlx::PgPool) {
+        sqlx::query("insert into tenants (id, tenant) values (internal.id_generator(), $1)")
+            .bind(TENANT)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id) values ($1, 10000, 'Cleanup candidate', '2025-01-01', '2025-01-31', 'in_stale')",
+        )
+        .bind(TENANT)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut invoice = bill(InvoiceType::Manual, Some("in_stale"));
+        invoice.date_start = "2025-01-01".parse().unwrap();
+        invoice.date_end = "2025-01-31".parse().unwrap();
+        let deleted = stripe_invoice("in_stale", stripe::InvoiceStatus::Draft, 1);
+        let (client, requests) = stripe_stub(vec![
+            ok(stripe_invoice("in_stale", stripe::InvoiceStatus::Draft, 1)),
+            ok(deleted),
+        ])
+        .await;
+        let provider = StripeBillingProvider::from_client(client.clone());
+        clean_up_stale_draft(&provider, &client, &pool, &invoice, false).await;
+
+        assert_eq!(
+            *requests.lock().unwrap(),
+            ["GET /v1/invoices/in_stale", "DELETE /v1/invoices/in_stale",]
+        );
+        let id: Option<String> = sqlx::query_scalar(
+            "select stripe_invoice_id from internal.manual_bills where tenant = $1 and date_start = '2025-01-01'",
+        )
+        .bind(TENANT)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(id, None);
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn loads_month_bills_from_db_with_tenant_filters(pool: sqlx::PgPool) {
+        sqlx::raw_sql(
+            r#"
+            insert into tenants (id, tenant, created_at) values
+                (internal.id_generator(), 'acmeCo/', '2020-01-01'),
+                (internal.id_generator(), 'otherCo/', '2020-01-01');
+            insert into internal.billing_historicals (tenant, billed_month, report, stripe_invoice_id) values
+                ('acmeCo/', '2026-08-01', '{"billed_month":"2026-08-01","subtotal":10000}', 'in_acme'),
+                ('otherCo/', '2026-08-01', '{"billed_month":"2026-08-01","subtotal":10000}', null);
+            insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id) values
+                ('acmeCo/', 10000, 'overlap', '2026-07-15', '2026-09-14', 'in_manual'),
+                ('acmeCo/', 10000, 'outside', '2026-09-01', '2026-09-30', null);
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let invoices = load_invoices(
+            &pool,
+            "2026-08-01".parse().unwrap(),
+            &[],
+            &["otherCo/".to_string()],
+        )
+        .await
+        .unwrap();
+        let mut selected: Vec<_> = invoices
+            .iter()
+            .map(|invoice| {
+                (
+                    invoice.invoice_type,
+                    invoice.date_start,
+                    invoice.date_end,
+                    invoice.stripe_invoice_id.as_deref(),
+                )
+            })
+            .collect();
+        selected.sort_by_key(|row| row.1);
+
+        assert_eq!(
+            selected,
+            [
+                (
+                    InvoiceType::Manual,
+                    "2026-07-15".parse().unwrap(),
+                    "2026-09-14".parse().unwrap(),
+                    Some("in_manual"),
+                ),
+                (
+                    InvoiceType::Final,
+                    "2026-08-01".parse().unwrap(),
+                    "2026-08-31".parse().unwrap(),
+                    Some("in_acme"),
+                ),
+            ]
+        );
+
+        let selected = load_invoices(
+            &pool,
+            "2026-08-01".parse().unwrap(),
+            &["otherCo/".to_string()],
+            &[],
+        )
+        .await
+        .unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].stripe_invoice_id, None);
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn records_bill_invoice_ids(pool: sqlx::PgPool) {
+        sqlx::raw_sql(
+            r#"
+            insert into tenants (id, tenant) values (internal.id_generator(), 'acmeCo/');
+            insert into internal.billing_historicals (tenant, billed_month, report)
+                values ('acmeCo/', '2026-08-01T00:00:00Z', '{"billed_month": "2026-08-01T00:00:00Z"}');
+            insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end)
+                values ('acmeCo/', 10000, 'Contract', '2026-07-15', '2026-09-14');
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let id = |id: &str| id.parse::<stripe::InvoiceId>().unwrap();
+        let usage = bill(InvoiceType::Final, None);
+        let manual = bill(InvoiceType::Manual, None);
+
+        usage
+            .record_invoice_id(&pool, None, Some(&id("in_usage")))
+            .await
+            .unwrap();
+        // An invoice is only recorded over the one the caller expects.
+        assert!(
+            usage
+                .record_invoice_id(&pool, None, Some(&id("in_other")))
+                .await
+                .is_err()
+        );
+        usage
+            .record_invoice_id(&pool, Some("in_usage"), Some(&id("in_replacement")))
+            .await
+            .unwrap();
+
+        manual
+            .record_invoice_id(&pool, None, Some(&id("in_manual")))
+            .await
+            .unwrap();
+        // The recorded invoice follows the manual bill through edits to its
+        // dates, but a run that read the bill's old dates can't record onto it.
+        sqlx::query("update internal.manual_bills set date_end = '2026-09-30'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let err = manual
+            .record_invoice_id(&pool, Some("in_manual"), None)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("changed during this run"),
+            "{err:#}"
+        );
+
+        let recorded: Vec<(chrono::NaiveDate, chrono::NaiveDate, String, Option<String>)> =
+            sqlx::query_as(
+                r#"
+                select date_start, date_end, invoice_type, stripe_invoice_id
+                from internal.invoices_ext
+                where billed_prefix = 'acmeCo/' and invoice_type != 'preview'
+                order by invoice_type
+                "#,
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        insta::assert_debug_snapshot!(recorded, @r#"
+        [
+            (
+                2026-08-01,
+                2026-08-31,
+                "final",
+                Some(
+                    "in_replacement",
+                ),
+            ),
+            (
+                2026-07-15,
+                2026-09-30,
+                "manual",
+                Some(
+                    "in_manual",
+                ),
+            ),
+        ]
+        "#);
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn draft_details_follow_bill_dates(pool: sqlx::PgPool) {
+        let manual = bill(InvoiceType::Manual, Some("in_draft"));
+        let (_, _, metadata) = manual.invoice_details();
+
+        // The draft was created before the bill's end date was edited.
+        let mut current = stripe_invoice("in_draft", stripe::InvoiceStatus::Draft, 1);
+        current.collection_method = Some(stripe::CollectionMethod::SendInvoice);
+        current.amount_due = Some(manual.subtotal);
+        current.metadata = Some(metadata.to_metadata_map());
+        let mut stale = current.clone();
+        stale.metadata = Some(
+            InvoiceMetadata {
+                period_end: "2026-08-31".to_string(),
+                ..metadata
+            }
+            .to_metadata_map(),
+        );
+
+        for (draft, expect_refresh) in [(stale, true), (current.clone(), false)] {
+            let mut responses = vec![ok(&draft)];
+            if expect_refresh {
+                responses.push(ok(&current));
+            }
+            responses.extend([
+                ok(stripe::List::<stripe::InvoiceItem>::default()),
+                ok(&current),
+                ok(customer()),
+            ]);
+            let (client, requests) = stripe_stub(responses).await;
+
+            let action = InvoiceAction::Update {
+                existing_invoice: "in_draft".parse().unwrap(),
+                customer: customer(),
+            };
+            let result = manual
+                .execute(
+                    &StripeBillingProvider::from_client(client.clone()),
+                    &client,
+                    &pool,
+                    action,
+                    ChargeType::SendInvoice,
+                )
+                .await
+                .unwrap();
+            assert!(matches!(result, InvoiceResult::Updated));
+
+            let mut expected = vec!["GET /v1/invoices/in_draft"];
+            if expect_refresh {
+                expected.push("POST /v1/invoices/in_draft");
+            }
+            expected.extend([
+                "GET /v1/invoiceitems?invoice=in_draft",
+                "GET /v1/invoices/in_draft",
+                "GET /v1/customers/cus_acme",
+            ]);
+            assert_eq!(*requests.lock().unwrap(), expected);
+        }
+    }
 }
