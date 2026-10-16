@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT di.id AS \"id!: models::Id\", di.draft_id AS \"draft_id!: models::Id\",\n                   di.capture_name AS \"capture_name!: models::Name\", di.data_plane_name,\n                   di.job_status AS \"status!: sqlx::types::Json<models::discovers::JobStatus>\",\n                   di.created_at, di.updated_at\n            FROM discovers di\n            JOIN drafts d ON d.id = di.draft_id\n            WHERE di.id = $1 AND d.user_id = $2\n            ",
+  "query": "\n            SELECT di.id AS \"id!: models::Id\", di.draft_id AS \"draft_id!: models::Id\",\n                   di.capture_name AS \"capture_name!: models::Name\", di.data_plane_name,\n                   di.job_status AS \"status!: sqlx::types::Json<models::discovers::JobStatus>\",\n                   di.created_at, di.updated_at, di.logs_token\n            FROM discovers di\n            JOIN drafts d ON d.id = di.draft_id\n            WHERE di.id = $1 AND d.user_id = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -79,6 +79,17 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "logs_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "logs_token"
+          }
+        }
       }
     ],
     "parameters": {
@@ -94,8 +105,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "e62d1a2bf12842fcd261a90a24434ed5e56a8d66d7bd3e826324248ecea7bfdc"
+  "hash": "64d72bd006837b1b166cfbba449ca7883e137e72fd279ccbe42c9d5f7ce0f8f1"
 }
