@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT ls.spec_type AS \"spec_type?: models::CatalogType\",\n               ls.spec::text AS \"spec!\",\n               ls.data_plane_id AS \"data_plane_id: models::Id\"\n        FROM live_specs ls\n        WHERE ls.catalog_name = $1 AND ls.spec IS NOT NULL\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "spec_type?: models::CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "spec_type"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "spec!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "data_plane_id: models::Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "data_plane_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      false
+    ]
+  },
+  "hash": "61c9e34c8018d7bb6a6f7038830d6a7e62ac73b7a500557ae7c6637551b8a220"
+}

@@ -109,37 +109,16 @@ pub async fn create(
     .await?
     .ok_or_else(|| anyhow::anyhow!("capture connector tag is not ready"))?;
 
-    let data_plane_error = || tonic::Status::not_found("data plane not found or unauthorized");
-    let data_plane_name = if let Some(live) = live_capture {
-        let current_data_plane_name = &snapshot
-            .data_plane_by_id(live.data_plane_id)
-            .ok_or_else(data_plane_error)?
-            .data_plane_name;
-        if requested_data_plane_name.is_some_and(|selected| selected != current_data_plane_name) {
-            anyhow::bail!("data plane differs from the live capture");
-        }
-        current_data_plane_name.clone()
-    } else {
-        snapshot
-            .storage_mapping_for(capture_name)
-            .and_then(|mapping| {
-                let (prefix, data_planes) =
-                    mapping.ok_or_else(|| anyhow::anyhow!("no storage mapping for capture"))?;
-                crate::storage_mappings::select_data_plane(
-                    prefix.as_str(),
-                    data_planes,
-                    requested_data_plane_name,
-                )
-            })
-            .inspect_err(|_| snapshot.request_refresh())?
-            .to_owned()
-    };
-    snapshot
-        .is_user_authorized(subject, &data_plane_name, models::Capability::Read)
-        .then(|| snapshot.data_plane_by_catalog_name(&data_plane_name))
-        .flatten()
-        .filter(|data_plane| data_plane.connector_route().is_ok())
-        .ok_or_else(data_plane_error)?;
+    let data_plane_name = crate::storage_mappings::select_task_data_plane(
+        snapshot,
+        subject,
+        capture_name,
+        models::CatalogType::Capture,
+        live_capture.map(|live| live.data_plane_id),
+        requested_data_plane_name,
+    )?
+    .data_plane_name
+    .clone();
 
     let update_only = model
         .auto_discover
