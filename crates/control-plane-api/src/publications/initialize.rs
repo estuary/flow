@@ -54,6 +54,9 @@ pub struct ExpandDraft<'a> {
     /// threaded through `Initialize::initialize` — because this is the only
     /// `Initialize` which evaluates authorization.
     pub snapshot: &'a crate::Snapshot,
+    /// When present, the expanded draft must match the inputs authorized at
+    /// submission. Check before applying runtime defaults to the models.
+    pub expected_content_hash: Option<&'a str>,
 }
 
 impl Initialize for ExpandDraft<'_> {
@@ -99,6 +102,13 @@ impl Initialize for ExpandDraft<'_> {
         );
 
         draft.add_live(expanded_catalog);
+
+        if let Some(expected) = self.expected_content_hash {
+            anyhow::ensure!(
+                crate::draft::content_hash(draft) == expected,
+                "draft content changed after publication was submitted"
+            );
+        }
 
         Ok(())
     }

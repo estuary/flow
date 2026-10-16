@@ -201,14 +201,15 @@ impl PublicationsExecutor {
             snapshot,
             default_data_plane_name: row.data_plane_name.clone().filter(|s| !s.is_empty()),
             initialize: (
+                ExpandDraft {
+                    filter_user_can_edit: true,
+                    snapshot,
+                    expected_content_hash: row.draft_content_hash.as_deref(),
+                },
                 RuntimeV2Rollout {
                     new_captures: self.runtime_v2_new_captures,
                     new_materializations: self.runtime_v2_new_materializations,
                     new_derivations: self.runtime_v2_new_derivations,
-                },
-                ExpandDraft {
-                    filter_user_can_edit: true,
-                    snapshot,
                 },
             ),
             finalize: PruneUnboundCollections,

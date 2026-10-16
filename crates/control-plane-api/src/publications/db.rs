@@ -24,6 +24,7 @@ pub struct Row {
     pub logs_token: Uuid,
     pub user_id: Uuid,
     pub data_plane_name: Option<String>,
+    pub draft_content_hash: Option<String>,
     pub job_status: Json<Box<RawValue>>,
 }
 
@@ -41,6 +42,7 @@ pub async fn fetch_publication(task_id: Id, database: &sqlx::PgPool) -> anyhow::
             logs_token,
             user_id,
             data_plane_name,
+            draft_content_hash,
             job_status as "job_status!: Json<Box<RawValue>>"
         from publications
         where id = $1::flowid
