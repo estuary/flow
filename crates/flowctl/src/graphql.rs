@@ -2,6 +2,9 @@
 //!
 //! This module contains some common types for use with graphql queries.
 //!
+//! To explore the schema, or to run an operation without writing a typed query
+//! first, see the `flowctl raw graphql` commands in `crate::raw::graphql`.
+//!
 //! We use the `graphql_client` crate for all graphql requests:
 //! https://github.com/graphql-rust/graphql-client
 //!
