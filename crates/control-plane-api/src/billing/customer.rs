@@ -1,10 +1,12 @@
 //! Resolution of a tenant's Stripe customer.
 //!
-//! Customer identity comes only from `tenants.stripe_customer_id`. A NULL ID
-//! means no customer is recorded; callers do not search Stripe metadata.
+//! The customer recorded in `tenants.stripe_customer_id` is authoritative and is
+//! retrieved by ID. A tenant without a recorded customer remains unresolved
+//! until the API creates and records one.
 
 use super::BillingProvider;
 use anyhow::Context;
+use std::collections::HashMap;
 
 /// The tenant's Stripe customer, or `None` if it has none. A recorded customer
 /// that was deleted in Stripe is also `None`.
@@ -13,7 +15,7 @@ pub async fn find_customer(
     provider: &dyn BillingProvider,
     tenant: &str,
 ) -> anyhow::Result<Option<stripe::Customer>> {
-    let Some(customer) = lookup(pool, provider, tenant).await? else {
+    let Some(customer) = lookup_recorded(pool, provider, tenant).await? else {
         return Ok(None);
     };
     if customer.deleted {
@@ -46,7 +48,7 @@ pub async fn find_or_create_customer(
     billing_name: Option<&str>,
     address: Option<stripe::Address>,
 ) -> anyhow::Result<stripe::Customer> {
-    match lookup(pool, provider, tenant).await? {
+    match lookup_recorded(pool, provider, tenant).await? {
         Some(customer) if customer.deleted => anyhow::bail!(
             "Stripe customer {} of tenant '{tenant}' is deleted; \
              clear tenants.stripe_customer_id to create a new customer",
@@ -54,8 +56,19 @@ pub async fn find_or_create_customer(
         ),
         Some(customer) => return Ok(customer),
         None => {
+            let mut metadata =
+                HashMap::from([("created_by_user_email".to_string(), email.to_string())]);
+            if let Some(name) = full_name {
+                metadata.insert("created_by_user_name".to_string(), name.to_string());
+            }
+            if let Some(name) = billing_name {
+                metadata.insert(
+                    billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                    name.to_string(),
+                );
+            }
             let customer = provider
-                .create_customer(tenant, email, full_name, billing_name, address)
+                .create_customer(tenant, Some(email), address, metadata)
                 .await?;
             billing_types::record_customer_id(pool, tenant, &customer.id)
                 .await
@@ -65,7 +78,7 @@ pub async fn find_or_create_customer(
     }
 }
 
-async fn lookup(
+async fn lookup_recorded(
     pool: &sqlx::PgPool,
     provider: &dyn BillingProvider,
     tenant: &str,
@@ -116,12 +129,10 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../supabase/migrations")]
-    async fn missing_id_does_not_search_or_adopt(pool: sqlx::PgPool) {
+    async fn customer_lookup_uses_only_recorded_id(pool: sqlx::PgPool) {
         insert_tenant(&pool, None).await;
         let provider = InMemoryBillingProvider::new();
-        provider.add_customer(TENANT, "cus_unrecorded", None);
-
-        assert!(lookup(&pool, &provider, TENANT).await.unwrap().is_none());
+        provider.add_customer(TENANT, "cus_metadata_only", None);
         assert!(
             find_customer(&pool, &provider, TENANT)
                 .await
@@ -129,20 +140,19 @@ mod tests {
                 .is_none()
         );
         assert_eq!(recorded(&pool).await, None);
-    }
 
-    #[sqlx::test(migrations = "../../supabase/migrations")]
-    async fn recorded_customer_is_retrieved_and_deleted_is_not_replaced(pool: sqlx::PgPool) {
-        insert_tenant(&pool, Some("cus_recorded")).await;
-        let provider = InMemoryBillingProvider::new();
+        sqlx::query("update tenants set stripe_customer_id = $2 where tenant = $1")
+            .bind(TENANT)
+            .bind("cus_recorded")
+            .execute(&pool)
+            .await
+            .unwrap();
         provider.add_customer("otherCo/", "cus_recorded", None);
-        provider.add_customer(TENANT, "cus_metadata_match", None);
-
-        let found = find_customer(&pool, &provider, TENANT)
+        let customer = find_customer(&pool, &provider, TENANT)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(found.id.as_str(), "cus_recorded");
+        assert_eq!(customer.id.as_str(), "cus_recorded");
 
         provider.delete_customer("cus_recorded");
         assert!(
@@ -163,10 +173,47 @@ mod tests {
         insert_tenant(&pool, None).await;
         let provider = InMemoryBillingProvider::new();
 
-        let created =
-            find_or_create_customer(&pool, &provider, TENANT, "a@b.test", None, None, None)
-                .await
-                .unwrap();
+        let address = stripe::Address {
+            line1: Some("1 Billing Way".to_string()),
+            ..Default::default()
+        };
+        let created = find_or_create_customer(
+            &pool,
+            &provider,
+            TENANT,
+            "billing@example.test",
+            Some("Billing User"),
+            Some("Accounts Payable"),
+            Some(address),
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.email.as_deref(), Some("billing@example.test"));
+        assert_eq!(
+            created.address.as_ref().and_then(|a| a.line1.as_deref()),
+            Some("1 Billing Way")
+        );
+        let metadata = created.metadata.as_ref().unwrap();
+        assert_eq!(
+            metadata
+                .get(billing_types::TENANT_METADATA_KEY)
+                .map(String::as_str),
+            Some(TENANT)
+        );
+        assert_eq!(
+            metadata.get("created_by_user_email").map(String::as_str),
+            Some("billing@example.test")
+        );
+        assert_eq!(
+            metadata.get("created_by_user_name").map(String::as_str),
+            Some("Billing User")
+        );
+        assert_eq!(
+            metadata
+                .get(billing_types::CUSTOMER_NAME_METADATA_KEY)
+                .map(String::as_str),
+            Some("Accounts Payable")
+        );
         assert_eq!(recorded(&pool).await.as_deref(), Some(created.id.as_str()));
 
         // A conflicting customer is never recorded over the existing one.

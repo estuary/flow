@@ -1,12 +1,7 @@
+use std::collections::HashMap;
+
 /// `BillingProvider` is intentionally a narrow seam around outbound Stripe API
-/// calls. It is not meant to be a complete billing service boundary, which is
-/// why the interface still uses Stripe-native types. Database-backed billing
-/// reads live separately under `billing::db`, and resolution of a tenant's
-/// recorded customer ID, which combines both, lives under `billing::customer`.
-///
-/// This trait exists for two reasons:
-/// 1. Keep the Stripe SDK wiring in one place.
-/// 2. Make resolver tests deterministic without calling live Stripe.
+/// calls while keeping Stripe SDK wiring out of API and publisher code.
 #[async_trait::async_trait]
 pub trait BillingProvider: Send + Sync + std::fmt::Debug {
     /// Retrieve a customer by ID. Stripe returns a deleted customer with
@@ -16,13 +11,14 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         customer_id: &stripe::CustomerId,
     ) -> anyhow::Result<stripe::Customer>;
 
+    /// Create a tenant-named customer, retaining caller metadata except the
+    /// tenant entry, which the implementation must set authoritatively.
     async fn create_customer(
         &self,
         tenant: &str,
-        user_email: &str,
-        user_name: Option<&str>,
-        billing_name: Option<&str>,
+        email: Option<&str>,
         address: Option<stripe::Address>,
+        metadata: HashMap<String, String>,
     ) -> anyhow::Result<stripe::Customer>;
 
     async fn update_customer_default_payment_method(
