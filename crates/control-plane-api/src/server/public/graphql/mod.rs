@@ -170,7 +170,7 @@ pub(crate) async fn graphql_handler(
         req.data(app.clone())
             .data(env)
             .data(async_graphql::dataloader::DataLoader::new(
-                PgDataLoader(pg_pool),
+                PgDataLoader(pg_pool.clone()),
                 tokio::spawn,
             ));
 
@@ -186,7 +186,10 @@ pub(crate) async fn graphql_handler(
                 tokio::spawn,
             ))
             .data(async_graphql::dataloader::DataLoader::new(
-                billing::CustomerDataLoader(billing_provider.clone()),
+                billing::CustomerDataLoader {
+                    pg_pool: pg_pool.clone(),
+                    provider: billing_provider.clone(),
+                },
                 tokio::spawn,
             ));
     }

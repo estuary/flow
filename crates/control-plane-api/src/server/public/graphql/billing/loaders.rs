@@ -3,22 +3,14 @@ use std::future::Future;
 use std::sync::Arc;
 
 use async_graphql::{Result, dataloader::Loader};
-use billing_types::{InvoiceSearch, StatusFilter};
 
-use crate::billing::{BillingProvider, InvoiceType};
-
-/// Compound key used by `StripeInvoiceLoader` to dedup search calls within a
-/// request: one Stripe search per (customer, period, type).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct StripeInvoiceKey {
-    pub(super) customer_id: stripe::CustomerId,
-    pub(super) date_start: String,
-    pub(super) date_end: String,
-    pub(super) invoice_type: InvoiceType,
-}
+use crate::billing::{self, BillingProvider};
 
 /// Request-scoped loader that resolves a Stripe customer by tenant prefix.
-pub(crate) struct CustomerDataLoader(pub Arc<dyn BillingProvider>);
+pub(crate) struct CustomerDataLoader {
+    pub pg_pool: sqlx::PgPool,
+    pub provider: Arc<dyn BillingProvider>,
+}
 
 impl Loader<String> for CustomerDataLoader {
     type Value = stripe::Customer;
@@ -26,10 +18,10 @@ impl Loader<String> for CustomerDataLoader {
 
     async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>> {
         fan_out_optional(keys, |tenant| {
-            let provider = self.0.clone();
+            let pg_pool = self.pg_pool.clone();
+            let provider = self.provider.clone();
             async move {
-                provider
-                    .find_customer(&tenant)
+                billing::find_customer(&pg_pool, provider.as_ref(), &tenant)
                     .await
                     .map_err(|err| async_graphql::Error::new(err.to_string()))
             }
@@ -38,33 +30,27 @@ impl Loader<String> for CustomerDataLoader {
     }
 }
 
-/// Request-scoped loader that resolves a Stripe invoice by its metadata key.
+/// Request-scoped loader that resolves a finalized Stripe invoice by its ID.
+/// Drafts resolve to `None`: they're still being prepared by billing
+/// automation and aren't shown to the tenant.
 pub(crate) struct StripeInvoiceLoader(pub Arc<dyn BillingProvider>);
 
-impl Loader<StripeInvoiceKey> for StripeInvoiceLoader {
+impl Loader<stripe::InvoiceId> for StripeInvoiceLoader {
     type Value = stripe::Invoice;
     type Error = async_graphql::Error;
 
     async fn load(
         &self,
-        keys: &[StripeInvoiceKey],
-    ) -> Result<HashMap<StripeInvoiceKey, Self::Value>> {
-        fan_out_optional(keys, |key| {
+        keys: &[stripe::InvoiceId],
+    ) -> Result<HashMap<stripe::InvoiceId, Self::Value>> {
+        fan_out_optional(keys, |invoice_id| {
             let provider = self.0.clone();
-            let query = InvoiceSearch {
-                customer_id: Some(key.customer_id.as_str()),
-                invoice_type: Some(key.invoice_type),
-                period_start: Some(&key.date_start),
-                period_end: Some(&key.date_end),
-                status: StatusFilter::Exclude(stripe::InvoiceStatus::Draft),
-            }
-            .to_query();
             async move {
-                provider
-                    .search_invoices(&query)
+                let invoice = provider
+                    .retrieve_invoice(&invoice_id)
                     .await
-                    .map(|invoices| invoices.into_iter().next())
-                    .map_err(|err| async_graphql::Error::new(err.to_string()))
+                    .map_err(|err| async_graphql::Error::new(err.to_string()))?;
+                Ok(invoice.filter(|i| i.status != Some(stripe::InvoiceStatus::Draft)))
             }
         })
         .await
