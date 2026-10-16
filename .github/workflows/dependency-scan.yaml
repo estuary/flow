@@ -38,11 +38,14 @@ jobs:
         id: select
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
 
           ALL="Cargo.lock go.mod poetry.lock"
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
+          if [ "$EVENT" != "pull_request" ]; then
             echo "lockfiles=${ALL}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -50,7 +53,7 @@ jobs:
           # Changed paths come from the API rather than git history, which
           # would need a deep clone of this repo. The endpoint caps at 3000
           # files, and a list at the cap may be missing paths.
-          gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+          gh api --paginate "repos/${REPO}/pulls/${PR}/files" \
             --jq '.[].filename' > changed.txt
           if [ "$(wc -l < changed.txt)" -ge 3000 ]; then
             echo "Pull request lists 3000 or more files; scanning every language"
@@ -86,4 +89,50 @@ jobs:
 
       - name: Scan
         if: steps.select.outputs.lockfiles != ''
-        run: mise run ci:trivy ${{ steps.select.outputs.lockfiles }}
+        env:
+          LOCKFILES: ${{ steps.select.outputs.lockfiles }}
+        # Unquoted so each lockfile is its own argument.
+        run: mise run ci:trivy $LOCKFILES
+
+  # A failed nightly or manual scan of master opens an issue, or comments on the
+  # one already open, so the finding is tracked rather than living only in one
+  # person's email. The next passing scan closes it. Pull requests report
+  # through their own check instead.
+  report:
+    name: Report
+    needs: dependency-scan
+    if: >-
+      always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/master' &&
+      contains(fromJSON('["success", "failure"]'), needs.dependency-scan.result)
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - name: Open, update or close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.dependency-scan.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # GitHub assigns issues only to users, not teams, and this job's token
+          # cannot list team members, so @estuary/operations is assigned by
+          # name. Keep this in step with the team's membership.
+          ASSIGNEES: skord,mdibaiee,qaoj,mwillman-estuary
+        run: |
+          set -euo pipefail
+
+          title="Dependency Scan failed on master"
+          issue=$(gh issue list --state open --search "in:title \"${title}\"" --json number,title \
+            --jq "map(select(.title == \"${title}\")) | first | .number // empty")
+
+          if [ "$RESULT" = failure ]; then
+            body="The Dependency Scan of master failed: ${RUN_URL}"$'\n\n'"The Scan step's log names each package, CVE and fixed version. A failure in an earlier step means the scan itself did not run."
+            if [ -n "$issue" ]; then
+              gh issue comment "$issue" --body "$body"
+            else
+              gh issue create --title "$title" --assignee "$ASSIGNEES" \
+                --body "@estuary/operations ${body}"
+            fi
+          elif [ -n "$issue" ]; then
+            gh issue close "$issue" --comment "The Dependency Scan of master passed: ${RUN_URL}"
+          fi
