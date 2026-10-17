@@ -13,6 +13,7 @@ pub struct Config {
     pub consent_url: String,
     pub resources: Vec<String>,
     pub clients: Vec<clients::Client>,
+    mcp_service_secrets: Vec<String>,
 }
 
 impl Config {
@@ -62,7 +63,21 @@ impl Config {
             consent_url,
             resources,
             clients,
+            mcp_service_secrets: Vec::new(),
         })
+    }
+
+    /// Accept overlapping secrets while MCP deployments rotate credentials.
+    pub fn with_mcp_service_secrets(mut self, secrets: Vec<String>) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            !secrets.is_empty()
+                && secrets.iter().all(|secret| {
+                    secret.len() >= 32 && secret.bytes().all(|b| b.is_ascii_graphic() && b != b',')
+                }),
+            "OAUTH_MCP_SERVICE_SECRETS requires secrets of at least 32 printable ASCII characters without commas"
+        );
+        self.mcp_service_secrets = secrets;
+        Ok(self)
     }
 }
 
@@ -159,10 +174,6 @@ fn pkce(verifier: &str, challenge: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(&b))
         && base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash(verifier)) == challenge
 }
-fn valid_scope(scope: &str) -> bool {
-    matches!(scope, "viewer" | "admin")
-}
-
 async fn metadata(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
 ) -> Result<axum::response::Response> {
@@ -178,8 +189,7 @@ async fn metadata(
         "revocation_endpoint_auth_methods_supported": ["none"],
         "code_challenge_methods_supported": ["S256"],
         "client_id_metadata_document_supported": true,
-        "authorization_response_iss_parameter_supported": true,
-        "scopes_supported": ["viewer", "admin"]
+        "authorization_response_iss_parameter_supported": true
     })))
 }
 
@@ -192,7 +202,6 @@ struct Authorization {
     code_challenge_method: String,
     resource: String,
     state: Option<String>,
-    scope: Option<String>,
 }
 
 async fn authorize(
@@ -214,7 +223,6 @@ async fn authorize(
             "redirect_uri is not registered for this client",
         ));
     }
-    let scope = req.scope.as_deref().unwrap_or("viewer");
     let failure = if req.response_type != "code" {
         Some("unsupported_response_type")
     } else if req.code_challenge_method != "S256"
@@ -226,8 +234,6 @@ async fn authorize(
         Some("invalid_request")
     } else if !cfg.resources.contains(&req.resource) {
         Some("invalid_target")
-    } else if !valid_scope(scope) {
-        Some("invalid_scope")
     } else {
         None
     };
@@ -253,9 +259,9 @@ async fn authorize(
     sqlx::query("DELETE FROM internal.oauth_grants WHERE expires_at < now()")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO internal.oauth_requests (request_hash, client_id, client_name, redirect_uri, client_state, code_challenge, resource, scope) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
+    sqlx::query("INSERT INTO internal.oauth_requests (request_hash, client_id, client_name, redirect_uri, client_state, code_challenge, resource) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(hash(&request_id)).bind(&req.client_id).bind(&client.client_name)
-        .bind(&req.redirect_uri).bind(&req.state).bind(&req.code_challenge).bind(&req.resource).bind(scope)
+        .bind(&req.redirect_uri).bind(&req.state).bind(&req.code_challenge).bind(&req.resource)
         .execute(&mut *tx).await?;
     tx.commit().await?;
     let mut target = url::Url::parse(&cfg.consent_url).map_err(|_| Error::internal())?;
@@ -320,15 +326,7 @@ struct RequestId {
     request: String,
 }
 // Values here are validated before insertion and never sourced from dashboard text.
-type Pending = (
-    String,
-    String,
-    String,
-    Option<String>,
-    String,
-    String,
-    String,
-);
+type Pending = (String, String, String, Option<String>, String, String);
 async fn consent_context(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
     env: crate::Envelope,
@@ -336,14 +334,14 @@ async fn consent_context(
 ) -> Result<axum::response::Response> {
     config(&app)?;
     session(&env).await?;
-    let pending: Option<Pending> = sqlx::query_as("SELECT client_id, client_name, redirect_uri, client_state, code_challenge, resource, scope FROM internal.oauth_requests WHERE request_hash=$1 AND expires_at > now()")
+    let pending: Option<Pending> = sqlx::query_as("SELECT client_id, client_name, redirect_uri, client_state, code_challenge, resource FROM internal.oauth_requests WHERE request_hash=$1 AND expires_at > now()")
         .bind(hash(&req.request)).fetch_optional(&app.pg_pool).await?;
-    let (client_id, client_name, _, _, _, resource, scope) = pending.ok_or_else(Error::grant)?;
+    let (client_id, client_name, _, _, _, resource) = pending.ok_or_else(Error::grant)?;
     let client_host = url::Url::parse(&client_id)
         .ok()
         .and_then(|u| u.host_str().map(str::to_owned));
     Ok(json(
-        serde_json::json!({"client_id":client_id, "client_name":client_name, "client_host":client_host, "resource":resource, "scope":scope}),
+        serde_json::json!({"client_id":client_id, "client_name":client_name, "client_host":client_host, "resource":resource}),
     ))
 }
 
@@ -361,14 +359,14 @@ async fn consent(
     let cfg = config(&app)?;
     let user = session(&env).await?.sub;
     let mut tx = app.pg_pool.begin().await?;
-    let pending: Option<Pending> = sqlx::query_as("DELETE FROM internal.oauth_requests WHERE request_hash=$1 AND expires_at > now() RETURNING client_id, client_name, redirect_uri, client_state, code_challenge, resource, scope")
+    let pending: Option<Pending> = sqlx::query_as("DELETE FROM internal.oauth_requests WHERE request_hash=$1 AND expires_at > now() RETURNING client_id, client_name, redirect_uri, client_state, code_challenge, resource")
         .bind(hash(&req.request)).fetch_optional(&mut *tx).await?;
-    let (client_id, client_name, redirect_uri, state, challenge, resource, scope) =
+    let (client_id, client_name, redirect_uri, state, challenge, resource) =
         pending.ok_or_else(Error::grant)?;
     let location = if req.approve {
         let id = uuid::Uuid::new_v4();
-        sqlx::query("INSERT INTO internal.oauth_grants (id,user_id,client_id,client_name,resource,scope) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(id).bind(user).bind(client_id).bind(client_name).bind(resource).bind(scope)
+        sqlx::query("INSERT INTO internal.oauth_grants (id,user_id,client_id,client_name,resource) VALUES ($1,$2,$3,$4,$5)")
+            .bind(id).bind(user).bind(client_id).bind(client_name).bind(resource)
             .execute(&mut *tx).await?;
         let code = secret();
         sqlx::query("INSERT INTO internal.oauth_codes (code_hash,grant_id,redirect_uri,code_challenge) VALUES ($1,$2,$3,$4)")
@@ -398,9 +396,8 @@ struct TokenRequest {
     code_verifier: Option<String>,
     refresh_token: Option<String>,
     resource: Option<String>,
-    scope: Option<String>,
 }
-type Grant = (uuid::Uuid, uuid::Uuid, String, String, String);
+type Grant = (uuid::Uuid, uuid::Uuid, String, String);
 
 async fn token(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
@@ -433,18 +430,17 @@ async fn token(
     let digest = hash(credential);
     let mut tx = app.pg_pool.begin().await?;
     let lookup = if is_code {
-        "SELECT g.id,g.user_id,g.client_id,g.resource,g.scope FROM internal.oauth_grants g JOIN internal.oauth_codes c ON c.grant_id=g.id WHERE c.code_hash=$1 AND g.revoked_at IS NULL AND g.expires_at > now() FOR UPDATE OF g"
+        "SELECT g.id,g.user_id,g.client_id,g.resource FROM internal.oauth_grants g JOIN internal.oauth_codes c ON c.grant_id=g.id WHERE c.code_hash=$1 AND g.revoked_at IS NULL AND g.expires_at > now() FOR UPDATE OF g"
     } else {
-        "SELECT g.id,g.user_id,g.client_id,g.resource,g.scope FROM internal.oauth_grants g JOIN internal.oauth_refresh_tokens t ON t.grant_id=g.id WHERE t.token_hash=$1 AND g.revoked_at IS NULL AND g.expires_at > now() FOR UPDATE OF g"
+        "SELECT g.id,g.user_id,g.client_id,g.resource FROM internal.oauth_grants g JOIN internal.oauth_refresh_tokens t ON t.grant_id=g.id WHERE t.token_hash=$1 AND g.revoked_at IS NULL AND g.expires_at > now() FOR UPDATE OF g"
     };
     let grant: Option<Grant> = sqlx::query_as(lookup)
         .bind(&digest)
         .fetch_optional(&mut *tx)
         .await?;
-    let (id, user, client_id, resource, scope) = grant.ok_or_else(Error::grant)?;
+    let (id, user, client_id, resource) = grant.ok_or_else(Error::grant)?;
     if client_id != req.client_id
         || req.resource.as_ref().is_some_and(|v| v != &resource)
-        || req.scope.as_ref().is_some_and(|v| v != &scope)
         || !cfg.resources.contains(&resource)
     {
         return Err(Error::grant());
@@ -497,7 +493,7 @@ async fn token(
         exp: now + 3600,
         role: "postgrest_cant_use_this_token".into(),
         email: None,
-        capability_mask: Some(vec![scope.clone()]),
+        capability_mask: None,
         prefix_scope: None,
     };
     #[derive(serde::Serialize)]
@@ -506,22 +502,19 @@ async fn token(
         claims: crate::ControlClaims,
         iss: &'a str,
         client_id: &'a str,
-        scope: &'a str,
     }
     let access = tokens::jwt::sign(
         Access {
             claims,
             iss: &cfg.issuer,
             client_id: &client_id,
-            scope: &scope,
         },
         &app.control_plane_jwt_encode_key,
     )
     .map_err(|_| Error::internal())?;
     tx.commit().await?;
-    Ok(json(
-        serde_json::json!({"access_token":access, "token_type":"Bearer", "expires_in":3600, "refresh_token":refresh, "scope":scope}),
-    ))
+    let response = serde_json::json!({"access_token":access, "token_type":"Bearer", "expires_in":3600, "refresh_token":refresh});
+    Ok(json(response))
 }
 
 #[derive(serde::Deserialize)]
@@ -547,7 +540,7 @@ async fn grants(
 ) -> Result<axum::response::Response> {
     config(&app)?;
     let user = session(&env).await?.sub;
-    let rows: Vec<serde_json::Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'client_id',client_id,'client_name',client_name,'resource',resource,'scope',scope,'created_at',created_at,'expires_at',expires_at) FROM internal.oauth_grants WHERE user_id=$1 AND revoked_at IS NULL AND expires_at > now() ORDER BY created_at DESC")
+    let rows: Vec<serde_json::Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'client_id',client_id,'client_name',client_name,'resource',resource,'created_at',created_at,'expires_at',expires_at) FROM internal.oauth_grants WHERE user_id=$1 AND revoked_at IS NULL AND expires_at > now() ORDER BY created_at DESC")
         .bind(user).fetch_all(&app.pg_pool).await?;
     Ok(json(serde_json::json!({"grants":rows})))
 }
@@ -571,11 +564,34 @@ pub(crate) fn accepts_access_token(
     app: &crate::App,
     claims: &crate::ControlClaims,
     token: &str,
+    headers: &axum::http::HeaderMap,
 ) -> bool {
     let Some(cfg) = app.oauth.as_deref() else {
         return false;
     };
-    cfg.resources.contains(&claims.aud)
+    let mut supplied = headers.get_all("x-mcp-service-secret").iter();
+    let Some(supplied_secret) = supplied.next() else {
+        return false;
+    };
+    if supplied.next().is_some() {
+        return false;
+    }
+    // Compare fixed-size MACs in constant time, including for different secret lengths.
+    // HMAC provides this comparison without implementing our own crypto primitive.
+    use hmac::Mac;
+    let mut candidate = hmac::Hmac::<sha2::Sha256>::new_from_slice(supplied_secret.as_bytes())
+        .expect("HMAC accepts any key length");
+    candidate.update(b"estuary-mcp-service-auth");
+    let candidate = candidate.finalize().into_bytes();
+    let mut matches = false;
+    for secret in &cfg.mcp_service_secrets {
+        let mut expected = hmac::Hmac::<sha2::Sha256>::new_from_slice(secret.as_bytes())
+            .expect("HMAC accepts any key length");
+        expected.update(b"estuary-mcp-service-auth");
+        matches |= expected.verify_slice(&candidate).is_ok();
+    }
+    matches
+        && cfg.resources.contains(&claims.aud)
         && claims.role == "postgrest_cant_use_this_token"
         && tokens::jwt::parse_unverified::<serde_json::Value>(token.as_bytes())
             .is_ok_and(|v| v.claims()["iss"].as_str() == Some(cfg.issuer.as_str()))

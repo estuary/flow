@@ -69,6 +69,16 @@ struct Args {
         requires = "oauth_issuer_url"
     )]
     oauth_resource_urls: Vec<String>,
+    /// Shared MCP service secrets, comma-separated to support rotation. Required for OAuth.
+    #[derivative(Debug = "ignore")]
+    #[clap(
+        long,
+        env = "OAUTH_MCP_SERVICE_SECRETS",
+        hide_env_values = true,
+        value_delimiter = ',',
+        requires = "oauth_issuer_url"
+    )]
+    oauth_mcp_service_secrets: Vec<String>,
     /// Optional JSON array of pre-registered public clients. Others use CIMD.
     #[clap(long, env = "OAUTH_CLIENTS_JSON", requires = "oauth_issuer_url")]
     oauth_clients_json: Option<String>,
@@ -428,12 +438,15 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             anyhow::anyhow!("OAUTH_CONSENT_URL is required when OAuth is enabled")
         })?;
         let clients = serde_json::from_str(args.oauth_clients_json.as_deref().unwrap_or("[]"))?;
-        api_app.oauth = Some(Arc::new(control_plane_api::server::oauth::Config::new(
-            issuer,
-            consent,
-            args.oauth_resource_urls,
-            clients,
-        )?));
+        api_app.oauth = Some(Arc::new(
+            control_plane_api::server::oauth::Config::new(
+                issuer,
+                consent,
+                args.oauth_resource_urls,
+                clients,
+            )?
+            .with_mcp_service_secrets(args.oauth_mcp_service_secrets)?,
+        ));
     }
     let api_app = Arc::new(api_app);
     let api_router = control_plane_api::build_router(

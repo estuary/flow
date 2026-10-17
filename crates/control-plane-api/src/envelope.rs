@@ -258,6 +258,7 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                             &state,
                             verified.claims(),
                             token,
+                            &parts.headers,
                         )
                     {
                         return Err(tonic::Status::unauthenticated(

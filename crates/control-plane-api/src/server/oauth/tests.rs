@@ -47,9 +47,14 @@ async fn start(server: &crate::test_server::TestServer, scope: &str) -> String {
                 "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
             ),
             ("resource", RESOURCE),
-            ("scope", scope),
             ("state", "original-state"),
         ])
+        .query(
+            &(!scope.is_empty())
+                .then_some(("scope", scope))
+                .into_iter()
+                .collect::<Vec<_>>(),
+        )
         .send()
         .await
         .unwrap();
@@ -84,6 +89,7 @@ async fn exchange(
             ("grant_type", "authorization_code"),
             ("code", code),
             ("code_verifier", verifier),
+            ("scope", "ignored-code-scope"),
             ("client_id", client),
             ("redirect_uri", CALLBACK),
         ])
@@ -97,6 +103,7 @@ async fn refresh(server: &crate::test_server::TestServer, token: &str) -> reqwes
         .form(&[
             ("grant_type", "refresh_token"),
             ("refresh_token", token),
+            ("scope", "ignored-refresh-scope"),
             ("client_id", "test-client"),
         ])
         .send()
@@ -171,6 +178,7 @@ async fn oauth_flow_and_refresh_reuse(pool: sqlx::PgPool) {
         .await
         .unwrap();
     assert_eq!(metadata["issuer"], ISSUER);
+    assert!(metadata.get("scopes_supported").is_none());
     assert_eq!(
         metadata["code_challenge_methods_supported"],
         serde_json::json!(["S256"])
@@ -194,7 +202,7 @@ async fn oauth_flow_and_refresh_reuse(pool: sqlx::PgPool) {
     let body: serde_json::Value = response.json().await.unwrap();
     let claims = server.verify_access_token(body["access_token"].as_str().unwrap());
     assert_eq!(claims.aud, RESOURCE);
-    assert_eq!(claims.capability_mask, Some(vec!["viewer".into()]));
+    assert_eq!(claims.capability_mask, None);
     assert_eq!(claims.sub, uuid::Uuid::from_bytes([0x11; 16]));
     assert_eq!(claims.exp - claims.iat, 3600);
     // Resource tokens work at the control plane but cannot approve a new grant.
@@ -225,7 +233,7 @@ async fn oauth_flow_and_refresh_reuse(pool: sqlx::PgPool) {
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), 403);
+    assert_eq!(response.status(), 200);
     for (field, value) in [
         ("iss", "https://other.example.test"),
         ("aud", "https://other.example.test/mcp"),
@@ -298,8 +306,7 @@ async fn consent_expiry_and_revocation(pool: sqlx::PgPool) {
       "client_host": null,
       "client_id": "test-client",
       "client_name": "Test client",
-      "resource": "https://mcp.example.test/mcp",
-      "scope": "admin"
+      "resource": "https://mcp.example.test/mcp"
     }
     "#);
     let scoped = server.make_restricted_access_token(user, None, None, Some("aliceCo/".into()));
@@ -479,7 +486,6 @@ async fn authorization_boundaries(pool: sqlx::PgPool) {
             "https://other.example.test/mcp",
             Some("invalid_target"),
         ),
-        ("scope", "viewer admin", Some("invalid_scope")),
         ("response_type", "token", Some("unsupported_response_type")),
     ] {
         let mut query = base.clone();
@@ -600,5 +606,112 @@ async fn cimd_rejects_unsafe_destinations() {
         "https://127.0.0.1/client.json",
     ] {
         assert!(clients::resolve(client, &[]).await.is_err(), "{client}");
+    }
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
+)]
+async fn oauth_ignores_scopes_and_delegates_masked_tokens(pool: sqlx::PgPool) {
+    let server = crate::test_server::TestServer::start_with_oauth(pool.clone(), settings()).await;
+    let bearer = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+    for scope in [
+        "",
+        "viewer",
+        "viewer create_sandbox",
+        "unknown arbitrary scopes",
+    ] {
+        let request = start(&server, scope).await;
+        let consent: serde_json::Value = http()
+            .post(server.base_url().join("oauth/consent").unwrap())
+            .bearer_auth(&bearer)
+            .json(&serde_json::json!({"request":request,"approve":true}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let code = param(consent["redirect_uri"].as_str().unwrap(), "code");
+        let response = exchange(&server, &code, VERIFIER, "test-client").await;
+        assert_eq!(response.status(), 200);
+        let tokens: serde_json::Value = response.json().await.unwrap();
+        let parent = tokens["access_token"].as_str().unwrap();
+        let parent_claims = server.verify_access_token(parent);
+        {
+            assert!(tokens.get("scope").is_none());
+            let renewed: serde_json::Value =
+                refresh(&server, tokens["refresh_token"].as_str().unwrap())
+                    .await
+                    .json()
+                    .await
+                    .unwrap();
+            assert!(renewed.get("scope").is_none());
+            assert!(
+                server
+                    .verify_access_token(renewed["access_token"].as_str().unwrap())
+                    .capability_mask
+                    .is_none()
+            );
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({"query":"mutation { createRefreshToken { id } }"}),
+                    Some(parent),
+                )
+                .await;
+            assert_eq!(
+                response["errors"][0]["message"],
+                "OAuth access tokens cannot create independent refresh credentials."
+            );
+            let request = start(&server, "").await;
+            let refused = http()
+                .post(server.base_url().join("oauth/consent").unwrap())
+                .bearer_auth(parent)
+                .json(&serde_json::json!({"request":request,"approve":true}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), 403);
+        }
+
+        assert_eq!(parent_claims.capability_mask, None);
+
+        for mask in [
+            vec![],
+            vec!["viewer"],
+            vec!["create_sandbox"],
+            vec!["editor"],
+            vec!["admin"],
+        ] {
+            let response = http()
+                .post(server.base_url().join("api/v1/auth/token").unwrap())
+                .bearer_auth(parent)
+                .json(&serde_json::json!({"grant_type":"capability_token","capability_mask":mask}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200);
+            let body: serde_json::Value = response.json().await.unwrap();
+            let delegated = body["access_token"].as_str().unwrap();
+            let claims = server.verify_access_token(delegated);
+            assert_eq!(claims.aud, "authenticated");
+            assert_eq!(claims.sub, parent_claims.sub);
+            assert_eq!(claims.role, "postgrest_cant_use_this_token");
+            assert_eq!(
+                claims.capability_mask,
+                Some(mask.iter().map(|s| s.to_string()).collect())
+            );
+            assert!(claims.exp <= parent_claims.exp);
+            assert!(claims.exp <= claims.iat + 3600);
+            let refused = http()
+                .post(server.base_url().join("api/v1/auth/token").unwrap())
+                .bearer_auth(delegated)
+                .json(&serde_json::json!({"grant_type":"capability_token","capability_mask":[]}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), 403);
+        }
     }
 }
