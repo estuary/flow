@@ -62,15 +62,15 @@ pub enum LogFormat {
 }
 
 /// What every attachment of a daemon is served with.
-pub struct Config {
+pub(crate) struct Config {
     /// Directory for disposable sparse images.
-    pub image_dir: std::path::PathBuf,
+    pub(crate) image_dir: std::path::PathBuf,
     /// Parent directory of per-device mounts.
-    pub mount_dir: std::path::PathBuf,
+    pub(crate) mount_dir: std::path::PathBuf,
     /// When a disk opens a recovery horizon, and how fast it discharges one.
-    pub horizon: crate::horizon::Policy,
+    pub(crate) horizon: crate::horizon::Policy,
     /// Brokers of every disk journal.
-    pub brokers: gazette::journal::Client,
+    pub(crate) brokers: gazette::journal::Client,
 }
 
 pub async fn run(args: Args) -> anyhow::Result<()> {
@@ -143,7 +143,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     );
     tracing::info!(socket = ?args.uds_path, "disk daemon is serving attachments");
 
-    // Attachments are indefinite, so a drain ends them rather than waiting on them.
+    // Attachments are indefinite, so a drain cancels them rather than waiting on them.
     // Each attachment closes its stream only once its disk is torn down, and the
     // server waits for that.
     let served = tokio::select! {

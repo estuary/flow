@@ -8,7 +8,7 @@
 /// Converts into a [`std::task::Waker`], which the recording channel uses to
 /// wake the owner when a full channel frees room.
 #[derive(Clone)]
-pub struct Waker(std::sync::Arc<EventFd>);
+pub(super) struct Waker(std::sync::Arc<EventFd>);
 
 impl Waker {
     pub fn new() -> std::io::Result<Self> {

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use proto_gazette::broker;
 
 /// Daemon socket and the example's own broker configuration. Defaults match

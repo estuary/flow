@@ -31,7 +31,7 @@ async fn disk_protocol() {
     ] {
         let journal = format!("acmeCo/disk/{journal}");
 
-        () = a_refusal_ends_the_attachment(&fixture, &daemon, &journal, state, violation, code)
+        () = a_refusal_fails_the_attachment(&fixture, &daemon, &journal, state, violation, code)
             .await;
     }
 
@@ -44,7 +44,7 @@ async fn disk_protocol() {
     fixture.stop().await;
 }
 
-/// What the attachment has done before the request which ends it.
+/// What the attachment has done before the request which fails it.
 enum State {
     Fresh,
     Standby,
@@ -52,7 +52,7 @@ enum State {
     Prepared,
 }
 
-/// The request which ends the attachment.
+/// The request which fails the attachment.
 enum Violation {
     NoRequest,
     OpenWithoutJournal,
@@ -64,9 +64,9 @@ enum Violation {
     Acknowledge,
 }
 
-/// Every refused request ends its attachment, and the disk that attachment held goes
+/// Every refused request fails its attachment, and the disk that attachment held goes
 /// with it.
-async fn a_refusal_ends_the_attachment(
+async fn a_refusal_fails_the_attachment(
     fixture: &support::Fixture,
     daemon: &support::Daemon,
     journal: &str,
@@ -134,7 +134,7 @@ async fn a_refusal_ends_the_attachment(
     let status = attachment.reply().await.unwrap_err();
 
     assert_eq!(status.code(), code, "{journal}: {status}");
-    () = attachment.ended().await;
+    () = attachment.closed().await;
 }
 
 /// A client may pipeline its `Acknowledge` and the next `Prepare` without reading a

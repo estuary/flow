@@ -110,26 +110,25 @@ impl Attachment {
         }
     }
 
-    /// End the attachment as a client does, and wait for the daemon to finish tearing
+    /// Close the attachment as a client does, and wait for the daemon to finish tearing
     /// its disk down.
     pub async fn close(mut self) {
         drop(self.requests);
         assert_eq!(self.responses.message().await.expect("a clean close"), None);
     }
 
-    /// Wait for a failed attachment to end. The daemon ends it only once the disk is
-    /// destroyed.
-    pub async fn ended(mut self) {
+    /// Wait for the daemon to close a failed attachment.
+    pub async fn closed(mut self) {
         drop(self.requests);
         assert!(matches!(self.responses.message().await, Ok(None) | Err(_)));
     }
 
-    /// Read whatever the daemon replies next, or the status which ended the attachment.
+    /// Read whatever the daemon replies next, or the status which failed the attachment.
     pub async fn reply(&mut self) -> tonic::Result<proto::response::Response> {
         match self.responses.message().await? {
             Some(proto::Response { response }) => Ok(response.expect("a reply carries a message")),
             None => Err(tonic::Status::unknown(
-                "the attachment ended without a reply",
+                "the attachment closed without a reply",
             )),
         }
     }

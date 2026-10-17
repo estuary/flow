@@ -1,6 +1,5 @@
 use super::ledger;
 use crate::device;
-use crate::journal;
 use anyhow::Context;
 use futures::FutureExt;
 
@@ -14,21 +13,21 @@ pub struct Writer {
     recorded: device::Recorded,
     /// Set when the device closes the recording channel.
     drained: bool,
-    /// The attachment's token. A writer failure cancels it.
-    ended: tokio_util::sync::CancellationToken,
+    /// The attachment's cancellation, which a writer failure triggers.
+    cancel: tokio_util::sync::CancellationToken,
 }
 
 /// Appends one mutation and gives back the state.
 type AppendFut = futures::future::BoxFuture<'static, (Appending, anyhow::Result<()>)>;
 
 impl Writer {
-    pub(in crate::journal) fn new(
-        journal: journal::Journal,
+    pub(super) fn new(
+        journal: super::Journal,
         appender: publisher::Appender,
         horizon: Option<i64>,
         recorded: device::Recorded,
     ) -> Self {
-        let ended = journal.ended.clone();
+        let cancel = journal.cancel.clone();
 
         Self {
             appending: Some(Appending {
@@ -39,7 +38,7 @@ impl Writer {
             append_fut: None,
             recorded,
             drained: false,
-            ended,
+            cancel,
         }
     }
 
@@ -49,12 +48,12 @@ impl Writer {
         fut: impl std::future::Future<Output = T>,
     ) -> anyhow::Result<T> {
         let mut fut = std::pin::pin!(fut);
-        let ended = self.ended.clone();
+        let cancel = self.cancel.clone();
 
         let failure = tokio::select! {
             biased;
 
-            () = ended.cancelled() => None,
+            () = cancel.cancelled() => None,
             out = &mut fut => return Ok(out),
             failure = self.drain() => Some(failure),
         };
@@ -70,46 +69,40 @@ impl Writer {
         &mut self,
         completes_horizon: bool,
     ) -> anyhow::Result<(Option<bytes::Bytes>, u64)> {
-        let ended = self.ended.clone();
+        let cancel = self.cancel.clone();
 
-        let prepared = ended
-            .run_until_cancelled(async {
-                () = self.finish_append().await?;
-                let appending = self
-                    .appending
-                    .as_mut()
-                    .expect("with no append in flight, the writer holds its state");
+        let prepared = super::unless_cancelled(&cancel, async {
+            () = self.finish_append().await?;
+            let appending = self
+                .appending
+                .as_mut()
+                .expect("with no append in flight, the writer holds its state");
 
-                appending
-                    .prepare(&mut self.recorded, completes_horizon)
-                    .await
-            })
-            .await;
+            appending
+                .prepare(&mut self.recorded, completes_horizon)
+                .await
+        })
+        .await;
 
-        prepared
-            .unwrap_or_else(|| Err(super::attachment_ended()))
-            .inspect_err(|_| self.fail())
+        prepared.inspect_err(|_| self.fail())
     }
 
     /// Append the acknowledgement and wait for the broker to confirm it.
     pub async fn acknowledge(&mut self, ack: bytes::Bytes) -> anyhow::Result<()> {
-        let ended = self.ended.clone();
+        let cancel = self.cancel.clone();
 
-        let acknowledged = ended
-            .run_until_cancelled(async {
-                () = self.finish_append().await?;
-                let appending = self
-                    .appending
-                    .as_mut()
-                    .expect("with no append in flight, the writer holds its state");
+        let acknowledged = super::unless_cancelled(&cancel, async {
+            () = self.finish_append().await?;
+            let appending = self
+                .appending
+                .as_mut()
+                .expect("with no append in flight, the writer holds its state");
 
-                appending.acknowledge(ack).await
-            })
-            .await;
+            appending.acknowledge(ack).await
+        })
+        .await;
 
-        acknowledged
-            .unwrap_or_else(|| Err(super::attachment_ended()))
-            .inspect_err(|_| self.fail())
+        acknowledged.inspect_err(|_| self.fail())
     }
 
     /// Append the device's mutations one at a time, and return the first failure. Wait
@@ -159,18 +152,19 @@ impl Writer {
         appended
     }
 
-    /// End the writer and its attachment. The device discards its later mutations.
+    /// Fail the writer and cancel its attachment. The device discards its later
+    /// mutations.
     fn fail(&mut self) {
         self.append_fut = None;
         self.recorded.close();
-        self.ended.cancel();
+        self.cancel.cancel();
     }
 }
 
 /// Journal, ledger, and appender of a [`Writer`].
 struct Appending {
     /// Journal identity, ownership, and recovery offsets.
-    journal: journal::Journal,
+    journal: super::Journal,
     /// Delta sequencing and commit state.
     ledger: ledger::Ledger,
     /// Fenced append pipeline of this attachment.
@@ -236,7 +230,7 @@ impl Appending {
             "completed a recovery horizon",
         );
 
-        let journal::Journal { client, name, .. } = &self.journal;
+        let super::Journal { client, name, .. } = &self.journal;
 
         // A failed update does not fail the attachment. The old floor stays, which is
         // safe but makes replay longer.
@@ -244,7 +238,7 @@ impl Appending {
             let Some(listing) = client.get_journal(name).await.context("listing")? else {
                 anyhow::bail!("the journal no longer exists");
             };
-            let Some(change) = journal::floor_change(listing, floor) else {
+            let Some(change) = super::floor_change(listing, floor) else {
                 return Ok(());
             };
             _ = client
@@ -306,7 +300,7 @@ mod broker_test {
         a_completed_horizon_stores_its_openers_offset(&fixture).await;
         a_drain_dropped_mid_append_keeps_its_records(&fixture).await;
         a_failed_drain_lets_its_future_finish(&fixture).await;
-        an_ended_attachment_answers_its_client(&fixture).await;
+        a_cancelled_attachment_answers_its_client(&fixture).await;
 
         fixture.stop().await;
     }
@@ -599,8 +593,8 @@ mod broker_test {
         assert_eq!(rendered[0], rendered[1]);
     }
 
-    /// A failed append ends the writer and its attachment. The drained future still
-    /// runs to completion before the failure returns.
+    /// A failed append fails the writer and cancels its attachment. The drained future
+    /// still runs to completion before the failure returns.
     async fn a_failed_drain_lets_its_future_finish(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/failed-drain";
         let (recorder, mut writer) = fixture.open(journal).await.unwrap();
@@ -625,22 +619,22 @@ mod broker_test {
         let out = [
             format!("drained   {:#}", drained.unwrap_err()),
             format!("finished  {finished}"),
-            format!("ended     {}", writer.ended.is_cancelled()),
+            format!("cancelled {}", writer.cancel.is_cancelled()),
         ];
         insta::assert_snapshot!(out.join("\n"), @"
         drained   journal acmeCo/disk/failed-drain registers do not match (Aborted)
         finished  true
-        ended     true
+        cancelled true
         ");
     }
 
-    /// An ended attachment refuses requests at once, without waiting on the broker.
-    async fn an_ended_attachment_answers_its_client(fixture: &broker::Fixture) {
+    /// A cancelled attachment refuses requests at once, without waiting on the broker.
+    async fn a_cancelled_attachment_answers_its_client(fixture: &broker::Fixture) {
         let mut outcomes = Vec::new();
 
         for (journal, has_delta) in [
-            ("acmeCo/disk/ended-empty", false),
-            ("acmeCo/disk/ended", true),
+            ("acmeCo/disk/cancelled-empty", false),
+            ("acmeCo/disk/cancelled", true),
         ] {
             let (recorder, mut writer) = fixture.open(journal).await.unwrap();
 
@@ -648,20 +642,20 @@ mod broker_test {
                 recorder.try_send(broker::write(6, 0x33)).unwrap();
                 () = writer.drain_while(drains(&recorder)).await.unwrap();
             }
-            () = writer.ended.cancel();
+            () = writer.cancel.cancel();
 
             let err =
                 tokio::time::timeout(std::time::Duration::from_secs(10), writer.prepare(false))
                     .await
-                    .expect("an ended attachment answers rather than waiting")
-                    .expect_err("an ended attachment commits nothing");
+                    .expect("a cancelled attachment answers rather than waiting")
+                    .expect_err("a cancelled attachment commits nothing");
 
-            outcomes.push(format!("{journal:<25}{err:#}"));
+            outcomes.push(format!("{journal:<29}{err:#}"));
         }
 
         insta::assert_snapshot!(outcomes.join("\n"), @"
-        acmeCo/disk/ended-empty  the attachment ended (Unavailable)
-        acmeCo/disk/ended        the attachment ended (Unavailable)
+        acmeCo/disk/cancelled-empty  the attachment was cancelled (Unavailable)
+        acmeCo/disk/cancelled        the attachment was cancelled (Unavailable)
         ");
     }
 

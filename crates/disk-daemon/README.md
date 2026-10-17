@@ -20,6 +20,12 @@ An **attachment** owns one disk for the life of a bidirectional gRPC stream. It
 starts as a standby and becomes the writer on promotion. The client controls it over
 a Unix socket; the workload uses the returned mount through ordinary file I/O.
 
+An attachment ends in one of three ways, each of which tears its disk down before
+its stream closes. The client **closes** it with `Disk::close`. A refused request
+or a failed journal operation **fails** it with a status. A daemon drain, a client
+which drops its stream, or a writer failure **cancels** it, giving up its broker
+calls.
+
 ```text
 transaction client ── Attach RPC ──► attachment task
        │                                  │
@@ -125,11 +131,12 @@ mode `0666`; restrict traversal of its parent directory. The daemon shares a
 refreshing, self-signed broker token scoped to the disk content type. Clients
 supply neither broker endpoints nor credentials; key rotation requires a restart.
 
-`SIGTERM` and `SIGINT` stop new attachments and drain existing ones. Teardown
-abandons appends while continuing to drain mutations, unmounts, then stops and
-deletes the device. This order is required because unmount writes and device stop
-waits for parked requests. See `attachment.rs` and `device/mod.rs`. The daemon
-waits for every teardown, so the supervisor's stop timeout bounds a drain.
+`SIGTERM` and `SIGINT` drain the daemon: it stops accepting attachments and
+cancels existing ones. Teardown abandons appends while continuing to drain
+mutations, unmounts, then stops and deletes the device. This order is required
+because unmount writes and device stop waits for parked requests. See
+`attachment.rs` and `device/mod.rs`. The daemon waits for every teardown, so the
+supervisor's stop timeout bounds a drain.
 
 Deployment owns capacity and placement: the daemon reserves no space and limits
 no disk count. Mounts must remain visible to the process passing them into a

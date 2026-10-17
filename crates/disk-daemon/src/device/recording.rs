@@ -14,7 +14,7 @@ pub type Recorded = tokio::sync::mpsc::Receiver<Mutation>;
 
 /// Create a channel holding `capacity` mutations, waking `waker` whenever a
 /// reservation it refused may be tried again.
-pub fn channel(capacity: usize, waker: std::task::Waker) -> (Recorder, Recorded) {
+pub(super) fn channel(capacity: usize, waker: std::task::Waker) -> (Recorder, Recorded) {
     let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
     let sender = tokio_util::sync::PollSender::new(sender);
 
@@ -22,7 +22,7 @@ pub fn channel(capacity: usize, waker: std::task::Waker) -> (Recorder, Recorded)
 }
 
 /// Sends one disk's mutations to its [`Recorded`]. Held by that disk's owner.
-pub struct Recorder {
+pub(super) struct Recorder {
     sender: tokio_util::sync::PollSender<Mutation>,
     waker: std::task::Waker,
 }
@@ -41,7 +41,7 @@ impl Recorder {
 }
 
 /// Room reserved for one mutation.
-pub struct Permit<'a>(&'a mut Recorder);
+pub(super) struct Permit<'a>(&'a mut Recorder);
 
 impl Permit<'_> {
     /// Queue one whole `mutation`.

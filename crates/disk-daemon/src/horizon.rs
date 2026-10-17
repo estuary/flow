@@ -111,7 +111,7 @@ impl Policy {
     }
 
     /// Bytes of unchanged data a delta which changed `changed` bytes may copy.
-    pub fn budget(&self, changed: u64) -> u64 {
+    fn budget(&self, changed: u64) -> u64 {
         (changed as f64 * self.copy_ratio) as u64
     }
 }

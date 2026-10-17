@@ -191,7 +191,7 @@ async fn posix_mutations_recover_as_the_client_left_them(
     () = disk.close().await.unwrap();
 }
 
-/// How far the second transaction got before its attachment ended.
+/// How far the second transaction got before its attachment was dropped.
 enum Progress {
     Uncut,
     Cut,
@@ -308,7 +308,7 @@ async fn a_commit_left_in_flight_is_awaited_by_whatever_comes_next(
     () = support::cut_nothing(&mut disk).await;
 
     // A second transaction, whose commit only `close` waits for.
-    tree = tree.with("closed", b"committed as the attachment ended".to_vec());
+    tree = tree.with("closed", b"committed as the attachment closed".to_vec());
     () = std::fs::write(mount.join("data/closed"), tree.content("closed")).unwrap();
 
     let ack = support::cut(&mut disk).await;

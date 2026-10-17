@@ -101,8 +101,7 @@ impl Device {
         let waker = wake::Waker::new()?;
         let (recorder, recorded) = recording::channel(queue_depth as usize, waker.clone().into());
 
-        let info = control.add_dev(queue_depth, ublk::MAX_IO_BUF_BYTES)?;
-        let dev_id = info.dev_id;
+        let dev_id = control.add_dev(queue_depth, ublk::MAX_IO_BUF_BYTES)?;
 
         // Delete the device if a step below fails to hand it to an owner. Until one
         // holds it, nothing else would.

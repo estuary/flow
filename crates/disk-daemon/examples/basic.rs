@@ -1,6 +1,6 @@
 //! The smallest use of a disk.
 //!
-//! It writes one file and commits it. Ending the attachment removes the device, the
+//! It writes one file and commits it. Closing the attachment removes the device, the
 //! mount, and the local image. Opening the same journal again rebuilds the disk, and
 //! the file is still there.
 //!

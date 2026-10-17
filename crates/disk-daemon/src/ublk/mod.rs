@@ -1,4 +1,4 @@
-pub mod control;
+mod control;
 pub mod sys;
 
 pub use control::Control;
@@ -23,7 +23,7 @@ pub const MAX_IO_BUF_BYTES: u32 = 128 * 1024;
 /// disk waits while a punch runs. Bounding one request lets the kernel split a large
 /// discard, such as a big file's deletion, into pieces the owner serves other
 /// requests between.
-pub const MAX_DISCARD_BYTES: u32 = 16 << 20;
+const MAX_DISCARD_BYTES: u32 = 16 << 20;
 
 /// Queue limits for a device of `blocks` × [`crate::BLOCK_SIZE`].
 ///

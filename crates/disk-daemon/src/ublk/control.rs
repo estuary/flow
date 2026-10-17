@@ -39,11 +39,7 @@ impl Control {
     }
 
     /// Create a device, letting the kernel choose its number.
-    pub fn add_dev(
-        &self,
-        queue_depth: u16,
-        max_io_buf_bytes: u32,
-    ) -> anyhow::Result<sys::UblksrvCtrlDevInfo> {
+    pub fn add_dev(&self, queue_depth: u16, max_io_buf_bytes: u32) -> anyhow::Result<u32> {
         // A device number of -1 asks the kernel to pick one. The header must
         // repeat whatever the payload says.
         let mut info = sys::UblksrvCtrlDevInfo {
@@ -84,7 +80,7 @@ impl Control {
 
         tracing::debug!(dev_id = info.dev_id, "added a ublk device");
 
-        Ok(info)
+        Ok(info.dev_id)
     }
 
     pub fn set_params(&self, dev_id: u32, params: &sys::UblkParams) -> anyhow::Result<()> {

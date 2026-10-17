@@ -56,7 +56,7 @@ pub struct Open {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Opened {}
 /// Promote fences the journal, replays through the fenced head, and mounts the
-/// filesystem. Losing the fence ends the attachment.
+/// filesystem. Losing the fence fails the attachment.
 ///
 /// The daemon serves Promote only once it has sent Opened, so a client may queue it
 /// behind Open. Requests queued behind Promote are served once it completes.

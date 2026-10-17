@@ -18,8 +18,8 @@ struct Journal {
     name: String,
     /// Lists the journal and updates its recovery-floor label.
     client: gazette::journal::Client,
-    /// Cancelled when the attachment ends, abandoning the lifecycle phase in progress.
-    ended: tokio_util::sync::CancellationToken,
+    /// The attachment's cancellation, which abandons the lifecycle phase in progress.
+    cancel: tokio_util::sync::CancellationToken,
     /// Installed in the journal's `author` register and checked by subsequent
     /// appends.
     author: uuid::Producer,
@@ -70,11 +70,8 @@ impl Journal {
 }
 
 /// The write head of `journal`, confirmed by a zero-byte append which also resumes a
-/// suspended journal.
-pub(crate) async fn confirm_head(
-    client: &gazette::journal::Client,
-    journal: &str,
-) -> anyhow::Result<i64> {
+/// suspended journal. `pub` only because `test_support` confirms fixture heads too.
+pub async fn confirm_head(client: &gazette::journal::Client, journal: &str) -> anyhow::Result<i64> {
     let request = broker::AppendRequest {
         journal: journal.to_string(),
         suspend: broker::append_request::Suspend::Resume as i32,
@@ -166,9 +163,16 @@ fn floor_change(
     })
 }
 
-/// The error of journal work which stopped because its attachment ended.
-fn attachment_ended() -> anyhow::Error {
-    proto_grpc::status_to_anyhow(tonic::Status::unavailable("the attachment ended"))
+/// Run `fut`, failing it with [`crate::cancelled`] if the attachment is cancelled
+/// first.
+async fn unless_cancelled<T>(
+    cancel: &tokio_util::sync::CancellationToken,
+    fut: impl std::future::Future<Output = anyhow::Result<T>>,
+) -> anyhow::Result<T> {
+    cancel
+        .run_until_cancelled(fut)
+        .await
+        .unwrap_or_else(|| Err(crate::cancelled()))
 }
 
 fn uuid_bytes(producer: uuid::Producer, clock: uuid::Clock, flags: uuid::Flags) -> bytes::Bytes {

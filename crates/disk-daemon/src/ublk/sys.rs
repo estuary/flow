@@ -94,7 +94,7 @@ pub fn io_desc_map_len(queue_depth: u16) -> usize {
     (queue_depth as usize * std::mem::size_of::<UblksrvIoDesc>()).div_ceil(page) * page
 }
 
-pub fn page_size() -> usize {
+fn page_size() -> usize {
     // SAFETY: sysconf reads no user memory, and it always answers for
     // _SC_PAGESIZE.
     (unsafe { libc::sysconf(libc::_SC_PAGESIZE) }) as usize

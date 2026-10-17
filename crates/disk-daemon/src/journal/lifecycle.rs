@@ -25,11 +25,12 @@ pub struct Standby {
 
 impl Standby {
     /// Replay `journal` into `image` from its recovery floor, and return once replay
-    /// reaches the journal's current head, or fail once `ended` is cancelled.
+    /// reaches the journal's current head, or fail if the attachment is cancelled
+    /// first.
     pub async fn new(
         client: &gazette::journal::Client,
         journal: String,
-        ended: tokio_util::sync::CancellationToken,
+        cancel: tokio_util::sync::CancellationToken,
         image: image::Image,
         uncommitted: uncommitted::UncommittedDelta,
     ) -> anyhow::Result<Self> {
@@ -74,7 +75,7 @@ impl Standby {
                 journal: super::Journal {
                     name: journal,
                     client,
-                    ended: ended.clone(),
+                    cancel: cancel.clone(),
                     author: random_producer(),
                     head,
                     floor,
@@ -82,10 +83,7 @@ impl Standby {
                 replay,
             })
         };
-        ended
-            .run_until_cancelled(opening)
-            .await
-            .unwrap_or_else(|| Err(super::attachment_ended()))
+        super::unless_cancelled(&cancel, opening).await
     }
 
     /// Tail the journal until reading it fails, and return that failure.
@@ -106,7 +104,7 @@ impl Standby {
         self,
         recovered_ack: Option<bytes::Bytes>,
     ) -> anyhow::Result<(Promoted, Recovered)> {
-        let ended = self.journal.ended.clone();
+        let cancel = self.journal.cancel.clone();
 
         let promoting = async move {
             let Self {
@@ -162,7 +160,7 @@ impl Standby {
             }
 
             let chunks = replay.applied_chunks();
-            let (image, _uncommitted, opened) = replay.into_parts();
+            let (image, opened) = replay.into_parts();
 
             let (horizon_at, horizon) = match opened {
                 Some(replay::OpenHorizon { at, blocks }) => (Some(at), Some(blocks)),
@@ -190,10 +188,7 @@ impl Standby {
                 },
             ))
         };
-        ended
-            .run_until_cancelled(promoting)
-            .await
-            .unwrap_or_else(|| Err(super::attachment_ended()))
+        super::unless_cancelled(&cancel, promoting).await
     }
 }
 
@@ -469,7 +464,7 @@ mod broker_test {
             .unwrap();
 
         // The append which lost the fence fails as `ABORTED`, which tells its client
-        // that another attachment owns the disk. The failure ends the attachment.
+        // that another attachment owns the disk. The failure cancels the attachment.
         let mut out = Vec::new();
         for what in ["fenced-out prepare", "later prepare"] {
             let err = first.prepare(false).await.unwrap_err();
@@ -477,7 +472,7 @@ mod broker_test {
         }
         insta::assert_snapshot!(out.join("\n"), @"
         fenced-out prepare  Aborted: journal acmeCo/disk/contended registers do not match (Aborted)
-        later prepare       Unavailable: the attachment ended (Unavailable)
+        later prepare       Unavailable: the attachment was cancelled (Unavailable)
         ");
     }
 

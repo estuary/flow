@@ -20,7 +20,7 @@ async fn disk_resilience() {
     () = fixture.assert_no_leaks();
 
     // These start and end daemons of their own.
-    a_drain_ends_attachments_stalled_in_a_broker_outage(&fixture).await;
+    a_drain_cancels_attachments_stalled_in_a_broker_outage(&fixture).await;
     a_sigterm_under_load_tears_every_disk_down(&fixture).await;
 
     fixture.stop().await;
@@ -170,10 +170,10 @@ async fn a_disk_torn_down_in_a_broker_outage_releases_its_parked_writes(
     _ = support::abandon_writer(&mut writer).await;
 }
 
-/// A drain ends attachments whose `Open` or `Promote` waits on brokers which answer
-/// nothing, rather than waiting with them. A client which drops its stream ends an
+/// A drain cancels attachments whose `Open` or `Promote` waits on brokers which answer
+/// nothing, rather than waiting with them. A client which drops its stream cancels an
 /// attachment the same way.
-async fn a_drain_ends_attachments_stalled_in_a_broker_outage(fixture: &support::Fixture) {
+async fn a_drain_cancels_attachments_stalled_in_a_broker_outage(fixture: &support::Fixture) {
     let daemon = support::Daemon::start(fixture, "stalled").await;
 
     let open = fixture.open("acmeCo/disk/stalled-open").await;
@@ -216,8 +216,8 @@ async fn a_drain_ends_attachments_stalled_in_a_broker_outage(fixture: &support::
     () = fixture.assert_no_leaks();
 }
 
-/// A daemon signalled while a disk is being written ends its attachments, tears down
-/// what they held, and exits cleanly. Its client sees the attachment end.
+/// A daemon signalled while a disk is being written cancels its attachments, tears
+/// down what they held, and exits cleanly. Its client sees the attachment fail.
 async fn a_sigterm_under_load_tears_every_disk_down(fixture: &support::Fixture) {
     let daemon = support::Daemon::start(fixture, "sigterm").await;
     let client = daemon.client().await;

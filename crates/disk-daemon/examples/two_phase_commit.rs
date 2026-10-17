@@ -92,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
     // until the daemon confirms it. Everything below reads what that commit left.
     () = log_disk.acknowledged().await?;
 
-    // No participant was told to commit, so all three deltas are in doubt. Ending an
+    // No participant was told to commit, so all three deltas are in doubt. Closing an
     // attachment leaves the journal as a disk's only state.
     for (_ack, disk) in prepared {
         () = disk.close().await?;

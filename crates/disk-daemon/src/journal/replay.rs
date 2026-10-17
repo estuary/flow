@@ -6,7 +6,7 @@ use anyhow::Context;
 use proto_gazette::{broker, fixed_framing};
 
 /// Image and sequencing state shared by backfill, tailing, and promotion.
-pub struct Replay {
+pub(super) struct Replay {
     /// The disk's committed state, rebuilt so far.
     image: image::Image,
     /// Per-producer ordering and acknowledgement state.
@@ -57,16 +57,10 @@ impl Replay {
         &self.sequencer
     }
 
-    /// Take the image, the uncommitted delta, and any horizon still open, once the
-    /// replay is done.
-    pub fn into_parts(
-        self,
-    ) -> (
-        image::Image,
-        uncommitted::UncommittedDelta,
-        Option<OpenHorizon>,
-    ) {
-        (self.image, self.uncommitted, self.horizon)
+    /// Take the image and any horizon still open, once the replay is done. A delta
+    /// still held is dropped: past the fence, no acknowledgement can commit it.
+    pub fn into_parts(self) -> (image::Image, Option<OpenHorizon>) {
+        (self.image, self.horizon)
     }
 
     /// Take `framed`, a whole record which promotion appended at this replay's
@@ -191,7 +185,7 @@ impl Replay {
 /// Continue from the replay's next record boundary. `Some(head)` reads to a
 /// broker-confirmed head; `None` tails until cancelled or an error occurs.
 /// [`Replay::take`] checks any offset jump returned by the broker.
-pub async fn read(
+pub(super) async fn read(
     client: &gazette::journal::Client,
     journal: &str,
     through: Option<i64>,
@@ -235,7 +229,7 @@ pub async fn read(
 }
 
 /// A recovery horizon this replay has opened.
-pub struct OpenHorizon {
+pub(super) struct OpenHorizon {
     /// Offset at which the record which opened this horizon begins.
     pub at: i64,
     /// Committed blocks still pending a copy for this horizon.

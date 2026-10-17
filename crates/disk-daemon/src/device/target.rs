@@ -139,7 +139,7 @@ impl Target {
 
             // An image which cannot be read back has failed, and every pass would
             // retry this run. No request asked for the copy, so fail the next cut,
-            // which ends the attachment.
+            // which fails the attachment.
             if let Err(err) = self.image.read_at(run.start, &mut data) {
                 let err = anyhow::Error::new(err).context("copying a horizon run out of the image");
                 self.admission = Admission::Failed(err);
@@ -266,8 +266,8 @@ impl Change {
 mod test {
     use super::Target;
     use crate::BLOCK_SIZE;
-    use crate::device;
     use crate::device::queue;
+    use crate::device::recording;
     use crate::horizon;
     use crate::image;
     use crate::proto;
@@ -292,7 +292,7 @@ mod test {
         /// The target under test.
         target: Target,
         /// `None` once the consumer has gone away.
-        recorded: Option<device::Recorded>,
+        recorded: Option<recording::Recorded>,
         /// Every mutation the consumer took, in the order a journal would hold them.
         taken: Vec<Vec<proto::Chunk>>,
         /// Whether each mutation of `taken` opened a horizon.
@@ -302,7 +302,7 @@ mod test {
     impl Case {
         fn new(image: image::Image, capacity: usize, policy: horizon::Policy) -> Self {
             let (recorder, recorded) =
-                crate::device::recording::channel(capacity, std::task::Waker::noop().clone());
+                recording::channel(capacity, std::task::Waker::noop().clone());
 
             Self {
                 target: Target::new(0, image, recorder, None, policy),
@@ -344,7 +344,7 @@ mod test {
         }
 
         /// Have the consumer take one mutation, if one is queued.
-        fn take(&mut self) -> Option<device::Mutation> {
+        fn take(&mut self) -> Option<recording::Mutation> {
             let mutation = self.recorded.as_mut()?.try_recv().ok()?;
             self.taken.push(mutation.chunks.clone());
             self.opens.push(mutation.opens_horizon);
@@ -448,7 +448,7 @@ mod test {
                 }
                 Admit => render(&case.admit()),
                 Take => match case.take() {
-                    Some(device::Mutation {
+                    Some(recording::Mutation {
                         chunks,
                         opens_horizon,
                     }) => {

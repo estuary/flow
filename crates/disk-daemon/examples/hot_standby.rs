@@ -73,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
         .await?
         .context("the write changed the disk")?;
 
-    // End the primary without acknowledging its prepared delta.
+    // Drop the primary without acknowledging its prepared delta.
     drop(primary);
 
     let (promoted, mnt_path) = standby.promote(None).await?;

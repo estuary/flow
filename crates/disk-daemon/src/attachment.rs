@@ -6,16 +6,16 @@ use crate::proto;
 use crate::ublk;
 use anyhow::Context;
 
-/// Run one attachment over its `Attach` stream, until the stream ends and its disk
+/// Run one attachment over its `Attach` stream, until `serve` returns and its disk
 /// is torn down.
 ///
 /// However `serve` ends, whether it returns, fails, or panics, the disk is torn
 /// down here before the stream closes. Teardown is async, so a `Drop` can't do it.
-pub(crate) async fn run(
+pub async fn run(
     config: std::sync::Arc<crate::daemon::Config>,
     control: std::sync::Arc<ublk::Control>,
     peer: Option<(u32, u32)>,
-    ended: tokio_util::sync::CancellationToken,
+    cancel: tokio_util::sync::CancellationToken,
     mut requests: tonic::Streaming<proto::Request>,
     responses: tokio::sync::mpsc::Sender<tonic::Result<proto::Response>>,
 ) {
@@ -23,19 +23,19 @@ pub(crate) async fn run(
         config,
         control,
         peer,
-        ended,
+        cancel,
         disk: None,
     };
 
-    // A client which drops its stream ends the attachment.
-    let ended = attachment.ended.clone();
+    // A client which drops its stream cancels the attachment.
+    let cancel = attachment.cancel.clone();
     let outcome = tokio::select! {
         outcome = proto_grpc::catch_panic(attachment.serve(&mut requests, &responses)) => outcome,
         () = async {
             responses.closed().await;
-            ended.cancel();
+            cancel.cancel();
             std::future::pending().await
-        } => unreachable!("dropping the stream ends `serve`"),
+        } => unreachable!("a cancelled attachment returns from `serve`"),
     };
 
     // Keep the stream open through teardown, so clients and daemon drain
@@ -58,8 +58,9 @@ struct Attachment {
     control: std::sync::Arc<ublk::Control>,
     /// Client's user and group, which own the mount.
     peer: Option<(u32, u32)>,
-    /// Cancelled when the attachment ends, giving up its broker calls.
-    ended: tokio_util::sync::CancellationToken,
+    /// Cancelled by a daemon drain, a client which drops its stream, or a writer
+    /// failure. Cancellation gives up the attachment's broker calls.
+    cancel: tokio_util::sync::CancellationToken,
     /// The disk once it's promoted, which `run` tears down.
     disk: Option<MountedDisk>,
 }
@@ -73,7 +74,7 @@ impl Attachment {
         requests: &mut tonic::Streaming<proto::Request>,
         responses: &tokio::sync::mpsc::Sender<tonic::Result<proto::Response>>,
     ) -> anyhow::Result<()> {
-        let open = match next(requests, &self.ended).await? {
+        let open = match next(requests, &self.cancel).await? {
             None => return Ok(()),
             Some(proto::request::Request::Open(open)) => open,
             Some(_) => {
@@ -86,7 +87,7 @@ impl Attachment {
 
         // Replay to the head `Open` observed before reading another request, so
         // `Opened` precedes any `Promote`.
-        let mut standby = open_standby(&self.config, &self.ended, journal, blocks).await?;
+        let mut standby = open_standby(&self.config, &self.cancel, journal, blocks).await?;
         () = send(
             responses,
             proto::response::Response::Opened(proto::Opened {}),
@@ -95,7 +96,7 @@ impl Attachment {
 
         // Stand by, following the journal, until `Promote`.
         let ack = tokio::select! {
-            request = next(requests, &self.ended) => match request? {
+            request = next(requests, &self.cancel) => match request? {
                 None => return Ok(()),
                 Some(proto::request::Request::Promote(proto::Promote { ack })) => ack,
                 Some(_) => {
@@ -127,7 +128,7 @@ impl Attachment {
         loop {
             let request = disk
                 .writer
-                .drain_while(next(requests, &self.ended))
+                .drain_while(next(requests, &self.cancel))
                 .await??;
 
             let response = match request {
@@ -156,7 +157,7 @@ impl Attachment {
 /// keep following it, without fencing or mounting anything.
 async fn open_standby(
     config: &crate::daemon::Config,
-    ended: &tokio_util::sync::CancellationToken,
+    cancel: &tokio_util::sync::CancellationToken,
     journal: String,
     blocks: u32,
 ) -> anyhow::Result<journal::Standby> {
@@ -166,7 +167,7 @@ async fn open_standby(
     let uncommitted = journal::UncommittedDelta::create(&config.image_dir)
         .with_context(|| format!("creating an uncommitted delta in {:?}", config.image_dir))?;
 
-    journal::Standby::new(&config.brokers, journal, ended.clone(), image, uncommitted).await
+    journal::Standby::new(&config.brokers, journal, cancel.clone(), image, uncommitted).await
 }
 
 /// Check an `Open` before anything is created for it, returning its journal and the
@@ -201,7 +202,7 @@ fn check_open(open: proto::Open) -> anyhow::Result<(String, u32)> {
 
 async fn next(
     requests: &mut tonic::Streaming<proto::Request>,
-    ended: &tokio_util::sync::CancellationToken,
+    cancel: &tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<Option<proto::request::Request>> {
     // Requests first, so that a client which dropped its stream reports that,
     // rather than the cancellation it caused.
@@ -209,11 +210,7 @@ async fn next(
         biased;
 
         message = requests.message() => message.map_err(proto_grpc::status_to_anyhow)?,
-        _ = ended.cancelled() => {
-            return Err(proto_grpc::status_to_anyhow(tonic::Status::unavailable(
-                "the daemon is draining",
-            )));
-        }
+        () = cancel.cancelled() => return Err(crate::cancelled()),
     };
     let Some(proto::Request { request }) = message else {
         return Ok(None);

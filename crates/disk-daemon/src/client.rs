@@ -56,6 +56,8 @@ impl Client {
 }
 
 /// A replaying disk that has not claimed its journal or mounted a filesystem.
+///
+/// Dropping it cancels the attachment.
 pub struct Standby {
     /// Attach stream retained through promotion.
     disk: Disk,
@@ -103,18 +105,13 @@ impl Standby {
             reply => Err(Error::unexpected(reply)),
         }
     }
-
-    /// Ends the attachment and stops the replay.
-    pub async fn close(self) -> Result<()> {
-        self.disk.close().await
-    }
 }
 
 /// A disk this caller is the writer of.
 ///
-/// Dropping this handle or calling [`Disk::close`] ends the attachment, which makes the
-/// daemon unmount the filesystem and delete the device. `close` waits for that cleanup
-/// to finish.
+/// Calling [`Disk::close`] closes the attachment, and dropping this handle cancels it.
+/// Either makes the daemon unmount the filesystem and delete the device, but only
+/// `close` waits for that cleanup to finish.
 pub struct Disk {
     /// Requests sent on this disk's attachment stream.
     requests: tokio::sync::mpsc::Sender<proto::Request>,
@@ -185,7 +182,7 @@ impl Disk {
         }
     }
 
-    /// Ends the attachment and waits for the daemon to unmount the filesystem and
+    /// Closes the attachment and waits for the daemon to unmount the filesystem and
     /// delete the device.
     ///
     /// A commit which [`Disk::acknowledge`] left in flight is confirmed first, so a
@@ -198,7 +195,7 @@ impl Disk {
             None => Ok(()),
             Some(proto::Response { response }) => match response {
                 Some(reply) => Err(Error::unexpected(reply)),
-                None => Err(Error::Ended),
+                None => Err(Error::Closed),
             },
         }
     }
@@ -209,7 +206,7 @@ impl Disk {
                 request: Some(request),
             })
             .await
-            .map_err(|_| Error::Ended)
+            .map_err(|_| Error::Closed)
     }
 
     async fn reply(&mut self) -> Result<proto::response::Response> {
@@ -217,7 +214,7 @@ impl Disk {
             Some(proto::Response {
                 response: Some(reply),
             }) => Ok(reply),
-            _ => Err(Error::Ended),
+            _ => Err(Error::Closed),
         }
     }
 
@@ -247,8 +244,8 @@ pub enum Error {
     Unavailable(tonic::Status),
     #[error("the disk attachment failed (gRPC code {:?}): {}", .0.code(), .0.message())]
     Failed(tonic::Status),
-    #[error("the disk attachment ended")]
-    Ended,
+    #[error("the disk attachment closed")]
+    Closed,
     #[error("unexpected reply from the disk daemon: {0}")]
     Unexpected(String),
 }

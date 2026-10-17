@@ -34,7 +34,8 @@ async fn disk_coordination() {
     fixture.stop().await;
 }
 
-/// How far the coordinator's commit of its decision got before every attachment ended.
+/// How far the coordinator's commit of its decision got before every attachment was
+/// dropped.
 enum Decision {
     Committed,
     Prepared,

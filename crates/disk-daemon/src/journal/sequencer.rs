@@ -4,7 +4,7 @@ use proto_gazette::uuid;
 
 /// Sequencing state of one replay of a disk from its journal.
 #[derive(Default)]
-pub struct Sequencer {
+pub(super) struct Sequencer {
     /// Sequencing state of each producer of the range.
     producers: std::collections::HashMap<uuid::Producer, ProducerState>,
     /// Producer of the held delta.
@@ -153,7 +153,7 @@ impl Sequencer {
 
 /// What one record does to the delta a replay holds.
 #[derive(Debug, PartialEq)]
-pub struct Step {
+pub(super) struct Step {
     /// Producer of an uncommitted delta which this record displaced, and which the
     /// replay must drop before anything else.
     pub displaced: Option<uuid::Producer>,
@@ -163,7 +163,7 @@ pub struct Step {
 
 /// What becomes of one record.
 #[derive(Debug, PartialEq)]
-pub enum Action {
+pub(super) enum Action {
     /// Nothing: it changes no disk content, repeats a record already sequenced, or is
     /// a fragment of a displaced delta.
     Skip,
@@ -175,7 +175,7 @@ pub enum Action {
 
 /// What a recovered acknowledgement does, judged against what a replay sequenced.
 #[derive(Debug, PartialEq)]
-pub enum RecoveredAck {
+pub(super) enum RecoveredAck {
     /// Already committed, so there is nothing to append. Either it is at or below its
     /// writer's last commit, which a client whose state went back may hand over, or
     /// the replay saw no records of its writer, so they are all below the floor.

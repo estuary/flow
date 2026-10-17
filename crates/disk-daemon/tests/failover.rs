@@ -54,7 +54,7 @@ async fn repeated_failover_hands_the_disk_along(
         _ = support::cut(&mut serving).await;
 
         // Synced to the device, where the recording channel holds it until the
-        // attachment ends.
+        // attachment is dropped.
         () = std::fs::write(mount.join("behind-the-cut"), b"a write behind a cut").unwrap();
         () = support::run("sync", &["-f", mount.to_str().unwrap()]).await;
 
