@@ -52,6 +52,7 @@ derivative = { workspace = true }
 enumset = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
+hmac = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
@@ -91,7 +92,6 @@ flow-client-next = { path = "../flow-client-next" }
 runtime-local = { path = "../runtime-local" }
 service-kit = { path = "../service-kit" }
 
-hmac = { workspace = true }
 insta = { workspace = true }
 md5 = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

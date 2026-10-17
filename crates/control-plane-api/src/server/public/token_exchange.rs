@@ -119,8 +119,13 @@ async fn mint_capability_token(
     capability_mask: Vec<String>,
     app: &Arc<crate::App>,
 ) -> Result<TokenResponse, crate::ApiError> {
-    // The requested mask replaces the bearer's, so a masked bearer could
-    // otherwise widen its own mask.
+    // Envelope has already verified the OAuth issuer and audience. Delegated
+    // sandbox tokens use the control-plane audience and cannot delegate again.
+    let oauth_source = app.oauth.as_ref().is_some_and(|config| {
+        config.resources.contains(&claims.aud)
+            && claims.aud != "authenticated"
+            && claims.role == "postgrest_cant_use_this_token"
+    });
     if claims.capability_mask.is_some() {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
             "Unable to mint a new token from a token with a capability mask",
@@ -128,7 +133,7 @@ async fn mint_capability_token(
     }
     // Only user sessions mint. Machine bearers (dekaf, scoped CI roles) also
     // carry `aud: authenticated`, but they don't act for a user with grants.
-    if claims.role != "authenticated" {
+    if claims.role != "authenticated" && !oauth_source {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
             "Capability tokens can only be minted from a user session",
         )));
@@ -159,10 +164,18 @@ async fn mint_capability_token(
     }
 
     let iat = tokens::now().timestamp() as u64;
-    let exp = iat + CAPABILITY_TOKEN_DURATION.as_secs();
+    let exp = if oauth_source {
+        (iat + CAPABILITY_TOKEN_DURATION.as_secs()).min(claims.exp)
+    } else {
+        iat + CAPABILITY_TOKEN_DURATION.as_secs()
+    };
 
     let claims = models::authorizations::ControlClaims {
-        aud: claims.aud.clone(),
+        aud: if oauth_source {
+            "authenticated".to_string()
+        } else {
+            claims.aud.clone()
+        },
         iat,
         exp,
         sub: claims.sub,

@@ -132,6 +132,13 @@ impl RefreshTokensMutation {
     ) -> async_graphql::Result<RefreshTokenResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
+        // Resource-bound OAuth grants must keep using their bound, rotating
+        // refresh credential rather than mint an independent user credential.
+        if claims.aud != "authenticated" {
+            return Err(async_graphql::Error::new(
+                "OAuth access tokens cannot create independent refresh credentials.",
+            ));
+        }
         if claims.capability_mask.is_some() {
             return Err(async_graphql::Error::new(
                 "tokens with a capability mask set cannot create refresh tokens.",
