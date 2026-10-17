@@ -10,7 +10,6 @@ create table internal.oauth_requests (
     client_state text,
     code_challenge text not null,
     resource text not null,
-    scope text not null,
     expires_at timestamptz not null default now() + interval '10 minutes'
 );
 create index on internal.oauth_requests (expires_at);
@@ -21,7 +20,6 @@ create table internal.oauth_grants (
     client_id text not null,
     client_name text not null,
     resource text not null,
-    scope text not null,
     created_at timestamptz not null default now(),
     expires_at timestamptz not null default now() + interval '90 days',
     revoked_at timestamptz
