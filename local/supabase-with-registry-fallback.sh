@@ -12,7 +12,7 @@ trap 'rm -rf "$log_dir"' EXIT
 log_file="$log_dir/stderr"
 mkfifo "$log_dir/stream"
 
-for registry in public.ecr.aws ghcr.io docker.io; do
+for registry in ghcr.io public.ecr.aws docker.io; do
     # Preserve stdout and stream stderr, but retain only its tail: functions
     # serve runs indefinitely and must not accumulate an unbounded log file.
     tail -n 100 < "$log_dir/stream" > "$log_file" &
