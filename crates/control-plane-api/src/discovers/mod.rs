@@ -540,13 +540,19 @@ impl DiscoverHandler {
             .iter()
             .map(|p| json::Pointer::from_str(p.as_str()))
             .collect::<Vec<_>>();
-        let (used_bindings, added_bindings, removed_bindings) = specs::update_capture_bindings(
+
+        // Bindings without a resource path, or with conflicting ones,
+        // are a failure of the connector's discover.
+        let (used_bindings, added_bindings, removed_bindings) = match specs::update_capture_bindings(
             capture_name.as_str(),
             capture_model,
             discovered_bindings,
             update_only,
             &pointers,
-        )?;
+        ) {
+            Ok(bindings) => bindings,
+            Err(err) => return Ok(DiscoverOutput::failed(capture_name, err)),
+        };
 
         let collection_names = capture_model
             .bindings

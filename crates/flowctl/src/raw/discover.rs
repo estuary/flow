@@ -126,10 +126,19 @@ pub async fn do_discover(
         let collection_name = format!("{prefix}/{}", binding.recommended_name);
         let collection = models::Collection::new(collection_name);
 
+        // Each binding documents its resource path at `/_meta/path`, as
+        // control-plane discovers do. A connector which predates Discovered
+        // resource paths leaves validation to record them.
+        let mut resource =
+            serde_json::from_slice::<models::RawValue>(&binding.resource_config_json)?;
+        if !binding.resource_path.is_empty() {
+            resource = validation::store_resource_meta(&resource, &binding.resource_path);
+        }
+
         model.bindings.push(models::CaptureBinding {
             target: collection.clone(),
             disable: false,
-            resource: serde_json::from_slice::<models::RawValue>(&binding.resource_config_json)?,
+            resource,
             backfill: 0,
         });
 

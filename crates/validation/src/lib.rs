@@ -462,7 +462,7 @@ pub fn load_resource_meta_path(resource_config_json: &[u8]) -> Vec<String> {
 }
 
 // Store `resource_path` under /_meta/path of `resource`, returning an updated clone.
-fn store_resource_meta(resource: &models::RawValue, path: &[String]) -> models::RawValue {
+pub fn store_resource_meta(resource: &models::RawValue, path: &[String]) -> models::RawValue {
     type Skim = std::collections::BTreeMap<String, models::RawValue>;
 
     let Ok(mut resource) = serde_json::from_str::<Skim>(resource.get()) else {
