@@ -172,7 +172,7 @@ pub struct InviteLinksMutation;
 impl InviteLinksMutation {
     /// Create an invite link that grants access to a catalog prefix.
     ///
-    /// The caller must have CreateInviteLink capability on the catalog prefix.
+    /// The caller must have ManageInviteLinks capability on the catalog prefix.
     /// Share the returned token with the intended recipient out-of-band.
     pub async fn create_invite_link(
         &self,
@@ -200,7 +200,7 @@ impl InviteLinksMutation {
         super::verify_authorization(
             env,
             &catalog_prefix,
-            models::authz::Capability::CreateInviteLink,
+            models::authz::Capability::ManageInviteLinks,
         )
         .await?;
 
@@ -362,7 +362,7 @@ impl InviteLinksMutation {
 
     /// Delete an invite link, revoking it so it can no longer be redeemed.
     ///
-    /// The caller must have DeleteInviteLink capability on the invite link's catalog prefix.
+    /// The caller must have ManageInviteLinks capability on the invite link's catalog prefix.
     pub async fn delete_invite_link(
         &self,
         ctx: &Context<'_>,
@@ -394,7 +394,7 @@ impl InviteLinksMutation {
         super::verify_authorization(
             env,
             &invite.catalog_prefix,
-            models::authz::Capability::DeleteInviteLink,
+            models::authz::Capability::ManageInviteLinks,
         )
         .await?;
 
