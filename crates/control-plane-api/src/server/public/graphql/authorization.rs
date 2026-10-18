@@ -1,7 +1,8 @@
 use async_graphql::ErrorExtensions;
 
-// Preserve the snapshot refresh path and ApiError source: callers use the
-// source to conceal selected terminal denials as not-found responses.
+// If cached permissions are stale, request a refresh and retry before denying
+// access. Keep the original ApiError attached so callers can report a final
+// permission denial as "not found" without revealing that the resource exists.
 pub(super) async fn verify_authorization(
     env: &crate::Envelope,
     prefix: &str,
