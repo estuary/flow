@@ -129,7 +129,7 @@ async fn test_auto_discovers_add_new_bindings() {
         .as_capture()
         .unwrap();
     // Expect to see the new bindings added
-    insta::assert_json_snapshot!(model.bindings, @r###"
+    insta::assert_json_snapshot!(model.bindings, @r#"
     [
       {
         "resource": {
@@ -139,13 +139,13 @@ async fn test_auto_discovers_add_new_bindings() {
       },
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"id\": \"moss\", \"extra\": \"stuff\" }"
+          "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"moss\"]},\"extra\":\"stuff\",\"id\":\"moss\"}"
         },
         "disable": true,
         "target": "marmots/moss"
       }
     ]
-    "###);
+    "#);
     // Expect that the moss collection was not created because the binding is disabled
     harness.assert_live_spec_hard_deleted("marmots/moss").await;
 
@@ -437,13 +437,13 @@ async fn test_auto_discovers_add_new_bindings() {
         }
       ],
       [
-        "auto-discover changes (1 added, 0 modified, 1 removed)\nUpdated 'marmots/capture':\nupdated resource /_meta of 1 bindings",
+        "auto-discover changes (1 added, 0 modified, 1 removed)",
         {
           "type": "success"
         }
       ],
       [
-        "auto-discover changes (1 added, 0 modified, 0 removed, 1 added (disabled))\nUpdated 'marmots/capture':\nupdated resource /_meta of 1 bindings",
+        "auto-discover changes (1 added, 0 modified, 0 removed, 1 added (disabled))",
         {
           "type": "success"
         }
