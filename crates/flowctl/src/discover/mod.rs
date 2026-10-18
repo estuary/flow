@@ -1,7 +1,6 @@
-use crate::{draft, local_specs};
+use crate::graphql::*;
+use crate::{draft, local_specs, poll};
 use anyhow::Context;
-use futures::TryStreamExt;
-use serde::Deserialize;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -17,10 +16,26 @@ pub struct Discover {
     #[clap(long)]
     flat: bool,
     /// Explicit data-plane on which discovery should occur.
-    /// If not specified, the data-plane is inferred from storage mappings.
+    /// If not specified, a live capture uses its current data-plane,
+    /// and a new capture uses one permitted by its storage mapping.
     #[clap(long)]
     data_plane: Option<String>,
 }
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/discover/create-mutation.graphql"
+)]
+struct CreateDiscoverMutation;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/discover/poll-query.graphql",
+    response_derives = "Debug,PartialEq"
+)]
+struct PollDiscoverQuery;
 
 impl Discover {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
@@ -32,7 +47,6 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     // Load, inline, and validate the source specifications.
     let build::Output {
         draft: mut draft_catalog,
-        built: validations,
         ..
     } = local_specs::load_and_validate(ctx, &args.source).await?;
 
@@ -57,197 +71,105 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
         Err(_) => anyhow::bail!("could not find the capture {needle}"),
     };
 
-    // Data-plane to which the discover will be submitted: an explicit plane if
-    // provided, or else the plane of the live capture, or else (if the capture
-    // is unpublished) the plane its first publication will place it into.
-    //
-    // TODO(johnny): Remove the storage-mapping fallback once discovers move to
-    // a GraphQL mutation, which will resolve the mapping itself.
-    let data_plane_name = if let Some(data_plane) = &args.data_plane {
-        data_plane.to_string()
-    } else {
-        let data_plane_id = validations
-            .built_captures
-            .get_by_key(&models::Capture::new(needle))
-            .expect("capture validated")
-            .data_plane_id;
-
-        let resolver = super::local_specs::Resolver {
-            pg: ctx.pg.clone(),
-            access_token: ctx.access_token(),
-        };
-        if data_plane_id.is_zero() {
-            resolver.default_data_plane_name(needle).await?
-        } else {
-            resolver.data_plane_name(data_plane_id).await?
-        }
-    };
-    tracing::info!(%data_plane_name, "using data-plane for discovery");
-
     draft::encrypt_configs(&mut draft_catalog, ctx)
         .await
         .context("encrypting endpoint configurations")?;
 
-    // Extract discovery metadata.
     let draft_capture = &draft_catalog.captures[capture_index];
     let draft_model = draft_capture
         .model
         .as_ref()
         .context("the specification to be discovered is marked for deletion")?;
 
-    let (connector_tag_id, endpoint_config) = match &draft_model.endpoint {
-        models::CaptureEndpoint::Connector(config) => {
-            let tag = extract_connector_tag_id(ctx, &config.image)
-                .await
-                .context("extracting connector tag ID from capture endpoint")?;
-            (tag, &config.config)
-        }
-        models::CaptureEndpoint::Local(_) => {
-            anyhow::bail!("You must use `raw discover` for local connectors");
-        }
-    };
-    let update_only = draft_model
-        .auto_discover
-        .as_ref()
-        .map(|ad| !ad.add_new_bindings)
-        .unwrap_or_default();
+    if let models::CaptureEndpoint::Local(_) = &draft_model.endpoint {
+        anyhow::bail!("You must use `raw discover` for local connectors");
+    }
 
-    // Upsert the draft into which discovery will be merged by the control plane.
+    // Create the draft into which the control plane will merge discovered bindings.
     let draft = draft::create_draft(ctx).await?;
-    draft::upsert_draft_specs(ctx, draft.id, &draft_catalog)
-        .await
-        .context("upserting draft specifications")?;
     tracing::info!(draft_id = %draft.id, "created draft for discovery");
 
-    // Submit the discovery job and poll until completion.
-    let create = CreateDiscoverRow {
-        capture_name: &draft_capture.capture,
-        connector_tag_id,
-        data_plane_name: &data_plane_name,
-        draft_id: draft.id,
-        endpoint_config,
-        update_only,
-    };
-    let body = serde_json::to_string(&create)?;
+    // Discover into the draft, and delete it (best effort) whatever the outcome.
+    let result = async {
+        draft::upsert_draft_specs(ctx, draft.id, &draft_catalog)
+            .await
+            .context("upserting draft specifications")?;
 
-    let DiscoverResponse {
-        id: discover_id,
-        logs_token,
-    }: DiscoverResponse = flow_client_next::postgrest::exec(
-        ctx.pg
-            .from("discovers")
-            .select("id,logs_token")
-            .insert(body)
-            .single(),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .context("failed to submit discovery job")?;
-    tracing::info!(%discover_id, %logs_token, "submitted discovery job");
+        let vars = create_discover_mutation::Variables {
+            draft_id: draft.id,
+            capture_name: models::Name::new(draft_capture.capture.as_str()),
+            data_plane: args.data_plane.clone(),
+        };
+        let create_discover_mutation::CreateDiscoverMutationCreateDiscover {
+            id: discover_id,
+            data_plane_name,
+        } = post_graphql::<CreateDiscoverMutation>(&ctx.rest, ctx.access_token().as_deref(), vars)
+            .await
+            .context("failed to submit discovery job")?
+            .create_discover;
+        tracing::info!(%discover_id, %data_plane_name, "submitted discovery job");
 
-    let outcome = crate::poll_while_queued(ctx, "discovers", discover_id, &logs_token).await?;
+        let status = poll::poll_job(
+            |after| poll_discover(ctx, discover_id, after),
+            std::time::Duration::from_secs(1),
+            |line| println!("{line}"),
+        )
+        .await?;
 
-    if outcome != "success" {
-        draft::print_draft_errors(ctx, draft.id).await?;
-        _ = draft::delete_draft(ctx, draft.id).await; // Best effort.
-        anyhow::bail!("discovery failed with status: {outcome}");
+        if status != poll_discover_query::DiscoverStatus::SUCCESS {
+            draft::print_draft_errors(ctx, draft.id).await?;
+            anyhow::bail!("discovery failed with status: {status:?}");
+        }
+
+        draft::develop(
+            ctx,
+            draft.id,
+            &args.source,
+            true, // Overwrite is implied for discovery.
+            args.flat,
+        )
+        .await
+        .context("failed to pull down draft for local development")?;
+
+        tracing::info!(%discover_id, "discovery completed successfully");
+        Ok(())
     }
+    .await;
 
-    draft::develop(
-        ctx,
-        draft.id,
-        &args.source,
-        true, // Overwrite is implied for discovery.
-        args.flat,
-    )
-    .await
-    .context("failed to pull down draft for local development")?;
-
-    tracing::info!(%discover_id, "discovery completed successfully");
-    _ = draft::delete_draft(ctx, draft.id).await; // Best effort.
-
-    Ok(())
+    _ = draft::delete_draft(ctx, draft.id).await;
+    result
 }
 
-/// Represents the body of a postgresT request to insert a `discovers` row. It's
-/// critical that we _don't_ use a `serde_json::Value` for this, so that we can
-/// ensure the field ordering in the endpoint config is preserved.
-#[derive(serde::Serialize)]
-struct CreateDiscoverRow<'a> {
-    capture_name: &'a str,
-    connector_tag_id: models::Id,
-    data_plane_name: &'a str,
-    draft_id: models::Id,
-    endpoint_config: &'a models::RawValue,
-    update_only: bool,
-}
-
-#[derive(Deserialize)]
-struct DiscoverResponse {
-    id: models::Id,
-    logs_token: String,
-}
-
-async fn extract_connector_tag_id(
+async fn poll_discover(
     ctx: &crate::CliContext,
-    image: &str,
-) -> anyhow::Result<models::Id> {
-    // Parse the image URL to extract the image name and tag.
-    // Expected format: "image-name:tag" or "registry/image-name:tag"
-    let (image_name, tag) = if let Some((name, tag)) = image.rsplit_once(':') {
-        (name, format!(":{}", tag)) // Tags in DB have : prefix
-    } else {
-        anyhow::bail!("invalid connector image format: {}", image);
-    };
+    id: models::Id,
+    after: Option<String>,
+) -> anyhow::Result<poll::JobPoll<poll_discover_query::DiscoverStatus>> {
+    use poll_discover_query::DiscoverStatus;
 
-    // Query for the connector based on image name.
-    #[derive(Deserialize)]
-    struct ConnectorRow {
-        id: models::Id,
-    }
+    let vars = poll_discover_query::Variables { id, after };
+    let discover =
+        post_graphql::<PollDiscoverQuery>(&ctx.rest, ctx.access_token().as_deref(), vars)
+            .await?
+            .discover
+            .context("discovery job not found")?;
 
-    let connectors: Vec<ConnectorRow> = flow_client_next::postgrest::exec_paginated(
-        ctx.pg
-            .from("connectors")
-            .select("id")
-            .eq("image_name", image_name),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .try_collect::<Vec<_>>()
-    .await?;
-
-    if connectors.is_empty() {
-        anyhow::bail!("no connector found for image: {}", image_name);
-    }
-
-    let connector_id = &connectors[0].id;
-
-    // Query for the connector tag.
-    #[derive(Deserialize)]
-    struct ConnectorTagRow {
-        id: models::Id,
-    }
-
-    let tags: Vec<ConnectorTagRow> = flow_client_next::postgrest::exec_paginated(
-        ctx.pg
-            .from("connector_tags")
-            .select("id")
-            .eq("connector_id", connector_id.to_string())
-            .eq("image_tag", &tag),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .try_collect::<Vec<_>>()
-    .await?;
-
-    if tags.is_empty() {
-        anyhow::bail!(
-            "no connector tag found for image: {} with tag: {}",
-            image_name,
-            tag
-        );
-    }
-
-    Ok(tags[0].id.clone())
+    let logs = discover.logs;
+    Ok(poll::JobPoll {
+        outcome: match discover.status {
+            DiscoverStatus::QUEUED => None,
+            status => Some(status),
+        },
+        logs: logs
+            .edges
+            .into_iter()
+            .map(|edge| poll::LogLine {
+                logged_at: edge.node.logged_at,
+                stream: edge.node.stream,
+                line: edge.node.line,
+            })
+            .collect(),
+        end_cursor: logs.page_info.end_cursor,
+        has_next_page: logs.page_info.has_next_page,
+    })
 }

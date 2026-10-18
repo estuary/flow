@@ -1,0 +1,18 @@
+query PollDiscoverQuery($id: Id!, $after: String) {
+    discover(id: $id) {
+        status
+        logs(after: $after) {
+            pageInfo {
+                hasNextPage
+                endCursor
+            }
+            edges {
+                node {
+                    loggedAt
+                    stream
+                    line
+                }
+            }
+        }
+    }
+}
