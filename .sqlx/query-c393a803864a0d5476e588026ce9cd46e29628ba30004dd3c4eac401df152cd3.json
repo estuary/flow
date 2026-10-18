@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO discovers (\n            draft_id, capture_name, connector_tag_id, endpoint_config,\n            update_only, data_plane_name\n        ) VALUES ($1, $2, $3, $4, $5, $6)\n        RETURNING id AS \"id!: models::Id\", created_at, updated_at, logs_token\n        ",
+  "query": "\n        INSERT INTO discovers (\n            draft_id, capture_name, connector_tag_id, endpoint_config,\n            update_only, data_plane_name\n        ) VALUES ($1, $2, NULL, '{}', $3, $4)\n        RETURNING id AS \"id!: models::Id\", created_at, updated_at, logs_token\n        ",
   "describe": {
     "columns": [
       {
@@ -66,22 +66,6 @@
             }
           }
         },
-        {
-          "Custom": {
-            "name": "flowid",
-            "kind": {
-              "Domain": "Macaddr8"
-            }
-          }
-        },
-        {
-          "Custom": {
-            "name": "json_obj",
-            "kind": {
-              "Domain": "Json"
-            }
-          }
-        },
         "Bool",
         "Text"
       ]
@@ -93,5 +77,5 @@
       false
     ]
   },
-  "hash": "1d89c92cfaa86711794e42c89384b8c24359311317567fbe4b73e6322f405dd4"
+  "hash": "c393a803864a0d5476e588026ce9cd46e29628ba30004dd3c4eac401df152cd3"
 }

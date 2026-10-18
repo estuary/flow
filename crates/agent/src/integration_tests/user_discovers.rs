@@ -154,6 +154,72 @@ async fn test_graphql_discover_invalid_draft_is_atomic() {
 }
 
 #[tokio::test]
+async fn test_discover_without_connector_tag() {
+    let mut harness = TestHarness::init("test_discover_without_connector_tag").await;
+    let user = harness.setup_tenant("acmeCo").await;
+
+    // A discover having no connector tag dials the endpoint of the drafted capture.
+    let draft = harness
+        .create_draft(
+            user,
+            "drafted endpoint",
+            draft_catalog(serde_json::json!({
+                "captures": { GRAPHQL_CAPTURE: {
+                    "endpoint": {"connector": {"image": "source/test:test", "config": {"from": "draft"}}},
+                    "bindings": []
+                }}
+            })),
+        )
+        .await;
+    let id = harness
+        .queue_draft_discover(
+            GRAPHQL_CAPTURE,
+            draft,
+            false,
+            Ok((spec_fixture(), graphql_discovered(&["widgets"]))),
+        )
+        .await;
+    let result = harness.run_queued_discover(id).await;
+    assert!(result.job_status.is_success(), "{:?}", result.errors);
+    let request = harness
+        .connectors
+        .last_discover_request(GRAPHQL_CAPTURE)
+        .unwrap();
+    assert_eq!(
+        br#"{"image":"source/test:test","config":{"from":"draft"}}"#,
+        request.config_json.as_ref()
+    );
+
+    let published = harness
+        .create_user_publication(user, draft, "publish drafted capture")
+        .await;
+    assert!(published.status.is_success(), "{published:?}");
+
+    // Once live, it's discovered from an empty draft with the live endpoint.
+    let draft = harness
+        .create_draft(user, "live endpoint", Default::default())
+        .await;
+    let id = harness
+        .queue_draft_discover(
+            GRAPHQL_CAPTURE,
+            draft,
+            false,
+            Ok((spec_fixture(), graphql_discovered(&["widgets", "gadgets"]))),
+        )
+        .await;
+    let result = harness.run_queued_discover(id).await;
+    assert!(result.job_status.is_success(), "{:?}", result.errors);
+    let request = harness
+        .connectors
+        .last_discover_request(GRAPHQL_CAPTURE)
+        .unwrap();
+    assert_eq!(
+        br#"{"image":"source/test:test","config":{"from":"draft"}}"#,
+        request.config_json.as_ref()
+    );
+}
+
+#[tokio::test]
 async fn test_discover_rejects_non_discovered_responses() {
     let mut harness = TestHarness::init("test_discover_rejects_non_discovered_responses").await;
     let user_id = harness.setup_tenant("squirrels").await;

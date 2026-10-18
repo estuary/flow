@@ -59,20 +59,6 @@ where
     Ok(())
 }
 
-pub async fn does_connector_exist(
-    connector_image: &str,
-    txn: impl sqlx::PgExecutor<'_>,
-) -> sqlx::Result<bool> {
-    sqlx::query!(
-        r#"select 1 as "exists: bool" from connectors
-        where connectors.image_name = $1;"#,
-        connector_image
-    )
-    .fetch_optional(txn)
-    .await
-    .map(|exists| exists.is_some())
-}
-
 pub async fn update_oauth2_spec(
     connector_id: models::Id,
     oauth2_spec: Box<RawValue>,

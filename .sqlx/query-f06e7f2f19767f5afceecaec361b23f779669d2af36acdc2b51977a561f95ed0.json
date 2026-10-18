@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n            discovers.capture_name,\n            discovers.connector_tag_id as \"connector_tag_id: Id\",\n            connector_tags.job_status->>'type' = 'success' as \"connector_tag_job_success!\",\n            discovers.created_at,\n            discovers.data_plane_name,\n            discovers.draft_id as \"draft_id: Id\",\n            discovers.endpoint_config as \"endpoint_config: Json<Box<RawValue>>\",\n            discovers.id as \"id: Id\",\n            connectors.image_name,\n            connector_tags.image_tag,\n            discovers.logs_token,\n            connector_tags.protocol as \"protocol!\",\n            discovers.update_only,\n            discovers.updated_at,\n            drafts.user_id\n        from discovers\n        join drafts on discovers.draft_id = drafts.id\n        join connector_tags on discovers.connector_tag_id = connector_tags.id\n        join connectors on connectors.id = connector_tags.connector_id\n        where discovers.id = $1::flowid;\n        ",
+  "query": "select\n            discovers.capture_name,\n            discovers.connector_tag_id as \"connector_tag_id: Id\",\n            discovers.created_at,\n            discovers.data_plane_name,\n            discovers.draft_id as \"draft_id: Id\",\n            discovers.endpoint_config as \"endpoint_config: Json<Box<RawValue>>\",\n            discovers.id as \"id: Id\",\n            connectors.image_name || connector_tags.image_tag as \"image?\",\n            discovers.logs_token,\n            discovers.update_only,\n            discovers.updated_at,\n            drafts.user_id\n        from discovers\n        join drafts on discovers.draft_id = drafts.id\n        left join connector_tags on discovers.connector_tag_id = connector_tags.id\n        left join connectors on connectors.id = connector_tags.connector_id\n        where discovers.id = $1::flowid;\n        ",
   "describe": {
     "columns": [
       {
@@ -27,12 +27,6 @@
       },
       {
         "ordinal": 2,
-        "name": "connector_tag_job_success!",
-        "type_info": "Bool",
-        "origin": "Expression"
-      },
-      {
-        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -43,7 +37,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "data_plane_name",
         "type_info": "Text",
         "origin": {
@@ -54,7 +48,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "draft_id: Id",
         "type_info": "Macaddr8",
         "origin": {
@@ -65,7 +59,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "endpoint_config: Json<Box<RawValue>>",
         "type_info": "Json",
         "origin": {
@@ -76,7 +70,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "id: Id",
         "type_info": "Macaddr8",
         "origin": {
@@ -87,29 +81,13 @@
         }
       },
       {
+        "ordinal": 7,
+        "name": "image?",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
         "ordinal": 8,
-        "name": "image_name",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "connectors",
-            "name": "image_name"
-          }
-        }
-      },
-      {
-        "ordinal": 9,
-        "name": "image_tag",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "connector_tags",
-            "name": "image_tag"
-          }
-        }
-      },
-      {
-        "ordinal": 10,
         "name": "logs_token",
         "type_info": "Uuid",
         "origin": {
@@ -120,18 +98,7 @@
         }
       },
       {
-        "ordinal": 11,
-        "name": "protocol!",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "connector_tags",
-            "name": "protocol"
-          }
-        }
-      },
-      {
-        "ordinal": 12,
+        "ordinal": 9,
         "name": "update_only",
         "type_info": "Bool",
         "origin": {
@@ -142,7 +109,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -153,7 +120,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 11,
         "name": "user_id",
         "type_info": "Uuid",
         "origin": {
@@ -178,21 +145,18 @@
     },
     "nullable": [
       false,
+      true,
+      false,
+      false,
+      false,
+      false,
       false,
       null,
       false,
       false,
       false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      true,
-      false,
-      false,
       false
     ]
   },
-  "hash": "d6afdc2b384fea27e912d03067cc9cb70f2e63535d237c6c8bfed31c50fa15d4"
+  "hash": "f06e7f2f19767f5afceecaec361b23f779669d2af36acdc2b51977a561f95ed0"
 }

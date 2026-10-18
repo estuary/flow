@@ -137,17 +137,19 @@ async fn lookup(
         .await
 }
 
-/// The `endpoint_config` and `update_only` which a successful submission queued.
-async fn queued(pool: &sqlx::PgPool, response: &serde_json::Value) -> (String, bool) {
+/// Whether a successful submission queued a discover of the drafted or live
+/// endpoint (having no connector tag and a placeholder `endpoint_config`),
+/// and its `update_only`.
+async fn queued(pool: &sqlx::PgPool, response: &serde_json::Value) -> (bool, bool) {
     let id: models::Id = serde_json::from_value(response["data"]["createDiscover"]["id"].clone())
         .unwrap_or_else(|err| panic!("{err}: {response}"));
-    let (config, update_only): (String, bool) =
-        sqlx::query_as("SELECT endpoint_config::text, update_only FROM discovers WHERE id = $1")
-            .bind(id)
-            .fetch_one(pool)
-            .await
-            .unwrap();
-    (config.trim().to_owned(), update_only)
+    sqlx::query_as(
+        "SELECT connector_tag_id IS NULL AND endpoint_config::text = '{}', update_only FROM discovers WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn draft_state(pool: &sqlx::PgPool, draft_id: models::Id) -> serde_json::Value {
@@ -234,19 +236,14 @@ async fn staged_submission_and_ownership(pool: sqlx::PgPool) {
 )]
 async fn submission_selects_staged_or_live_capture(pool: sqlx::PgPool) {
     let _guard = test_server::init();
-    // Keys are deliberately unsorted: SOPS authenticates an encrypted config by
-    // walking it in order, so the queued config must preserve its bytes.
-    const LIVE: &str = r#"{"zebra":"live","alpha":{"zulu":1,"bravo":2}}"#;
-    const STAGED: &str = r#"{"zebra":"staged","alpha":{"zulu":1,"bravo":2}}"#;
-    let model = |config: &str| {
-        format!(
-            r#"{{"endpoint":{{"connector":{{"image":"source/test:test","config":{config}}}}},"bindings":[]}}"#
-        )
-    };
+    // The live capture adds no new bindings, and the staged one does,
+    // so `update_only` reveals which was selected.
     sqlx::query(
         "UPDATE live_specs SET spec = $1::json WHERE catalog_name = 'aliceCo/in/capture-foo'",
     )
-    .bind(model(LIVE))
+    .bind(model_with(
+        serde_json::json!({ "autoDiscover": { "addNewBindings": false } }),
+    ))
     .execute(&pool)
     .await
     .unwrap();
@@ -272,7 +269,7 @@ async fn submission_selects_staged_or_live_capture(pool: sqlx::PgPool) {
         assert_eq!(after[field], before[field], "{field}");
     }
     // A staged entry takes precedence over the live capture.
-    stage_capture(&pool, draft_id, "aliceCo/in/capture-foo", &model(STAGED)).await;
+    stage_capture(&pool, draft_id, "aliceCo/in/capture-foo", MODEL).await;
     let staged = submit(
         &server,
         Some(&alice),
@@ -281,8 +278,8 @@ async fn submission_selects_staged_or_live_capture(pool: sqlx::PgPool) {
         None,
     )
     .await;
-    assert_eq!(queued(&pool, &live).await.0, LIVE);
-    assert_eq!(queued(&pool, &staged).await.0, STAGED);
+    assert_eq!(queued(&pool, &live).await, (true, true));
+    assert_eq!(queued(&pool, &staged).await, (true, false));
 
     let missing = submit(&server, Some(&alice), draft_id, "aliceCo/missing", None).await;
     let wrong_plane = submit(
@@ -491,14 +488,43 @@ async fn update_only_follows_auto_discover(pool: sqlx::PgPool) {
         scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
     )
 )]
+async fn submission_defers_endpoints_to_the_executor(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    let (server, draft_id, alice, _) = setup(&pool).await;
+    // The executor discovers with the drafted endpoint, whatever its type,
+    // and an image needn't have a connector tag.
+    for (name, endpoint) in [
+        (
+            "aliceCo/failed-tag",
+            serde_json::json!({ "connector": { "image": "source/multi-tag-test:v2", "config": {} } }),
+        ),
+        (
+            "aliceCo/untagged",
+            serde_json::json!({ "connector": { "image": "source/unknown:v1", "config": {} } }),
+        ),
+    ] {
+        stage_capture(
+            &pool,
+            draft_id,
+            name,
+            &model_with(serde_json::json!({ "endpoint": endpoint })),
+        )
+        .await;
+        let response = submit(&server, Some(&alice), draft_id, name, None).await;
+        assert_eq!(queued(&pool, &response).await, (true, false), "{name}");
+    }
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
+    )
+)]
 async fn invalid_submissions_change_nothing(pool: sqlx::PgPool) {
     let _guard = test_server::init();
     let (server, draft_id, alice, _) = setup(&pool).await;
-    let connector = |image: &str, config: serde_json::Value| {
-        Some(model_with(serde_json::json!({
-            "endpoint": { "connector": { "image": image, "config": config } }
-        })))
-    };
     let cases = [
         ("aliceCo/deleted", "capture", None),
         ("aliceCo/other-type", "collection", Some("{}".to_owned())),
@@ -507,28 +533,6 @@ async fn invalid_submissions_change_nothing(pool: sqlx::PgPool) {
             "aliceCo/delete-flag",
             "capture",
             Some(model_with(serde_json::json!({ "delete": true }))),
-        ),
-        (
-            "aliceCo/local",
-            "capture",
-            Some(model_with(serde_json::json!({
-                "endpoint": { "local": { "command": ["true"], "config": {} } }
-            }))),
-        ),
-        (
-            "aliceCo/untagged",
-            "capture",
-            connector("source/test", serde_json::json!({})),
-        ),
-        (
-            "aliceCo/file-config",
-            "capture",
-            connector("source/test:test", serde_json::json!("config.json")),
-        ),
-        (
-            "aliceCo/failed-tag",
-            "capture",
-            connector("source/multi-tag-test:v2", serde_json::json!({})),
         ),
     ];
     for (name, spec_type, model) in &cases {

@@ -1,6 +1,5 @@
 use anyhow::Context;
 use control_plane_api::{
-    connector_tags,
     discovers::{Discover, DiscoverHandler, Row, fetch_discover},
     draft, live_specs,
 };
@@ -113,28 +112,27 @@ impl DiscoverExecutor {
     ) -> anyhow::Result<(JobStatus, ProcessResult)> {
         tracing::info!(
             %row.capture_name,
-            %row.connector_tag_id,
-            %row.connector_tag_job_success,
+            ?row.connector_tag_id,
             %row.created_at,
             %row.data_plane_name,
             %row.draft_id,
-            %row.image_name,
-            %row.image_tag,
+            ?row.image,
             %row.logs_token,
-            %row.protocol,
             %row.updated_at,
             %row.user_id,
             "processing discover",
         );
 
-        // Various pre-flight checks.
-        if !row.connector_tag_job_success {
-            return Ok(precheck_failed(JobStatus::TagFailed));
-        } else if row.protocol != "capture" {
-            return Ok(precheck_failed(JobStatus::WrongProtocol));
-        } else if !connector_tags::does_connector_exist(&row.image_name, pool).await? {
-            return Ok(precheck_failed(JobStatus::ImageForbidden));
-        }
+        // A discover having a connector tag replaces the capture's endpoint
+        // with the tag's image and the row's `endpoint_config`.
+        // Otherwise, the drafted or live capture provides its endpoint.
+        let tag_endpoint = row.connector_tag_id.map(|_| models::ConnectorConfig {
+            image: row
+                .image
+                .clone()
+                .expect("connector_tag_id is a foreign key"),
+            config: row.endpoint_config.0.clone().into(),
+        });
         let subject = models::authz::Subject::unrestricted(row.user_id);
         // A discover validates and edits the capture's spec, so the user must
         // hold SpecEdit to the capture's name -- without it they could never
@@ -189,15 +187,13 @@ impl DiscoverExecutor {
             return Ok(precheck_failed(JobStatus::NoDataPlane));
         };
 
-        let image_composed = format!("{}{}", row.image_name, row.image_tag);
         let prepared = prepare_discover(
             subject,
             row.draft_id,
             models::Capture::new(&row.capture_name),
-            row.endpoint_config.0.clone().into(),
+            tag_endpoint,
             row.update_only,
             row.logs_token,
-            image_composed,
             data_plane.control_id,
             snapshot,
             pool,
@@ -236,20 +232,20 @@ impl DiscoverExecutor {
 }
 
 /// Resolves the specs to be used as the base for a discover, and returns them
-/// as part of a fully prepared `Discover`. This will always include the capture
-/// spec, even if there is no extant drafted or live spec for it. The resolved
-/// capture will always have the endpoint set to the values from the `discovers`
-/// row, even if it differs from the endpoint on the drafted or live spec. All
-/// other specs in the given draft will be loaded as they are and used as the
-/// base for the merge after the discover completes.
+/// as part of a fully prepared `Discover`. The capture is taken from the
+/// draft, or else from the live capture. A `tag_endpoint` replaces the
+/// capture's endpoint, and is also the endpoint of a starter capture
+/// constructed if neither exists. Without a `tag_endpoint`, the drafted or
+/// live capture must exist and provides its endpoint. All other specs in the
+/// given draft will be loaded as they are and used as the base for the merge
+/// after the discover completes.
 async fn prepare_discover<'a>(
     subject: models::authz::Subject,
     draft_id: Id,
     capture_name: models::Capture,
-    endpoint_config: models::RawValue,
+    tag_endpoint: Option<models::ConnectorConfig>,
     update_only: bool,
     logs_token: uuid::Uuid,
-    image_composed: String,
     data_plane_id: models::Id,
     snapshot: &'a control_plane_api::Snapshot,
     pool: &sqlx::PgPool,
@@ -257,11 +253,6 @@ async fn prepare_discover<'a>(
     let mut draft = draft::load_draft(draft_id, pool)
         .await
         .context("loading draft")?;
-
-    let endpoint = models::CaptureEndpoint::Connector(models::ConnectorConfig {
-        image: image_composed,
-        config: endpoint_config,
-    });
 
     // Fetch any live capture up-front: an existing task's creation date —
     // embedded in its control-plane Id — is carried on the Discover request,
@@ -290,54 +281,57 @@ async fn prepare_discover<'a>(
         .unwrap_or_default();
 
     if let Some(drafted) = draft.captures.get_mut_by_key(&capture_name) {
-        if let Some(model) = drafted.model.as_mut() {
-            model.endpoint = endpoint;
+        if let (Some(model), Some(endpoint)) = (drafted.model.as_mut(), tag_endpoint) {
+            model.endpoint = models::CaptureEndpoint::Connector(endpoint);
         }
+    } else if let Some(tables::LiveCapture {
+        capture,
+        last_pub_id,
+        mut model,
+        ..
+    }) = live_capture
+    {
+        if let Some(endpoint) = tag_endpoint {
+            model.endpoint = models::CaptureEndpoint::Connector(endpoint);
+        }
+        draft.captures.insert(tables::DraftCapture {
+            capture: capture.clone(),
+            model: Some(model),
+            expect_pub_id: Some(last_pub_id),
+            data_plane_id: models::Id::zero(),
+            scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
+            is_touch: true, // This will get updated if the discover returns any changes
+        });
+    } else if let Some(endpoint) = tag_endpoint {
+        // There's no existing live or draft spec, so insert a starter spec.
+        let new_model = models::CaptureDef {
+            endpoint: models::CaptureEndpoint::Connector(endpoint),
+            auto_discover: Some(models::AutoDiscover {
+                add_new_bindings: true,
+                evolve_incompatible_collections: true,
+            }),
+            interval: models::CaptureDef::default_interval(),
+            redact_salt: None,
+            secrets: Default::default(),
+            shards: models::ShardTemplate::default(),
+            expect_pub_id: None,
+            bindings: Vec::new(),
+            delete: false,
+            reset: false,
+        };
+        draft.captures.insert(tables::DraftCapture {
+            capture: capture_name.clone(),
+            model: Some(new_model),
+            expect_pub_id: Some(Id::zero()),
+            data_plane_id: models::Id::zero(),
+            scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
+            is_touch: false,
+        });
     } else {
-        // See if there's an existing live capture with this name
-        if let Some(tables::LiveCapture {
-            capture,
-            last_pub_id,
-            mut model,
-            ..
-        }) = live_capture
-        {
-            model.endpoint = endpoint;
-            draft.captures.insert(tables::DraftCapture {
-                capture: capture.clone(),
-                model: Some(model),
-                expect_pub_id: Some(last_pub_id),
-                data_plane_id: models::Id::zero(),
-                scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
-                is_touch: true, // This will get updated if the discover returns any changes
-            });
-        } else {
-            // There's no existing live or draft spec, so insert a starter spec.
-            let new_model = models::CaptureDef {
-                endpoint,
-                auto_discover: Some(models::AutoDiscover {
-                    add_new_bindings: true,
-                    evolve_incompatible_collections: true,
-                }),
-                interval: models::CaptureDef::default_interval(),
-                redact_salt: None,
-                secrets: Default::default(),
-                shards: models::ShardTemplate::default(),
-                expect_pub_id: None,
-                bindings: Vec::new(),
-                delete: false,
-                reset: false,
-            };
-            draft.captures.insert(tables::DraftCapture {
-                capture: capture_name.clone(),
-                model: Some(new_model),
-                expect_pub_id: Some(Id::zero()),
-                data_plane_id: models::Id::zero(),
-                scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
-                is_touch: false,
-            });
-        }
-    };
+        anyhow::bail!(
+            "capture '{capture_name}' must be drafted, or be a live capture you may read"
+        );
+    }
 
     let reset_on_key_change = draft
         .captures
@@ -433,10 +427,12 @@ mod test {
             models::authz::Subject::unrestricted(user_id),
             draft_id,
             capture_name.clone(),
-            endpoint_config,
+            Some(models::ConnectorConfig {
+                image: image_composed.clone(),
+                config: endpoint_config,
+            }),
             false, // !update_only
             logs_token,
-            image_composed.clone(),
             data_plane_id,
             snapshot.result().unwrap(),
             &harness.pool,
@@ -480,5 +476,52 @@ mod test {
             .date_naive()
             .to_string();
         assert_eq!(expect_date, result.created_at);
+
+        // Without a tag endpoint, the drafted capture's endpoint is used as-is.
+        let result = super::prepare_discover(
+            models::authz::Subject::unrestricted(user_id),
+            draft_id,
+            capture_name.clone(),
+            None,
+            false, // !update_only
+            logs_token,
+            data_plane_id,
+            snapshot.result().unwrap(),
+            &harness.pool,
+        )
+        .await
+        .unwrap();
+
+        let model = result
+            .draft
+            .captures
+            .get_by_key(&capture_name)
+            .unwrap()
+            .model
+            .as_ref()
+            .unwrap();
+        let models::CaptureEndpoint::Connector(cfg) = &model.endpoint else {
+            panic!("expected connector endpoint, got: {:?}", model.endpoint);
+        };
+        assert!(cfg.config.get().contains("draftedA"));
+        assert_eq!("draft/image", cfg.image);
+
+        // Without a tag endpoint, a capture that's neither drafted nor live
+        // cannot be discovered.
+        let err = super::prepare_discover(
+            models::authz::Subject::unrestricted(user_id),
+            draft_id,
+            models::Capture::new("aliceCo/dir/source-missing"),
+            None,
+            false, // !update_only
+            logs_token,
+            data_plane_id,
+            snapshot.result().unwrap(),
+            &harness.pool,
+        )
+        .await
+        .err()
+        .unwrap();
+        insta::assert_snapshot!(format!("{err:#}"), @"capture 'aliceCo/dir/source-missing' must be drafted, or be a live capture you may read");
     }
 }
