@@ -17,13 +17,13 @@ TimeoutStartSec=900
 EnvironmentFile=%h/flow-local/env/supabase-%i.env
 
 # Always start supabase containers first (idempotent).
-ExecStartPre=sh -c 'cd ${FLOW_ROOT} && supabase start --exclude edge-runtime'
+ExecStartPre=sh -c 'bash ${FLOW_ROOT}/local/supabase.sh start --exclude edge-runtime'
 # If this isn't the very first start, reset the database.
-ExecStartPre=sh -c 'if [ -f ${FLOW_STACK_DIR}/.supabase-started ]; then cd ${FLOW_ROOT} && supabase db reset; fi'
+ExecStartPre=sh -c 'if [ -f ${FLOW_STACK_DIR}/.supabase-started ]; then bash ${FLOW_ROOT}/local/supabase.sh db reset; fi'
 # Mark as started for next time.
 ExecStartPre=sh -c 'mkdir -p ${FLOW_STACK_DIR} && touch ${FLOW_STACK_DIR}/.supabase-started'
 # Run edge functions separately to thread in environment. This blocks.
-ExecStart=sh -c 'cd ${FLOW_ROOT} && supabase functions serve --env-file %h/flow-local/env/supabase-functions-%i.env'
+ExecStart=sh -c 'exec bash ${FLOW_ROOT}/local/supabase.sh functions serve --env-file %h/flow-local/env/supabase-functions-%i.env'
 
 # Stop containers on service stop.
 ExecStopPost=sh -c 'cd ${FLOW_ROOT} && supabase stop'

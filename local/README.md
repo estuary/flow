@@ -297,12 +297,17 @@ index to a new checkout while they still hold their ports would collide.
 
 `flow-supabase@<stack>.service` is unusual. Its `ExecStartPre`s:
 
-1. `supabase start --exclude edge-runtime` (idempotent, starts Docker containers)
+1. `supabase start --exclude edge-runtime` through `local/supabase.sh`, trying
+   GHCR first and retrying startup with public ECR if it fails
 2. **If `${FLOW_STACK_DIR}/.supabase-started` exists**, `supabase db reset` —
    wipes and re-applies migrations
 3. `touch ${FLOW_STACK_DIR}/.supabase-started`
 
 Then `ExecStart` runs `supabase functions serve` as the foreground process.
+The successful startup registry is saved in `${FLOW_STACK_DIR}/.supabase-registry`
+and reused for database reset and edge functions. Both startup attempts share
+the unit's 900-second timeout. This applies to local stacks and CI without
+changing the pinned Supabase CLI version.
 `ExecStopPost` runs `supabase stop`. `project_id` and every port come from
 `config.toml` `env()` refs resolved against this stack's ambient `FLOW_*` vars,
 so the containers are `supabase_db_<stack>`, on Docker network
