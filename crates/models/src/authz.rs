@@ -71,6 +71,7 @@ pub enum Capability {
     CreateSandbox,
     ManageAlerts,
     QueryAlerts,
+    DeleteInviteLink,
 }
 
 impl std::fmt::Display for Capability {
@@ -189,6 +190,7 @@ impl CapabilityBundle {
                 CreateGrant
                     | DeleteGrant
                     | CreateInviteLink
+                    | DeleteInviteLink
                     | ManageAlerts
                     | QueryAlerts
                     | Self::ManageServiceAccounts.capabilities()

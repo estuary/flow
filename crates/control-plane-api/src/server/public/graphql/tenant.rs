@@ -16,7 +16,8 @@ impl TenantQuery {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&name)?;
 
-        super::verify_authorization(env, tenant.as_str(), models::Capability::Read).await?;
+        super::verify_authorization(env, tenant.as_str(), models::authz::Capability::CatalogRead)
+            .await?;
 
         let Some(sensitive) = sqlx::query_scalar!(
             r#"SELECT sensitive FROM tenants WHERE tenant = $1"#,

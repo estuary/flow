@@ -410,6 +410,9 @@ enum CapabilityBit {
 	Delegate
 	Assume
 	CreateSandbox
+	ManageAlerts
+	QueryAlerts
+	DeleteInviteLink
 }
 
 """
@@ -1954,7 +1957,7 @@ type MutationRoot {
 	"""
 	Create an invite link that grants access to a catalog prefix.
 	
-	The caller must have admin capability on the catalog prefix.
+	The caller must have CreateInviteLink capability on the catalog prefix.
 	Share the returned token with the intended recipient out-of-band.
 	"""
 	createInviteLink(catalogPrefix: Prefix!, capability: Capability!, singleUse: Boolean! = true, detail: String): InviteLink!
@@ -1966,7 +1969,7 @@ type MutationRoot {
 	"""
 	Delete an invite link, revoking it so it can no longer be redeemed.
 	
-	The caller must have admin capability on the invite link's catalog prefix.
+	The caller must have DeleteInviteLink capability on the invite link's catalog prefix.
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
 	"""

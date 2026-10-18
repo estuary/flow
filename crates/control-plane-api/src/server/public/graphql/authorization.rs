@@ -5,7 +5,7 @@ use async_graphql::ErrorExtensions;
 pub(super) async fn verify_authorization(
     env: &crate::Envelope,
     prefix: &str,
-    capability: impl Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
+    capability: models::authz::Capability,
 ) -> async_graphql::Result<()> {
     let policy_result = crate::server::evaluate_names_authorization(
         env.snapshot(),
@@ -22,7 +22,7 @@ pub(super) async fn verify_authorization(
             );
             let mut error = async_graphql::Error::from(error);
             if terminal_denial {
-                let options = bundle_options(capability.into());
+                let options = bundle_options(capability);
                 let descriptions: Vec<_> =
                     options.iter().map(|option| option.join(" + ")).collect();
                 error.message.push_str(&format!(
@@ -39,49 +39,24 @@ pub(super) async fn verify_authorization(
     }
 }
 
-fn bundle_options(required: models::authz::CapabilitySet) -> Vec<Vec<String>> {
+fn bundle_options(required: models::authz::Capability) -> Vec<Vec<String>> {
     use models::authz::CapabilityBundle;
-    let bundles = <CapabilityBundle as strum::VariantArray>::VARIANTS;
-    let capabilities: Vec<_> = bundles.iter().map(CapabilityBundle::capabilities).collect();
-    let coverage = |selection: usize| {
-        capabilities.iter().enumerate().fold(
-            models::authz::CapabilitySet::empty(),
-            |all, (index, bits)| {
-                if selection & (1 << index) != 0 {
-                    all | *bits
-                } else {
-                    all
-                }
-            },
-        )
-    };
-    let mut options = Vec::new();
-    // Keep alternative bundles, but never ask for an extra bundle whose removal
-    // still satisfies every required capability.
-    for selection in 1usize..(1 << bundles.len()) {
-        let covered = coverage(selection);
-        if !required.is_subset(covered)
-            || (0..bundles.len()).any(|index| {
-                selection & (1 << index) != 0
-                    && required.is_subset(coverage(selection & !(1 << index)))
-            })
-        {
-            continue;
-        }
-        let names: Vec<String> = bundles
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| selection & (1 << index) != 0)
-            .map(|(_, bundle)| {
-                serde_json::to_value(bundle)
-                    .expect("bundle serializes")
-                    .as_str()
-                    .expect("bundle is a string")
-                    .to_owned()
-            })
-            .collect();
-        options.push((covered.len(), names));
-    }
+    let mut options: Vec<_> = <CapabilityBundle as strum::VariantArray>::VARIANTS
+        .iter()
+        .filter_map(|bundle| {
+            let capabilities = bundle.capabilities();
+            if !capabilities.contains(required) {
+                return None;
+            }
+            let name = serde_json::to_value(bundle)
+                .expect("bundle serializes")
+                .as_str()
+                .expect("bundle is a string")
+                .to_owned();
+            Some((capabilities.len(), vec![name]))
+        })
+        .collect();
+    // Prefer the bundles that grant the fewest capabilities.
     options.sort();
     options.into_iter().map(|(_, names)| names).collect()
 }
