@@ -582,13 +582,24 @@ mod test {
           "data": null,
           "errors": [
             {
+              "extensions": {
+                "code": "FORBIDDEN",
+                "requiredBundleOptions": [
+                  [
+                    "team_admin"
+                  ],
+                  [
+                    "admin"
+                  ]
+                ]
+              },
               "locations": [
                 {
                   "column": 25,
                   "line": 2
                 }
               ],
-              "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceAtAll/' with required capability admin",
+              "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceAtAll/' with required capability ManageAlerts. Requires bundles: team_admin or admin",
               "path": [
                 "alertSubscriptions"
               ]
@@ -618,13 +629,24 @@ mod test {
           "data": null,
           "errors": [
             {
+              "extensions": {
+                "code": "FORBIDDEN",
+                "requiredBundleOptions": [
+                  [
+                    "team_admin"
+                  ],
+                  [
+                    "admin"
+                  ]
+                ]
+              },
               "locations": [
                 {
                   "column": 21,
                   "line": 3
                 }
               ],
-              "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceAtAll/' with required capability admin",
+              "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceAtAll/' with required capability ManageAlerts. Requires bundles: team_admin or admin",
               "path": [
                 "createAlertSubscription"
               ]

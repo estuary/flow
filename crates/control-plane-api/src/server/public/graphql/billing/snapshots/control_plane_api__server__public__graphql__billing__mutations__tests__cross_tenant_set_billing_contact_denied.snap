@@ -6,13 +6,24 @@ expression: cross_tenant_response
   "data": null,
   "errors": [
     {
+      "extensions": {
+        "code": "FORBIDDEN",
+        "requiredBundleOptions": [
+          [
+            "billing"
+          ],
+          [
+            "admin"
+          ]
+        ]
+      },
       "locations": [
         {
           "column": 27,
           "line": 3
         }
       ],
-      "message": "PermissionDenied: contacttest@example.test is not authorized to access prefix or name 'contactvictim/' with required capability EditBilling",
+      "message": "PermissionDenied: contacttest@example.test is not authorized to access prefix or name 'contactvictim/' with required capability EditBilling. Requires bundles: billing or admin",
       "path": [
         "setBillingContact"
       ]

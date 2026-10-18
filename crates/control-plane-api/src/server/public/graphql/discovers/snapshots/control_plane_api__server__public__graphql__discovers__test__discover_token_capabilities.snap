@@ -4,7 +4,7 @@ expression: outcomes
 ---
 [
   {
-    "error": "PermissionDenied: user is not authorized to access prefix or name 'aliceCo/in/capture-foo' with required capability SpecEdit",
+    "error": "PermissionDenied: user is not authorized to access prefix or name 'aliceCo/in/capture-foo' with required capability SpecEdit. Requires bundles: editor or admin",
     "mask": [
       "viewer"
     ],
