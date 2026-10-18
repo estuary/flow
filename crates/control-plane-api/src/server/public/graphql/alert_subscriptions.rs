@@ -31,7 +31,7 @@ impl AlertSubscriptionsQuery {
         let env = ctx.data::<crate::Envelope>()?;
 
         let _ =
-            super::verify_authorization(env, &by.prefix, models::authz::Capability::QueryAlerts)
+            super::verify_authorization(env, &by.prefix, models::authz::Capability::ManageAlerts)
                 .await?;
 
         let mut conn = env.pg_pool.acquire().await?;

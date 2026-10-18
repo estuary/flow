@@ -411,7 +411,6 @@ enum CapabilityBit {
 	Assume
 	CreateSandbox
 	ManageAlerts
-	QueryAlerts
 }
 
 """

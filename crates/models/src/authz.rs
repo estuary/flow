@@ -70,7 +70,6 @@ pub enum Capability {
     Assume,
     CreateSandbox,
     ManageAlerts,
-    QueryAlerts,
 }
 
 impl std::fmt::Display for Capability {
@@ -190,7 +189,6 @@ impl CapabilityBundle {
                     | DeleteGrant
                     | ManageInviteLinks
                     | ManageAlerts
-                    | QueryAlerts
                     | Self::ManageServiceAccounts.capabilities()
             }
             Self::ManageDataPlane => {
