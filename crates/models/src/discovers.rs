@@ -13,6 +13,7 @@ pub enum JobStatus {
     /// The discover is queued or in progress.
     Queued,
     Success,
+    // Only older persisted records carry these connector-tag statuses.
     WrongProtocol,
     TagFailed,
     ImageForbidden,

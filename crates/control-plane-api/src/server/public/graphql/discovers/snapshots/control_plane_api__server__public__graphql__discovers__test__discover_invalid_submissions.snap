@@ -18,21 +18,5 @@ expression: rejections
   {
     "capture": "aliceCo/delete-flag",
     "message": "capture is staged for deletion"
-  },
-  {
-    "capture": "aliceCo/local",
-    "message": "capture requires a connector endpoint"
-  },
-  {
-    "capture": "aliceCo/untagged",
-    "message": "capture requires a tagged connector image"
-  },
-  {
-    "capture": "aliceCo/file-config",
-    "message": "endpoint configuration must be an inline JSON object"
-  },
-  {
-    "capture": "aliceCo/failed-tag",
-    "message": "capture connector tag is not ready"
   }
 ]

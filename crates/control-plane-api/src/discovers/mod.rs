@@ -77,6 +77,9 @@ pub async fn create(
         snapshot,
         subject,
     )?;
+    if model.delete {
+        anyhow::bail!("capture is staged for deletion");
+    }
 
     // The executor copies the live definitions of binding targets into the
     // draft, filtered by the user's CatalogRead. It runs without the request's
@@ -94,22 +97,6 @@ pub async fn create(
             "not authorized to read binding target {target}"
         )));
     }
-    let (connector_config, image_name, image_tag) = extract_discovery_endpoint(&model)?;
-
-    let connector_tag_id = sqlx::query_scalar!(
-        r#"
-        SELECT ct.id AS "id!: models::Id" FROM connector_tags ct
-        JOIN connectors c ON c.id = ct.connector_id
-        WHERE c.image_name = $1 AND ct.image_tag = $2
-          AND ct.protocol = 'capture' AND ct.job_status->>'type' = 'success'
-        "#,
-        image_name,
-        image_tag,
-    )
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("capture connector tag is not ready"))?;
-
     let data_plane_error = || tonic::Status::not_found("data plane not found or unauthorized");
     let data_plane_name = if let Some(live) = live_capture {
         let current_data_plane_name = &snapshot
@@ -146,19 +133,20 @@ pub async fn create(
         .auto_discover
         .as_ref()
         .is_some_and(|policy| !policy.add_new_bindings);
+
+    // The executor takes the endpoint from the draft or live capture, which a
+    // NULL `connector_tag_id` signals. `endpoint_config` is a placeholder.
     // The `create_discover_task` trigger schedules the executor within this statement.
     let row = sqlx::query!(
         r#"
         INSERT INTO discovers (
             draft_id, capture_name, connector_tag_id, endpoint_config,
             update_only, data_plane_name
-        ) VALUES ($1, $2, $3, $4, $5, $6)
+        ) VALUES ($1, $2, NULL, '{}', $3, $4)
         RETURNING id AS "id!: models::Id", created_at, updated_at, logs_token
         "#,
         draft_id as models::Id,
         capture_name,
-        connector_tag_id as models::Id,
-        crate::TextJson(connector_config.config.clone()) as crate::TextJson<models::RawValue>,
         update_only,
         data_plane_name,
     )
@@ -200,25 +188,6 @@ fn select_capture_model(
         live_spec.ok_or_else(|| anyhow::anyhow!("capture not found"))?
     };
     serde_json::from_str(spec).map_err(|_| anyhow::anyhow!("invalid capture model"))
-}
-
-fn extract_discovery_endpoint(
-    model: &models::CaptureDef,
-) -> anyhow::Result<(&models::ConnectorConfig, String, String)> {
-    if model.delete {
-        anyhow::bail!("capture is staged for deletion");
-    }
-    let models::CaptureEndpoint::Connector(connector_config) = &model.endpoint else {
-        anyhow::bail!("capture requires a connector endpoint");
-    };
-    let (image_name, image_tag) = models::split_image_tag(&connector_config.image);
-    if image_name.is_empty() || image_tag.is_empty() {
-        anyhow::bail!("capture requires a tagged connector image");
-    }
-    if !serde_json::from_str::<serde_json::Value>(connector_config.config.get())?.is_object() {
-        anyhow::bail!("endpoint configuration must be an inline JSON object");
-    }
-    Ok((connector_config, image_name, image_tag))
 }
 
 /// Represents the desire to discover an endpoint. The discovered bindings will be merged with
@@ -382,22 +351,24 @@ impl DiscoverHandler {
             filter_user_authz,
             update_only,
             reset_on_key_change,
-            mut draft,
+            draft,
             created_at,
             snapshot,
         } = req;
 
-        let Some(capture_def) = draft.captures.get_mut_by_key(&capture_name) else {
+        let Some(capture_def) = draft.captures.get_by_key(&capture_name) else {
             return Ok(DiscoverOutput::failed(
                 capture_name.clone(),
                 anyhow::anyhow!("missing capture: '{capture_name}' in draft"),
             ));
         };
 
-        let Some(models::CaptureEndpoint::Connector(connector_cfg)) =
-            capture_def.model.as_ref().map(|m| &m.endpoint)
-        else {
-            // TODO: better error message if drafted model is None
+        let Some(model) = capture_def.model.as_ref() else {
+            anyhow::bail!(
+                "capture '{capture_name}' is drafted for deletion and cannot be discovered"
+            );
+        };
+        let models::CaptureEndpoint::Connector(connector_cfg) = &model.endpoint else {
             anyhow::bail!("only connector endpoints are supported");
         };
         tracing::Span::current().record("image", &connector_cfg.image);
@@ -405,18 +376,14 @@ impl DiscoverHandler {
         // A discover runs before any built spec exists, so the drafted model is
         // the only source of the secrets which the data plane must resolve
         // before dialing the connector.
-        let secrets = capture_def
-            .model
-            .as_ref()
-            .map(|model| assemble::secrets(&model.secrets))
-            .unwrap_or_default();
+        let secrets = assemble::secrets(&model.secrets);
 
         // INFO is a good default since these are not shown in the UI, so if we're looking then
         // there's already a problem.
-        let log_level = capture_def
-            .model
-            .as_ref()
-            .and_then(|m| m.shards.log_level.as_deref())
+        let log_level = model
+            .shards
+            .log_level
+            .as_deref()
             .and_then(ops::LogLevel::from_str_name)
             .unwrap_or(ops::LogLevel::Info);
 
