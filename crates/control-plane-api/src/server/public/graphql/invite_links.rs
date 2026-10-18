@@ -82,7 +82,7 @@ impl InviteLinksQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 &env.claims()?.subject(),
-                models::Capability::Admin,
+                models::authz::Capability::ManageInviteLinks,
                 filter.and_then(|f| f.catalog_prefix),
                 "filter.catalogPrefix",
             )?;
