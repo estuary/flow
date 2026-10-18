@@ -69,6 +69,8 @@ pub enum Capability {
     Delegate,
     Assume,
     CreateSandbox,
+    ManageAlerts,
+    QueryAlerts,
 }
 
 impl std::fmt::Display for Capability {
@@ -80,7 +82,19 @@ impl std::fmt::Display for Capability {
 /// A stable, named bundle of capability bits. Grants and token capability
 /// masks name bundles rather than bits, so bits may be added, split, or
 /// merged without changing stored grants or minted tokens.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    strum::VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(
     feature = "sqlx-support",
@@ -175,6 +189,8 @@ impl CapabilityBundle {
                 CreateGrant
                     | DeleteGrant
                     | CreateInviteLink
+                    | ManageAlerts
+                    | QueryAlerts
                     | Self::ManageServiceAccounts.capabilities()
             }
             Self::ManageDataPlane => {
