@@ -388,62 +388,6 @@ impl Resolver {
         Ok(live)
     }
 
-    pub async fn data_plane_name(&self, id: models::Id) -> anyhow::Result<String> {
-        #[derive(serde::Deserialize)]
-        struct Row {
-            data_plane_name: String,
-        }
-
-        let rows = flow_client_next::postgrest::exec::<Vec<Row>>(
-            self.pg
-                .from("data_planes")
-                .select("data_plane_name")
-                .eq("id", id.to_string()),
-            self.access_token.as_deref(),
-        )
-        .await
-        .context("failed to resolve data plane")?;
-
-        rows.into_iter()
-            .next()
-            .map(|row| row.data_plane_name)
-            .with_context(|| format!("couldn't resolve data-plane {id}; you may not have access"))
-    }
-
-    /// Name of the default data plane of the storage mapping covering
-    /// `catalog_name`, which is where a publication will place it by default.
-    pub async fn default_data_plane_name(&self, catalog_name: &str) -> anyhow::Result<String> {
-        #[derive(serde::Deserialize)]
-        struct Row {
-            catalog_prefix: String,
-            spec: models::StorageDef,
-        }
-
-        let prefixes = catalog_name
-            .match_indices('/')
-            .map(|(index, _)| &catalog_name[..=index])
-            .collect::<Vec<_>>();
-
-        let rows = flow_client_next::postgrest::exec::<Vec<Row>>(
-            self.pg
-                .from("storage_mappings")
-                .select("catalog_prefix,spec")
-                .in_("catalog_prefix", prefixes),
-            self.access_token.as_deref(),
-        )
-        .await
-        .context("failed to fetch storage mappings")?;
-
-        rows.into_iter()
-            .max_by_key(|row| row.catalog_prefix.len())
-            .and_then(|row| row.spec.data_planes.into_iter().next())
-            .with_context(|| {
-                format!(
-                    "couldn't find a default data-plane for {catalog_name}; you may not have access"
-                )
-            })
-    }
-
     async fn resolve_inferred_schemas(
         &self,
         catalog_names: &[&str],
