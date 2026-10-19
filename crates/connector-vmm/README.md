@@ -24,3 +24,16 @@ The runtime image and its fake are under `docker/connector-vmm*.Dockerfile`.
 The VMM's own network rules are within its authority. Host enforcement outside
 that authority is required before production launch. Unit tests cover policy,
 DNS, launch configuration and image semantics; real guest behavior requires KVM.
+
+## Host network boundary
+
+`boundary install`, `boundary verify` and `boundary remove` run in the host's
+network namespace. `src/boundary.rs` installs inet and bridge nftables tables
+for bridges whose interface name begins `fvm`. Each VMM must have its own
+network. Verify the boundary before creating it; installation with existing
+unprotected VMM bridges fails and those VMMs must be replaced.
+
+The host boundary keeps private destinations, host services, sibling VMMs,
+IPv6, inbound connections and SMTP unreachable even after the VMM removes its
+own rules. DNS name restrictions remain enforced inside the VMM. The opt-in
+[`connector-vmm-tests`](../connector-vmm-tests/README.md) suite measures both.
