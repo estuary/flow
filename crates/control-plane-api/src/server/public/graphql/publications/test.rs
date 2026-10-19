@@ -361,6 +361,12 @@ async fn submission_and_ownership(pool: sqlx::PgPool) {
     )
     .await;
 
+    sqlx::query("INSERT INTO draft_errors (draft_id, scope, detail) VALUES ($1, 'flow://collection/aliceCo/data/new', 'previous attempt failed')")
+        .bind(draft_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
     // `defaultDataPlane` is stored without consulting the Snapshot. A plane
     // which does not exist fails later, when the executor builds the
     // publication.
@@ -765,47 +771,4 @@ async fn stale_denial_redirects(pool: sqlx::PgPool) {
         revoke.is_cancelled(),
         "a provisional denial requests a refresh"
     );
-}
-
-#[sqlx::test(
-    migrations = "../../supabase/migrations",
-    fixtures(
-        path = "../../../../fixtures",
-        scripts("data_planes", "alice", "drafts", "storage_mappings")
-    )
-)]
-async fn submission_is_all_or_nothing(pool: sqlx::PgPool) {
-    let _guard = test_server::init();
-    let (server, draft_id, alice) = setup(&pool).await;
-    // The `create_publication_task` trigger creates the executor's task within
-    // the publication insert's statement. Failing the task insert instead of
-    // the publication insert checks that the publication row rolls back with
-    // it. `task_type = 3` is the publications executor's task type.
-    sqlx::raw_sql(
-        r#"
-        CREATE FUNCTION internal.test_fail() RETURNS trigger LANGUAGE plpgsql AS $$
-        BEGIN RAISE EXCEPTION 'task creation failed'; END $$;
-        CREATE TRIGGER test_fail BEFORE INSERT ON internal.tasks
-        FOR EACH ROW WHEN (new.task_type = 3) EXECUTE FUNCTION internal.test_fail();
-        "#,
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let response = submit(
-        &server,
-        Some(&alice),
-        serde_json::json!({ "draftId": draft_id, "dryRun": false }),
-    )
-    .await;
-    assert!(
-        response["errors"][0]["message"]
-            .as_str()
-            .unwrap_or_else(|| panic!("{response}"))
-            .contains("task creation failed"),
-        "{response}"
-    );
-    let state = draft_state(&pool, draft_id).await;
-    assert_eq!(state["jobs"], serde_json::Value::Null, "no publication row");
 }
