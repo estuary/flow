@@ -2190,6 +2190,26 @@ type MutationRoot {
 		"""
 		dataPlane: String
 	): Discover!
+	"""
+	Queue a publication of the draft `draftId`, which the caller must own.
+	Building, validation and the commit happen afterwards: poll
+	`publication(id)` until `status.type` is no longer `queued`. A successful
+	publication that is not a dry run deletes the draft.
+	"""
+	createPublication(		draftId: Id!,
+		"""
+		Build and validate without committing.
+		"""
+		dryRun: Boolean!,
+		"""
+		Data plane for specifications this publication creates; existing specifications keep theirs. Chosen automatically when omitted. A plane that cannot be used fails the publication, not this request.
+		"""
+		defaultDataPlane: String,
+		"""
+		Optional free-text description recorded on the publication.
+		"""
+		detail: String
+	): Publication!
 }
 
 """
@@ -2464,6 +2484,39 @@ type PublicDataPlaneEdge {
 }
 
 """
+A user-initiated publication of a draft.
+"""
+type Publication {
+	id: Id!
+	draftId: Id!
+	"""
+	Whether the publication builds and validates without committing.
+	"""
+	dryRun: Boolean!
+	"""
+	Outcome so far. `type` is `queued` until the publication has been
+	processed. `lockFailures` is non-empty only for `buildIdLockFailure`.
+	"""
+	status: JobStatus!
+	"""
+	The ID that `lastPubId` takes on each live specification this
+	publication changes. Null unless `status.type` is `success`.
+	"""
+	pubId: Id
+	"""
+	Errors that caused the publication to fail, once `status.type` is no
+	longer `queued`.
+	"""
+	errors: [Error!]!
+	"""
+	Publication logs in timestamp order. Pagination is best effort, and
+	logs may arrive after the publication completes. `first` controls
+	page size and cannot exceed 1000 log lines.
+	"""
+	logs(after: String, first: Int): LogLineConnection!
+}
+
+"""
 Summary of a publication that was attempted by a controller.
 """
 type PublicationInfo {
@@ -2687,6 +2740,10 @@ type QueryRoot {
 	Returns a discover visible to the caller, or null.
 	"""
 	discover(id: Id!): Discover
+	"""
+	Returns the publication if the caller initiated it, and null otherwise.
+	"""
+	publication(id: Id!): Publication
 }
 
 """

@@ -161,9 +161,16 @@ async fn test_user_publications() {
     );
 
     // Add a user_grant for dogs and assert that a subsequent publication still fails for lack of a role_grant.
-    harness
-        .add_user_grant(dogs_user, "cats/", Capability::Read)
-        .await;
+    // The grant has no legacy capability, so only its `viewer` bundle can
+    // authorize reading cats/noms.
+    sqlx::query!(
+        r#"insert into user_grants (user_id, object_role, capability, bundles)
+        values ($1, 'cats/', 'none', '{viewer}')"#,
+        dogs_user,
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to insert viewer grant");
     let dog_result = harness
         .user_publication(
             dogs_user,
@@ -247,6 +254,11 @@ async fn test_user_publications() {
         .await
         .unwrap();
 
+    // `write` on dogs/ conveys no `SpecEdit`, so expansion must still exclude
+    // dogs/materialize.
+    harness
+        .add_user_grant(cats_user, "dogs/", Capability::Write)
+        .await;
     let result = harness
         .user_publication(
             cats_user,
@@ -977,14 +989,14 @@ fn pawed_collection() -> serde_json::Value {
 }
 
 #[tokio::test]
-async fn test_publication_drafted_name_requires_admin() {
-    let mut harness = TestHarness::init("test_publication_drafted_name_requires_admin").await;
+async fn test_publication_drafted_name_requires_spec_edit() {
+    let mut harness = TestHarness::init("test_publication_drafted_name_requires_spec_edit").await;
 
     let _cats_user = harness.setup_tenant("cats").await;
     let dogs_user = harness.setup_tenant("dogs").await;
 
     // `write` on cats/ is enough to read and write data, but drafting a spec
-    // under cats/ requires `admin`.
+    // under cats/ requires `SpecEdit`.
     harness
         .add_user_grant(dogs_user, "cats/", Capability::Write)
         .await;
@@ -992,7 +1004,7 @@ async fn test_publication_drafted_name_requires_admin() {
     let result = harness
         .user_publication(
             dogs_user,
-            "expect fail not admin",
+            "expect fail without SpecEdit",
             draft_catalog(pawed_collection()),
         )
         .await;
@@ -1019,13 +1031,20 @@ async fn test_publication_drafted_name_requires_admin() {
         "expected the denied drafted name to cancel the Snapshot's revoke token"
     );
 
-    harness
-        .add_user_grant(dogs_user, "cats/", Capability::Admin)
-        .await;
+    // Replace the grant's legacy capability with the `editor` bundle, so that
+    // only the bundle can authorize the drafted names.
+    sqlx::query!(
+        r#"update user_grants set capability = 'none', bundles = '{editor}'
+        where user_id = $1 and object_role = 'cats/'"#,
+        dogs_user,
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to grant editor bundle");
     let result = harness
         .user_publication(
             dogs_user,
-            "expect success as admin",
+            "expect success with editor bundle",
             draft_catalog(pawed_collection()),
         )
         .await;
@@ -1041,6 +1060,29 @@ async fn test_publication_drafted_name_requires_admin() {
         !snapshot.result().unwrap().revoke.is_cancelled(),
         "a successful publication must not cancel the Snapshot's revoke token"
     );
+
+    // Expansion adds cats/paws-clean, which reads the drafted cats/paws,
+    // because the `editor` bundle conveys `SpecEdit` to it.
+    let expanded = harness
+        .control_plane()
+        .get_live_specs(set_of(&["cats/paws-clean"]))
+        .await
+        .unwrap();
+    let mut paws = pawed_collection();
+    paws["collections"]
+        .as_object_mut()
+        .unwrap()
+        .remove("cats/paws-clean");
+    let result = harness
+        .user_publication(dogs_user, "expect expansion", draft_catalog(paws))
+        .await;
+    assert!(
+        result.status.is_success(),
+        "pub failed with status {:?}: {:?}",
+        result.status,
+        result.errors
+    );
+    harness.assert_specs_touched_since(&expanded).await;
 }
 
 // Draft of a dogs/ capture which writes into the cats/ tenant: the write

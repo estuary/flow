@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id AS \"id!: models::Id\", draft_id AS \"draft_id!: models::Id\", dry_run,\n                   job_status AS \"status!: sqlx::types::Json<models::publications::JobStatus>\",\n                   pub_id AS \"pub_id: models::Id\", logs_token\n            FROM publications\n            WHERE id = $1 AND user_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "draft_id!: models::Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "draft_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "dry_run",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "dry_run"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "status!: sqlx::types::Json<models::publications::JobStatus>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "job_status"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "pub_id: models::Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "pub_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "logs_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "logs_token"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "2b0b69d6fbd1bcfe4a7164fa23b62bb9d8cfbe3915c552acf85af32a394a07ea"
+}

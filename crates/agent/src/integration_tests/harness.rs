@@ -1419,6 +1419,21 @@ impl TestHarness {
             .await
     }
 
+    /// Runs the publications executor and asserts that it ran `publication_id`,
+    /// which must already be queued, for example by `createPublication`.
+    /// Returns the publication's result.
+    pub async fn run_queued_publication(&mut self, publication_id: Id) -> ScenarioResult {
+        let task_id = self
+            .run_automation_task(automations::task_types::PUBLICATIONS)
+            .await
+            .expect("expected a publication task to have run");
+        assert_eq!(
+            task_id, publication_id,
+            "expected publication {publication_id} to have run, but {task_id} ran instead"
+        );
+        self.get_publication_result(publication_id).await
+    }
+
     /// Runs a publication by inserting into the `publications` table and
     /// waiting for the publications handler to process it. Returns
     /// a `ScenarioResult` (a hold over from the old publications tests, which
@@ -1451,16 +1466,7 @@ impl TestHarness {
         .expect("failed to create publication");
         txn.commit().await.expect("failed to commit transaction");
 
-        let task_id = self
-            .run_automation_task(automations::task_types::PUBLICATIONS)
-            .await
-            .expect("expected a publication task to have run");
-        assert_eq!(
-            task_id, pub_id,
-            "automations task id should match the publication that was just created"
-        );
-
-        let pub_result = self.get_publication_result(pub_id.into()).await;
+        let pub_result = self.run_queued_publication(pub_id).await;
         assert_ne!(publications::StatusType::Queued, pub_result.status.r#type);
         pub_result
     }
