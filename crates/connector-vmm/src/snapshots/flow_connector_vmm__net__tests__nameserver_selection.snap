@@ -1,0 +1,12 @@
+---
+source: crates/connector-vmm/src/net.rs
+expression: table
+---
+IPv6 before IPv4 -> 10.89.0.1
+several IPv4 -> 10.89.0.1
+empty -> none
+no IPv4 -> none
+comments and whitespace -> 10.89.0.1
+indented -> 10.89.0.1
+malformed and prefixed -> 10.89.0.1
+only malformed -> none

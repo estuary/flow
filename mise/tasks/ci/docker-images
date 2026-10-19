@@ -58,6 +58,18 @@ TARGET_NAMES=()
 
 for DOCKERFILE in docker/*.Dockerfile; do
     IMAGE_NAME=$(basename "${DOCKERFILE}" .Dockerfile)
+
+    # The VMM and its fake are amd64 only, matching the libkrun build and KVM suite.
+    case "${IMAGE_NAME}" in
+    connector-vmm | connector-vmm-fake) IMAGE_SUPPORTED='["linux/amd64"]' ;;
+    *) IMAGE_SUPPORTED="${PLATFORMS}" ;;
+    esac
+    IMAGE_PLATFORMS=$(echo "${PLATFORMS}" | jq -c --argjson supported "${IMAGE_SUPPORTED}" \
+        '[.[] | select(. as $platform | $supported | index($platform))]')
+    if [[ "${IMAGE_PLATFORMS}" == "[]" ]]; then
+        echo "Skipping ${IMAGE_NAME}: built only for ${IMAGE_SUPPORTED}"
+        continue
+    fi
     TARGET_NAMES+=("${IMAGE_NAME}")
 
     # Per-image tags begin with the version tags from ${TAGS_FILE}.
@@ -82,7 +94,7 @@ for DOCKERFILE in docker/*.Dockerfile; do
         --arg dockerfile "${DOCKERFILE_ABS}" \
         --arg context "${PACKAGE_DIR}" \
         --argjson tags "${IMAGE_TAGS}" \
-        --argjson platforms "${PLATFORMS}" \
+        --argjson platforms "${IMAGE_PLATFORMS}" \
         --argjson output "${OUTPUT}" \
         '.[$name] = {
             "dockerfile": $dockerfile,
@@ -111,8 +123,8 @@ echo "Generated bake configuration:"
 cat "${BAKE_FILE}"
 echo ""
 
-echo "=== Building all images in parallel ==="
-docker buildx bake --allow=fs.read=${HOME}/flow-package -f "${BAKE_FILE}"
+echo "=== Building images in parallel ==="
+docker buildx bake --allow=fs.read=${HOME}/flow-package -f "${BAKE_FILE}" "$@"
 
 echo ""
 echo "Done! Built images for tags: ${TAGS[*]}"

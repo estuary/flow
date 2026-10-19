@@ -13,4 +13,5 @@ cargo build \
     -p derive-python \
     -p derive-typescript \
     -p materialize-python \
-    -p parser
+    -p parser \
+    -p guest-init
