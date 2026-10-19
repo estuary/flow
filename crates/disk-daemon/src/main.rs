@@ -6,9 +6,7 @@ fn main() -> anyhow::Result<()> {
         .expect("failed to install default crypto provider");
 
     let args = disk_daemon::daemon::Args::parse();
-
-    let registry = service_kit::Registry::new();
-    install_tracing(args.log_format, registry);
+    install_tracing(args.log_format);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -21,7 +19,7 @@ fn main() -> anyhow::Result<()> {
     result?
 }
 
-fn install_tracing(log_format: disk_daemon::daemon::LogFormat, registry: service_kit::Registry) {
+fn install_tracing(log_format: disk_daemon::daemon::LogFormat) {
     use tracing_subscriber::Layer as _;
     use tracing_subscriber::layer::SubscriberExt as _;
     use tracing_subscriber::util::SubscriberInitExt as _;
@@ -37,20 +35,11 @@ fn install_tracing(log_format: disk_daemon::daemon::LogFormat, registry: service
                     .with_writer(std::io::stderr),
             ),
             disk_daemon::daemon::LogFormat::Text => {
-                let no_color = matches!(std::env::var("NO_COLOR"), Ok(v) if v == "1");
-                Box::new(
-                    tracing_subscriber::fmt::layer()
-                        .with_ansi(!no_color)
-                        .with_writer(std::io::stderr),
-                )
+                Box::new(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
             }
         };
 
     tracing_subscriber::registry()
-        .with(fmt_layer.with_filter(service_kit::trace::layer_filter(
-            env_filter,
-            registry.clone(),
-        )))
-        .with(service_kit::event::layer(registry))
+        .with(fmt_layer.with_filter(env_filter))
         .init();
 }

@@ -1,7 +1,8 @@
-//! Commands to `/dev/ublk-control`, which add, configure, start, stop, and delete
-//! ublk devices. Each is an io_uring `URING_CMD`, submitted on a private ring and
-//! awaited before returning, so commands run one at a time. The daemon opens one
-//! [`Control`] and shares it across disks.
+//! Commands to `/dev/ublk-control`, which query the driver's features, and add,
+//! configure, start, stop, and delete ublk devices. Each is an io_uring
+//! `URING_CMD`, submitted on a private ring and awaited before returning, so
+//! commands run one at a time. The daemon opens one [`Control`] and shares it
+//! across disks.
 
 use super::sys;
 use anyhow::Context;
@@ -31,11 +32,33 @@ impl Control {
             io_uring::IoUring::<io_uring::squeue::Entry128, io_uring::cqueue::Entry>::builder()
                 .build(4)?;
 
+        let control = Self {
+            inner: std::sync::Mutex::new(Inner { file, ring }),
+        };
+
+        // Checked once here, so that adding a device need not check what the kernel
+        // granted. GET_FEATURES arrived with user copy, in Linux 6.5.
+        let mut features = 0u64;
+        control
+            .issue(
+                sys::UBLK_U_CMD_GET_FEATURES,
+                &sys::UblksrvCtrlCmd {
+                    dev_id: u32::MAX,
+                    queue_id: u16::MAX,
+                    len: std::mem::size_of_val(&features) as u16,
+                    addr: std::ptr::from_mut(&mut features) as u64,
+                    ..Default::default()
+                },
+            )
+            .context("ublk GET_FEATURES was refused, so this kernel predates Linux 6.5")?;
+
+        anyhow::ensure!(
+            features & sys::UBLK_F_USER_COPY != 0,
+            "this kernel's ublk_drv does not support UBLK_F_USER_COPY",
+        );
         tracing::debug!("opened the ublk control device");
 
-        Ok(Self {
-            inner: std::sync::Mutex::new(Inner { file, ring }),
-        })
+        Ok(control)
     }
 
     /// Create a device, letting the kernel choose its number.
@@ -63,21 +86,8 @@ impl Control {
              missing CAP_SYS_ADMIN",
         )?;
 
-        // The kernel masks out flags it does not implement. The values it copies
-        // back are therefore the negotiated feature set.
-        anyhow::ensure!(
-            info.flags & sys::UBLK_F_USER_COPY != 0,
-            "this kernel's ublk_drv does not support UBLK_F_USER_COPY",
-        );
-        anyhow::ensure!(
-            info.flags & sys::UBLK_F_CMD_IOCTL_ENCODE != 0,
-            "this kernel's ublk_drv does not accept ioctl-encoded commands",
-        );
-        anyhow::ensure!(
-            info.dev_id != u32::MAX,
-            "ublk_drv did not report the device number it chose",
-        );
-
+        // The kernel copies back the number it chose. `Control::open` confirmed it
+        // supports every flag requested here.
         tracing::debug!(dev_id = info.dev_id, "added a ublk device");
 
         Ok(info.dev_id)
@@ -162,12 +172,10 @@ impl Control {
         .cmd(bytes)
         .build();
 
-        {
-            // SAFETY: `command` and whatever it addresses outlive the wait below.
-            // That wait does not return until the kernel is done with them.
-            unsafe { inner.ring.submission().push(&entry) }
-                .expect("the control ring holds one command at a time");
-        }
+        // SAFETY: `command` and whatever it addresses outlive the wait below.
+        // That wait does not return until the kernel is done with them.
+        unsafe { inner.ring.submission().push(&entry) }
+            .expect("the control ring holds one command at a time");
         inner.ring.submit_and_wait(1)?;
 
         let result = inner

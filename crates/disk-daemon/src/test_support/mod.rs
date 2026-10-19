@@ -134,7 +134,7 @@ pub fn assert_replays_identically(
     let mut replayed = crate::image::Image::create(&std::env::temp_dir(), served.blocks()).unwrap();
 
     for chunk in mutations.iter().flatten() {
-        () = replayed.apply(chunk).unwrap();
+        _ = replayed.apply(chunk).unwrap();
     }
     assert_eq!(
         served.allocated(),

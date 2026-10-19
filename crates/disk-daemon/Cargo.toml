@@ -19,7 +19,6 @@ proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = ["disk_client", "disk_server"] }
 publisher = { path = "../publisher" }
-service-kit = { path = "../service-kit" }
 tokens = { path = "../tokens" }
 
 anyhow = { workspace = true }

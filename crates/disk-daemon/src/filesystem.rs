@@ -9,14 +9,10 @@ use std::path::Path;
 /// bind or `virtio-fs` mount.
 const MOUNT_OPTIONS: &str = "noatime,nodev,nosuid,noexec,discard";
 
-/// Format `device`.
-pub async fn format(device: &Path, peer: Option<(u32, u32)>) -> anyhow::Result<()> {
+/// Format `device`, with its root directory owned by `uid:gid`.
+pub async fn format(device: &Path, (uid, gid): (u32, u32)) -> anyhow::Result<()> {
     // Set ownership during format to avoid a separate metadata mutation.
-    let mut extended = String::from("nodiscard,assume_storage_prezeroed=1");
-
-    if let Some((uid, gid)) = peer {
-        extended.push_str(&format!(",root_owner={uid}:{gid}"));
-    }
+    let extended = format!("nodiscard,assume_storage_prezeroed=1,root_owner={uid}:{gid}");
 
     let mut command = async_process::Command::new("mkfs.ext4");
     command
@@ -35,12 +31,12 @@ pub struct Mount {
 }
 
 impl Mount {
-    /// Mount `device` at `path`, and give its root directory to `peer` if another
-    /// user holds it, as a disk recovered from an earlier client may.
+    /// Mount `device` at `path`, and give its root directory to `uid:gid` if
+    /// another user holds it, as a disk recovered from an earlier client may.
     pub async fn new(
         device: &Path,
         path: std::path::PathBuf,
-        peer: Option<(u32, u32)>,
+        (uid, gid): (u32, u32),
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(&path).with_context(|| format!("creating {path:?}"))?;
 
@@ -57,19 +53,17 @@ impl Mount {
             mounted: true,
         };
 
-        if let Some((uid, gid)) = peer {
-            let stat = std::fs::metadata(&mount.path)
-                .with_context(|| format!("reading {:?}", mount.path))?;
+        let stat =
+            std::fs::metadata(&mount.path).with_context(|| format!("reading {:?}", mount.path))?;
 
-            let held = (
-                std::os::unix::fs::MetadataExt::uid(&stat),
-                std::os::unix::fs::MetadataExt::gid(&stat),
-            );
+        let held = (
+            std::os::unix::fs::MetadataExt::uid(&stat),
+            std::os::unix::fs::MetadataExt::gid(&stat),
+        );
 
-            if held != (uid, gid) {
-                () = std::os::unix::fs::chown(&mount.path, Some(uid), Some(gid))
-                    .with_context(|| format!("giving {:?} to {uid}:{gid}", mount.path))?;
-            }
+        if held != (uid, gid) {
+            () = std::os::unix::fs::chown(&mount.path, Some(uid), Some(gid))
+                .with_context(|| format!("giving {:?} to {uid}:{gid}", mount.path))?;
         }
         Ok(mount)
     }
@@ -78,14 +72,13 @@ impl Mount {
         &self.path
     }
 
-    /// Unmount and remove the mount point. Idempotent.
+    /// Unmount and remove the mount point.
     ///
     /// A filesystem which will not unmount is detached instead. The device under it
     /// is stopping or already gone.
-    pub async fn unmount(&mut self) -> anyhow::Result<()> {
-        if !std::mem::take(&mut self.mounted) {
-            return Ok(());
-        }
+    pub async fn unmount(mut self) -> anyhow::Result<()> {
+        self.mounted = false;
+
         let mut command = async_process::Command::new("umount");
         command.arg(&self.path);
 
@@ -108,7 +101,7 @@ impl Mount {
 
 impl Drop for Mount {
     fn drop(&mut self) {
-        if !std::mem::take(&mut self.mounted) {
+        if !self.mounted {
             return;
         }
         // Only an attachment which failed while it was opening reaches Drop, so an

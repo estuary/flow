@@ -63,16 +63,6 @@ impl Replay {
         (self.image, self.horizon)
     }
 
-    /// Take `framed`, a whole record which promotion appended at this replay's
-    /// offset, as if it were read from the journal.
-    pub fn take_appended(&mut self, framed: &[u8]) -> anyhow::Result<()> {
-        let mut buf = bytes::BytesMut::new();
-        () = self.take(&mut buf, self.offset, framed)?;
-
-        assert!(buf.is_empty(), "an appended record is whole");
-        Ok(())
-    }
-
     /// Consume a read response, retaining partial frames in `buf`.
     fn take(
         &mut self,
@@ -112,7 +102,8 @@ impl Replay {
         }
     }
 
-    fn record(&mut self, record: &proto::DiskRecord, framed: &[u8]) -> anyhow::Result<()> {
+    /// Take `record`, whole and framed as `framed`, at this replay's offset.
+    pub fn record(&mut self, record: &proto::DiskRecord, framed: &[u8]) -> anyhow::Result<()> {
         let offset = self.offset;
         self.read_any = true;
         let sequencer::Step { displaced, action } = self.sequencer.on_record(record)?;
@@ -165,12 +156,12 @@ impl Replay {
             // A horizon opens at a record and a replay is a forward pass, so every
             // chunk here is at or after any horizon which is open.
             for chunk in &record.chunks {
-                () = image
+                let covered = image
                     .apply(chunk)
                     .with_context(|| format!("applying chunk at block {}", chunk.block))?;
 
                 if let Some(open) = horizon {
-                    () = open.blocks.published(crate::chunk::covered_blocks(chunk));
+                    () = open.blocks.published(covered);
                 }
             }
             applied += record.chunks.len();
@@ -642,40 +633,13 @@ mod test {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
-        let zero_clock = bytes::Bytes::copy_from_slice(
-            uuid::build(a, uuid::Clock::zero(), uuid::Flags::CONTINUE_TXN).as_bytes(),
-        );
-
-        let cases: [(&str, proto::DiskRecord); 4] = [
-            (
-                "a short UUID",
-                proto::DiskRecord {
-                    uuid: bytes::Bytes::from_static(b"short"),
-                    ..write(a, 1, 0, 0xaa)
-                },
-            ),
-            (
-                "an ack with a chunk",
-                proto::DiskRecord {
-                    chunks: vec![chunk::encode_punch(0, 1)],
-                    ..ack(a, 9)
-                },
-            ),
-            (
-                "a fence with a chunk",
-                proto::DiskRecord {
-                    chunks: vec![chunk::encode_punch(0, 1)],
-                    ..test_support::fence(a)
-                },
-            ),
-            (
-                "a zero-clock write",
-                proto::DiskRecord {
-                    uuid: zero_clock,
-                    ..write(a, 1, 0, 0xaa)
-                },
-            ),
-        ];
+        let cases: [(&str, proto::DiskRecord); 1] = [(
+            "a short UUID",
+            proto::DiskRecord {
+                uuid: bytes::Bytes::from_static(b"short"),
+                ..write(a, 1, 0, 0xaa)
+            },
+        )];
 
         // Each case is the first record of its own replay, so no case is rejected for
         // the sequencing state another one left behind.
@@ -689,9 +653,6 @@ mod test {
         }
         insta::assert_snapshot!(out, @"
         a short UUID          record carries no message UUID: invalid length: expected 16 bytes, found 5
-        an ack with a chunk   an acknowledgement carries 1 chunks, which change disk content it does not commit
-        a fence with a chunk  a fence carries 1 chunks, which change disk content it does not commit
-        a zero-clock write    a record of Producer(61:00:00:00:00:61) at a zero clock, though only a fence's clock is zero
         ");
     }
 

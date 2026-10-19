@@ -11,6 +11,7 @@ pub use bindings::{
     UBLK_IOCTL_ADD_DEV as UBLK_U_CMD_ADD_DEV,
     UBLK_IOCTL_COMMIT_AND_FETCH_REQ as UBLK_U_IO_COMMIT_AND_FETCH_REQ,
     UBLK_IOCTL_DEL_DEV as UBLK_U_CMD_DEL_DEV, UBLK_IOCTL_FETCH_REQ as UBLK_U_IO_FETCH_REQ,
+    UBLK_IOCTL_GET_FEATURES as UBLK_U_CMD_GET_FEATURES,
     UBLK_IOCTL_SET_PARAMS as UBLK_U_CMD_SET_PARAMS, UBLK_IOCTL_START_DEV as UBLK_U_CMD_START_DEV,
     UBLK_IOCTL_STOP_DEV as UBLK_U_CMD_STOP_DEV, UBLK_PARAM_TYPE_BASIC, UBLK_PARAM_TYPE_DISCARD,
     ublk_param_basic as UblkParamBasic, ublk_param_discard as UblkParamDiscard,
@@ -23,16 +24,11 @@ pub use bindings::{
 /// Data then moves by `pread` and `pwrite` against `/dev/ublkcN` instead.
 pub const UBLK_F_USER_COPY: u64 = bindings::UBLK_F_USER_COPY as u64;
 
-/// The kernel sets this on every device it creates. This crate reads it back to
-/// confirm that the kernel accepts ioctl-encoded opcodes; raw opcodes require
-/// `CONFIG_BLKDEV_UBLK_LEGACY_OPCODES`.
-pub const UBLK_F_CMD_IOCTL_ENCODE: u64 = bindings::UBLK_F_CMD_IOCTL_ENCODE as u64;
-
 /// The result of a fetch which hands a request over.
 pub const UBLK_IO_RES_OK: i32 = bindings::UBLK_IO_RES_OK as i32;
 /// The result of every fetch the kernel aborts, which it does once the device has
 /// stopped.
-pub use bindings::UBLK_RESULT_ABORT as UBLK_IO_RES_ABORT;
+pub use bindings::UBLK_IO_RES_ABORT;
 
 pub const UBLK_IO_OP_READ: u8 = bindings::UBLK_IO_OP_READ as u8;
 pub const UBLK_IO_OP_WRITE: u8 = bindings::UBLK_IO_OP_WRITE as u8;
@@ -80,9 +76,10 @@ pub fn io_buf_offset(q_id: u16, tag: u16) -> u64 {
 }
 
 /// Byte offset within `/dev/ublkcN` at which queue `q_id`'s array of
-/// [`UblksrvIoDesc`] is mapped. The mapping's length must be exactly
-/// [`io_desc_map_len`]. The kernel gives every queue room for the largest depth it
-/// allows, whatever depth the device was created with.
+/// [`UblksrvIoDesc`] is mapped. The kernel requires the mapping to span exactly
+/// [`io_desc_map_len`] rounded up to whole pages, as `mmap` rounds it. The kernel
+/// gives every queue room for the largest depth it allows, whatever depth the
+/// device was created with.
 pub fn io_desc_map_offset(q_id: u16) -> u64 {
     q_id as u64
         * bindings::UBLK_MAX_QUEUE_DEPTH as u64
@@ -90,14 +87,7 @@ pub fn io_desc_map_offset(q_id: u16) -> u64 {
 }
 
 pub fn io_desc_map_len(queue_depth: u16) -> usize {
-    let page = page_size();
-    (queue_depth as usize * std::mem::size_of::<UblksrvIoDesc>()).div_ceil(page) * page
-}
-
-fn page_size() -> usize {
-    // SAFETY: sysconf reads no user memory, and it always answers for
-    // _SC_PAGESIZE.
-    (unsafe { libc::sysconf(libc::_SC_PAGESIZE) }) as usize
+    queue_depth as usize * std::mem::size_of::<UblksrvIoDesc>()
 }
 
 /// Reinterpret `value` as the command bytes of a `uring_cmd` SQE.

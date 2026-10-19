@@ -193,10 +193,7 @@ impl Disk {
 
         match self.replies.message().await.map_err(Error::of)? {
             None => Ok(()),
-            Some(proto::Response { response }) => match response {
-                Some(reply) => Err(Error::unexpected(reply)),
-                None => Err(Error::Closed),
-            },
+            Some(response) => Err(Error::Unexpected(format!("{response:?}"))),
         }
     }
 

@@ -40,14 +40,19 @@ pub fn encode_punch(block: u32, blocks: u32) -> proto::Chunk {
 /// Range of block indices which `chunk` covers.
 pub fn covered_blocks(chunk: &proto::Chunk) -> std::ops::Range<u32> {
     let covered = match &chunk.content {
+        // A framed record is under 4 GiB, so its data covers fewer than 2^20 blocks.
         Some(chunk::Content::Data(data)) => {
-            let blocks = std::cmp::max(1, (data.len() as u64).div_ceil(crate::BLOCK_SIZE as u64));
-            u32::try_from(blocks).unwrap_or(u32::MAX)
+            std::cmp::max(1, data.len().div_ceil(crate::BLOCK_SIZE as usize)) as u32
         }
         Some(chunk::Content::Punch(blocks)) => *blocks,
         None => 0,
     };
-    chunk.block..chunk.block.saturating_add(covered)
+    let end = chunk
+        .block
+        .checked_add(covered)
+        .expect("a chunk's blocks have u32 indices");
+
+    chunk.block..end
 }
 
 /// Data bytes after zero trimming, excluding framing and metadata. This is the

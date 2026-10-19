@@ -51,11 +51,6 @@ impl Target {
         }
     }
 
-    /// Size of the disk, in blocks.
-    pub fn blocks(&self) -> u32 {
-        self.image.blocks()
-    }
-
     /// Handle a request. A read is answered at once.
     pub fn on_request(
         &mut self,
@@ -163,13 +158,14 @@ impl Target {
             anyhow::bail!("device {} failed: {failed:#}", self.dev_id);
         }
         self.admission = Admission::Closed;
-        let recorded = std::mem::take(&mut self.recorded);
+        self.recorded = false;
 
         let Some(horizon) = &mut self.horizon else {
             return Ok(false);
         };
-        // An empty delta commits nothing, so completes nothing.
-        if recorded && horizon.pending() == 0 {
+        // Only a recorded mutation or copy discharges a block, and the cut which
+        // first finds none pending drops the horizon.
+        if horizon.pending() == 0 {
             self.horizon = None;
             return Ok(true);
         }

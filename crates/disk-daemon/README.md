@@ -47,7 +47,7 @@ Paths below are relative to `src/`.
 | `lib.rs` | Protocol exports, block size, disk content type, and attachment status codes. |
 | `main.rs` | Process setup: crypto provider, tracing, and the runtime. |
 | `daemon.rs` | Flags, configuration, the `Disk` gRPC service and its socket, shared broker credentials, and process drain. |
-| `attachment.rs` | `Attachment`: request ordering, promotion, and error codes. `MountedDisk`: bootstrap commit, prepare ordering, and teardown of mount, device, and writer. |
+| `attachment.rs` | `Attachment`: request ordering, promotion, the bootstrap commit, and error codes. `MountedDisk`: prepare ordering, and teardown of mount, device, and writer. |
 | `device/mod.rs` | `Device` lifecycle, admission at the prepare boundary, and its `Recorded` stream. |
 | `device/owner.rs`, `device/queue.rs` | Owner thread, ring, tag ownership, and character-device data copies. |
 | `device/target.rs` | The ublk target: request handling, mutation ordering and cuts, horizon opening, copies, and discharge, and image I/O, testable without a real device. |
@@ -119,8 +119,9 @@ label below the head, such as one copied from another journal, goes undetected a
 may fail replay or skip committed history. An operator may correct a known-wrong
 label only if no fragments below it were deleted.
 
-The host needs Linux `ublk` support, e2fsprogs with `assume_storage_prezeroed`, and
-an image filesystem supporting `O_TMPFILE` and hole punching. Required privileges
+The host needs Linux 6.5 or later with `ublk` support, for `UBLK_F_USER_COPY`, which
+the daemon checks at startup. It also needs e2fsprogs with `assume_storage_prezeroed`,
+and an image filesystem supporting `O_TMPFILE` and hole punching. Required privileges
 are `CAP_SYS_ADMIN` for devices and mounts, `CAP_SYS_RESOURCE` for owner-thread I/O
 flusher status, and `CAP_CHOWN` for recovered mount ownership. The daemon also needs
 access to `/dev/ublk-control` and its `/dev/ublkc*` nodes.

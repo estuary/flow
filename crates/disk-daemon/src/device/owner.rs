@@ -32,7 +32,7 @@ pub(super) fn spawn(
                      requires CAP_SYS_RESOURCE"
                 )
             })?;
-            let queue = queue::Queue::new(dev_id, cdev, waker, queue_depth, target.blocks())
+            let queue = queue::Queue::new(dev_id, cdev, waker, queue_depth)
                 .with_context(|| format!("setting up the queue of device {dev_id}"))?;
             _ = armed.send(());
 

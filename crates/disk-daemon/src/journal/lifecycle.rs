@@ -129,14 +129,14 @@ impl Standby {
             let mut repair = None;
 
             if let Some(ack) = &recovered_ack {
-                let Some((producer, clock)) = parse_ack(ack) else {
+                let Some((record, producer, clock)) = parse_ack(ack) else {
                     return Err(crate::invalid_argument(
                         "the recovered ack is not a single acknowledgement record".to_string(),
                     ));
                 };
 
                 match replay.sequencer().recovered_ack(producer, clock) {
-                    sequencer::RecoveredAck::Commits => repair = Some(ack.clone()),
+                    sequencer::RecoveredAck::Commits => repair = Some((ack.clone(), record)),
                     sequencer::RecoveredAck::Committed => (),
                     sequencer::RecoveredAck::Refused => {
                         return Err(crate::invalid_argument(format!(
@@ -148,7 +148,7 @@ impl Standby {
                 }
             }
 
-            if let Some(ack) = repair {
+            if let Some((ack, record)) = repair {
                 () = journal
                     .append_ack(&mut appender, &ack)
                     .await
@@ -156,7 +156,7 @@ impl Standby {
 
                 // The fence excludes other writers, so the ack landed where replay
                 // stopped. Sequence it there, as later replays will.
-                () = replay.take_appended(&ack)?;
+                () = replay.record(&record, &ack)?;
             }
 
             let chunks = replay.applied_chunks();
@@ -278,9 +278,9 @@ fn random_producer() -> uuid::Producer {
     uuid::Producer::from_bytes(producer)
 }
 
-/// Parse the producer and clock of `ack`, which must be a single `ACK_TXN` record
-/// with no other content.
-fn parse_ack(ack: &[u8]) -> Option<(uuid::Producer, uuid::Clock)> {
+/// Parse `ack`, which must be exactly one `ACK_TXN` record, with its producer and
+/// clock.
+fn parse_ack(ack: &[u8]) -> Option<(proto::DiskRecord, uuid::Producer, uuid::Clock)> {
     let mut ack = bytes::BytesMut::from(ack);
 
     let Ok(fixed_framing::Frame::Record { message, .. }) =
@@ -290,10 +290,7 @@ fn parse_ack(ack: &[u8]) -> Option<(uuid::Producer, uuid::Clock)> {
     };
     let (producer, clock, flags) = uuid::parse(uuid::Uuid::from_slice(&message.uuid).ok()?).ok()?;
 
-    let bare =
-        ack.is_empty() && flags.is_ack() && message.chunks.is_empty() && !message.opens_horizon;
-
-    bare.then_some((producer, clock))
+    (ack.is_empty() && flags.is_ack()).then_some((message, producer, clock))
 }
 
 #[cfg(test)]
@@ -325,7 +322,7 @@ mod test {
         let ack = test_support::record(a, 2, uuid::Flags::ACK_TXN, Vec::new());
         let frame = |record: proto::DiskRecord| test_support::frame([&record]);
 
-        let cases: [(&str, bytes::BytesMut); 8] = [
+        let cases: [(&str, bytes::BytesMut); 6] = [
             ("an acknowledgement", frame(ack.clone())),
             (
                 "unframed bytes",
@@ -349,26 +346,14 @@ mod test {
                     Vec::new(),
                 )),
             ),
-            (
-                "one carrying chunks",
-                frame(proto::DiskRecord {
-                    chunks: crate::chunk::encode_write(0, &bytes::Bytes::from(vec![1; 4096])),
-                    ..ack.clone()
-                }),
-            ),
-            (
-                "one opening a horizon",
-                frame(proto::DiskRecord {
-                    opens_horizon: true,
-                    ..ack.clone()
-                }),
-            ),
         ];
 
         let mut out = Vec::new();
         for (what, ack) in cases {
             let outcome = match parse_ack(&ack) {
-                Some((producer, clock)) => format!("judged, of {producer:?} at {clock:?}"),
+                Some((_record, producer, clock)) => {
+                    format!("judged, of {producer:?} at {clock:?}")
+                }
                 None => "refused".to_string(),
             };
             out.push(format!("{what:<22}{outcome}"));
@@ -380,8 +365,6 @@ mod test {
         no UUID               refused
         a malformed UUID      refused
         a data record         refused
-        one carrying chunks   refused
-        one opening a horizon refused
         ");
     }
 }
@@ -464,7 +447,7 @@ mod broker_test {
             .unwrap();
 
         // The append which lost the fence fails as `ABORTED`, which tells its client
-        // that another attachment owns the disk. The failure cancels the attachment.
+        // that another attachment owns the disk. The failure is terminal.
         let mut out = Vec::new();
         for what in ["fenced-out prepare", "later prepare"] {
             let err = first.prepare(false).await.unwrap_err();
@@ -472,7 +455,7 @@ mod broker_test {
         }
         insta::assert_snapshot!(out.join("\n"), @"
         fenced-out prepare  Aborted: journal acmeCo/disk/contended registers do not match (Aborted)
-        later prepare       Unavailable: the attachment was cancelled (Unavailable)
+        later prepare       Aborted: journal acmeCo/disk/contended registers do not match (Aborted)
         ");
     }
 
@@ -586,7 +569,7 @@ mod broker_test {
         drop((recorder, writer));
 
         // Normalize the acknowledgement's random author and clock for the snapshot.
-        let (author, clock) = super::parse_ack(&stale).unwrap();
+        let (_record, author, clock) = super::parse_ack(&stale).unwrap();
         let Err(err) = fixture.recover(journal, Some(stale)).await else {
             panic!("an acknowledgement a replay could not honor must not be appended");
         };

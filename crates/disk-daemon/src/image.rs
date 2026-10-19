@@ -69,37 +69,23 @@ impl Image {
         Ok(())
     }
 
-    /// Apply a chunk replayed from the journal, rejecting one which does not fit the
-    /// device.
-    pub fn apply(&mut self, chunk: &crate::proto::Chunk) -> std::io::Result<()> {
+    /// Apply a chunk replayed from the journal. Returns the blocks it covers.
+    pub fn apply(&mut self, chunk: &crate::proto::Chunk) -> std::io::Result<std::ops::Range<u32>> {
         use crate::proto;
 
         /// A trimmed tail is at most one block.
         static ZEROES: [u8; crate::BLOCK_SIZE as usize] = [0; crate::BLOCK_SIZE as usize];
 
-        let Some(content) = &chunk.content else {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("chunk at block {} has no content", chunk.block),
-            ));
-        };
         let range = crate::chunk::covered_blocks(chunk);
 
-        if range.end > self.blocks() || range.start >= range.end {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "chunk covers blocks {range:?}, which is not within the device's {} blocks",
-                    self.blocks()
-                ),
-            ));
-        }
-
-        let data = match content {
-            // The validated range, rather than the count the chunk states: a range
-            // which saturated at the last block index is shorter than that count.
-            proto::chunk::Content::Punch(_) => {
-                return self.punch(range.start, range.end - range.start);
+        let data = match chunk
+            .content
+            .as_ref()
+            .expect("a journaled chunk has content")
+        {
+            proto::chunk::Content::Punch(blocks) => {
+                () = self.punch(range.start, *blocks)?;
+                return Ok(range);
             }
             proto::chunk::Content::Data(data) => data,
         };
@@ -108,16 +94,7 @@ impl Image {
 
         // Without zeroing the trimmed remainder, the tail of a block would keep
         // whatever an earlier chunk left there.
-        let Some(pad) = len.checked_sub(data.len() as u64) else {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "chunk at block {} carries {} bytes, more than its {len} covered bytes",
-                    chunk.block,
-                    data.len(),
-                ),
-            ));
-        };
+        let pad = len - data.len() as u64;
         std::os::unix::fs::FileExt::write_all_at(&self.file, data, offset)?;
         std::os::unix::fs::FileExt::write_all_at(
             &self.file,
@@ -126,7 +103,7 @@ impl Image {
         )?;
 
         self.allocated[range.start as usize..range.end as usize].fill(true);
-        Ok(())
+        Ok(range)
     }
 
     /// Byte offset at which `block` begins.
@@ -295,73 +272,6 @@ mod test {
             ten-byte rewrite of block 0: allocated [0, 1]
               block 0: 0x30x1 0x31x1 0x32x1 0x33x1 0x34x1 0x35x1 0x36x1 0x37x1 0x38x1 0x39x1 0x00x4086
               block 1: 0xaax4096
-            ");
-        }
-
-        #[test]
-        fn test_apply_rejects_malformed_chunks() {
-            let dir = tempfile::tempdir().unwrap();
-            let mut image = Image::create(dir.path(), DEVICE_BLOCKS).unwrap();
-
-            let cases = [
-                (
-                    "no content",
-                    proto::Chunk {
-                        block: 0,
-                        content: None,
-                    },
-                ),
-                // A punch of no blocks covers nothing.
-                (
-                    "empty punch",
-                    proto::Chunk {
-                        block: 0,
-                        content: Some(proto::chunk::Content::Punch(0)),
-                    },
-                ),
-                // Reaching one block past the end of the device.
-                (
-                    "punch past the end",
-                    proto::Chunk {
-                        block: DEVICE_BLOCKS - 1,
-                        content: Some(proto::chunk::Content::Punch(2)),
-                    },
-                ),
-                (
-                    "data past the end",
-                    proto::Chunk {
-                        block: DEVICE_BLOCKS,
-                        content: Some(proto::chunk::Content::Data(bytes::Bytes::new())),
-                    },
-                ),
-                // Overflowing the block index outright.
-                (
-                    "overflowing punch",
-                    proto::Chunk {
-                        block: u32::MAX,
-                        content: Some(proto::chunk::Content::Punch(u32::MAX)),
-                    },
-                ),
-            ];
-            let mut trace = String::new();
-            for (label, case) in cases {
-                let err = image.apply(&case).unwrap_err();
-                writeln!(trace, "{label:<20}{:?}: {err:#}", err.kind()).unwrap();
-            }
-            write!(
-                trace,
-                "allocated {:?}",
-                image.allocated().iter_ones().collect::<Vec<_>>()
-            )
-            .unwrap();
-
-            insta::assert_snapshot!(trace, @"
-            no content          InvalidData: chunk at block 0 has no content
-            empty punch         InvalidData: chunk covers blocks 0..0, which is not within the device's 64 blocks
-            punch past the end  InvalidData: chunk covers blocks 63..65, which is not within the device's 64 blocks
-            data past the end   InvalidData: chunk covers blocks 64..65, which is not within the device's 64 blocks
-            overflowing punch   InvalidData: chunk covers blocks 4294967295..4294967295, which is not within the device's 64 blocks
-            allocated []
             ");
         }
 

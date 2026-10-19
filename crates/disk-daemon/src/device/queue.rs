@@ -5,8 +5,6 @@ use crate::ublk::{self, sys};
 pub(super) struct Queue {
     /// Kernel device ID.
     dev_id: u32,
-    /// Size of the device, which bounds every request it hands over.
-    blocks: u32,
     /// Carries only ublk commands and the waker's poll.
     ring: io_uring::IoUring,
     /// Ownership of each request tag.
@@ -28,7 +26,6 @@ impl Queue {
         cdev: std::fs::File,
         waker: wake::Waker,
         depth: u16,
-        blocks: u32,
     ) -> std::io::Result<Self> {
         // Each tag and the wake have at most one operation queued or in flight.
         // This sizes both the submission queue and its larger completion queue
@@ -37,7 +34,6 @@ impl Queue {
 
         let mut queue = Self {
             dev_id,
-            blocks,
             ring: io_uring::IoUring::new(entries)?,
             tags: Tags::new(dev_id, depth),
             fetched: Vec::new(),
@@ -119,7 +115,7 @@ impl Queue {
     /// The request the kernel handed over at `tag`, as data. `None` where a write's
     /// data cannot be taken from the device, which fails that request.
     fn take_request(&mut self, tag: u16) -> Option<Request> {
-        let request = match decode(&self.descs.get(tag), self.blocks) {
+        let request = match decode(&self.descs.get(tag)) {
             Op::Read(range) => Request::Read(range),
             Op::Write(range) => {
                 // Under `UBLK_F_USER_COPY`, a request's data moves through the character
@@ -337,7 +333,7 @@ enum Op {
     Punch(std::ops::Range<u32>),
 }
 
-fn decode(desc: &sys::UblksrvIoDesc, blocks: u32) -> Op {
+fn decode(desc: &sys::UblksrvIoDesc) -> Op {
     let sectors_per_block = crate::BLOCK_SIZE as u64 / sys::SECTOR_SIZE;
     let (start_sector, sectors) = (desc.start_sector, sys::io_desc_sectors(desc) as u64);
 
@@ -347,13 +343,13 @@ fn decode(desc: &sys::UblksrvIoDesc, blocks: u32) -> Op {
         start_sector.is_multiple_of(sectors_per_block) && sectors.is_multiple_of(sectors_per_block),
         "device request of {sectors} sectors at sector {start_sector} is not block-aligned",
     );
-    // Bounded before narrowing, so a request past the device's end cannot wrap
-    // back onto it.
+    // The block layer bounds every request by the device's size, a `u32` count of
+    // blocks.
     let start = start_sector / sectors_per_block;
     let end = start + sectors / sectors_per_block;
     assert!(
-        end <= blocks as u64,
-        "device request covers blocks {start}..{end}, beyond the device",
+        end <= u32::MAX as u64,
+        "device request covers blocks {start}..{end}, beyond any device",
     );
     let range = start as u32..end as u32;
 
@@ -523,7 +519,7 @@ mod test {
             };
             desc.__bindgen_anon_1.nr_sectors = blocks * sectors_per_block as u32;
 
-            let decoded = outcome(|| format!("{:?}", decode(&desc, 16)));
+            let decoded = outcome(|| format!("{:?}", decode(&desc)));
             out.push(format!(
                 "{named:<14}block {block:<12}count {blocks:<4}{decoded}"
             ));
@@ -534,7 +530,7 @@ mod test {
         DISCARD       block 8           count 8   Punch(8..16)
         WRITE_ZEROES  block 15          count 1   Punch(15..16)
         FLUSH         block 0           count 0   panicked: device request has op 2, which this device does not serve
-        READ          block 4294967296  count 1   panicked: device request covers blocks 4294967296..4294967297, beyond the device
+        READ          block 4294967296  count 1   panicked: device request covers blocks 4294967296..4294967297, beyond any device
         ");
     }
 }

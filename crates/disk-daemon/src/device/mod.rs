@@ -30,7 +30,7 @@ impl Device {
     /// Serve `image`, returning the writer's mutation stream. `horizon` resumes
     /// any horizon left open by replay.
     pub fn create(
-        control: &std::sync::Arc<ublk::Control>,
+        control: std::sync::Arc<ublk::Control>,
         image: image::Image,
         queue_depth: u16,
         horizon: Option<horizon::Horizon>,
@@ -39,7 +39,7 @@ impl Device {
         let (device, recorded) = Self::add(control, image, queue_depth, horizon, policy)?;
 
         // A failure here tears the device down by dropping `device`.
-        () = control.start_dev(device.dev_id)?;
+        () = device.control.start_dev(device.dev_id)?;
 
         Ok((device, recorded))
     }
@@ -92,7 +92,7 @@ impl Device {
 
     /// Set up the device and owner without starting it.
     fn add(
-        control: &std::sync::Arc<ublk::Control>,
+        control: std::sync::Arc<ublk::Control>,
         image: image::Image,
         queue_depth: u16,
         horizon: Option<horizon::Horizon>,
@@ -111,6 +111,12 @@ impl Device {
                 "device {dev_id} could not be served, nor deleted ({deleted:#})"
             )),
         };
+        // Before the character device opens: a delete waits for it to close, and
+        // would wait forever on a descriptor this frame still holds.
+        () = control
+            .set_params(dev_id, &ublk::params(image.blocks()))
+            .map_err(delete)?;
+
         // devtmpfs creates the node before the command which added the device completes.
         let cdev_path = ublk::char_path(dev_id);
         let cdev = std::fs::OpenOptions::new()
@@ -118,9 +124,6 @@ impl Device {
             .write(true)
             .open(&cdev_path)
             .with_context(|| format!("opening {cdev_path:?}"))
-            .map_err(delete)?;
-        () = control
-            .set_params(dev_id, &ublk::params(image.blocks()))
             .map_err(delete)?;
 
         let (commands, received) = std::sync::mpsc::channel();
@@ -135,7 +138,7 @@ impl Device {
         .map_err(delete)?;
 
         let device = Self {
-            control: control.clone(),
+            control,
             commands,
             waker,
             thread: Some(thread),

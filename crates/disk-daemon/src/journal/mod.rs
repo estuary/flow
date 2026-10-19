@@ -62,9 +62,10 @@ impl Journal {
             .await
             .map_err(proto_grpc::status_to_anyhow)?;
 
-        if let Some(commit) = &response.commit {
-            self.head = commit.end;
-        }
+        let commit = response
+            .commit
+            .expect("an append which succeeded reports its commit");
+        self.head = commit.end;
         Ok(())
     }
 }
@@ -132,35 +133,26 @@ fn listed_floor(
         })
 }
 
-/// The spec change which sets `listing`'s recovery-floor label to `floor`, or `None`
-/// if the label already holds it.
+/// The spec change which sets `listing`'s recovery-floor label to `floor`.
 fn floor_change(
     listing: broker::list_response::Journal,
     floor: i64,
-) -> Option<broker::apply_request::Change> {
+) -> broker::apply_request::Change {
     let mut spec = listing.spec.expect("a listed journal has a spec");
     // Zero-padding keeps the label's string order the same as its numeric order.
     let value = format!("{floor:016x}");
 
-    let held = spec
-        .labels
-        .as_ref()
-        .and_then(|set| labels::maybe_one(set, labels::DISK_RECOVERY_FLOOR).ok());
-
-    if held == Some(value.as_str()) {
-        return None;
-    }
     spec.labels = Some(labels::set_value(
         spec.labels.take().unwrap_or_default(),
         labels::DISK_RECOVERY_FLOOR,
         &value,
     ));
 
-    Some(broker::apply_request::Change {
+    broker::apply_request::Change {
         expect_mod_revision: listing.mod_revision,
         upsert: Some(spec),
         delete: String::new(),
-    })
+    }
 }
 
 /// Run `fut`, failing it with [`crate::cancelled`] if the attachment is cancelled
@@ -233,7 +225,7 @@ mod test {
 
     /// A change sets the floor label at the listing's revision, so a spec something
     /// else changed meanwhile refuses it, and keeps the other labels. It lowers a
-    /// floor as readily as it raises one, and leaves a label which already holds it.
+    /// floor as readily as it raises one.
     #[test]
     fn test_a_floor_change_sets_the_label_at_the_listed_revision() {
         let mut out = Vec::new();
@@ -241,24 +233,20 @@ mod test {
         for held in [None, Some(99_999), Some(100_000), Some(100_001)] {
             let label = held.map(|held| format!("{held:016x}"));
 
-            let outcome = match floor_change(listing(label.as_deref()), 100_000) {
-                None => "leaves it".to_string(),
-                Some(change) => {
-                    let set = change.upsert.unwrap().labels.unwrap();
-                    format!(
-                        "sets {} at revision {}, content type {}",
-                        labels::maybe_one(&set, labels::DISK_RECOVERY_FLOOR).unwrap(),
-                        change.expect_mod_revision,
-                        labels::maybe_one(&set, labels::CONTENT_TYPE).unwrap(),
-                    )
-                }
-            };
+            let change = floor_change(listing(label.as_deref()), 100_000);
+            let set = change.upsert.unwrap().labels.unwrap();
+            let outcome = format!(
+                "sets {} at revision {}, content type {}",
+                labels::maybe_one(&set, labels::DISK_RECOVERY_FLOOR).unwrap(),
+                change.expect_mod_revision,
+                labels::maybe_one(&set, labels::CONTENT_TYPE).unwrap(),
+            );
             out.push(format!("held {:<16}{outcome}", format!("{held:?}")));
         }
         insta::assert_snapshot!(out.join("\n"), @"
         held None            sets 00000000000186a0 at revision 42, content type application/x-journal-backed-disk
         held Some(99999)     sets 00000000000186a0 at revision 42, content type application/x-journal-backed-disk
-        held Some(100000)    leaves it
+        held Some(100000)    sets 00000000000186a0 at revision 42, content type application/x-journal-backed-disk
         held Some(100001)    sets 00000000000186a0 at revision 42, content type application/x-journal-backed-disk
         ");
     }

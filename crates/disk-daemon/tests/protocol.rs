@@ -21,7 +21,6 @@ async fn disk_protocol() {
         ("before-open", Fresh, Prepare, OUT_OF_TURN),
         ("no-request", Fresh, NoRequest, MALFORMED),
         ("no-journal", Fresh, OpenWithoutJournal, MALFORMED),
-        ("misaligned", Fresh, OpenMisaligned, MALFORMED),
         ("twice-opened", Promoted, Open, OUT_OF_TURN),
         ("twice-promoted", Promoted, Promote, OUT_OF_TURN),
         ("standby-prepares", Standby, Prepare, OUT_OF_TURN),
@@ -56,7 +55,6 @@ enum State {
 enum Violation {
     NoRequest,
     OpenWithoutJournal,
-    OpenMisaligned,
     Open,
     Promote,
     Prepare,
@@ -105,10 +103,6 @@ async fn a_refusal_fails_the_attachment(
         Violation::OpenWithoutJournal => Some(proto::request::Request::Open(proto::Open {
             journal: String::new(),
             device_size: support::DEVICE_SIZE,
-        })),
-        Violation::OpenMisaligned => Some(proto::request::Request::Open(proto::Open {
-            device_size: support::DEVICE_SIZE + 1,
-            ..fixture.open_absent(journal)
         })),
         Violation::Open => Some(proto::request::Request::Open(fixture.open(journal).await)),
         Violation::Promote => Some(proto::request::Request::Promote(proto::Promote {

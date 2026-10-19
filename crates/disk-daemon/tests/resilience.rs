@@ -22,6 +22,7 @@ async fn disk_resilience() {
     // These start and end daemons of their own.
     a_drain_cancels_attachments_stalled_in_a_broker_outage(&fixture).await;
     a_sigterm_under_load_tears_every_disk_down(&fixture).await;
+    a_drain_waits_on_a_departed_clients_teardown(&fixture).await;
 
     fixture.stop().await;
 }
@@ -241,6 +242,35 @@ async fn a_sigterm_under_load_tears_every_disk_down(fixture: &support::Fixture) 
         .await
         .expect_err("a drained daemon serves nothing");
 
+    () = fixture.assert_no_leaks();
+}
+
+/// A drain waits on the teardown of an attachment whose client already left. Its
+/// connection is gone, so the server has no stream of it to wait on.
+async fn a_drain_waits_on_a_departed_clients_teardown(fixture: &support::Fixture) {
+    let daemon = support::Daemon::start(fixture, "departed").await;
+    let client = daemon.client().await;
+
+    let (disk, mount) = client
+        .open(
+            fixture.open("acmeCo/disk/departed").await,
+            Default::default(),
+        )
+        .await
+        .unwrap();
+
+    // Dirty pages which the unmount must write back through the device, so the
+    // teardown is still running as the drain begins.
+    let mut writer = support::spawn_writer(&mount.join("dirty"), 96 << 20, false);
+    () = support::wait_for_writer(&mut writer).await;
+
+    drop((disk, client));
+    () = tokio::time::timeout(support::TEARDOWN, daemon.drain())
+        .await
+        .expect("the daemon drained while a departed client's disk tore down");
+
+    // Only a teardown which ran to its end removes the mount point.
+    assert!(!mount.exists(), "the teardown did not finish: {mount:?}");
     () = fixture.assert_no_leaks();
 }
 

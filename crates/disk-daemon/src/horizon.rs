@@ -57,7 +57,10 @@ impl Horizon {
     /// The next run of at most `limit` blocks to copy, or `None` when this
     /// delta's budget is spent or the horizon is discharged.
     pub fn next_copy(&mut self, policy: &Policy, limit: u32) -> Option<std::ops::Range<u32>> {
-        let budget = policy.budget(self.changed).saturating_sub(self.copied);
+        let budget = policy
+            .budget(self.changed)
+            .checked_sub(self.copied)
+            .expect("a copy never spends more than its delta's budget");
         let limit = std::cmp::min(limit as u64, budget / crate::BLOCK_SIZE as u64) as u32;
 
         if limit == 0 {

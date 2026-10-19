@@ -38,16 +38,12 @@ impl Ledger {
     /// Journal bytes between the recovery floor and `head`, which the device's
     /// horizon policy weighs.
     pub(super) fn range(&self, head: i64, floor: i64) -> u64 {
-        let floor = match &self.prepared {
-            Some(Prepared {
-                completes_horizon: true,
-                ..
-            }) => self
-                .horizon
-                .expect("the device reported a discharge with no horizon open"),
-            _ => floor,
-        };
-        head.saturating_sub(floor).max(0) as u64
+        let floor = self
+            .prepared
+            .as_ref()
+            .and_then(|prepared| prepared.floor)
+            .unwrap_or(floor);
+        u64::try_from(head - floor).expect("the floor is at or below the head")
     }
 
     /// Build one mutation's `CONTINUE_TXN` record, which opens a horizon at
@@ -78,8 +74,6 @@ impl Ledger {
         now: std::time::SystemTime,
         completes_horizon: bool,
     ) -> bytes::Bytes {
-        assert!(!self.delta_is_empty(), "an empty delta is not cut");
-
         let record = self.build(now, uuid::Flags::ACK_TXN, Vec::new(), false);
         let mut buf = bytes::BytesMut::new();
         proto_gazette::fixed_framing::encode(&record, &mut buf);
@@ -87,7 +81,10 @@ impl Ledger {
 
         self.prepared = Some(Prepared {
             ack: ack.clone(),
-            completes_horizon,
+            floor: completes_horizon.then(|| {
+                self.horizon
+                    .expect("the device reported a discharge with no horizon open")
+            }),
         });
         self.delta_records = 0;
 
@@ -103,11 +100,10 @@ impl Ledger {
             ));
         };
 
-        Ok(prepared.completes_horizon.then(|| {
-            self.horizon
-                .take()
-                .expect("the device reported a discharge with no horizon open")
-        }))
+        if prepared.floor.is_some() {
+            self.horizon = None;
+        }
+        Ok(prepared.floor)
     }
 
     /// Build a UUID with this producer and a strictly advancing clock.
@@ -132,7 +128,7 @@ impl Ledger {
 /// A delta which has been cut and awaits commit.
 struct Prepared {
     ack: bytes::Bytes,
-    completes_horizon: bool,
+    floor: Option<i64>,
 }
 
 #[cfg(test)]
@@ -288,8 +284,6 @@ mod test {
             Range(2000, 100),
             Ack,
             Range(3000, 1000),
-            // A floor ahead of the head is no range at all.
-            Range(10, 1000),
         ]);
         insta::assert_snapshot!(trace, @"
         Range(900, 100)             range 800                                                                                   awaiting ack false delta 0  horizon None
@@ -303,7 +297,6 @@ mod test {
         Range(2000, 100)            range 1000                                                                                  awaiting ack true  delta 0  horizon Some(1000)
         Ack                         acknowledged, floor Some(1000)                                                              awaiting ack false delta 0  horizon None
         Range(3000, 1000)           range 2000                                                                                  awaiting ack false delta 0  horizon None
-        Range(10, 1000)             range 0                                                                                     awaiting ack false delta 0  horizon None
         ");
     }
 

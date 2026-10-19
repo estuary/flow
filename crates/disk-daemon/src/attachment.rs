@@ -14,7 +14,7 @@ use anyhow::Context;
 pub async fn run(
     config: std::sync::Arc<crate::daemon::Config>,
     control: std::sync::Arc<ublk::Control>,
-    peer: Option<(u32, u32)>,
+    peer: (u32, u32),
     cancel: tokio_util::sync::CancellationToken,
     mut requests: tonic::Streaming<proto::Request>,
     responses: tokio::sync::mpsc::Sender<tonic::Result<proto::Response>>,
@@ -57,7 +57,7 @@ struct Attachment {
     /// Kernel device control handle.
     control: std::sync::Arc<ublk::Control>,
     /// Client's user and group, which own the mount.
-    peer: Option<(u32, u32)>,
+    peer: (u32, u32),
     /// Cancelled by a daemon drain, a client which drops its stream, or a writer
     /// failure. Cancellation gives up the attachment's broker calls.
     cancel: tokio_util::sync::CancellationToken,
@@ -117,6 +117,11 @@ impl Attachment {
         let disk = self.disk.insert(
             MountedDisk::open(&self.config, &self.control, self.peer, promoted, recovered).await?,
         );
+
+        // Commit setup writes before returning the mount to the client.
+        if let Some(ack) = disk.prepare().await? {
+            () = disk.writer.acknowledge(ack).await?;
+        }
 
         let mount_path = disk.mount.path().display().to_string();
         () = send(
@@ -184,20 +189,10 @@ fn check_open(open: proto::Open) -> anyhow::Result<(String, u32)> {
             "the attachment named no journal".to_string(),
         ));
     }
-    if device_size == 0 || !device_size.is_multiple_of(crate::BLOCK_SIZE as u64) {
-        return Err(crate::invalid_argument(format!(
-            "device size {device_size} must be a non-zero multiple of the {} byte block size",
-            crate::BLOCK_SIZE,
-        )));
-    }
-    let blocks = device_size / crate::BLOCK_SIZE as u64;
+    let blocks = u32::try_from(device_size / crate::BLOCK_SIZE as u64)
+        .expect("a device has fewer than 2^32 blocks, which a chunk indexes");
 
-    if blocks > u32::MAX as u64 {
-        return Err(crate::invalid_argument(format!(
-            "a device of {blocks} blocks exceeds the 2^32 which a chunk indexes",
-        )));
-    }
-    Ok((journal, blocks as u32))
+    Ok((journal, blocks))
 }
 
 async fn next(
@@ -245,11 +240,10 @@ struct MountedDisk {
 }
 
 impl MountedDisk {
-    /// Serve a recovered image as a mounted filesystem.
     async fn open(
         config: &crate::daemon::Config,
         control: &std::sync::Arc<crate::ublk::Control>,
-        peer: Option<(u32, u32)>,
+        peer: (u32, u32),
         promoted: journal::Promoted,
         recovered: journal::Recovered,
     ) -> anyhow::Result<Self> {
@@ -266,7 +260,7 @@ impl MountedDisk {
         // which will own it, so it runs on a blocking thread rather than this
         // runtime thread.
         let (device, recorded) = tokio::task::spawn_blocking(move || {
-            device::Device::create(&control, image, crate::ublk::QUEUE_DEPTH, horizon, policy)
+            device::Device::create(control, image, crate::ublk::QUEUE_DEPTH, horizon, policy)
         })
         .await??;
 
@@ -295,34 +289,18 @@ impl MountedDisk {
                 return Err(err);
             }
         };
-        let mut disk = Self {
-            mount,
-            device,
-            writer,
-        };
-
-        // Commit setup writes before returning the mount to the client.
-        let committed = async {
-            if let Some(ack) = disk.prepare().await? {
-                () = disk.writer.acknowledge(ack).await?;
-            }
-            anyhow::Ok(())
-        }
-        .await;
-
-        if let Err(err) = committed {
-            () = disk.teardown().await;
-            return Err(err);
-        }
-
         tracing::info!(
-            dev_id = disk.device.dev_id(),
-            mount = ?disk.mount.path(),
+            dev_id = device.dev_id(),
+            mount = ?mount.path(),
             fresh,
             "opened a disk",
         );
 
-        Ok(disk)
+        Ok(Self {
+            mount,
+            device,
+            writer,
+        })
     }
 
     async fn prepare(&mut self) -> anyhow::Result<Option<bytes::Bytes>> {
@@ -374,7 +352,7 @@ async fn take_apart(
 
     let dev_id = device.dev_id();
 
-    if let Some(mut mount) = mount
+    if let Some(mount) = mount
         && let Err(err) = mount.unmount().await
     {
         tracing::error!(?err, dev_id, "failed to unmount a disk");
@@ -398,13 +376,7 @@ mod test {
     fn test_an_open_is_checked_before_anything_exists() {
         let mut out = Vec::new();
 
-        for (journal, device_size) in [
-            ("acmeCo/disk", 1 << 30),
-            ("", 1 << 30),
-            ("acmeCo/disk", 0),
-            ("acmeCo/disk", 4097),
-            ("acmeCo/disk", 1 << 47),
-        ] {
+        for (journal, device_size) in [("acmeCo/disk", 1 << 30), ("", 1 << 30)] {
             let open = proto::Open {
                 journal: journal.to_string(),
                 device_size,
@@ -419,9 +391,6 @@ mod test {
         insta::assert_snapshot!(out.join("\n"), @"
         \"acmeCo/disk\" 1073741824      acmeCo/disk of 262144 blocks
         \"\"            1073741824      the attachment named no journal (InvalidArgument)
-        \"acmeCo/disk\" 0               device size 0 must be a non-zero multiple of the 4096 byte block size (InvalidArgument)
-        \"acmeCo/disk\" 4097            device size 4097 must be a non-zero multiple of the 4096 byte block size (InvalidArgument)
-        \"acmeCo/disk\" 140737488355328 a device of 34359738368 blocks exceeds the 2^32 which a chunk indexes (InvalidArgument)
         ");
     }
 }

@@ -96,7 +96,7 @@ impl IoDescs {
                 std::ptr::null_mut(),
                 len,
                 libc::PROT_READ,
-                libc::MAP_SHARED | libc::MAP_POPULATE,
+                libc::MAP_SHARED,
                 std::os::fd::AsRawFd::as_raw_fd(cdev),
                 sys::io_desc_map_offset(q_id) as libc::off_t,
             )

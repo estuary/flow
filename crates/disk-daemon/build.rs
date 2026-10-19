@@ -1,20 +1,19 @@
 fn main() {
     println!("cargo:rerun-if-changed=ublk_cmd.h");
-    println!("cargo:rerun-if-changed=build.rs");
 
-    // The `UBLK_U_*` opcodes are `_IOWR` macros, which bindgen cannot evaluate, and
-    // `UBLK_IO_RES_ABORT` is an errno. Assigning each one to a constant lets the C
-    // compiler fold it into a value bindgen does emit. Each name differs from the
-    // macro it wraps, because a macro expands on both sides of its own definition.
+    // The `UBLK_U_*` opcodes are `_IOR` and `_IOWR` macros, which bindgen cannot
+    // evaluate. Assigning each one to a constant lets the C compiler fold it into a
+    // value bindgen does emit. Each name differs from the macro it wraps, because a
+    // macro expands on both sides of its own definition. `errno.h` lets bindgen
+    // evaluate `UBLK_IO_RES_ABORT`, which is `-ENODEV`.
     const SHIM: &str = r#"
 #include <asm/ioctl.h>
 #include <errno.h>
 #include "ublk_cmd.h"
 
-const int UBLK_RESULT_ABORT = UBLK_IO_RES_ABORT;
-
 #define ENCODED(macro, name) const unsigned int name = macro;
 
+ENCODED(UBLK_U_CMD_GET_FEATURES, UBLK_IOCTL_GET_FEATURES)
 ENCODED(UBLK_U_CMD_ADD_DEV, UBLK_IOCTL_ADD_DEV)
 ENCODED(UBLK_U_CMD_DEL_DEV, UBLK_IOCTL_DEL_DEV)
 ENCODED(UBLK_U_CMD_START_DEV, UBLK_IOCTL_START_DEV)
@@ -25,16 +24,13 @@ ENCODED(UBLK_U_IO_COMMIT_AND_FETCH_REQ, UBLK_IOCTL_COMMIT_AND_FETCH_REQ)
 "#;
 
     let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("ublk_cmd.rs");
-    let dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
 
     // Update the vendored Linux 6.8 `include/uapi/linux/ublk_cmd.h` to change the ABI.
     bindgen::Builder::default()
         .header_contents("shim.h", SHIM)
-        .clang_arg(format!("-I{dir}"))
         .allowlist_type("ublk.*")
         .allowlist_var("UBLK.*")
         .derive_default(true)
-        .prepend_enum_name(false)
         .use_core()
         .ctypes_prefix("libc")
         .generate()

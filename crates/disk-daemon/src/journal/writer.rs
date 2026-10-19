@@ -11,8 +11,6 @@ pub struct Writer {
     append_fut: Option<AppendFut>,
     /// The device's mutations.
     recorded: device::Recorded,
-    /// Set when the device closes the recording channel.
-    drained: bool,
     /// The attachment's cancellation, which a writer failure triggers.
     cancel: tokio_util::sync::CancellationToken,
 }
@@ -37,7 +35,6 @@ impl Writer {
             }),
             append_fut: None,
             recorded,
-            drained: false,
             cancel,
         }
     }
@@ -71,7 +68,7 @@ impl Writer {
     ) -> anyhow::Result<(Option<bytes::Bytes>, u64)> {
         let cancel = self.cancel.clone();
 
-        let prepared = super::unless_cancelled(&cancel, async {
+        super::unless_cancelled(&cancel, async {
             () = self.finish_append().await?;
             let appending = self
                 .appending
@@ -82,16 +79,14 @@ impl Writer {
                 .prepare(&mut self.recorded, completes_horizon)
                 .await
         })
-        .await;
-
-        prepared.inspect_err(|_| self.fail())
+        .await
     }
 
     /// Append the acknowledgement and wait for the broker to confirm it.
     pub async fn acknowledge(&mut self, ack: bytes::Bytes) -> anyhow::Result<()> {
         let cancel = self.cancel.clone();
 
-        let acknowledged = super::unless_cancelled(&cancel, async {
+        super::unless_cancelled(&cancel, async {
             () = self.finish_append().await?;
             let appending = self
                 .appending
@@ -100,9 +95,7 @@ impl Writer {
 
             appending.acknowledge(ack).await
         })
-        .await;
-
-        acknowledged.inspect_err(|_| self.fail())
+        .await
     }
 
     /// Append the device's mutations one at a time, and return the first failure. Wait
@@ -118,12 +111,11 @@ impl Writer {
                 .as_ref()
                 .expect("with no append in flight, the writer holds its state");
 
-            if self.drained || appending.ledger.awaiting_ack() {
+            if appending.ledger.awaiting_ack() {
                 return std::future::pending().await;
             }
             let Some(mutation) = self.recorded.recv().await else {
-                self.drained = true;
-                continue;
+                return std::future::pending().await;
             };
             let mut appending = self
                 .appending
@@ -155,7 +147,6 @@ impl Writer {
     /// Fail the writer and cancel its attachment. The device discards its later
     /// mutations.
     fn fail(&mut self) {
-        self.append_fut = None;
         self.recorded.close();
         self.cancel.cancel();
     }
@@ -238,12 +229,9 @@ impl Appending {
             let Some(listing) = client.get_journal(name).await.context("listing")? else {
                 anyhow::bail!("the journal no longer exists");
             };
-            let Some(change) = super::floor_change(listing, floor) else {
-                return Ok(());
-            };
             _ = client
                 .apply(proto_gazette::broker::ApplyRequest {
-                    changes: vec![change],
+                    changes: vec![super::floor_change(listing, floor)],
                 })
                 .await
                 .context("applying the spec change")?;

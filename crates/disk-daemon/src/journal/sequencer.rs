@@ -24,21 +24,10 @@ impl Sequencer {
             action,
         };
 
-        // A fence is the only OUTSIDE_TXN record this daemon appends, and the only
-        // record at a zero clock. It changes no content, so it is never sequenced.
+        // A fence is the only OUTSIDE_TXN record this daemon appends.
         if flags.is_outside() {
-            anyhow::ensure!(
-                clock == uuid::Clock::zero(),
-                "an OUTSIDE_TXN record of {producer:?} at {clock:?}, though a fence's clock is zero",
-            );
-            () = ensure_no_chunks(record, "a fence")?;
-
             return Ok(step(Action::Skip));
         }
-        anyhow::ensure!(
-            clock != uuid::Clock::zero(),
-            "a record of {producer:?} at a zero clock, though only a fence's clock is zero",
-        );
 
         let state = self.producers.entry(producer).or_default();
 
@@ -59,15 +48,12 @@ impl Sequencer {
             uuid::SequenceOutcome::OutsideCommit | uuid::SequenceOutcome::OutsideDuplicate => {
                 unreachable!("an OUTSIDE_TXN record returns before it's sequenced")
             }
-            uuid::SequenceOutcome::ContinueBeginSpan => {
-                let displaced = self.displace(producer);
-                self.open = Some(producer);
-
-                Ok(Step {
-                    displaced,
-                    action: Action::Hold,
-                })
-            }
+            // A producer begins a delta only once its previous one committed, so a
+            // held delta is another producer's.
+            uuid::SequenceOutcome::ContinueBeginSpan => Ok(Step {
+                displaced: self.open.replace(producer),
+                action: Action::Hold,
+            }),
             uuid::SequenceOutcome::ContinueExtendSpan if self.open == Some(producer) => {
                 Ok(step(Action::Hold))
             }
@@ -75,7 +61,7 @@ impl Sequencer {
             // Its earlier records were dropped, so it can never commit: skip it. It
             // still interleaves any other producer's delta held now, so displace that.
             uuid::SequenceOutcome::ContinueExtendSpan => Ok(Step {
-                displaced: self.displace(producer),
+                displaced: self.open.take(),
                 action: Action::Skip,
             }),
             uuid::SequenceOutcome::ContinueDuplicate => Ok(step(Action::Skip)),
@@ -90,15 +76,11 @@ impl Sequencer {
                      records interleaved",
                 );
                 self.open = None;
-                () = ensure_no_chunks(record, "an acknowledgement")?;
-
                 Ok(step(Action::Commit))
             }
             // A delta whose records are all below the floor, or an
             // acknowledgement which was appended twice.
             uuid::SequenceOutcome::AckEmpty | uuid::SequenceOutcome::AckDuplicate => {
-                () = ensure_no_chunks(record, "an acknowledgement")?;
-
                 Ok(step(Action::Skip))
             }
 
@@ -140,14 +122,6 @@ impl Sequencer {
             // acknowledgement says, or are no longer held.
             _ => RecoveredAck::Refused,
         }
-    }
-
-    /// Give up the uncommitted delta, unless it is `producer`'s, and report whose it was.
-    fn displace(&mut self, producer: uuid::Producer) -> Option<uuid::Producer> {
-        let held = self.open.filter(|held| *held != producer)?;
-        self.open = None;
-
-        Some(held)
     }
 }
 
@@ -196,15 +170,6 @@ struct ProducerState {
     /// Greatest clock of the producer's uncommitted records, or zero where it has
     /// none.
     max_continue: uuid::Clock,
-}
-
-fn ensure_no_chunks(record: &proto::DiskRecord, what: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        record.chunks.is_empty(),
-        "{what} carries {} chunks, which change disk content it does not commit",
-        record.chunks.len(),
-    );
-    Ok(())
 }
 
 #[cfg(test)]
@@ -341,8 +306,8 @@ mod test {
     }
 
     /// A fence is never sequenced, so it is skipped wherever it lands: within its own
-    /// author's delta, repeated, or within another author's. An `OUTSIDE_TXN` record
-    /// at any other clock is not one this daemon appends.
+    /// author's delta, repeated, or within another author's. So is any other
+    /// `OUTSIDE_TXN` record.
     #[test]
     fn test_a_fence_is_never_sequenced() {
         let trace = trace(&[
@@ -359,7 +324,7 @@ mod test {
         fence a             open a  skip
         fence b             open a  skip
         ack a@2             open -  commit
-        outside c@3         open -  refused: an OUTSIDE_TXN record of Producer(63:00:00:00:00:63) at Clock(0s 3000ns), though a fence's clock is zero
+        outside c@3         open -  skip
         ");
     }
 

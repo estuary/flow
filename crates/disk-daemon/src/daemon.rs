@@ -76,9 +76,6 @@ pub(crate) struct Config {
 pub async fn run(args: Args) -> anyhow::Result<()> {
     let control = std::sync::Arc::new(crate::ublk::Control::open()?);
 
-    () = std::fs::create_dir_all(&args.mount_dir)
-        .with_context(|| format!("creating {:?}", args.mount_dir))?;
-
     let brokers = broker_client(
         &args.broker_address,
         &args.gazette_zone,
@@ -121,16 +118,30 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         });
     }
 
+    let attachments = tokio_util::task::TaskTracker::new();
+
     let service = Service {
         config,
         control,
         draining: draining.clone(),
+        attachments: attachments.clone(),
     };
     let listener = listen(&args.uds_path)?;
 
-    let incoming = futures::stream::try_unfold(listener, |listener| async move {
-        let (connection, _address) = listener.accept().await?;
-        Ok::<_, std::io::Error>(Some((connection, listener)))
+    // The server takes the end of this stream as its shutdown, so a failed accept,
+    // such as one out of descriptors, is retried rather than yielded.
+    let incoming = futures::stream::unfold(listener, |listener| async move {
+        loop {
+            match listener.accept().await {
+                Ok((connection, _address)) => {
+                    return Some((Ok::<_, std::io::Error>(connection), listener));
+                }
+                Err(err) => {
+                    tracing::warn!(%err, "accepting an attachment failed (will retry)");
+                    () = tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            }
+        }
     });
 
     let mut serving = tokio::spawn(
@@ -145,9 +156,12 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 
     // Attachments are indefinite, so a drain cancels them rather than waiting on them.
     // Each attachment closes its stream only once its disk is torn down, and the
-    // server waits for that.
+    // server waits for the streams of clients still connected.
     let served = tokio::select! {
-        joined = &mut serving => joined?,
+        joined = &mut serving => {
+            _ = std::fs::remove_file(&args.uds_path);
+            joined
+        }
 
         _ = draining.cancelled() => {
             // Unlink the socket first. A client which reconnects must not open a
@@ -155,12 +169,17 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             _ = std::fs::remove_file(&args.uds_path);
 
             tracing::info!("draining attachments");
-            serving.await?
+            serving.await
         }
     };
-    _ = std::fs::remove_file(&args.uds_path);
 
-    served.context("serving the attachment socket")
+    // An attachment whose client left may still be tearing its disk down, with no
+    // stream for the server to wait on.
+    draining.cancel();
+    attachments.close();
+    () = attachments.wait().await;
+
+    served?.context("serving the attachment socket")
 }
 
 /// Serves the `Disk` gRPC service, spawning an attachment for each `Attach` stream.
@@ -171,6 +190,8 @@ struct Service {
     control: std::sync::Arc<crate::ublk::Control>,
     /// Cancelled when the daemon drains, so that no attachment outlives it.
     draining: tokio_util::sync::CancellationToken,
+    /// Every attachment's task, which the daemon waits on before it exits.
+    attachments: tokio_util::task::TaskTracker,
 }
 
 #[tonic::async_trait]
@@ -184,15 +205,16 @@ impl proto_grpc::disk::disk_server::Disk for Service {
     ) -> tonic::Result<tonic::Response<Self::AttachStream>> {
         // Use the socket's authenticated peer credentials for mount ownership,
         // so the client needs no mount privilege.
-        let peer = request
+        let cred = request
             .extensions()
             .get::<tonic::transport::server::UdsConnectInfo>()
             .and_then(|info| info.peer_cred)
-            .map(|cred| (cred.uid(), cred.gid()));
+            .expect("an accepted Unix socket carries its peer's credentials");
+        let peer = (cred.uid(), cred.gid());
 
         let (responses, stream) = tokio::sync::mpsc::channel(1);
 
-        tokio::spawn(crate::attachment::run(
+        self.attachments.spawn(crate::attachment::run(
             self.config.clone(),
             self.control.clone(),
             peer,
