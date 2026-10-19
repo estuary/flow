@@ -278,10 +278,11 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 	}
 
 	if s.store, err = s.svc.App.NewStore(s, s.recovery.recorder); err != nil {
-		if s.store == nil {
+		if s.store == nil && s.recovery.recorder != nil {
 			// s.store is nil, ergo its Destroy() will not be invoked by
-			// waitAndTearDown(), and we are responsible for best-effort
-			// cleanup of the playback directory now.
+			// waitAndTearDown(), and we are responsible for best-effort cleanup
+			// of the playback directory now. There's no directory to clean up
+			// if the shard has no recovery log.
 			_ = os.RemoveAll(s.recovery.recorder.Dir())
 		}
 		return cp, fmt.Errorf("app.NewStore: %w", err)

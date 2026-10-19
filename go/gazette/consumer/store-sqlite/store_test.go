@@ -134,6 +134,22 @@ func TestStoreCommitAndRecover(t *testing.T) {
 	cleanup()
 }
 
+func TestDestroyAfterFailedOpen(t *testing.T) {
+	var bk, cleanup = newBrokerAndLog(t)
+	defer cleanup()
+
+	var ajc = client.NewAppendService(context.Background(), bk.Client())
+	var fsm, _ = recoverylog.NewFSM(recoverylog.FSMHints{Log: aRecoveryLog})
+	var recorder = recoverylog.NewRecorder(aRecoveryLog, fsm, recoverylog.NewRandomAuthor(), t.TempDir(), ajc)
+	var store, err = NewStore(recorder)
+	require.NoError(t, err)
+
+	// Fail to open the page DB, leaving its column family handles nil.
+	store.PageDBOptions.SetCreateIfMissing(false)
+	require.Error(t, store.Open(""))
+	store.Destroy()
+}
+
 func TestParsingOfPageFileHeader(t *testing.T) {
 	var b = makePageFileHeader(1024, 1337133713)
 	var pageSize, pageCount, changeCtr, freeHead, freeCount = testParsePageFileHeader(b)

@@ -340,8 +340,11 @@ func (s *Store) Destroy() {
 	}
 
 	// Column family handles must be closed before the DB is.
+	// Handles are nil if Open failed or was never called.
 	for _, c := range s.PageDBColumns {
-		c.Destroy()
+		if c != nil {
+			c.Destroy()
+		}
 	}
 	s.PageDBColumns = nil
 

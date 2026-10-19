@@ -167,12 +167,16 @@ func TestShardAppNewStoreError(t *testing.T) {
 	defer cleanup()
 
 	tf.app.newStoreErr = errors.New("an error")
-	tf.allocateShard(makeShard(shardA), localID)
 
-	require.Equal(t, "completeRecovery: app.NewStore: an error",
-		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
+	// Shards with and without a recovery log (and Recorder) fail cleanly.
+	for _, spec := range []*pc.ShardSpec{makeShard(shardA), makeRemoteShard(shardA)} {
+		tf.allocateShard(spec, localID)
 
-	tf.allocateShard(makeShard(shardA)) // Cleanup.
+		require.Equal(t, "completeRecovery: app.NewStore: an error",
+			expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
+
+		tf.allocateShard(spec) // Cleanup.
+	}
 }
 
 func TestShardAppNewMessageFails(t *testing.T) {
