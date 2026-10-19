@@ -1,0 +1,9 @@
+collections:
+  acmeCo/vmm-python/greetings:
+    schema:
+      type: object
+      properties:
+        ts: { type: string, format: date-time }
+        message: { type: string }
+      required: [ts, message]
+    key: [/ts]

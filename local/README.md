@@ -439,6 +439,20 @@ point straight at this stack's Supabase Postgres (`db:5432` inside the network
 — the container-internal port is always 5432 regardless of the host-published port);
 other services must be `docker network connect supabase_network_<stack>`'d first.
 
+## Connector VMMs are opt-in
+
+`local:stack` never configures VMM execution: its reactor has no
+`CONNECTOR_VMM_*` settings, so a task selecting `vmm: true` is refused there,
+and nothing in it needs KVM, rootful podman or sudo. The one way to run VMM
+tasks on a stack is `mise run ci:connector-vmm-kvm --platform`, which needs all
+three. It refuses while this stack is running, then starts it with a drop-in,
+`flow-reactor@<dp>-<port>.service.d/connector-vmm.conf`, adding the VMM
+settings to the reactor's environment. It previews and publishes a Python
+derivation through flowctl and the reactor, then stops the stack.
+See [`crates/connector-vmm-tests`](../crates/connector-vmm-tests/README.md#coverage-and-entry-points),
+and [`docs/connector-vmm/operating.md`](../docs/connector-vmm/operating.md)
+for what a production host needs instead.
+
 ## Provisioning tenant credentials
 
 `local:test-tenant` provisions through GraphQL `tenantCreate`. For a new tenant,
