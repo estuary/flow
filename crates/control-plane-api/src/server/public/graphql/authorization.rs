@@ -31,7 +31,7 @@ impl async_graphql::extensions::Extension for AuthorizationErrors {
             let options = bundle_options(denial.capability);
             let descriptions: Vec<_> = options.iter().map(|option| option.join(" + ")).collect();
             error.message.push_str(&format!(
-                ". Requires bundles: {}",
+                ". Requires capabilities: {}",
                 descriptions.join(" or ")
             ));
             let extensions = error.extensions.get_or_insert_with(Default::default);
@@ -153,76 +153,85 @@ mod tests {
         ));
         assert!(retry.errors[0].extensions.is_none());
 
-        let response = schema.execute("{ denied hidden unavailable }").await;
+        // Resolver errors abort query execution, so exercise each error independently.
+        let denied = schema.execute("{ denied }").await;
+        let hidden = schema.execute("{ hidden }").await;
+        let unavailable = schema.execute("{ unavailable }").await;
         assert!(
-            response
-                .errors
-                .iter()
-                .any(|error| error.source::<super::AuthorizationDenied>().is_some())
+            denied.errors[0]
+                .source::<super::AuthorizationDenied>()
+                .is_some()
         );
-        assert!(
-            response
-                .errors
-                .iter()
-                .any(|error| error.source::<crate::ApiError>().is_some())
-        );
-        insta::assert_json_snapshot!(response, @r#"
-        {
-          "data": {
-            "denied": null,
-            "hidden": null,
-            "unavailable": null
-          },
-          "errors": [
-            {
-              "message": "billing access denied. Requires bundles: billing or admin",
-              "locations": [
-                {
-                  "line": 1,
-                  "column": 3
-                }
-              ],
-              "path": [
-                "denied"
-              ],
-              "extensions": {
-                "code": "FORBIDDEN",
-                "requiredBundleOptions": [
-                  [
-                    "billing"
-                  ],
-                  [
-                    "admin"
+        assert!(matches!(
+            unavailable.errors[0].source::<crate::ApiError>(),
+            Some(crate::ApiError::Status(status)) if status.code() == tonic::Code::Unavailable
+        ));
+        let responses = [denied, hidden, unavailable];
+        insta::assert_json_snapshot!(responses, @r#"
+        [
+          {
+            "data": null,
+            "errors": [
+              {
+                "message": "billing access denied. Requires capabilities: billing or admin",
+                "locations": [
+                  {
+                    "line": 1,
+                    "column": 3
+                  }
+                ],
+                "path": [
+                  "denied"
+                ],
+                "extensions": {
+                  "code": "FORBIDDEN",
+                  "requiredBundleOptions": [
+                    [
+                      "billing"
+                    ],
+                    [
+                      "admin"
+                    ]
                   ]
+                }
+              }
+            ]
+          },
+          {
+            "data": null,
+            "errors": [
+              {
+                "message": "service account API key not found",
+                "locations": [
+                  {
+                    "line": 1,
+                    "column": 3
+                  }
+                ],
+                "path": [
+                  "hidden"
                 ]
               }
-            },
-            {
-              "message": "service account API key not found",
-              "locations": [
-                {
-                  "line": 1,
-                  "column": 10
-                }
-              ],
-              "path": [
-                "hidden"
-              ]
-            },
-            {
-              "message": "Unavailable: temporarily unavailable",
-              "locations": [
-                {
-                  "line": 1,
-                  "column": 17
-                }
-              ],
-              "path": [
-                "unavailable"
-              ]
-            }
-          ]
-        }
+            ]
+          },
+          {
+            "data": null,
+            "errors": [
+              {
+                "message": "Unavailable: temporarily unavailable",
+                "locations": [
+                  {
+                    "line": 1,
+                    "column": 3
+                  }
+                ],
+                "path": [
+                  "unavailable"
+                ]
+              }
+            ]
+          }
+        ]
         "#);
     }
 }

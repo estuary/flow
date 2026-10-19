@@ -23,7 +23,7 @@ expression: unauthorized_delete
           "line": 3
         }
       ],
-      "message": "PermissionDenied: bob@example.test is not authorized to access prefix or name 'aliceCo/'. Requires bundles: team_admin or admin",
+      "message": "PermissionDenied: bob@example.test is not authorized to access prefix or name 'aliceCo/'. Requires capabilities: team_admin or admin",
       "path": [
         "deleteInviteLink"
       ]

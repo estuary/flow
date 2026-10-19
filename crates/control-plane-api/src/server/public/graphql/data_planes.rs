@@ -1698,7 +1698,7 @@ mod tests {
             .await;
         assert_eq!(
             first_error_message(&denied),
-            "PermissionDenied: alice@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1'. Requires bundles: manage_data_plane or admin",
+            "PermissionDenied: alice@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1'. Requires capabilities: manage_data_plane or admin",
         );
     }
 
@@ -1944,7 +1944,7 @@ mod tests {
             .await;
         assert_eq!(
             first_error_message(&bob_denied),
-            "PermissionDenied: bob@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1'. Requires bundles: manage_data_plane or admin",
+            "PermissionDenied: bob@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1'. Requires capabilities: manage_data_plane or admin",
         );
 
         // An id-addressed mutation on a link Bob may not modify must return the
