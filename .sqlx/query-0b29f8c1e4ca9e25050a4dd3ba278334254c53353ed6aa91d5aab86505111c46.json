@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "with add_history as (\n            insert into alert_history\n            (id, catalog_name, alert_type, fired_at, arguments)\n            values ($1, $2::catalog_name, $3, $4, $5)\n            returning id\n        )\n        insert into internal.tasks (task_id, task_type, parent_id, wake_at, inbox)\n        select\n            id,\n            9,\n            '0000000000000000'::flowid,\n            now(),\n            array[json_build_array('0000000000000000', '{\"event\": \"fired\"}'::json)]\n        from add_history\n            ",
+  "query": "with add_history as (\n            insert into alert_history\n            (id, catalog_name, alert_type, fired_at, arguments, resolved_at)\n            values ($1, $2::catalog_name, $3, $4, $5, $6)\n            returning id\n        )\n        insert into internal.tasks (task_id, task_type, parent_id, wake_at, inbox)\n        select\n            id,\n            9,\n            '0000000000000000'::flowid,\n            now(),\n            array[json_build_array('0000000000000000', '{\"event\": \"fired\"}'::json)]\n        from add_history\n            ",
   "describe": {
     "columns": [],
     "parameters": {
@@ -45,10 +45,11 @@
           }
         },
         "Timestamptz",
-        "Jsonb"
+        "Jsonb",
+        "Timestamptz"
       ]
     },
     "nullable": []
   },
-  "hash": "f9bdb488910b3c0207875e2b133dd84483d6338e50f55c3c74b9758bd13a3d34"
+  "hash": "0b29f8c1e4ca9e25050a4dd3ba278334254c53353ed6aa91d5aab86505111c46"
 }

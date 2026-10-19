@@ -78,7 +78,7 @@ impl<ES: EmailSender> AlertNotifications<ES> {
         }
 
         tracing::info!(%email_count, %is_resolved, "finished sending alert notifications");
-        if is_resolved {
+        if is_resolved || alert_state.alert_type.is_event() {
             Ok(AlertOutcome::ResolvedSent)
         } else {
             state.fired_completed = Some(Utc::now());
@@ -247,7 +247,12 @@ impl<ES: EmailSender> Executor for AlertNotifications<ES> {
             .record("alert_type", alert.alert_type.name())
             .record("fired_at", alert.fired_at.to_rfc3339());
 
-        let is_resolved = alert.resolved_at.is_some();
+        if alert.alert_type.is_event() && state.fired_completed.is_some() {
+            inbox.clear();
+            return Ok(AlertOutcome::ResolvedSent);
+        }
+
+        let is_resolved = alert.resolved_at.is_some() && !alert.alert_type.is_event();
         if state.fired_completed.is_some() && !is_resolved {
             tracing::info!(
                 "AlertNotifications task polled after fired sent and before resolved, nothing to do"
@@ -305,7 +310,11 @@ fn into_alert_state(alert: Alert) -> notifications::AlertState {
         catalog_name: models::Name::new(catalog_name),
         alert_type,
         fired_at,
-        resolved_at,
+        resolved_at: if alert_type.is_event() {
+            None
+        } else {
+            resolved_at
+        },
         arguments: arguments.0,
         resolved_arguments: resolved_arguments.map(|ra| ra.0).unwrap_or_default(),
     }

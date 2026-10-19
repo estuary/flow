@@ -45,6 +45,14 @@ impl std::fmt::Display for AlertType {
 }
 
 impl AlertType {
+    /// Events complete when recorded and send only their firing notification.
+    pub fn is_event(&self) -> bool {
+        matches!(
+            self,
+            Self::BindingsAutoDisabled | Self::TaskAutoDisabledFailing | Self::TaskAutoDisabledIdle
+        )
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             AlertType::AutoDiscoverFailed => "auto_discover_failed",
@@ -160,7 +168,7 @@ impl AlertType {
                 "Triggers when an automated background publication fails. Affected tasks are unlikely to function until the issue is addressed."
             }
             AlertType::BindingsAutoDisabled => {
-                "Triggers when a materialization binding is automatically disabled because of an incompatible schema change, and resolves when every such binding is re-enabled or removed."
+                "Reports each batch of materialization bindings automatically disabled because of an incompatible schema change."
             }
         }
     }
@@ -287,3 +295,23 @@ pub struct ControllerAlert {
 }
 
 pub type Alerts = BTreeMap<AlertType, ControllerAlert>;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_event_alert_types() {
+        use super::AlertType;
+        assert_eq!(
+            AlertType::all()
+                .iter()
+                .copied()
+                .filter(AlertType::is_event)
+                .collect::<Vec<_>>(),
+            [
+                AlertType::TaskAutoDisabledFailing,
+                AlertType::TaskAutoDisabledIdle,
+                AlertType::BindingsAutoDisabled
+            ]
+        );
+    }
+}

@@ -80,6 +80,7 @@ type Alert {
 	firedAt: DateTime!
 	"""
 	The time at which the alert was resolved, or null if it is still active.
+	Event alerts complete when recorded, with `resolved_at` equal to `fired_at`.
 	"""
 	resolvedAt: DateTime
 	"""

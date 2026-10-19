@@ -2,8 +2,6 @@ use super::template_names;
 use anyhow::Context;
 
 pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyhow::Result<()> {
-    // Only fired templates: the alert resolves when the user re-enables or
-    // removes the bindings, which needs no notification.
     let (fired_subject, fired_body) =
         template_names(models::status::AlertType::BindingsAutoDisabled, false);
     registry

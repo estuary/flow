@@ -97,7 +97,75 @@ async fn test_bindings_auto_disabled() {
         .await;
     assert!(result.status.is_success(), "{:?}", result.errors);
 
+    // A second publication joins the same consumed batch.
+    let mut batch = materialization(
+        json!({
+            "resource": {"_meta": {"path": ["sightings"]}, "table": "sightings"},
+            "source": "ravens/sightings", "fields": {"groupBy": ["region"], "recommended": true},
+            "disable": true,
+        }),
+        0,
+    );
+    batch["ravens/materialize"]["bindings"][1]["fields"] =
+        json!({"groupBy": ["region"], "recommended": true});
+    let result = harness
+        .user_publication(
+            user_id,
+            "change nests group-by",
+            draft_catalog(json!({"materializations": batch})),
+        )
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+
+    // Fail at commit, after the executor has applied the outcome and inbox consumption.
+    let controller_id: models::Id = sqlx::query_scalar(
+        "select controller_task_id from live_specs where catalog_name = 'ravens/materialize'",
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .unwrap();
+    let before: serde_json::Value = sqlx::query_scalar(
+        "select jsonb_build_object('task', to_jsonb(t), 'job', to_jsonb(c)) from internal.tasks t join controller_jobs c on c.live_spec_id = (select id from live_specs where controller_task_id = t.task_id) where t.task_id = $1")
+        .bind(controller_id).fetch_one(&harness.pool).await.unwrap();
+    let inbox = sqlx::query_scalar("select inbox from internal.tasks where task_id = $1")
+        .bind(controller_id)
+        .fetch_one(&harness.pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql("create function public.reject_binding_event() returns trigger language plpgsql as $$ begin raise exception 'injected event commit failure'; end $$; create constraint trigger reject_binding_event after insert on alert_history deferrable initially deferred for each row when (new.alert_type = 'bindings_auto_disabled') execute function public.reject_binding_event();")
+        .execute(&harness.pool).await.unwrap();
+    let failed = automations::executors::ObjSafe::poll(
+        &harness.controller_exec,
+        &harness.pool,
+        controller_id,
+        None,
+        None,
+        inbox,
+    )
+    .await;
+    sqlx::raw_sql("drop function public.reject_binding_event() cascade")
+        .execute(&harness.pool)
+        .await
+        .unwrap();
+    assert!(format!("{:#}", failed.unwrap_err()).contains("injected event commit failure"));
+    let after: serde_json::Value = sqlx::query_scalar(
+        "select jsonb_build_object('task', to_jsonb(t), 'job', to_jsonb(c)) from internal.tasks t join controller_jobs c on c.live_spec_id = (select id from live_specs where controller_task_id = t.task_id) where t.task_id = $1")
+        .bind(controller_id).fetch_one(&harness.pool).await.unwrap();
+    assert_eq!(
+        before, after,
+        "rollback must retain status and the unconsumed inbox"
+    );
+    let counts: (i64, i64) = sqlx::query_as("select (select count(*) from alert_history where alert_type = 'bindings_auto_disabled'), (select count(*) from internal.tasks where task_type = 9)")
+        .fetch_one(&harness.pool).await.unwrap();
+    assert_eq!(counts, (0, 0));
+
+    // An ordinary controller error still commits the binding event.
+    harness
+        .control_plane()
+        .fail_next_activation("ravens/materialize");
     let state = harness.run_pending_controller("ravens/materialize").await;
+    assert!(state.failures > 0);
+    harness.control_plane().reset_activations();
     let model = state
         .live_spec
         .as_ref()
@@ -118,21 +186,30 @@ async fn test_bindings_auto_disabled() {
         "reason": "incompatible_schema_change",
         "detail": "group-by key changed from [\"id\"] to [\"region\"]",
         "pub_id": "[pub_id]"
+      },
+      {
+        "resource_path": [
+          "nests"
+        ],
+        "collection": "ravens/nests",
+        "reason": "incompatible_schema_change",
+        "detail": "group-by key changed from [\"id\"] to [\"region\"]",
+        "pub_id": "[pub_id]"
       }
     ]
     "#
     );
 
     let alert = harness
-        .assert_alert_firing("ravens/materialize", AlertType::BindingsAutoDisabled)
+        .assert_alert_event("ravens/materialize", AlertType::BindingsAutoDisabled)
         .await;
     alert.assert_emails_sent(&["ravens@bindings_auto_disabled.test"]);
     assert_eq!(
-        Some("1 binding disabled because of an incompatible schema change"),
+        Some("2 bindings disabled because of incompatible schema changes"),
         alert.error_arg_value()
     );
     assert_eq!(
-        1,
+        2,
         alert.alert.arguments.0["bindings"]
             .as_array()
             .unwrap()
@@ -166,6 +243,14 @@ async fn test_bindings_auto_disabled() {
                       "resourcePath": [
                         "sightings"
                       ]
+                    },
+                    {
+                      "collection": "ravens/nests",
+                      "detail": "group-by key changed from [\"id\"] to [\"region\"]",
+                      "reason": "INCOMPATIBLE_SCHEMA_CHANGE",
+                      "resourcePath": [
+                        "nests"
+                      ]
                     }
                   ]
                 }
@@ -177,61 +262,125 @@ async fn test_bindings_auto_disabled() {
     }
     "#);
 
-    // A publication which changes only the other binding leaves the sightings
-    // binding disabled, and its alert firing.
-    let result = harness
-        .user_publication(
-            user_id,
-            "change nests priority",
-            materialization_draft(
-                json!({
-                    "resource": { "_meta": { "path": ["sightings"] }, "table": "sightings" },
-                    "source": "ravens/sightings",
-                    "fields": { "groupBy": ["region"], "recommended": true },
-                    "disable": true,
-                }),
-                1,
-            ),
-        )
-        .await;
-    assert!(result.status.is_success(), "{:?}", result.errors);
-
-    let state = harness.run_pending_controller("ravens/materialize").await;
-    let status = state.current_status.unwrap_materialization();
-    assert_eq!(1, status.auto_disabled_bindings.len());
-    assert!(status.alerts.contains_key(&AlertType::BindingsAutoDisabled));
-
-    // Re-enable the binding with a backfill, which rebuilds it under its new
-    // group-by. The binding stays enabled, and the alert resolves.
-    let result = harness
-        .user_publication(
-            user_id,
-            "re-enable with backfill",
-            materialization_draft(
-                json!({
-                    "resource": { "_meta": { "path": ["sightings"] }, "table": "sightings" },
-                    "source": "ravens/sightings",
-                    "fields": { "groupBy": ["region"], "recommended": true },
-                    "backfill": 1,
-                }),
-                1,
-            ),
-        )
-        .await;
-    assert!(result.status.is_success(), "{:?}", result.errors);
-
-    let state = harness.run_pending_controller("ravens/materialize").await;
-    let model = state
+    let mut model = state
         .live_spec
         .as_ref()
         .unwrap()
         .as_materialization()
-        .unwrap();
-    assert!(!model.bindings[0].disable);
-    assert_eq!(1, model.bindings[0].backfill);
-    let status = state.current_status.unwrap_materialization();
-    assert!(status.auto_disabled_bindings.is_empty());
+        .unwrap()
+        .clone();
+    // Re-enable B while A stays disabled. Re-enablement sends no event.
+    model.bindings[1].disable = false;
+    model.bindings[1].backfill = 1;
+    let result = harness
+        .user_publication(
+            user_id,
+            "re-enable nests",
+            draft_catalog(json!({"materializations": {"ravens/materialize": model}})),
+        )
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+    let state = harness.run_pending_controller("ravens/materialize").await;
+    assert_eq!(
+        state
+            .current_status
+            .unwrap_materialization()
+            .auto_disabled_bindings
+            .len(),
+        1
+    );
 
-    let resolved = harness.assert_alert_resolved(alert.alert.id).await;
-    resolved.assert_emails_sent(&[]);
+    // A later disabling batch notifies about B alone, even though A remains disabled.
+    let mut model = state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_materialization()
+        .unwrap()
+        .clone();
+    model.bindings[1].fields.group_by = vec![models::Field::new("id")];
+    let result = harness
+        .user_publication(
+            user_id,
+            "disable nests again",
+            draft_catalog(json!({"materializations": {"ravens/materialize": model}})),
+        )
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+    let state = harness.run_pending_controller("ravens/materialize").await;
+    assert_eq!(
+        state
+            .current_status
+            .unwrap_materialization()
+            .auto_disabled_bindings
+            .len(),
+        2
+    );
+    let later = harness
+        .assert_alert_event("ravens/materialize", AlertType::BindingsAutoDisabled)
+        .await;
+    assert_ne!(alert.alert.id, later.alert.id);
+    later.assert_emails_sent(&["ravens@bindings_auto_disabled.test"]);
+    let bindings = later.alert.arguments.0["bindings"].as_array().unwrap();
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(bindings[0]["resource_path"], json!(["nests"]));
+
+    // An unrelated publication retains explanations without replaying an event.
+    let mut model = state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_materialization()
+        .unwrap()
+        .clone();
+    model.bindings[1].priority += 1;
+    let result = harness
+        .user_publication(
+            user_id,
+            "change nests priority",
+            draft_catalog(json!({"materializations": {"ravens/materialize": model}})),
+        )
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+    let state = harness.run_pending_controller("ravens/materialize").await;
+    assert_eq!(
+        state
+            .current_status
+            .unwrap_materialization()
+            .auto_disabled_bindings
+            .len(),
+        2
+    );
+    let count: i64 = sqlx::query_scalar("select count(*) from alert_history where catalog_name = 'ravens/materialize' and alert_type = 'bindings_auto_disabled'")
+        .fetch_one(&harness.pool).await.unwrap();
+    assert_eq!(count, 2);
+
+    let mut model = state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_materialization()
+        .unwrap()
+        .clone();
+    for binding in &mut model.bindings {
+        binding.disable = false;
+        binding.backfill += 1;
+    }
+    let result = harness
+        .user_publication(
+            user_id,
+            "re-enable all with backfills",
+            draft_catalog(json!({"materializations": {"ravens/materialize": model}})),
+        )
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+    let state = harness.run_pending_controller("ravens/materialize").await;
+    assert!(
+        state
+            .current_status
+            .unwrap_materialization()
+            .auto_disabled_bindings
+            .is_empty()
+    );
+    assert!(harness.alert_sender.take_sent().await.is_empty());
 }

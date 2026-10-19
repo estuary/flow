@@ -59,6 +59,7 @@ pub struct Alert {
     /// Time at which the alert became active.
     pub fired_at: DateTime<Utc>,
     /// The time at which the alert was resolved, or null if it is still active.
+    /// Event alerts complete when recorded, with `resolved_at` equal to `fired_at`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<DateTime<Utc>>,
     /// The alert arguments contain additional details about the alert, which
@@ -207,8 +208,8 @@ async fn fire_alert(
     sqlx::query!(
         r#"with add_history as (
             insert into alert_history
-            (id, catalog_name, alert_type, fired_at, arguments)
-            values ($1, $2::catalog_name, $3, $4, $5)
+            (id, catalog_name, alert_type, fired_at, arguments, resolved_at)
+            values ($1, $2::catalog_name, $3, $4, $5, $6)
             returning id
         )
         insert into internal.tasks (task_id, task_type, parent_id, wake_at, inbox)
@@ -225,6 +226,7 @@ async fn fire_alert(
         alert_type as AlertType,
         fired_at,
         Json(arguments) as Json<ArgsObject>,
+        alert_type.is_event().then_some(fired_at),
     )
     .execute(txn)
     .await?;
@@ -270,10 +272,9 @@ async fn resolve_alert(
     Ok(())
 }
 
-/// Cleans up all open alerts for a catalog name: sets `resolved_at` and deletes
-/// the associated notification tasks. Unlike `resolve_alert`, this does not send
-/// resolution notifications. Used when a spec is being deleted.
-pub async fn cleanup_open_alerts(
+/// Resolves open alerts and cancels their delivery, including pending event
+/// notifications. Retains history without sending resolution notifications.
+pub async fn cleanup_alerts_for_deleted_spec(
     catalog_name: &str,
     txn: &mut sqlx::PgConnection,
 ) -> anyhow::Result<()> {
@@ -291,19 +292,26 @@ pub async fn cleanup_open_alerts(
     .fetch_all(&mut *txn)
     .await?;
 
-    if resolved_ids.is_empty() {
-        return Ok(());
-    }
-
     let count = resolved_ids.len();
 
     // Delete the associated notification tasks so they don't sit suspended.
     sqlx::query!(
         r#"
         delete from internal.tasks t
-        where t.task_id = any($1::flowid[])
+        where t.task_type = 9
+          and (t.task_id = any($1::flowid[])
+            or t.task_id in (
+                select id from alert_history
+                where catalog_name = $2 and alert_type = any($3::alert_type[])
+            ))
         "#,
         resolved_ids as Vec<models::Id>,
+        catalog_name,
+        AlertType::all()
+            .iter()
+            .copied()
+            .filter(AlertType::is_event)
+            .collect::<Vec<_>>() as Vec<AlertType>,
     )
     .execute(&mut *txn)
     .await?;

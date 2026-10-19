@@ -890,9 +890,37 @@ async fn test_spec_deletion_cleans_up_alerts() {
         .assert_alert_firing("foxes/capture", AlertType::ShardFailed)
         .await;
 
+    let event_time = chrono::Utc::now();
+    let event_ids = [
+        models::Id::new([31; 8]),
+        models::Id::new([32; 8]),
+        models::Id::new([33; 8]),
+    ];
+    let mut txn = harness.pool.begin().await.unwrap();
+    control_plane_api::alerts::apply_alert_actions(
+        event_ids
+            .iter()
+            .zip(["foxes/capture", "foxes/den", "foxes/other"])
+            .map(|(id, name)| {
+                control_plane_api::alerts::AlertAction::Fire(control_plane_api::alerts::FireAlert {
+                    id: *id,
+                    catalog_name: name.to_string(),
+                    alert_type: AlertType::TaskAutoDisabledIdle,
+                    fired_at: event_time,
+                    base_arguments: Default::default(),
+                })
+            })
+            .collect(),
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
     // Delete the capture.
     let mut draft = tables::DraftCatalog::default();
     draft.delete("foxes/capture", CatalogType::Capture, None);
+    draft.delete("foxes/den", CatalogType::Collection, None);
     let del_result = harness
         .user_publication(user_id, "delete capture", draft)
         .await;
@@ -900,6 +928,30 @@ async fn test_spec_deletion_cleans_up_alerts() {
 
     harness.run_pending_controllers(None).await;
     harness.assert_live_spec_hard_deleted("foxes/capture").await;
+    harness.assert_live_spec_hard_deleted("foxes/den").await;
+    for id in event_ids {
+        let history = control_plane_api::alerts::fetch_alert_by_id(id, &harness.pool)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(history.resolved_at, Some(history.fired_at));
+        assert_eq!(
+            history.fired_at.timestamp_micros(),
+            event_time.timestamp_micros()
+        );
+    }
+    let remaining: Vec<models::Id> = sqlx::query_scalar(
+        "select task_id from internal.tasks where task_id = any($1::flowid[]) order by task_id",
+    )
+    .bind(&event_ids[..])
+    .fetch_all(&harness.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        remaining,
+        [event_ids[2]],
+        "cleanup must preserve the unrelated event task"
+    );
 
     // The GQL active alerts query should no longer include the shard_failed alert.
     let active_after: serde_json::Value = harness

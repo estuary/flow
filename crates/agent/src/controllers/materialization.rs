@@ -34,6 +34,7 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::MaterializationDef,
     alert_cfg: &ResolvedAlertConfig,
+    alert_events: &mut models::status::Alerts,
 ) -> anyhow::Result<Option<NextRun>> {
     publication_status::clear_pending_publication_next_after(&mut status.publications);
 
@@ -163,6 +164,7 @@ pub async fn update<C: ControlPlane>(
         state,
         control_plane,
         alert_cfg,
+        alert_events,
     )
     .await;
 
@@ -192,20 +194,17 @@ pub async fn update<C: ControlPlane>(
     )
 }
 
-/// Records the bindings which publications disabled due to
-/// `onIncompatibleSchemaChange`, as reported by their `SpecPublished` messages,
-/// and fires the `BindingsAutoDisabled` alert while any of them remain
-/// disabled in the live `model`.
+/// Retains explanations for bindings still disabled in `model` and collects
+/// one event from the `SpecPublished` reports consumed in this run.
 ///
-/// The executor consumes inbox messages whether or not the controller update
-/// succeeds, so this must run before anything which can fail or return early.
-/// A publication commits its `SpecPublished` message and live spec together,
-/// so `model` reflects every publication which sent a message in `events`.
+/// The executor consumes inbox messages even after an ordinary controller
+/// error, so this must run before fallible controller work.
 pub fn update_auto_disabled_bindings(
     status: &mut MaterializationStatus,
     events: &Inbox,
     model: &models::MaterializationDef,
     now: DateTime<Utc>,
+    alert_events: &mut Alerts,
 ) {
     let published = events.iter().filter_map(|(_, message)| match message {
         Some(Message::SpecPublished {
@@ -214,7 +213,8 @@ pub fn update_auto_disabled_bindings(
         }) => Some(auto_disabled_bindings),
         _ => None,
     });
-    for binding in published.flatten() {
+    let new_bindings = published.flatten().cloned().collect::<Vec<_>>();
+    for binding in &new_bindings {
         status
             .auto_disabled_bindings
             .retain(|b| b.resource_path != binding.resource_path);
@@ -232,22 +232,19 @@ pub fn update_auto_disabled_bindings(
         .auto_disabled_bindings
         .retain(|b| disabled.contains(&b.resource_path));
 
-    if status.auto_disabled_bindings.is_empty() {
-        alerts::resolve_alert(&mut status.alerts, AlertType::BindingsAutoDisabled);
+    if new_bindings.is_empty() {
         return;
     }
     alerts::set_alert_firing(
-        &mut status.alerts,
+        alert_events,
         AlertType::BindingsAutoDisabled,
         now,
-        AutoDisabledBinding::describe(&status.auto_disabled_bindings),
-        status.auto_disabled_bindings.len() as u32,
+        AutoDisabledBinding::describe(&new_bindings),
+        new_bindings.len() as u32,
         models::CatalogType::Materialization,
     );
-    let bindings = serde_json::to_value(&status.auto_disabled_bindings)
-        .expect("auto-disabled bindings serialize");
-    status
-        .alerts
+    let bindings = serde_json::to_value(&new_bindings).expect("auto-disabled bindings serialize");
+    alert_events
         .get_mut(&AlertType::BindingsAutoDisabled)
         .expect("alert is firing")
         .extra
@@ -521,55 +518,45 @@ mod test {
         .into()
     }
 
-    fn summarize(status: &MaterializationStatus) -> (Vec<String>, Option<(u32, String)>) {
-        (
-            status
-                .auto_disabled_bindings
-                .iter()
-                .map(|b| format!("{}: {}", b.resource_path.join("."), b.detail))
-                .collect(),
-            status
-                .alerts
-                .get(&AlertType::BindingsAutoDisabled)
-                .map(|alert| (alert.count, alert.extra[EXTRA_BINDINGS].to_string())),
-        )
-    }
-
     #[test]
     fn test_update_auto_disabled_bindings() {
         let now: DateTime<Utc> = "2026-10-14T18:00:00Z".parse().unwrap();
         let mut status = MaterializationStatus::default();
         let mut model = models::MaterializationDef::example();
+        let mut events = Alerts::new();
 
-        // A publication disables `a` and `b`.
         model.bindings = vec![binding("a", true), binding("b", true), binding("c", false)];
-        update_auto_disabled_bindings(&mut status, &published(1, &["a", "b"]), &model, now);
-        let (paths, alert) = summarize(&status);
-        assert_eq!(paths, ["a: publication 1", "b: publication 1"]);
-        assert_eq!(alert.unwrap().0, 2);
-
-        // A later publication removes `b` and disables `a` again,
-        // which replaces its entry.
-        model.bindings = vec![binding("a", true), binding("c", false)];
-        update_auto_disabled_bindings(&mut status, &published(2, &["a"]), &model, now);
-        let (paths, alert) = summarize(&status);
-        assert_eq!(paths, ["a: publication 2"]);
-        let (count, bindings) = alert.unwrap();
-        assert_eq!(count, 1);
-        assert!(bindings.contains("publication 2"), "{bindings}");
-        assert_eq!(
-            status.alerts[&AlertType::BindingsAutoDisabled].first_ts,
+        update_auto_disabled_bindings(
+            &mut status,
+            &published(1, &["a", "b"]),
+            &model,
             now,
-            "alert remains open"
+            &mut events,
         );
+        assert_eq!(status.auto_disabled_bindings.len(), 2);
+        assert_eq!(events[&AlertType::BindingsAutoDisabled].count, 2);
+        assert!(!status.alerts.contains_key(&AlertType::BindingsAutoDisabled));
 
-        // A run without messages leaves the entry of the still-disabled `a`.
-        update_auto_disabled_bindings(&mut status, &Inbox::new(), &model, now);
-        assert_eq!(summarize(&status).0, ["a: publication 2"]);
+        // The event contains both publications, including reports pruned from status.
+        events.clear();
+        model.bindings = vec![binding("a", true), binding("c", false)];
+        let mut inbox = published(2, &["a"]);
+        inbox.extend(published(3, &["b", "c", "d"]));
+        update_auto_disabled_bindings(&mut status, &inbox, &model, now, &mut events);
+        assert_eq!(status.auto_disabled_bindings.len(), 1);
+        assert_eq!(status.auto_disabled_bindings[0].detail, "publication 2");
+        let event = &events[&AlertType::BindingsAutoDisabled];
+        assert_eq!(event.count, 4);
+        assert_eq!(event.extra[EXTRA_BINDINGS].as_array().unwrap().len(), 4);
 
-        // `a` is re-enabled, which resolves the alert.
+        events.clear();
+        update_auto_disabled_bindings(&mut status, &Inbox::new(), &model, now, &mut events);
+        assert_eq!(status.auto_disabled_bindings.len(), 1);
+        assert!(events.is_empty());
+
         model.bindings[0].disable = false;
-        update_auto_disabled_bindings(&mut status, &Inbox::new(), &model, now);
-        assert_eq!(summarize(&status), (Vec::<String>::new(), None));
+        update_auto_disabled_bindings(&mut status, &Inbox::new(), &model, now, &mut events);
+        assert!(status.auto_disabled_bindings.is_empty());
+        assert!(events.is_empty());
     }
 }
