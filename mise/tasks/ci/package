@@ -25,9 +25,11 @@ ln $(which sops) ${PACKAGE_DIR}/sops
 ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/derive-python ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/derive-typescript ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/flow-connector-init ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/flow-guest-init ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/flow-parser ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/release/agent ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/release/flow-config-encryption ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/release/flow-connector-vmm ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/release/data-plane-controller ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/release/dekaf ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/release/flowctl ${PACKAGE_DIR}/
@@ -41,3 +43,4 @@ cp crates/flow-web/pkg/estuary-flow-web-*.tgz ${HOME}/flow-package/estuary-flow-
 cp crates/data-plane-controller/entrypoint.sh ${PACKAGE_DIR}/data-plane-controller-entrypoint.sh
 cp crates/oidc-discovery-server/entrypoint.sh ${PACKAGE_DIR}/oidc-discovery-server-entrypoint.sh
 cp crates/agent/api-entrypoint.sh ${PACKAGE_DIR}/agent-api-entrypoint.sh
+cp crates/connector-vmm/fake-entrypoint.sh ${PACKAGE_DIR}/connector-vmm-fake-entrypoint.sh

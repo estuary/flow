@@ -1,0 +1,8 @@
+---
+source: crates/connector-vmm/src/launch.rs
+expression: report
+---
+the retained descriptor is at fd 3: true
+it still reads what it held: true
+the unrelated descriptor is closed: true
+the original descriptor number is closed: true

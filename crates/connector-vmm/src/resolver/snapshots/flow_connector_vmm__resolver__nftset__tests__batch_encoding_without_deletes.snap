@@ -1,0 +1,20 @@
+---
+source: crates/connector-vmm/src/resolver/nftset.rs
+expression: annotate(&batch)
+---
+byte 0: nlmsghdr len=20 type=NFNL_MSG_BATCH_BEGIN flags=REQUEST|ACK seq=1 pid=0
+     nfgenmsg family=0 version=0 res_id=10
+byte 20: nlmsghdr len=84 type=NFT_MSG_NEWSETELEM(subsys=10) flags=REQUEST|ACK|EXCL|CREATE seq=2 pid=0
+     nfgenmsg family=1 version=0 res_id=0
+     NFTA_SET_ELEM_LIST_TABLE len=16 666c6f775f65677265737300
+     NFTA_SET_ELEM_LIST_SET len=13 7265736f6c76656400
+     NFTA_SET_ELEM_LIST_ELEMENTS len=32
+       NFTA_LIST_ELEM len=28
+         NFTA_SET_ELEM_KEY len=12
+           NFTA_DATA_VALUE len=8 5db8d822
+         NFTA_SET_ELEM_TIMEOUT (be64 ms) len=12 0000000000015f90
+byte 104: nlmsghdr len=20 type=NFNL_MSG_BATCH_END flags=REQUEST|ACK seq=3 pid=0
+     nfgenmsg family=0 version=0 res_id=10
+
+124 bytes
+140000001000050001000000000000000000000a540000000c0a050602000000000000000100000010000100666c6f775f656772657373000d0002007265736f6c76656400000000200003801c0001800c000180080001005db8d8220c0004000000000000015f90140000001100050003000000000000000000000a

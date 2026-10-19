@@ -1,0 +1,119 @@
+---
+source: crates/connector-vmm/src/image.rs
+expression: table
+---
+## the full contract
+{
+  "Cmd": [
+    "/flow-guest-init",
+    "--guest-ip",
+    "192.0.2.2/30",
+    "--gateway",
+    "192.0.2.1",
+    "--nameserver",
+    "192.0.2.1",
+    "--uid",
+    "1000",
+    "--gid",
+    "1001",
+    "--supplementary-gid",
+    "1001",
+    "--supplementary-gid",
+    "1002",
+    "--supplementary-gid",
+    "1004",
+    "--connector-mount",
+    "/connector-mount",
+    "--",
+    "/connector-mount/flow-connector-init",
+    "--image-inspect-json-path=/connector-mount/image-inspect.json",
+    "--vsock-port=49092"
+  ],
+  "Env": [
+    "CONNECTOR_MOUNT=/connector-mount",
+    "LOG_FORMAT=json",
+    "LOG_LEVEL=warn",
+    "PATH=/usr/local/bin:/usr/bin",
+    "LOG_LEVEL=trace",
+    "CONNECTOR_MOUNT=/somewhere/else",
+    "HOME=/home/acmesvc"
+  ],
+  "WorkingDir": "/opt/acmeCo"
+}
+
+## the runtime set no log variables
+{
+  "Cmd": [
+    "/flow-guest-init",
+    "--guest-ip",
+    "192.0.2.2/30",
+    "--gateway",
+    "192.0.2.1",
+    "--nameserver",
+    "192.0.2.1",
+    "--uid",
+    "1000",
+    "--gid",
+    "1001",
+    "--supplementary-gid",
+    "1001",
+    "--supplementary-gid",
+    "1002",
+    "--supplementary-gid",
+    "1004",
+    "--connector-mount",
+    "/connector-mount",
+    "--",
+    "/connector-mount/flow-connector-init",
+    "--image-inspect-json-path=/connector-mount/image-inspect.json",
+    "--vsock-port=49092"
+  ],
+  "Env": [
+    "CONNECTOR_MOUNT=/connector-mount",
+    "PATH=/usr/local/bin:/usr/bin",
+    "LOG_LEVEL=trace",
+    "CONNECTOR_MOUNT=/somewhere/else",
+    "HOME=/home/acmesvc"
+  ],
+  "WorkingDir": "/opt/acmeCo"
+}
+
+## --run-as-root keeps the image user's identity and HOME
+{
+  "Cmd": [
+    "/flow-guest-init",
+    "--guest-ip",
+    "192.0.2.2/30",
+    "--gateway",
+    "192.0.2.1",
+    "--nameserver",
+    "192.0.2.1",
+    "--uid",
+    "1000",
+    "--gid",
+    "1001",
+    "--supplementary-gid",
+    "1001",
+    "--supplementary-gid",
+    "1002",
+    "--supplementary-gid",
+    "1004",
+    "--connector-mount",
+    "/connector-mount",
+    "--run-as-root",
+    "--as-root-exec",
+    "env",
+    "--",
+    "/connector-mount/flow-connector-init",
+    "--image-inspect-json-path=/connector-mount/image-inspect.json",
+    "--vsock-port=49092"
+  ],
+  "Env": [
+    "CONNECTOR_MOUNT=/connector-mount",
+    "PATH=/usr/local/bin:/usr/bin",
+    "LOG_LEVEL=trace",
+    "CONNECTOR_MOUNT=/somewhere/else",
+    "HOME=/home/acmesvc"
+  ],
+  "WorkingDir": "/opt/acmeCo"
+}
