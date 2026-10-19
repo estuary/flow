@@ -2067,8 +2067,10 @@ dependencies = [
  "async-process",
  "bytes",
  "connector-init",
+ "connector-vmm-tests",
  "dekaf-connector",
  "derive-sqlite",
+ "egress",
  "flow-client-next",
  "futures",
  "iam-auth",
@@ -2150,6 +2152,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "connector-vmm-tests"
+version = "0.0.0"
+dependencies = [
+ "insta",
 ]
 
 [[package]]
@@ -9746,6 +9755,7 @@ dependencies = [
  "assemble",
  "bytes",
  "doc",
+ "egress",
  "extractors",
  "futures",
  "insta",
