@@ -12,7 +12,7 @@ expression: response
           "line": 3
         }
       ],
-      "message": "PermissionDenied: user is not authorized to access prefix or name 'bobCo/nope' with required capability read",
+      "message": "PermissionDenied: user is not authorized to access prefix or name 'bobCo/nope'",
       "path": [
         "catalogStats"
       ]

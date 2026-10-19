@@ -122,7 +122,7 @@ pub fn evaluate_names_authorization<'r, Iter, S, C>(
 where
     Iter: IntoIterator<Item = S>,
     S: AsRef<str> + std::fmt::Display,
-    C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
+    C: Into<models::authz::CapabilitySet> + Copy,
 {
     let subject = claims.subject();
     let models::authorizations::ControlClaims {
@@ -139,7 +139,7 @@ where
             min_capability,
         ) {
             return Err(tonic::Status::permission_denied(format!(
-                "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
+                "{user_email} is not authorized to access prefix or name '{prefix_or_name}'",
             )));
         }
     }
@@ -429,8 +429,18 @@ mod tests {
         assert_eq!(status.code(), tonic::Code::PermissionDenied);
         assert_eq!(
             status.message(),
-            "user@example.test is not authorized to access prefix or name 'ops/' with required capability admin"
+            "user@example.test is not authorized to access prefix or name 'ops/'"
         );
+
+        // Capability bits stay internal even when the caller checks one directly.
+        let bit_denial = evaluate_names_authorization(
+            &snapshot,
+            &claims(user),
+            models::authz::Capability::EditBilling,
+            ["ops/"],
+        )
+        .unwrap_err();
+        assert_eq!(bit_denial.message(), status.message());
 
         // A read grant to `ops/` is not admin.
         let snapshot = snapshot_of_grants(&[(user, "ops/", Read)], &[]);

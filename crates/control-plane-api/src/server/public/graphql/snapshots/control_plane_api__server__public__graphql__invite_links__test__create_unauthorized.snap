@@ -23,7 +23,7 @@ expression: unauthorized_response
           "line": 3
         }
       ],
-      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAlice/' with required capability ManageInviteLinks. Requires bundles: team_admin or admin",
+      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAlice/'. Requires bundles: team_admin or admin",
       "path": [
         "createInviteLink"
       ]

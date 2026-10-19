@@ -20,6 +20,7 @@ The GraphQL layer owns signup validation and MSA consent.
 
 GraphQL terminal authorization failures carry an
 `authorization::AuthorizationDenied` source with the required capability bit.
+Authorization denial messages omit the internal capability bit.
 The schema's `AuthorizationErrors` extension expands it into bundle suggestions
 and `FORBIDDEN` error extensions. Custom resolver checks can emit this error
 without using `verify_authorization`; snapshot retries remain `ApiError::AuthZRetry`.

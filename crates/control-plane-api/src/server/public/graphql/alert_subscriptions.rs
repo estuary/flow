@@ -599,7 +599,7 @@ mod test {
                   "line": 2
                 }
               ],
-              "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceAtAll/' with required capability ManageAlerts. Requires bundles: team_admin or admin",
+              "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceAtAll/'. Requires bundles: team_admin or admin",
               "path": [
                 "alertSubscriptions"
               ]
@@ -646,7 +646,7 @@ mod test {
                   "line": 3
                 }
               ],
-              "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceAtAll/' with required capability ManageAlerts. Requires bundles: team_admin or admin",
+              "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceAtAll/'. Requires bundles: team_admin or admin",
               "path": [
                 "createAlertSubscription"
               ]
