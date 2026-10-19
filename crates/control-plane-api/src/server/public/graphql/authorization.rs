@@ -28,7 +28,7 @@ impl async_graphql::extensions::Extension for AuthorizationErrors {
             let Some(denial) = error.source::<AuthorizationDenied>() else {
                 continue;
             };
-            let options = bundle_options(denial.capability);
+            let options = bundles_containing_capability_bit(denial.capability);
             let descriptions: Vec<_> = options.iter().map(|option| option.join(" + ")).collect();
             error.message.push_str(&format!(
                 ". Requires capabilities: {}",
@@ -70,7 +70,7 @@ pub(super) async fn verify_authorization(
     }
 }
 
-fn bundle_options(required: models::authz::Capability) -> Vec<Vec<String>> {
+fn bundles_containing_capability_bit(required: models::authz::Capability) -> Vec<Vec<String>> {
     use models::authz::CapabilityBundle;
     let mut options: Vec<_> = <CapabilityBundle as strum::VariantArray>::VARIANTS
         .iter()
