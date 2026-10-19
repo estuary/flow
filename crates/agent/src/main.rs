@@ -58,16 +58,6 @@ struct Args {
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
-    /// Skip checking that connector images exist in the connectors table during publication.
-    // TODO(johnny): This flag is temporary, while we release data-plane enforcement
-    // of connector restrictions. Once released, we should remove this flag and remove
-    // all enforcement within the agent.
-    #[clap(
-        long = "skip-connector-table-check",
-        default_value = "false",
-        env = "SKIP_CONNECTOR_TABLE_CHECK"
-    )]
-    skip_connector_table_check: bool,
     /// Origin to allow in CORS contexts. May be specified multiple times.
     #[clap(long = "allow-origin")]
     allow_origin: Vec<String>,
@@ -328,16 +318,13 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         control_plane_api::discovers::DiscoverHandler::new(connector_factory.clone());
 
     let builder = control_plane_api::publications::builds::new_builder(connector_factory.clone());
-    let mut publisher = Publisher::new(
+    let publisher = Publisher::new(
         &args.builds_root,
         &logs_tx,
         pg_pool.clone(),
         agent::id_generator::with_random_shard(),
         builder,
     );
-    if args.skip_connector_table_check {
-        publisher = publisher.with_skip_connector_table_check();
-    }
 
     // Share-able future which completes when the agent should exit.
     // Cloud Run and Kubernetes signal shutdown with SIGTERM; SIGINT covers

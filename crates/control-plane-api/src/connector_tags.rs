@@ -2,7 +2,6 @@ use super::TextJson as Json;
 use chrono::prelude::*;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use sqlx::FromRow;
 
 /// Row is the dequeued task shape of a tag connector operation. Note that `connector_tags` jobs
 /// are expected to all be `background` jobs, so we don't bother to include that field in this struct.
@@ -58,12 +57,6 @@ where
     .await?;
 
     Ok(())
-}
-
-#[derive(Debug, FromRow, Serialize)]
-pub struct UnknownConnector {
-    pub catalog_name: String,
-    pub image_name: String,
 }
 
 pub async fn does_connector_exist(

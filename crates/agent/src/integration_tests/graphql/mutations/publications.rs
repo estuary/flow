@@ -27,7 +27,7 @@ query Publication($id: Id!) {
 
 /// A collection `aliceCo/data/foo` and a capture `aliceCo/in/cap` into it,
 /// with the capture running the connector `image`.
-fn capture_draft(image: &str) -> tables::DraftCatalog {
+fn capture_draft() -> tables::DraftCatalog {
     harness::draft_catalog(json!({
         "collections": {
             "aliceCo/data/foo": {
@@ -41,7 +41,7 @@ fn capture_draft(image: &str) -> tables::DraftCatalog {
         },
         "captures": {
             "aliceCo/in/cap": {
-                "endpoint": { "connector": { "image": image, "config": {} } },
+                "endpoint": { "connector": { "image": "source/test:test", "config": {} } },
                 "bindings": [
                     { "resource": { "id": "foo" }, "target": "aliceCo/data/foo" }
                 ]
@@ -86,7 +86,7 @@ async fn test_graphql_publication_commits_and_reports() {
     harness.runtime_v2_new_captures = true;
     let alice = harness.setup_tenant("aliceCo").await;
     let draft_id = harness
-        .create_draft(alice, "initial", capture_draft("source/test:test"))
+        .create_draft(alice, "initial", capture_draft())
         .await;
 
     let id = submit(&mut harness, alice, draft_id, false, Some("via graphql")).await;
@@ -166,7 +166,7 @@ async fn test_graphql_publication_dry_run_builds_without_committing() {
     let mut harness = TestHarness::init("graphql_publication_dry_run").await;
     let alice = harness.setup_tenant("aliceCo").await;
     let draft_id = harness
-        .create_draft(alice, "dry run", capture_draft("source/test:test"))
+        .create_draft(alice, "dry run", capture_draft())
         .await;
 
     let id = submit(&mut harness, alice, draft_id, true, None).await;
@@ -213,14 +213,13 @@ async fn test_graphql_publication_dry_run_builds_without_committing() {
 async fn test_graphql_publication_build_failure_is_reported() {
     let mut harness = TestHarness::init("graphql_publication_build_failure").await;
     let alice = harness.setup_tenant("aliceCo").await;
-    // Alice may publish every name here, so the draft is queued. The connector
-    // image is forbidden, which only the executor's build detects.
+    // Alice may publish every name here, so the draft is queued. The capture's
+    // binding targets a collection which isn't drafted or live, which only the
+    // executor's build detects.
+    let mut draft = capture_draft();
+    draft.collections = Default::default();
     let draft_id = harness
-        .create_draft(
-            alice,
-            "forbidden image",
-            capture_draft("forbidden_connector:v99"),
-        )
+        .create_draft(alice, "undefined collection", draft)
         .await;
 
     let id = submit(&mut harness, alice, draft_id, false, None).await;
@@ -240,8 +239,8 @@ async fn test_graphql_publication_build_failure_is_reported() {
       "errors": [
         {
           "catalogName": "aliceCo/in/cap",
-          "detail": "Forbidden connector image 'forbidden_connector'",
-          "scope": "flow://capture/aliceCo/in/cap"
+          "detail": "collection aliceCo/data/foo, referenced by capture binding {\"id\":\"foo\"}, was not found",
+          "scope": "flow://capture/aliceCo/in/cap#/bindings/0"
         }
       ],
       "id": "[id]",
