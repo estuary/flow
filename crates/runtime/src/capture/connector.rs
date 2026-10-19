@@ -186,6 +186,7 @@ fn extract_endpoint<'r>(
                     .capture
                     .as_mut()
                     .context("`apply` missing required `capture`")?;
+                crate::refuse_execution(inner.execution.as_ref())?;
 
                 (
                     inner.connector_type,
@@ -201,6 +202,7 @@ fn extract_endpoint<'r>(
                     .capture
                     .as_mut()
                     .context("`open` missing required `capture`")?;
+                crate::refuse_execution(inner.execution.as_ref())?;
 
                 (
                     inner.connector_type,
@@ -244,7 +246,7 @@ mod test {
 
     #[tokio::test]
     async fn test_http_ingest_spec() {
-        if let Err(_) = locate_bin::locate("flow-connector-init") {
+        if let Err(_) = locate_bin::locate_static("flow-connector-init") {
             // Skip if `flow-connector-init` isn't available (yet). We're probably on CI.
             // This test is useful as a sanity check for local development
             // and we have plenty of other coverage during CI.
@@ -294,5 +296,68 @@ mod test {
                 public: true
             }]
         );
+    }
+    #[test]
+    fn test_refuses_non_ordinary_execution() {
+        use proto_flow::flow;
+
+        let spec = |execution| flow::CaptureSpec {
+            name: "acmeCo/capture".to_string(),
+            connector_type: ConnectorType::Local as i32,
+            config_json: serde_json::json!({"command": ["true"], "config": {}})
+                .to_string()
+                .into(),
+            execution,
+            ..Default::default()
+        };
+        let outcome = |mut request: Request| match extract_endpoint(&mut request) {
+            Ok(_) => "extracted".to_string(),
+            Err(err) => format!("{err:#}"),
+        };
+
+        let mut rows = Vec::new();
+        for execution in [
+            None,
+            Some(flow::ConnectorExecution {
+                vmm: false,
+                egress: None,
+            }),
+            Some(flow::ConnectorExecution {
+                vmm: true,
+                egress: None,
+            }),
+            Some(flow::ConnectorExecution {
+                vmm: false,
+                egress: Some(flow::connector_execution::Egress { hosts: Vec::new() }),
+            }),
+        ] {
+            let apply = Request {
+                kind: Some(request::Kind::Apply(Box::new(request::Apply {
+                    capture: Some(spec(execution.clone())),
+                    ..Default::default()
+                }))),
+                ..Default::default()
+            };
+            let open = Request {
+                kind: Some(request::Kind::Open(Box::new(request::Open {
+                    capture: Some(spec(execution.clone())),
+                    ..Default::default()
+                }))),
+                ..Default::default()
+            };
+            rows.push(format!("Apply {execution:?} => {}", outcome(apply)));
+            rows.push(format!("Open {execution:?} => {}", outcome(open)));
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+        Apply None => extracted
+        Open None => extracted
+        Apply Some(ConnectorExecution { vmm: false, egress: None }) => extracted
+        Open Some(ConnectorExecution { vmm: false, egress: None }) => extracted
+        Apply Some(ConnectorExecution { vmm: true, egress: None }) => this task requests connector execution ConnectorExecution { vmm: true, egress: None }, which the V1 runtime cannot provide
+        Open Some(ConnectorExecution { vmm: true, egress: None }) => this task requests connector execution ConnectorExecution { vmm: true, egress: None }, which the V1 runtime cannot provide
+        Apply Some(ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }) => this task requests connector execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }, which the V1 runtime cannot provide
+        Open Some(ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }) => this task requests connector execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }, which the V1 runtime cannot provide
+        "#);
     }
 }

@@ -378,6 +378,11 @@ impl DiscoverHandler {
         // before dialing the connector.
         let secrets = assemble::secrets(&model.secrets);
 
+        let execution = capture_def
+            .model
+            .as_ref()
+            .and_then(|model| assemble::connector_execution(model.vmm, model.egress.as_ref()));
+
         // INFO is a good default since these are not shown in the UI, so if we're looking then
         // there's already a problem.
         let log_level = model
@@ -394,6 +399,7 @@ impl DiscoverHandler {
         let request = connector::Request {
             start: Some(connector::request::Start {
                 log_level: log_level as i32,
+                execution,
                 ..Default::default()
             }),
             kind: Some(connector::request::Kind::Capture(capture::Request {

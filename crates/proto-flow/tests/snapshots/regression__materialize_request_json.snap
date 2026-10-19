@@ -356,6 +356,15 @@ expression: json_catalogue(ex_materialize_requests())
             "access": "here"
           }
         }
+      },
+      "execution": {
+        "vmm": true,
+        "egress": {
+          "hosts": [
+            "api.acmeco.example",
+            "*.svc.acmeco.example"
+          ]
+        }
       }
     },
     "version": "11:22:33:44",
@@ -594,6 +603,15 @@ expression: json_catalogue(ex_materialize_requests())
           "refreshTokenResponseMap": {
             "access": "here"
           }
+        }
+      },
+      "execution": {
+        "vmm": true,
+        "egress": {
+          "hosts": [
+            "api.acmeco.example",
+            "*.svc.acmeco.example"
+          ]
         }
       }
     },

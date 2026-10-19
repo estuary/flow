@@ -33,6 +33,8 @@ expression: "(selections, errors)"
                         },
                     ),
                     secrets: {},
+                    vmm: false,
+                    egress: None,
                     bindings: [
                         MaterializationBinding {
                             resource: RawValue(

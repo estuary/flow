@@ -112,6 +112,8 @@ async fn walk_capture(
         interval,
         redact_salt: model_redact_salt,
         secrets,
+        vmm,
+        egress,
         shards,
         expect_pub_id: _,
         delete: _,
@@ -121,6 +123,16 @@ async fn walk_capture(
     indexed::walk_name(scope, "capture", capture, models::Capture::regex(), errors);
 
     let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
+    let execution = super::walk_execution(
+        scope,
+        "capture",
+        capture,
+        models::CatalogType::Capture,
+        vmm,
+        egress.as_ref(),
+        &shards,
+        errors,
+    );
 
     let max_bindings = crate::max_bindings(indirect_specs);
 
@@ -268,6 +280,7 @@ async fn walk_capture(
         no_op,
         data_plane_id,
         shards.log_level.as_deref(),
+        execution.clone(),
         connector::request::Kind::Capture(capture::Request {
             kind: Some(capture::request::Kind::Validate(Box::new(validate_request))),
             ..Default::default()
@@ -474,6 +487,7 @@ async fn walk_capture(
         linked_collections: Vec::new(),
         secrets: secrets_spec,
         connector_spec: (!no_op).then(|| Box::new(connector_spec)),
+        execution,
     };
     linked::install_capture_spec(&mut spec, interner, indirect_specs);
 
@@ -484,6 +498,8 @@ async fn walk_capture(
         interval,
         redact_salt: model_redact_salt,
         secrets,
+        vmm,
+        egress,
         shards,
         expect_pub_id: None,
         delete: false,

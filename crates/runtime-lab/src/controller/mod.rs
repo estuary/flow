@@ -202,6 +202,7 @@ async fn controller(args: Args, registry: service_kit::Registry) -> anyhow::Resu
         // Reference connectors take no secrets.
         let connector_router = runtime_local::local_router(
             String::new(),
+            None,
             registry.clone(),
             std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
         );
