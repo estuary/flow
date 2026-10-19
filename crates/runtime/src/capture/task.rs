@@ -40,6 +40,7 @@ impl Task {
             created_at: _,
             linked_collections: _,
             secrets: _,
+            connector_spec: _,
         } = spec;
         let range = range.context("missing range")?;
 

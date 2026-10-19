@@ -472,6 +472,7 @@ async fn walk_capture(
         ),
         linked_collections: Vec::new(),
         secrets: secrets_spec,
+        connector_spec: None,
     };
     linked::install_capture_spec(&mut spec, interner, indirect_specs);
 

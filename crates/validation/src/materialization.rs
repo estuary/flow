@@ -683,6 +683,7 @@ async fn walk_materialization(
         sync_schedule_json,
         linked_collections: Vec::new(),
         secrets: secrets_spec,
+        connector_spec: None,
     };
     linked::install_materialization_spec(&mut spec, interner, indirect_specs);
 

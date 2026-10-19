@@ -203,6 +203,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             created_at: String::new(),
             linked_collections: Vec::new(),
             secrets: Default::default(),
+            connector_spec: None,
         };
         if mock.indirect_specs {
             indirect_capture(&mut built_spec);
@@ -284,6 +285,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 redact_salt: b"pass-through-derivation-salt".as_slice().into(),
                 linked_collections: Vec::new(),
                 secrets: Default::default(),
+                connector_spec: None,
             }))
         } else {
             None
@@ -377,6 +379,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             sync_schedule_json: bytes::Bytes::new(),
             linked_collections: Vec::new(),
             secrets: Default::default(),
+            connector_spec: None,
         };
         if mock.indirect_specs {
             indirect_materialization(&mut built_spec);

@@ -53,6 +53,7 @@ impl Task {
             redact_salt,
             linked_collections: _,
             secrets: _,
+            connector_spec: _,
         } = derivation;
 
         if key.is_empty() {

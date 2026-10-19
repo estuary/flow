@@ -419,6 +419,12 @@ pub mod collection_spec {
             ::prost::alloc::string::String,
             ::prost::alloc::string::String,
         >,
+        /// The connector's response to its Spec request within the build of this
+        /// task. Unset if the build didn't run the connector, as when the task is
+        /// disabled.
+        #[prost(message, optional, boxed, tag = "12")]
+        pub connector_spec:
+            ::core::option::Option<::prost::alloc::boxed::Box<super::ConnectorSpec>>,
     }
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
@@ -652,6 +658,11 @@ pub struct CaptureSpec {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    /// The connector's response to its Spec request within the build of this
+    /// task. Unset if the build didn't run the connector, as when the task is
+    /// disabled.
+    #[prost(message, optional, boxed, tag = "14")]
+    pub connector_spec: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorSpec>>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -786,6 +797,11 @@ pub struct MaterializationSpec {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    /// The connector's response to its Spec request within the build of this
+    /// task. Unset if the build didn't run the connector, as when the task is
+    /// disabled.
+    #[prost(message, optional, boxed, tag = "15")]
+    pub connector_spec: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorSpec>>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {
@@ -894,6 +910,32 @@ pub mod materialization_spec {
             }
         }
     }
+}
+/// ConnectorSpec is a connector's response to a Spec request. Its fields match
+/// those of the capture, derive, and materialize protocols' Response.Spec in
+/// number and type, so it decodes any of them.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectorSpec {
+    /// Protocol version of the connector.
+    #[prost(uint32, tag = "1")]
+    pub protocol: u32,
+    /// JSON schema of the connector's configuration.
+    #[prost(bytes = "bytes", tag = "2")]
+    pub config_schema_json: ::prost::bytes::Bytes,
+    /// JSON schema of the connector's resource configuration.
+    /// For a derivation, this is the schema of its lambda configuration.
+    #[prost(bytes = "bytes", tag = "3")]
+    pub resource_config_schema_json: ::prost::bytes::Bytes,
+    /// URL for the connector's documentation.
+    #[prost(string, tag = "4")]
+    pub documentation_url: ::prost::alloc::string::String,
+    /// Optional OAuth2 configuration.
+    #[prost(message, optional, tag = "5")]
+    pub oauth2: ::core::option::Option<OAuth2>,
+    /// JSON pointers which extract resource paths from resource configurations.
+    /// Only captures use them.
+    #[prost(string, repeated, tag = "6")]
+    pub resource_path_pointers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// OAuth2 describes an OAuth2 provider
 #[derive(Clone, PartialEq, ::prost::Message)]

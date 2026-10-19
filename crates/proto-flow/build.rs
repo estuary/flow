@@ -361,6 +361,16 @@ fn main() {
         config.boxed(path);
     }
 
+    // A built spec's `ConnectorSpec` is large and read only by the control
+    // plane, so it's boxed to keep it out of the size of every built spec.
+    for path in [
+        ".flow.CaptureSpec.connector_spec",
+        ".flow.MaterializationSpec.connector_spec",
+        ".flow.CollectionSpec.Derivation.connector_spec",
+    ] {
+        config.boxed(path);
+    }
+
     let mut fds = config
         .load_fds(&proto_build, &b.proto_include())
         .expect("failed to load protobuf descriptors");
