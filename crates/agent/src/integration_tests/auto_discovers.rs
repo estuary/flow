@@ -1259,3 +1259,75 @@ fn document_schema(version: usize) -> serde_json::Value {
         "required": ["id", "squeaks"]
     })
 }
+
+#[tokio::test]
+async fn test_auto_discovers_without_connector_tag() {
+    let mut harness = TestHarness::init("test_auto_discovers_without_connector_tag").await;
+    let user_id = harness.setup_tenant("voles").await;
+
+    // `source/test:untagged` has no `connector_tags` row.
+    let init_draft = draft_catalog(json!({
+        "captures": {
+            "voles/capture": {
+                "autoDiscover": { "addNewBindings": true },
+                "endpoint": {
+                    "connector": { "image": "source/test:untagged", "config": {} }
+                },
+                "bindings": []
+            }
+        }
+    }));
+    let result = harness
+        .user_publication(user_id, "initial publication", init_draft)
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+
+    harness.run_pending_controllers(None).await;
+
+    // Auto-discover is scheduled on the default interval.
+    let capture_state = harness.get_controller_state("voles/capture").await;
+    let next_at = capture_state
+        .current_status
+        .unwrap_capture()
+        .auto_discover
+        .as_ref()
+        .and_then(|status| status.next_at)
+        .expect("auto-discover is scheduled");
+    assert_eq!(
+        chrono::Duration::hours(2),
+        next_at - capture_state.created_at
+    );
+
+    // A connector which declares no resource path pointers discovers
+    // bindings which carry their own resource paths.
+    let spec = proto_flow::capture::response::Spec {
+        resource_path_pointers: Vec::new(),
+        ..spec_fixture()
+    };
+    let discovered = Discovered {
+        bindings: vec![Binding {
+            recommended_name: "tunnels".to_string(),
+            resource_config_json: r#"{"id": "tunnels"}"#.to_string().into(),
+            document_schema_json: document_schema(1).to_string().into(),
+            key: vec!["/id".to_string()],
+            disable: false,
+            resource_path: vec!["tunnels".to_string()],
+            is_fallback_key: false,
+        }],
+    };
+    harness
+        .connectors
+        .mock_discover("voles/capture", Ok((spec, discovered)));
+    harness.set_auto_discover_due("voles/capture").await;
+    harness.run_pending_controller("voles/capture").await;
+
+    let capture_state = harness.get_controller_state("voles/capture").await;
+    let model = capture_state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_capture()
+        .unwrap();
+    assert_eq!(1, model.bindings.len());
+    assert_eq!("voles/tunnels", model.bindings[0].target.as_str());
+}

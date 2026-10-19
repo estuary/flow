@@ -12,29 +12,12 @@ use crate::{
         ControllerErrorExt, ControllerState, NextRun, alerts,
         publication_status::{self, PendingPublication},
     },
-    controlplane::ConnectorSpec,
 };
 use control_plane_api::discovers::DiscoverOutput;
 
-async fn try_connector_spec<C: ControlPlane>(
-    model: &models::CaptureDef,
-    control_plane: &C,
-) -> anyhow::Result<ConnectorSpec> {
-    let models::CaptureEndpoint::Connector(cfg) = &model.endpoint else {
-        anyhow::bail!("only connector endpoints are supported for auto-discovery");
-    };
-    let Some(spec) = control_plane
-        .get_connector_spec(cfg.image.clone())
-        .await
-        .context("failed to fetch connector spec")?
-    else {
-        anyhow::bail!("no connector spec found for image '{}'", cfg.image);
-    };
-    if spec.resource_path_pointers.is_empty() {
-        anyhow::bail!("connector has no resource path pointers");
-    }
-    Ok(spec)
-}
+/// Auto-discover interval of a capture whose image has no `connector_tags`
+/// row. It matches the default of `connector_tags.auto_discover_interval`.
+const DEFAULT_AUTO_DISCOVER_INTERVAL: chrono::Duration = chrono::Duration::hours(2);
 
 /// Performs an auto-discover if one is due, and returns a boolean
 /// indicating whether a publication was performed. If this returns true,
@@ -192,12 +175,19 @@ async fn get_auto_discover_interval<C: ControlPlane>(
     if let Some(interval) = status.interval {
         return Ok(chrono::Duration::from_std(interval)?);
     }
-    // If there's no `connector_tags` row for this capture connector
-    // then we cannot discover, so this is an error.
-    let connector_spec = try_connector_spec(model, control_plane)
+    let models::CaptureEndpoint::Connector(cfg) = &model.endpoint else {
+        anyhow::bail!("only connector endpoints are supported for auto-discovery");
+    };
+    let connector_spec = control_plane
+        .get_connector_spec(cfg.image.clone())
         .await
         .context("fetching connector spec")?;
-    Ok(connector_spec.auto_discover_interval)
+
+    Ok(
+        connector_spec.map_or(DEFAULT_AUTO_DISCOVER_INTERVAL, |spec| {
+            spec.auto_discover_interval
+        }),
+    )
 }
 
 pub fn next_run(status: &AutoDiscoverStatus) -> Option<NextRun> {
