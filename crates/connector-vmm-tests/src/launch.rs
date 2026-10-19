@@ -1,5 +1,5 @@
-//! The reference podman lines for a VMM container: its network, its `run`,
-//! and the host boundary it sits behind.
+//! The reference podman lines for a VMM container: its network, private
+//! rootfs volume, `run`, and the host boundary it sits behind.
 //!
 //! A launcher must produce these lines byte for byte apart from their ids and
 //! the container's `--memory` and `--cpus`, which it takes from its own limits,
@@ -21,6 +21,19 @@ pub fn network(name: &str, interface: &str) -> Vec<String> {
         "create".to_string(),
         "--driver=bridge".to_string(),
         format!("--interface-name={interface}"),
+        name.to_string(),
+    ]
+}
+
+/// A private storage container for the connector image, mounted read-only
+/// by the VMM. `type=image` mounts share an image mount which Podman 4.9 can
+/// unmount while cleaning up an unrelated, unstarted container.
+pub fn rootfs(name: &str, image: &str) -> Vec<String> {
+    vec![
+        "volume".to_string(),
+        "create".to_string(),
+        "--driver=image".to_string(),
+        format!("--opt=image={image}"),
         name.to_string(),
     ]
 }
@@ -56,7 +69,6 @@ pub struct Launch<'a> {
     /// `<root>/state/<name>`, holding `init/`, `sock/` and `scratch/`.
     pub state_dir: &'a str,
     pub connector_mount: &'a str,
-    pub connector_image: &'a str,
     pub vmm_image: &'a str,
     pub memory_mib: u32,
     pub vcpus: u8,
@@ -74,7 +86,6 @@ pub fn reference(launch: &Launch) -> Vec<String> {
         network,
         state_dir,
         connector_mount: mount,
-        connector_image,
         vmm_image,
         memory_mib,
         vcpus,
@@ -102,7 +113,7 @@ pub fn reference(launch: &Launch) -> Vec<String> {
         "--sysctl=net.ipv6.conf.default.disable_ipv6=1".to_string(),
         format!("--memory={}m", memory_mib + MEMORY_OVERHEAD_MIB),
         format!("--cpus={vcpus}"),
-        format!("--mount=type=image,source={connector_image},destination=/rootfs,rw=false"),
+        format!("--mount=type=volume,source={name},destination=/rootfs,readonly"),
         format!("--mount=type=bind,source={state_dir}/init,target=/init,readonly"),
         format!("--mount=type=bind,source={mount},target={mount},readonly"),
         format!("--mount=type=bind,source={state_dir}/sock,target=/sock"),
@@ -147,7 +158,6 @@ mod tests {
             network: "fv_0123456789abcdef",
             state_dir: "/var/lib/flow/connector-vmm/fv_0123456789abcdef",
             connector_mount: "/tmp/connector-mounts-0/mount-acme",
-            connector_image: "ghcr.io/acmeco/source-acme:v1",
             vmm_image: "ghcr.io/estuary/connector-vmm:dev",
             memory_mib: 1024,
             vcpus: 2,
