@@ -142,6 +142,7 @@ pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchem
         EmptySubscription,
     )
     .data(alert_config_defaults)
+    .extension(authorization::AuthorizationErrors)
     .finish()
 }
 

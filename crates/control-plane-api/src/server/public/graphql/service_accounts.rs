@@ -755,18 +755,15 @@ impl ServiceAccountsMutation {
 /// provisional [`crate::ApiError::AuthZRetry`] — which drives the snapshot
 /// refresh-and-retry redirect — is passed through untouched, as is any other
 /// error, so this never swallows a retry or an internal fault.
-fn hide_denial_as_not_found(err: async_graphql::Error) -> async_graphql::Error {
-    let is_permission_denied = err
-        .source
-        .as_ref()
-        .and_then(|source| source.downcast_ref::<crate::ApiError>())
-        .is_some_and(|api_error| {
-            matches!(
-                api_error,
-                crate::ApiError::Status(status)
+pub(super) fn hide_denial_as_not_found(err: async_graphql::Error) -> async_graphql::Error {
+    let is_permission_denied = err.source.as_ref().is_some_and(|source| {
+        source.is::<super::authorization::AuthorizationDenied>()
+            || matches!(
+                source.downcast_ref::<crate::ApiError>(),
+                Some(crate::ApiError::Status(status))
                     if status.code() == tonic::Code::PermissionDenied
             )
-        });
+    });
 
     if is_permission_denied {
         async_graphql::Error::new("service account API key not found")
