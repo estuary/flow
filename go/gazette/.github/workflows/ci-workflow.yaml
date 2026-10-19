@@ -22,6 +22,10 @@ jobs:
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
       - uses: actions/setup-go@v4
+        with:
+          # go.mod's `toolchain` pins a Go patch release carrying stdlib
+          # security fixes; Go switches to it from whatever version is installed.
+          go-version-file: go.mod
       - run: sudo apt update
       - run: sudo apt install -y protobuf-compiler librocksdb-dev libsqlite3-dev etcd-server
       - run: echo "VERSION=$(git describe --dirty --tags)" >> "$GITHUB_ENV"
