@@ -11,6 +11,8 @@ use super::publications::PublicationStatus;
 /// Status of a materialization controller
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
 pub struct MaterializationStatus {
+    /// Status of adding bindings to match the `source.capture`. Absent if the
+    /// materialization has no `source.capture`, or is disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_capture: Option<SourceCaptureStatus>,
     #[serde(default)]

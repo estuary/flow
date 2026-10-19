@@ -181,9 +181,12 @@ pub trait ControlPlane: Send + Sync {
     /// Fetch the given set of live specs, returning them all as part of a `LiveCatalog`.
     async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog>;
 
-    /// Fetch the connector spec for the given image, which should include both
-    /// the name and the tag.
-    async fn get_connector_spec(&self, connector_image: String) -> anyhow::Result<ConnectorSpec>;
+    /// Fetch the `connector_tags` spec of the given image, which includes both
+    /// the name and the tag. Returns None if the image has no tag row.
+    async fn get_connector_spec(
+        &self,
+        connector_image: String,
+    ) -> anyhow::Result<Option<ConnectorSpec>>;
 
     /// Fetch the inferred schema for the given collection.
     async fn get_inferred_schema(
@@ -529,12 +532,12 @@ impl ControlPlane for PGControlPlane {
         Ok(resp)
     }
 
-    async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {
+    async fn get_connector_spec(&self, image: String) -> anyhow::Result<Option<ConnectorSpec>> {
         let (image_name, image_tag) = models::split_image_tag(&image);
         let Some(row) =
             connector_tags::fetch_connector_spec(&image_name, &image_tag, &self.pool).await?
         else {
-            anyhow::bail!("no connector spec found for image '{}'", image);
+            return Ok(None);
         };
 
         let connector_tags::ConnectorSpec {
@@ -556,7 +559,7 @@ impl ControlPlane for PGControlPlane {
             .into_iter()
             .map(|p| json::Pointer::from_str(&p))
             .collect::<Vec<_>>();
-        Ok(ConnectorSpec {
+        Ok(Some(ConnectorSpec {
             protocol,
             documentation_url,
             endpoint_config_schema: models::Schema::new(models::RawValue::from(
@@ -568,7 +571,7 @@ impl ControlPlane for PGControlPlane {
             resource_path_pointers,
             oauth2: oauth2.map(|o| o.0),
             auto_discover_interval: auto_discover_interval.into(),
-        })
+        }))
     }
 
     async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog> {
