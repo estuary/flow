@@ -23,10 +23,13 @@ async fn try_connector_spec<C: ControlPlane>(
     let models::CaptureEndpoint::Connector(cfg) = &model.endpoint else {
         anyhow::bail!("only connector endpoints are supported for auto-discovery");
     };
-    let spec = control_plane
+    let Some(spec) = control_plane
         .get_connector_spec(cfg.image.clone())
         .await
-        .context("failed to fetch connector spec")?;
+        .context("failed to fetch connector spec")?
+    else {
+        anyhow::bail!("no connector spec found for image '{}'", cfg.image);
+    };
     if spec.resource_path_pointers.is_empty() {
         anyhow::bail!("connector has no resource path pointers");
     }

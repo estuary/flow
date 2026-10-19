@@ -2302,7 +2302,7 @@ impl ControlPlane for TestControlPlane {
         Ok(resp)
     }
 
-    async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {
+    async fn get_connector_spec(&self, image: String) -> anyhow::Result<Option<ConnectorSpec>> {
         self.inner.get_connector_spec(image).await
     }
 

@@ -193,6 +193,13 @@ async fn source_capture_update<C: ControlPlane>(
     state: &ControllerState,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<bool> {
+    // A disabled materialization isn't maintained per its `source.capture`.
+    // Re-enabling it publishes a new built spec, after which this controller
+    // adds any bindings that are missing.
+    if model.shards.disable {
+        status.source_capture.take();
+        return Ok(false);
+    }
     if let Some(model_source_capture) = model.source.as_ref().filter(|s| s.capture_name().is_some())
     {
         let capture_name = model_source_capture
@@ -304,22 +311,9 @@ pub async fn update_source_capture<C: ControlPlane>(
         }
     }
 
-    // We need to update the materialization model to add the bindings. This
-    // requires the `resource_spec_schema` of the connector so that we can
-    // generate valid `resource`s for the new bindings.
-    let image = match &model.endpoint {
-        models::MaterializationEndpoint::Connector(config) => config.image.clone(),
-        models::MaterializationEndpoint::Dekaf(dekaf) => dekaf.image_name(),
-        _ => anyhow::bail!(
-            "unexpected materialization endpoint type, only image and dekaf connectors are supported"
-        ),
-    };
-    let connector_spec = control_plane
-        .get_connector_spec(image.clone())
-        .await
-        .context("failed to fetch connector spec")?;
-    let resource_spec_pointers = pointer_for_schema(connector_spec.resource_config_schema.get())
-        .with_context(|| format!("fetching resource spec pointers for {}", image))?;
+    // Generating a valid `resource` for each new binding requires the
+    // annotated locations of the connector's resource config schema.
+    let resource_spec_pointers = resource_spec_pointers(state, model, control_plane).await?;
 
     let mut new_model = model.clone();
     update_linked_materialization(
@@ -349,6 +343,46 @@ pub async fn update_source_capture<C: ControlPlane>(
     status.up_to_date = true;
 
     Ok(true)
+}
+
+/// Returns the annotated locations of the materialization connector's
+/// resource config schema, from the Spec of its live built spec.
+async fn resource_spec_pointers<C: ControlPlane>(
+    state: &ControllerState,
+    model: &models::MaterializationDef,
+    control_plane: &C,
+) -> anyhow::Result<tables::utils::ResourceSpecPointers> {
+    if let Some(proto_flow::AnyBuiltSpec::Materialization(
+        proto_flow::flow::MaterializationSpec {
+            connector_spec: Some(connector_spec),
+            ..
+        },
+    )) = &state.built_spec
+    {
+        let schema = std::str::from_utf8(&connector_spec.resource_config_schema_json)
+            .context("connector's resource config schema is not UTF-8")?;
+        return pointer_for_schema(schema).context("connector's resource config schema");
+    }
+
+    // TODO(johnny): *TRANSITIONAL* a built spec which predates `connector_spec`
+    // falls back to the `connector_tags` row of its image. Remove this once
+    // every live materialization has re-published with a `connector_spec`.
+    let image = match &model.endpoint {
+        models::MaterializationEndpoint::Connector(config) => config.image.clone(),
+        models::MaterializationEndpoint::Dekaf(dekaf) => dekaf.image_name(),
+        _ => anyhow::bail!(
+            "unexpected materialization endpoint type, only image and dekaf connectors are supported"
+        ),
+    };
+    let Some(connector_spec) = control_plane
+        .get_connector_spec(image.clone())
+        .await
+        .context("failed to fetch connector spec")?
+    else {
+        anyhow::bail!("built spec has no connector Spec, and image '{image}' has no connector tag");
+    };
+    pointer_for_schema(connector_spec.resource_config_schema.get())
+        .with_context(|| format!("fetching resource spec pointers for {image}"))
 }
 
 fn backoff_failed_source_capture_pub(failures: u32) -> NextRun {

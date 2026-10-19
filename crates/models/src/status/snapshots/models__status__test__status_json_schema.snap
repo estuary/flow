@@ -570,7 +570,8 @@ expression: schema
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Status of adding bindings to match the `source.capture`. Absent if the\nmaterialization has no `source.capture`, or is disabled."
         }
       },
       "type": "object"
