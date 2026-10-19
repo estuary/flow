@@ -1,0 +1,1 @@
+{"egress": "public", "allowAll": true, "ttlFloorSecs": 3, "ttlCapSecs": 10}
