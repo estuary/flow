@@ -101,12 +101,13 @@ platform — from a registry which does not exist.
 mise exec -- local/install-connector.sh registry.example/acme/source-secrets
 ```
 
-The second command is not optional: publication refuses an image with no
-`connectors` / `connector_tags` row ("Forbidden connector image"). The registry
-is fictitious on purpose — nothing should ever try to pull this — and the
-`:local` tag is what tells the agent not to. It runs under `mise exec` because
-the script reaches this checkout's stack through variables that are ambient
-only under mise.
+The second command is not optional. Step 2 publishes the capture in its
+pre-migration shape, and flowctl seals that configuration against the image's
+registered endpoint schema. It refuses an image with no `connectors` /
+`connector_tags` row. The registry is fictitious on purpose — nothing should
+ever try to pull this — and the `:local` tag is what tells the agent not to.
+It runs under `mise exec` because the script reaches this checkout's stack
+through variables that are ambient only under mise.
 
 **An image is bound to the prefixes its label names.** `dev.estuary.secrets`
 is a JSON object of full secret catalog names to JSON pointers, and the reactor

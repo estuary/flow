@@ -160,7 +160,6 @@ pub struct Publisher {
     db: sqlx::PgPool,
     builder: std::sync::Arc<Box<dyn builds::Builder>>,
     skip_tests: bool,
-    skip_connector_table_check: bool,
 }
 
 pub struct UncommittedBuild {
@@ -244,7 +243,6 @@ impl Publisher {
             db: pool,
             builder: std::sync::Arc::new(builder),
             skip_tests: false,
-            skip_connector_table_check: false,
         }
     }
 
@@ -252,13 +250,6 @@ impl Publisher {
     /// testing scenarios, where we may not be able to run temp data planes.
     pub fn with_skip_all_tests(mut self) -> Self {
         self.skip_tests = true;
-        self
-    }
-
-    /// Skip checking that connector images exist in the connectors table.
-    /// By default, connector images are verified against the connectors table.
-    pub fn with_skip_connector_table_check(mut self) -> Self {
-        self.skip_connector_table_check = true;
         self
     }
 
@@ -378,24 +369,12 @@ impl Publisher {
         let build_id = self.id_gen.lock().unwrap().next();
         let user_id = subject.user_id;
 
-        // Ensure that all the connector images are allowed. It's critical that we do this before
-        // calling `build_catalog` in order to prevent the user from running arbitrary images
-        // during the build process. Note that this check will need replaced with a more general
-        // authorization check once we start supporting user-provided images.
-        let forbidden_images = if self.skip_connector_table_check {
-            tables::Errors::default()
-        } else {
-            specs::check_connector_images(&draft, &self.db)
-                .await
-                .context("checking connector images")?
-        };
         let forbidden_annotations = specs::check_connector_annotations(&draft, &self.db)
             .await
             .context("checking connector annotations")?;
-        if !forbidden_images.is_empty() || !forbidden_annotations.is_empty() {
+        if !forbidden_annotations.is_empty() {
             let mut built = tables::Validations::default();
-            built.errors = forbidden_images;
-            built.errors.extend(forbidden_annotations.into_iter());
+            built.errors = forbidden_annotations;
             let output = build::Output {
                 draft,
                 built,

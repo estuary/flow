@@ -385,13 +385,17 @@ inside the checkout targets this stack** — no `--profile` needed.
 You must `export SSL_CERT_FILE=~/flow-local/ca.crt` (per command) or you'll see
 TLS violations on broker/reactor calls.
 
-## Connectors must be registered before you can publish them
+## flowctl seals configs only for registered connectors
 
-A stack can only publish specs whose connector image is in its `connectors`
-table, and `supabase/seed.sql` seeds only a handful. **Having the image locally
-in `docker images` is not enough**: image presence and DB registration are independent.
+Publication and discovery don't consult the `connectors` table. The data plane
+decides which images a task may run, and a local plane runs any image.
+Validation takes a connector's schemas from its own Spec response.
 
-Publishing an unregistered image fails with a message written for production:
+flowctl is the exception. It seals a plaintext endpoint configuration through
+config-encryption, using the endpoint schema of the image's `connector_tags`
+row. `supabase/seed.sql` seeds only a handful, and **having the image locally
+in `docker images` is not enough**. An image with no row fails with a message
+written for production:
 
 ```
 connector image 'ghcr.io/estuary/materialize-sqlite:dev' is unknown to Estuary,
@@ -399,7 +403,11 @@ so the endpoint configuration cannot be encrypted. Use a different connector or
 reach out to Estuary support for help
 ```
 
-Locally, that means "register it first". See what this stack knows, then add what it doesn't:
+A task with a `secrets` stanza, or with an already `sops`-wrapped
+configuration, is not sealed and needs no row. An unregistered tag of a
+registered image is sealed using the schema of that image's default tag.
+
+Otherwise, register the image. See what this stack knows, then add what it doesn't:
 
 ```bash
 # Make this stack's vars ambient first.
@@ -416,9 +424,9 @@ mise exec -- ./local/install-connector.sh ghcr.io/estuary/materialize-sqlite dev
 ```
 
 Registering queues a `connector_tags` job; the agent asks a public data plane to
-run the image and fill in its protocol and endpoint/resource spec schemas, which
-validation needs. Wait for that row to reach `success` (a few seconds) before
-publishing — until then the schemas are absent and a publish can still fail.
+run the image and fill in its protocol and endpoint/resource spec schemas.
+Wait for that row to reach `success` (a few seconds) before publishing through
+flowctl. Until then the endpoint schema is absent and sealing fails.
 
 ## Connectors run on the Supabase Docker network
 
@@ -503,8 +511,8 @@ collide; the classic remap set belongs to one stack).
 
 `local/ops-publication.sh <bundle>` emits the SQL that `local:stack` uses to
 publish an ops bundle (targets `ops/dp/public/${FLOW_CLUSTER}`).
-`local/install-connector.sh <image> [tag]` adds a connector to this stack's DB —
-a **precondition** for publishing a spec that uses it, not an optional extra; see
-"Connectors must be registered before you can publish them" above for the failure
+`local/install-connector.sh <image> [tag]` adds a connector to this stack's DB,
+which flowctl needs to seal the image's endpoint configurations; see
+"flowctl seals configs only for registered connectors" above for the failure
 it prevents and the tag-argument gotcha.
 Both require the ambient `FLOW_*` vars (run inside a mise context).
