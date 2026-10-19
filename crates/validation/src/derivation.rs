@@ -779,6 +779,7 @@ async fn walk_derivation(
         redact_salt,
         linked_collections: Vec::new(),
         secrets: secrets_spec,
+        connector_spec: None,
     };
     linked::install_derivation(&mut spec, interner, indirect_specs);
 

@@ -211,6 +211,17 @@ fn ex_collection_spec() -> flow::CollectionSpec {
     }
 }
 
+fn ex_connector_spec(resource_path_pointers: &[&str]) -> flow::ConnectorSpec {
+    flow::ConnectorSpec {
+        protocol: 3032023,
+        config_schema_json: json!({"type": "object"}).to_string().into(),
+        resource_config_schema_json: json!({"type": "object", "properties": {"table": {"type": "string", "x-collection-name": true}}}).to_string().into(),
+        documentation_url: "https://example/docs".to_string(),
+        oauth2: Some(ex_oauth2()),
+        resource_path_pointers: resource_path_pointers.iter().map(|p| p.to_string()).collect(),
+    }
+}
+
 fn ex_capture_spec() -> flow::CaptureSpec {
     flow::CaptureSpec {
         name: "acmeCo/capture".to_string(),
@@ -233,6 +244,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
         created_at: "2025-07-09".to_string(),
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
+        connector_spec: Some(Box::new(ex_connector_spec(&["/schema", "/table"]))),
     }
 }
 
@@ -276,6 +288,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
         redact_salt: b"test-derivation-salt".to_vec().into(),
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
+        connector_spec: Some(Box::new(ex_connector_spec(&[]))),
     }));
 
     spec
@@ -338,6 +351,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         sync_schedule_json: json!({"baseInterval": "4h", "timezone": "America/New_York", "windows": [{"interval": "30m", "start": "09:00", "end": "17:00"}]}).to_string().into(),
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
+        connector_spec: Some(Box::new(ex_connector_spec(&[]))),
     }
 }
 
