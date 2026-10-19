@@ -55,6 +55,7 @@ async fn spec_rpc_over_vsock() {
     std::fs::write(
         &inspect_path,
         serde_json::to_vec(&serde_json::json!([{
+            "Id": "synthetic-image",
             "Config": {
                 "Cmd": null,
                 "Entrypoint": ["/bin/cat", response_path],

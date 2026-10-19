@@ -38,8 +38,7 @@ const ROOT_ENTRIES: [&str; 4] = [
     SCRATCH_MOUNT_POINT,
 ];
 
-/// The connector image, mounted `type=image,rw=false`: podman's read-only
-/// mount of the image itself, with no per-container layer beneath it.
+/// The connector image's private storage volume, mounted and served read-only.
 const ROOTFS: &str = "/rootfs";
 const SCRATCH_BACKING: &str = "/scratch-backing";
 const PERSISTENT_DISK_SOURCE: &str = "/persistent-disk";
@@ -345,7 +344,7 @@ fn read_only_mounts(connector_mount: &str) -> [(&str, &str); 3] {
         ("/", "--read-only"),
         (
             ROOTFS,
-            "--mount type=image,source=I,destination=/rootfs,rw=false",
+            "--mount type=volume,source=V,destination=/rootfs,readonly",
         ),
         (
             connector_mount,

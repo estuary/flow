@@ -17,7 +17,7 @@ run
 --sysctl=net.ipv6.conf.default.disable_ipv6=1
 --memory=1280m
 --cpus=2
---mount=type=image,source=ghcr.io/acmeco/source-acme:v1,destination=/rootfs,rw=false
+--mount=type=volume,source=fv_0123456789abcdef,destination=/rootfs,readonly
 --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/init,target=/init,readonly
 --mount=type=bind,source=/tmp/connector-mounts-0/mount-acme,target=/tmp/connector-mounts-0/mount-acme,readonly
 --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/sock,target=/sock
