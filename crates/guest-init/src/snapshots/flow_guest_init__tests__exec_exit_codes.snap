@@ -1,0 +1,14 @@
+---
+source: crates/guest-init/src/main.rs
+expression: table
+---
+ENOENT => 127
+ENOTDIR => 127
+EACCES => 126
+EPERM => 126
+ENOEXEC => 126
+EISDIR => 126
+ELOOP => 126
+ENOMEM => 125
+E2BIG => 125
+(none) => 125

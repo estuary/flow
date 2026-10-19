@@ -2128,6 +2128,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures",
+ "hyper-util",
  "insta",
  "ops",
  "prost",
@@ -2135,12 +2136,32 @@ dependencies = [
  "proto-grpc",
  "serde",
  "serde_json",
+ "tempfile",
  "time",
  "tokio",
  "tokio-util",
+ "tokio-vsock",
  "tonic",
+ "tonic-health",
+ "tower",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "connector-vmm"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "egress",
+ "insta",
+ "ipnetwork",
+ "libc",
+ "libloading",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -3369,6 +3390,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "egress"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "insta",
+ "ipnetwork",
+ "psl",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "either"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4259,6 +4293,16 @@ dependencies = [
  "graphql_client_codegen",
  "proc-macro2",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "guest-init"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "insta",
+ "libc",
+ "tempfile",
 ]
 
 [[package]]
@@ -5573,6 +5617,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "metrics"
 version = "0.24.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5843,6 +5896,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -9371,6 +9425,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-vsock"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "676ade3d183052ca2703288b48f63a2e82633a24836ca279eb6724ab2a97b05d"
+dependencies = [
+ "bytes",
+ "futures",
+ "libc",
+ "tokio",
+ "tonic",
+ "vsock",
+]
+
+[[package]]
 name = "toml"
 version = "0.9.12+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9472,6 +9540,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "tonic-health"
+version = "0.14.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc97d645691d64d96db1afe386d0d2918ac84ab56e2c91e153f22f6349a378cd"
+dependencies = [
+ "prost",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
 ]
 
 [[package]]
@@ -10058,6 +10139,16 @@ name = "vsimd"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
+
+[[package]]
+name = "vsock"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b7d4dba01e366e2ffbdf0700b1876f747c548db72dced534de41c54945c0148"
+dependencies = [
+ "libc",
+ "nix 0.31.3",
+]
 
 [[package]]
 name = "wait-timeout"

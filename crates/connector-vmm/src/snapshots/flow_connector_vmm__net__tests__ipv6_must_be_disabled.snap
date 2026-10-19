@@ -1,0 +1,8 @@
+---
+source: crates/connector-vmm/src/net.rs
+expression: table
+---
+disabled -> ok
+enabled -> flow-connector-vmm: /proc/sys/net/ipv6/conf/default/disable_ipv6 is 0; the VMM container must be launched with --sysctl net.ipv6.conf.default.disable_ipv6=1
+no IPv6 in the kernel -> ok
+unreadable -> flow-connector-vmm: reading /proc/sys/net/ipv6/conf/default/disable_ipv6: permission denied

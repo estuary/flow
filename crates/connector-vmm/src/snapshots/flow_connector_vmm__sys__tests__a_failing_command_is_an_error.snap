@@ -1,0 +1,5 @@
+---
+source: crates/connector-vmm/src/sys.rs
+expression: "format!(\"{error:#}\")"
+---
+/bin/sh -c exit 3: exit status: 3
