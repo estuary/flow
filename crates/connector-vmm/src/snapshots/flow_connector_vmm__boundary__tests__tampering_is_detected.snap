@@ -1,0 +1,35 @@
+---
+source: crates/connector-vmm/src/boundary.rs
+assertion_line: 605
+expression: report
+---
+# no tables at all
+the inet flow_vmm_boundary table is absent
+the bridge flow_vmm_boundary table is absent
+
+# the bridge table is gone
+the bridge flow_vmm_boundary table is absent
+
+# a dormant table
+missing: {"table":{"family":"inet","name":"flow_vmm_boundary"}}
+unexpected: {"table":{"family":"inet","flags":["dormant"],"name":"flow_vmm_boundary"}}
+
+# a baseline element removed
+missing: {"set":{"elem":[{"prefix":{"addr":"0.0.0.0","len":8}},{"prefix":{"addr":"10.0.0.0","len":8}},{"prefix":{"addr":"100.64.0.0","len":10}},{"prefix":{"addr":"127.0.0.0","len":8}},{"prefix":{"addr":"169.254.0.0","len":16}},{"prefix":{"addr":"172.16.0.0","len":12}},{"prefix":{"addr":"192.0.0.0","len":24}},{"prefix":{"addr":"192.0.2.0","len":24}},{"prefix":{"addr":"192.88.99.0","len":24}},{"prefix":{"addr":"192.168.0.0","len":16}},{"prefix":{"addr":"198.18.0.0","len":15}},{"prefix":{"addr":"198.51.100.0","len":24}},{"prefix":{"addr":"203.0.113.0","len":24}},{"prefix":{"addr":"224.0.0.0","len":4}},{"prefix":{"addr":"240.0.0.0","len":4}}],"family":"inet","flags":["interval"],"name":"baseline","table":"flow_vmm_boundary","type":"ipv4_addr"}}
+unexpected: {"set":{"elem":[{"prefix":{"addr":"0.0.0.0","len":8}},{"prefix":{"addr":"10.0.0.0","len":8}},{"prefix":{"addr":"100.64.0.0","len":10}},{"prefix":{"addr":"127.0.0.0","len":8}},{"prefix":{"addr":"172.16.0.0","len":12}},{"prefix":{"addr":"192.0.0.0","len":24}},{"prefix":{"addr":"192.0.2.0","len":24}},{"prefix":{"addr":"192.88.99.0","len":24}},{"prefix":{"addr":"192.168.0.0","len":16}},{"prefix":{"addr":"198.18.0.0","len":15}},{"prefix":{"addr":"198.51.100.0","len":24}},{"prefix":{"addr":"203.0.113.0","len":24}},{"prefix":{"addr":"224.0.0.0","len":4}},{"prefix":{"addr":"240.0.0.0","len":4}}],"family":"inet","flags":["interval"],"name":"baseline","table":"flow_vmm_boundary","type":"ipv4_addr"}}
+
+# an accept inserted ahead of the forward drops
+inet forward, rule 0: expected {"rule":{"chain":"forward","comment":"vmm-to-vmm","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"meta":{"key":"oifname"}},"op":"==","right":"fvm*"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}, found {"rule":{"chain":"forward","expr":[{"accept":null}],"family":"inet","table":"flow_vmm_boundary"}}
+
+# a rule deleted
+inet input, rule 1: expected {"rule":{"chain":"input","comment":"host","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}, found nothing
+
+# a rule's match rewritten under the same comment
+inet forward, rule 1: expected {"rule":{"chain":"forward","comment":"baseline","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"payload":{"field":"daddr","protocol":"ip"}},"op":"==","right":"@baseline"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}, found {"rule":{"chain":"forward","comment":"baseline","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvx*"}},{"match":{"left":{"payload":{"field":"daddr","protocol":"ip"}},"op":"==","right":"@baseline"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}
+
+# a chain's priority moved
+missing: {"chain":{"family":"inet","hook":"input","name":"input","policy":"accept","prio":-10,"table":"flow_vmm_boundary","type":"filter"}}
+unexpected: {"chain":{"family":"inet","hook":"input","name":"input","policy":"accept","prio":100,"table":"flow_vmm_boundary","type":"filter"}}
+
+# an extra chain
+unexpected: {"chain":{"family":"inet","name":"extra","table":"flow_vmm_boundary"}}
