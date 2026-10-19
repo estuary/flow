@@ -16,7 +16,8 @@ codec the image speaks.
   `tonic-health`'s standard `grpc.health.v1.Health` until the `watchdog` sees
   no connector RPC for a while.
 - `src/inspect.rs`: the `docker inspect` output the launcher writes into the
-  container; yields the image's real argv and its `FLOW_RUNTIME_CODEC`.
+  container; retains the image ID used to pin VMM roots and yields the image's
+  real argv and its `FLOW_RUNTIME_CODEC`.
 - `src/rpc.rs`: the generic bidirectional and unary proxies over a child
   process, and the stderr log pump.
 - `src/codec.rs`: protobuf or newline-delimited JSON framing on the child's

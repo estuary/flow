@@ -103,7 +103,7 @@ impl Declarations {
 pub(super) async fn connect<P: crate::protocol::Protocol>(
     ctx: &crate::protocol::StartContext,
     execution: crate::vmm::Execution<'_>,
-    _build: Option<&str>,
+    build: Option<&str>,
     image: String,
     sealed_config: models::RawValue,
     policy: &crate::policy::Image,
@@ -114,7 +114,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
     spec_on_own_rpc: bool, // TODO(johnny): remove.
     requests: futures::stream::BoxStream<'static, P::Request>,
 ) -> anyhow::Result<crate::Transport<P>> {
-    let (container, channel, process, codec) = match execution {
+    let (container, channel, process, vmm_guard, codec) = match execution {
         crate::vmm::Execution::Ordinary => {
             let mount = mount.expect("ordinary execution has a connector mount");
             let inspected = crate::container::pull_and_inspect(&image, &ctx.log_sink).await?;
@@ -196,10 +196,23 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
                 ))
                 .await;
 
-            (container, running.channel, Some(running.process), codec)
+            (
+                container,
+                running.channel,
+                Some(running.process),
+                None,
+                codec,
+            )
         }
-        crate::vmm::Execution::Vmm { .. } => {
-            anyhow::bail!("VMM execution is configured but launching it is not yet implemented")
+        crate::vmm::Execution::Vmm {
+            vmm,
+            eligible,
+            egress,
+        } => {
+            let (container, channel, guard, codec) =
+                crate::vmm::launch::start(ctx, vmm, eligible, egress, &image, secrets, build)
+                    .await?;
+            (container, channel, None, Some(guard), codec)
         }
     };
     // Frozen V1 derivations still exchange Spec on an RPC of its own.
@@ -214,6 +227,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
         container: Some(container),
         codec,
         process,
+        vmm: vmm_guard,
         sealed_config,
         spec,
     })
@@ -362,13 +376,13 @@ mod test {
     #[test]
     fn rejects_invalid_flow_declarations() {
         let fixtures = [
-            json!([{"Config": {"Labels": {}, "Env": []}}]),
-            json!([{"Config": {
+            json!([{"Id": "test-image-id", "Config": {"Labels": {}, "Env": []}}]),
+            json!([{"Id": "test-image-id", "Config": {
                 "Labels": {"FLOW_RUNTIME_PROTOCOL": "derive"},
                 "Env": [],
                 "ExposedPorts": {"whoops": {}}
             }}]),
-            json!([{"Config": {
+            json!([{"Id": "test-image-id", "Config": {
                 "Labels": {
                     "FLOW_RUNTIME_PROTOCOL": "derive",
                     "dev.estuary.port-public.111": "whoops"

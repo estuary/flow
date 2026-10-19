@@ -1,6 +1,6 @@
 //! The plan of one VMM launch: the policy its guest is held to, the state it
 //! is given, and the podman lines that verify the host boundary, create its
-//! network and create its container. Planning is pure. It creates nothing and
+//! network, rootfs volume and container. Planning is pure. It creates nothing and
 //! probes nothing, so whether this host can carry the plan out is for the
 //! launch.
 //!
@@ -86,7 +86,7 @@ pub(crate) struct Launch<'a> {
     /// Names the container, its network, its state and its record:
     /// `fv_<16 hex>`.
     pub id: u64,
-    /// Marks the network and container as the launch's own.
+    /// Marks the network, volume and container as the launch's own.
     pub token: u128,
     pub eligible: &'static Eligible,
     pub image: &'a str,
@@ -123,7 +123,7 @@ pub(crate) struct Plan {
     pub state: String,
     /// The launch's ownership record, beside its state directory.
     pub record: String,
-    /// The value of the owner label on the launch's network and container.
+    /// The owner label on the launch's network, volume and container.
     pub token: String,
     /// The connector mount, shared at that same path into the container and
     /// the guest.
@@ -147,6 +147,7 @@ pub(crate) struct Plan {
     /// started, once created, by its ID.
     pub verify: Vec<String>,
     pub network: Vec<String>,
+    pub rootfs: Vec<String>,
     pub create: Vec<String>,
 }
 
@@ -209,6 +210,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     let mount = format!("{connector_mounts}/mount-{name}");
 
     check_mount_value(image).with_context(|| format!("connector image {image:?}"))?;
+    check_mount_value(&image_inspection.id).context("inspected connector image ID")?;
     check_share(&mount).with_context(|| format!("connector mount {mount:?}"))?;
     if let Some(PersistentDisk {
         host_dir,
@@ -225,7 +227,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     let state = format!("{}/{name}", vmm.state_dir);
     let socket = format!("{state}/sock/init.sock");
     let token = format!("{token:032x}");
-    let owner = format!("--label={}={token}", "dev.estuary.vmm-owner");
+    let owner = format!("--label={}={token}", super::record::OWNER_LABEL);
     assert!(
         socket.len() <= SOCKET_PATH_MAX,
         "check_state_dir bounds every socket path"
@@ -255,7 +257,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         "--sysctl=net.ipv6.conf.default.disable_ipv6=1".to_string(),
         format!("--memory={}", vmm.memory_bytes),
         format!("--cpus={}", vmm.cpu_limit),
-        format!("--mount=type=image,source={image},destination=/rootfs,rw=false"),
+        format!("--mount=type=volume,source={name},destination=/rootfs,readonly"),
         format!("--mount=type=bind,source={state}/init,target=/init,readonly"),
         format!("--mount=type=bind,source={mount},target={mount},readonly"),
         format!("--mount=type=bind,source={state}/sock,target=/sock"),
@@ -306,7 +308,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             (format!("{state}/scratch"), 0o700),
         ],
         scratch: format!("{state}/scratch"),
-        record: format!("{}/{name}.owner", vmm.state_dir),
+        record: super::record::path(&vmm.state_dir, &name),
         token,
         policy: match &egress {
             Egress::Names(names) => {
@@ -340,6 +342,19 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             "create".to_string(),
             "--driver=bridge".to_string(),
             format!("--interface-name={interface}"),
+            owner.clone(),
+            name.clone(),
+        ],
+        // type=image shares a mounted image across launches. Podman 4.9
+        // unmounts it even when removing a container which never started,
+        // invalidating a sibling's pending OCI mount. The image volume driver
+        // gives this launch its own storage container instead.
+        rootfs: vec![
+            "volume".to_string(),
+            "create".to_string(),
+            "--driver=image".to_string(),
+            // A concurrent pull must not replace the inspected code.
+            format!("--opt=image={}", image_inspection.id),
             owner,
             name.clone(),
         ],
@@ -456,6 +471,7 @@ mod test {
     use serde_json::json;
 
     const IMAGE: &str = "ghcr.io/estuary/derive-python:stable";
+    const IMAGE_ID: &str = "sha256:0123abcd";
     const MOUNTS: &str = "/tmp/connector-mounts-0";
     const ID: u64 = 0x0123456789abcdef;
     const TOKEN: u128 = 0x00112233445566778899aabbccddeeff;
@@ -487,7 +503,7 @@ mod test {
             .extend(labels.as_object().unwrap().clone());
 
         serde_json::to_vec(&json!([{
-            "Id": "sha256:0123abcd",
+            "Id": IMAGE_ID,
             "Created": "2026-09-30T00:00:00Z",
             "Config": {
                 "Entrypoint": ["/derive-python"],
@@ -566,7 +582,6 @@ mod test {
                 network: &plan.name,
                 state_dir: &format!("/var/lib/flow/connector-vmm/{}", plan.name),
                 connector_mount: &plan.mount,
-                connector_image: IMAGE,
                 vmm_image: &vmm.image,
                 memory_mib: 1024,
                 vcpus: 2,
@@ -611,6 +626,10 @@ mod test {
             let (added, network): (Vec<String>, Vec<String>) =
                 plan.network.iter().cloned().partition(launcher_only);
             assert_eq!(network, reference::network(&plan.name, &plan.interface));
+            assert_eq!(added, [owner]);
+            let (added, rootfs): (Vec<String>, Vec<String>) =
+                plan.rootfs.iter().cloned().partition(launcher_only);
+            assert_eq!(rootfs, reference::rootfs(&plan.name, IMAGE_ID));
             assert_eq!(added, [owner]);
             assert_eq!(
                 plan.verify,
@@ -732,6 +751,7 @@ mod test {
             mount_files,
             verify,
             network,
+            rootfs,
             create,
         } = plan;
         let modes = |entries: &[(String, u32)]| -> String {
@@ -746,13 +766,14 @@ mod test {
              token: {token}\nmount: {mount}\nscratch: {scratch}\n\
              socket: {socket} ({} bytes)\n\
              \n## directories\n{}\n## egress\n{egress}\n\n## {policy_path}\n{}\n\n## connector mount\n{}\
-             \n## verify\npodman {}\n\n## network\npodman {}\n\n## create\npodman {}\n",
+             \n## verify\npodman {}\n\n## network\npodman {}\n\n## rootfs\npodman {}\n\n## create\npodman {}\n",
             socket.len(),
             modes(directories),
             String::from_utf8_lossy(policy),
             modes(mount_files),
             verify.join(" "),
             network.join(" "),
+            rootfs.join(" "),
             create.join(" \\\n  "),
         )
     }

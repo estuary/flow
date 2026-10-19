@@ -1,0 +1,29 @@
+---
+source: crates/connector/src/container.rs
+expression: table
+---
+# libkrun diagnostics before and after readiness
+ready: true
+warn: "[2026-10-01T00:00:00Z WARN  devices::virtio::fs::server] unhandled request"
+error: "[2026-10-01T00:00:01Z ERROR vmm::worker] guest wrote too much"
+info: "a connector log"
+debug: "stopped connector container"
+
+# raw lines on both sides of the marker, which they must not absorb
+ready: true
+warn: "WARN libkrun: first\nWARN libkrun: second"
+warn: "WARN after readiness\nmore raw"
+debug: "stopped connector container"
+
+# an indented line after readiness is a log, not a second marker
+ready: true
+warn: "Traceback (most recent call last):\n  File \"main.py\", line 1"
+debug: "stopped connector container"
+
+# a panic, and no readiness
+ready: false
+error: "thread 'main' panicked at crates/connector-vmm/src/resolver/mod.rs:10:5:\nresolver socket lost\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"
+
+# the engine's own failure, and no readiness
+ready: false
+error: "Error: crun: error stat'ing file `/dev/kvm`: No such file or directory: OCI runtime attempted to invoke a command that was not found"
