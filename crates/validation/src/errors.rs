@@ -324,6 +324,17 @@ pub enum Error {
     TouchModelIsDelete,
     #[error("this binding must backfill because its source collection {collection} was reset")]
     SourceCollectionWasReset { collection: String },
+    #[error("the connector's resource config schema doesn't support `source` or `targetNaming`")]
+    ResourceSchemaAnnotations {
+        #[source]
+        detail: anyhow::Error,
+    },
+    #[error("targetNaming requires the connector to support x-schema-name in its resource config")]
+    TargetNamingWithoutSchemaName,
+    #[error("source.deltaUpdates set but the connector does not support delta updates")]
+    SourceDeltaUpdatesUnsupported,
+    #[error("source.targetNaming set but the connector does not support resource schemas")]
+    SourceTargetSchemaUnsupported,
     #[error("materialization {materialization} uses Dekaf endpoint which cannot be reset")]
     DekafMaterializationCannotReset { materialization: String },
     #[error("shard flag {flag} must be {expect:?} if set, but is {value:?}")]

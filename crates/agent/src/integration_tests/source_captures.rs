@@ -370,7 +370,7 @@ async fn test_source_captures_collection_name() {
 #[tokio::test]
 async fn test_source_capture_no_annotations() {
     let harness = TestHarness::init("test_source_capture_no_annotations").await;
-    let user_id = harness.setup_tenant("sheep").await;
+    let user_id = harness.setup_tenant("ducks").await;
 
     let snapshot = harness.pinned_snapshot().await;
 
@@ -442,16 +442,16 @@ async fn test_source_capture_no_annotations() {
 
     let errors = built.errors().collect::<Vec<_>>();
 
-    insta::assert_debug_snapshot!(errors, @r###"
+    insta::assert_debug_snapshot!(errors, @"
     [
         Error {
-            scope: flow://materialization/ducks/materializeA,
-            error: sourceCapture.deltaUpdates set but the connector 'materialize/test' does not support delta updates,
+            scope: flow://materialization/ducks/materializeA#/source/deltaUpdates,
+            error: source.deltaUpdates set but the connector does not support delta updates,
         },
         Error {
-            scope: flow://materialization/ducks/materializeA,
-            error: sourceCapture.targetSchema set but the connector 'materialize/test' does not support resource schemas,
+            scope: flow://materialization/ducks/materializeA#/source/targetNaming,
+            error: source.targetNaming set but the connector does not support resource schemas,
         },
     ]
-    "###);
+    ");
 }

@@ -537,6 +537,77 @@ driver:
 }
 
 #[test]
+fn test_materialization_resource_annotations() {
+    // The connector's resource schema has `x-collection-name` but neither
+    // `x-schema-name` nor `x-delta-updates`, so `targetNaming`,
+    // `source.deltaUpdates`, and `source.targetNaming: withSchema` all fail.
+    let missing_annotations = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/db-views:
+      targetNaming: { strategy: singleSchema, schema: the_schema }
+      source:
+        capture: testing/s3-source
+        deltaUpdates: true
+        targetNaming: withSchema
+
+driver:
+  materializations:
+    testing/db-views:
+      resourceConfigSchema:
+        type: object
+        properties:
+          table: { type: string, x-collection-name: true }
+"#,
+    );
+    // A resource schema without `x-collection-name` can't be used at all.
+    let missing_collection_name = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/db-views:
+      source: testing/s3-source
+
+driver:
+  materializations:
+    testing/db-views:
+      resourceConfigSchema:
+        type: object
+        properties:
+          table: { type: string }
+"#,
+    );
+    // A disabled materialization doesn't run its connector,
+    // and has no Spec to check against.
+    let disabled = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/db-views:
+      targetNaming: { strategy: singleSchema, schema: the_schema }
+      source:
+        capture: testing/s3-source
+        deltaUpdates: true
+      shards:
+        disable: true
+
+driver:
+  materializations:
+    testing/db-views:
+      resourceConfigSchema:
+        type: object
+        properties:
+          table: { type: string }
+"#,
+    );
+    insta::assert_debug_snapshot!((missing_annotations, missing_collection_name, disabled));
+}
+
+#[test]
 fn test_materialization_duplicates() {
     let errors = common::run_errors(
         MODEL_YAML,

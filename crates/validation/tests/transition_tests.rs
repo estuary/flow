@@ -104,6 +104,71 @@ driver:
 }
 
 #[test]
+fn test_frozen_derive_image_has_no_connector_spec() {
+    // The live derivation was built against a current image, and carries a
+    // `connector_spec`. The mock frozen image rejects a Validate which
+    // passes it through as `last_collection`.
+    let outcomes = [
+        ("frozen", "{}", "ghcr.io/estuary/derive-typescript:dev"),
+        (
+            "current",
+            r#"{ enable-runtime-v2: "true" }"#,
+            "ghcr.io/estuary/derive-typescript:stable",
+        ),
+    ]
+    .map(|(case, flags, image)| {
+        let common::Outcome {
+            built_collections,
+            errors,
+            ..
+        } = common::run(
+            MODEL_YAML,
+            &format!(
+                r#"
+test://example/catalog.yaml:
+  collections:
+    the/derivation:
+      derive:
+        using: {{ sqlite: null, typescript: {{ module: module placeholder }} }}
+        shards: {{ flags: {flags} }}
+
+driver:
+  liveCollections:
+    the/derivation:
+      connectorSpec: true
+
+  derivations:
+    the/derivation:
+      connectorType: IMAGE
+      config:
+        image: {image}
+        config: {{ module: module placeholder }}
+"#
+            ),
+        );
+        // The built image distinguishes a rebuild from a pass-through of the live spec.
+        let built = built_collections
+            .get_key(&models::Collection::new("the/derivation"))
+            .and_then(|row| row.spec.as_ref())
+            .and_then(|spec| spec.derivation.as_ref())
+            .map(|derivation| {
+                let config: models::ConnectorConfig =
+                    serde_json::from_slice(&derivation.config_json).unwrap();
+                (config.image, derivation.connector_spec.is_some())
+            });
+
+        let errors: Vec<String> = errors
+            .into_iter()
+            .map(|err| format!("{:?}", err.error))
+            .collect();
+
+        (case, built, errors)
+    });
+
+    insta::assert_debug_snapshot!(outcomes);
+}
+
+#[test]
 fn test_change_collection_key_and_partitions() {
     let errors = common::run_errors(
         MODEL_YAML,

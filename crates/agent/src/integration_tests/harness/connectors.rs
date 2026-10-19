@@ -188,20 +188,7 @@ fn validate_materialization(
 ) -> (connector::response::Started, connector::response::Kind) {
     let spec = materialize::response::Spec {
         config_schema_json: "true".into(),
-        resource_config_schema_json: r#"{
-                        "type": "object",
-                        "properties": {
-                            "table": {
-                                "type": "string",
-                                "x-collection-name": true
-                            },
-                            "deltaUpdates": {
-                                "type": "boolean",
-                                "x-delta-updates": true
-                            }
-                        }
-                    }"#
-        .into(),
+        resource_config_schema_json: mock_materialize_resource_schema(&validate.config_json),
         ..Default::default()
     };
     let bindings = validate
@@ -251,6 +238,21 @@ fn validate_materialization(
             ..Default::default()
         }),
     )
+}
+
+/// Resource config schema of a mocked materialization's Spec. It matches the
+/// `resource_spec_schema` of the `materialize/test` tag fixtures in
+/// `TestHarness::setup_test_connectors`, so that a built spec's Spec agrees
+/// with its tag.
+fn mock_materialize_resource_schema(config_json: &[u8]) -> bytes::Bytes {
+    let no_annotation = serde_json::from_slice::<models::ConnectorConfig>(config_json)
+        .is_ok_and(|config| config.image.ends_with(":test-no-annotation"));
+
+    if no_annotation {
+        r#"{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}, "schema": {"type": "string"}, "delta": {"type": "boolean"}}}"#.into()
+    } else {
+        r#"{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}, "schema": {"type": "string", "x-schema-name": true}, "delta": {"type": "boolean", "x-delta-updates": true}}}"#.into()
+    }
 }
 
 fn mock_resource_path(resource_config: &serde_json::Value) -> Vec<String> {
