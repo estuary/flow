@@ -1,0 +1,27 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: "(missing_annotations, missing_collection_name, disabled)"
+---
+(
+    [
+        Error {
+            scope: test://example/db-views#/materializations/testing~1db-views/targetNaming,
+            error: targetNaming requires the connector to support x-schema-name in its resource config,
+        },
+        Error {
+            scope: test://example/db-views#/materializations/testing~1db-views/source/deltaUpdates,
+            error: source.deltaUpdates set but the connector does not support delta updates,
+        },
+        Error {
+            scope: test://example/db-views#/materializations/testing~1db-views/source/targetNaming,
+            error: source.targetNaming set but the connector does not support resource schemas,
+        },
+    ],
+    [
+        Error {
+            scope: test://example/db-views#/materializations/testing~1db-views,
+            error: the connector's resource config schema doesn't support `source` or `targetNaming`: resource spec schema does not contain any location annotated with x-collection-name,
+        },
+    ],
+    [],
+)

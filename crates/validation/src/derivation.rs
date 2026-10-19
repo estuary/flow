@@ -331,6 +331,12 @@ async fn walk_derivation(
     let secrets_spec = assemble::secrets(&secrets);
     let secrets_ctx = crate::secrets::Context::of_derivation(&secrets, &using);
 
+    // Frozen `:dev` images reject `connector_spec` as an unknown JSON field.
+    // A derivation which uses one neither sends nor bakes a `connector_spec`.
+    let frozen_image = connector_type == ConnectorType::Image as i32
+        && serde_json::from_slice::<models::ConnectorConfig>(&config_json)
+            .is_ok_and(|config| models::is_frozen_derive_image(&config.image));
+
     crate::secrets::walk_model(
         scope,
         "derivation",
@@ -518,7 +524,12 @@ async fn walk_derivation(
         shuffle_key_types: shuffle_key_types_spec.iter().map(|t| *t as i32).collect(),
         project_root: project_root.to_string(),
         import_map,
-        last_collection: live_spec.cloned(),
+        last_collection: live_spec.cloned().map(|mut last| {
+            if let Some(derivation) = last.derivation.as_mut().filter(|_| frozen_image) {
+                derivation.connector_spec = None; // Clear V2 `connector_spec` rolled back to V1.
+            }
+            last
+        }),
         last_version: if expect_build_id.is_zero() {
             String::new()
         } else {
@@ -529,10 +540,11 @@ async fn walk_derivation(
     };
     linked::install_derive_validate(&mut validate_request, interner, indirect_specs);
 
-    let (validated_response, network_ports, config_schema_json) = super::validate_connector(
+    let no_op = noop_derivations || shards.disable;
+    let (validated_response, network_ports, connector_spec) = super::validate_connector(
         scope,
         connectors,
-        noop_derivations || shards.disable,
+        no_op,
         data_plane_id,
         shards.log_level.as_deref(),
         connector::request::Kind::Derive(derive::Request {
@@ -555,7 +567,7 @@ async fn walk_derivation(
         "derivation",
         collection,
         &secrets_ctx,
-        &config_schema_json,
+        &connector_spec.config_schema_json,
         errors,
     );
 
@@ -779,7 +791,7 @@ async fn walk_derivation(
         redact_salt,
         linked_collections: Vec::new(),
         secrets: secrets_spec,
-        connector_spec: None,
+        connector_spec: (!no_op && !frozen_image).then(|| Box::new(connector_spec)),
     };
     linked::install_derivation(&mut spec, interner, indirect_specs);
 

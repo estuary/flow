@@ -740,7 +740,7 @@ mod test {
 
 /// Issue a unary Validate `kind` to the task's connector (or to the permissive
 /// no-op connector when `no_op`). Errors are pushed to `errors` under `scope`.
-/// Returns the Validated response, network ports, and the config JSON schema.
+/// Returns the Validated response, network ports, and the ConnectorSpec.
 async fn validate_connector<V>(
     scope: Scope<'_>,
     connectors: &Connectors<'_>,
@@ -750,7 +750,11 @@ async fn validate_connector<V>(
     kind: proto_flow::connector::request::Kind,
     unwrap_validated: fn(proto_flow::connector::response::Kind) -> Option<V>,
     errors: &mut tables::Errors,
-) -> Option<(V, Vec<proto_flow::flow::NetworkPort>, bytes::Bytes)> {
+) -> Option<(
+    V,
+    Vec<proto_flow::flow::NetworkPort>,
+    proto_flow::flow::ConnectorSpec,
+)> {
     use proto_flow::connector::request;
 
     let protocol = match &kind {
@@ -795,11 +799,60 @@ async fn validate_connector<V>(
     let network_ports = started.container.unwrap_or_default().network_ports;
 
     use proto_flow::connector::response::started::Spec;
-    let config_schema_json = match started.spec.expect("unary verified Started.Spec is set") {
-        Spec::Capture(spec) => spec.config_schema_json,
-        Spec::Derive(spec) => spec.config_schema_json,
-        Spec::Materialize(spec) => spec.config_schema_json,
+    let spec = match started.spec.expect("unary verified Started.Spec is set") {
+        Spec::Capture(spec) => {
+            let proto_flow::capture::response::Spec {
+                protocol,
+                config_schema_json,
+                resource_config_schema_json,
+                documentation_url,
+                oauth2,
+                resource_path_pointers,
+            } = *spec;
+            proto_flow::flow::ConnectorSpec {
+                protocol,
+                config_schema_json,
+                resource_config_schema_json,
+                documentation_url,
+                oauth2,
+                resource_path_pointers,
+            }
+        }
+        Spec::Derive(spec) => {
+            let proto_flow::derive::response::Spec {
+                protocol,
+                config_schema_json,
+                resource_config_schema_json,
+                documentation_url,
+                oauth2,
+            } = *spec;
+            proto_flow::flow::ConnectorSpec {
+                protocol,
+                config_schema_json,
+                resource_config_schema_json,
+                documentation_url,
+                oauth2,
+                resource_path_pointers: Vec::new(),
+            }
+        }
+        Spec::Materialize(spec) => {
+            let proto_flow::materialize::response::Spec {
+                protocol,
+                config_schema_json,
+                resource_config_schema_json,
+                documentation_url,
+                oauth2,
+            } = *spec;
+            proto_flow::flow::ConnectorSpec {
+                protocol,
+                config_schema_json,
+                resource_config_schema_json,
+                documentation_url,
+                oauth2,
+                resource_path_pointers: Vec::new(),
+            }
+        }
     };
 
-    Some((validated, network_ports, config_schema_json))
+    Some((validated, network_ports, spec))
 }

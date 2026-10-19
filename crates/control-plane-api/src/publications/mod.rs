@@ -369,29 +369,6 @@ impl Publisher {
         let build_id = self.id_gen.lock().unwrap().next();
         let user_id = subject.user_id;
 
-        let forbidden_annotations = specs::check_connector_annotations(&draft, &self.db)
-            .await
-            .context("checking connector annotations")?;
-        if !forbidden_annotations.is_empty() {
-            let mut built = tables::Validations::default();
-            built.errors = forbidden_annotations;
-            let output = build::Output {
-                draft,
-                built,
-                live: Default::default(),
-            };
-            return Ok(UncommittedBuild {
-                publication_id,
-                build_id,
-                user_id,
-                detail,
-                started_at: start_time,
-                output,
-                test_errors: tables::Errors::default(),
-                retry_count,
-            });
-        }
-
         let specs::ResolvedLiveCatalog {
             live: mut live_catalog,
             mapping_planes,

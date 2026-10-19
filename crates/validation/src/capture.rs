@@ -261,10 +261,11 @@ async fn walk_capture(
     };
     linked::install_capture_validate(&mut validate_request, interner, indirect_specs);
 
-    let (validated_response, network_ports, config_schema_json) = super::validate_connector(
+    let no_op = noop_captures || shards.disable;
+    let (validated_response, network_ports, connector_spec) = super::validate_connector(
         scope,
         connectors,
-        noop_captures || shards.disable,
+        no_op,
         data_plane_id,
         shards.log_level.as_deref(),
         connector::request::Kind::Capture(capture::Request {
@@ -287,7 +288,7 @@ async fn walk_capture(
         "capture",
         capture,
         &secrets_ctx,
-        &config_schema_json,
+        &connector_spec.config_schema_json,
         errors,
     );
 
@@ -472,7 +473,7 @@ async fn walk_capture(
         ),
         linked_collections: Vec::new(),
         secrets: secrets_spec,
-        connector_spec: None,
+        connector_spec: (!no_op).then(|| Box::new(connector_spec)),
     };
     linked::install_capture_spec(&mut spec, interner, indirect_specs);
 

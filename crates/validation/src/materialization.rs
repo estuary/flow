@@ -292,10 +292,11 @@ async fn walk_materialization(
     };
     linked::install_materialize_validate(&mut validate_request, interner, indirect_specs);
 
-    let (validated_response, network_ports, config_schema_json) = super::validate_connector(
+    let no_op = noop_materializations || shards.disable;
+    let (validated_response, network_ports, connector_spec) = super::validate_connector(
         scope,
         connectors,
-        noop_materializations || shards.disable,
+        no_op,
         data_plane_id,
         shards.log_level.as_deref(),
         connector::request::Kind::Materialize(materialize::Request {
@@ -320,9 +321,21 @@ async fn walk_materialization(
         "materialization",
         materialization,
         &secrets_ctx,
-        &config_schema_json,
+        &connector_spec.config_schema_json,
         errors,
     );
+
+    // A no-op validation has no Spec of the connector to check against.
+    // The checks run once the connector does.
+    if !no_op {
+        walk_resource_annotations(
+            scope,
+            sources.as_ref(),
+            target_naming.is_some(),
+            &connector_spec.resource_config_schema_json,
+            errors,
+        );
+    }
 
     let materialize::response::Validated {
         bindings: bindings_validated,
@@ -683,7 +696,7 @@ async fn walk_materialization(
         sync_schedule_json,
         linked_collections: Vec::new(),
         secrets: secrets_spec,
-        connector_spec: None,
+        connector_spec: (!no_op).then(|| Box::new(connector_spec)),
     };
     linked::install_materialization_spec(&mut spec, interner, indirect_specs);
 
@@ -906,6 +919,52 @@ fn walk_materialization_binding<'a>(
     };
 
     (model_path, model, None, Some(validate))
+}
+
+/// Verifies that the connector's resource config schema has the annotated
+/// locations which `source` and `targetNaming` will write into the
+/// resources of generated bindings.
+fn walk_resource_annotations(
+    scope: Scope,
+    source: Option<&models::SourceType>,
+    target_naming: bool,
+    resource_config_schema_json: &[u8],
+    errors: &mut tables::Errors,
+) {
+    let source = match source {
+        Some(models::SourceType::Configured(source)) => Some(source),
+        Some(models::SourceType::Simple(_)) => None,
+        None if !target_naming => return,
+        None => None,
+    };
+
+    let pointers = match std::str::from_utf8(resource_config_schema_json)
+        .map_err(anyhow::Error::from)
+        .and_then(tables::utils::pointer_for_schema)
+    {
+        Ok(pointers) => pointers,
+        Err(detail) => {
+            Error::ResourceSchemaAnnotations { detail }.push(scope, errors);
+            return;
+        }
+    };
+
+    if target_naming && pointers.x_schema_name.is_none() {
+        Error::TargetNamingWithoutSchemaName.push(scope.push_prop("targetNaming"), errors);
+    }
+    let Some(source) = source else {
+        return;
+    };
+    let scope = scope.push_prop("source");
+
+    if source.delta_updates && pointers.x_delta_updates.is_none() {
+        Error::SourceDeltaUpdatesUnsupported.push(scope.push_prop("deltaUpdates"), errors);
+    }
+    // TODO(js): Remove this check once we finish the target naming migration
+    if source.target_naming == models::TargetNaming::WithSchema && pointers.x_schema_name.is_none()
+    {
+        Error::SourceTargetSchemaUnsupported.push(scope.push_prop("targetNaming"), errors);
+    }
 }
 
 /// Carry live bindings over as inactive bindings of the spec being built,

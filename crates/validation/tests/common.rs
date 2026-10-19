@@ -285,7 +285,12 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 redact_salt: b"pass-through-derivation-salt".as_slice().into(),
                 linked_collections: Vec::new(),
                 secrets: Default::default(),
-                connector_spec: None,
+                connector_spec: mock.connector_spec.then(|| {
+                    Box::new(flow::ConnectorSpec {
+                        documentation_url: "live/connector-spec".to_string(),
+                        ..Default::default()
+                    })
+                }),
             }))
         } else {
             None
@@ -607,6 +612,10 @@ struct MockLiveCollection {
     projections: BTreeMap<models::Field, models::Projection>,
     #[serde(default)]
     derive: Option<models::Derivation>,
+    /// Whether the live derivation carries a `connector_spec`, as baked by a
+    /// build against a current (not frozen) image.
+    #[serde(default)]
+    connector_spec: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -742,6 +751,10 @@ struct MockMaterializationValidateCall {
     /// `secrets` plaintext invariant reads. Defaults to a permissive schema.
     #[serde(default)]
     config_schema: Option<serde_json::Value>,
+    /// Resource configuration schema of the connector's Spec response.
+    /// Defaults to one having `x-collection-name` and `x-schema-name`.
+    #[serde(default)]
+    resource_config_schema: Option<serde_json::Value>,
 }
 
 #[derive(serde::Deserialize)]
@@ -875,6 +888,19 @@ impl MockDriverCalls {
         if call.config != config {
             anyhow::bail!("connector config mismatch: {} vs {}", call.config, config,);
         }
+        // Mirror the frozen `:dev` images, which reject `connector_spec`.
+        if config
+            .get("image")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(models::is_frozen_derive_image)
+            && validate
+                .last_collection
+                .as_ref()
+                .and_then(|last| last.derivation.as_ref())
+                .is_some_and(|derivation| derivation.connector_spec.is_some())
+        {
+            anyhow::bail!("unknown field `connectorSpec`");
+        }
         if call
             .shuffle_key_types
             .iter()
@@ -980,16 +1006,19 @@ impl MockDriverCalls {
             connector::response::started::Spec::Materialize(Box::new(
                 materialize::response::Spec {
                     config_schema_json: mock_config_schema(call.config_schema.as_ref()),
-                    resource_config_schema_json: serde_json::json!({
-                        "type": "object",
-                        "properties": {
-                            "schema": {"type": "string", "x-schema-name": true},
-                            "target": {"type": "string", "x-collection-name": true},
-                        },
-                        "required": ["target"]
-                    })
-                    .to_string()
-                    .into(),
+                    resource_config_schema_json: call
+                        .resource_config_schema
+                        .clone()
+                        .unwrap_or(serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "schema": {"type": "string", "x-schema-name": true},
+                                "target": {"type": "string", "x-collection-name": true},
+                            },
+                            "required": ["target"]
+                        }))
+                        .to_string()
+                        .into(),
                     ..Default::default()
                 },
             )),
