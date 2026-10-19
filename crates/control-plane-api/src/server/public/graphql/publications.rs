@@ -26,6 +26,10 @@ impl Publication {
         &self,
         ctx: &async_graphql::Context<'_>,
     ) -> async_graphql::Result<Vec<models::draft_error::Error>> {
+        if self.status.r#type == models::publications::StatusType::Queued {
+            return Ok(Vec::new());
+        }
+
         let env = ctx.data::<crate::Envelope>()?;
         let user_id = env.claims()?.subject().user_id;
         super::drafts::errors_for_draft(self.draft_id, user_id, &env.pg_pool).await
@@ -91,12 +95,9 @@ pub struct PublicationsMutation;
 #[async_graphql::Object]
 impl PublicationsMutation {
     /// Queue a publication of the draft `draftId`, which the caller must own.
-    /// The caller needs `SpecEdit` on every specification the publication
-    /// would change, which can include live specifications connected to a
-    /// drafted collection, and `CatalogRead` on every other name the draft
-    /// references. Building, validation and the commit happen afterwards:
-    /// poll `publication(id)` until `status.type` is no longer `queued`. A
-    /// successful publication that is not a dry run deletes the draft.
+    /// Building, validation and the commit happen afterwards: poll
+    /// `publication(id)` until `status.type` is no longer `queued`. A successful
+    /// publication that is not a dry run deletes the draft.
     async fn create_publication(
         &self,
         ctx: &async_graphql::Context<'_>,
