@@ -12,6 +12,7 @@ pub type MockConnectorResponse =
 pub struct MockConnectors {
     discover_mocks: Mutex<HashMap<models::Capture, MockConnectorResponse>>,
     discover_requests: Mutex<HashMap<models::Capture, capture::request::Discover>>,
+    discover_starts: Mutex<HashMap<models::Capture, Option<connector::request::Start>>>,
 }
 
 impl MockConnectors {
@@ -50,6 +51,15 @@ impl MockConnectors {
             .cloned()
     }
 
+    pub fn last_discover_start(&self, capture_name: &str) -> Option<connector::request::Start> {
+        self.discover_starts
+            .lock()
+            .unwrap()
+            .get(&models::Capture::new(capture_name))
+            .cloned()
+            .flatten()
+    }
+
     fn connect(
         &self,
         request: connector::Request,
@@ -62,7 +72,13 @@ impl MockConnectors {
                 Some(connector::request::Kind::Capture(capture::Request {
                     kind: Some(capture::request::Kind::Discover(discover)),
                     ..
-                })) => self.discover(*discover),
+                })) => {
+                    self.discover_starts
+                        .lock()
+                        .unwrap()
+                        .insert(models::Capture::new(&discover.name), request.start);
+                    self.discover(*discover)
+                }
                 Some(connector::request::Kind::Capture(capture::Request {
                     kind: Some(capture::request::Kind::Validate(validate)),
                     ..

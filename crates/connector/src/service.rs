@@ -65,6 +65,8 @@ pub struct ServiceImpl {
     pub(crate) plane: crate::Plane,
     /// Docker network attached to connector containers.
     pub(crate) container_network: String,
+    /// VMM capability of this service, or None if it has none.
+    pub(crate) vmm: Option<crate::Vmm>,
     /// Authenticates the `PROXY_CONNECTOR` bearer of every stream, in-process
     /// and over the wire alike.
     pub(crate) authenticator: proto_grpc::Authenticator,
@@ -100,6 +102,7 @@ impl Service {
     pub fn new(
         plane: crate::Plane,
         container_network: String,
+        vmm: Option<crate::Vmm>,
         authenticator: proto_grpc::Authenticator,
         process: Option<proto_gazette::broker::ProcessSpec>,
         registry: service_kit::Registry,
@@ -109,6 +112,7 @@ impl Service {
         Self(std::sync::Arc::new(ServiceImpl {
             plane,
             container_network,
+            vmm,
             authenticator,
             process,
             registry,
@@ -121,6 +125,7 @@ impl Service {
     /// This keeps authentication active without external key configuration.
     pub fn new_local(
         container_network: String,
+        vmm: Option<crate::Vmm>,
         registry: service_kit::Registry,
         secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
     ) -> (Self, crate::ServiceRouter) {
@@ -129,6 +134,7 @@ impl Service {
         let service = Self::new(
             crate::Plane::Local,
             container_network,
+            vmm,
             proto_grpc::Authenticator::new(
                 crate::router::LOCAL_ISSUER.to_string(),
                 vec![tokens::jwt::DecodingKey::from_secret(&key)],

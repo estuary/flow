@@ -2,5 +2,6 @@
 source: crates/proto-flow/tests/regression.rs
 expression: proto_test(ex_connector_response())
 ---
-|0a041001 3200|                       ....2.           00000000
-                                                       00000006
+|0a1e1001 32004218 08011214 0a126170| ....2.B.......ap 00000000
+|692e6163 6d65636f 2e657861 6d706c65| i.acmeco.example 00000010
+                                                       00000020

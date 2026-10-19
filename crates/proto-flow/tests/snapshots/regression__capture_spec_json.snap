@@ -189,5 +189,14 @@ expression: json_test(msg)
       "/schema",
       "/table"
     ]
+  },
+  "execution": {
+    "vmm": true,
+    "egress": {
+      "hosts": [
+        "api.acmeco.example",
+        "*.svc.acmeco.example"
+      ]
+    }
   }
 }

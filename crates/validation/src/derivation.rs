@@ -247,6 +247,8 @@ async fn walk_derivation(
         shuffle_key_types: shuffle_key_types_model,
         redact_salt: model_redact_salt,
         secrets,
+        vmm,
+        egress,
         shards,
     } = model;
 
@@ -281,6 +283,17 @@ async fn walk_derivation(
 
     let project_root = super::project_root(&scope.flatten());
     let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
+    let execution = super::walk_execution(
+        scope,
+        "derivation",
+        collection,
+        models::CatalogType::Collection,
+        vmm,
+        egress.as_ref(),
+        &shards,
+        errors,
+    );
+
     let max_bindings = crate::max_bindings(indirect_specs);
 
     if transforms_model.len() > max_bindings {
@@ -517,6 +530,7 @@ async fn walk_derivation(
         no_op,
         data_plane_id,
         shards.log_level.as_deref(),
+        execution.clone(),
         connector::request::Kind::Derive(derive::Request {
             kind: Some(derive::request::Kind::Validate(Box::new(validate_request))),
             ..Default::default()
@@ -773,6 +787,7 @@ async fn walk_derivation(
         linked_collections: Vec::new(),
         secrets: secrets_spec,
         connector_spec: (!no_op && !frozen_image).then(|| Box::new(connector_spec)),
+        execution,
     };
     linked::install_derivation(&mut spec, interner, indirect_specs);
 
@@ -782,6 +797,8 @@ async fn walk_derivation(
         shuffle_key_types: shuffle_key_types_model,
         redact_salt: model_redact_salt,
         secrets,
+        vmm,
+        egress,
         shards,
     };
 

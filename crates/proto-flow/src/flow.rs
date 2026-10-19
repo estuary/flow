@@ -322,6 +322,35 @@ pub struct NetworkPort {
     #[prost(bool, tag = "3")]
     pub public: bool,
 }
+/// ConnectorExecution is how a task's connector is executed, apart from its
+/// endpoint configuration. Every invocation of the connector -- Spec, Discover,
+/// Validate, Apply, and Open -- uses the same settings. An unset or default
+/// value selects ordinary execution.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ConnectorExecution {
+    /// Run the connector within a VMM, rather than an ordinary container.
+    /// A runtime unable to do so fails the invocation; it never falls back
+    /// to ordinary execution.
+    #[prost(bool, tag = "1")]
+    pub vmm: bool,
+    /// Egress the task declares. Its presence is the declaration, even with no
+    /// hosts: an execution which cannot enforce egress fails the invocation.
+    /// When unset, the data plane decides what the connector may reach.
+    #[prost(message, optional, tag = "2")]
+    pub egress: ::core::option::Option<connector_execution::Egress>,
+}
+/// Nested message and enum types in `ConnectorExecution`.
+pub mod connector_execution {
+    /// Egress a task declares.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Egress {
+        /// Host names the connector may reach, in addition to those of its
+        /// connector and image: an exact name, or `*.` and a base name for every
+        /// name beneath that base but not the base itself. As the task wrote them.
+        #[prost(string, repeated, tag = "1")]
+        pub hosts: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    }
+}
 /// Next tag: 13.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CollectionSpec {
@@ -425,6 +454,9 @@ pub mod collection_spec {
         #[prost(message, optional, boxed, tag = "12")]
         pub connector_spec:
             ::core::option::Option<::prost::alloc::boxed::Box<super::ConnectorSpec>>,
+        /// Execution of this derivation's connector, or unset if ordinary.
+        #[prost(message, optional, tag = "13")]
+        pub execution: ::core::option::Option<super::ConnectorExecution>,
     }
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
@@ -663,6 +695,9 @@ pub struct CaptureSpec {
     /// disabled.
     #[prost(message, optional, boxed, tag = "14")]
     pub connector_spec: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorSpec>>,
+    /// Execution of this capture's connector, or unset if ordinary.
+    #[prost(message, optional, tag = "15")]
+    pub execution: ::core::option::Option<ConnectorExecution>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -802,6 +837,9 @@ pub struct MaterializationSpec {
     /// disabled.
     #[prost(message, optional, boxed, tag = "15")]
     pub connector_spec: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorSpec>>,
+    /// Execution of this materialization's connector, or unset if ordinary.
+    #[prost(message, optional, tag = "16")]
+    pub execution: ::core::option::Option<ConnectorExecution>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {

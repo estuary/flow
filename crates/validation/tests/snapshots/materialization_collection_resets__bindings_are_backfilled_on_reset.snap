@@ -743,6 +743,7 @@ expression: outcome.built_materializations
                     resource_path_pointers: [],
                 },
             ),
+            execution: None,
         },
         previous_spec: MaterializationSpec {
             name: "testing/materialize",
@@ -870,6 +871,7 @@ expression: outcome.built_materializations
             linked_collections: [],
             secrets: {},
             connector_spec: None,
+            execution: None,
         },
         is_touch: 0,
         dependency_hash: eea0c2493934ba84,

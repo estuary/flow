@@ -132,6 +132,8 @@ async fn generate_missing_capture_configs(
                 endpoint,
                 bindings,
                 shards,
+                vmm,
+                egress,
                 ..
             }),
         ..
@@ -160,7 +162,13 @@ async fn generate_missing_capture_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let spec = local_connector::spec_capture(connector_router, None, spec).await?;
+    let spec = local_connector::spec_capture(
+        connector_router,
+        None,
+        assemble::connector_execution(*vmm, egress.as_ref()),
+        spec,
+    )
+    .await?;
     let capture::response::Spec {
         config_schema_json,
         resource_config_schema_json,
@@ -191,6 +199,8 @@ async fn generate_missing_collection_configs(
         using,
         transforms,
         shards,
+        vmm,
+        egress,
         ..
     }) = derive
     else {
@@ -225,7 +235,13 @@ async fn generate_missing_collection_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let spec = local_connector::spec_derive(connector_router, None, spec).await?;
+    let spec = local_connector::spec_derive(
+        connector_router,
+        None,
+        assemble::connector_execution(*vmm, egress.as_ref()),
+        spec,
+    )
+    .await?;
     let derive::response::Spec {
         config_schema_json,
         resource_config_schema_json,
@@ -250,6 +266,8 @@ async fn generate_missing_materialization_configs(
                 endpoint,
                 bindings,
                 shards,
+                vmm,
+                egress,
                 ..
             }),
         ..
@@ -279,7 +297,13 @@ async fn generate_missing_materialization_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let spec = local_connector::spec_materialize(connector_router, None, spec).await?;
+    let spec = local_connector::spec_materialize(
+        connector_router,
+        None,
+        assemble::connector_execution(*vmm, egress.as_ref()),
+        spec,
+    )
+    .await?;
     let materialize::response::Spec {
         config_schema_json,
         resource_config_schema_json,
