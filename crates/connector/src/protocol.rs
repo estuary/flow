@@ -245,6 +245,7 @@ pub(crate) async fn start<P: Protocol>(
         container,
         codec,
         process,
+        vmm,
         sealed_config,
         spec: own_rpc_spec,
     } = match endpoint {
@@ -284,6 +285,7 @@ pub(crate) async fn start<P: Protocol>(
             container: None,
             codec: connector_init::Codec::Proto,
             process: None,
+            vmm: None,
             sealed_config,
             spec: None,
         }),
@@ -378,6 +380,7 @@ pub(crate) async fn start<P: Protocol>(
         execution: ctx.execution,
         guard: crate::Guard {
             _process: process,
+            _vmm: vmm,
             _refresh: refresh,
             _mount: mount,
         },
@@ -693,6 +696,7 @@ fn connect_local<P: Protocol>(
         container: None,
         codec,
         process: None,
+        vmm: None,
         sealed_config,
         spec: None,
     })

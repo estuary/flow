@@ -45,6 +45,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
+tonic-health = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 validator = { workspace = true }
@@ -52,7 +53,8 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 connector-vmm-tests = { path = "../connector-vmm-tests" }
-
+# The readiness tests' stand-in connector-init serves a derive connector.
+proto-grpc = { path = "../proto-grpc", features = ["derive_server"] }
 
 insta = { workspace = true }
 rustls = { workspace = true }

@@ -9,6 +9,7 @@ pub const FLOW_RUNTIME_CODEC: &str = "FLOW_RUNTIME_CODEC";
 #[derive(Debug, serde::Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct Image {
+    pub id: String,
     pub config: ImageConfig,
 }
 
@@ -93,6 +94,7 @@ mod test {
             (
                 "docker",
                 Image {
+                    id: "sha256:c57faed797fce979d79ab84b76f7655b7d1b34a048fb1a9f518b2657e0ca54b7",
                     config: ImageConfig {
                         cmd: None,
                         entrypoint: Some(
@@ -122,6 +124,7 @@ mod test {
             (
                 "podman",
                 Image {
+                    id: "9e544cbf7d80edc92a2b9e8b1d5ec447d1e16d4e16e82c8bf77bc7407fece984",
                     config: ImageConfig {
                         cmd: None,
                         entrypoint: Some(

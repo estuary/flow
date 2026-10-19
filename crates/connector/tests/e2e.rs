@@ -5,6 +5,9 @@
 //! Every connector started here is either in-process (derive-sqlite, Dekaf) or
 //! a `/bin/sh` subprocess, so nothing needs Docker.
 
+#[path = "fixtures/execution.rs"]
+mod execution_fixture;
+
 use connector::proto;
 use futures::StreamExt;
 use proto_grpc::connector::{Router as _, SPEC_TASK_NAME};
@@ -986,4 +989,601 @@ fn task_update_router(refresh_interval: std::time::Duration) -> connector::Servi
             tokens::jwt::EncodingKey::from_secret(&key),
         ),
     )
+}
+
+mod execution {
+    use super::execution_fixture::*;
+    use super::*;
+    use proto_flow::{derive, flow};
+
+    fn vmm_fixture() -> connector::Vmm {
+        connector::Vmm {
+            image: "ghcr.io/estuary/connector-vmm:dev".to_string(),
+            podman: "/nonexistent/connector-vmm-tests/podman".to_string(),
+            state_dir: "/nonexistent/connector-vmm-tests/state".to_string(),
+            disk_mib: 2048,
+            memory_bytes: 1 << 30,
+            cpu_limit: "2".to_string(),
+            guest_memory_mib: 768,
+            vcpus: 2,
+            cgroup_parent: None,
+        }
+    }
+
+    fn start(sqlite_vfs_uri: &str) -> proto::request::Start {
+        proto::request::Start {
+            log_level: ops::LogLevel::Debug as i32,
+            sqlite_vfs_uri: sqlite_vfs_uri.to_string(),
+            ..Default::default()
+        }
+    }
+
+    fn derive_open(collection: &str) -> proto::request::Kind {
+        super::request(super::derive_open(collection)).kind.unwrap()
+    }
+
+    fn derive_request(request: derive::Request) -> proto::Request {
+        proto::Request {
+            start: None,
+            kind: Some(proto::request::Kind::Derive(request)),
+        }
+    }
+
+    fn start_with(execution: Option<flow::ConnectorExecution>) -> proto::request::Start {
+        proto::request::Start {
+            execution,
+            ..start("")
+        }
+    }
+
+    fn vmm_service(capable: bool) -> (connector::Service, connector::ServiceRouter) {
+        let vmm = capable.then(vmm_fixture);
+        connector::Service::new_local(
+            String::new(),
+            vmm,
+            service_kit::Registry::new(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        )
+    }
+
+    async fn drive_each(
+        router: &connector::ServiceRouter,
+        start: proto::request::Start,
+        requests: Vec<(
+            &'static str,
+            ops::TaskType,
+            &'static str,
+            proto::request::Kind,
+        )>,
+    ) -> Vec<String> {
+        let mut rows = Vec::new();
+        for (label, task_type, task_name, kind) in requests {
+            let responses = drive_router(
+                router,
+                task_type,
+                task_name,
+                vec![proto::Request {
+                    start: Some(start.clone()),
+                    kind: Some(kind),
+                }],
+            )
+            .await;
+            rows.push(format!("{label}: {}", render_lines(responses).join(" | ")));
+        }
+        rows
+    }
+
+    /// Every protocol refuses VMM execution of an ineligible connector, and of
+    /// any connector on a service without the capability, before starting it. An
+    /// eligible connector on a capable service is launched in a VMM, which here
+    /// fails at the fixture's state directory: never as an ordinary container.
+    #[tokio::test]
+    async fn vmm_requests_never_start_a_connector() {
+        let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
+        let config: bytes::Bytes = config.to_string().into();
+
+        let mut rows = Vec::new();
+        for capable in [false, true] {
+            let (_service, router) = vmm_service(capable);
+            let requests = every_first_request(image_connector_type, &config, vmm_execution());
+
+            for row in drive_each(&router, start_with(vmm_execution()), requests).await {
+                rows.push(format!("capable={capable} {row}"));
+            }
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+    capable=false capture Spec: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
+    capable=false capture Discover: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
+    capable=false capture Validate: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
+    capable=false capture Apply: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
+    capable=false capture Open: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
+    capable=false derive Spec: Status(FailedPrecondition): this data plane does not support VMM execution
+    capable=false derive Validate: Status(FailedPrecondition): this data plane does not support VMM execution
+    capable=false derive Open: Status(FailedPrecondition): this data plane does not support VMM execution
+    capable=false materialize Spec: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
+    capable=false materialize Validate: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
+    capable=false materialize Apply: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
+    capable=false materialize Open: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
+    capable=true capture Spec: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
+    capable=true capture Discover: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
+    capable=true capture Validate: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
+    capable=true capture Apply: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
+    capable=true capture Open: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
+    capable=true derive Spec: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
+    capable=true derive Validate: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
+    capable=true derive Open: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
+    capable=true materialize Spec: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
+    capable=true materialize Validate: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
+    capable=true materialize Apply: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
+    capable=true materialize Open: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
+    "#);
+    }
+
+    #[tokio::test]
+    async fn vmm_requests_of_local_connectors_never_run_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("ran");
+        let config = serde_json::json!({
+            "command": ["/bin/sh", "-c", format!("touch {}", marker.display())],
+            "config": {},
+        });
+        let config: bytes::Bytes = config.to_string().into();
+        let (_service, router) = vmm_service(true);
+
+        let requests = every_first_request(local_connector_type, &config, vmm_execution());
+        let rows = drive_each(&router, start_with(vmm_execution()), requests).await;
+
+        for row in &rows {
+            assert!(
+                row.ends_with(
+                    ": Status(InvalidArgument): VMM execution requires an image connector"
+                ),
+                "{row}"
+            );
+        }
+        assert_eq!(rows.len(), 12);
+        assert!(!marker.exists(), "a refused local connector ran");
+
+        // An in-process connector is refused the same way.
+        let responses = drive_router(
+            &router,
+            ops::TaskType::Derivation,
+            "acmeCo/derivation",
+            vec![proto::Request {
+                start: Some(start_with(vmm_execution())),
+                kind: Some(derive_open("acmeCo/derivation")),
+            }],
+        )
+        .await;
+        insta::assert_debug_snapshot!(render_lines(responses), @r#"
+    [
+        "Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec",
+    ]
+    "#);
+
+        let responses = drive_router(
+            &router,
+            ops::TaskType::Derivation,
+            SPEC_TASK_NAME,
+            vec![proto::Request {
+                start: Some(start_with(vmm_execution())),
+                kind: Some(proto::request::Kind::Derive(derive::Request {
+                    kind: Some(derive::request::Kind::Spec(derive::request::Spec {
+                        connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite
+                            as i32,
+                        config_json: r#"{"migrations":[]}"#.into(),
+                    })),
+                    ..Default::default()
+                })),
+            }],
+        )
+        .await;
+        insta::assert_debug_snapshot!(render_lines(responses), @r#"
+    [
+        "Status(InvalidArgument): VMM execution requires an image connector",
+    ]
+    "#);
+    }
+
+    #[tokio::test]
+    async fn apply_and_open_must_start_with_the_built_spec_execution() {
+        let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
+        let config: bytes::Bytes = config.to_string().into();
+        let (_service, router) = vmm_service(true);
+        let embeds_spec = |label: &str| label.ends_with(" Apply") || label.ends_with(" Open");
+
+        let mut rows = Vec::new();
+        for (start, spec) in [(None, vmm_execution()), (vmm_execution(), None)] {
+            let requests = every_first_request(image_connector_type, &config, spec.clone())
+                .into_iter()
+                .filter(|(label, ..)| embeds_spec(label))
+                .collect();
+
+            for row in drive_each(&router, start_with(start.clone()), requests).await {
+                rows.push(format!(
+                    "start vmm={} spec vmm={} {row}",
+                    start.is_some(),
+                    spec.is_some()
+                ));
+            }
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r"
+    start vmm=false spec vmm=true capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    start vmm=false spec vmm=true capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    start vmm=false spec vmm=true derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    start vmm=false spec vmm=true materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    start vmm=false spec vmm=true materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    start vmm=true spec vmm=false capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
+    start vmm=true spec vmm=false capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
+    start vmm=true spec vmm=false derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
+    start vmm=true spec vmm=false materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
+    start vmm=true spec vmm=false materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
+    ");
+    }
+
+    /// Declared egress, even with no hosts, is refused by every protocol of an
+    /// ordinary execution, whether its connector is an image, a local command or
+    /// in-process, before the connector starts. A capable service changes nothing.
+    #[tokio::test]
+    async fn egress_without_a_vmm_never_starts_a_connector() {
+        const REFUSAL: &str = "Status(InvalidArgument): the task declares egress, which ordinary \
+                           execution cannot enforce; egress is enforced only by VMM execution";
+
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("ran");
+        let local = serde_json::json!({
+            "command": ["/bin/sh", "-c", format!("touch {}", marker.display())],
+            "config": {},
+        });
+        let local: bytes::Bytes = local.to_string().into();
+        let image =
+            serde_json::json!({"image": "ghcr.io/estuary/source-hello-world:dev", "config": {}});
+        let image: bytes::Bytes = image.to_string().into();
+
+        for capable in [false, true] {
+            let (_service, router) = vmm_service(capable);
+            for execution in [
+                egress_execution(false, &[]),
+                egress_execution(false, &["api.acmeco.example"]),
+            ] {
+                for (connector_type, config) in [
+                    (image_connector_type as fn(ops::TaskType) -> i32, &image),
+                    (local_connector_type, &local),
+                ] {
+                    let requests = every_first_request(connector_type, config, execution.clone());
+                    let rows = drive_each(&router, start_with(execution.clone()), requests).await;
+
+                    assert_eq!(rows.len(), 12);
+                    for row in &rows {
+                        assert!(row.ends_with(REFUSAL), "capable={capable} {row}");
+                    }
+                }
+
+                let responses = drive_router(
+                    &router,
+                    ops::TaskType::Derivation,
+                    SPEC_TASK_NAME,
+                    vec![proto::Request {
+                        start: Some(start_with(execution.clone())),
+                        kind: Some(proto::request::Kind::Derive(derive::Request {
+                            kind: Some(derive::request::Kind::Spec(derive::request::Spec {
+                                connector_type:
+                                    flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
+                                config_json: r#"{"migrations":[]}"#.into(),
+                            })),
+                            ..Default::default()
+                        })),
+                    }],
+                )
+                .await;
+                assert_eq!(
+                    render_lines(responses),
+                    [REFUSAL],
+                    "capable={capable} in-process"
+                );
+            }
+        }
+        assert!(!marker.exists(), "a refused local connector ran");
+    }
+
+    #[tokio::test]
+    async fn apply_and_open_must_start_with_the_built_spec_egress() {
+        let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
+        let config: bytes::Bytes = config.to_string().into();
+        let (_service, router) = vmm_service(true);
+
+        let mut rows = Vec::new();
+        for (start, spec) in [
+            (vmm_execution(), egress_execution(true, &[])),
+            (egress_execution(true, &[]), vmm_execution()),
+            (
+                egress_execution(true, &["API.acmeco.example"]),
+                egress_execution(true, &["api.acmeco.example"]),
+            ),
+        ] {
+            let requests = every_first_request(image_connector_type, &config, spec.clone())
+                .into_iter()
+                .filter(|(label, ..)| label.ends_with(" Apply") || label.ends_with(" Open"))
+                .collect();
+
+            rows.extend(drive_each(&router, start_with(start.clone()), requests).await);
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
+    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
+    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
+    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
+    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
+    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+    "#);
+    }
+
+    /// Task hosts are validated before anything is pulled: an invalid one is
+    /// refused by a capable service before its launch reaches the state
+    /// directory, where the fixture's launch otherwise fails.
+    #[tokio::test]
+    async fn invalid_task_hosts_are_refused_before_a_launch() {
+        let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
+        let (_service, router) = vmm_service(true);
+
+        let mut rows = Vec::new();
+        for hosts in [
+            &["api.acmeco.example", "*.com"][..],
+            &["api.acmeco.example:443"][..],
+            &["api.acmeco.example", "*.svc.acmeco.example"][..],
+        ] {
+            let responses = drive_router(
+                &router,
+                ops::TaskType::Derivation,
+                SPEC_TASK_NAME,
+                vec![proto::Request {
+                    start: Some(start_with(egress_execution(true, hosts))),
+                    kind: Some(proto::request::Kind::Derive(derive::Request {
+                        kind: Some(derive::request::Kind::Spec(derive::request::Spec {
+                            connector_type: flow::collection_spec::derivation::ConnectorType::Image
+                                as i32,
+                            config_json: config.to_string().into(),
+                        })),
+                        ..Default::default()
+                    })),
+                }],
+            )
+            .await;
+            rows.push(format!(
+                "{hosts:?}: {}",
+                render_lines(responses).join(" | ")
+            ));
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+    ["api.acmeco.example", "*.com"]: Status(InvalidArgument): task egress.hosts "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+    ["api.acmeco.example:443"]: Status(InvalidArgument): task egress.hosts "api.acmeco.example:443" has a label outside [a-z0-9-]: "example:443"
+    ["api.acmeco.example", "*.svc.acmeco.example"]: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
+    "#);
+    }
+
+    #[tokio::test]
+    async fn a_wire_client_requests_vmm_execution() {
+        let (service, router) = vmm_service(true);
+        let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
+
+        let responses = drive_endpoint_router(
+            service,
+            router.signer().clone(),
+            vec![proto::Request {
+                start: Some(start_with(vmm_execution())),
+                kind: Some(proto::request::Kind::Derive(derive::Request {
+                    kind: Some(derive::request::Kind::Spec(derive::request::Spec {
+                        connector_type: flow::collection_spec::derivation::ConnectorType::Image
+                            as i32,
+                        config_json: config.to_string().into(),
+                    })),
+                    ..Default::default()
+                })),
+            }],
+        )
+        .await;
+
+        insta::assert_debug_snapshot!(render_lines(responses), @r#"
+    [
+        "Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)",
+    ]
+    "#);
+    }
+
+    /// The public-plane refusal of Python derivations is lifted for a VMM launch
+    /// alone: an ordinary start is refused before anything is pulled, while a
+    /// VMM start goes on to its launch, which fails here at the fixture's state
+    /// directory.
+    #[tokio::test]
+    async fn public_python_runs_only_in_a_vmm() {
+        let key: [u8; 32] = rand::random();
+        let service = connector::Service::new(
+            connector::Plane::Public,
+            String::new(),
+            Some(vmm_fixture()),
+            proto_grpc::Authenticator::new(
+                connector::LOCAL_ISSUER.to_string(),
+                vec![tokens::jwt::DecodingKey::from_secret(&key)],
+            ),
+            None,
+            service_kit::Registry::new(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+            None,
+        );
+        let signer = proto_grpc::Signer::new(
+            connector::LOCAL_ISSUER.to_string(),
+            tokens::jwt::EncodingKey::from_secret(&key),
+        );
+        let router = connector::ServiceRouter::new(service, signer);
+        let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
+
+        let mut rows = Vec::new();
+        for execution in [None, vmm_execution()] {
+            let responses = drive_router(
+                &router,
+                ops::TaskType::Derivation,
+                SPEC_TASK_NAME,
+                vec![proto::Request {
+                    start: Some(start_with(execution.clone())),
+                    kind: Some(proto::request::Kind::Derive(derive::Request {
+                        kind: Some(derive::request::Kind::Spec(derive::request::Spec {
+                            connector_type: flow::collection_spec::derivation::ConnectorType::Image
+                                as i32,
+                            config_json: config.to_string().into(),
+                        })),
+                        ..Default::default()
+                    })),
+                }],
+            )
+            .await;
+            rows.push(format!(
+                "vmm={}: {}",
+                execution.is_some(),
+                render_lines(responses).join(" | ")
+            ));
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+    vmm=false: Status(Unknown): Python derivations may only run in private data-planes
+    vmm=true: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
+    "#);
+    }
+
+    #[tokio::test]
+    async fn explicitly_ordinary_execution_starts_ordinarily() {
+        let (_service, router) = vmm_service(true);
+
+        let responses = drive_router(
+            &router,
+            ops::TaskType::Derivation,
+            "acmeCo/derivation",
+            vec![proto::Request {
+                start: Some(start_with(Some(flow::ConnectorExecution {
+                    vmm: false,
+                    egress: None,
+                }))),
+                kind: Some(derive_open("acmeCo/derivation")),
+            }],
+        )
+        .await;
+
+        let started = responses.iter().find_map(|response| match response {
+            Ok(proto::Response {
+                kind: Some(proto::response::Kind::Started(started)),
+            }) => Some(started),
+            _ => None,
+        });
+        assert_eq!(started.expect("connector started").execution, None);
+        insta::assert_debug_snapshot!(render_lines(responses), @r#"
+    [
+        "Started(codec=Proto, container=false, process=false, spec=derive)",
+        "Derive(opened)",
+    ]
+    "#);
+    }
+
+    fn later_sqlite_open(execution: Option<flow::ConnectorExecution>) -> proto::Request {
+        let mut kind = derive_open("acmeCo/derivation");
+        let proto::request::Kind::Derive(derive::Request {
+            kind: Some(derive::request::Kind::Open(open)),
+            ..
+        }) = &mut kind
+        else {
+            unreachable!("derive_open is a derive Open");
+        };
+        let collection = open.collection.as_mut().unwrap();
+        collection.derivation.as_mut().unwrap().execution = execution;
+
+        proto::Request {
+            start: None,
+            kind: Some(kind),
+        }
+    }
+
+    /// Even a VMM-capable service cannot change a running connector's execution.
+    #[tokio::test]
+    async fn an_ordinary_session_refuses_a_later_spec_of_another_execution() {
+        let (_service, router) = vmm_service(true);
+        let ordinary = Some(flow::ConnectorExecution::default());
+        let sqlite_spec = derive_request(derive::Request {
+            kind: Some(derive::request::Kind::Spec(derive::request::Spec {
+                connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
+                config_json: r#"{"migrations":[]}"#.into(),
+            })),
+            ..Default::default()
+        });
+        let valid = vec![
+            sqlite_spec,
+            later_sqlite_open(None),
+            later_sqlite_open(ordinary.clone()),
+        ];
+
+        let mut rows = Vec::new();
+        for (label, start, later) in [
+            ("start unset", None, valid.clone()),
+            ("start ordinary", ordinary.clone(), valid),
+            ("vmm", None, vec![later_sqlite_open(vmm_execution())]),
+            (
+                "egress []",
+                None,
+                vec![later_sqlite_open(egress_execution(false, &[]))],
+            ),
+            (
+                "egress [api]",
+                ordinary.clone(),
+                vec![later_sqlite_open(egress_execution(
+                    false,
+                    &["api.acmeco.example"],
+                ))],
+            ),
+        ] {
+            let mut requests = vec![proto::Request {
+                start: Some(start_with(start)),
+                kind: Some(derive_open("acmeCo/derivation")),
+            }];
+            requests.extend(later);
+
+            let responses = drive_router(
+                &router,
+                ops::TaskType::Derivation,
+                "acmeCo/derivation",
+                requests,
+            )
+            .await;
+            rows.push(format!("{label}: {}", render_lines(responses).join(" | ")));
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+    start unset: Started(codec=Proto, container=false, process=false, spec=derive) | Derive(opened) | Derive(spec) | Derive(opened) | Derive(opened)
+    start ordinary: Started(codec=Proto, container=false, process=false, spec=derive) | Derive(opened) | Derive(spec) | Derive(opened) | Derive(opened)
+    vmm: Started(codec=Proto, container=false, process=false, spec=derive) | Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    egress []: Started(codec=Proto, container=false, process=false, spec=derive) | Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) } of the task's built spec
+    egress [api]: Started(codec=Proto, container=false, process=false, spec=derive) | Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+    "#);
+    }
+    fn local_connector_type(task_type: ops::TaskType) -> i32 {
+        match task_type {
+            ops::TaskType::Capture => flow::capture_spec::ConnectorType::Local as i32,
+            ops::TaskType::Derivation => {
+                flow::collection_spec::derivation::ConnectorType::Local as i32
+            }
+            ops::TaskType::Materialization => {
+                flow::materialization_spec::ConnectorType::Local as i32
+            }
+            _ => unreachable!(),
+        }
+    }
 }

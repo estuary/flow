@@ -33,6 +33,9 @@ podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --ca
 ## network
 podman network create --driver=bridge --interface-name=fvm0123456789ab --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff fv_0123456789abcdef
 
+## rootfs
+podman volume create --driver=image --opt=image=sha256:0123abcd --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff fv_0123456789abcdef
+
 ## create
 podman create \
   --rm \
@@ -49,7 +52,7 @@ podman create \
   --sysctl=net.ipv6.conf.default.disable_ipv6=1 \
   --memory=1073741824 \
   --cpus=1.5 \
-  --mount=type=image,source=ghcr.io/estuary/derive-python:stable,destination=/rootfs,rw=false \
+  --mount=type=volume,source=fv_0123456789abcdef,destination=/rootfs,readonly \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/init,target=/init,readonly \
   --mount=type=bind,source=/tmp/connector-mounts-0/mount-fv_0123456789abcdef,target=/tmp/connector-mounts-0/mount-fv_0123456789abcdef,readonly \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/sock,target=/sock \
