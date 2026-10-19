@@ -44,9 +44,13 @@ async fn get_spec_response(
         let model = row.model.as_ref().expect("not a capture");
 
         let request = validation::capture_spec_request(&model.endpoint, &model.shards);
-        let response =
-            local_connector::spec_capture(router, model.shards.log_level.as_deref(), request)
-                .await?;
+        let response = local_connector::spec_capture(
+            router,
+            model.shards.log_level.as_deref(),
+            assemble::connector_execution(model.vmm, model.egress.as_ref()),
+            request,
+        )
+        .await?;
 
         return serde_json::to_string(&response).context("Failed to serialize spec response");
     }
@@ -63,9 +67,13 @@ async fn get_spec_response(
             .expect("not a derivation");
 
         let request = validation::derive_spec_request(&model.using, &model.shards);
-        let response =
-            local_connector::spec_derive(router, model.shards.log_level.as_deref(), request)
-                .await?;
+        let response = local_connector::spec_derive(
+            router,
+            model.shards.log_level.as_deref(),
+            assemble::connector_execution(model.vmm, model.egress.as_ref()),
+            request,
+        )
+        .await?;
 
         return serde_json::to_string(&response).context("Failed to serialize spec response");
     }
@@ -78,9 +86,13 @@ async fn get_spec_response(
         let model = row.model.as_ref().expect("not a materialization");
 
         let request = validation::materialization_spec_request(&model.endpoint, &model.shards);
-        let response =
-            local_connector::spec_materialize(router, model.shards.log_level.as_deref(), request)
-                .await?;
+        let response = local_connector::spec_materialize(
+            router,
+            model.shards.log_level.as_deref(),
+            assemble::connector_execution(model.vmm, model.egress.as_ref()),
+            request,
+        )
+        .await?;
 
         return serde_json::to_string(&response).context("Failed to serialize spec response");
     }

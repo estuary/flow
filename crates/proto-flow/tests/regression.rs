@@ -124,6 +124,15 @@ fn ex_secrets() -> std::collections::BTreeMap<String, String> {
     .into()
 }
 
+fn ex_execution(hosts: &[&str]) -> Option<flow::ConnectorExecution> {
+    Some(flow::ConnectorExecution {
+        vmm: true,
+        egress: Some(flow::connector_execution::Egress {
+            hosts: hosts.iter().map(ToString::to_string).collect(),
+        }),
+    })
+}
+
 fn ex_network_ports() -> Vec<flow::NetworkPort> {
     [
         flow::NetworkPort {
@@ -245,6 +254,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
         connector_spec: Some(Box::new(ex_connector_spec(&["/schema", "/table"]))),
+        execution: ex_execution(&["api.acmeco.example", "*.svc.acmeco.example"]),
     }
 }
 
@@ -289,6 +299,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
         connector_spec: Some(Box::new(ex_connector_spec(&[]))),
+        execution: ex_execution(&[]),
     }));
 
     spec
@@ -352,6 +363,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
         connector_spec: Some(Box::new(ex_connector_spec(&[]))),
+        execution: ex_execution(&["api.acmeco.example", "*.svc.acmeco.example"]),
     }
 }
 
@@ -402,6 +414,7 @@ fn ex_connector_response() -> connector::Response {
                 spec: Some(connector::response::started::Spec::Derive(Box::new(
                     derive::response::Spec::default(),
                 ))),
+                execution: ex_execution(&["api.acmeco.example"]),
                 ..Default::default()
             },
         )),

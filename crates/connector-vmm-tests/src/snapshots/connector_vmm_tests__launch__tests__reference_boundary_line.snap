@@ -1,0 +1,15 @@
+---
+source: crates/connector-vmm-tests/src/launch.rs
+assertion_line: 172
+expression: "super::boundary(\"ghcr.io/estuary/connector-vmm:dev\", \"host\",\n\"verify\").join(\"\\n\")"
+---
+run
+--rm
+--network=host
+--log-driver=none
+--read-only
+--cap-drop=all
+--cap-add=CAP_NET_ADMIN
+ghcr.io/estuary/connector-vmm:dev
+boundary
+verify

@@ -1,0 +1,44 @@
+---
+source: crates/connector/src/vmm.rs
+expression: "rows.join(\"\\n\")"
+---
+-       ghcr.io/estuary/derive-python:stable     ordinary, egress []           => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+-       ghcr.io/estuary/derive-python:stable     ordinary, egress [api]        => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+-       ghcr.io/estuary/derive-python:stable     vmm, egress []                => FailedPrecondition: this data plane does not support VMM execution
+-       ghcr.io/estuary/derive-python:stable     vmm, egress [API, *.svc, api] => FailedPrecondition: this data plane does not support VMM execution
+-       ghcr.io/estuary/derive-python:stable     vmm, egress [*.com]           => FailedPrecondition: this data plane does not support VMM execution
+-       ghcr.io/estuary/derive-typescript:stable ordinary, egress []           => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+-       ghcr.io/estuary/derive-typescript:stable ordinary, egress [api]        => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+-       ghcr.io/estuary/derive-typescript:stable vmm, egress []                => InvalidArgument: connector image 'ghcr.io/estuary/derive-typescript:stable' is not eligible for VMM execution as a derivation
+-       ghcr.io/estuary/derive-typescript:stable vmm, egress [API, *.svc, api] => InvalidArgument: connector image 'ghcr.io/estuary/derive-typescript:stable' is not eligible for VMM execution as a derivation
+-       ghcr.io/estuary/derive-typescript:stable vmm, egress [*.com]           => InvalidArgument: connector image 'ghcr.io/estuary/derive-typescript:stable' is not eligible for VMM execution as a derivation
+-       ghcr.io/estuary/source-hello-world:dev   ordinary, egress []           => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+-       ghcr.io/estuary/source-hello-world:dev   ordinary, egress [api]        => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+-       ghcr.io/estuary/source-hello-world:dev   vmm, egress []                => InvalidArgument: connector image 'ghcr.io/estuary/source-hello-world:dev' is not eligible for VMM execution as a derivation
+-       ghcr.io/estuary/source-hello-world:dev   vmm, egress [API, *.svc, api] => InvalidArgument: connector image 'ghcr.io/estuary/source-hello-world:dev' is not eligible for VMM execution as a derivation
+-       ghcr.io/estuary/source-hello-world:dev   vmm, egress [*.com]           => InvalidArgument: connector image 'ghcr.io/estuary/source-hello-world:dev' is not eligible for VMM execution as a derivation
+-       <not an image>                           ordinary, egress []           => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+-       <not an image>                           ordinary, egress [api]        => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+-       <not an image>                           vmm, egress []                => InvalidArgument: VMM execution requires an image connector
+-       <not an image>                           vmm, egress [API, *.svc, api] => InvalidArgument: VMM execution requires an image connector
+-       <not an image>                           vmm, egress [*.com]           => InvalidArgument: VMM execution requires an image connector
+capable ghcr.io/estuary/derive-python:stable     ordinary, egress []           => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+capable ghcr.io/estuary/derive-python:stable     ordinary, egress [api]        => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+capable ghcr.io/estuary/derive-python:stable     vmm, egress []                => vmm, task hosts Some([])
+capable ghcr.io/estuary/derive-python:stable     vmm, egress [API, *.svc, api] => vmm, task hosts Some(["api.acmeco.example", "*.svc.acmeco.example"])
+capable ghcr.io/estuary/derive-python:stable     vmm, egress [*.com]           => InvalidArgument: task egress.hosts "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+capable ghcr.io/estuary/derive-typescript:stable ordinary, egress []           => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+capable ghcr.io/estuary/derive-typescript:stable ordinary, egress [api]        => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+capable ghcr.io/estuary/derive-typescript:stable vmm, egress []                => InvalidArgument: connector image 'ghcr.io/estuary/derive-typescript:stable' is not eligible for VMM execution as a derivation
+capable ghcr.io/estuary/derive-typescript:stable vmm, egress [API, *.svc, api] => InvalidArgument: connector image 'ghcr.io/estuary/derive-typescript:stable' is not eligible for VMM execution as a derivation
+capable ghcr.io/estuary/derive-typescript:stable vmm, egress [*.com]           => InvalidArgument: connector image 'ghcr.io/estuary/derive-typescript:stable' is not eligible for VMM execution as a derivation
+capable ghcr.io/estuary/source-hello-world:dev   ordinary, egress []           => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+capable ghcr.io/estuary/source-hello-world:dev   ordinary, egress [api]        => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+capable ghcr.io/estuary/source-hello-world:dev   vmm, egress []                => InvalidArgument: connector image 'ghcr.io/estuary/source-hello-world:dev' is not eligible for VMM execution as a derivation
+capable ghcr.io/estuary/source-hello-world:dev   vmm, egress [API, *.svc, api] => InvalidArgument: connector image 'ghcr.io/estuary/source-hello-world:dev' is not eligible for VMM execution as a derivation
+capable ghcr.io/estuary/source-hello-world:dev   vmm, egress [*.com]           => InvalidArgument: connector image 'ghcr.io/estuary/source-hello-world:dev' is not eligible for VMM execution as a derivation
+capable <not an image>                           ordinary, egress []           => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+capable <not an image>                           ordinary, egress [api]        => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+capable <not an image>                           vmm, egress []                => InvalidArgument: VMM execution requires an image connector
+capable <not an image>                           vmm, egress [API, *.svc, api] => InvalidArgument: VMM execution requires an image connector
+capable <not an image>                           vmm, egress [*.com]           => InvalidArgument: VMM execution requires an image connector

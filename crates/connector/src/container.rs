@@ -13,7 +13,7 @@ const CONNECTOR_INIT_PORT: u16 = models::CONNECTOR_INIT_PORT;
 // For now, we support only Linux amd64 connectors. `docker pull` must request
 // it explicitly: under Docker's containerd image store a platform-less pull
 // fetches only the host's variant, which `docker run --platform` cannot use.
-const CONNECTOR_PLATFORM: &str = "linux/amd64";
+pub(crate) const CONNECTOR_PLATFORM: &str = "linux/amd64";
 
 // `flow-connector-init` is extracted from this image when a locally-built copy
 // isn't found by `locate_bin` (dev/CI builds place one alongside the executable).
@@ -340,16 +340,19 @@ fn docker_cli() -> String {
         .unwrap_or_else(|| "docker".to_string())
 }
 
+pub(crate) const DEFAULT_MEMORY_LIMIT: &str = "1g";
+pub(crate) const DEFAULT_CPU_LIMIT: &str = "2";
+
 fn connector_memory_limit() -> String {
     std::env::var("CONNECTOR_MEMORY_LIMIT")
         .ok()
-        .unwrap_or_else(|| "1g".to_string())
+        .unwrap_or_else(|| DEFAULT_MEMORY_LIMIT.to_string())
 }
 
 fn connector_cpu_limit() -> String {
     std::env::var("CONNECTOR_CPU_LIMIT")
         .ok()
-        .unwrap_or_else(|| "2".to_string())
+        .unwrap_or_else(|| DEFAULT_CPU_LIMIT.to_string())
 }
 
 async fn docker_cmd<S>(args: &[S]) -> anyhow::Result<Vec<u8>>

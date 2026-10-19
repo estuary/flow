@@ -1,0 +1,83 @@
+---
+source: crates/connector/src/vmm/plan.rs
+expression: table
+---
+# no label: the defaults alone
+labels {} ports {}
+=> {"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
+
+# hosts beyond the defaults, lowercased, without repeats
+labels {"dev.estuary.egress-hosts":"[\"api.acmeco.example\", \"*.ACMEco.example\", \"PyPI.org\", \"api.acmeco.example\"]"} ports {}
+=> {"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example","*.acmeco.example"],"egress":"public"}
+
+# an empty label
+labels {"dev.estuary.egress-hosts":""} ports {}
+=> {"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
+
+# a blank label
+labels {"dev.estuary.egress-hosts":"  "} ports {}
+=> {"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
+
+# an empty array
+labels {"dev.estuary.egress-hosts":"[]"} ports {}
+=> {"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
+
+# not JSON
+labels {"dev.estuary.egress-hosts":"pypi.org, files.pythonhosted.org"} ports {}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' must be a JSON array of host names: "pypi.org, files.pythonhosted.org": expected value at line 1 column 1
+
+# not an array
+labels {"dev.estuary.egress-hosts":"{\"hosts\": [\"pypi.org\"]}"} ports {}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' must be a JSON array of host names: "{\"hosts\": [\"pypi.org\"]}": invalid type: map, expected a sequence at line 1 column 0
+
+# not strings
+labels {"dev.estuary.egress-hosts":"[\"pypi.org\", 443]"} ports {}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' must be a JSON array of host names: "[\"pypi.org\", 443]": invalid type: integer `443`, expected a string at line 1 column 16
+
+# a URL
+labels {"dev.estuary.egress-hosts":"[\"https://api.acmeco.example\"]"} ports {}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "https://api.acmeco.example" has a label outside [a-z0-9-]: "https://api"
+
+# a port
+labels {"dev.estuary.egress-hosts":"[\"api.acmeco.example:443\"]"} ports {}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "api.acmeco.example:443" has a label outside [a-z0-9-]: "example:443"
+
+# an address
+labels {"dev.estuary.egress-hosts":"[\"93.184.216.34\"]"} ports {}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "93.184.216.34" ends in an all-numeric label; image label 'dev.estuary.egress-hosts' takes names, not addresses
+
+# a CIDR
+labels {"dev.estuary.egress-hosts":"[\"93.184.216.0/24\"]"} ports {}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "93.184.216.0/24" has a label outside [a-z0-9-]: "0/24"
+
+# everything
+labels {"dev.estuary.egress-hosts":"[\"*\"]"} ports {}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "*" has a wildcard other than a leading "*.", the only form supported
+
+# a wildcard over a public suffix
+labels {"dev.estuary.egress-hosts":"[\"*.github.io\"]"} ports {}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "*.github.io" is a wildcard over the public suffix "github.io", in the Public Suffix List's private section; names beneath a public suffix belong to unrelated registrants
+
+# a wildcard beneath a private suffix
+labels {"dev.estuary.egress-hosts":"[\"*.acmeco.github.io\"]"} ports {}
+=> {"allowedNames":["pypi.org","files.pythonhosted.org","*.acmeco.github.io"],"egress":"public"}
+
+# a single label
+labels {"dev.estuary.egress-hosts":"[\"localhost\"]"} ports {}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "localhost" is a single label, which cannot resolve publicly
+
+# a public port
+labels {"dev.estuary.port-public.8080":"true"} ports {"8080/tcp":{}}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable' exposes network ports 8080, which VMM execution cannot serve
+
+# a private port
+labels {} ports {"8080/tcp":{},"9090":{}}
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable' exposes network ports 8080, 9090, which VMM execution cannot serve
+
+# only a UDP port, which ordinary launches ignore too
+labels {} ports {"9000/udp":{}}
+=> {"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
+
+# another protocol
+labels {"FLOW_RUNTIME_PROTOCOL":"capture"} ports {}
+=> refused: connector protocol Capture does not match requested type Derivation

@@ -9,7 +9,7 @@ use anyhow::Context;
 use futures::{FutureExt, StreamExt};
 use proto_flow::{
     derive::{Request, Response, request, response},
-    flow::collection_spec::derivation::ConnectorType,
+    flow::{self, collection_spec::derivation::ConnectorType},
 };
 
 pub(crate) enum Derive {}
@@ -52,6 +52,14 @@ impl Protocol for Derive {
             } => Ok(proto::response::started::Spec::Derive(spec)),
             response => Err(response),
         }
+    }
+
+    fn spec_execution(request: &Request) -> Option<flow::ConnectorExecution> {
+        let Some(request::Kind::Open(open)) = &request.kind else {
+            return None;
+        };
+        let derivation = open.collection.as_ref()?.derivation.as_ref()?;
+        Some(derivation.execution.clone().unwrap_or_default())
     }
 
     fn open_rpc<S>(channel: tonic::transport::Channel, requests: S) -> StartRpcFuture<Response>
