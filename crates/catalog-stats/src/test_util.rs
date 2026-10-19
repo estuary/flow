@@ -13,6 +13,7 @@ pub async fn connect_emulator(instance: &str) -> Client {
     Client::connect(&crate::BigtableConfig {
         project: "estuary-local".to_string(),
         instance: instance.to_string(),
+        app_profile_id: None,
         emulator_host: Some(format!("localhost:{port}")),
     })
     .await

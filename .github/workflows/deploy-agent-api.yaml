@@ -46,6 +46,7 @@ jobs:
             BUILDS_ROOT=gs://estuary-control/builds/
             BIGTABLE_PROJECT=estuary-control
             BIGTABLE_INSTANCE=catalog-stats
+            BIGTABLE_APP_PROFILE=single-cluster-profile
             DATABASE_CA=/etc/db-ca.crt
             DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
             NO_COLOR=1

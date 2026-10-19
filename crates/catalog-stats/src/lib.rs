@@ -69,6 +69,8 @@ pub type RetryResult<T> = std::result::Result<T, RetryError>;
 pub struct BigtableConfig {
     pub project: String,
     pub instance: String,
+    /// Application profile for reads. `None` uses the instance's default profile.
+    pub app_profile_id: Option<String>,
     pub emulator_host: Option<String>,
 }
 
@@ -77,6 +79,7 @@ pub struct Client {
     client: bigtable_client::BigtableClient<AuthChannel>,
     project: String,
     instance: String,
+    app_profile_id: String,
 }
 
 impl Client {
@@ -112,6 +115,7 @@ impl Client {
             client,
             project: cfg.project.clone(),
             instance: cfg.instance.clone(),
+            app_profile_id: cfg.app_profile_id.clone().unwrap_or_default(),
         })
     }
 
@@ -230,7 +234,12 @@ impl Client {
         additional_filters: Vec<bt::RowFilter>,
     ) -> impl futures_core::Stream<Item = RetryResult<CatalogStats>> + '_ {
         let mut client = self.client.clone();
-        let mut read = ReadRows::new(self.table_name(grain), row_set, additional_filters);
+        let mut read = ReadRows::new(
+            self.table_name(grain),
+            self.app_profile_id.clone(),
+            row_set,
+            additional_filters,
+        );
         let mut attempt: usize = 0;
 
         coroutines::coroutine(move |mut co| async move {
@@ -390,6 +399,7 @@ fn chain_filter(mut filters: Vec<bt::RowFilter>) -> bt::RowFilter {
 
 struct ReadRows {
     table_name: String,
+    app_profile_id: String,
     filter: Option<bt::RowFilter>,
     row_set: bt::RowSet,
     doc: Vec<u8>,
@@ -407,6 +417,7 @@ enum ReadResult {
 impl ReadRows {
     fn new(
         table_name: String,
+        app_profile_id: String,
         row_set: bt::RowSet,
         additional_filters: Vec<bt::RowFilter>,
     ) -> Self {
@@ -420,6 +431,7 @@ impl ReadRows {
 
         Self {
             table_name,
+            app_profile_id,
             filter: Some(chain_filter(filters)),
             row_set,
             doc: Vec::new(),
@@ -436,6 +448,7 @@ impl ReadRows {
 
         Some(bt::ReadRowsRequest {
             table_name: self.table_name.clone(),
+            app_profile_id: self.app_profile_id.clone(),
             rows: Some(self.row_set.clone()),
             filter: self.filter.clone(),
             ..Default::default()
@@ -932,7 +945,7 @@ mod tests {
             .collect()
     }
 
-    fn read_over_name_range(name: &str, hours: i64) -> ReadRows {
+    fn read_over_name_range(name: &str, hours: i64, app_profile_id: &str) -> ReadRows {
         let base = base_ts();
         let row_set = bt::RowSet {
             row_keys: vec![],
@@ -941,7 +954,12 @@ mod tests {
                 &(base..base + chrono::Duration::hours(hours)),
             )],
         };
-        ReadRows::new("test-table".to_string(), row_set, vec![])
+        ReadRows::new(
+            "test-table".to_string(),
+            app_profile_id.to_string(),
+            row_set,
+            vec![],
+        )
     }
 
     fn next_request_range(state: &ReadRows) -> bt::RowRange {
@@ -1043,7 +1061,7 @@ mod tests {
         ];
 
         for (label, name, responses, expected) in cases {
-            let mut state = read_over_name_range(name, 1);
+            let mut state = read_over_name_range(name, 1, "");
             let rpc: Vec<std::result::Result<bt::ReadRowsResponse, tonic::Status>> =
                 responses.into_iter().map(Ok).collect();
             let actions = drive(&mut state, Ok(rpc)).await;
@@ -1053,7 +1071,7 @@ mod tests {
 
     #[tokio::test]
     async fn initial_status_yields_failed() {
-        let mut read = read_over_name_range("foo", 1);
+        let mut read = read_over_name_range("foo", 1, "");
         let actions = drive(&mut read, Err(tonic::Status::unavailable("nope"))).await;
         let [ReadResult::Failed(Error::Grpc(status))] = &actions[..] else {
             panic!("expected [Failed(Grpc)], got {actions:?}");
@@ -1066,32 +1084,37 @@ mod tests {
         let stats = mk_stats("foo", base_ts());
         let key = pack_row_key("foo", base_ts());
 
-        let mut read = read_over_name_range("foo", 3);
-        let stream = drive(
-            &mut read,
-            Ok(vec![
-                Ok(mk_response(vec![commit(&key, &stats)])),
-                Err(tonic::Status::unavailable("")),
-            ]),
-        )
-        .await;
+        for app_profile_id in ["", "test-profile"] {
+            let mut read = read_over_name_range("foo", 3, app_profile_id);
+            assert_eq!(read.next_request().unwrap().app_profile_id, app_profile_id);
 
-        let [
-            ReadResult::Yield(s),
-            ReadResult::Failed(Error::Grpc(status)),
-        ] = &stream[..]
-        else {
-            panic!("expected [Yield, Failed(Grpc)], got {stream:?}");
-        };
-        assert_eq!(s, &stats);
-        assert_eq!(status.code(), tonic::Code::Unavailable);
+            let stream = drive(
+                &mut read,
+                Ok(vec![
+                    Ok(mk_response(vec![commit(&key, &stats)])),
+                    Err(tonic::Status::unavailable("")),
+                ]),
+            )
+            .await;
 
-        let range = next_request_range(&read);
-        assert_eq!(
-            range.start_key,
-            Some(row_range::StartKey::StartKeyOpen(key)),
-            "resume must start strictly past yielded key",
-        );
+            let [
+                ReadResult::Yield(s),
+                ReadResult::Failed(Error::Grpc(status)),
+            ] = &stream[..]
+            else {
+                panic!("expected [Yield, Failed(Grpc)], got {stream:?}");
+            };
+            assert_eq!(s, &stats);
+            assert_eq!(status.code(), tonic::Code::Unavailable);
+            assert_eq!(read.next_request().unwrap().app_profile_id, app_profile_id);
+
+            let range = next_request_range(&read);
+            assert_eq!(
+                range.start_key,
+                Some(row_range::StartKey::StartKeyOpen(key.clone())),
+                "resume must start strictly past yielded key",
+            );
+        }
     }
 
     #[tokio::test]
@@ -1099,7 +1122,7 @@ mod tests {
         let stats = mk_stats("foo", base_ts() + chrono::Duration::hours(1));
         let key = pack_row_key("foo", base_ts() + chrono::Duration::hours(1));
 
-        let mut read = read_over_name_range("foo", 1);
+        let mut read = read_over_name_range("foo", 1, "");
         let stream = drive(
             &mut read,
             Ok(vec![

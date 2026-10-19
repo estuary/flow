@@ -9,6 +9,9 @@ pub struct CatalogStatsConfig {
     /// BigTable instance holding rolled-up catalog stats.
     #[clap(long = "bigtable-instance", env = "BIGTABLE_INSTANCE")]
     bigtable_instance: String,
+    /// Application profile for stats reads. Unset uses the instance's default profile.
+    #[clap(long = "bigtable-app-profile", env = "BIGTABLE_APP_PROFILE")]
+    bigtable_app_profile: Option<String>,
     /// Connect to a BigTable emulator at this host:port instead of Google's
     /// endpoint, skipping credentials. Set by the local stack.
     #[clap(long = "bigtable-emulator-host", env = "BIGTABLE_EMULATOR_HOST")]
@@ -39,6 +42,7 @@ pub async fn connect(config: CatalogStatsConfig) -> anyhow::Result<Arc<catalog_s
     let CatalogStatsConfig {
         bigtable_project,
         bigtable_instance,
+        bigtable_app_profile,
         bigtable_connect_timeout,
         bigtable_emulator_host,
     } = config;
@@ -46,6 +50,7 @@ pub async fn connect(config: CatalogStatsConfig) -> anyhow::Result<Arc<catalog_s
     let config = catalog_stats::BigtableConfig {
         project: bigtable_project,
         instance: bigtable_instance,
+        app_profile_id: bigtable_app_profile,
         emulator_host: bigtable_emulator_host,
     };
 
