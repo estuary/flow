@@ -82,7 +82,7 @@ impl InviteLinksQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 &env.claims()?.subject(),
-                models::Capability::Admin,
+                models::authz::Capability::ManageInviteLinks,
                 filter.and_then(|f| f.catalog_prefix),
                 "filter.catalogPrefix",
             )?;
@@ -172,7 +172,7 @@ pub struct InviteLinksMutation;
 impl InviteLinksMutation {
     /// Create an invite link that grants access to a catalog prefix.
     ///
-    /// The caller must have admin capability on the catalog prefix.
+    /// The caller must have ManageInviteLinks capability on the catalog prefix.
     /// Share the returned token with the intended recipient out-of-band.
     pub async fn create_invite_link(
         &self,
@@ -197,7 +197,12 @@ impl InviteLinksMutation {
             )));
         }
 
-        super::verify_authorization(env, &catalog_prefix, models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            &catalog_prefix,
+            models::authz::Capability::ManageInviteLinks,
+        )
+        .await?;
 
         let row = sqlx::query!(
             r#"
@@ -357,7 +362,7 @@ impl InviteLinksMutation {
 
     /// Delete an invite link, revoking it so it can no longer be redeemed.
     ///
-    /// The caller must have admin capability on the invite link's catalog prefix.
+    /// The caller must have ManageInviteLinks capability on the invite link's catalog prefix.
     pub async fn delete_invite_link(
         &self,
         ctx: &Context<'_>,
@@ -386,7 +391,12 @@ impl InviteLinksMutation {
             None => return Err(async_graphql::Error::new("Invalid invite link")),
         };
 
-        super::verify_authorization(env, &invite.catalog_prefix, models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            &invite.catalog_prefix,
+            models::authz::Capability::ManageInviteLinks,
+        )
+        .await?;
 
         sqlx::query!("DELETE FROM internal.invite_links WHERE token = $1", token,)
             .execute(&mut *txn)

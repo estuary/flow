@@ -399,10 +399,7 @@ mod test {
 
         let text = response.text().await.unwrap();
         assert!(
-            text.contains(
-                "alice@example.com is not authorized to access prefix or name 'ops/' \
-                 with required capability admin"
-            ),
+            text.contains("alice@example.com is not authorized to access prefix or name 'ops/'"),
             "unexpected denial body: {text}"
         );
     }

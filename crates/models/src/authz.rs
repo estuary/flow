@@ -40,7 +40,7 @@ pub enum Capability {
     SpecEdit,
     CreateGrant,
     DeleteGrant,
-    CreateInviteLink,
+    ManageInviteLinks,
     // `ViewDataPlanePrivateNetworking` permits reading per-data-plane
     // private-networking configuration (such as the `private_links`
     // column).
@@ -69,6 +69,7 @@ pub enum Capability {
     Delegate,
     Assume,
     CreateSandbox,
+    ManageAlerts,
 }
 
 impl std::fmt::Display for Capability {
@@ -80,7 +81,19 @@ impl std::fmt::Display for Capability {
 /// A stable, named bundle of capability bits. Grants and token capability
 /// masks name bundles rather than bits, so bits may be added, split, or
 /// merged without changing stored grants or minted tokens.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    strum::VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(
     feature = "sqlx-support",
@@ -174,7 +187,8 @@ impl CapabilityBundle {
             Self::TeamAdmin => {
                 CreateGrant
                     | DeleteGrant
-                    | CreateInviteLink
+                    | ManageInviteLinks
+                    | ManageAlerts
                     | Self::ManageServiceAccounts.capabilities()
             }
             Self::ManageDataPlane => {

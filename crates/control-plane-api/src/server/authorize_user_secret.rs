@@ -166,11 +166,11 @@ mod tests {
             ),
             (
                 "alice/other-tenant",
-                "403 user@example.com is not authorized to access prefix or name 'bobCo/token' with required capability DecryptSecret",
+                "403 user@example.com is not authorized to access prefix or name 'bobCo/token'",
             ),
             (
                 "bob/denied",
-                "403 user@example.com is not authorized to access prefix or name 'aliceCo/in/token' with required capability DecryptSecret",
+                "403 user@example.com is not authorized to access prefix or name 'aliceCo/in/token'",
             ),
             (
                 "alice/malformed",

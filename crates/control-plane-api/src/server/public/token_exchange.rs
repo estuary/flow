@@ -719,7 +719,7 @@ mod test {
         assert!(denied["data"].is_null(), "mutation must not run: {denied}");
         assert_eq!(
             denied["errors"][0]["message"],
-            "PermissionDenied: carol@example.test is not authorized to access prefix or name 'bobCo2/' with required capability admin",
+            "PermissionDenied: carol@example.test is not authorized to access prefix or name 'bobCo2/'",
             "the mask cannot grant admin carol lacks: {denied}"
         );
 
