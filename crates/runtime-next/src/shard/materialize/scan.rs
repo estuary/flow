@@ -55,7 +55,7 @@ impl Scanner {
         max_keys: &mut [(Bytes, Bytes)],
         disable_load_optimization: bool,
         codec: connector_init::Codec,
-        out: &mut Vec<materialize::Request>,
+        out: &mut VecDeque<materialize::Request>,
     ) -> anyhow::Result<bool> {
         if !self
             .scan
@@ -189,7 +189,7 @@ impl Scanner {
                     (Bytes::new(), key_packed)
                 };
 
-                out.push(materialize::Request {
+                out.push_back(materialize::Request {
                     kind: Some(materialize::request::Kind::Load(
                         materialize::request::Load {
                             binding: binding_index,

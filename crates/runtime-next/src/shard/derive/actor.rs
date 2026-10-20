@@ -24,7 +24,7 @@ enum Phase {
 pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // FIFO of outbound connector requests, drained head-first into
     // `connector_tx` as channel capacity permits.
-    connector_pending: Vec<derive::Request>,
+    connector_pending: VecDeque<derive::Request>,
     // Bounded channel out to the connector.
     connector_tx: mpsc::Sender<connector::proto::Request>,
     // Wire codec negotiated with the connector.
@@ -80,7 +80,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         write_shape: doc::Shape,
     ) -> Self {
         Self {
-            connector_pending: Vec::new(),
+            connector_pending: VecDeque::new(),
             connector_tx,
             codec,
             controller_tx,
@@ -332,9 +332,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             return idle;
         }
 
-        // We have only partial capacity to send. In this uncommon case, we pay
-        // for relocating the tail of `connector_pending`. Note the sender may
-        // race sends, so account for capacity > connector_pending having opened up.
+        // We have only partial capacity to send, which is common: a scan step
+        // queues a whole block of requests against a small channel. Draining the
+        // front of a VecDeque leaves its tail in place. Note the sender may race
+        // sends, so account for capacity > connector_pending having opened up.
         let n = self
             .connector_tx
             .capacity()
@@ -395,7 +396,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             connector_patches_json,
         }) = msg.flush
         {
-            self.connector_pending.push(derive::Request {
+            self.connector_pending.push_back(derive::Request {
                 kind: Some(derive::request::Kind::Flush(derive::request::Flush {
                     state_patches_json: connector_patches_json,
                 })),
@@ -444,7 +445,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             connector_checkpoint,
         }) = msg.start_commit
         {
-            self.connector_pending.push(derive::Request {
+            self.connector_pending.push_back(derive::Request {
                 kind: Some(derive::request::Kind::StartCommit(
                     derive::request::StartCommit {
                         runtime_checkpoint: connector_checkpoint,
@@ -602,7 +603,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 ..Default::default()
             });
         } else if matches!(msg.reset, Some(proto::Reset {})) {
-            self.connector_pending.push(derive::Request {
+            self.connector_pending.push_back(derive::Request {
                 kind: Some(derive::request::Kind::Reset(derive::request::Reset {})),
                 ..Default::default()
             });
