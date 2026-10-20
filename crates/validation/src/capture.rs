@@ -136,15 +136,35 @@ async fn walk_capture(
     }
 
     // Unwrap `endpoint` into a connector type and configuration.
-    let (connector_type, config_json): (i32, bytes::Bytes) = match &endpoint {
-        models::CaptureEndpoint::Connector(config) => (
-            flow::capture_spec::ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::CaptureEndpoint::Local(config) => (
-            flow::capture_spec::ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
+    let capture::request::Spec {
+        connector_type,
+        config_json,
+    } = crate::custom::capture_spec_request(capture, &endpoint, &shards);
+
+    // A Python capture is always validated by its connector,
+    // which generates its types and locks it.
+    let (is_python, noop_captures) = match &endpoint {
+        models::CaptureEndpoint::Python(python) => {
+            let scope = scope.push_prop("endpoint");
+            let scope = scope.push_prop("python");
+
+            crate::custom::walk_files(
+                scope.push_prop("files"),
+                models::custom_connector::Language::Python,
+                capture,
+                &python.files,
+                errors,
+            );
+            crate::custom::walk_config(
+                scope.push_prop("config"),
+                &python.config,
+                models::custom_connector::Language::Python.sentinel(),
+                errors,
+            );
+            crate::custom::walk_spec(scope.push_prop("spec"), &python.spec, errors);
+            (true, false)
+        }
+        _ => (false, noop_captures),
     };
 
     let secrets_spec = assemble::secrets(&secrets);
@@ -293,6 +313,18 @@ async fn walk_capture(
         &connector_spec.config_schema_json,
         errors,
     );
+
+    // A Python capture's resolved lock is baked into its built spec.
+    let config_json = if is_python {
+        crate::custom::bake_generated_files(
+            &config_json,
+            models::custom_connector::Language::Python,
+            &project_root,
+            &mut validated_response.generated_files,
+        )
+    } else {
+        config_json
+    };
 
     super::validate_generated_files(
         scope,

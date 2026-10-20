@@ -97,6 +97,8 @@ pub struct AutoDiscover {
 pub enum CaptureEndpoint {
     /// # A Connector.
     Connector(ConnectorConfig),
+    /// # A Python connector.
+    Python(super::CapturePython),
     /// # A local command (development only).
     Local(LocalConfig),
 }

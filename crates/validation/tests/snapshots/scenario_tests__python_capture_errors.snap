@@ -1,0 +1,53 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files/..~1escape.py,
+        error: file ../escape.py must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components, and can't be under `.venv/` or `flow_generated/`,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files/.venv~1lib.py,
+        error: file .venv/lib.py must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components, and can't be under `.venv/` or `flow_generated/`,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files/flow_generated,
+        error: file flow_generated must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components, and can't be under `.venv/` or `flow_generated/`,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files/flow_generated~1python~1sneaky.py,
+        error: file flow_generated/python/sneaky.py must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components, and can't be under `.venv/` or `flow_generated/`,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/files,
+        error: list `source-acme/__init__.py` in `files`: they're this task's manifest and entry point,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/config,
+        error: `config` cannot have the property `_python`, which is reserved by the connector,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/config,
+        error: `config` cannot be sealed with `sops`: use a plaintext configuration with a `secrets` stanza instead,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/spec/configSchema,
+        error: at test://example/int-string-captures?ptr=/captures/testing~1source-acme/endpoint/python/spec/configSchema#/properties/a/pattern: regex parse error:
+            (
+            ^
+        error: unclosed group,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-acme/endpoint/python/spec/resourceConfigSchema,
+        error: at test://example/int-string-captures?ptr=/captures/testing~1source-acme/endpoint/python/spec/resourceConfigSchema#/type: invalid type name: 'not-a-type',
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-other/endpoint/python/files,
+        error: list `pyproject.toml` and `source-other/__init__.py` in `files`: they're this task's manifest and entry point,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1source-other/endpoint/python/config,
+        error: `config` must be an object,
+    },
+]
