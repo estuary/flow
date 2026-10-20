@@ -495,6 +495,10 @@ async fn submission_defers_endpoints_to_the_executor(pool: sqlx::PgPool) {
     // and an image needn't have a connector tag.
     for (name, endpoint) in [
         (
+            "aliceCo/python",
+            serde_json::json!({ "python": { "config": { "region": "north" } } }),
+        ),
+        (
             "aliceCo/failed-tag",
             serde_json::json!({ "connector": { "image": "source/multi-tag-test:v2", "config": {} } }),
         ),

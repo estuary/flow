@@ -5,7 +5,7 @@ use crate::connectors::ConnectorFactory;
 
 use anyhow::Context;
 use models::discovers::{Changed, Changes};
-use proto_flow::{capture, connector, flow::capture_spec};
+use proto_flow::{capture, connector};
 use sqlx::{PgPool, types::Uuid};
 use std::collections::HashSet;
 
@@ -368,10 +368,20 @@ impl DiscoverHandler {
                 "capture '{capture_name}' is drafted for deletion and cannot be discovered"
             );
         };
-        let models::CaptureEndpoint::Connector(connector_cfg) = &model.endpoint else {
-            anyhow::bail!("only connector endpoints are supported");
+        let image = match &model.endpoint {
+            models::CaptureEndpoint::Connector(config) => config.image.as_str(),
+            models::CaptureEndpoint::Python(_) => validation::CAPTURE_PYTHON_IMAGE,
+            models::CaptureEndpoint::Local(_) => {
+                anyhow::bail!("only connector and python endpoints are supported");
+            }
         };
-        tracing::Span::current().record("image", &connector_cfg.image);
+        tracing::Span::current().record("image", image);
+
+        // Discover dials the same image connector, with the same configuration,
+        // which validation will: for a python capture, that's the capture-python
+        // image with its `files` pushed down into the configuration.
+        let capture_spec_request =
+            validation::capture_spec_request(&capture_name, &model.endpoint, &model.shards);
 
         // A discover runs before any built spec exists, so the drafted model is
         // the only source of the secrets which the data plane must resolve
@@ -400,8 +410,8 @@ impl DiscoverHandler {
                 kind: Some(capture::request::Kind::Discover(Box::new(
                     capture::request::Discover {
                         name: capture_name.to_string(),
-                        connector_type: capture_spec::ConnectorType::Image as i32,
-                        config_json: serde_json::to_string(connector_cfg).unwrap().into(),
+                        connector_type: capture_spec_request.connector_type,
+                        config_json: capture_spec_request.config_json,
                         created_at,
                         secrets,
                     },
