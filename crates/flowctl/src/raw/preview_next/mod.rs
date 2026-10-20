@@ -79,6 +79,12 @@ pub struct Preview {
     /// session which stops gracefully at stream EOF.
     #[clap(long)]
     fixture: Option<String>,
+    /// Validate streamed fixture documents against their collection schemas,
+    /// as the shuffle does for journal reads. `--fixture-validate=false` flags
+    /// every document of a FIFO or stdin fixture valid unchecked, for fixtures
+    /// known to be valid such as generated benchmark data.
+    #[clap(long, default_value_t = true, action = clap::ArgAction::Set)]
+    fixture_validate: bool,
     /// Artificial delay between transactions, simulating back-pressure and
     /// encouraging reductions. The delay raises the task's minimum transaction
     /// duration, so each transaction batches at least `delay` of live input.
@@ -139,6 +145,7 @@ impl Preview {
             timeout,
             sessions,
             fixture,
+            fixture_validate,
             delay,
             initial_state,
             output_state,
@@ -276,6 +283,7 @@ impl Preview {
                             task: Some(shuffle::proto::task::Task::Materialization(spec.clone())),
                         },
                         fixture,
+                        *fixture_validate,
                         delay,
                         session_targets,
                         &stop_token,
@@ -332,6 +340,7 @@ impl Preview {
                             task: Some(shuffle::proto::task::Task::Derivation(spec.clone())),
                         },
                         fixture,
+                        *fixture_validate,
                         delay,
                         session_targets,
                         &stop_token,
@@ -390,6 +399,7 @@ fn prepare_sessions<S>(
     shard_template: impl FnOnce(&mut S) -> Option<&mut proto_gazette::consumer::ShardSpec>,
     build_task: impl FnOnce(&S) -> shuffle::proto::Task,
     fixture: Option<&str>,
+    fixture_validate: bool,
     delay: Option<std::time::Duration>,
     session_targets: Vec<u32>,
     stop_token: &tokio_util::sync::CancellationToken,
@@ -425,6 +435,7 @@ fn prepare_sessions<S>(
             std::path::Path::new(&run.shuffle_log_dir),
             run.n_shards,
             fixture::StreamLimits::default(),
+            fixture_validate,
             frontier_tx,
             session_stop.clone(),
             hold.clone(),

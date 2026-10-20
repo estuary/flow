@@ -54,8 +54,10 @@
 //!
 //! ### Back-pressure
 //!
-//! Documents are written as they are parsed ([`segments::push_doc`]), so the
-//! feeder holds one block per shard rather than a whole transaction, and the
+//! Documents are written as they are parsed — prepared in batches across
+//! worker threads, then appended in fixture order ([`segments::push_prepared`])
+//! — so the feeder holds one batch and one block per shard rather than a whole
+//! transaction, and the
 //! feeder pauses between transactions while its sealed segments exceed
 //! [`StreamLimits::disk_limit_bytes`] — recoupling the writer to consumer
 //! progress the way `LogActor` does in the live path.
@@ -68,9 +70,10 @@
 
 use anyhow::Context;
 use futures::StreamExt;
+use proto_gazette::uuid;
 use runtime_local::segments::{
-    self, FixtureItem, OpenBackfills, ShardWriter, Transaction, TxnItem, TxnState, finish_txn,
-    open_shard_writers, push_item, write_transaction,
+    self, FixtureItem, OpenBackfills, PreparedDoc, ShardWriter, Transaction, TxnItem, TxnState,
+    finish_txn, open_shard_writers, prepare_binding, push_item, push_prepared, write_transaction,
 };
 use std::collections::HashMap;
 use tokio::io::AsyncBufReadExt;
@@ -231,11 +234,20 @@ pub fn start_streaming(
     base_dir: &std::path::Path,
     n_shards: u32,
     limits: StreamLimits,
+    validate: bool,
     frontier_tx: tokio::sync::mpsc::UnboundedSender<FixtureItem>,
     eof_stop: tokio_util::sync::CancellationToken,
     hold: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<(String, tokio::task::JoinHandle<anyhow::Result<()>>)> {
     let (bindings, sources, validators, collection_bindings) = segments::task_bindings(task)?;
+
+    // Each worker validates with its own validators.
+    let preparers = (0..prepare_workers())
+        .map(|_| {
+            let (_, _, validators, _) = segments::task_bindings(task)?;
+            Ok(Preparer::new(validators, validate))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     // The session reads from its own directory, mirroring the eager per-session
     // layout.
@@ -260,6 +272,7 @@ pub fn start_streaming(
         bindings,
         sources,
         validators,
+        preparers,
         collection_bindings,
         path,
         segments::full_range_shards(n_shards),
@@ -276,6 +289,7 @@ async fn feed_stream(
     bindings: Vec<shuffle::Binding>,
     sources: Vec<shuffle::Source>,
     mut validators: Vec<doc::Validator>,
+    mut preparers: Vec<Preparer>,
     collection_bindings: HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
     shards: Vec<shuffle::proto::Shard>,
@@ -290,6 +304,7 @@ async fn feed_stream(
         &bindings,
         &sources,
         &mut validators,
+        &mut preparers,
         &collection_bindings,
         path,
         &shards,
@@ -333,6 +348,7 @@ async fn feed_lines(
     bindings: &[shuffle::Binding],
     sources: &[shuffle::Source],
     validators: &mut [doc::Validator],
+    preparers: &mut [Preparer],
     collection_bindings: &HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
     shards: &[shuffle::proto::Shard],
@@ -374,6 +390,11 @@ async fn feed_lines(
     let mut rolled = Vec::new();
     let mut disk_backlog_bytes = 0u64;
     let mut disk_back_pressure = false;
+
+    // Document lines awaiting preparation, and their bytes. Any other line
+    // pushes them first, keeping fixture order.
+    let mut batch: Vec<(usize, String)> = Vec::new();
+    let mut batch_bytes = 0usize;
 
     loop {
         // Hold the writer while the consumer catches up. Taken only here,
@@ -421,6 +442,41 @@ async fn feed_lines(
         };
         lineno += 1;
 
+        if line.trim_start().starts_with('[') {
+            batch_bytes += line.len();
+            batch.push((lineno, line));
+            txn_items += 1;
+            if batch.len() >= PREPARE_BATCH_LINES || batch_bytes >= PREPARE_BATCH_BYTES {
+                push_batch(
+                    &mut txn,
+                    &mut batch,
+                    preparers,
+                    bindings,
+                    sources,
+                    collection_bindings,
+                    shards,
+                    writers,
+                    &mut rolled,
+                    &mut journal_offsets,
+                )?;
+                batch_bytes = 0;
+            }
+            continue;
+        }
+        push_batch(
+            &mut txn,
+            &mut batch,
+            preparers,
+            bindings,
+            sources,
+            collection_bindings,
+            shards,
+            writers,
+            &mut rolled,
+            &mut journal_offsets,
+        )?;
+        batch_bytes = 0;
+
         match parse_line(&line, lineno)? {
             None => (),
             Some(Line::Item(item)) => {
@@ -464,6 +520,19 @@ async fn feed_lines(
         }
     }
 
+    push_batch(
+        &mut txn,
+        &mut batch,
+        preparers,
+        bindings,
+        sources,
+        collection_bindings,
+        shards,
+        writers,
+        &mut rolled,
+        &mut journal_offsets,
+    )?;
+
     // Trailing items without a final commit marker form a final transaction,
     // and an entirely-empty stream still runs one empty transaction (the
     // connector's Apply and one empty commit cycle) — both mirroring eager
@@ -479,6 +548,160 @@ async fn feed_lines(
         &mut disk_backlog_bytes,
         &mut disk_back_pressure,
     );
+    Ok(())
+}
+
+/// Document lines prepared per batch, and the batch's byte bound.
+const PREPARE_BATCH_LINES: usize = 16 * 1024;
+const PREPARE_BATCH_BYTES: usize = 64 * 1024 * 1024;
+
+/// Threads preparing documents: the cores less two left for the shards, at
+/// most sixteen.
+fn prepare_workers() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .saturating_sub(2)
+        .clamp(1, 16)
+}
+
+/// One worker's state for preparing fixture documents.
+struct Preparer {
+    parser: simd_doc::Parser,
+    alloc: doc::Allocator,
+    validators: Vec<doc::Validator>,
+    validate: bool,
+    packed_key: bytes::BytesMut,
+}
+
+impl Preparer {
+    fn new(validators: Vec<doc::Validator>, validate: bool) -> Self {
+        Self {
+            parser: simd_doc::Parser::new(),
+            alloc: doc::HeapNode::new_allocator(),
+            validators,
+            validate,
+            packed_key: bytes::BytesMut::new(),
+        }
+    }
+
+    /// Prepare a `["collection", {...}]` line for every binding of its
+    /// collection, parsing the document once per binding straight into a
+    /// `HeapNode`.
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_line(
+        &mut self,
+        line: &str,
+        lineno: usize,
+        doc_clock: uuid::Clock,
+        bindings: &[shuffle::Binding],
+        sources: &[shuffle::Source],
+        collection_bindings: &HashMap<String, Vec<usize>>,
+        shards: &[shuffle::proto::Shard],
+        out: &mut Vec<PreparedDoc>,
+    ) -> anyhow::Result<()> {
+        let (collection, doc): (String, &serde_json::value::RawValue) =
+            serde_json::from_str(line.trim()).with_context(|| {
+                format!("fixture line {lineno} is not a document or marker: {line}")
+            })?;
+
+        let Some(binding_indices) = collection_bindings.get(&collection) else {
+            return Ok(()); // Collection isn't a source of this task.
+        };
+        let Self {
+            parser,
+            alloc,
+            validators,
+            validate,
+            packed_key,
+        } = self;
+
+        for &bi in binding_indices {
+            alloc.reset();
+            let mut heap = parser
+                .parse_one(doc.get().as_bytes(), alloc)
+                .with_context(|| format!("parsing fixture line {lineno}"))?;
+            let validator = validate.then(|| &mut validators[bindings[bi].source as usize]);
+
+            out.push(
+                prepare_binding(
+                    &mut heap, alloc, bi, doc_clock, bindings, sources, validator, shards,
+                    packed_key,
+                )
+                .with_context(|| format!("fixture line {lineno}"))?,
+            );
+        }
+        Ok(())
+    }
+}
+
+/// Prepare a batch of document lines across `preparers`, then push the results
+/// in fixture order, so blocks and document clocks match a serial feeder. Each
+/// line consumes one clock, whether or not the task sources its collection.
+#[allow(clippy::too_many_arguments)]
+fn push_batch(
+    txn: &mut TxnState,
+    batch: &mut Vec<(usize, String)>,
+    preparers: &mut [Preparer],
+    bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
+    collection_bindings: &HashMap<String, Vec<usize>>,
+    shards: &[shuffle::proto::Shard],
+    writers: &mut [ShardWriter],
+    rolled: &mut Vec<shuffle::log::writer::SealedSegment>,
+    journal_offsets: &mut HashMap<(String, u16), i64>,
+) -> anyhow::Result<()> {
+    if batch.is_empty() {
+        return Ok(());
+    }
+    let first_seconds = txn.take_doc_seconds(batch.len() as u64);
+    let chunk = batch.len().div_ceil(preparers.len());
+
+    let prepared: Vec<anyhow::Result<Vec<PreparedDoc>>> = std::thread::scope(|scope| {
+        let workers: Vec<_> = batch
+            .chunks(chunk)
+            .zip(preparers.iter_mut())
+            .enumerate()
+            .map(|(worker, (lines, preparer))| {
+                let first = first_seconds + (worker * chunk) as u64;
+                scope.spawn(move || {
+                    let mut out = Vec::with_capacity(lines.len());
+                    for (i, (lineno, line)) in lines.iter().enumerate() {
+                        preparer.prepare_line(
+                            line,
+                            *lineno,
+                            uuid::Clock::from_unix(first + i as u64, 0),
+                            bindings,
+                            sources,
+                            collection_bindings,
+                            shards,
+                            &mut out,
+                        )?;
+                    }
+                    Ok(out)
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| w.join().expect("fixture prepare worker panicked"))
+            .collect()
+    });
+
+    for docs in prepared {
+        for doc in docs? {
+            push_prepared(
+                txn,
+                doc,
+                bindings,
+                sources,
+                writers,
+                rolled,
+                journal_offsets,
+            )?;
+        }
+    }
+    batch.clear();
     Ok(())
 }
 
@@ -716,6 +939,7 @@ mod test {
             tmp.path(),
             1,
             StreamLimits::default(),
+            true,
             frontier_tx,
             eof_stop.clone(),
             hold.clone(),
@@ -817,6 +1041,7 @@ mod test {
             tmp.path(),
             1,
             StreamLimits::default(),
+            true,
             frontier_tx,
             eof_stop.clone(),
             hold.clone(),
@@ -888,6 +1113,122 @@ mod test {
                 },
             )),
         }
+    }
+
+    /// The parallel path parses straight into a `HeapNode`; its documents must
+    /// archive exactly as the `serde_json::Value` path's do.
+    #[test]
+    fn prepared_lines_match_the_value_path() {
+        let task = events_task(2);
+        let (bindings, sources, mut validators, collection_bindings) =
+            segments::task_bindings(&task).unwrap();
+        let shards = segments::full_range_shards(3);
+        let line = r#"["acmeCo/events",{"id":42,"pad":"x\u00e9y","n":[1.5,-0.0,null,{"b":true,"a":"\""}]}]"#;
+        let clock = uuid::Clock::from_unix(7, 0);
+
+        let mut preparer = Preparer::new(segments::task_bindings(&task).unwrap().2, true);
+        let mut parallel = Vec::new();
+        preparer
+            .prepare_line(
+                line,
+                1,
+                clock,
+                &bindings,
+                &sources,
+                &collection_bindings,
+                &shards,
+                &mut parallel,
+            )
+            .unwrap();
+
+        let (_, doc): (String, serde_json::Value) = serde_json::from_str(line).unwrap();
+        let mut packed_key = bytes::BytesMut::new();
+        let from_value: Vec<_> = collection_bindings["acmeCo/events"]
+            .iter()
+            .map(|&bi| {
+                let alloc = doc::HeapNode::new_allocator();
+                let mut heap = doc::HeapNode::from_serde(&doc, &alloc).unwrap();
+                let validator = &mut validators[bindings[bi].source as usize];
+                prepare_binding(
+                    &mut heap,
+                    &alloc,
+                    bi,
+                    clock,
+                    &bindings,
+                    &sources,
+                    Some(validator),
+                    &shards,
+                    &mut packed_key,
+                )
+                .unwrap()
+            })
+            .collect();
+
+        assert_eq!(parallel.len(), 2);
+        assert_eq!(parallel, from_value);
+    }
+
+    /// Spreading a batch across workers must not change what is written: the
+    /// same segments and frontier as a single worker, clocks included.
+    #[test]
+    fn batches_write_the_same_log_on_any_number_of_workers() {
+        let task = events_task(1);
+        let lines: Vec<(usize, String)> = (0..50)
+            .map(|i| {
+                // Every third line's collection isn't sourced, but still
+                // consumes a clock.
+                let collection = if i % 3 == 0 {
+                    "acmeCo/other"
+                } else {
+                    "acmeCo/events"
+                };
+                (
+                    i + 1,
+                    format!(r#"["{collection}",{{"id":{i},"pad":"p{i}"}}]"#),
+                )
+            })
+            .collect();
+
+        let write = |workers: usize| {
+            let tmp = tempfile::tempdir().unwrap();
+            let (bindings, sources, _, collection_bindings) =
+                segments::task_bindings(&task).unwrap();
+            let shards = segments::full_range_shards(2);
+            let mut writers = open_shard_writers(tmp.path(), 2).unwrap();
+            let mut preparers: Vec<_> = (0..workers)
+                .map(|_| Preparer::new(segments::task_bindings(&task).unwrap().2, true))
+                .collect();
+            let mut txn = TxnState::for_txn(2, 0);
+            let (mut rolled, mut offsets) = (Vec::new(), HashMap::new());
+
+            push_batch(
+                &mut txn,
+                &mut lines.clone(),
+                &mut preparers,
+                &bindings,
+                &sources,
+                &collection_bindings,
+                &shards,
+                &mut writers,
+                &mut rolled,
+                &mut offsets,
+            )
+            .unwrap();
+            let frontier = finish_txn(txn, &mut writers, &mut rolled, &offsets).unwrap();
+
+            let mut files: Vec<_> = std::fs::read_dir(tmp.path())
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .collect();
+            files.sort();
+            let segments: Vec<Vec<u8>> = files.iter().map(|f| std::fs::read(f).unwrap()).collect();
+            (format!("{frontier:?}"), segments)
+        };
+
+        let serial = write(1);
+        assert!(serial.1.iter().map(Vec::len).sum::<usize>() > 0);
+        assert_eq!(write(4), serial);
+        assert_eq!(write(7), serial);
     }
 
     /// Total bytes of log segment files living under `dir`. Nothing unlinks
@@ -981,6 +1322,7 @@ mod test {
             tmp.path(),
             1,
             limits,
+            true,
             frontier_tx,
             eof_stop,
             hold.clone(),
@@ -1079,6 +1421,7 @@ mod test {
             tmp.path(),
             1,
             StreamLimits::default(),
+            true,
             frontier_tx,
             eof_stop,
             hold.clone(),
