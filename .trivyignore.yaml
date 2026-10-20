@@ -1,0 +1,16 @@
+# Trivy ignore list, loaded through trivy.yaml.
+#
+# Every entry needs a `statement` giving its rationale and an `expired_at` date,
+# after which Trivy reports the finding again and it must be re-justified.
+# Scope an entry to the lockfile it applies to with `paths`. For example:
+#
+#   vulnerabilities:
+#     - id: CVE-0000-00000
+#       paths:
+#         - Cargo.lock
+#       expired_at: 2027-01-31
+#       statement: >-
+#         Why this finding does not affect what we ship, or why it cannot be
+#         fixed yet, and what would change that.
+
+vulnerabilities: []

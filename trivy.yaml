@@ -1,0 +1,14 @@
+# Picked up automatically by Trivy when run from the repo root, so
+# `mise run ci:trivy`, CI, and a bare `trivy fs <lockfile>` all agree.
+scan:
+  scanners:
+    - vuln
+severity:
+  - HIGH
+  - CRITICAL
+vulnerability:
+  # A finding with no fixed release would block every PR in that language with
+  # nothing its author can do. Those go through .trivyignore.yaml review instead.
+  ignore-unfixed: true
+exit-code: 1
+ignorefile: .trivyignore.yaml

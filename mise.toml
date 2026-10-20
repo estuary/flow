@@ -14,6 +14,7 @@ go = { version = "1.26" }
 "github:nextest-rs/nextest" = { version = "cargo-nextest-0.9.114" }
 "github:rui314/mold" = { version = "2.40.4" }
 "github:supabase/cli" = { version = "2.54.11" }
+"github:aquasecurity/trivy" = { version = "0.76.0", platforms = { linux-arm64 = { asset_pattern = "trivy_*_Linux-ARM64.tar.gz" }, linux-x64 = { asset_pattern = "trivy_*_Linux-64bit.tar.gz" }, macos-arm64 = { asset_pattern = "trivy_*_macOS-ARM64.tar.gz" } } }
 "go:github.com/gogo/protobuf/protoc-gen-gogo" = { version = "1.3.2" }
 
 [settings]
