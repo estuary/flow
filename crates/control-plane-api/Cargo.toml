@@ -36,6 +36,7 @@ tokens = { path = "../tokens" }
 validation = { path = "../validation" }
 
 aide = { workspace = true }
+aes-siv = { workspace = true }
 anyhow = { workspace = true }
 async-graphql = { workspace = true }
 async-graphql-axum = { workspace = true }

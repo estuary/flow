@@ -2203,6 +2203,7 @@ name = "control-plane-api"
 version = "0.0.0"
 dependencies = [
  "activate",
+ "aes-siv",
  "aide",
  "allocator",
  "anyhow",

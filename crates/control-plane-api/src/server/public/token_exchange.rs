@@ -29,6 +29,47 @@ pub struct RefreshTokenResponse {
     pub secret: String,
 }
 
+/// Callers authorize the user before minting. The database bounds validity to
+/// one year; an out-of-range duration returns `None`, and malformed intervals
+/// return SQL errors for the caller to translate into its API response.
+pub(crate) async fn create_refresh_token(
+    pg_pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    multi_use: bool,
+    valid_for: &str,
+    detail: Option<&str>,
+) -> Result<Option<RefreshTokenResponse>, sqlx::Error> {
+    let row = sqlx::query!(
+        r#"
+            WITH new_token AS (
+                SELECT gen_random_uuid()::text AS secret
+            )
+            INSERT INTO refresh_tokens (user_id, multi_use, valid_for, hash, detail)
+            SELECT
+                $1,
+                $2,
+                v.valid_for,
+                crypt(nt.secret, gen_salt('bf')),
+                $4
+            FROM new_token nt, (SELECT $3::text::interval AS valid_for) v
+            WHERE v.valid_for > interval '0' AND v.valid_for <= interval '366 days'
+            RETURNING
+                id AS "id!: models::Id",
+                (SELECT secret FROM new_token) AS "secret!: String"
+            "#,
+        user_id,
+        multi_use,
+        valid_for,
+        detail,
+    )
+    .fetch_optional(pg_pool)
+    .await?;
+    Ok(row.map(|row| RefreshTokenResponse {
+        id: row.id,
+        secret: row.secret,
+    }))
+}
+
 pub async fn handle_post_token(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
     // Only the capability_token grant authenticates via the Authorization

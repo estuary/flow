@@ -1,5 +1,9 @@
 # control-plane-api
 
+`server/public/oauth/README.md` describes the optional CIMD/PKCE authorization
+service, its dashboard consent contract, and reuse of existing refresh-token
+storage. Configure it through the agent’s `--oauth-config` option.
+
 Service-account API keys are minted by `server/public/graphql/service_accounts.rs`.
 Like refresh-token creation, API-key creation rejects access tokens carrying a
 capability mask or prefix scope, because the new credential would not preserve
