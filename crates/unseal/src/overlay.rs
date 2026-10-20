@@ -1,5 +1,6 @@
 use anyhow::Context;
 use json::ptr::Token;
+use json::schema::applicable;
 
 /// Decrypt a `sops`-protected endpoint config, applying its `sops.overlay` if present.
 ///
@@ -55,7 +56,7 @@ fn extract_overlay(sealed: &models::RawValue) -> anyhow::Result<Option<serde_jso
 
 /// Validate that every location an `overlay` would modify under JSON Merge Patch semantics
 /// is annotated `nonsensitive: true` in `schema`, or lies within a `nonsensitive` subtree,
-/// or is a property the schema does not declare and the overlay deletes.
+/// or is a property no subschema admits and the overlay deletes.
 ///
 /// A `nonsensitive` annotation is a human assertion that everything within is safe to modify
 /// outside the SOPS MAC. This is the sole protection, so the annotations must be vetted by a
@@ -64,40 +65,24 @@ fn validate_overlay_nonsensitive(overlay: &serde_json::Value, schema: &[u8]) -> 
     let bundle = doc::validation::build_bundle(schema).context("building config schema")?;
     let validator = doc::Validator::new(bundle).context("preparing config schema validator")?;
     let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
+    let index = validator.schema_index();
+    let expanded = applicable::expand(vec![validator.schema()], index);
 
-    let mut declared = std::collections::BTreeSet::new();
-    declared_names(
-        &serde_json::from_slice(schema).context("parsing config schema")?,
-        &mut declared,
-    );
-
-    check_location(&shape, &declared, &mut json::Pointer(Vec::new()), overlay)
+    check_location(
+        &shape,
+        index,
+        &expanded,
+        &mut json::Pointer(Vec::new()),
+        overlay,
+    )
 }
 
-/// Collect every property name `schema` declares anywhere, through `properties` or `required`.
-fn declared_names(schema: &serde_json::Value, out: &mut std::collections::BTreeSet<String>) {
-    match schema {
-        serde_json::Value::Object(fields) => {
-            if let Some(serde_json::Value::Object(properties)) = fields.get("properties") {
-                out.extend(properties.keys().cloned());
-            }
-            if let Some(serde_json::Value::Array(required)) = fields.get("required") {
-                out.extend(
-                    required
-                        .iter()
-                        .filter_map(|name| name.as_str().map(String::from)),
-                );
-            }
-            fields.values().for_each(|child| declared_names(child, out));
-        }
-        serde_json::Value::Array(items) => items.iter().for_each(|item| declared_names(item, out)),
-        _ => {}
-    }
-}
-
-fn check_location(
+/// Check the overlay `node` at `ptr`, where `expanded` are the subschemas which may
+/// apply (see [`applicable::expand`]).
+fn check_location<'s>(
     root: &doc::Shape,
-    declared: &std::collections::BTreeSet<String>,
+    index: &doc::SchemaIndex<'s>,
+    expanded: &[&'s doc::Schema],
     ptr: &mut json::Pointer,
     node: &serde_json::Value,
 ) -> anyhow::Result<()> {
@@ -127,22 +112,22 @@ fn check_location(
     };
 
     for (property, child) in fields {
-        ptr.push(Token::Property(property.clone()));
-        // A `null` may delete a property the schema doesn't declare, such as a retired
-        // config field. The parent must be an object, or the merge would clobber it with
-        // `{}`. The `Shape` union of open `oneOf` branches drops properties declared by
-        // only some branches, so the name must also be declared nowhere in the schema.
-        let undeclared = matches!(
-            root.locate(ptr).1,
-            doc::shape::location::Exists::Implicit | doc::shape::location::Exists::Cannot
-        );
-        let deletable = child.is_null()
-            && located.type_ == json::schema::types::OBJECT
-            && undeclared
-            && !declared.contains(property);
-        if !deletable {
-            check_location(root, declared, ptr, child)?;
+        let schemas = applicable::expand(applicable::property(expanded, property), index);
+
+        // A `null` may delete a property which no subschema admits, such as a retired
+        // config field. The parent must be an object, or the merge would clobber it with `{}`.
+        let undeclared = schemas.iter().all(|schema| {
+            schema
+                .keywords
+                .iter()
+                .any(|kw| matches!(kw, json::schema::Keyword::False))
+        });
+        if child.is_null() && located.type_ == json::schema::types::OBJECT && undeclared {
+            continue;
         }
+
+        ptr.push(Token::Property(property.clone()));
+        check_location(root, index, &schemas, ptr, child)?;
         ptr.0.pop();
     }
     Ok(())
@@ -347,6 +332,8 @@ mod test {
         check_retired(json!({"open_auth": {"legacy_key": null}})).unwrap();
         check_retired(json!({"patterned": {"legacy_key": null}})).unwrap();
         check_retired(json!({"params": {"legacy_key": null}})).unwrap();
+        // `token` is declared by a branch of `open_auth`, but not here.
+        check_retired(json!({"advanced": {"token": null}})).unwrap();
     }
 
     #[test]

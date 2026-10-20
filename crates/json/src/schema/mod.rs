@@ -1,3 +1,4 @@
+pub mod applicable;
 pub mod build;
 pub mod formats;
 pub mod index;
