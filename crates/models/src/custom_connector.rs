@@ -9,7 +9,8 @@
 //! schema (`Spec`), and the starter manifest of a project
 //! (`Language::starter_manifest`). A listed manifest which doesn't exist yet
 //! is given the starter, and a legacy `module` is built beside it
-//! (`Language::legacy_files`).
+//! (`Language::legacy_files`). Images report errors with paths relative to
+//! the project (`relative_to`).
 
 use super::Schema;
 use schemars::JsonSchema;
@@ -358,6 +359,17 @@ pub fn task_dir(name: &str) -> &str {
     name.rsplit('/').next().unwrap()
 }
 
+/// Rewrite absolute paths (or URLs) of a staged project's `root` within
+/// `text` to be relative to it, which mirrors the layout of the user's own
+/// project.
+pub fn relative_to(text: &str, root: &std::path::Path) -> String {
+    let url = url::Url::from_directory_path(root).expect("project root is absolute");
+    let path = format!("{}/", root.display());
+
+    // The URL goes first, because it contains the path.
+    text.replace(url.as_str(), "").replace(&path, "")
+}
+
 /// Sentinel property of a custom connector's built configuration, which
 /// validation composes into the user's `config`. The connector removes it
 /// before the configuration reaches user code.
@@ -533,6 +545,20 @@ mod test {
                 false,
             ),
         ]
+        "#);
+    }
+
+    #[test]
+    fn output_paths_are_relative_to_the_project() {
+        let output = concat!(
+            "/tmp/.tmpABC/lib/geo.py:4:5 - error: \"x\" is not defined\n",
+            "  File \"file:///tmp/.tmpABC/module.py\", line 12\n",
+            "/tmp/.tmpABC/flow_generated/python/acmeCo/orders/__init__.py:9:1 - error\n",
+        );
+        insta::assert_snapshot!(super::relative_to(output, std::path::Path::new("/tmp/.tmpABC")), @r#"
+        lib/geo.py:4:5 - error: "x" is not defined
+          File "module.py", line 12
+        flow_generated/python/acmeCo/orders/__init__.py:9:1 - error
         "#);
     }
 

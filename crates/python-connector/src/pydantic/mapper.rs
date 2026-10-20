@@ -1,19 +1,37 @@
 use super::ast::{AST, Class, Field, Mapping};
 use super::to_pascal_case;
+use anyhow::Context;
 use doc::shape::{ArrayShape, ObjShape, Provenance, Shape};
-use json::schema::types;
+use json::schema::{formats::Format, types};
 use regex::Regex;
 use std::collections::BTreeMap;
 
 pub struct Mapper {
     top_level: BTreeMap<url::Url, String>,
     validator: doc::Validator,
+    // Map a configuration rather than a document: `default` annotations
+    // become field defaults, and string formats map into Python types.
+    // Documents keep their wire types, which existing derivations rely on.
+    is_config: bool,
 }
 
 impl Mapper {
-    pub fn new(bundle: &[u8], anchor_prefix: &str) -> Self {
-        let schema = doc::validation::build_bundle(bundle).unwrap();
-        let validator = doc::validation::Validator::new(schema).unwrap();
+    /// Build a Mapper of documents of the schema `bundle`, whose named
+    /// anchors are mapped into top-level classes prefixed by `anchor_prefix`.
+    pub fn new(bundle: &[u8], anchor_prefix: &str) -> anyhow::Result<Self> {
+        Self::build(bundle, anchor_prefix, false)
+    }
+
+    /// Build a Mapper of a connector configuration of the schema `bundle`,
+    /// such as an endpoint or resource configuration.
+    pub fn for_config(bundle: &[u8]) -> anyhow::Result<Self> {
+        Self::build(bundle, "", true)
+    }
+
+    fn build(bundle: &[u8], anchor_prefix: &str, is_config: bool) -> anyhow::Result<Self> {
+        let schema = doc::validation::build_bundle(bundle).context("invalid JSON schema")?;
+        let validator =
+            doc::validation::Validator::new(schema).context("invalid JSON schema references")?;
 
         let mut top_level = BTreeMap::new();
 
@@ -38,10 +56,11 @@ impl Mapper {
             }
         }
 
-        Mapper {
+        Ok(Mapper {
             validator,
             top_level,
-        }
+            is_config,
+        })
     }
 
     /// Access the root schema of this Mapper.
@@ -57,6 +76,11 @@ impl Mapper {
     /// Map a schema into a set of classes and a type reference.
     /// The `class_name` is used if the root schema is an object (not an anchor reference).
     pub fn map(&self, schema: &doc::validation::Schema, type_name: &str) -> Mapping {
+        self.map_shape(Shape::infer(schema, self.index()), type_name)
+    }
+
+    /// Map an inferred Shape into a set of classes and a type reference.
+    pub fn map_shape(&self, shape: Shape, type_name: &str) -> Mapping {
         let mut classes = Vec::new();
         let mut aliases = Vec::new();
 
@@ -71,7 +95,6 @@ impl Mapper {
             }
         }
 
-        let shape = Shape::infer(schema, self.index());
         let ast = self.to_ast(&shape, type_name, &mut classes);
 
         if !matches!(&ast, AST::Anchor(name) if name == type_name) {
@@ -123,7 +146,11 @@ impl Mapper {
             disjunct.push(AST::Float);
         }
         if shape.type_.overlaps(types::STRING) {
-            disjunct.push(AST::Str);
+            disjunct.push(match (self.is_config, &shape.string.format) {
+                (true, Some(Format::Duration)) => AST::Timedelta,
+                (true, Some(Format::DateTime)) => AST::Datetime,
+                _ => AST::Str,
+            });
         }
         if shape.type_.overlaps(types::NULL) {
             disjunct.push(AST::None);
@@ -149,21 +176,12 @@ impl Mapper {
         let mut nested = Vec::new();
         let mut fields: Vec<Field> = Vec::new();
 
-        for prop in properties {
-            let mut sanitized = sanitize_python_identifier(&prop.name);
+        let names: Vec<(String, Option<String>)> = properties
+            .iter()
+            .map(|prop| field_name(&prop.name, self.is_config))
+            .collect();
 
-            // Pydantic doesn't allow field names starting with single underscore,
-            // and __dunders__ must also map into public fields.
-            if sanitized.starts_with('_') {
-                sanitized = format!("m{sanitized}");
-            }
-
-            let (name, alias) = if sanitized == *prop.name {
-                (prop.name.to_string(), None) // Name is valid as-is.
-            } else {
-                (sanitized, Some(prop.name.to_string()))
-            };
-
+        for (prop, (name, alias)) in properties.iter().zip(names.iter().cloned()) {
             // Extract docstring from the property's shape
             let docstring = match (&prop.shape.title, &prop.shape.description) {
                 (Some(title), Some(description)) => Some(format!("{} {}", title, description)),
@@ -171,7 +189,23 @@ impl Mapper {
                 (None, None) => None,
             };
 
-            let type_ = self.to_ast(&prop.shape, &to_pascal_case(&name), &mut nested);
+            // A field rebinds its name within the class body, so a nested class
+            // which shares the name of a field is unreachable from annotations.
+            let mut nested_name = to_pascal_case(&name);
+            if names.iter().any(|(name, _)| *name == nested_name) {
+                nested_name.push('_');
+            }
+            let type_ = self.to_ast(&prop.shape, &nested_name, &mut nested);
+
+            // A literal default of an optional configuration field is its
+            // value when omitted. A default which doesn't validate against
+            // its schema is ignored, and a required field has no default.
+            let default = match &prop.shape.default {
+                Some(default) if self.is_config && !prop.is_required && default.1.is_none() => {
+                    Some(default.0.clone())
+                }
+                _ => None,
+            };
 
             fields.push(Field {
                 name,
@@ -179,6 +213,7 @@ impl Mapper {
                 docstring,
                 type_,
                 is_required: prop.is_required,
+                default,
             });
         }
 
@@ -325,6 +360,50 @@ impl Mapper {
             AST::Union { variants: disjunct }
         };
     }
+}
+
+/// Map a property into the name of its Pydantic field,
+/// and an alias of the property if the name differs.
+///
+/// A configuration's field also may not collide with an attribute of
+/// `pydantic.BaseModel`, which it would shadow. Document fields keep such names, which existing derivations use.
+fn field_name(property: &str, is_config: bool) -> (String, Option<String>) {
+    let mut sanitized = sanitize_python_identifier(property);
+
+    // Pydantic doesn't allow field names starting with single underscore,
+    // and __dunders__ must also map into public fields.
+    if sanitized.starts_with('_') || (is_config && is_model_attribute(&sanitized)) {
+        sanitized = format!(
+            "m{}{sanitized}",
+            if sanitized.starts_with('_') { "" } else { "_" }
+        );
+    }
+
+    if sanitized == property {
+        (property.to_string(), None) // Name is valid as-is.
+    } else {
+        (sanitized, Some(property.to_string()))
+    }
+}
+
+/// Is `name` an attribute of a `pydantic.BaseModel`?
+fn is_model_attribute(name: &str) -> bool {
+    name.starts_with("model_")
+        || matches!(
+            name,
+            "construct"
+                | "copy"
+                | "dict"
+                | "from_orm"
+                | "json"
+                | "parse_file"
+                | "parse_obj"
+                | "parse_raw"
+                | "schema"
+                | "schema_json"
+                | "update_forward_refs"
+                | "validate"
+        )
 }
 
 /// Sanitize a name into a valid Python identifier.
@@ -517,7 +596,7 @@ mod test {
                 .get()
                 .as_bytes();
 
-            let m = Mapper::new(bundle, "Doc");
+            let m = Mapper::new(bundle, "Doc").unwrap();
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi}:",
@@ -527,7 +606,7 @@ mod test {
             .unwrap();
             m.map(m.schema(), "Document").render(&mut w);
 
-            let m = Mapper::new(bundle, "");
+            let m = Mapper::new(bundle, "").unwrap();
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi} without anchors:",
@@ -537,6 +616,36 @@ mod test {
             .unwrap();
             m.map(m.schema(), "Document").render(&mut w);
         }
+
+        insta::assert_snapshot!(w);
+    }
+
+    #[test]
+    fn nested_classes_dont_collide_with_fields() {
+        // `Credentials` is a field, and would be the name of its nested class.
+        // `credentials` maps to the same class name, but no field is named so.
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "Credentials": {
+                    "type": "object",
+                    "properties": {"token": {"type": "string"}},
+                    "required": ["token"],
+                },
+                "account": {
+                    "type": "object",
+                    "properties": {"id": {"type": "integer"}},
+                },
+            },
+            "required": ["Credentials"],
+        })
+        .to_string();
+
+        let mut w = String::new();
+        let m = Mapper::new(schema.as_bytes(), "Doc").unwrap();
+        m.map(m.schema(), "Document").render(&mut w);
+        let m = Mapper::for_config(schema.as_bytes()).unwrap();
+        m.map(m.schema(), "EndpointConfig").render(&mut w);
 
         insta::assert_snapshot!(w);
     }

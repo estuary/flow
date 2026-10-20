@@ -3,116 +3,121 @@ source: crates/derive-python/src/codegen/mod.rs
 expression: types_output
 ---
 from abc import ABC, abstractmethod
-import typing
 import collections.abc
+import typing
 import pydantic
-
+from estuary_cdk.derive import request as _request, response as _response
+import typing as _typing
+import pydantic as _pydantic
 
 # Generated for published documents of derived collection patterns/sums
-class Document(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
+class Document(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
 
-    Count: typing.Optional[int] = None
+    Count: _typing.Optional[int] = None
     Key: str
     Sum: int
 
 
 
 # Generated for read documents of sourced collection patterns/ints
-class SourceFromIntsIntValue(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
+class SourceFromIntsIntValue(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
 
     Int: int
     Key: str
 
-SourceFromInts: typing.TypeAlias = "SourceFromIntsIntValue"
+SourceFromInts: _typing.TypeAlias = "SourceFromIntsIntValue"
 
 
 # Generated for read documents of sourced collection patterns/strings
-class SourceProcessStrings(pydantic.BaseModel):
-    class Metadata(pydantic.BaseModel):
-        model_config = pydantic.ConfigDict(extra='allow')
+class SourceProcessStrings(_pydantic.BaseModel):
+    class Metadata(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
 
 
-    model_config = pydantic.ConfigDict(extra='allow')
+    model_config = _pydantic.ConfigDict(extra='allow')
 
     id: str
-    metadata: typing.Optional["Metadata"] = None
+    metadata: _typing.Optional["Metadata"] = None
     text: str
 
 
 
-class ConnectorState(pydantic.BaseModel):
-    """Mirror of Estuary protocol's flow.ConnectorState."""
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
 
-    # An updated state, or patch thereof.
-    updated: dict[str, typing.Any]
-    # When true, `updated` is an RFC 7396 JSON Merge Patch rather than a full replacement.
-    merge_patch: bool = pydantic.Field(default=False, serialization_alias='mergePatch')
+    apiKey: str
+    multiplier: int = 2
 
 
-class Request(pydantic.BaseModel):
 
-    class Open(pydantic.BaseModel):
-        state: dict[str, typing.Any]
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
 
-    class Flush(pydantic.BaseModel):
-        # Aggregated connector state patches contributed by all participating shards
-        # in the PREVIOUS Flush iteration of the current transaction; empty on the
-        # first iteration.
-        state_patches: list[typing.Any] = pydantic.Field(default_factory=list, alias='statePatches')
+    readOnly: bool = False
 
-    class Reset(pydantic.BaseModel):
+
+
+class Request:
+    """Request messages of the derive protocol (`estuary_cdk.derive.request`)."""
+
+    Open = _request.Open
+    Validate = _request.Validate
+    Flush = _request.Flush
+    Reset = _request.Reset
+
+    class ReadFromInts(_request.Read[SourceFromInts]):
+        """A document read by transform `FromInts`."""
+
+    class ReadProcessStrings(_request.Read[SourceProcessStrings]):
+        """A document read by transform `ProcessStrings`."""
+
+
+class Response:
+    """Response messages of the derive protocol (`estuary_cdk.derive.response`)."""
+
+    Opened = _response.Opened
+    Published = _response.Published
+    Flushed = _response.Flushed
+    Validated = _response.Validated
+    ValidatedTransform = _response.ValidatedTransform
+
+
+class IDerivation[C = EndpointConfig, R: pydantic.BaseModel = ResourceConfig, S = dict[str, typing.Any]](ABC):
+    """Abstract base class for derivation implementations.
+
+    `C` is the type of the derivation's `config`, `R` of the resource
+    configuration (`lambda`) of each transform, and `S` of its connector state.
+    `C` and `R` default to the types generated from the derivation's `spec`.
+    A derivation may instead declare types of its own, as
+    `class Derivation(IDerivation[MyConfig, MyResourceConfig, MyState])`, and
+    is then responsible for keeping them equivalent to its declared `spec`.
+
+    `Derivation` must directly subclass `IDerivation`, from which its types
+    are resolved: a validation of the derivation fails otherwise."""
+
+    def __init__(self, open: Request.Open[C, R, S]):
+        """Initialize the derivation with its Open message. Its `config` is
+        `open.collection.derivation.config`, and its state is `open.state`."""
         pass
 
-    open: typing.Optional[Open] = None
-    flush: typing.Optional[Flush] = None
-    reset: typing.Optional[Reset] = None
-
-
-    class ReadFromInts(pydantic.BaseModel):
-        doc: SourceFromInts
-        transform: typing.Literal[0]
-
-
-    class ReadProcessStrings(pydantic.BaseModel):
-        doc: SourceProcessStrings
-        transform: typing.Literal[1]
-
-    read : typing.Annotated[ReadFromInts | ReadProcessStrings, pydantic.Field(discriminator='transform')] | None = None
-
-    @pydantic.model_validator(mode='before')
     @classmethod
-    def inject_default_transform(cls, data: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        if 'read' in data and 'transform' not in data['read']:
-            data['read']['transform'] = 0 # Make implicit default explicit
-        return data
+    def validate(cls, validate: Request.Validate[C, R]) -> Response.Validated:
+        """Validate the derivation as it's published, raising to fail.
 
-
-class Response(pydantic.BaseModel):
-    class Opened(pydantic.BaseModel):
-        pass
-
-    class Published(pydantic.BaseModel):
-        doc: Document
-
-    class Flushed(pydantic.BaseModel):
-        # Connector state update to contribute this transaction.
-        # Aggregated across shards and fed back via Request.Flush.state_patches.
-        state: typing.Optional[ConnectorState] = None
-        # Request a further Flush iteration this transaction.
-        more: bool = False
-
-    opened: typing.Optional[Opened] = None
-    published: typing.Optional[Published] = None
-    flushed: typing.Optional[Flushed] = None
-
-class IDerivation(ABC):
-    """Abstract base class for derivation implementations."""
-
-    def __init__(self, open: Request.Open):
-        """Initialize the derivation with an Open message."""
-        pass
+        The default marks a transform as read-only if its resource
+        configuration has a true `readOnly`."""
+        return Response.Validated(
+            transforms=[
+                Response.ValidatedTransform(
+                    readOnly=bool(getattr(transform.lambdaConfig, "readOnly", False))
+                )
+                for transform in validate.transforms
+            ]
+        )
 
     @abstractmethod
     async def from_ints(self, read: Request.ReadFromInts) -> collections.abc.AsyncIterator[Document]:
@@ -126,13 +131,14 @@ class IDerivation(ABC):
         if False:
             yield  # Mark as a generator.
 
-    async def flush(self, state_patches: list[typing.Any], flushed: Response.Flushed) -> collections.abc.AsyncIterator[Document]:
+    async def flush(self, flush: Request.Flush, flushed: Response.Flushed[S]) -> collections.abc.AsyncIterator[Document]:
         """Complete deferred work for the current transaction, publishing all
         documents derived from prior reads.
 
-        Set `flushed.state` to contribute a connector state update, and/or set
-        `flushed.more = True` to request a further Flush iteration (a scatter/gather
-        round across the derivation's shards). On each call `state_patches` holds the
+        Set `flushed.state` to contribute a connector state update (an
+        `estuary_cdk.flow.ConnectorStateUpdate`), and/or set `flushed.more = True`
+        to request a further Flush iteration (a scatter/gather round across the
+        derivation's shards). On each call `flush.statePatches` holds the
         aggregated `state` updates returned by all shards in the previous iteration
         (empty on the first). All Documents MUST be yielded before flush returns
         a terminal (`more = False`) Response.Flushed.

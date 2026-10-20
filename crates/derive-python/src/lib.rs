@@ -1,5 +1,7 @@
 use anyhow::Context;
+use models::custom_connector::{Language, Sentinel, Spec};
 use proto_flow::{derive, flow};
+use python_connector::{ENTRY, Install, Project};
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::process::Stdio;
@@ -13,109 +15,75 @@ pub fn run() -> anyhow::Result<()> {
     let mut line = String::new();
 
     // Handle Spec and Validate requests, breaking upon an Open.
-    let open = loop {
+    let mut open = loop {
         line.clear();
         if bin.read_line(&mut line)? == 0 {
             return Ok(()); // Clean EOF.
         };
         let request: proto_flow::derive::Request = serde_json::from_str(&line)?;
 
-        match &request.kind {
-            Some(derive::request::Kind::Spec(_)) => {
-                stdout.write(
-                    &serde_json::to_vec(&derive::Response {
-                        kind: Some(derive::response::Kind::Spec(Box::new(
-                            derive::response::Spec {
-                                protocol: 3032023,
-                                config_schema_json: "{}".to_string().into(),
-                                resource_config_schema_json: "{}".to_string().into(),
-                                documentation_url: "https://docs.estuary.dev".to_string(),
-                                oauth2: None,
-                            },
-                        ))),
-                        ..Default::default()
-                    })
-                    .unwrap(),
-                )?;
+        let response = match request.kind {
+            Some(derive::request::Kind::Spec(spec)) => {
+                derive::response::Kind::Spec(Box::new(spec_response(&spec.config_json)?))
             }
-            Some(derive::request::Kind::Validate(request)) => {
-                stdout.write(
-                    &serde_json::to_vec(&derive::Response {
-                        kind: Some(derive::response::Kind::Validated(validate(request)?)),
-                        ..Default::default()
-                    })
-                    .unwrap(),
-                )?;
+            Some(derive::request::Kind::Validate(validate)) => {
+                derive::response::Kind::Validated(validate_derivation(*validate)?)
             }
-            Some(derive::request::Kind::Open(_)) => break request,
-            _ => anyhow::bail!("unexpected request {request:?}"),
-        }
-        stdout.write("\n".as_bytes())?;
+            Some(derive::request::Kind::Open(open)) => break open,
+            kind => anyhow::bail!("unexpected request {kind:?}"),
+        };
+        stdout.write_all(
+            &serde_json::to_vec(&derive::Response {
+                kind: Some(response),
+                ..Default::default()
+            })
+            .unwrap(),
+        )?;
+        stdout.write_all("\n".as_bytes())?;
     };
 
-    // Extract collection and derivation from Open message
-    let Some(derive::request::Kind::Open(open_kind)) = &open.kind else {
-        unreachable!("loop breaks only on an Open request");
-    };
-    let collection = open_kind
+    // `collection` and its `derivation` are taken from `open` to be staged,
+    // and are restored after `config_json` is rewritten.
+    let mut collection = open
         .collection
-        .as_ref()
+        .take()
         .context("Open request missing collection")?;
-    let derivation = collection
+    let mut derivation = collection
         .derivation
-        .as_ref()
+        .take()
         .context("Collection missing derivation")?;
 
-    let config = serde_json::from_slice::<Config>(&derivation.config_json)
-        .context("Failed to parse derivation config")?;
-    connector_environment::validate_python(&config.environment)
-        .context("invalid derivation environment")?;
-
-    let transforms = derivation
-        .resolved_transforms()
-        .map(|(transform, resolved)| {
-            let flow::collection_spec::derivation::Transform {
-                lambda_config_json,
-                collection: _,
-                name,
-                ..
-            } = transform;
-
-            let lambda = if lambda_config_json == "null" {
-                LambdaConfig { read_only: false }
-            } else {
-                serde_json::from_slice::<LambdaConfig>(lambda_config_json)
-                    .context("Failed to parse lambda config")?
-            };
-
-            let (source, _identity) = resolved.context("transform missing source collection")?;
-
-            Ok((name.as_str(), source, lambda))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-
-    let (temp, gen_dir) = setup_temp_project(
-        collection,
+    let transforms = resolve_transforms(
+        derivation
+            .resolved_transforms()
+            .map(|(transform, resolved)| (transform.name.as_str(), resolved)),
+    )?;
+    let config = Config::parse(&derivation.config_json, &collection.name)?
+        .context("missing derivation module")?;
+    let project = stage(
+        &config.sentinel,
+        &collection,
         &transforms,
-        &config.module,
-        &config.dependencies,
+        Install::of_request(false, config.sentinel.has_lock(Language::Python)),
     )?;
 
-    tracing::debug!(
-        temp_dir = ?temp.path(),
-        dependency_count = config.dependencies.len(),
-        "wrote generated files to temp directory"
-    );
+    // User code sees only its own configuration: that of a sentinel, without
+    // the sentinel, or the empty configuration of a legacy derivation (whose
+    // `module` and `dependencies` aren't configuration).
+    derivation.config_json = serde_json::to_vec(&config.user).unwrap().into();
+    collection.derivation = Some(derivation);
+    open.collection = Some(collection);
 
-    tracing::debug!(
-        environment = ?config.environment.keys().collect::<Vec<_>>(),
-        "starting Python derivation"
-    );
+    let open = derive::Request {
+        kind: Some(derive::request::Kind::Open(open)),
+        ..Default::default()
+    };
 
-    let mut command = uv_command(temp.path(), &gen_dir, &config.environment);
-    let mut child = command
+    tracing::debug!(temp_dir = ?project.root(), "starting Python derivation");
+
+    let mut child = project
+        .command(&["python", ENTRY])
         .stdin(Stdio::piped())
-        .args(["run", MAIN_NAME])
         .spawn()?;
 
     // Forward `open` and the remainder of stdin to the program.
@@ -135,367 +103,431 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Config {
-    module: String,
-    #[serde(default)]
-    dependencies: std::collections::BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    environment: std::collections::BTreeMap<String, String>,
+/// Configuration of a Python derivation.
+#[derive(Debug)]
+struct Config {
+    /// The user's own configuration, which the derivation parses.
+    user: serde_json::Map<String, serde_json::Value>,
+    /// Sentinel of the derivation, whose declared spec has its defaults
+    /// resolved. A listed file which failed to load is given a starter.
+    sentinel: Sentinel,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LambdaConfig {
-    read_only: bool,
+impl Config {
+    /// Parse the connector configuration of derivation `task`, returning
+    /// None if it isn't the configuration of a derivation (such as the `{}`
+    /// of an image Spec).
+    ///
+    /// Built specifications which predate the `_python` sentinel have a
+    /// top-level `module`, and are accepted until they're re-published.
+    /// They're staged as the files which validation builds a legacy model
+    /// with (`Language::legacy_files`). Their `dependencies` and
+    /// `environment` are no longer supported, and must be empty.
+    fn parse(config_json: &[u8], task: &str) -> anyhow::Result<Option<Self>> {
+        if config_json.is_empty() {
+            return Ok(None);
+        }
+        let (user, sentinel) = Sentinel::split(config_json, Language::Python)
+            .context("invalid derivation configuration")?;
+
+        if let Some(mut sentinel) = sentinel {
+            sentinel.spec = sentinel.spec.resolve_derivation();
+            return Ok(Some(Self { user, sentinel }));
+        }
+
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Legacy {
+            module: String,
+            #[serde(default)]
+            dependencies: serde_json::Map<String, serde_json::Value>,
+            #[serde(default)]
+            environment: serde_json::Map<String, serde_json::Value>,
+        }
+        if !user.contains_key("module") {
+            return Ok(None);
+        }
+        let Legacy {
+            module,
+            dependencies,
+            environment,
+        } = serde_json::from_value(serde_json::Value::Object(user))
+            .context("invalid derivation configuration")?;
+
+        if !dependencies.is_empty() {
+            anyhow::bail!(
+                "dependencies are no longer supported; declare them in a `pyproject.toml` listed in `files`"
+            );
+        }
+        if !environment.is_empty() {
+            anyhow::bail!(
+                "environment is no longer supported; use `config` with a `secrets` stanza"
+            );
+        }
+
+        Ok(Some(Self {
+            user: serde_json::Map::new(),
+            sentinel: Sentinel {
+                task: task.to_string(),
+                files: Language::Python.legacy_files(task, module),
+                spec: Spec::default().resolve_derivation(),
+            },
+        }))
+    }
+
+    /// Python source paths of this derivation, relative to the project root,
+    /// which are type-checked: its generated entry point, and its own files.
+    fn python_sources(&self) -> Vec<&str> {
+        [ENTRY]
+            .into_iter()
+            .chain(
+                self.sentinel
+                    .files
+                    .keys()
+                    .filter(|key| key.ends_with(".py"))
+                    .map(String::as_str),
+            )
+            .collect()
+    }
 }
 
-fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::response::Validated> {
+/// Answer a Spec from the spec declared by the derivation's model,
+/// without staging or running its code. A legacy configuration
+/// (or the `{}` of a bare image Spec) declares none.
+fn spec_response(config_json: &[u8]) -> anyhow::Result<derive::response::Spec> {
+    let sentinel = if config_json.is_empty() {
+        None
+    } else {
+        Sentinel::split(config_json, Language::Python)
+            .context("invalid derivation configuration")?
+            .1
+    };
+    let spec = sentinel
+        .map(|sentinel| sentinel.spec)
+        .unwrap_or_default()
+        .resolve_derivation();
+    let schema_json = |schema: Option<models::Schema>| {
+        schema
+            .expect("resolved by resolve_derivation")
+            .get()
+            .to_string()
+            .into()
+    };
+
+    Ok(derive::response::Spec {
+        protocol: models::custom_connector::PROTOCOL,
+        config_schema_json: schema_json(spec.config_schema),
+        resource_config_schema_json: schema_json(spec.resource_config_schema),
+        documentation_url: "https://docs.estuary.dev".to_string(),
+        // `models::custom_connector::OAuth2` mirrors `flow::OAuth2`.
+        oauth2: spec.oauth2.map(|oauth2| {
+            serde_json::from_value(serde_json::to_value(oauth2).unwrap())
+                .expect("OAuth2 of a Spec is a flow::OAuth2")
+        }),
+    })
+}
+
+fn validate_derivation(
+    mut validate: derive::request::Validate,
+) -> anyhow::Result<derive::response::Validated> {
+    let task = validate
+        .collection
+        .as_ref()
+        .context("Validate missing collection")?
+        .name
+        .clone();
+    let config =
+        Config::parse(&validate.config_json, &task)?.context("missing derivation module")?;
+    let sentinel = &config.sentinel;
+    // User code sees only its own configuration, as of an Open (see `run`).
+    validate.config_json = serde_json::to_vec(&config.user).unwrap().into();
+
     let derive::request::Validate {
-        connector_type: _,
         collection,
-        config_json,
-        transforms: _,
-        shuffle_key_types: _,
         project_root,
-        import_map,
         ..
-    } = validate;
+    } = &validate;
 
     let collection = collection.as_ref().unwrap();
+    let project_root = project_root.trim_end_matches('/');
 
-    let config = serde_json::from_slice::<Config>(config_json)
-        .context("invalid derivation configuration")?;
-    connector_environment::validate_python(&config.environment)
-        .context("invalid derivation environment")?;
+    let transforms = resolve_transforms(
+        validate
+            .resolved_transforms()
+            .map(|(transform, resolved)| {
+                if !transform.shuffle_lambda_config_json.is_empty() {
+                    anyhow::bail!("computed shuffles are not supported yet");
+                }
+                Ok((transform.name.as_str(), resolved))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .into_iter(),
+    )?;
 
-    let transforms = validate
-        .resolved_transforms()
-        .map(|(transform, resolved)| {
-            let derive::request::validate::Transform {
-                lambda_config_json,
-                collection: _,
-                name,
-                shuffle_lambda_config_json,
-                ..
-            } = transform;
+    let mut generated_files: BTreeMap<String, String> = python_connector::module_files(
+        &collection.name,
+        codegen::types_py(collection, &transforms, &sentinel.spec)?,
+    )
+    .into_iter()
+    .map(|(path, content)| (format!("{project_root}/{path}"), content))
+    .collect();
 
-            let lambda = if lambda_config_json == "null" {
-                LambdaConfig { read_only: false }
-            } else {
-                serde_json::from_slice::<LambdaConfig>(lambda_config_json)
-                    .with_context(|| format!("invalid lambda configuration for transform {name}"))?
-            };
-
-            if !shuffle_lambda_config_json.is_empty() {
-                anyhow::bail!("computed shuffles are not supported yet");
-            }
-
-            let (source, _identity) = resolved.context("transform missing source collection")?;
-
-            Ok((name.as_str(), source, lambda))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-
-    let transforms_response = transforms
-        .iter()
-        .map(
-            |(_, _, LambdaConfig { read_only })| derive::response::validated::Transform {
-                read_only: *read_only,
-            },
-        )
-        .collect();
-
-    let module_path_parts: Vec<String> = codegen::module_path_parts(&collection.name).collect();
-    let types_url = format!(
-        "{project_root}/{GENERATED_PREFIX}/{}/__init__.py",
-        module_path_parts.join("/")
-    );
-    let mut generated_files = std::collections::BTreeMap::new();
-
-    for (init_path, init_content) in codegen::package_init_files(&collection.name, project_root) {
-        generated_files.insert(init_path, init_content);
-    }
-    generated_files.insert(
-        types_url.clone(),
-        codegen::types_py(collection, &transforms),
-    );
-    generated_files.insert(
-        format!("{project_root}/pyproject.toml"),
-        generate_pyproject_toml(&collection.name, &config.dependencies),
-    );
-    generated_files.insert(
-        format!("{project_root}/pyrightconfig.json"),
-        generate_pyrightconfig(None), // `None` means: use relative path.
-    );
-
-    // Do we need to generate a module stub?
-    if !config.module.chars().any(char::is_whitespace) {
-        generated_files.insert(
-            config.module.clone(),
-            codegen::stub_py(&collection, &transforms),
-        );
-
-        // There's no further validation we can do.
+    // A project having listed files which don't exist yet can't be run.
+    // They're given starters, and there's no code to decide whether its
+    // transforms are read-only. Its missing files are load errors, and it
+    // can't be published.
+    let missing = sentinel.missing();
+    if !missing.is_empty() {
+        for path in missing {
+            generated_files.insert(
+                format!("{project_root}/{path}"),
+                starter(sentinel, collection, &transforms, path),
+            );
+        }
         return Ok(derive::response::Validated {
-            transforms: transforms_response,
+            transforms: vec![Default::default(); transforms.len()],
             generated_files,
         });
     }
 
-    tracing::debug!(
-        file_count = generated_files.len(),
-        "generated Python types and package files"
-    );
-
-    let (temp, gen_dir) = setup_temp_project(
+    let project = stage(
+        sentinel,
         collection,
         &transforms,
-        &config.module,
-        &config.dependencies,
+        Install::of_request(true, sentinel.has_lock(Language::Python)),
     )?;
 
-    tracing::debug!(
-        environment = ?config.environment.keys().collect::<Vec<_>>(),
-        "validating Python derivation"
-    );
-
-    let syntax_check = uv_command(temp.path(), &gen_dir, &config.environment)
-        .args(["run", "-m", "py_compile", "module.py", "main.py"])
-        .output()?;
-
-    if !syntax_check.status.success() {
-        let stderr = String::from_utf8_lossy(&syntax_check.stderr);
-        anyhow::bail!(
-            "Python syntax check failed:\n{}",
-            rewrite_python_stderr(&stderr, temp.path(), &types_url, &import_map)
-        );
+    if project.has_tool("pyright") {
+        project
+            .run(
+                &[&["pyright"], config.python_sources().as_slice()].concat(),
+                None,
+            )
+            .map_err(|err| anyhow::anyhow!("Python type check failed:\n{err}"))?;
     }
 
-    let type_check = uv_command(temp.path(), &gen_dir, &config.environment)
-        .args(["run", "pyright", MODULE_NAME, MAIN_NAME])
-        .output()?;
+    // The derivation's own `validate` decides whether each transform is
+    // read-only, and may fail validation outright.
+    let validated = project
+        .run(
+            &["python", ENTRY, "validate"],
+            Some(&serde_json::to_vec(&validate).unwrap()),
+        )
+        .map_err(|err| anyhow::anyhow!("derivation validation failed:\n{err}"))?;
+    let mut validated = parse_validated(&validated)?;
 
-    if !type_check.status.success() {
-        let stderr = String::from_utf8_lossy(&type_check.stderr);
-        let stdout = String::from_utf8_lossy(&type_check.stdout);
-        let combined = format!("{}{}", stdout, stderr);
+    if validated.transforms.len() != transforms.len() {
         anyhow::bail!(
-            "Python type check failed:\n{}",
-            rewrite_python_stderr(&combined, temp.path(), &types_url, &import_map)
+            "derivation `validate` returned {} transforms, but the derivation has {}",
+            validated.transforms.len(),
+            transforms.len(),
         );
     }
+    // A lock resolved by this session is returned to be baked into the
+    // built specification.
+    if !sentinel.has_lock(Language::Python) {
+        if let Some(lock) = project.lock() {
+            generated_files.insert(
+                format!("{project_root}/{}", Language::Python.lock()),
+                lock.to_string(),
+            );
+        }
+    }
+    validated.generated_files = generated_files;
 
-    tracing::info!(
-        collection_name = %collection.name,
-        "validation successful"
-    );
+    tracing::info!(collection_name = %collection.name, "validation successful");
 
-    Ok(derive::response::Validated {
-        transforms: transforms_response,
-        generated_files,
+    Ok(validated)
+}
+
+/// Starter content of a listed file at `path` which doesn't exist yet:
+/// a working derivation as its entry, a project manifest, or else empty.
+fn starter(
+    sentinel: &Sentinel,
+    collection: &flow::CollectionSpec,
+    transforms: &[(&str, &flow::CollectionSpec)],
+    path: &str,
+) -> String {
+    if path == Language::Python.entry(sentinel.dir()) {
+        codegen::starter_py(collection, transforms)
+    } else if path == Language::Python.manifest() {
+        Language::Python.starter_manifest(sentinel.dir())
+    } else {
+        String::new()
+    }
+}
+
+/// Parse the Validated response which `main.py validate` printed. Anything
+/// else the derivation printed (such as a stray `print()`) is included in an
+/// error, so that it can be diagnosed.
+fn parse_validated(stdout: &[u8]) -> anyhow::Result<derive::response::Validated> {
+    serde_json::from_slice(stdout).with_context(|| {
+        const MAX: usize = 4096;
+        let stdout = String::from_utf8_lossy(stdout);
+        let truncated: String = stdout.chars().take(MAX).collect();
+        let ellipsis = if truncated.len() < stdout.len() {
+            "..."
+        } else {
+            ""
+        };
+
+        format!(
+            "failed to parse the derivation's Validated response; is the module \
+             printing to stdout? Its output was:\n{truncated}{ellipsis}"
+        )
     })
 }
 
-/// Rewrite Python error messages to replace temp paths with project paths.
-fn rewrite_python_stderr(
-    stderr: &str,
-    temp_dir: &std::path::Path,
-    types_url: &str,
-    import_map: &BTreeMap<String, String>,
-) -> String {
-    tracing::info!(?import_map, ?types_url, "re-writing python stderr");
-
-    let mut stderr = stderr.to_string();
-
-    if let Some(import) = import_map.get("/using/python/module") {
-        stderr = stderr.replace(
-            url::Url::from_file_path(temp_dir.join(MODULE_NAME))
-                .unwrap()
-                .as_str(),
-            import,
-        );
-    }
-
-    stderr = stderr.replace(
-        url::Url::from_file_path(temp_dir.join("__init__.py"))
-            .unwrap()
-            .as_str(),
-        types_url,
-    );
-
-    stderr
+/// Resolve transforms into their names and source collections.
+fn resolve_transforms<'a>(
+    transforms: impl Iterator<Item = (&'a str, Option<proto_flow::linked::Resolved<'a>>)>,
+) -> anyhow::Result<Vec<(&'a str, &'a flow::CollectionSpec)>> {
+    transforms
+        .map(|(name, resolved)| {
+            let (source, _identity) = resolved.context("transform missing source collection")?;
+            Ok((name, source))
+        })
+        .collect()
 }
 
-/// Setup temp directory structure for connector execution or validation.
-/// Returns (temp_dir, python_gen_dir_path).
-fn setup_temp_project(
+/// Stage the project of a derivation with its generated types and entry
+/// point, and install its dependencies.
+fn stage(
+    sentinel: &Sentinel,
     collection: &flow::CollectionSpec,
-    transforms: &[(&str, &flow::CollectionSpec, LambdaConfig)],
-    module: &str,
-    dependencies: &std::collections::BTreeMap<String, String>,
-) -> anyhow::Result<(tempfile::TempDir, std::path::PathBuf)> {
-    let temp = tempfile::TempDir::new()?;
-    let gen_dir = temp.path().join("flow_generated").join("python");
-
-    // Write generated types file with proper directory structure
-    let module_path_parts: Vec<String> = codegen::module_path_parts(&collection.name).collect();
-    std::fs::create_dir_all(gen_dir.join(module_path_parts.join("/")))?;
-
-    // Create __init__.py files in all parent modules, and the leaf types __init__.py
-    for i in 0..module_path_parts.len() - 1 {
-        let init_path = gen_dir
-            .join(module_path_parts[..=i].join("/"))
-            .join("__init__.py");
-        std::fs::write(init_path, "")?;
-    }
-    std::fs::write(
-        gen_dir
-            .join(module_path_parts.join("/"))
-            .join("__init__.py"),
-        codegen::types_py(collection, transforms),
-    )?;
-
-    // Write user module
-    std::fs::write(temp.path().join(MODULE_NAME), module)?;
-
-    // Write main.py runtime wrapper
-    std::fs::write(
-        temp.path().join(MAIN_NAME),
-        codegen::main_py(collection, transforms, "module"),
-    )?;
-
-    // Write pyproject.toml for dependency management
-    std::fs::write(
-        temp.path().join("pyproject.toml"),
-        generate_pyproject_toml(&collection.name, dependencies),
-    )?;
-
-    // Write pyrightconfig.json for type checking (with absolute path for temp context)
-    std::fs::write(
-        temp.path().join("pyrightconfig.json"),
-        generate_pyrightconfig(Some(gen_dir.to_str().unwrap())),
-    )?;
-
-    Ok((temp, gen_dir))
-}
-
-/// Generate pyrightconfig.json for IDE type checking.
-/// If `absolute_path` is provided, uses it for extraPaths (connector context).
-/// Otherwise uses GENERATED_PREFIX for relative paths (user development context).
-fn generate_pyrightconfig(absolute_path: Option<&str>) -> String {
-    let extra_paths = if let Some(path) = absolute_path {
-        vec![path.to_string()]
-    } else {
-        vec![GENERATED_PREFIX.to_string()]
-    };
-
-    let config = serde_json::json!({
-        "extraPaths": extra_paths,
-        "typeCheckingMode": "strict",
-    });
-
-    serde_json::to_string_pretty(&config).unwrap()
-}
-
-/// Generate pyproject.toml with project dependencies and IDE configuration.
-fn generate_pyproject_toml(
-    collection_name: &str,
-    dependencies: &std::collections::BTreeMap<String, String>,
-) -> String {
-    let mut result = String::new();
-
-    let mut dependencies = dependencies.clone();
-
-    // `pydantic` and `pyright` are required dependencies.
-    if dependencies.get("pydantic").is_none() {
-        dependencies.insert("pydantic".to_string(), ">=2.0".to_string());
-    }
-    if dependencies.get("pyright").is_none() {
-        dependencies.insert("pyright".to_string(), ">=1.1".to_string());
-    }
-
-    result.push_str("[project]\n");
-    result.push_str(&format!(
-        "name = \"{}\"\n",
-        collection_name.replace('/', "-")
+    transforms: &[(&str, &flow::CollectionSpec)],
+    install: Install,
+) -> anyhow::Result<Project> {
+    let types = codegen::types_py(collection, transforms, &sentinel.spec)?;
+    let mut generated = python_connector::module_files(&collection.name, types);
+    generated.push((
+        ENTRY.to_string(),
+        codegen::main_py(collection, transforms, sentinel.dir()),
     ));
-    result.push_str("version = \"0.1.0\"\n");
-    result.push_str("requires-python = \">=3.12\"\n");
-    result.push_str("dependencies = [\n");
 
-    for (package, version) in dependencies {
-        result.push_str(&format!("    \"{}{}\",\n", package, version));
-    }
-    result.push_str("]\n\n");
+    let mut project = Project::stage(
+        sentinel
+            .files
+            .iter()
+            .filter_map(|(path, content)| Some((path.as_str(), content.as_deref()?)))
+            .chain(
+                generated
+                    .iter()
+                    .map(|(path, content)| (path.as_str(), content.as_str())),
+            ),
+    )?;
+    project.install(install)?;
 
-    // Add tool configuration for language servers
-    result.push_str(
-        r#"[tool.pylsp-mypy]
-enabled = true
+    tracing::debug!(temp_dir = ?project.root(), ?install, "staged Python derivation");
 
-# IDE configuration is in pyrightconfig.json
-"#,
-    );
-
-    result
-}
-
-fn uv_command(
-    project_dir: &std::path::Path,
-    gen_dir: &std::path::Path,
-    environment: &std::collections::BTreeMap<String, String>,
-) -> std::process::Command {
-    let mut command = std::process::Command::new("uv");
-    command
-        .current_dir(project_dir)
-        .envs(environment)
-        .env("PYTHONPATH", gen_dir);
-    command
+    Ok(project)
 }
 
 #[cfg(test)]
 mod test {
-    use super::uv_command;
-    use std::collections::BTreeMap;
+    use super::{Config, spec_response};
 
     #[test]
-    fn uv_command_applies_environment_and_generated_module_path() {
-        let environment = BTreeMap::from([
-            ("API_KEY".to_string(), "secret-value".to_string()),
-            ("REGION".to_string(), "us-east-1".to_string()),
-        ]);
-        let command = uv_command(
-            std::path::Path::new("/tmp/project"),
-            std::path::Path::new("/tmp/generated"),
-            &environment,
-        );
-        let actual: BTreeMap<_, _> = command
-            .get_envs()
-            .map(|(name, value)| {
-                (
-                    name.to_str().unwrap(),
-                    value.and_then(std::ffi::OsStr::to_str).unwrap(),
-                )
-            })
-            .collect();
+    fn configurations_are_parsed() {
+        let current = br#"{
+            "region": "north",
+            "_python": {
+                "task": "acmeCo/orders",
+                "files": {
+                    "pyproject.toml": "[project]\n",
+                    "orders/__init__.py": "class Derivation: pass\n",
+                    "orders/geo.py": "def region_for(doc):\n    return doc\n",
+                    "orders/missing.py": null
+                },
+                "spec": {"configSchema": {"type": "object"}}
+            }
+        }"#;
+        let legacy = br#"{
+            "module": "class Derivation: pass\n",
+            "dependencies": {}
+        }"#;
 
+        let current = Config::parse(current, "acmeCo/orders").unwrap().unwrap();
+        let legacy = Config::parse(legacy, "acmeCo/orders").unwrap().unwrap();
+
+        insta::assert_debug_snapshot!((
+            &current,
+            current.python_sources(),
+            current.sentinel.missing(),
+            &legacy,
+            Config::parse(b"{}", "acmeCo/orders").unwrap().is_none(),
+            Config::parse(b"", "acmeCo/orders").unwrap().is_none(),
+            format!(
+                "{:#}",
+                Config::parse(
+                    br#"{"module": "m.py", "dependencies": {"httpx": ">=0.27"}}"#,
+                    "acmeCo/orders"
+                )
+                .unwrap_err()
+            ),
+            format!(
+                "{:#}",
+                Config::parse(
+                    br#"{"module": "m.py", "environment": {"A": "b"}}"#,
+                    "acmeCo/orders"
+                )
+                .unwrap_err()
+            ),
+            format!(
+                "{:#}",
+                Config::parse(br#"{"module": "m.py", "other": true}"#, "acmeCo/orders")
+                    .unwrap_err()
+            ),
+        ));
+    }
+
+    #[test]
+    fn unparseable_validated_responses_include_output() {
+        let err = super::parse_validated(b"debugging!\n{\"transforms\":[{}]}\n").unwrap_err();
+        insta::assert_snapshot!(format!("{err:#}"));
         assert_eq!(
-            actual,
-            BTreeMap::from([
-                ("API_KEY", "secret-value"),
-                ("PYTHONPATH", "/tmp/generated"),
-                ("REGION", "us-east-1"),
-            ])
-        );
-        assert_eq!(
-            command.get_current_dir(),
-            Some(std::path::Path::new("/tmp/project"))
+            super::parse_validated(br#"{"transforms":[{}]}"#)
+                .unwrap()
+                .transforms
+                .len(),
+            1
         );
     }
-}
 
-const GENERATED_PREFIX: &str = "flow_generated/python";
-const MAIN_NAME: &str = "main.py";
-const MODULE_NAME: &str = "module.py";
+    #[test]
+    fn specs_are_answered_from_the_sentinel() {
+        let declared = serde_json::json!({
+            "apiKey": "hunter2",
+            "_python": {
+                "task": "acmeCo/orders",
+                "spec": {
+                    "configSchema": {
+                        "type": "object",
+                        "properties": {"apiKey": {"type": "string", "secret": true}},
+                    },
+                    "resourceConfigSchema": {
+                        "type": "object",
+                        "properties": {"window": {"type": "string"}},
+                    },
+                    "oauth2": {
+                        "provider": "acme",
+                        "authUrlTemplate": "https://acme.example/authorize",
+                        "accessTokenUrlTemplate": "https://acme.example/token",
+                        "accessTokenResponseMap": {"access_token": "/access_token"},
+                    },
+                },
+            },
+        });
+
+        let responses = serde_json::to_value([
+            spec_response(declared.to_string().as_bytes()).unwrap(),
+            // A sentinel which declares nothing has the connector's defaults.
+            spec_response(br#"{"_python": {"task": "acmeCo/orders"}}"#).unwrap(),
+            // Legacy configurations (and a bare image Spec) declare no spec.
+            spec_response(br#"{"module": "class Derivation: pass\n"}"#).unwrap(),
+            spec_response(b"{}").unwrap(),
+        ])
+        .unwrap();
+        insta::assert_json_snapshot!(responses);
+    }
+}

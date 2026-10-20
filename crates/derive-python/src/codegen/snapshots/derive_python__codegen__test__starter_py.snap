@@ -1,0 +1,34 @@
+---
+source: crates/derive-python/src/codegen/mod.rs
+expression: starter_output
+---
+"""Derivation of collection patterns/sums.
+
+The platform runs the `Derivation` class which this directory exports. It must
+directly subclass the generated `IDerivation`: as `class Derivation(IDerivation)`,
+or `class Derivation(IDerivation[MyConfig, MyResourceConfig, MyState])` to parse
+its configurations and state into types of its own. Modules of this directory
+import one another relatively (`from .helpers import ...`).
+"""
+import typing
+from collections.abc import AsyncIterator
+from patterns.sums import IDerivation, Document, EndpointConfig, Request, ResourceConfig
+
+
+class Derivation(IDerivation):
+    def __init__(self, open: Request.Open[EndpointConfig, ResourceConfig, dict[str, typing.Any]]):
+        super().__init__(open)
+        # `EndpointConfig` is generated from the derivation's `spec.configSchema`.
+        self.config = open.collection.derivation.config
+
+    async def from_ints(self, read: Request.ReadFromInts) -> AsyncIterator[Document]:
+        # Yield each `Document` derived from `read.doc`, such as
+        # `yield Document(...)`. This starter publishes nothing.
+        if False:
+            yield
+
+    async def process_strings(self, read: Request.ReadProcessStrings) -> AsyncIterator[Document]:
+        # Yield each `Document` derived from `read.doc`, such as
+        # `yield Document(...)`. This starter publishes nothing.
+        if False:
+            yield

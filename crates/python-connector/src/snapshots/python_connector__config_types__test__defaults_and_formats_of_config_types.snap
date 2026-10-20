@@ -1,0 +1,31 @@
+---
+source: crates/python-connector/src/config_types.rs
+expression: render(spec)
+---
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    class Credentials(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        client_id: str
+        client_secret: str
+
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    bad_default: _typing.Optional[int] = None
+    count: int = 10
+    credentials: "Credentials"
+    greeting: str = "Hello"
+    """Greeting of each document"""
+    interval: _datetime.timedelta = _pydantic.Field(default="PT1H", validate_default=True)
+    start_date: _typing.Optional[_datetime.datetime] = None
+    tags: list[str] = _pydantic.Field(default=["a", "b"], validate_default=True)
+
+
+
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    interval: _datetime.timedelta = _pydantic.Field(default="PT0S", validate_default=True)
+    stream: str
