@@ -355,6 +355,15 @@ impl TxnState {
             ..Self::new(n_shards)
         }
     }
+
+    /// Consume the clocks of the next `count` documents, as that many
+    /// [`push_doc`] calls would, returning the first. Document `i` of them is
+    /// stamped `Clock::from_unix(first + i, 0)`.
+    pub fn take_doc_seconds(&mut self, count: u64) -> u64 {
+        let first = self.doc_seconds;
+        self.doc_seconds += count;
+        first
+    }
 }
 
 /// Push one document, tagged with the **specific binding** it feeds and the
@@ -386,32 +395,81 @@ pub fn push_binding(
     journal_offsets: &mut HashMap<(String, u16), i64>,
     packed_key: &mut bytes::BytesMut,
 ) -> anyhow::Result<()> {
-    assert_eq!(
-        shards.len(),
-        writers.len(),
-        "shards and writers must be index-aligned"
-    );
+    let alloc = doc::HeapNode::new_allocator();
+    let mut heap = doc::HeapNode::from_serde(doc, &alloc).context("allocating fixture document")?;
+    let validator = &mut validators[bindings[bi].source as usize];
 
+    let prepared = prepare_binding(
+        &mut heap,
+        &alloc,
+        bi,
+        doc_clock,
+        bindings,
+        sources,
+        Some(validator),
+        shards,
+        packed_key,
+    )?;
+    push_prepared(
+        state,
+        prepared,
+        bindings,
+        sources,
+        writers,
+        sealed,
+        journal_offsets,
+    )
+}
+
+/// A document stamped, archived, validated, keyed and routed for one binding,
+/// ready for [`push_prepared`].
+#[derive(Debug, PartialEq)]
+pub struct PreparedDoc {
+    bi: usize,
+    clock: uuid::Clock,
+    flags: u16,
+    key: bytes::Bytes,
+    doc_bytes: bytes::Bytes,
+    shard_indices: Vec<usize>,
+}
+
+/// Prepare `heap` as a document of binding `bi`: stamp its synthetic UUID,
+/// archive it, set the schema-valid flag, and pack and route its shuffle key, as
+/// the live slice does. It touches no transaction state, so documents may be
+/// prepared in parallel and then pushed in order.
+///
+/// Without a `validator` the document is flagged valid unchecked: the caller
+/// vouches for it.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_binding<'alloc>(
+    heap: &mut doc::HeapNode<'alloc>,
+    alloc: &'alloc doc::Allocator,
+    bi: usize,
+    doc_clock: uuid::Clock,
+    bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
+    validator: Option<&mut doc::Validator>,
+    shards: &[shuffle::proto::Shard],
+    packed_key: &mut bytes::BytesMut,
+) -> anyhow::Result<PreparedDoc> {
     let binding = &bindings[bi];
     let source = &sources[binding.source as usize];
-    let journal = fixture_journal(&source.collection);
 
     // Inject a synthetic UUID at the collection's UUID pointer.
-    let mut doc = doc.clone();
     let synthetic_uuid = uuid::build(FIXTURE_PRODUCER, doc_clock, uuid::Flags::OUTSIDE_TXN);
-    *json::ptr::create_value(&source.uuid_ptr, &mut doc)
-        .context("creating fixture UUID location in document")? =
-        serde_json::json!(synthetic_uuid.as_hyphenated().to_string());
+    let uuid_str = doc::BumpStr::from_str(&synthetic_uuid.as_hyphenated().to_string(), alloc);
+    if heap
+        .try_set(&source.uuid_ptr, doc::HeapNode::String(uuid_str), alloc)
+        .is_err()
+    {
+        anyhow::bail!("creating fixture UUID location in document");
+    }
 
-    let alloc = doc::HeapNode::new_allocator();
-    let heap = doc::HeapNode::from_serde(&doc, &alloc).context("allocating fixture document")?;
     let archive = heap.to_archive();
     let archived = doc::ArchivedNode::from_archive(archive.as_slice());
 
-    // Mirror the slice: set the schema-valid flag from validation and
-    // pack the shuffle key from the archived document.
     let mut flags = uuid::Flags::OUTSIDE_TXN.0;
-    if validators[binding.source as usize].is_valid(archived) {
+    if validator.is_none_or(|validator| validator.is_valid(archived)) {
         flags |= shuffle::FLAGS_SCHEMA_VALID;
     }
 
@@ -423,8 +481,48 @@ pub fn push_binding(
         packed_key,
         None,
     );
+    let key_hash = doc::Extractor::packed_hash(packed_key);
+    let r_clock = shuffle::slice::routing::rotate_clock(doc_clock);
 
-    let doc_bytes = bytes::Bytes::from(archive.to_vec());
+    Ok(PreparedDoc {
+        bi,
+        clock: doc_clock,
+        flags,
+        key: packed_key.split().freeze(),
+        doc_bytes: bytes::Bytes::from(archive.to_vec()),
+        shard_indices: shuffle::slice::routing::route_to_shards(
+            key_hash,
+            r_clock,
+            binding.filter_r_clocks,
+            shards,
+        )
+        .into_iter()
+        .collect(),
+    })
+}
+
+/// Append a [`PreparedDoc`] to its shards' blocks, appending any block which
+/// has met its threshold, and advance its journal's offset and frontier clock.
+pub fn push_prepared(
+    state: &mut TxnState,
+    prepared: PreparedDoc,
+    bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
+    writers: &mut [ShardWriter],
+    sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
+    journal_offsets: &mut HashMap<(String, u16), i64>,
+) -> anyhow::Result<()> {
+    let PreparedDoc {
+        bi,
+        clock,
+        flags,
+        key,
+        doc_bytes,
+        shard_indices,
+    } = prepared;
+
+    let binding = &bindings[bi];
+    let journal = fixture_journal(&sources[binding.source as usize].collection);
     let source_len = doc_bytes.len() as u32;
 
     let next_bid = state.block_journals.len() as u16;
@@ -433,22 +531,14 @@ pub fn push_binding(
         .entry(journal.clone())
         .or_insert(next_bid);
 
-    // Mirror the slice's routing: hash the packed key and write the
-    // document to each shard whose range admits it.
-    let key_hash = doc::Extractor::packed_hash(packed_key);
-    let r_clock = shuffle::slice::routing::rotate_clock(doc_clock);
-    let key = packed_key.split().freeze();
-
     let meta = shuffle::log::BlockMeta {
         binding: binding.index,
         journal_bid,
         producer_bid: 0,
         flags,
-        clock: doc_clock.as_u64(),
+        clock: clock.as_u64(),
     };
-    for shard_index in
-        shuffle::slice::routing::route_to_shards(key_hash, r_clock, binding.filter_r_clocks, shards)
-    {
+    for shard_index in shard_indices {
         state.entries[shard_index].push((meta, source_len, key.clone(), doc_bytes.clone()));
         state.entries_bytes[shard_index] += doc_bytes.len();
 
@@ -472,7 +562,7 @@ pub fn push_binding(
         .frontier_acc
         .entry((journal.clone(), binding.index))
         .or_insert((uuid::Clock::from_u64(0), 0));
-    acc.0 = acc.0.max(doc_clock);
+    acc.0 = acc.0.max(clock);
     acc.1 += source_len as i64;
     *journal_offsets.entry((journal, binding.index)).or_insert(0) += source_len as i64;
 
