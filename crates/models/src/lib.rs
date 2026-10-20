@@ -43,7 +43,7 @@ pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
 pub use connector::{
     ConnectorConfig, DEKAF_IMAGE_NAME_PREFIX, DEKAF_IMAGE_TAG, DekafConfig, IMAGE_SECRET_SEPARATOR,
-    LocalConfig, image_owns_secret, split_image_tag,
+    LocalConfig, image_owns_secret, is_frozen_derive_image, split_image_tag,
 };
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
 pub use derive_python::DeriveUsingPython;
