@@ -10,8 +10,11 @@ yielding results as they complete to avoid unbounded memory growth.
 """
 
 import asyncio
+import typing
 from collections.abc import AsyncIterator
-from patterns.pipeline import IDerivation, Document, Request
+
+# `EndpointConfig` is generated from the derivation's `spec.configSchema`.
+from patterns.pipeline import EndpointConfig, IDerivation, Document, Request, ResourceConfig, Response
 
 
 class Derivation(IDerivation):
@@ -19,9 +22,10 @@ class Derivation(IDerivation):
 
     MAX_CONCURRENT_TASKS = 10
 
-    def __init__(self, open: Request.Open):
+    def __init__(self, open: Request.Open[EndpointConfig, ResourceConfig, dict[str, typing.Any]]):
         """Initialize with no pending tasks."""
         super().__init__(open)
+        self.multiplier = open.collection.derivation.config.multiplier
         self.pending_tasks: set[asyncio.Task[tuple[str, int]]] = set()
 
     async def from_ints(self, read: Request.ReadFromInts) -> AsyncIterator[Document]:
@@ -48,7 +52,9 @@ class Derivation(IDerivation):
         self.pending_tasks.add(task)
 
 
-    async def flush(self) -> AsyncIterator[Document]:
+    async def flush(
+        self, flush: Request.Flush, flushed: Response.Flushed[dict[str, typing.Any]]
+    ) -> AsyncIterator[Document]:
         """Await any remaining tasks and emit their results."""
 
         results: list[tuple[str, int]] = await asyncio.gather(*self.pending_tasks)
@@ -61,5 +67,5 @@ class Derivation(IDerivation):
         """Simulate an async I/O operation, such as an API call"""
         await asyncio.sleep(0.001)
 
-        # Simple transformation: double the value
-        return (key, value * 2)
+        # Simple transformation: multiply the value
+        return (key, value * self.multiplier)
