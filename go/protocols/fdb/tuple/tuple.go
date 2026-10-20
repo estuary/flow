@@ -562,11 +562,11 @@ func decodeInt(b []byte) (interface{}, int) {
 		neg = true
 	}
 
-	bp := make([]byte, 8)
-	copy(bp[8-n:], b[1:n+1])
-
-	var ret int64
-	binary.Read(bytes.NewBuffer(bp), binary.BigEndian, &ret)
+	var u uint64
+	for _, c := range b[1 : n+1] {
+		u = u<<8 | uint64(c)
+	}
+	ret := int64(u)
 
 	if neg {
 		return ret - int64(sizeLimits[n]), n + 1
