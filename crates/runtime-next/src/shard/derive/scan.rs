@@ -50,7 +50,7 @@ impl Scanner {
         sources: &[Source],
         validators: &mut [doc::Validator],
         codec: connector_init::Codec,
-        out: &mut Vec<derive::Request>,
+        out: &mut VecDeque<derive::Request>,
     ) -> anyhow::Result<bool> {
         if !self
             .scan
@@ -149,7 +149,7 @@ impl Scanner {
                 (bytes::Bytes::new(), packed)
             };
 
-            out.push(derive::Request {
+            out.push_back(derive::Request {
                 kind: Some(derive::request::Kind::Read(derive::request::Read {
                     transform,
                     uuid: Some(flow::UuidParts { node, clock }),

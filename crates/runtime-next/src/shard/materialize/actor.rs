@@ -30,7 +30,7 @@ pub(super) struct Actor {
     boundaries: Boundaries,
     // FIFO of outbound connector requests, drained head-first into
     // `connector_tx` as channel capacity permits.
-    connector_pending: Vec<materialize::Request>,
+    connector_pending: VecDeque<materialize::Request>,
     // Bounded channel out to the connector subprocess.
     connector_tx: mpsc::Sender<connector::proto::Request>,
     // RocksDB, when a Persist is not in flight.
@@ -92,7 +92,7 @@ impl Actor {
 
         Self {
             boundaries: Boundaries::new(task.bindings.len()),
-            connector_pending: Vec::new(),
+            connector_pending: VecDeque::new(),
             connector_tx,
             controller_tx,
             db: Some(db),
@@ -228,7 +228,7 @@ impl Actor {
                 continue;
             } else if let Phase::Draining(mut drainer) = phase {
                 if let Some(request) = drainer.step(&self.task.bindings, self.codec)? {
-                    self.connector_pending.push(request);
+                    self.connector_pending.push_back(request);
                     phase = Phase::Draining(drainer);
                 } else {
                     let (accumulator, shuffle_reader, shuffle_remainders, active) =
@@ -357,9 +357,10 @@ impl Actor {
             return idle;
         }
 
-        // We have only partial capacity to send. In this uncommon case, we pay
-        // for relocating the tail of `connector_pending`. Note the sender may
-        // race sends, so account for capacity > connector_pending having opened up.
+        // We have only partial capacity to send, which is common: a scan step
+        // queues a whole block of requests against a small channel. Draining the
+        // front of a VecDeque leaves its tail in place. Note the sender may race
+        // sends, so account for capacity > connector_pending having opened up.
         let n = self
             .connector_tx
             .capacity()
@@ -441,7 +442,7 @@ impl Actor {
         {
             // Forward the markers; the connector self-selects whether to act,
             // per its key range.
-            self.connector_pending.push(materialize::Request {
+            self.connector_pending.push_back(materialize::Request {
                 kind: Some(materialize::request::Kind::Flush(
                     materialize::request::Flush {
                         state_patches_json: connector_patches_json,
@@ -481,7 +482,7 @@ impl Actor {
             connector_patches_json,
         }) = msg.start_commit
         {
-            self.connector_pending.push(materialize::Request {
+            self.connector_pending.push_back(materialize::Request {
                 kind: Some(materialize::request::Kind::StartCommit(
                     materialize::request::StartCommit {
                         runtime_checkpoint: connector_checkpoint,
@@ -494,7 +495,7 @@ impl Actor {
             connector_patches_json,
         }) = msg.acknowledge
         {
-            self.connector_pending.push(materialize::Request {
+            self.connector_pending.push_back(materialize::Request {
                 kind: Some(materialize::request::Kind::Acknowledge(
                     materialize::request::Acknowledge {
                         state_patches_json: connector_patches_json,
@@ -791,7 +792,7 @@ mod tests {
         (
             Actor {
                 boundaries: Boundaries::new(0),
-                connector_pending: Vec::new(),
+                connector_pending: VecDeque::new(),
                 connector_tx,
                 controller_tx,
                 db: None,
@@ -897,7 +898,7 @@ mod tests {
 
         let actor = Actor {
             boundaries: Boundaries::new(0),
-            connector_pending: Vec::new(),
+            connector_pending: VecDeque::new(),
             connector_tx: actor_to_conn_tx,
             controller_tx: actor_to_controller_tx,
             db: Some(db),
