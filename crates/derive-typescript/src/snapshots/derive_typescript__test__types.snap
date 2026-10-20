@@ -1,0 +1,88 @@
+---
+source: crates/derive-typescript/src/lib.rs
+expression: "codegen::types_ts(&derived, &[(\"fromOrders\", &source)], &spec).unwrap()"
+---
+// Generated for published documents of derived collection acmeCo/orders.
+export type Document = {
+    id: string;
+    limit: number;
+};
+
+
+// Generated for read documents of sourced collection acmeCo/source.
+export type SourceFromOrders = {
+    id: string;
+};
+
+
+// Generated for `spec.configSchema`. It's not validated at runtime, and fields
+// having a `default` are optional: their default is the derivation's to apply.
+export type EndpointConfig = {
+    apiKey: string;
+    limit?: number;
+};
+
+// Generated for `spec.resourceConfigSchema`. It's not validated at runtime, and fields
+// having a `default` are optional: their default is the derivation's to apply.
+export type ResourceConfig = {
+    readOnly?: /* Does this transform never publish documents? */ boolean;
+};
+
+// Protocol messages of the derivation, typed by its configurations.
+import type * as estuary from '../estuary.ts';
+import type * as derive from '../derive.ts';
+import type { ConnectorStateUpdate } from '../estuary.ts';
+import type { Flush, Flushed, Read, Validated } from '../derive.ts';
+export type { ConnectorStateUpdate, Flush, Flushed, Read, Validated };
+
+export type Open<C = EndpointConfig, R = ResourceConfig, S = unknown> = derive.Open<C, R, S>;
+export type Validate<C = EndpointConfig, R = ResourceConfig> = derive.Validate<C, R>;
+
+// Result of a derivation flush(): the protocol's Flushed, and documents to publish.
+export type FlushResponse<S = unknown> = derive.Flushed<S> & {
+    published?: Document[],
+};
+
+// `C` is the type of the derivation's `config`, `R` of the resource
+// configuration of each transform, and `S` of its connector state. `C` and `R`
+// default to the types generated from the derivation's `spec`. They're not
+// validated at runtime.
+export abstract class IDerivation<C = EndpointConfig, R = ResourceConfig, S = unknown> {
+    // Construct a new Derivation instance from its Open message. Its `config`
+    // is `open.collection.derivation.config`, and its state is `open.state`.
+    // `open` may also be typed by its master-era shape `{ state, range }`, so
+    // that modules written before Open was modeled, whose constructors call
+    // `super(open)`, still type-check.
+    constructor(_open: Open<C, R, S> | { state: unknown, range?: estuary.RangeSpec }) { }
+
+    // validate the derivation as it's published, throwing to fail validation.
+    // No instance exists until the derivation is opened. The default marks a
+    // transform as read-only if its resource configuration has a true `readOnly`.
+    // Its parameter is `unknown`-typed so that an override may narrow it.
+    static validate(validate: Validate<unknown, unknown>): Validated {
+        return {
+            transforms: validate.transforms.map(({ lambdaConfig }) => ({
+                readOnly: (lambdaConfig as { readOnly?: unknown } | null)?.readOnly === true,
+            })),
+        };
+    }
+
+    // flush completes any deferred work for the current transaction, publishing
+    // all documents derived from prior reads. It may be called more than once per
+    // transaction: returning `more: true` asks the runtime for a further
+    // iteration, forming a scatter/gather round across the derivation's shards.
+    // On each call `flush.statePatches` holds the aggregated `state` updates
+    // returned by all participating shards in the previous iteration (empty on
+    // the first). Return a `FlushResponse` to publish documents, contribute a
+    // `state` update, and/or request another iteration with `more: true`; or a
+    // bare `Document[]` to publish and end participation for this transaction.
+    // deno-lint-ignore require-await
+    async flush(_flush: Flush): Promise<FlushResponse<S> | Document[]> {
+        return {};
+    }
+
+    // reset is called only when running catalog tests, and must reset any internal state.
+    async reset() { }
+
+    abstract fromOrders(read: Read<SourceFromOrders>): Document[];
+}

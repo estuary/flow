@@ -2103,13 +2103,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "connector-environment"
-version = "0.0.0"
-dependencies = [
- "thiserror 2.0.20",
-]
-
-[[package]]
 name = "connector-init"
 version = "0.0.0"
 dependencies = [
@@ -3012,24 +3005,15 @@ name = "derive-typescript"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "connector-environment",
- "doc",
  "insta",
  "itertools 0.14.0",
- "json",
- "lazy_static",
  "models",
  "proto-flow",
- "regex",
  "serde",
  "serde_json",
- "sources",
- "tables",
- "tempfile",
  "tracing",
  "tracing-subscriber",
  "typescript-connector",
- "url",
 ]
 
 [[package]]
@@ -9474,14 +9458,17 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 name = "typescript-connector"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "doc",
  "insta",
  "json",
  "lazy_static",
+ "models",
  "regex",
  "serde_json",
  "sources",
  "tables",
+ "tempfile",
  "url",
 ]
 

@@ -1,12 +1,46 @@
-import { Derivation } from './module.ts';
-import { BufWriter } from "https://deno.land/std@0.178.0/io/buf_writer.ts";
-import { readLines } from "https://deno.land/std@0.178.0/io/mod.ts";
+// This entry point must never import a remote module. A project's lock pins
+// the whole module graph, and a running task uses its lock as-is, so a remote
+// import added here would fail every task built before it.
+import { linkTransforms } from "./typescript/derive.ts";
+import type { Flush, Open, Read, Validate } from "./typescript/derive.ts";
 
-const stdin = readLines(Deno.stdin);
-const stdout = new BufWriter(Deno.stdout);
+// A flush() result, as the generated `FlushResponse` of any derivation.
+type FlushResponse<S> = { published?: unknown[], state?: { updated: S, mergePatch?: boolean }, more?: boolean };
+
+// Lines of stdout are buffered, and written upon a flush or once they're large.
+const stdout = Deno.stdout.writable.getWriter();
+const encoder = new TextEncoder();
+let pending: string[] = [];
+let pendingLength = 0;
+
+async function writeLine(line: string, flush: boolean) {
+    pending.push(line, "\n");
+    pendingLength += line.length + 1;
+
+    if (flush || pendingLength >= 1 << 16) {
+        await stdout.write(encoder.encode(pending.join("")));
+        pending = [];
+        pendingLength = 0;
+    }
+}
+
+async function* readLines(readable: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+    let buffer = "";
+    for await (const chunk of readable.pipeThrough(new TextDecoderStream())) {
+        buffer += chunk;
+        let begin = 0;
+        for (let end = buffer.indexOf("\n"); end != -1; end = buffer.indexOf("\n", begin)) {
+            yield buffer.slice(begin, end);
+            begin = end + 1;
+        }
+        buffer = buffer.slice(begin);
+    }
+    if (buffer.length != 0) {
+        yield buffer;
+    }
+}
 
 // Build a helper for emitting protocol responses.
-const encoder = new TextEncoder();
 async function emit(response: {
     opened?: {
     }
@@ -21,60 +55,77 @@ async function emit(response: {
         more: boolean,
     }
 }) {
-    await stdout.write(encoder.encode(JSON.stringify(response)));
-    await stdout.write(encoder.encode("\n"));
-
-    if (response.opened || response.flushed) {
-        await stdout.flush();
-    }
+    await writeLine(JSON.stringify(response), response.opened !== undefined || response.flushed !== undefined);
 }
 
-// Fixup console to not write to stdout.
+// Fixup console to not write to stdout. The derivation's directory is imported
+// dynamically, after this fixup, so that its console output at import cannot
+// corrupt stdout.
 console.log = console.error;
 console.debug = console.error;
 console.info = console.error;
 
-const open = JSON.parse((await stdin.next()).value as string) as {
-    open: {
-        state: unknown,
-    },
-};
-const derivation: Derivation = new Derivation(open.open);
+const module = await import(ENTRY_MODULE);
+const { Derivation } = module;
+type Derivation = InstanceType<typeof Derivation>;
+
+// `main.ts validate` validates the derivation as it's published: it reads its
+// Validate request from stdin, and writes its Validated.
+if (Deno.args[0] === "validate") {
+    const validate = JSON.parse(await new Response(Deno.stdin.readable).text()) as Validate<unknown, unknown>;
+    linkTransforms(validate.transforms, validate.linkedCollections);
+
+    const validated = Derivation.validate(validate as Parameters<typeof Derivation.validate>[0]);
+
+    await writeLine(JSON.stringify(validated), true);
+    Deno.exit(0);
+}
+
+const stdin = readLines(Deno.stdin.readable);
+
+const open = (JSON.parse((await stdin.next()).value as string) as { open: Open<unknown, unknown, unknown> }).open;
+const { derivation: spec } = open.collection;
+linkTransforms(spec.transforms, spec.linkedCollections);
+
+// Configurations are typed as the Derivation declares, but aren't validated
+// at runtime, so it's constructed through a type which accepts any `open`.
+const DerivationOf = Derivation as unknown as new (open: unknown) => Derivation;
+const derivation: Derivation = new DerivationOf(open);
+
+// flush() is called with the protocol's signature, which a module's override
+// may narrow (as modules which predate it take no arguments).
+const flush = derivation.flush.bind(derivation) as unknown as (
+    flush: Flush,
+) => Promise<FlushResponse<unknown> | unknown[]>;
 
 // Index transformation lambdas of the derivation instance.
-type Lambda = (source: unknown) => unknown[];
+type Lambda = (read: Read<unknown>) => unknown[];
 const transforms: Array<Lambda> = [
-    TRANSFORMS
+TRANSFORMS
 ];
 
 await emit({ opened: {} });
 
 for await (const line of stdin) {
     const request = JSON.parse(line) as {
-        read?: {
-            transform: number,
-            shuffleHash: number,
-            doc: unknown,
-        },
-        flush?: {
-            statePatches?: unknown[],
-        },
-        reset?: {}
+        read?: Read<unknown>,
+        flush?: Flush,
+        reset?: Record<string, never>,
     };
 
     if (request.read) {
-        let transform = request.read.transform || 0;
+        const transform = request.read.transform ?? 0;
 
         if (transform >= transforms.length) {
             throw new Error(`lambda index ${transform} is not valid`);
         }
-        const published = transforms[transform](request.read)
+        const published = transforms[transform](request.read);
 
         for (let i = 0; i != published.length; i++) {
             await emit({ published: { doc: published[i] } });
         }
     } else if (request.flush) {
-        const result = await derivation.flush(request.flush.statePatches);
+        const result = await flush(request.flush);
 
         // flush() returns either a Document[] (publish only) or a FlushResponse
         // { published, state, more }. Duck-type to support both shapes.
