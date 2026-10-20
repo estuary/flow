@@ -55,7 +55,7 @@ fn extract_overlay(sealed: &models::RawValue) -> anyhow::Result<Option<serde_jso
 
 /// Validate that every location an `overlay` would modify under JSON Merge Patch semantics
 /// is annotated `nonsensitive: true` in `schema`, or lies within a `nonsensitive` subtree,
-/// or is a property the schema forbids and the overlay deletes.
+/// or is a property the schema does not declare and the overlay deletes.
 ///
 /// A `nonsensitive` annotation is a human assertion that everything within is safe to modify
 /// outside the SOPS MAC. This is the sole protection, so the annotations must be vetted by a
@@ -65,11 +65,39 @@ fn validate_overlay_nonsensitive(overlay: &serde_json::Value, schema: &[u8]) -> 
     let validator = doc::Validator::new(bundle).context("preparing config schema validator")?;
     let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
 
-    check_location(&shape, &mut json::Pointer(Vec::new()), overlay)
+    let mut declared = std::collections::BTreeSet::new();
+    declared_names(
+        &serde_json::from_slice(schema).context("parsing config schema")?,
+        &mut declared,
+    );
+
+    check_location(&shape, &declared, &mut json::Pointer(Vec::new()), overlay)
+}
+
+/// Collect every property name `schema` declares anywhere, through `properties` or `required`.
+fn declared_names(schema: &serde_json::Value, out: &mut std::collections::BTreeSet<String>) {
+    match schema {
+        serde_json::Value::Object(fields) => {
+            if let Some(serde_json::Value::Object(properties)) = fields.get("properties") {
+                out.extend(properties.keys().cloned());
+            }
+            if let Some(serde_json::Value::Array(required)) = fields.get("required") {
+                out.extend(
+                    required
+                        .iter()
+                        .filter_map(|name| name.as_str().map(String::from)),
+                );
+            }
+            fields.values().for_each(|child| declared_names(child, out));
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|item| declared_names(item, out)),
+        _ => {}
+    }
 }
 
 fn check_location(
     root: &doc::Shape,
+    declared: &std::collections::BTreeSet<String>,
     ptr: &mut json::Pointer,
     node: &serde_json::Value,
 ) -> anyhow::Result<()> {
@@ -100,12 +128,20 @@ fn check_location(
 
     for (property, child) in fields {
         ptr.push(Token::Property(property.clone()));
-        // Deleting a property the schema forbids, such as a retired config field of an
-        // object with `additionalProperties: false`, only brings the config closer to valid.
-        // The parent must be an object, or the merge would clobber it with `{}`.
-        let forbidden = located.type_ == json::schema::types::OBJECT && root.locate(ptr).1.cannot();
-        if !(child.is_null() && forbidden) {
-            check_location(root, ptr, child)?;
+        // A `null` may delete a property the schema doesn't declare, such as a retired
+        // config field. The parent must be an object, or the merge would clobber it with
+        // `{}`. The `Shape` union of open `oneOf` branches drops properties declared by
+        // only some branches, so the name must also be declared nowhere in the schema.
+        let undeclared = matches!(
+            root.locate(ptr).1,
+            doc::shape::location::Exists::Implicit | doc::shape::location::Exists::Cannot
+        );
+        let deletable = child.is_null()
+            && located.type_ == json::schema::types::OBJECT
+            && undeclared
+            && !declared.contains(property);
+        if !deletable {
+            check_location(root, declared, ptr, child)?;
         }
         ptr.0.pop();
     }
@@ -235,7 +271,7 @@ mod test {
     }
 
     // A schema whose objects take each shape that bears on deleting a property the
-    // schema forbids.
+    // schema does not declare.
     fn retired_fields_schema() -> Vec<u8> {
         json!({
             "type": "object",
@@ -272,7 +308,7 @@ mod test {
                     "properties": { "slot_name": { "type": "string" } },
                     "additionalProperties": false,
                 },
-                // Free-form maps, whose entries are user data rather than strays.
+                // Free-form objects, untyped and typed.
                 "params": { "type": "object" },
                 "labels": {
                     "type": "object",
@@ -303,11 +339,14 @@ mod test {
     }
 
     #[test]
-    fn deleting_forbidden_property_is_accepted() {
-        check_retired(json!({"advanced": {"legacy_flag": null}})).unwrap();
-        check_retired(json!({"closed_auth": {"legacy_key": null}})).unwrap();
-        check_retired(json!({"patterned": {"legacy_key": null}})).unwrap();
+    fn deleting_undeclared_property_is_accepted() {
+        check_retired(json!({"legacy_password": null})).unwrap();
+        check_retired(json!({"legacy_block": null})).unwrap();
         check_retired(json!({"advanced": {"legacy_flag": null, "legacy_block": null}})).unwrap();
+        check_retired(json!({"closed_auth": {"legacy_key": null}})).unwrap();
+        check_retired(json!({"open_auth": {"legacy_key": null}})).unwrap();
+        check_retired(json!({"patterned": {"legacy_key": null}})).unwrap();
+        check_retired(json!({"params": {"legacy_key": null}})).unwrap();
     }
 
     #[test]
@@ -322,11 +361,13 @@ mod test {
                 json!({"closed_auth": {"token": null}}),
                 "/closed_auth/token",
             ),
+            // Declared by only one branch, which the `Shape` union drops.
             (json!({"open_auth": {"token": null}}), "/open_auth/token"),
             (
                 json!({"patterned": {"x-trace": null}}),
                 "/patterned/x-trace",
             ),
+            (json!({"labels": {"team": null}}), "/labels/team"),
         ] {
             let err = check_retired(overlay).unwrap_err();
             assert!(err.to_string().contains(location), "{err}");
@@ -334,29 +375,19 @@ mod test {
     }
 
     #[test]
-    fn deleting_permitted_property_is_rejected() {
-        // Properties of open objects may be anything, including sensitive: an unknown
-        // root property, an entry of a free-form map (deleting `sslmode` from connection
-        // parameters could downgrade TLS), or a property of an open union.
-        assert!(check_retired(json!({"legacy_password": null})).is_err());
-        assert!(check_retired(json!({"params": {"sslmode": null}})).is_err());
-        assert!(check_retired(json!({"labels": {"team": null}})).is_err());
-        assert!(check_retired(json!({"open_auth": {"legacy_key": null}})).is_err());
-    }
-
-    #[test]
     fn deleting_within_non_object_parent_is_rejected() {
-        // The merge would replace a scalar, a `null`, or a forbidden parent with `{}`.
+        // The merge would replace a scalar, a `null`, or an undeclared parent with `{}`.
         assert!(check_retired(json!({"address": {"inner": null}})).is_err());
         assert!(check_retired(json!({"nullable": {"legacy_flag": null}})).is_err());
-        assert!(check_retired(json!({"advanced": {"legacy_block": {"inner": null}}})).is_err());
+        assert!(check_retired(json!({"legacy_block": {"inner": null}})).is_err());
     }
 
     #[test]
-    fn writing_forbidden_property_is_rejected() {
+    fn writing_undeclared_property_is_rejected() {
         // Only deletion is permitted: any value, even an empty object, is a write.
+        assert!(check_retired(json!({"legacy_password": "hunter2"})).is_err());
+        assert!(check_retired(json!({"legacy_block": {}})).is_err());
         assert!(check_retired(json!({"advanced": {"legacy_flag": true}})).is_err());
-        assert!(check_retired(json!({"advanced": {"legacy_block": {}}})).is_err());
     }
 
     #[test]
