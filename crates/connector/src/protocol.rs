@@ -157,7 +157,7 @@ pub(crate) async fn start<P: Protocol>(
     // Delete all of this when the V1 runtime is retired for derivations.
     let spec_on_own_rpc = matches!(
         &endpoint,
-        Endpoint::Image { image, .. } if one_request_per_invocation(image),
+        Endpoint::Image { image, .. } if models::is_frozen_derive_image(image),
     );
 
     // Apply image policy checks that don't require inspection (and registry I/O).
@@ -654,18 +654,6 @@ pub(super) async fn spec_rpc<P: Protocol>(
     unwrap_spec_response::<P>(responses.next().await)
 }
 
-/// Images which service exactly one request per connector invocation.
-/// TODO(johnny): remove with retirement of `:dev` images.
-fn one_request_per_invocation(image: &str) -> bool {
-    let (repository, tag) = models::split_image_tag(image);
-
-    tag == ":dev"
-        && matches!(
-            repository.as_str(),
-            "ghcr.io/estuary/derive-typescript" | "ghcr.io/estuary/derive-python"
-        )
-}
-
 #[cfg(test)]
 mod test {
     #[test]
@@ -754,34 +742,5 @@ mod test {
             body,
             @r#"{"token":"a.token.here","control_plane_url":"https://control.example.com/","config_encryption_url":"https://config-encryption.example.com/"}"#
         );
-    }
-
-    /// Pins the exhaustive list, because it gates a behavior change that is
-    /// invisible until a connector fails to parse a multiplexed stream.
-    #[test]
-    fn one_request_per_invocation_matches_only_the_frozen_derive_images() {
-        for image in [
-            "ghcr.io/estuary/derive-typescript:dev",
-            "ghcr.io/estuary/derive-python:dev",
-        ] {
-            assert!(super::one_request_per_invocation(image), "{image}");
-        }
-
-        for image in [
-            // Other tags of the same connectors service a multiplexed stream.
-            "ghcr.io/estuary/derive-typescript:stable",
-            "ghcr.io/estuary/derive-typescript:local",
-            "ghcr.io/estuary/derive-python:stable",
-            // A digest pins a build we cannot identify as frozen.
-            "ghcr.io/estuary/derive-python@sha256:abc",
-            // Untagged, and unrelated connectors at `:dev`.
-            "ghcr.io/estuary/derive-python",
-            "ghcr.io/estuary/source-hello-world:dev",
-            "ghcr.io/estuary/materialize-postgres:dev",
-            // Not ours, however it is named.
-            "example.com/derive-python:dev",
-        ] {
-            assert!(!super::one_request_per_invocation(image), "{image}");
-        }
     }
 }

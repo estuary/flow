@@ -28,6 +28,21 @@ pub fn split_image_tag(image_full: &str) -> (String, String) {
     (image, tag)
 }
 
+/// Whether `image` is a frozen `:dev` derive image of the V1 runtime.
+/// These images serve exactly one request per connector invocation.
+/// They also predate tolerance of unknown JSON fields, so their requests
+/// must not carry fields added since, such as `connector_spec`.
+/// TODO(johnny): remove with retirement of `:dev` images.
+pub fn is_frozen_derive_image(image: &str) -> bool {
+    let (repository, tag) = split_image_tag(image);
+
+    tag == ":dev"
+        && matches!(
+            repository.as_str(),
+            "ghcr.io/estuary/derive-typescript" | "ghcr.io/estuary/derive-python"
+        )
+}
+
 /// Catalog-name component which marks where the image repository begins in
 /// the name of an image-owned secret. See [`image_owns_secret`].
 pub const IMAGE_SECRET_SEPARATOR: &str = "connectors";
@@ -145,6 +160,35 @@ impl LocalConfig {
 
 #[cfg(test)]
 mod test {
+    /// Pins the exhaustive list, because it gates behavior changes that are
+    /// invisible until a connector fails to parse its requests.
+    #[test]
+    fn is_frozen_derive_image_matches_only_the_frozen_derive_images() {
+        for image in [
+            "ghcr.io/estuary/derive-typescript:dev",
+            "ghcr.io/estuary/derive-python:dev",
+        ] {
+            assert!(super::is_frozen_derive_image(image), "{image}");
+        }
+
+        for image in [
+            // Other tags of the same connectors are current builds.
+            "ghcr.io/estuary/derive-typescript:stable",
+            "ghcr.io/estuary/derive-typescript:local",
+            "ghcr.io/estuary/derive-python:stable",
+            // A digest pins a build we cannot identify as frozen.
+            "ghcr.io/estuary/derive-python@sha256:abc",
+            // Untagged, and unrelated connectors at `:dev`.
+            "ghcr.io/estuary/derive-python",
+            "ghcr.io/estuary/source-hello-world:dev",
+            "ghcr.io/estuary/materialize-postgres:dev",
+            // Not ours, however it is named.
+            "example.com/derive-python:dev",
+        ] {
+            assert!(!super::is_frozen_derive_image(image), "{image}");
+        }
+    }
+
     #[test]
     fn split_image_tag_handles_registry_ports_and_digests() {
         for (image, expected) in [
