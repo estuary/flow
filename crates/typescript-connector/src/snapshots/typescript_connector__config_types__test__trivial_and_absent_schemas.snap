@@ -1,0 +1,25 @@
+---
+source: crates/typescript-connector/src/config_types.rs
+expression: "[config_types_ts(&trivial).unwrap(),\nconfig_types_ts(&Spec::default().resolve_derivation()).unwrap(),].join(\"\\n=====\\n\")"
+---
+// Generated for `spec.configSchema`. It's not validated at runtime, and fields
+// having a `default` are optional: their default is the derivation's to apply.
+export type EndpointConfig = Record<string, unknown>;
+
+// Generated for `spec.resourceConfigSchema`. It's not validated at runtime, and fields
+// having a `default` are optional: their default is the derivation's to apply.
+export type ResourceConfig = Record<string, unknown>;
+
+=====
+
+// Generated for `spec.configSchema`. It's not validated at runtime, and fields
+// having a `default` are optional: their default is the derivation's to apply.
+export type EndpointConfig = {
+    [k: string]: never;
+};
+
+// Generated for `spec.resourceConfigSchema`. It's not validated at runtime, and fields
+// having a `default` are optional: their default is the derivation's to apply.
+export type ResourceConfig = {
+    readOnly?: /* Does this transform never publish documents? */ boolean;
+};

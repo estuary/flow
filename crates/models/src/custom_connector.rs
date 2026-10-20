@@ -554,11 +554,17 @@ mod test {
             "/tmp/.tmpABC/lib/geo.py:4:5 - error: \"x\" is not defined\n",
             "  File \"file:///tmp/.tmpABC/module.py\", line 12\n",
             "/tmp/.tmpABC/flow_generated/python/acmeCo/orders/__init__.py:9:1 - error\n",
+            "error: TS2322 at file:///tmp/.tmpABC/orders/mod.ts:12:5\n",
+            "    at file:///tmp/.tmpABC/flow_generated/typescript/acmeCo/orders.ts:40:3\n",
+            "    at /tmp/.tmpABC/flow_generated/main.ts:7:1\n",
         );
         insta::assert_snapshot!(super::relative_to(output, std::path::Path::new("/tmp/.tmpABC")), @r#"
         lib/geo.py:4:5 - error: "x" is not defined
           File "module.py", line 12
         flow_generated/python/acmeCo/orders/__init__.py:9:1 - error
+        error: TS2322 at orders/mod.ts:12:5
+            at flow_generated/typescript/acmeCo/orders.ts:40:3
+            at flow_generated/main.ts:7:1
         "#);
     }
 

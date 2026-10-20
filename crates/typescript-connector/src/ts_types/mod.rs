@@ -3,7 +3,7 @@
 mod ast;
 mod mapper;
 
-pub use ast::Context;
+pub use ast::{AST, Context};
 pub use mapper::Mapper;
 
 /// Map `name` into a camelCase identifier, or a PascalCase one if `upper`,

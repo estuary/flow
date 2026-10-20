@@ -1,0 +1,31 @@
+---
+source: crates/derive-typescript/src/lib.rs
+expression: "codegen::starter_ts(&derived, &transforms)"
+---
+// Derivation of collection acmeCo/orders.
+//
+// The platform runs the `Derivation` class which this module exports. Modules
+// of this directory import one another relatively (`./helpers.ts`), and import
+// their generated types through the `flow/` mapping of the project's deno.json.
+import { IDerivation, Document, EndpointConfig, Open, Read, SourceFromOrders, SourceFromRefunds } from 'flow/acmeCo/orders.ts';
+
+export class Derivation extends IDerivation {
+    readonly config: EndpointConfig;
+
+    constructor(open: Open) {
+        super(open);
+        // `EndpointConfig` is generated from the derivation's `spec.configSchema`.
+        this.config = open.collection.derivation.config;
+    }
+
+    fromOrders(_read: Read<SourceFromOrders>): Document[] {
+        // Return each `Document` derived from `_read.doc`.
+        // This starter publishes nothing.
+        return [];
+    }
+    fromRefunds(_read: Read<SourceFromRefunds>): Document[] {
+        // Return each `Document` derived from `_read.doc`.
+        // This starter publishes nothing.
+        return [];
+    }
+}

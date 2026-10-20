@@ -8,31 +8,16 @@ name = "derive-typescript"
 path = "src/main.rs"
 
 [dependencies]
-connector-environment = { path = "../connector-environment" }
-doc = { path = "../doc" }
-json = { path = "../json" }
+models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 typescript-connector = { path = "../typescript-connector" }
 
-anyhow = "1"
-itertools = "0"
-lazy_static = "1"
-regex = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["raw_value"] }
-tempfile = "3"
-tracing = "0"
-tracing-subscriber = { version = "0", features = [
-    "time",
-    "json",
-    "env-filter",
-    "fmt",
-] }
-url = "2"
+anyhow = { workspace = true }
+itertools = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
-models = { path = "../models" }
-sources = { path = "../sources" }
-tables = { path = "../tables" }
-
-insta = "1"
+insta = { workspace = true }
