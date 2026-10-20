@@ -269,11 +269,14 @@ export class Derivation extends Types.IDerivation {"#
     }
 
     l2_stats_module.push_str("\n}\n");
-    *l2_stats_module_raw = models::RawValue::from_value(&serde_json::json!(l2_stats_module));
+    *l2_stats_module_raw = Some(models::RawValue::from_value(&serde_json::json!(
+        l2_stats_module
+    )));
 
     l2_stats_new_module.push_str("\n}\n");
-    *l2_stats_new_module_raw =
-        models::RawValue::from_value(&serde_json::json!(l2_stats_new_module));
+    *l2_stats_new_module_raw = Some(models::RawValue::from_value(&serde_json::json!(
+        l2_stats_new_module
+    )));
 
     let draft = tables::DraftCatalog {
         collections: tables::DraftCollections::from_iter([

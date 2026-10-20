@@ -1,0 +1,66 @@
+---
+source: crates/models/src/custom_connector.rs
+expression: "(user, sentinel.dir(), sentinel.missing(),\nsentinel.has_lock(Language::Python), sentinel.has_lock(Language::Typescript),\n&sentinel, split(config, Language::Typescript).unwrap().1,\nsplit(br#\"{\"_typescript\": {\"task\": \"acmeCo/orders\"}}\"#, Language::Typescript),\nsplit(br#\"{\"_python\": {\"task\": \"t\", \"files\": {\"a.json\": {\"not\": \"text\"}}}}\"#,\nLanguage::Python), split(br#\"{\"_python\": {}}\"#, Language::Python),\nsplit(b\"[]\", Language::Python),)"
+---
+(
+    {
+        "credentials": Object {
+            "token": String("secret"),
+        },
+    },
+    "source-acme",
+    [
+        "b.py",
+    ],
+    true,
+    false,
+    Sentinel {
+        task: "acmeCo/source-acme",
+        files: {
+            "a.py": Some(
+                "x = 1\n",
+            ),
+            "b.py": None,
+            "uv.lock": Some(
+                "lock",
+            ),
+        },
+        spec: Spec {
+            config_schema: Some(
+                Schema(
+                    RawValue(
+                        {"type":"object"},
+                    ),
+                ),
+            ),
+            resource_config_schema: None,
+            oauth2: None,
+        },
+    },
+    None,
+    Ok(
+        (
+            {},
+            Some(
+                Sentinel {
+                    task: "acmeCo/orders",
+                    files: {},
+                    spec: Spec {
+                        config_schema: None,
+                        resource_config_schema: None,
+                        oauth2: None,
+                    },
+                },
+            ),
+        ),
+    ),
+    Err(
+        "invalid `_python` configuration: invalid type: map, expected a string",
+    ),
+    Err(
+        "invalid `_python` configuration: missing field `task`",
+    ),
+    Err(
+        "connector configuration must be a JSON object: invalid type: sequence, expected a map at line 1 column 0",
+    ),
+)

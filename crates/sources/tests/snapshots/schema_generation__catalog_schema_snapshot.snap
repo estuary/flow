@@ -488,6 +488,65 @@ expression: "&schema"
         "config"
       ]
     },
+    "CustomConnectorFiles": {
+      "description": "Files of the custom connector, as a list of paths or a map of paths to contents. A listed path is relative to this specification's directory, and its file is read as UTF-8 text. Publishing stores the files' contents, and pulling the specification writes them back out as a list of paths. Paths are `/`-separated names of letters, numbers, `-`, `_`, and `.`, and can't have `.` or `..` components.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "CustomConnectorSpec": {
+      "description": "Specification of a custom connector, whose code you write.\n\nIt declares the JSON schemas of the connector's endpoint and resource\nconfigurations, and its OAuth2 provider if it has one. Estuary answers\nrequests for the connector's specification from this declaration alone,\nwithout running your code. The schemas also generate the configuration\ntypes that your code receives.",
+      "type": "object",
+      "properties": {
+        "configSchema": {
+          "title": "JSON schema of the task's endpoint `config`.",
+          "description": "It's an inline schema, or a relative URL of one.\nMark sensitive locations with `secret: true`, and supply their values\nthrough the task's `secrets` stanza. If absent, the task takes no\nconfiguration: its schema is an object which allows no properties.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "oauth2": {
+          "title": "OAuth2 provider of the connector, if it supports OAuth2.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OAuth2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resourceConfigSchema": {
+          "title": "JSON schema of the resource configuration of each binding.",
+          "description": "It's an inline schema, or a relative URL of one. If absent, the\nconnector's default resource configuration is used, which is typically\nwhat you want.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "DekafConfig": {
       "description": "Dekaf service configuration",
       "type": "object",
@@ -630,25 +689,20 @@ expression: "&schema"
     "DeriveUsingPython": {
       "type": "object",
       "properties": {
-        "dependencies": {
-          "title": "Python package dependencies.",
-          "description": "Map of package name to version specifier (e.g., {\"httpx\": \">=0.27\", \"pydantic\": \">=2.0\"}).\nThese dependencies will be included in the generated pyproject.toml.",
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
-          "default": {}
+        "config": {
+          "title": "Configuration of this derivation.",
+          "description": "An object described by `spec.configSchema`, which your `Derivation`\nclass receives. Supply sensitive values through the `secrets` stanza.",
+          "$ref": "#/$defs/Value"
         },
-        "environment": {
-          "title": "Environment variables made available to the Python module.",
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
+        "files": {
+          "title": "Files of this derivation's Python project.",
+          "description": "The derivation's code lives in a directory named for the last component\nof the collection's name: `acmeCo/orders` has directory `orders/`.\nIts `orders/__init__.py` defines a `Derivation` class, which directly\nsubclasses the generated `IDerivation`. The project's `pyproject.toml`\ndeclares its dependencies. If you list a `uv.lock`, it pins them exactly.\nOtherwise, they're resolved anew each time the derivation is published.",
+          "$ref": "#/$defs/CustomConnectorFiles"
         },
         "module": {
-          "title": "Python module implementing this derivation.",
-          "description": "Module is either a relative URL of a Python module file,\nor is an inline representation of a Python module.\nThe module must have an exported Derivation class which\nextends the generated IDerivation base class.",
+          "title": "Deprecated: list the derivation's module in `files`.",
+          "description": "A relative URL of a Python module, or its inline content.\nIt's built as the derivation's `__init__.py`, beside a default\n`pyproject.toml`. It can't be combined with `files`, `config`, or `spec`.",
+          "deprecated": true,
           "oneOf": [
             {
               "description": "A URL identifying a resource, which may be a relative local path\nwith respect to the current resource (i.e, ../path/to/flow.yaml),\nor may be an external absolute URL (i.e., http://example/flow.yaml).",
@@ -663,12 +717,14 @@ expression: "&schema"
               "contentMediaType": "text/x.python"
             }
           ]
+        },
+        "spec": {
+          "title": "Connector specification of this derivation.",
+          "description": "Its `configSchema` describes the derivation's `config`, and its\n`resourceConfigSchema` describes the `lambda` of each transform.",
+          "$ref": "#/$defs/CustomConnectorSpec"
         }
       },
-      "additionalProperties": false,
-      "required": [
-        "module"
-      ]
+      "additionalProperties": false
     },
     "DeriveUsingSqlite": {
       "type": "object",
@@ -700,16 +756,20 @@ expression: "&schema"
     "DeriveUsingTypescript": {
       "type": "object",
       "properties": {
-        "environment": {
-          "title": "Environment variables made available to the TypeScript module.",
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
+        "config": {
+          "title": "Configuration of this derivation.",
+          "description": "An object described by `spec.configSchema`, which your `Derivation`\nclass receives. Supply sensitive values through the `secrets` stanza.\nIt can't be encrypted with `sops`, or have a `_typescript` property.",
+          "$ref": "#/$defs/Value"
+        },
+        "files": {
+          "title": "Files of this derivation's TypeScript project.",
+          "description": "The derivation's code lives in a directory named for the last component\nof the collection's name: `acmeCo/orders` has directory `orders/`.\nIts `orders/mod.ts` exports a `Derivation` class, which extends the\ngenerated `IDerivation`. The project's `deno.json` maps `flow/` to\n`./flow_generated/typescript/`, from which your code imports its\ngenerated types. If you list a `deno.lock`, it pins dependencies exactly.\nOtherwise, they're resolved anew each time the derivation is published.",
+          "$ref": "#/$defs/CustomConnectorFiles"
         },
         "module": {
-          "title": "TypeScript module implementing this derivation.",
-          "description": "Module is either a relative URL of a TypeScript module file,\nor is an inline representation of a Typescript module.\nThe module must have a exported Derivation variable which\nis an instance implementing the corresponding Derivation\ninterface.",
+          "title": "Deprecated: list the derivation's module in `files`.",
+          "description": "A relative URL of a TypeScript module, or its inline content.\nIt's built as the derivation's `mod.ts`, beside a default `deno.json`.\nIt can't be combined with `files`, `config`, or `spec`.",
+          "deprecated": true,
           "oneOf": [
             {
               "description": "A URL identifying a resource, which may be a relative local path\nwith respect to the current resource (i.e, ../path/to/flow.yaml),\nor may be an external absolute URL (i.e., http://example/flow.yaml).",
@@ -724,12 +784,14 @@ expression: "&schema"
               "contentMediaType": "text/x.typescript"
             }
           ]
+        },
+        "spec": {
+          "title": "Connector specification of this derivation.",
+          "description": "Its `configSchema` describes the derivation's `config`, and its\n`resourceConfigSchema` describes the `lambda` of each transform.",
+          "$ref": "#/$defs/CustomConnectorSpec"
         }
       },
-      "additionalProperties": false,
-      "required": [
-        "module"
-      ]
+      "additionalProperties": false
     },
     "Field": {
       "description": "Field names a projection of a document location. They may include '/',\nbut cannot begin or end with one.\nMany Fields are automatically inferred by Flow from a collection JSON Schema,\nand are the JSON Pointer of the document location with the leading '/' removed.\nUser-provided Fields which act as a logical partitions are restricted to\nUnicode letters, numbers, '-', '_', or '.'",
@@ -1161,6 +1223,79 @@ expression: "&schema"
       ],
       "required": [
         "recommended"
+      ]
+    },
+    "OAuth2": {
+      "description": "OAuth2 provider of a connector, which mirrors the OAuth2 of a connector's\nSpec response (and the CDK's `OAuth2Spec`).\n\nHeader and response-map values are strings, as the CDK's `OAuth2Spec`\nrequires. Templates are mustache templates. Every template may use `client_id` and\n`redirect_uri`. The authorization URL may also use `state`, the access\ntoken request may use `code` and `client_secret`, and the refresh token\nrequest may use `refresh_token` and `client_secret`.",
+      "type": "object",
+      "properties": {
+        "accessTokenBody": {
+          "title": "Template of the body of the access token request.",
+          "type": "string"
+        },
+        "accessTokenHeaders": {
+          "title": "Headers of the access token request.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "accessTokenMethod": {
+          "title": "HTTP method of the access token request (default POST).",
+          "type": "string"
+        },
+        "accessTokenResponseMap": {
+          "title": "Mapping of the access token response into standard names.",
+          "description": "Keys are the standard RFC 6749 names (`access_token`, `refresh_token`,\nand `access_token_expires_at`), and values locate them in the\nprovider's response. Without a mapping, response keys are used as-is.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "accessTokenUrlTemplate": {
+          "title": "Template of the URL from which an access token is requested.",
+          "type": "string"
+        },
+        "authUrlTemplate": {
+          "title": "Template of the URL to which a user is sent to authorize access.",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Machine-readable name of the OAuth2 provider.",
+          "type": "string"
+        },
+        "refreshTokenBody": {
+          "title": "Template of the body of the refresh token request.",
+          "type": "string"
+        },
+        "refreshTokenHeaders": {
+          "title": "Headers of the refresh token request.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "refreshTokenMethod": {
+          "title": "HTTP method of the refresh token request (default POST).",
+          "type": "string"
+        },
+        "refreshTokenResponseMap": {
+          "title": "Mapping of the refresh token response into standard names.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "refreshTokenUrlTemplate": {
+          "title": "Template of the URL from which an access token is refreshed.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "authUrlTemplate",
+        "accessTokenUrlTemplate"
       ]
     },
     "OnIncompatibleSchemaChange": {

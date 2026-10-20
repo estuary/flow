@@ -1,0 +1,12 @@
+---
+source: crates/models/src/custom_connector.rs
+expression: "language.legacy_files(\"acmeCo/nested/2024-orders\", \"MODULE\".to_string())"
+---
+{
+    "2024-orders/__init__.py": Some(
+        "MODULE",
+    ),
+    "pyproject.toml": Some(
+        "[project]\nname = \"2024-orders\"\nversion = \"0.1.0\"\nrequires-python = \">=3.14,<4\"\ndependencies = [\n    \"estuary-cdk @ https://github.com/estuary/connectors/archive/ecee9b6e74b930ee0acf167a3b51d821cbff2e85.tar.gz#subdirectory=estuary-cdk\",\n    \"pydantic>=2\",\n]\n\n[dependency-groups]\ndev = [\"pyright>=1.1\"]\n\n[tool.uv]\npackage = false\n# Packages uploaded within the past day aren't candidates for resolution.\n# A malicious upload has time to be yanked, and an upstream security fix\n# still arrives within a day.\nexclude-newer = \"1 day\"\n\n[tool.pyright]\ntypeCheckingMode = \"strict\"\n# Types generated from the task's declared `spec`, and a derivation's collections.\nextraPaths = [\"flow_generated/python\"]\n",
+    ),
+}

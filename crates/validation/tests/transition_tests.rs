@@ -107,16 +107,25 @@ driver:
 fn test_frozen_derive_image_has_no_connector_spec() {
     // The live derivation was built against a current image, and carries a
     // `connector_spec`. The mock frozen image rejects a Validate which
-    // passes it through as `last_collection`.
+    // passes it through as `last_collection`. The frozen image is given its
+    // legacy `{module}`, and the current image its `_typescript` sentinel.
     let outcomes = [
-        ("frozen", "{}", "ghcr.io/estuary/derive-typescript:dev"),
+        (
+            "frozen",
+            "{}",
+            "ghcr.io/estuary/derive-typescript:dev",
+            "{ module: module placeholder }",
+            "{ module: module placeholder }",
+        ),
         (
             "current",
             r#"{ enable-runtime-v2: "true" }"#,
             "ghcr.io/estuary/derive-typescript:stable",
+            r#"{ files: { deno.json: "{}", derivation/mod.ts: module placeholder } }"#,
+            r#"{ _typescript: { task: the/derivation, files: { deno.json: "{}", derivation/mod.ts: module placeholder }, spec: {} } }"#,
         ),
     ]
-    .map(|(case, flags, image)| {
+    .map(|(case, flags, image, typescript, config)| {
         let common::Outcome {
             built_collections,
             errors,
@@ -129,7 +138,7 @@ test://example/catalog.yaml:
   collections:
     the/derivation:
       derive:
-        using: {{ sqlite: null, typescript: {{ module: module placeholder }} }}
+        using: {{ sqlite: null, typescript: {typescript} }}
         shards: {{ flags: {flags} }}
 
 driver:
@@ -142,7 +151,7 @@ driver:
       connectorType: IMAGE
       config:
         image: {image}
-        config: {{ module: module placeholder }}
+        config: {config}
 "#
             ),
         );

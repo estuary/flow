@@ -176,7 +176,15 @@ DraftCatalog {
                 "using": {
                   "python": {
                     "module": "python.py",
-                    "dependencies": {}
+                    "files": [
+                      "data/config.yaml",
+                      "data/regions.json",
+                      "lib/shared.py"
+                    ],
+                    "config": {"region":"north"},
+                    "spec": {
+                      "configSchema": "python.config.schema.yaml"
+                    }
                   }
                 },
                 "transforms": [
@@ -191,6 +199,64 @@ DraftCatalog {
                     "lambda": "python.lambda.python-transform.yaml"
                   }
                 ]
+              }
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: d6/py-shared,
+            scope: test://example/catalog.yaml#/collections/d6~1py-shared,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "schema": "py-shared.schema.yaml",
+              "key": [
+                "/py-key"
+              ],
+              "derive": {
+                "using": {
+                  "python": {
+                    "module": "py-shared.py",
+                    "files": [
+                      "lib/__init__.py",
+                      "lib/inline.py",
+                      "lib/shared.py"
+                    ]
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "python-transform",
+                    "source": "src/collection",
+                    "shuffle": "any"
+                  }
+                ]
+              }
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: d7/typescript-config,
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "schema": "typescript-config.schema.yaml",
+              "key": [
+                "/ts-key"
+              ],
+              "derive": {
+                "using": {
+                  "typescript": {
+                    "module": "typescript-config.ts",
+                    "config": "typescript-config.config.yaml",
+                    "spec": {
+                      "configSchema": "typescript-config.config.schema.yaml",
+                      "resourceConfigSchema": "typescript-config.resource.schema.yaml"
+                    }
+                  }
+                },
+                "transforms": []
               }
             },
             is_touch: 0,
@@ -238,12 +304,68 @@ DraftCatalog {
             to_resource: test://example/python.lambda.python-transform.yaml,
         },
         Import {
+            scope: test://example/catalog.yaml#/collections/d5~1python/derive/using/python/files/0,
+            to_resource: test://example/data/config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d5~1python/derive/using/python/files/1,
+            to_resource: test://example/data/regions.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d5~1python/derive/using/python/files/2,
+            to_resource: test://example/lib/shared.py,
+        },
+        Import {
             scope: test://example/catalog.yaml#/collections/d5~1python/derive/using/python/module,
             to_resource: test://example/python.py,
         },
         Import {
+            scope: test://example/catalog.yaml#/collections/d5~1python/derive/using/python/spec/configSchema,
+            to_resource: test://example/python.config.schema.yaml,
+        },
+        Import {
             scope: test://example/catalog.yaml#/collections/d5~1python/schema,
             to_resource: test://example/python.schema.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d6~1py-shared/derive/using/python/files/0,
+            to_resource: test://example/lib/__init__.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d6~1py-shared/derive/using/python/files/1,
+            to_resource: test://example/lib/inline.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d6~1py-shared/derive/using/python/files/2,
+            to_resource: test://example/lib/shared.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d6~1py-shared/derive/using/python/module,
+            to_resource: test://example/py-shared.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d6~1py-shared/schema,
+            to_resource: test://example/py-shared.schema.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config/derive/using/typescript/config,
+            to_resource: test://example/typescript-config.config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config/derive/using/typescript/module,
+            to_resource: test://example/typescript-config.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config/derive/using/typescript/spec/configSchema,
+            to_resource: test://example/typescript-config.config.schema.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config/derive/using/typescript/spec/resourceConfigSchema,
+            to_resource: test://example/typescript-config.resource.schema.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d7~1typescript-config/schema,
+            to_resource: test://example/typescript-config.schema.yaml,
         },
     ],
     resources: [
@@ -251,7 +373,7 @@ DraftCatalog {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"d1/collection":{"schema":"collection.schema.yaml","key":["/d1-key"],"derive":{"using":{"typescript":{"module":"collection.ts"}},"transforms":[{"name":"some-name","source":{"name":"src/collection","partitions":{"include":{"a_field":["foo",42]},"exclude":{"other_field":[false]}},"notBefore":"2017-03-03T03:02:01Z","notAfter":"2019-03-06T09:30:02Z"},"shuffle":{"key":["/shuffle","/key"]},"priority":32,"readDelay":"1h"}]}},"d2/collection":{"schema":"collection.schema.yaml","key":["/d2-key"],"journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"derive":{"using":{"connector":{"image":"some/image:tag","config":{"remote":"https://example/api"}}},"transforms":[{"name":"do-the-thing","source":"src/collection","shuffle":"any","lambda":42,"backfill":2}],"shards":{"disable":true,"minTxnDuration":"15s","maxTxnDuration":"6m","hotStandbys":2,"ringBufferSize":12345,"readChannelSize":6789}},"expectPubId":"0011223344556677"},"d3/collection":{"writeSchema":"collection.write.schema.yaml","readSchema":"collection.read.schema.yaml","key":["/some/key"],"derive":{"using":{"sqlite":{"migrations":["create table foo(bar int);\n","collection.migration.1.sql"]}},"transforms":[{"name":"frob","source":"src/collection","shuffle":{"lambda":"collection.lambda.frob.shuffle.sql"},"lambda":"collection.lambda.frob.sql"}],"shuffleKeyTypes":["string","integer"]}},"d4/local":{"schema":"local.schema.yaml","key":["/key"],"derive":{"using":{"local":{"command":["some-command","--with-args"],"config":{"some-local":"config"}}},"transforms":[]}},"d5/python":{"schema":"python.schema.yaml","key":["/py-key"],"derive":{"using":{"python":{"module":"python.py","dependencies":{}}},"transforms":[{"name":"python-transform","source":"src/collection","shuffle":{"key":["/shuffle"]},"lambda":"python.lambda.python-transform.yaml"}]}}}},
+            content_dom: {"collections":{"d1/collection":{"schema":"collection.schema.yaml","key":["/d1-key"],"derive":{"using":{"typescript":{"module":"collection.ts"}},"transforms":[{"name":"some-name","source":{"name":"src/collection","partitions":{"include":{"a_field":["foo",42]},"exclude":{"other_field":[false]}},"notBefore":"2017-03-03T03:02:01Z","notAfter":"2019-03-06T09:30:02Z"},"shuffle":{"key":["/shuffle","/key"]},"priority":32,"readDelay":"1h"}]}},"d2/collection":{"schema":"collection.schema.yaml","key":["/d2-key"],"journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"derive":{"using":{"connector":{"image":"some/image:tag","config":{"remote":"https://example/api"}}},"transforms":[{"name":"do-the-thing","source":"src/collection","shuffle":"any","lambda":42,"backfill":2}],"shards":{"disable":true,"minTxnDuration":"15s","maxTxnDuration":"6m","hotStandbys":2,"ringBufferSize":12345,"readChannelSize":6789}},"expectPubId":"0011223344556677"},"d3/collection":{"writeSchema":"collection.write.schema.yaml","readSchema":"collection.read.schema.yaml","key":["/some/key"],"derive":{"using":{"sqlite":{"migrations":["create table foo(bar int);\n","collection.migration.1.sql"]}},"transforms":[{"name":"frob","source":"src/collection","shuffle":{"lambda":"collection.lambda.frob.shuffle.sql"},"lambda":"collection.lambda.frob.sql"}],"shuffleKeyTypes":["string","integer"]}},"d4/local":{"schema":"local.schema.yaml","key":["/key"],"derive":{"using":{"local":{"command":["some-command","--with-args"],"config":{"some-local":"config"}}},"transforms":[]}},"d5/python":{"schema":"python.schema.yaml","key":["/py-key"],"derive":{"using":{"python":{"module":"python.py","files":["data/config.yaml","data/regions.json","lib/shared.py"],"config":{"region":"north"},"spec":{"configSchema":"python.config.schema.yaml"}}},"transforms":[{"name":"python-transform","source":"src/collection","shuffle":{"key":["/shuffle"]},"lambda":"python.lambda.python-transform.yaml"}]}},"d6/py-shared":{"schema":"py-shared.schema.yaml","key":["/py-key"],"derive":{"using":{"python":{"module":"py-shared.py","files":["lib/__init__.py","lib/inline.py","lib/shared.py"]}},"transforms":[{"name":"python-transform","source":"src/collection","shuffle":"any"}]}},"d7/typescript-config":{"schema":"typescript-config.schema.yaml","key":["/ts-key"],"derive":{"using":{"typescript":{"module":"typescript-config.ts","config":"typescript-config.config.yaml","spec":{"configSchema":"typescript-config.config.schema.yaml","resourceConfigSchema":"typescript-config.resource.schema.yaml"}}},"transforms":[]}}}},
         },
         Resource {
             resource: test://example/collection.lambda.frob.shuffle.sql,
@@ -296,10 +418,58 @@ DraftCatalog {
             content_dom: {"$id":"test://example/a-schema.json","allOf":[true]},
         },
         Resource {
+            resource: test://example/data/config.yaml,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "# A comment which is preserved, as files are text.\nretries: 3\n",
+        },
+        Resource {
+            resource: test://example/data/regions.json,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "{\"regions\": [{\"name\": \"north\", \"code\": 1}]}\n",
+        },
+        Resource {
+            resource: test://example/lib/__init__.py,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "",
+        },
+        Resource {
+            resource: test://example/lib/inline.py,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "def inline_helper(doc):\n    return doc[\"py-key\"]\n",
+        },
+        Resource {
+            resource: test://example/lib/shared.py,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "def shared_helper(doc):\n    return doc[\"py-key\"] + \"-shared\"\n",
+        },
+        Resource {
             resource: test://example/local.schema.yaml,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$id":"test://example/a-schema.json","allOf":[true]},
+        },
+        Resource {
+            resource: test://example/py-shared.py,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: "a python module placeholder that's fairly \"long\", at least long enough to not be inline\n",
+        },
+        Resource {
+            resource: test://example/py-shared.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$id":"test://example/a-schema.json","allOf":[true]},
+        },
+        Resource {
+            resource: test://example/python.config.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$id":"test://example/catalog.yaml?ptr=/collections/d5~1python/derive/using/python/spec/configSchema","properties":{"region":{"default":"south","type":"string"}},"type":"object"},
         },
         Resource {
             resource: test://example/python.lambda.python-transform.yaml,
@@ -318,6 +488,36 @@ DraftCatalog {
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$id":"test://example/a-schema.json","allOf":[true]},
+        },
+        Resource {
+            resource: test://example/typescript-config.config.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$id":"test://example/typescript.config.schema.yaml","properties":{"apiKey":{"secret":true,"type":"string"}},"required":["apiKey"],"type":"object"},
+        },
+        Resource {
+            resource: test://example/typescript-config.config.yaml,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: {"apiKey":"a-fairly-long-api-key-value-which-is-indirected"},
+        },
+        Resource {
+            resource: test://example/typescript-config.resource.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$id":"test://example/catalog.yaml?ptr=/collections/d7~1typescript-config/derive/using/typescript/spec/resourceConfigSchema","properties":{"readOnly":{"type":"boolean"}},"type":"object"},
+        },
+        Resource {
+            resource: test://example/typescript-config.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$id":"test://example/a-schema.json","allOf":[true]},
+        },
+        Resource {
+            resource: test://example/typescript-config.ts,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: "a typescript module placeholder that's fairly \"long\", at least long enough to not be inline\n",
         },
     ],
 }

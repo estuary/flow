@@ -1,0 +1,10 @@
+{
+  // Packages published within the past day aren't candidates for resolution.
+  // A malicious upload has time to be yanked, and an upstream security fix
+  // still arrives within a day.
+  "minimumDependencyAge": "P1D",
+  "imports": {
+    // Types generated from the task's declared `spec`, and a derivation's collections.
+    "flow/": "./flow_generated/typescript/"
+  }
+}

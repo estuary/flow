@@ -4,6 +4,7 @@ use tables::EitherOrBoth as EOB;
 
 mod capture;
 pub mod collection;
+mod custom;
 mod derivation;
 mod errors;
 pub mod field_selection;
@@ -17,6 +18,7 @@ mod secrets;
 mod storage_mapping;
 mod test_step;
 
+pub use custom::IMAGE_TAG_FLAG as CUSTOM_IMAGE_TAG_FLAG;
 pub use derivation::derive_spec_request;
 pub use errors::Error;
 

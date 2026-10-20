@@ -1,0 +1,36 @@
+---
+source: crates/validation/src/custom.rs
+expression: "[derive_typescript_connector(&derived, &typescript, &v1),\nderive_typescript_connector(&derived, &typescript, &v2),\nderive_typescript_connector(&derived, &typescript, &local),\nderive_python_connector(&derived, &python, &v1),\nderive_python_connector(&derived, &python, &v2),]"
+---
+[
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-typescript:dev",
+        config: RawValue(
+            {"module":"export class Derivation {}"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-typescript:stable",
+        config: RawValue(
+            {"_typescript":{"files":{"deno.json":"{}","derived/mod.ts":"export class Derivation {}"},"spec":{},"task":"acmeCo/derived"},"apiKey":"secret"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-typescript:local",
+        config: RawValue(
+            {"_typescript":{"files":{"deno.json":"{}","derived/mod.ts":"export class Derivation {}"},"spec":{},"task":"acmeCo/derived"},"apiKey":"secret"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-python:dev",
+        config: RawValue(
+            {"module":"class Derivation: pass\n"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-python:stable",
+        config: RawValue(
+            {"_python":{"files":{"derived/__init__.py":"class Derivation: pass\n","derived/helpers.py":null,"pyproject.toml":"[project]\n"},"spec":{},"task":"acmeCo/derived"},"region":"north"},
+        ),
+    },
+]

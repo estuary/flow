@@ -1,0 +1,12 @@
+---
+source: crates/models/src/custom_connector.rs
+expression: "language.legacy_files(\"acmeCo/nested/2024-orders\", \"MODULE\".to_string())"
+---
+{
+    "2024-orders/mod.ts": Some(
+        "MODULE",
+    ),
+    "deno.json": Some(
+        "{\n  // Packages published within the past day aren't candidates for resolution.\n  // A malicious upload has time to be yanked, and an upstream security fix\n  // still arrives within a day.\n  \"minimumDependencyAge\": \"P1D\",\n  \"imports\": {\n    // Types generated from the task's declared `spec`, and a derivation's collections.\n    \"flow/\": \"./flow_generated/typescript/\"\n  }\n}\n",
+    ),
+}

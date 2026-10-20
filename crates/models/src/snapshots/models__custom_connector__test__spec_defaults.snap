@@ -1,0 +1,42 @@
+---
+source: crates/models/src/custom_connector.rs
+expression: "(declared.config_schema_or_default(),\nsuper::Spec::default().config_schema_or_default(),\ndeclared.clone().resolve_derivation(),\nsuper::Spec::default().resolve_derivation(),)"
+---
+(
+    "{\"type\":\"object\"}",
+    "{\"type\":\"object\",\"additionalProperties\":false}",
+    Spec {
+        config_schema: Some(
+            Schema(
+                RawValue(
+                    {"type":"object"},
+                ),
+            ),
+        ),
+        resource_config_schema: Some(
+            Schema(
+                RawValue(
+                    {"properties":{"readOnly":{"default":false,"description":"Does this transform never publish documents?","type":"boolean"}},"type":"object"},
+                ),
+            ),
+        ),
+        oauth2: None,
+    },
+    Spec {
+        config_schema: Some(
+            Schema(
+                RawValue(
+                    {"type":"object","additionalProperties":false},
+                ),
+            ),
+        ),
+        resource_config_schema: Some(
+            Schema(
+                RawValue(
+                    {"properties":{"readOnly":{"default":false,"description":"Does this transform never publish documents?","type":"boolean"}},"type":"object"},
+                ),
+            ),
+        ),
+        oauth2: None,
+    },
+)

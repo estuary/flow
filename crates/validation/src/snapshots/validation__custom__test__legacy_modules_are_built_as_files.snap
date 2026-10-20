@@ -1,0 +1,30 @@
+---
+source: crates/validation/src/custom.rs
+expression: "[derive_python_connector(&collection, &python, &v1),\nderive_python_connector(&collection, &python, &v2),\nderive_typescript_connector(&collection, &typescript, &v1),\nderive_typescript_connector(&collection, &typescript, &v2),]"
+---
+[
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-python:dev",
+        config: RawValue(
+            {"module":"class Derivation(IDerivation):\n    pass\n"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-python:stable",
+        config: RawValue(
+            {"_python":{"files":{"orders/__init__.py":"class Derivation(IDerivation):\n    pass\n","pyproject.toml":"[project]\nname = \"orders\"\nversion = \"0.1.0\"\nrequires-python = \">=3.14,<4\"\ndependencies = [\n    \"estuary-cdk @ https://github.com/estuary/connectors/archive/ecee9b6e74b930ee0acf167a3b51d821cbff2e85.tar.gz#subdirectory=estuary-cdk\",\n    \"pydantic>=2\",\n]\n\n[dependency-groups]\ndev = [\"pyright>=1.1\"]\n\n[tool.uv]\npackage = false\n# Packages uploaded within the past day aren't candidates for resolution.\n# A malicious upload has time to be yanked, and an upstream security fix\n# still arrives within a day.\nexclude-newer = \"1 day\"\n\n[tool.pyright]\ntypeCheckingMode = \"strict\"\n# Types generated from the task's declared `spec`, and a derivation's collections.\nextraPaths = [\"flow_generated/python\"]\n"},"spec":{},"task":"acmeCo/nested/orders"}},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-typescript:dev",
+        config: RawValue(
+            {"module":"export class Derivation extends IDerivation {}\n"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-typescript:stable",
+        config: RawValue(
+            {"_typescript":{"files":{"deno.json":"{\n  // Packages published within the past day aren't candidates for resolution.\n  // A malicious upload has time to be yanked, and an upstream security fix\n  // still arrives within a day.\n  \"minimumDependencyAge\": \"P1D\",\n  \"imports\": {\n    // Types generated from the task's declared `spec`, and a derivation's collections.\n    \"flow/\": \"./flow_generated/typescript/\"\n  }\n}\n","orders/mod.ts":"export class Derivation extends IDerivation {}\n"},"spec":{},"task":"acmeCo/nested/orders"}},
+        ),
+    },
+]

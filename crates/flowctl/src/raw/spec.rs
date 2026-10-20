@@ -122,7 +122,7 @@ async fn get_spec_response(
             model.unwrap()
         };
 
-        let request = validation::derive_spec_request(&model.using, &model.shards);
+        let request = validation::derive_spec_request(&row.collection, &model.using, &model.shards);
         let response =
             local_connector::spec_derive(router, model.shards.log_level.as_deref(), request)
                 .await?;
