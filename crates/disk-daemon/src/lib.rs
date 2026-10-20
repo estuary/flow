@@ -2,13 +2,9 @@ pub mod client;
 pub mod daemon;
 
 mod attachment;
-mod chunk;
 mod device;
 mod filesystem;
-mod horizon;
-mod image;
 mod journal;
-mod ublk;
 
 /// Broker fixtures and replay helpers shared by unit tests.
 #[cfg(test)]

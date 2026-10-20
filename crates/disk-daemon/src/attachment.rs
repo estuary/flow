@@ -1,9 +1,7 @@
 use crate::device;
 use crate::filesystem;
-use crate::image;
 use crate::journal;
 use crate::proto;
-use crate::ublk;
 use anyhow::Context;
 
 /// Run one attachment over its `Attach` stream, until `serve` returns and its disk
@@ -13,7 +11,6 @@ use anyhow::Context;
 /// down here before the stream closes. Teardown is async, so a `Drop` can't do it.
 pub async fn run(
     config: std::sync::Arc<crate::daemon::Config>,
-    control: std::sync::Arc<ublk::Control>,
     peer: (u32, u32),
     cancel: tokio_util::sync::CancellationToken,
     mut requests: tonic::Streaming<proto::Request>,
@@ -21,10 +18,12 @@ pub async fn run(
 ) {
     let mut attachment = Attachment {
         config,
-        control,
         peer,
         cancel,
-        disk: None,
+        device_standby: None,
+        device: None,
+        writer: None,
+        mount: None,
     };
 
     // A client which drops its stream cancels the attachment.
@@ -38,11 +37,30 @@ pub async fn run(
         } => unreachable!("a cancelled attachment returns from `serve`"),
     };
 
+    // A writer which failed cancelled the attachment, and its failure says why.
+    let failure = attachment
+        .writer
+        .as_ref()
+        .and_then(journal::Writer::failure);
+    let outcome = match (outcome, failure) {
+        (Err(_), Some(failure)) => Err(failure),
+        (outcome, _) => outcome,
+    };
+
     // Keep the stream open through teardown, so clients and daemon drain
     // observe completion only after cleanup.
-    if let Some(disk) = attachment.disk.take() {
-        () = disk.teardown().await;
-    }
+    let recovered = attachment.teardown().await;
+
+    // A device whose rebuild failed refused the replay feeding it, which failed the
+    // attachment, and the rebuild's failure says why.
+    let outcome = match (outcome, recovered) {
+        (Err(_), Err(err)) => Err(proto_grpc::anyhow_to_status(err)),
+        (outcome, Err(err)) => {
+            tracing::error!(?err, "a disk's rebuild failed");
+            outcome
+        }
+        (outcome, Ok(())) => outcome,
+    };
 
     if let Err(status) = outcome {
         tracing::warn!(%status, "attachment failed");
@@ -50,19 +68,24 @@ pub async fn run(
     }
 }
 
-/// What one attachment holds while it serves its stream.
+/// What one attachment holds while it serves its stream, including the disk which
+/// `run` tears down however `serve` ends.
 struct Attachment {
     /// Daemon configuration.
     config: std::sync::Arc<crate::daemon::Config>,
-    /// Kernel device control handle.
-    control: std::sync::Arc<ublk::Control>,
     /// Client's user and group, which own the mount.
     peer: (u32, u32),
     /// Cancelled by a daemon drain, a client which drops its stream, or a writer
     /// failure. Cancellation gives up the attachment's broker calls.
     cancel: tokio_util::sync::CancellationToken,
-    /// The disk once it's promoted, which `run` tears down.
-    disk: Option<MountedDisk>,
+    /// The disk's device while it stands by, until `Promote`.
+    device_standby: Option<device::Standby>,
+    /// The disk's device once promoted.
+    device: Option<device::Device>,
+    /// The journal writer of a promoted disk.
+    writer: Option<journal::Writer>,
+    /// The filesystem mounted on a promoted disk.
+    mount: Option<filesystem::Mount>,
 }
 
 impl Attachment {
@@ -84,10 +107,25 @@ impl Attachment {
             }
         };
         let (journal, blocks) = check_open(open)?;
+        let config = &self.config;
+
+        let (device_standby, replayed_tx) =
+            device::Standby::open(&config.image_dir, blocks, config.horizon_policy)?;
+        self.device_standby = Some(device_standby);
+
+        let uncommitted = journal::UncommittedDelta::create(&config.image_dir)
+            .with_context(|| format!("creating an uncommitted delta in {:?}", config.image_dir))?;
 
         // Replay to the head `Open` observed before reading another request, so
         // `Opened` precedes any `Promote`.
-        let mut standby = open_standby(&self.config, &self.cancel, journal, blocks).await?;
+        let mut journal_standby = journal::Standby::new(
+            &config.brokers,
+            journal,
+            self.cancel.clone(),
+            replayed_tx,
+            uncommitted,
+        )
+        .await?;
         () = send(
             responses,
             proto::response::Response::Opened(proto::Opened {}),
@@ -105,25 +143,42 @@ impl Attachment {
                     ));
                 }
             },
-            failure = standby.follow() => return Err(failure),
+            failure = journal_standby.follow() => return Err(failure),
         };
 
         // Fence the previous writer, finish replay at the fenced head, and repair
         // any ack the client recovered.
         let recovered_ack = (!ack.is_empty()).then_some(ack);
-        let (promoted, recovered) = standby.promote(recovered_ack).await?;
+        let (promoted, replayed_tx) = journal_standby.promote(recovered_ack).await?;
 
-        // Held by the attachment, so that `run` tears it down however `serve` ends.
-        let disk = self.disk.insert(
-            MountedDisk::open(&self.config, &self.control, self.peer, promoted, recovered).await?,
-        );
+        let device_standby = self
+            .device_standby
+            .take()
+            .expect("a disk's device stands by until its promotion");
+        let (device, block_path, served_rx) = device_standby.promote(replayed_tx).await?;
+        self.device = Some(device);
+
+        let fresh = promoted.fresh();
+        let writer = self.writer.insert(promoted.into_writer(served_rx));
+
+        if fresh {
+            () = filesystem::format(&block_path, self.peer).await?;
+        }
+        // A mount point names the device it presents.
+        let name = block_path.file_name().expect("a block device has a name");
+        let mount_path = config.mount_dir.join(name);
+        let mount = self
+            .mount
+            .insert(filesystem::Mount::new(&block_path, mount_path, self.peer).await?);
+
+        tracing::info!(mount = ?mount.path(), fresh, "opened a disk");
 
         // Commit setup writes before returning the mount to the client.
-        if let Some(ack) = disk.prepare().await? {
-            () = disk.writer.acknowledge(ack).await?;
+        if let Some(ack) = prepare(mount, writer).await? {
+            () = writer.acknowledge(ack).await?;
         }
 
-        let mount_path = disk.mount.path().display().to_string();
+        let mount_path = mount.path().display().to_string();
         () = send(
             responses,
             proto::response::Response::Promoted(proto::Promoted { mount_path }),
@@ -131,20 +186,15 @@ impl Attachment {
         .await?;
 
         loop {
-            let request = disk
-                .writer
-                .drain_while(next(requests, &self.cancel))
-                .await??;
-
-            let response = match request {
+            let response = match next(requests, &self.cancel).await? {
                 None => return Ok(()),
                 Some(proto::request::Request::Prepare(proto::Prepare {})) => {
                     proto::response::Response::Prepared(proto::Prepared {
-                        ack: disk.prepare().await?.unwrap_or_default(),
+                        ack: prepare(mount, writer).await?.unwrap_or_default(),
                     })
                 }
                 Some(proto::request::Request::Acknowledge(proto::Acknowledge { ack })) => {
-                    () = disk.writer.acknowledge(ack).await?;
+                    () = writer.acknowledge(ack).await?;
                     proto::response::Response::Acknowledged(proto::Acknowledged {})
                 }
                 Some(_) => {
@@ -156,23 +206,48 @@ impl Attachment {
             () = send(responses, response).await?;
         }
     }
+
+    /// Take the disk apart in the one order which cannot deadlock. Dropping the
+    /// writer first lets the device's writes stop waiting on its channel. The
+    /// unmount writes, and the device's stop waits for every request in flight.
+    /// Returns how the rebuild of a device still standing by went.
+    async fn teardown(&mut self) -> anyhow::Result<()> {
+        drop(self.writer.take());
+
+        if let Some(mount) = self.mount.take()
+            && let Err(err) = mount.unmount().await
+        {
+            tracing::error!(?err, "failed to unmount a disk");
+        }
+
+        if let Some(device) = self.device.take() {
+            match device.stop().await {
+                Ok(()) => tracing::info!("closed a disk"),
+                Err(err) => tracing::error!(?err, "a disk's device failed"),
+            }
+        }
+
+        // `serve` has returned, dropping the journal's standby and the sender of the
+        // chunks it replayed, so the rebuilder exits once it applies what it holds.
+        match self.device_standby.take() {
+            Some(device_standby) => device_standby.join().await,
+            None => Ok(()),
+        }
+    }
 }
 
-/// Replay `journal` into a new image of `blocks` through the head it resolves, and
-/// keep following it, without fencing or mounting anything.
-async fn open_standby(
-    config: &crate::daemon::Config,
-    cancel: &tokio_util::sync::CancellationToken,
-    journal: String,
-    blocks: u32,
-) -> anyhow::Result<journal::Standby> {
-    let image = image::Image::create(&config.image_dir, blocks)
-        .with_context(|| format!("creating an image in {:?}", config.image_dir))?;
+/// Sync the disk's filesystem, and then cut the delta which holds what it wrote.
+async fn prepare(
+    mount: &filesystem::Mount,
+    writer: &journal::Writer,
+) -> anyhow::Result<Option<bytes::Bytes>> {
+    let path = mount.path().to_path_buf();
 
-    let uncommitted = journal::UncommittedDelta::create(&config.image_dir)
-        .with_context(|| format!("creating an uncommitted delta in {:?}", config.image_dir))?;
+    () = tokio::task::spawn_blocking(move || filesystem::sync(&path))
+        .await?
+        .context("syncing a disk's filesystem")?;
 
-    journal::Standby::new(&config.brokers, journal, cancel.clone(), image, uncommitted).await
+    writer.prepare().await
 }
 
 /// Check an `Open` before anything is created for it, returning its journal and the
@@ -229,142 +304,6 @@ async fn send(
                 "the client dropped its attachment",
             ))
         })
-}
-
-/// A promoted disk: its device, the filesystem mounted on it, and the writer
-/// recording it to the journal.
-struct MountedDisk {
-    mount: filesystem::Mount,
-    device: device::Device,
-    writer: journal::Writer,
-}
-
-impl MountedDisk {
-    async fn open(
-        config: &crate::daemon::Config,
-        control: &std::sync::Arc<crate::ublk::Control>,
-        peer: (u32, u32),
-        promoted: journal::Promoted,
-        recovered: journal::Recovered,
-    ) -> anyhow::Result<Self> {
-        let journal::Recovered {
-            image,
-            fresh,
-            horizon,
-        } = recovered;
-
-        let control = control.clone();
-        let policy = config.horizon;
-
-        // Creating a device blocks on handshakes with the kernel and with the thread
-        // which will own it, so it runs on a blocking thread rather than this
-        // runtime thread.
-        let (device, recorded) = tokio::task::spawn_blocking(move || {
-            device::Device::create(control, image, crate::ublk::QUEUE_DEPTH, horizon, policy)
-        })
-        .await??;
-
-        let block_path = crate::ublk::block_path(device.dev_id());
-        // A mount point names the device it presents.
-        let mount_path = config.mount_dir.join(format!("disk-{}", device.dev_id()));
-
-        let mut writer = promoted.into_writer(recorded);
-
-        // Drain while `mkfs` and mount write to the device.
-        let mounted = writer
-            .drain_while(async {
-                if fresh {
-                    () = filesystem::format(&block_path, peer).await?;
-                }
-                filesystem::Mount::new(&block_path, mount_path, peer).await
-            })
-            .await;
-
-        // Use ordered teardown on failure. A plain drop stops the device on this
-        // runtime thread, which can block.
-        let mount = match mounted {
-            Ok(Ok(mount)) => mount,
-            Ok(Err(err)) | Err(err) => {
-                () = take_apart(None, device, writer).await;
-                return Err(err);
-            }
-        };
-        tracing::info!(
-            dev_id = device.dev_id(),
-            mount = ?mount.path(),
-            fresh,
-            "opened a disk",
-        );
-
-        Ok(Self {
-            mount,
-            device,
-            writer,
-        })
-    }
-
-    async fn prepare(&mut self) -> anyhow::Result<Option<bytes::Bytes>> {
-        let mount = self.mount.path().to_path_buf();
-
-        // Drain during the sync, because it waits for the writes it flushes.
-        () = self
-            .writer
-            .drain_while(tokio::task::spawn_blocking(move || {
-                filesystem::sync(&mount)
-            }))
-            .await??
-            .context("syncing a disk's filesystem")?;
-
-        let discharged = self.device.close_admission().await?;
-        let prepared = self.writer.prepare(discharged).await;
-
-        // Admission resumes even where the prepare failed. The unmount which
-        // follows a failed attachment writes, under a range which opens no horizon.
-        let range = prepared.as_ref().map_or(0, |(_ack, range)| *range);
-        let resumed = self.device.resume_admission(range);
-
-        let (ack, _range) = prepared?;
-        () = resumed.context("resuming a disk's admission")?;
-        Ok(ack)
-    }
-
-    async fn teardown(self) {
-        let Self {
-            mount,
-            device,
-            writer,
-        } = self;
-
-        take_apart(Some(mount), device, writer).await
-    }
-}
-
-/// Take a disk apart in the one order which cannot deadlock. `mount` is `None` for
-/// a disk which failed before it was mounted.
-async fn take_apart(
-    mount: Option<filesystem::Mount>,
-    mut device: device::Device,
-    writer: journal::Writer,
-) {
-    // Drop the writer first, so that the unmount and the stop do not wait on the
-    // recording channel.
-    drop(writer);
-
-    let dev_id = device.dev_id();
-
-    if let Some(mount) = mount
-        && let Err(err) = mount.unmount().await
-    {
-        tracing::error!(?err, dev_id, "failed to unmount a disk");
-    }
-
-    match tokio::task::spawn_blocking(move || device.stop()).await {
-        Ok(Ok(())) => (),
-        Ok(Err(err)) => tracing::error!(?err, dev_id, "failed to stop a device"),
-        Err(panic) => tracing::error!(?panic, dev_id, "panicked stopping a device"),
-    }
-
-    tracing::info!(dev_id, "closed a disk");
 }
 
 #[cfg(test)]

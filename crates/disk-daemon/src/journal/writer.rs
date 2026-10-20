@@ -1,154 +1,188 @@
 use super::ledger;
 use crate::device;
 use anyhow::Context;
-use futures::FutureExt;
 
-/// An attachment's journal writer.
+/// Handle to an attachment's journal writer: a task which appends the device's
+/// mutations, and serves prepares and acknowledgements.
 pub struct Writer {
-    /// Journal, ledger, and appender. `None` while an append is in flight.
-    appending: Option<Appending>,
-    /// The append in flight, which holds `appending`.
-    append_fut: Option<AppendFut>,
-    /// The device's mutations.
-    recorded: device::Recorded,
-    /// The attachment's cancellation, which a writer failure triggers.
+    /// Requests to the task.
+    commands: tokio::sync::mpsc::Sender<Command>,
+    /// The failure which ended the writer.
+    failed: std::sync::Arc<std::sync::OnceLock<tonic::Status>>,
+    /// The attachment's cancellation, which a request gives up on.
     cancel: tokio_util::sync::CancellationToken,
+    /// Held for its drop, which aborts the task.
+    _task: tokio_util::task::AbortOnDropHandle<()>,
 }
 
-/// Appends one mutation and gives back the state.
-type AppendFut = futures::future::BoxFuture<'static, (Appending, anyhow::Result<()>)>;
+/// A request of the writer's task.
+enum Command {
+    Prepare(Reply<Option<bytes::Bytes>>),
+    Acknowledge(bytes::Bytes, Reply<()>),
+}
+
+/// Sends the result of one request to the caller which made it.
+type Reply<T> = tokio::sync::oneshot::Sender<anyhow::Result<T>>;
 
 impl Writer {
-    pub(super) fn new(
+    /// Start a task which appends `served_rx` to the promoted `journal`. `opener` is
+    /// the offset of the last committed record which opened a horizon.
+    pub(super) fn spawn(
         journal: super::Journal,
         appender: publisher::Appender,
-        horizon: Option<i64>,
-        recorded: device::Recorded,
+        opener: Option<i64>,
+        served_rx: tokio::sync::mpsc::Receiver<device::Mutation>,
     ) -> Self {
         let cancel = journal.cancel.clone();
+        let failed = std::sync::Arc::new(std::sync::OnceLock::new());
+        let (commands, received) = tokio::sync::mpsc::channel(1);
 
-        Self {
-            appending: Some(Appending {
-                ledger: ledger::Ledger::new(journal.author, horizon),
+        let task = Task {
+            appending: Appending {
+                ledger: ledger::Ledger::new(journal.author, opener),
                 appender,
                 journal,
-            }),
-            append_fut: None,
-            recorded,
+            },
+            served_rx,
+            failed: failed.clone(),
+            cancel: cancel.clone(),
+        };
+
+        Self {
+            commands,
+            failed,
             cancel,
+            _task: tokio_util::task::AbortOnDropHandle::new(tokio::spawn(task.serve(received))),
         }
     }
 
-    /// Run `fut` to completion and append the device's mutations meanwhile.
-    pub async fn drain_while<T>(
-        &mut self,
-        fut: impl std::future::Future<Output = T>,
-    ) -> anyhow::Result<T> {
-        let mut fut = std::pin::pin!(fut);
-        let cancel = self.cancel.clone();
-
-        let failure = tokio::select! {
-            biased;
-
-            () = cancel.cancelled() => None,
-            out = &mut fut => return Ok(out),
-            failure = self.drain() => Some(failure),
-        };
-        () = self.fail();
-
-        let out = fut.await;
-        failure.map_or(Ok(out), Err)
-    }
-
-    /// Cut the delta and return its acknowledgement. Close device admission
-    /// before you call this.
-    pub async fn prepare(
-        &mut self,
-        completes_horizon: bool,
-    ) -> anyhow::Result<(Option<bytes::Bytes>, u64)> {
-        let cancel = self.cancel.clone();
-
-        super::unless_cancelled(&cancel, async {
-            () = self.finish_append().await?;
-            let appending = self
-                .appending
-                .as_mut()
-                .expect("with no append in flight, the writer holds its state");
-
-            appending
-                .prepare(&mut self.recorded, completes_horizon)
-                .await
-        })
-        .await
+    /// Cut the delta and return its unappended acknowledgement, or `None` for an
+    /// empty delta. Sync the disk's filesystem first: the delta then holds every
+    /// mutation which the device served before the sync returned.
+    pub async fn prepare(&self) -> anyhow::Result<Option<bytes::Bytes>> {
+        self.call(Command::Prepare).await
     }
 
     /// Append the acknowledgement and wait for the broker to confirm it.
-    pub async fn acknowledge(&mut self, ack: bytes::Bytes) -> anyhow::Result<()> {
-        let cancel = self.cancel.clone();
-
-        super::unless_cancelled(&cancel, async {
-            () = self.finish_append().await?;
-            let appending = self
-                .appending
-                .as_mut()
-                .expect("with no append in flight, the writer holds its state");
-
-            appending.acknowledge(ack).await
-        })
-        .await
+    pub async fn acknowledge(&self, ack: bytes::Bytes) -> anyhow::Result<()> {
+        self.call(|reply| Command::Acknowledge(ack, reply)).await
     }
 
-    /// Append the device's mutations one at a time, and return the first failure. Wait
-    /// while a prepared delta has no acknowledgement, and after the device closes the
-    /// channel.
-    async fn drain(&mut self) -> anyhow::Error {
+    /// The failure which ended the writer, if one did.
+    pub fn failure(&self) -> Option<tonic::Status> {
+        self.failed.get().cloned()
+    }
+
+    async fn call<T>(&self, command: impl FnOnce(Reply<T>) -> Command) -> anyhow::Result<T> {
+        let (reply, replied) = tokio::sync::oneshot::channel();
+
+        let answered = self
+            .cancel
+            .run_until_cancelled(async {
+                _ = self.commands.send(command(reply)).await;
+                replied.await.ok()
+            })
+            .await
+            .flatten();
+
+        // A writer which failed, or a cancelled attachment, answers with why.
+        answered.unwrap_or_else(|| match self.failure() {
+            Some(failure) => Err(proto_grpc::status_to_anyhow(failure)),
+            None => Err(crate::cancelled()),
+        })
+    }
+}
+
+struct Task {
+    /// Journal, ledger, and appender.
+    appending: Appending,
+    /// The device's mutations.
+    served_rx: tokio::sync::mpsc::Receiver<device::Mutation>,
+    /// Set by the task's first failure, which its handle reads.
+    failed: std::sync::Arc<std::sync::OnceLock<tonic::Status>>,
+    /// The attachment's cancellation, which gives up a broker call and which a
+    /// failure triggers.
+    cancel: tokio_util::sync::CancellationToken,
+}
+
+impl Task {
+    /// Append mutations and serve requests until the handle is dropped. A failure
+    /// ends appending, but every later request is still answered with it.
+    async fn serve(mut self, mut commands: tokio::sync::mpsc::Receiver<Command>) {
         loop {
-            if let Err(err) = self.finish_append().await {
-                return err;
-            }
-            let appending = self
-                .appending
-                .as_ref()
-                .expect("with no append in flight, the writer holds its state");
+            // A prepared delta's acknowledgement must land before the next delta's
+            // records: Gazette refuses an ack clocked below a pending record.
+            let taking = self.failed.get().is_none() && !self.appending.ledger.awaiting_ack();
 
-            if appending.ledger.awaiting_ack() {
-                return std::future::pending().await;
-            }
-            let Some(mutation) = self.recorded.recv().await else {
-                return std::future::pending().await;
-            };
-            let mut appending = self
-                .appending
-                .take()
-                .expect("with no append in flight, the writer holds its state");
+            tokio::select! {
+                biased;
 
-            self.append_fut = Some(
-                async move {
-                    let appended = appending.append_mutation(mutation).await;
-                    (appending, appended)
+                command = commands.recv() => match command {
+                    None => return,
+                    Some(Command::Prepare(reply)) => {
+                        _ = reply.send(self.prepare().await);
+                    }
+                    Some(Command::Acknowledge(ack, reply)) => {
+                        _ = reply.send(self.acknowledge(ack).await);
+                    }
+                },
+                mutation = self.served_rx.recv(), if taking => {
+                    let appended = match mutation {
+                        Some(mutation) => {
+                            let appending = self.appending.append_mutation(mutation);
+                            super::unless_cancelled(&self.cancel, appending).await
+                        }
+                        None => Err(anyhow::anyhow!("the disk's device failed")),
+                    };
+                    if let Err(err) = appended {
+                        _ = self.fail(err);
+                    }
                 }
-                .boxed(),
-            );
+            }
         }
     }
 
-    /// Finish the parked append, if any, and take back its state. Cancel-safe.
-    async fn finish_append(&mut self) -> anyhow::Result<()> {
-        let Some(append) = &mut self.append_fut else {
-            return Ok(());
-        };
-        let (appending, appended) = append.await;
+    async fn prepare(&mut self) -> anyhow::Result<Option<bytes::Bytes>> {
+        self.ready()?;
+        let prepared = self.appending.prepare(&mut self.served_rx);
 
-        self.append_fut = None;
-        self.appending = Some(appending);
-        appended
+        match super::unless_cancelled(&self.cancel, prepared).await {
+            Ok(ack) => Ok(ack),
+            Err(err) => Err(self.fail(err)),
+        }
     }
 
-    /// Fail the writer and cancel its attachment. The device discards its later
-    /// mutations.
-    fn fail(&mut self) {
-        self.recorded.close();
+    async fn acknowledge(&mut self, ack: bytes::Bytes) -> anyhow::Result<()> {
+        self.ready()?;
+        let acknowledged = self.appending.acknowledge(ack);
+
+        match super::unless_cancelled(&self.cancel, acknowledged).await {
+            Ok(()) => Ok(()),
+            Err(err) => Err(self.fail(err)),
+        }
+    }
+
+    /// The failure which ended the writer, if one did.
+    fn ready(&self) -> anyhow::Result<()> {
+        match self.failed.get() {
+            Some(failure) => Err(proto_grpc::status_to_anyhow(failure.clone())),
+            None => Ok(()),
+        }
+    }
+
+    /// Fail the writer with `err`, which then answers every later request. It
+    /// takes no more mutations, so the device discards them, and it cancels its
+    /// attachment. Returns `err` as each request receives it.
+    fn fail(&mut self, err: anyhow::Error) -> anyhow::Error {
+        let failure = self
+            .failed
+            .get_or_init(|| proto_grpc::anyhow_to_status(err))
+            .clone();
+
+        self.served_rx.close();
         self.cancel.cancel();
+
+        proto_grpc::status_to_anyhow(failure)
     }
 }
 
@@ -163,12 +197,11 @@ struct Appending {
 }
 
 impl Appending {
-    /// Serve [`Writer::prepare`].
+    /// Serve `Writer::prepare`.
     async fn prepare(
         &mut self,
-        recorded: &mut device::Recorded,
-        completes_horizon: bool,
-    ) -> anyhow::Result<(Option<bytes::Bytes>, u64)> {
+        served_rx: &mut tokio::sync::mpsc::Receiver<device::Mutation>,
+    ) -> anyhow::Result<Option<bytes::Bytes>> {
         // Refuse before the drain, which would take mutations past the awaited ack.
         if self.ledger.awaiting_ack() {
             return Err(crate::failed_precondition(
@@ -176,30 +209,26 @@ impl Appending {
             ));
         }
 
-        // Admission is closed, so the channel cannot refill.
-        while let Ok(mutation) = recorded.try_recv() {
-            () = self.append_mutation(mutation).await?;
+        // A write completes only once the device has sent it, so every write
+        // the sync waited on has reached the channel by now. Once it is empty, the
+        // delta holds them all.
+        loop {
+            match served_rx.try_recv() {
+                Ok(mutation) => () = self.append_mutation(mutation).await?,
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    anyhow::bail!("the disk's device failed")
+                }
+            }
+        }
+        if self.ledger.delta_is_empty() {
+            return Ok(None);
         }
 
-        let ack = if self.ledger.delta_is_empty() {
-            assert!(
-                !completes_horizon,
-                "the device reported a discharge for an empty delta"
-            );
-            None
-        } else {
-            // Confirm every record of the delta before the cut.
-            () = self.journal.flush(&mut self.appender).await?;
+        // Confirm every record of the delta before the cut.
+        () = self.journal.flush(&mut self.appender).await?;
 
-            Some(
-                self.ledger
-                    .cut(std::time::SystemTime::now(), completes_horizon),
-            )
-        };
-        Ok((
-            ack,
-            self.ledger.range(self.journal.head, self.journal.floor),
-        ))
+        Ok(Some(self.ledger.cut(std::time::SystemTime::now())))
     }
 
     /// Append `ack` to commit the prepared delta, and store the recovery floor it
@@ -250,19 +279,30 @@ impl Appending {
         Ok(())
     }
 
-    /// Append one mutation to the delta.
     async fn append_mutation(&mut self, mutation: device::Mutation) -> anyhow::Result<()> {
         let device::Mutation {
-            chunks,
+            chunk,
             opens_horizon,
+            discharges_horizon,
         } = mutation;
 
-        // Only a delta's first record opens a horizon. That record follows a flush,
-        // so it lands at the confirmed head.
-        let opens_at = opens_horizon.then_some(self.journal.head);
-        let record = self
-            .ledger
-            .build_uncommitted(std::time::SystemTime::now(), chunks, opens_at);
+        // A horizon's floor is its opening record's offset. Confirm the delta's
+        // earlier records first, so that the opener lands at the confirmed head. A
+        // delta's first record follows a flush already.
+        let opens_at = if opens_horizon {
+            if !self.ledger.delta_is_empty() {
+                () = self.journal.flush(&mut self.appender).await?;
+            }
+            Some(self.journal.head)
+        } else {
+            None
+        };
+        let record = self.ledger.build_uncommitted(
+            std::time::SystemTime::now(),
+            chunk,
+            opens_at,
+            discharges_horizon,
+        );
 
         self.journal
             .append_record(&mut self.appender, &record)
@@ -273,7 +313,7 @@ impl Appending {
 #[cfg(test)]
 mod broker_test {
     use crate::BLOCK_SIZE;
-    use crate::chunk;
+    use crate::proto;
     use crate::test_support;
     use test_support::broker;
 
@@ -286,28 +326,33 @@ mod broker_test {
         a_large_delta_carries_one_record_per_mutation(&fixture).await;
         a_delta_which_spans_several_appends_keeps_its_records(&fixture).await;
         a_completed_horizon_stores_its_openers_offset(&fixture).await;
-        a_drain_dropped_mid_append_keeps_its_records(&fixture).await;
-        a_failed_drain_lets_its_future_finish(&fixture).await;
+        an_opener_within_a_delta_stores_its_own_offset(&fixture).await;
+        a_failed_append_answers_every_later_request(&fixture).await;
         a_cancelled_attachment_answers_its_client(&fixture).await;
 
         fixture.stop().await;
     }
 
-    /// A committed delta reads back as exactly the recorded chunks.
+    /// A committed delta reads back as exactly the served_rx chunks.
     async fn a_committed_delta_reads_back_as_its_chunks(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/delta";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        let mutations = vec![
-            chunk::encode_write(0, &bytes::Bytes::from(vec![0x11; 8192])),
-            chunk::encode_write(2, &bytes::Bytes::from(vec![0; 4096])),
-            vec![chunk::encode_punch(3, 4)],
+        let mutations = [
+            test_support::write_chunk(0, 2, 0x11),
+            // A zeroed block, which a device records as empty data.
+            proto::Chunk {
+                block: 2,
+                blocks: 1,
+                content: Some(proto::chunk::Content::Data(bytes::Bytes::new())),
+            },
+            test_support::punch_chunk(3, 4),
         ];
-        for chunks in mutations {
-            recorder.try_send(broker::mutation(chunks)).unwrap();
+        for chunk in mutations {
+            served_tx.try_send(broker::mutation(chunk)).unwrap();
         }
 
-        let ack = writer.prepare(false).await.unwrap().0.unwrap();
+        let ack = writer.prepare().await.unwrap().unwrap();
         () = writer.acknowledge(ack.clone()).await.unwrap();
 
         let records = broker::render(&fixture.read(journal).await);
@@ -318,8 +363,8 @@ mod broker_test {
         insta::assert_snapshot!(format!("{records}\n\nacknowledged again: {err:#}"), @"
         fence     author 1
         continue  author 1  blocks 0..2: data len 8192 [0x11x8192]
-        continue  author 1  blocks 2..3: empty data (one zeroed block)
-        continue  author 1  blocks 3..7: punch 4
+        continue  author 1  blocks 2..3: zeroed
+        continue  author 1  blocks 3..7: punch
         ack       author 1
 
         acknowledged again: the acknowledgement matches no prepared delta (FailedPrecondition)
@@ -331,33 +376,30 @@ mod broker_test {
         fixture: &broker::Fixture,
     ) {
         let journal = "acmeCo/disk/outstanding";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        recorder.try_send(broker::write(1, 0xaa)).unwrap();
-        let first = writer.prepare(false).await.unwrap().0.unwrap();
+        served_tx.try_send(broker::write(1, 0xaa)).unwrap();
+        let first = writer.prepare().await.unwrap().unwrap();
 
         // Offer the second delta's mutations before the first delta commits.
-        recorder.try_send(broker::write(2, 0xbb)).unwrap();
-        recorder.try_send(broker::write(3, 0xcc)).unwrap();
-        () = writer
-            .drain_while(tokio::time::sleep(std::time::Duration::from_millis(50)))
-            .await
-            .unwrap();
+        served_tx.try_send(broker::write(2, 0xbb)).unwrap();
+        served_tx.try_send(broker::write(3, 0xcc)).unwrap();
+        () = tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(
-            !is_drained(&recorder),
+            !is_drained(&served_tx),
             "the writer took a mutation while an acknowledgement was outstanding",
         );
 
         () = writer.acknowledge(first).await.unwrap();
-        () = writer.drain_while(drains(&recorder)).await.unwrap();
+        () = drains(&served_tx).await;
 
-        let second = writer.prepare(false).await.unwrap().0.unwrap();
+        let second = writer.prepare().await.unwrap().unwrap();
         () = writer.acknowledge(second).await.unwrap();
-        drop((recorder, writer));
+        drop((served_tx, writer));
 
         let records = broker::render(&fixture.read(journal).await);
 
-        let (_recorder, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
+        let (_served_tx, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
 
         insta::assert_snapshot!(format!("{records}\n\nrecovered blocks {}", test_support::render_blocks(&blocks)), @"
         fence     author 1
@@ -376,14 +418,14 @@ mod broker_test {
         let journal = "acmeCo/disk/bounded";
         const WRITES: usize = 8;
 
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
-        let write = chunk::encode_write(0, &bytes::Bytes::from(vec![0x22; 128 * 1024]));
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
+        let write = test_support::write_chunk(0, 32, 0x22);
 
         for _ in 0..WRITES {
-            recorder.try_send(broker::mutation(write.clone())).unwrap();
+            served_tx.try_send(broker::mutation(write.clone())).unwrap();
         }
 
-        let ack = writer.prepare(false).await.unwrap().0.unwrap();
+        let ack = writer.prepare().await.unwrap().unwrap();
         () = writer.acknowledge(ack).await.unwrap();
 
         let records = broker::render(&fixture.read(journal).await);
@@ -411,21 +453,22 @@ mod broker_test {
         let each = test_support::broker::BLOCKS as usize * BLOCK_SIZE as usize;
         assert!(MUTATIONS * each > publisher::Appender::BUFFER_FLUSH_THRESHOLD);
 
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
         for index in 0..MUTATIONS {
             let fill = (index + 1) as u8;
-            recorder
-                .try_send(broker::mutation(chunk::encode_write(
+            served_tx
+                .try_send(broker::mutation(test_support::write_chunk(
                     0,
-                    &bytes::Bytes::from(vec![fill; each]),
+                    test_support::broker::BLOCKS,
+                    fill,
                 )))
                 .unwrap();
         }
 
-        let ack = writer.prepare(false).await.unwrap().0.unwrap();
+        let ack = writer.prepare().await.unwrap().unwrap();
         () = writer.acknowledge(ack).await.unwrap();
-        drop((recorder, writer));
+        drop((served_tx, writer));
 
         // Distinct fill bytes expose any split, merge, or reordering across appends.
         let records = broker::render(&fixture.read(journal).await);
@@ -433,7 +476,7 @@ mod broker_test {
         // The journal is past the threshold, so more than one append built it.
         assert!(fixture.head(journal).await as usize > publisher::Appender::BUFFER_FLUSH_THRESHOLD);
 
-        let (_recorder, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
+        let (_served_tx, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
 
         insta::assert_snapshot!(format!("{records}\n\nrecovered blocks {}", test_support::render_blocks(&blocks)), @"
         fence     author 1
@@ -487,47 +530,47 @@ mod broker_test {
     /// record as the floor.
     async fn a_completed_horizon_stores_its_openers_offset(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/horizon-offset";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
         // Each delta rewrites the whole disk, discharging the horizon it opens.
-        let each = test_support::broker::BLOCKS as usize * BLOCK_SIZE as usize;
         let mut out = Vec::new();
 
         for delta in 0..2u8 {
             for record in 0..4 {
                 let fill = delta * 4 + record + 1;
-                recorder
+                served_tx
                     .try_send(crate::device::Mutation {
-                        chunks: chunk::encode_write(0, &bytes::Bytes::from(vec![fill; each])),
+                        chunk: test_support::write_chunk(0, test_support::broker::BLOCKS, fill),
                         opens_horizon: record == 0,
+                        discharges_horizon: record == 3,
                     })
                     .unwrap();
             }
-            let (ack, range) = writer.prepare(true).await.unwrap();
+            let ack = writer.prepare().await.unwrap();
             () = writer.acknowledge(ack.unwrap()).await.unwrap();
 
             let floor = fixture.floor_label(journal).await.unwrap();
             let head = fixture.head(journal).await;
             out.push(format!(
-                "after delta {delta}  floor {floor}  head {head:#x}  next range {range:#x}",
+                "after delta {delta}  floor {floor}  head {head:#x}"
             ));
         }
-        drop((recorder, writer));
+        drop((served_tx, writer));
 
         // The floor names the record that opened the second delta's horizon.
         let floor = fixture.floor_label(journal).await.unwrap();
         let floor = i64::from_str_radix(&floor, 16).unwrap();
         out.push(broker::render(&fixture.read_from(journal, floor).await));
 
-        let (_recorder, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
+        let (_served_tx, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
         out.push(format!(
             "recovered blocks {}",
             test_support::render_blocks(&blocks)
         ));
 
         insta::assert_snapshot!(out.join("\n"), @"
-        after delta 0  floor 000000000000001a  head 0x1000be  next range 0x10008a
-        after delta 1  floor 00000000001000be  head 0x200162  next range 0x10008a
+        after delta 0  floor 000000000000001a  head 0x1000c6
+        after delta 1  floor 00000000001000c6  head 0x200172
         continue  author 1  blocks 0..64: data len 262144 [0x05x262144], opens a horizon
         continue  author 1  blocks 0..64: data len 262144 [0x06x262144]
         continue  author 1  blocks 0..64: data len 262144 [0x07x262144]
@@ -537,82 +580,81 @@ mod broker_test {
         ");
     }
 
-    /// A drain dropped during an append leaves the append parked, and the next prepare
-    /// finishes it. The journal is the same as without the drop.
-    async fn a_drain_dropped_mid_append_keeps_its_records(fixture: &broker::Fixture) {
-        // Enough to fill the appender's buffer past its flush threshold during the first
-        // append, so that a checkpoint waits on that append. The runtime has one thread,
-        // so the append cannot finish during the drain's first poll.
-        const MUTATIONS: usize = 36;
-        let each = test_support::broker::BLOCKS as usize * BLOCK_SIZE as usize;
-        assert!((MUTATIONS - 2) * each > publisher::Appender::BUFFER_FLUSH_THRESHOLD);
+    /// A horizon may open at a record within a delta, whose earlier records are then
+    /// confirmed first. The floor is that record's own offset, and a replay from it
+    /// begins mid-delta, which still commits.
+    async fn an_opener_within_a_delta_stores_its_own_offset(fixture: &broker::Fixture) {
+        let journal = "acmeCo/disk/horizon-within";
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        let mut rendered = Vec::new();
-
-        for (journal, drop_a_drain) in [
-            ("acmeCo/disk/undisturbed", false),
-            ("acmeCo/disk/dropped-drain", true),
-        ] {
-            let (recorder, mut writer) = fixture.open(journal).await.unwrap();
-
-            for index in 0..MUTATIONS {
-                let fill = (index + 1) as u8;
-                recorder
-                    .try_send(broker::mutation(chunk::encode_write(
-                        0,
-                        &bytes::Bytes::from(vec![fill; each]),
-                    )))
-                    .unwrap();
-            }
-            if drop_a_drain {
-                // `yield_now` completes on the second poll, which drops the drain.
-                () = writer.drain_while(tokio::task::yield_now()).await.unwrap();
-                assert!(
-                    writer.append_fut.is_some(),
-                    "the drain was dropped with an append in flight"
-                );
-            }
-            let ack = writer.prepare(false).await.unwrap().0.unwrap();
-            () = writer.acknowledge(ack).await.unwrap();
-
-            rendered.push(broker::render(&fixture.read(journal).await));
+        for (record, opens_horizon, discharges_horizon) in
+            [(0, false, false), (1, true, false), (2, false, true)]
+        {
+            served_tx
+                .try_send(crate::device::Mutation {
+                    chunk: test_support::write_chunk(0, test_support::broker::BLOCKS, record + 1),
+                    opens_horizon,
+                    discharges_horizon,
+                })
+                .unwrap();
         }
+        let ack = writer.prepare().await.unwrap().unwrap();
+        () = writer.acknowledge(ack).await.unwrap();
+        drop((served_tx, writer));
 
-        assert_eq!(rendered[0], rendered[1]);
+        let floor = fixture.floor_label(journal).await.unwrap();
+        let floor = i64::from_str_radix(&floor, 16).unwrap();
+        let mut out = vec![format!("floor {floor:#x}")];
+        out.push(broker::render(&fixture.read_from(journal, floor).await));
+
+        let (_served_tx, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
+        out.push(format!(
+            "recovered blocks {}",
+            test_support::render_blocks(&blocks)
+        ));
+
+        insta::assert_snapshot!(out.join("\n"), @"
+        floor 0x4003e
+        continue  author 1  blocks 0..64: data len 262144 [0x02x262144], opens a horizon
+        continue  author 1  blocks 0..64: data len 262144 [0x03x262144]
+        ack       author 1
+        recovered blocks 0..64 filled 0x03
+        ");
     }
 
-    /// A failed append fails the writer and cancels its attachment. The drained future
-    /// still runs to completion before the failure returns.
-    async fn a_failed_drain_lets_its_future_finish(fixture: &broker::Fixture) {
-        let journal = "acmeCo/disk/failed-drain";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+    /// A failed append fails the writer and cancels its attachment. Every later request
+    /// is answered with that failure, and the device's later mutations are refused.
+    async fn a_failed_append_answers_every_later_request(fixture: &broker::Fixture) {
+        let journal = "acmeCo/disk/failed-append";
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
         // A replacement attachment fences this one out, so its next append fails.
-        let (_recorder, _replacement, _blocks) = fixture.recover(journal, None).await.unwrap();
+        let (_served_tx, _replacement, _blocks) = fixture.recover(journal, None).await.unwrap();
 
-        let mut finished = false;
-        let drained = writer
-            .drain_while(async {
-                // Offer mutations until the failed writer closes its channel.
-                while !matches!(
-                    recorder.try_send(broker::write(1, 0x11)),
-                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_))
-                ) {
-                    () = tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                }
-                finished = true;
-            })
-            .await;
+        // Offer mutations until the failed writer closes its channel.
+        while !matches!(
+            served_tx.try_send(broker::write(1, 0x11)),
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_))
+        ) {
+            () = tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
 
-        let out = [
-            format!("drained   {:#}", drained.unwrap_err()),
-            format!("finished  {finished}"),
-            format!("cancelled {}", writer.cancel.is_cancelled()),
+        let mut out = vec![
+            format!("cancelled       {}", writer.cancel.is_cancelled()),
+            format!(
+                "failure         {:?}",
+                writer.failure().map(|status| status.code())
+            ),
         ];
+        for what in ["prepare", "later prepare"] {
+            let err = writer.prepare().await.unwrap_err();
+            out.push(format!("{what:<16}{err:#}"));
+        }
         insta::assert_snapshot!(out.join("\n"), @"
-        drained   journal acmeCo/disk/failed-drain registers do not match (Aborted)
-        finished  true
-        cancelled true
+        cancelled       true
+        failure         Some(Aborted)
+        prepare         journal acmeCo/disk/failed-append registers do not match (Aborted)
+        later prepare   journal acmeCo/disk/failed-append registers do not match (Aborted)
         ");
     }
 
@@ -624,19 +666,18 @@ mod broker_test {
             ("acmeCo/disk/cancelled-empty", false),
             ("acmeCo/disk/cancelled", true),
         ] {
-            let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+            let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
             if has_delta {
-                recorder.try_send(broker::write(6, 0x33)).unwrap();
-                () = writer.drain_while(drains(&recorder)).await.unwrap();
+                served_tx.try_send(broker::write(6, 0x33)).unwrap();
+                () = drains(&served_tx).await;
             }
             () = writer.cancel.cancel();
 
-            let err =
-                tokio::time::timeout(std::time::Duration::from_secs(10), writer.prepare(false))
-                    .await
-                    .expect("a cancelled attachment answers rather than waiting")
-                    .expect_err("a cancelled attachment commits nothing");
+            let err = tokio::time::timeout(std::time::Duration::from_secs(10), writer.prepare())
+                .await
+                .expect("a cancelled attachment answers rather than waiting")
+                .expect_err("a cancelled attachment commits nothing");
 
             outcomes.push(format!("{journal:<29}{err:#}"));
         }
@@ -648,9 +689,9 @@ mod broker_test {
     }
 
     /// Wait for the writer to take every mutation the recording channel holds.
-    async fn drains(recorder: &broker::Recorder) {
+    async fn drains(served_tx: &broker::ServedTx) {
         for _ in 0..1000 {
-            if is_drained(recorder) {
+            if is_drained(served_tx) {
                 return;
             }
             () = tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -659,7 +700,7 @@ mod broker_test {
     }
 
     /// Whether the writer has taken every mutation the recording channel held.
-    fn is_drained(recorder: &broker::Recorder) -> bool {
-        recorder.capacity() == recorder.max_capacity()
+    fn is_drained(served_tx: &broker::ServedTx) -> bool {
+        served_tx.capacity() == served_tx.max_capacity()
     }
 }

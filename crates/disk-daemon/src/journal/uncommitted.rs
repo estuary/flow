@@ -54,30 +54,13 @@ impl UncommittedDelta {
         Ok(())
     }
 
-    /// Decode records in order, then clear the delta.
-    pub(super) fn drain(
-        &mut self,
-        mut each: impl FnMut(proto::DiskRecord) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
-        // Bytes read back and not yet unpacked.
-        let mut buf = bytes::BytesMut::new();
-        let mut offset = 0;
-
-        while offset != self.spilled {
-            let held = buf.len();
-            let len = std::cmp::min(READ_BYTES as u64, self.spilled - offset) as usize;
-            buf.resize(held + len, 0);
-
-            () = std::os::unix::fs::FileExt::read_exact_at(&self.file, &mut buf[held..], offset)
-                .context("reading back an uncommitted delta")?;
-            offset += len as u64;
-
-            () = unpack(&mut buf, &mut each)?;
+    /// Read the delta's records back in order.
+    pub(super) fn drain(&mut self) -> Drain<'_> {
+        Drain {
+            delta: self,
+            buf: bytes::BytesMut::new(),
+            offset: 0,
         }
-        () = unpack(&mut self.buffered, &mut each)?;
-        () = self.clear()?;
-
-        Ok(())
     }
 
     /// Drop buffered records and truncate the spill file without touching the image.
@@ -92,31 +75,73 @@ impl UncommittedDelta {
     }
 }
 
-/// Decode each complete record in `buf` and pass it to `each`. A trailing partial
-/// record stays in `buf`.
-fn unpack(
-    buf: &mut bytes::BytesMut,
-    each: &mut impl FnMut(proto::DiskRecord) -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    loop {
-        match fixed_framing::unpack::<proto::DiskRecord>(buf)
-            .expect("an uncommitted record decodes")
-        {
-            fixed_framing::Frame::Record { message, .. } => () = each(message)?,
-            fixed_framing::Frame::Desync { skipped } => {
-                panic!("{} unframed bytes in an uncommitted delta", skipped.len())
+/// Reads an uncommitted delta's records back, in the order they were held.
+pub(super) struct Drain<'a> {
+    /// The delta whose records are read back.
+    delta: &'a mut UncommittedDelta,
+    /// Bytes read back and not yet unpacked.
+    buf: bytes::BytesMut,
+    /// Spilled bytes read back so far.
+    offset: u64,
+}
+
+impl Drain<'_> {
+    /// The next record, or `None` once every record has been read and the delta is
+    /// cleared.
+    pub fn next(&mut self) -> anyhow::Result<Option<proto::DiskRecord>> {
+        loop {
+            if let Some(record) = unpack(&mut self.buf) {
+                return Ok(Some(record));
             }
-            fixed_framing::Frame::Incomplete => return Ok(()),
+
+            if self.offset != self.delta.spilled {
+                let held = self.buf.len();
+                let len = std::cmp::min(READ_BYTES as u64, self.delta.spilled - self.offset);
+                self.buf.resize(held + len as usize, 0);
+
+                () = std::os::unix::fs::FileExt::read_exact_at(
+                    &self.delta.file,
+                    &mut self.buf[held..],
+                    self.offset,
+                )
+                .context("reading back an uncommitted delta")?;
+                self.offset += len;
+
+                continue;
+            }
+
+            // Records spill whole, so the file ended at a record boundary, and the
+            // records held in memory follow it.
+            if !self.delta.buffered.is_empty() {
+                assert!(self.buf.is_empty(), "a spilled record was cut short");
+                self.buf = std::mem::take(&mut self.delta.buffered);
+
+                continue;
+            }
+
+            () = self.delta.clear()?;
+            return Ok(None);
         }
+    }
+}
+
+/// Decode the first record of `buf`, or `None` where it holds no whole record.
+fn unpack(buf: &mut bytes::BytesMut) -> Option<proto::DiskRecord> {
+    match fixed_framing::unpack::<proto::DiskRecord>(buf).expect("an uncommitted record decodes") {
+        fixed_framing::Frame::Record { message, .. } => Some(message),
+        fixed_framing::Frame::Desync { skipped } => {
+            panic!("{} unframed bytes in an uncommitted delta", skipped.len())
+        }
+        fixed_framing::Frame::Incomplete => None,
     }
 }
 
 #[cfg(test)]
 pub(super) mod test {
     use super::{READ_BYTES, SPILL_BYTES, UncommittedDelta};
+    use crate::BLOCK_SIZE;
     use crate::proto;
     use crate::test_support;
-    use crate::{BLOCK_SIZE, chunk};
     use proto_gazette::{fixed_framing, uuid};
     use std::fmt::Write as _;
 
@@ -127,23 +152,23 @@ pub(super) mod test {
     /// A record writing `blocks` blocks of `fill`, beginning at `block`. Nothing here
     /// sequences records, so every one is at the epoch.
     fn write(producer: uuid::Producer, block: u32, blocks: u32, fill: u8) -> proto::DiskRecord {
-        let data = bytes::Bytes::from(vec![fill; (blocks * BLOCK_SIZE) as usize]);
-        let chunks = chunk::encode_write(block, &data);
+        let chunk = test_support::write_chunk(block, blocks, fill);
 
-        test_support::record(producer, 0, uuid::Flags::CONTINUE_TXN, chunks)
+        test_support::record(producer, 0, uuid::Flags::CONTINUE_TXN, Some(chunk))
     }
 
     /// A record whose chunk carries `bytes` bytes of `fill`, which is how a case
     /// places its framing at an offset a block-aligned write could not reach.
     fn sized(producer: uuid::Producer, block: u32, bytes: usize, fill: u8) -> proto::DiskRecord {
-        let chunks = vec![proto::Chunk {
+        let chunk = proto::Chunk {
             block,
+            blocks: bytes.div_ceil(BLOCK_SIZE as usize) as u32,
             content: Some(proto::chunk::Content::Data(bytes::Bytes::from(vec![
                 fill;
                 bytes
             ]))),
-        }];
-        test_support::record(producer, 0, uuid::Flags::CONTINUE_TXN, chunks)
+        };
+        test_support::record(producer, 0, uuid::Flags::CONTINUE_TXN, Some(chunk))
     }
 
     /// Bytes `uncommitted` holds, in memory and spilled.
@@ -166,15 +191,19 @@ pub(super) mod test {
         }
     }
 
-    /// Drain `held`, collecting what it hands back and the failure, if any, which
-    /// stopped it.
+    /// Drain `uncommitted`, collecting what it hands back and the failure, if any,
+    /// which stopped it.
     fn drained(uncommitted: &mut UncommittedDelta) -> (Vec<proto::DiskRecord>, anyhow::Result<()>) {
+        let mut drain = uncommitted.drain();
         let mut records = Vec::new();
 
-        let result = uncommitted.drain(|record| {
-            records.push(record);
-            Ok(())
-        });
+        let result = loop {
+            match drain.next() {
+                Ok(Some(record)) => records.push(record),
+                Ok(None) => break Ok(()),
+                Err(err) => break Err(err),
+            }
+        };
         (records, result)
     }
 
@@ -216,11 +245,11 @@ pub(super) mod test {
             writeln!(trace, "spill past {spill_bytes:<9}{step}").unwrap();
         }
         insta::assert_snapshot!(trace, @"
-        spill past 0        hold         held 821852  file 821852
+        spill past 0        hold         held 826350  file 826350
         spill past 0        drained 200  held 0       file 0
-        spill past 196608   hold         held 821852  file 792942
+        spill past 196608   hold         held 826350  file 793296
         spill past 196608   drained 200  held 0       file 0
-        spill past 1048576  hold         held 821852  file 0
+        spill past 1048576  hold         held 826350  file 0
         spill past 1048576  drained 200  held 0       file 0
         ");
     }
@@ -318,9 +347,9 @@ pub(super) mod test {
         writeln!(trace, "{step}").unwrap();
 
         insta::assert_snapshot!(trace, @"
-        hold prior   held 12354   file 12354
+        hold prior   held 12358   file 12358
         drained 2    held 0       file 0
-        hold next    held 8260    file 8260
+        hold next    held 8264    file 8264
         drained 2    held 0       file 0
         ");
     }

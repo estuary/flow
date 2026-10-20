@@ -8,7 +8,7 @@ mod sequencer;
 mod uncommitted;
 mod writer;
 
-pub use lifecycle::{Promoted, Recovered, Standby};
+pub use lifecycle::Standby;
 pub use uncommitted::UncommittedDelta;
 pub use writer::Writer;
 

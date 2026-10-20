@@ -24,16 +24,16 @@ pub fn clock(ticks: u64) -> uuid::Clock {
     clock
 }
 
-/// A record of `producer` at `ticks`, carrying `chunks`.
+/// A record of `producer` at `ticks`, carrying `chunk`.
 pub fn record(
     producer: uuid::Producer,
     ticks: u64,
     flags: uuid::Flags,
-    chunks: Vec<proto::Chunk>,
+    chunk: Option<proto::Chunk>,
 ) -> proto::DiskRecord {
     proto::DiskRecord {
         uuid: bytes::Bytes::copy_from_slice(uuid::build(producer, clock(ticks), flags).as_bytes()),
-        chunks,
+        chunk,
         opens_horizon: false,
     }
 }
@@ -57,20 +57,41 @@ pub fn frame<'a>(records: impl IntoIterator<Item = &'a proto::DiskRecord>) -> by
     framed
 }
 
+/// A chunk writing `blocks` whole blocks of `fill` from `block`.
+pub fn write_chunk(block: u32, blocks: u32, fill: u8) -> proto::Chunk {
+    let data = vec![fill; (blocks * crate::BLOCK_SIZE) as usize];
+
+    proto::Chunk {
+        block,
+        blocks,
+        content: Some(proto::chunk::Content::Data(data.into())),
+    }
+}
+
+/// A chunk punching `blocks` blocks from `block`.
+pub fn punch_chunk(block: u32, blocks: u32) -> proto::Chunk {
+    proto::Chunk {
+        block,
+        blocks,
+        content: Some(proto::chunk::Content::Punch(proto::chunk::Punch {})),
+    }
+}
+
 /// Render chunk ranges and run-length encoded data for compact snapshots.
-pub fn render_chunk(chunk: &crate::proto::Chunk) -> String {
-    let range = crate::chunk::covered_blocks(chunk);
+pub fn render_chunk(chunk: &proto::Chunk) -> String {
     let what = match &chunk.content {
-        Some(crate::proto::chunk::Content::Data(data)) if data.is_empty() => {
-            "empty data (one zeroed block)".to_string()
-        }
-        Some(crate::proto::chunk::Content::Data(data)) => {
+        Some(proto::chunk::Content::Data(data)) if data.is_empty() => "zeroed".to_string(),
+        Some(proto::chunk::Content::Data(data)) => {
             format!("data len {} [{}]", data.len(), run_lengths(data))
         }
-        Some(crate::proto::chunk::Content::Punch(blocks)) => format!("punch {blocks}"),
+        Some(proto::chunk::Content::Punch(_)) => "punch".to_string(),
         None => "no content".to_string(),
     };
-    format!("blocks {}..{}: {what}", range.start, range.end)
+    format!(
+        "blocks {}..{}: {what}",
+        chunk.block,
+        chunk.block + chunk.blocks
+    )
 }
 
 /// Render bytes as runs of one value, such as `0xabx4096 0x00x4`.
@@ -88,23 +109,35 @@ pub fn run_lengths(data: &[u8]) -> String {
         .join(" ")
 }
 
-/// Each allocated block of `image`, paired with the byte it is filled with: a
-/// readable report of what a replay left allocated.
-pub fn allocated(image: &crate::image::Image) -> Vec<(u32, u8)> {
-    let mut block = vec![0u8; crate::BLOCK_SIZE as usize];
+/// The fill byte of each block which `chunks`, applied in order, leave allocated:
+/// the first byte of the block, as a disk recovered from them would hold it.
+pub fn fills<'a>(chunks: impl IntoIterator<Item = &'a proto::Chunk>) -> Vec<(u32, u8)> {
+    let block_size = crate::BLOCK_SIZE as usize;
+    let mut fills = std::collections::BTreeMap::new();
 
-    image
-        .allocated()
-        .iter_ones()
-        .map(|index| {
-            let index = index as u32;
-            image.read_at(index, &mut block).unwrap();
-            (index, block[0])
-        })
-        .collect()
+    for chunk in chunks {
+        let range = chunk.block..chunk.block + chunk.blocks;
+
+        match &chunk.content {
+            // The blocks past the data are zero.
+            Some(proto::chunk::Content::Data(data)) => {
+                for (index, block) in range.enumerate() {
+                    let fill = data.get(index * block_size).copied().unwrap_or(0);
+                    _ = fills.insert(block, fill);
+                }
+            }
+            Some(proto::chunk::Content::Punch(_)) => {
+                for block in range {
+                    _ = fills.remove(&block);
+                }
+            }
+            None => (),
+        }
+    }
+    fills.into_iter().collect()
 }
 
-/// Render `blocks`, as [`allocated`] reports them, as runs of consecutive blocks
+/// Render `blocks`, as [`fills`] reports them, as runs of consecutive blocks
 /// holding one fill byte.
 pub fn render_blocks(blocks: &[(u32, u8)]) -> String {
     let mut runs: Vec<(std::ops::Range<u32>, u8)> = Vec::new();
@@ -122,42 +155,4 @@ pub fn render_blocks(blocks: &[(u32, u8)]) -> String {
         .map(|(range, fill)| format!("{}..{} filled {fill:#04x}", range.start, range.end))
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-/// The recorded stream, replayed onto a fresh image, reproduces the image `served`:
-/// the same bytes in the same allocated blocks. This is why the local image is
-/// disposable.
-pub fn assert_replays_identically(
-    served: &crate::image::Image,
-    mutations: &[Vec<crate::proto::Chunk>],
-) {
-    let mut replayed = crate::image::Image::create(&std::env::temp_dir(), served.blocks()).unwrap();
-
-    for chunk in mutations.iter().flatten() {
-        _ = replayed.apply(chunk).unwrap();
-    }
-    assert_eq!(
-        served.allocated(),
-        replayed.allocated(),
-        "the replay tracked other blocks",
-    );
-
-    assert_eq!(
-        first_difference(served, &replayed),
-        None,
-        "the replay differs from the image served",
-    );
-}
-
-/// Block at which two images first differ, which names where a replay went wrong
-/// instead of dumping either image.
-fn first_difference(left: &crate::image::Image, right: &crate::image::Image) -> Option<u32> {
-    let block_size = crate::BLOCK_SIZE as usize;
-    let (mut left_buf, mut right_buf) = (vec![0u8; block_size], vec![0u8; block_size]);
-
-    (0..left.blocks()).find(|&block| {
-        () = left.read_at(block, &mut left_buf).unwrap();
-        () = right.read_at(block, &mut right_buf).unwrap();
-        left_buf != right_buf
-    })
 }

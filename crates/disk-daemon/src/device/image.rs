@@ -1,7 +1,19 @@
+use crate::proto;
+
+/// One bit per device block, used for allocation and pending horizon copies.
+/// Plain words suffice because each bitmap has one owner. Block indices fit
+/// `u32`; `Open` rejects larger devices.
+pub type Bitmap = bitvec::vec::BitVec<u64, bitvec::order::Lsb0>;
+
 /// An image and the bitmap which tracks what it has allocated.
 pub struct Image {
+    /// Sparse file of the disk's blocks, where each unallocated block is a hole.
     file: std::fs::File,
+    /// Blocks which hold data rather than a hole.
     allocated: Bitmap,
+    /// Set bits of `allocated`, kept as it changes. Counting them would scan the
+    /// whole bitmap, and the device weighs this at every write.
+    allocated_blocks: u64,
 }
 
 impl Image {
@@ -22,15 +34,17 @@ impl Image {
         Self {
             file,
             allocated: Bitmap::repeat(false, blocks as usize),
+            allocated_blocks: 0,
         }
-    }
-
-    pub fn blocks(&self) -> u32 {
-        self.allocated.len() as u32
     }
 
     pub fn allocated(&self) -> &Bitmap {
         &self.allocated
+    }
+
+    /// Bytes of the blocks this image has allocated.
+    pub fn allocated_bytes(&self) -> u64 {
+        self.allocated_blocks * crate::BLOCK_SIZE as u64
     }
 
     /// Read blocks back, which serves a device read, copies a horizon run out of the
@@ -39,70 +53,51 @@ impl Image {
         std::os::unix::fs::FileExt::read_exact_at(&self.file, buf, self.offset(block))
     }
 
-    /// Write whole blocks, and record them allocated. This applies a device write.
-    pub fn write_at(&mut self, block: u32, data: &[u8]) -> std::io::Result<()> {
-        let blocks = data.len() / crate::BLOCK_SIZE as usize;
+    /// Apply `chunk`, as a device write, punch, or copy does and as a recovery does:
+    /// write its data and zero the rest of its range, or deallocate the range.
+    /// Returns the blocks it covers.
+    pub fn apply(&mut self, chunk: &proto::Chunk) -> std::io::Result<std::ops::Range<u32>> {
+        /// The zeroes after a chunk's data, which is never longer than the largest
+        /// device request or horizon copy.
+        static ZEROES: [u8; super::ublk::MAX_IO_BUF_BYTES as usize] =
+            [0; super::ublk::MAX_IO_BUF_BYTES as usize];
 
-        std::os::unix::fs::FileExt::write_all_at(&self.file, data, self.offset(block))?;
-        self.allocated[block as usize..block as usize + blocks].fill(true);
-        Ok(())
-    }
+        let range = chunk.block..chunk.block + chunk.blocks;
+        let (offset, len) = (
+            self.offset(range.start),
+            range.len() * crate::BLOCK_SIZE as usize,
+        );
 
-    /// Deallocate `blocks` blocks from `block`, and record them unallocated. This
-    /// applies a device discard or write-zeroes.
-    pub fn punch(&mut self, block: u32, blocks: u32) -> std::io::Result<()> {
-        // `FALLOC_FL_KEEP_SIZE` keeps the image's size, which is the device's capacity.
-        // SAFETY: `self.file` keeps the descriptor open across the call, and
-        // fallocate reads no user memory.
-        let rc = unsafe {
-            libc::fallocate(
-                std::os::fd::AsRawFd::as_raw_fd(&self.file),
-                libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
-                self.offset(block) as libc::off_t,
-                (blocks as u64 * crate::BLOCK_SIZE as u64) as libc::off_t,
-            )
-        };
-        if rc != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        self.allocated[block as usize..(block + blocks) as usize].fill(false);
-        Ok(())
-    }
+        // Taken before anything is written, so a range past the disk panics having
+        // changed nothing.
+        let bits = &mut self.allocated[range.start as usize..range.end as usize];
+        let before = bits.count_ones() as u64;
 
-    /// Apply a chunk replayed from the journal. Returns the blocks it covers.
-    pub fn apply(&mut self, chunk: &crate::proto::Chunk) -> std::io::Result<std::ops::Range<u32>> {
-        use crate::proto;
-
-        /// A trimmed tail is at most one block.
-        static ZEROES: [u8; crate::BLOCK_SIZE as usize] = [0; crate::BLOCK_SIZE as usize];
-
-        let range = crate::chunk::covered_blocks(chunk);
-
-        let data = match chunk
+        let allocated = match chunk
             .content
             .as_ref()
             .expect("a journaled chunk has content")
         {
-            proto::chunk::Content::Punch(blocks) => {
-                () = self.punch(range.start, *blocks)?;
-                return Ok(range);
+            // The zeroes overwrite whatever an earlier chunk left in the range.
+            proto::chunk::Content::Data(data) => {
+                let mut bufs = [
+                    std::io::IoSlice::new(data),
+                    std::io::IoSlice::new(&ZEROES[..len - data.len()]),
+                ];
+                () = write_all_at(&self.file, &mut bufs, offset)?;
+                true
             }
-            proto::chunk::Content::Data(data) => data,
+            proto::chunk::Content::Punch(_) => {
+                () = punch(&self.file, offset, len as u64)?;
+                false
+            }
         };
-        let offset = self.offset(range.start);
-        let len = (range.end - range.start) as u64 * crate::BLOCK_SIZE as u64;
+        bits.fill(allocated);
 
-        // Without zeroing the trimmed remainder, the tail of a block would keep
-        // whatever an earlier chunk left there.
-        let pad = len - data.len() as u64;
-        std::os::unix::fs::FileExt::write_all_at(&self.file, data, offset)?;
-        std::os::unix::fs::FileExt::write_all_at(
-            &self.file,
-            &ZEROES[..pad as usize],
-            offset + data.len() as u64,
-        )?;
-
-        self.allocated[range.start as usize..range.end as usize].fill(true);
+        self.allocated_blocks = match allocated {
+            true => self.allocated_blocks + range.len() as u64 - before,
+            false => self.allocated_blocks - before,
+        };
         Ok(range)
     }
 
@@ -112,15 +107,64 @@ impl Image {
     }
 }
 
-/// One bit per device block, used for allocation and pending horizon copies.
-/// Plain words suffice because each bitmap has one owner. Block indices fit
-/// `u32`; `Open` rejects larger devices.
-pub type Bitmap = bitvec::vec::BitVec<u64, bitvec::order::Lsb0>;
+/// Write every byte of `bufs`, in order, at `offset` of `file`, in one `pwritev`
+/// unless the kernel takes fewer bytes than asked.
+fn write_all_at(
+    file: &std::fs::File,
+    mut bufs: &mut [std::io::IoSlice<'_>],
+    mut offset: u64,
+) -> std::io::Result<()> {
+    while !bufs.is_empty() {
+        // SAFETY: `IoSlice` is ABI-compatible with `iovec`, and `bufs` and `file`
+        // outlive the call.
+        let written = unsafe {
+            libc::pwritev(
+                std::os::fd::AsRawFd::as_raw_fd(file),
+                bufs.as_ptr().cast(),
+                bufs.len() as libc::c_int,
+                offset as libc::off_t,
+            )
+        };
+        if written < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        if written == 0 {
+            return Err(std::io::ErrorKind::WriteZero.into());
+        }
+        offset += written as u64;
+        std::io::IoSlice::advance_slices(&mut bufs, written as usize);
+    }
+    Ok(())
+}
+
+/// Deallocate `len` bytes of `file` from `offset`.
+fn punch(file: &std::fs::File, offset: u64, len: u64) -> std::io::Result<()> {
+    // `FALLOC_FL_KEEP_SIZE` keeps the image's size, which is the device's capacity.
+    // SAFETY: `file` keeps the descriptor open across the call, and fallocate reads
+    // no user memory.
+    let rc = unsafe {
+        libc::fallocate(
+            std::os::fd::AsRawFd::as_raw_fd(file),
+            libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
+            offset as libc::off_t,
+            len as libc::off_t,
+        )
+    };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod test {
     use super::Image;
     use crate::BLOCK_SIZE;
+    use crate::device::chunk;
     use crate::test_support;
     use std::fmt::Write as _;
 
@@ -160,7 +204,7 @@ mod test {
 
         let fresh = format!(
             "blocks {}, file len {}, st_blocks {}, directory entries {}\n{}",
-            image.blocks(),
+            image.allocated().len(),
             metadata.len(),
             std::os::unix::fs::MetadataExt::blocks(&metadata),
             std::fs::read_dir(dir.path()).unwrap().count(),
@@ -179,27 +223,26 @@ mod test {
         let mut image = image(&dir);
         let mut trace = String::new();
 
-        image
-            .write_at(5, &vec![0xab; 3 * BLOCK_SIZE as usize])
-            .unwrap();
+        let data = bytes::Bytes::from(vec![0xab; 3 * BLOCK_SIZE as usize]);
+        _ = image.apply(&chunk::encode_write(5, &data)).unwrap();
         writeln!(
             trace,
-            "write_at(5, 3 blocks of 0xab): {}",
+            "write 5, 3 blocks of 0xab: {}",
             readout(&image, 5..8)
         )
         .unwrap();
 
         // A punch of the middle block clears only its bit. That block reads back
         // as zeroes, and its neighbours are untouched.
-        image.punch(6, 1).unwrap();
-        writeln!(trace, "punch(6, 1): {}", readout(&image, 5..8)).unwrap();
+        _ = image.apply(&chunk::encode_punch(6, 1)).unwrap();
+        writeln!(trace, "punch 6, 1 block: {}", readout(&image, 5..8)).unwrap();
 
         insta::assert_snapshot!(trace, @"
-        write_at(5, 3 blocks of 0xab): allocated [5, 6, 7]
+        write 5, 3 blocks of 0xab: allocated [5, 6, 7]
           block 5: 0xabx4096
           block 6: 0xabx4096
           block 7: 0xabx4096
-        punch(6, 1): allocated [5, 7]
+        punch 6, 1 block: allocated [5, 7]
           block 5: 0xabx4096
           block 6: 0x00x4096
           block 7: 0xabx4096
@@ -211,17 +254,19 @@ mod test {
         let dir = tempfile::tempdir().unwrap();
         let mut image = image(&dir);
 
-        image.write_at(0, &vec![1; BLOCK_SIZE as usize]).unwrap();
-        image.punch(10, 20).unwrap();
+        let data = bytes::Bytes::from(vec![1; BLOCK_SIZE as usize]);
+        _ = image.apply(&chunk::encode_write(0, &data)).unwrap();
+        _ = image.apply(&chunk::encode_punch(10, 20)).unwrap();
 
         assert_eq!(image.allocated().iter_ones().collect::<Vec<_>>(), vec![0]);
+        assert_eq!(image.allocated_bytes(), BLOCK_SIZE as u64);
     }
 
     /// Replay and its round-trip against a direct mutation of a real sparse file.
     mod replay {
         use super::super::Image;
         use crate::BLOCK_SIZE;
-        use crate::chunk;
+        use crate::device::chunk;
         use crate::proto;
         use std::fmt::Write as _;
 
@@ -238,11 +283,8 @@ mod test {
 
             // Two blocks of content, then a ten-byte rewrite of the first block.
             // The trimmed tail of the rewrite must not keep the older value.
-            for chunk in
-                chunk::encode_write(0, &bytes::Bytes::from(vec![0xaa; 2 * BLOCK_SIZE as usize]))
-            {
-                image.apply(&chunk).unwrap();
-            }
+            let data = bytes::Bytes::from(vec![0xaa; 2 * BLOCK_SIZE as usize]);
+            _ = image.apply(&chunk::encode_write(0, &data)).unwrap();
             writeln!(
                 trace,
                 "two blocks of 0xaa: {}",
@@ -250,9 +292,10 @@ mod test {
             )
             .unwrap();
 
-            image
+            _ = image
                 .apply(&proto::Chunk {
                     block: 0,
+                    blocks: 1,
                     content: Some(proto::chunk::Content::Data(bytes::Bytes::from_static(
                         b"0123456789",
                     ))),
@@ -392,19 +435,20 @@ mod test {
             extents
         }
 
-        /// Apply each operation directly to an image over a named sparse file, and its
-        /// chunk encoding to another image. The two must then agree on their content, the image's tracked
-        /// allocation must match what the operations allocated, and the filesystem
-        /// must report both as allocated alike.
+        /// Apply each operation directly to a named sparse file with plain file
+        /// operations, and its chunk encoding to an image. The two must then agree on
+        /// their content, the image's tracked allocation must match what the
+        /// operations allocated, and the filesystem must report both as allocated
+        /// alike.
         fn replays_identically(Ops(ops): Ops) -> bool {
             let dir = tempfile::tempdir().unwrap();
-            let mut direct = Image::from_file(sparse_file(&dir, "direct"), DEVICE_BLOCKS);
+            let direct = sparse_file(&dir, "direct");
             let mut replayed = Image::create(dir.path(), DEVICE_BLOCKS).unwrap();
 
             let mut expected = std::collections::BTreeSet::new();
 
             for op in &ops {
-                let chunks = match op {
+                let chunk = match op {
                     Op::Write {
                         block,
                         blocks,
@@ -412,24 +456,27 @@ mod test {
                         zero_tail,
                     } => {
                         let data = patterned_data(*blocks, *fill, *zero_tail);
-                        direct.write_at(*block, &data).unwrap();
+                        let offset = *block as u64 * BLOCK_SIZE as u64;
+                        std::os::unix::fs::FileExt::write_all_at(&direct, &data, offset).unwrap();
                         expected.extend(*block..*block + *blocks);
 
                         chunk::encode_write(*block, &data)
                     }
                     // The daemon encodes both requests as a punch, so the direct
-                    // image punches too.
+                    // file is punched too.
                     Op::Discard { block, blocks } | Op::WriteZeroes { block, blocks } => {
-                        direct.punch(*block, *blocks).unwrap();
+                        let (offset, len) = (
+                            *block as u64 * BLOCK_SIZE as u64,
+                            *blocks as u64 * BLOCK_SIZE as u64,
+                        );
+                        () = super::super::punch(&direct, offset, len).unwrap();
                         for block in *block..*block + *blocks {
                             expected.remove(&block);
                         }
-                        vec![chunk::encode_punch(*block, *blocks)]
+                        chunk::encode_punch(*block, *blocks)
                     }
                 };
-                for chunk in &chunks {
-                    replayed.apply(chunk).unwrap();
-                }
+                _ = replayed.apply(&chunk).unwrap();
             }
 
             let mut content = vec![0; DEVICE_BLOCKS as usize * BLOCK_SIZE as usize];
@@ -448,10 +495,15 @@ mod test {
                 expected.iter().copied().collect::<Vec<_>>(),
                 "allocated bitmap differs: {ops:?}"
             );
+            assert_eq!(
+                replayed.allocated_bytes(),
+                expected.len() as u64 * BLOCK_SIZE as u64,
+                "allocated bytes differ: {ops:?}"
+            );
 
             let extents = data_extents(&replayed.file);
             assert_eq!(
-                data_extents(&direct.file),
+                data_extents(&direct),
                 extents,
                 "filesystem allocation differs: {ops:?}"
             );

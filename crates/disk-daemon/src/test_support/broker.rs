@@ -1,8 +1,8 @@
 use crate::proto;
 use proto_gazette::{broker, fixed_framing, uuid};
 
-/// Blocks of the images these scenarios replay into. A journal scenario asserts which
-/// blocks a replay left allocated, so a small disk keeps that report readable.
+/// Blocks of the disks these scenarios write. A journal scenario asserts which
+/// blocks a recovery left allocated, so a small disk keeps that report readable.
 pub const BLOCKS: u32 = 64;
 
 pub struct Fixture {
@@ -48,65 +48,72 @@ impl Fixture {
 
     /// Open, fence, and promote `journal` as an attachment does. Return its writer and
     /// the recording channel that feeds it.
-    pub async fn open(&self, journal: &str) -> anyhow::Result<(Recorder, crate::journal::Writer)> {
-        let (recorder, writer, _blocks) = self.recover(journal, None).await?;
+    pub async fn open(&self, journal: &str) -> anyhow::Result<(ServedTx, crate::journal::Writer)> {
+        let (served_tx, writer, _blocks) = self.recover(journal, None).await?;
 
-        Ok((recorder, writer))
+        Ok((served_tx, writer))
     }
 
-    /// [`Fixture::open`], reporting the fill byte of every block the replay left
-    /// allocated.
+    /// `Fixture::open`, repairing `ack`, and reporting the fill byte of every block the
+    /// recovery left allocated.
     pub async fn recover(
         &self,
         journal: &str,
         ack: Option<bytes::Bytes>,
-    ) -> anyhow::Result<(Recorder, crate::journal::Writer, Vec<(u32, u8)>)> {
-        let (promoted, blocks) = self.promote(journal, ack).await?;
-        let (recorder, recorded) = tokio::sync::mpsc::channel(64);
+    ) -> anyhow::Result<(ServedTx, crate::journal::Writer, Vec<(u32, u8)>)> {
+        let (standby, rebuilding) = self.standby(journal).await?;
+        let (promoted, replayed_tx) = standby.promote(ack).await?;
 
-        Ok((recorder, promoted.into_writer(recorded), blocks))
-    }
+        // A device would take its kernel device now. This one has nothing to take.
+        drop(replayed_tx);
+        let blocks = rebuilding.await?;
 
-    /// Open, fence, and promote `journal` as an attachment does, repairing `ack`, and
-    /// report the fill byte of every block the replay left allocated.
-    pub async fn promote(
-        &self,
-        journal: &str,
-        ack: Option<bytes::Bytes>,
-    ) -> anyhow::Result<(crate::journal::Promoted, Vec<(u32, u8)>)> {
-        let standby = self.standby(journal).await?;
-        let (promoted, recovered) = standby.promote(ack).await?;
-
-        Ok((promoted, super::allocated(&recovered.image)))
+        let (served_tx, served_rx) = tokio::sync::mpsc::channel(64);
+        Ok((served_tx, promoted.into_writer(served_rx), blocks))
     }
 
     /// Open `journal` and play it back to its head, having created it from
-    /// [`Fixture::spec`] as a deployment's activation would.
-    pub async fn standby(&self, journal: &str) -> anyhow::Result<crate::journal::Standby> {
+    /// `Fixture::spec` as a deployment's activation would.
+    pub async fn standby(
+        &self,
+        journal: &str,
+    ) -> anyhow::Result<(crate::journal::Standby, Rebuilding)> {
         () = self.create_journal(self.spec(journal)).await?;
 
         self.standby_uncreated(journal).await
     }
 
-    /// [`Fixture::standby`], creating nothing, for a scenario which staged a journal
+    /// `Fixture::standby`, creating nothing, for a scenario which staged a journal
     /// of its own — or which stages none at all.
     pub async fn standby_uncreated(
         &self,
         journal: &str,
-    ) -> anyhow::Result<crate::journal::Standby> {
-        // The image outlives its directory, having no directory entry of its own.
+    ) -> anyhow::Result<(crate::journal::Standby, Rebuilding)> {
+        // The delta outlives its directory, having no directory entry of its own.
         let dir = tempfile::tempdir()?;
-        let image = crate::image::Image::create(dir.path(), BLOCKS)?;
         let uncommitted = crate::journal::UncommittedDelta::create(dir.path())?;
 
-        crate::journal::Standby::new(
+        // In place of a device, collect what the standby recovers.
+        let (replayed_tx, mut replayed_rx) = tokio::sync::mpsc::channel::<(proto::Chunk, bool)>(16);
+        let rebuilding = tokio::spawn(async move {
+            let mut chunks = Vec::new();
+
+            while let Some((chunk, _opens_horizon)) = replayed_rx.recv().await {
+                chunks.push(chunk);
+            }
+            super::fills(&chunks)
+        });
+
+        let standby = crate::journal::Standby::new(
             &self.daemon_brokers,
             journal.to_string(),
             tokio_util::sync::CancellationToken::new(),
-            image,
+            replayed_tx,
             uncommitted,
         )
-        .await
+        .await?;
+
+        Ok((standby, rebuilding))
     }
 
     /// Use uncompressed fragments for scenarios inspecting raw records.
@@ -239,23 +246,25 @@ impl Fixture {
     }
 }
 
-/// The scenario's end of a writer's recording channel, where a device would be.
-pub type Recorder = tokio::sync::mpsc::Sender<crate::device::Mutation>;
+/// The fill byte of every block a standby's replayed chunks leave allocated, once
+/// their sender is dropped.
+pub type Rebuilding = tokio::task::JoinHandle<Vec<(u32, u8)>>;
 
-/// `chunks` as one recorded mutation, which opens no horizon.
-pub fn mutation(chunks: Vec<proto::Chunk>) -> crate::device::Mutation {
+/// The scenario's end of a writer's recording channel, where a device would be.
+pub type ServedTx = tokio::sync::mpsc::Sender<crate::device::Mutation>;
+
+/// `chunk` as one served mutation, which neither opens nor discharges a horizon.
+pub fn mutation(chunk: proto::Chunk) -> crate::device::Mutation {
     crate::device::Mutation {
-        chunks,
+        chunk,
         opens_horizon: false,
+        discharges_horizon: false,
     }
 }
 
 /// One block of `fill`, as a device records a write of it.
 pub fn write(block: u32, fill: u8) -> crate::device::Mutation {
-    mutation(crate::chunk::encode_write(
-        block,
-        &bytes::Bytes::from(vec![fill; crate::BLOCK_SIZE as usize]),
-    ))
+    mutation(super::write_chunk(block, 1, fill))
 }
 
 /// A journal's parsed UUID: who wrote a record, when, and what it is.
@@ -282,7 +291,7 @@ pub fn render(records: &[(UuidParts, proto::DiskRecord)]) -> String {
             } else {
                 "continue"
             };
-            let mut carries: Vec<String> = record.chunks.iter().map(super::render_chunk).collect();
+            let mut carries: Vec<String> = record.chunk.iter().map(super::render_chunk).collect();
 
             if record.opens_horizon {
                 carries.push("opens a horizon".to_string());

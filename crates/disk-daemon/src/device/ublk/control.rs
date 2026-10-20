@@ -1,8 +1,8 @@
 //! Commands to `/dev/ublk-control`, which query the driver's features, and add,
 //! configure, start, stop, and delete ublk devices. Each is an io_uring
 //! `URING_CMD`, submitted on a private ring and awaited before returning, so
-//! commands run one at a time. The daemon opens one [`Control`] and shares it
-//! across disks.
+//! commands run one at a time. Each device opens a [`Control`] of its own as it
+//! opens, which it holds to add, start, stop, and delete its kernel device.
 
 use super::sys;
 use anyhow::Context;

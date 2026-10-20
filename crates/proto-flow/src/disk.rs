@@ -103,49 +103,56 @@ pub struct Acknowledged {}
 /// DiskRecord is the sole record type in a disk journal, encoded with Gazette's
 /// fixed protobuf framing. UUID clocks and flags distinguish fences from deltas:
 ///
-/// * A fence is its author's OUTSIDE_TXN record at clock zero, with no chunks.
-/// * A delta is one or more CONTINUE_TXN records, committed by an ACK_TXN
-///   record with no chunks.
+/// * A fence is its author's OUTSIDE_TXN record at clock zero, with no chunk.
+/// * A delta is one or more CONTINUE_TXN records, each carrying a chunk,
+///   committed by an ACK_TXN record with no chunk.
 ///
 /// Replay sequences records by producer and clock, ignores duplicate UUIDs,
 /// and applies only acknowledged deltas.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DiskRecord {
     /// Gazette UUID carrying a producer, clock, and transaction flags.
     #[prost(bytes = "bytes", tag = "1")]
     pub uuid: ::prost::bytes::Bytes,
-    /// Block changes in journal order; the last change to each block wins.
-    #[prost(message, repeated, tag = "2")]
-    pub chunks: ::prost::alloc::vec::Vec<Chunk>,
-    /// Opens a recovery horizon at this record's offset. Set only on a delta's
-    /// first record, and effective only when that delta is acknowledged.
+    /// Block change of a CONTINUE_TXN record. Records apply in journal order, so
+    /// the last change to each block wins.
+    #[prost(message, optional, tag = "2")]
+    pub chunk: ::core::option::Option<Chunk>,
+    /// Opens a recovery horizon at this record's offset. It may be set on any
+    /// record, and is effective only when that record's delta is acknowledged.
     ///
     /// Recovery may start here once committed chunks at or after this offset cover
-    /// every block allocated before the delta.
+    /// every block allocated before this record.
     #[prost(bool, tag = "3")]
     pub opens_horizon: bool,
 }
-/// Chunk updates contiguous 4096-byte device blocks.
+/// Chunk changes a range of contiguous 4096-byte device blocks.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Chunk {
-    /// Starting block index.
+    /// First block of the range.
     #[prost(uint32, tag = "1")]
     pub block: u32,
-    #[prost(oneof = "chunk::Content", tags = "2, 3")]
+    /// Blocks the range covers, at least one.
+    #[prost(uint32, tag = "2")]
+    pub blocks: u32,
+    #[prost(oneof = "chunk::Content", tags = "3, 4")]
     pub content: ::core::option::Option<chunk::Content>,
 }
 /// Nested message and enum types in `Chunk`.
 pub mod chunk {
+    /// Deallocates the range.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Punch {}
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Content {
-        /// Writes and allocates `max(1, ceil(len(data) / 4096))` blocks, starting at
-        /// block. Trailing zeroes are omitted; replay zero-fills the last block's
-        /// unused suffix. Empty data represents one allocated zero block.
-        #[prost(bytes, tag = "2")]
+        /// Written from `block`, allocating the range. The rest of the range past the
+        /// data is zeroed, so trailing zeroes are omitted, and empty data allocates
+        /// zeroed blocks.
+        #[prost(bytes, tag = "3")]
         Data(::prost::bytes::Bytes),
-        /// Number of blocks to deallocate, used for discard and write-zeroes.
-        /// Unallocated blocks read as zeroes.
-        #[prost(uint32, tag = "3")]
-        Punch(u32),
+        /// Deallocates the range, for discard and write-zeroes. Unallocated blocks
+        /// read as zeroes.
+        #[prost(message, tag = "4")]
+        Punch(Punch),
     }
 }

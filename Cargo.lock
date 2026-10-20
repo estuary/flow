@@ -3138,6 +3138,7 @@ dependencies = [
  "io-uring",
  "labels",
  "libc",
+ "prost",
  "proto-flow",
  "proto-gazette",
  "proto-grpc",

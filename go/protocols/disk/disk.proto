@@ -88,37 +88,43 @@ message Acknowledged {}
 // DiskRecord is the sole record type in a disk journal, encoded with Gazette's
 // fixed protobuf framing. UUID clocks and flags distinguish fences from deltas:
 //
-//   - A fence is its author's OUTSIDE_TXN record at clock zero, with no chunks.
-//   - A delta is one or more CONTINUE_TXN records, committed by an ACK_TXN
-//     record with no chunks.
+//   - A fence is its author's OUTSIDE_TXN record at clock zero, with no chunk.
+//   - A delta is one or more CONTINUE_TXN records, each carrying a chunk,
+//     committed by an ACK_TXN record with no chunk.
 //
 // Replay sequences records by producer and clock, ignores duplicate UUIDs,
 // and applies only acknowledged deltas.
 message DiskRecord {
   // Gazette UUID carrying a producer, clock, and transaction flags.
   bytes uuid = 1;
-  // Block changes in journal order; the last change to each block wins.
-  repeated Chunk chunks = 2;
-  // Opens a recovery horizon at this record's offset. Set only on a delta's
-  // first record, and effective only when that delta is acknowledged.
+  // Block change of a CONTINUE_TXN record. Records apply in journal order, so
+  // the last change to each block wins.
+  Chunk chunk = 2;
+  // Opens a recovery horizon at this record's offset. It may be set on any
+  // record, and is effective only when that record's delta is acknowledged.
   //
   // Recovery may start here once committed chunks at or after this offset cover
-  // every block allocated before the delta.
+  // every block allocated before this record.
   bool opens_horizon = 3;
 }
 
-// Chunk updates contiguous 4096-byte device blocks.
+// Chunk changes a range of contiguous 4096-byte device blocks.
 message Chunk {
-  // Starting block index.
+  // First block of the range.
   uint32 block = 1;
+  // Blocks the range covers, at least one.
+  uint32 blocks = 2;
+
+  // Deallocates the range.
+  message Punch {}
 
   oneof content {
-    // Writes and allocates `max(1, ceil(len(data) / 4096))` blocks, starting at
-    // block. Trailing zeroes are omitted; replay zero-fills the last block's
-    // unused suffix. Empty data represents one allocated zero block.
-    bytes data = 2;
-    // Number of blocks to deallocate, used for discard and write-zeroes.
-    // Unallocated blocks read as zeroes.
-    uint32 punch = 3;
+    // Written from `block`, allocating the range. The rest of the range past the
+    // data is zeroed, so trailing zeroes are omitted, and empty data allocates
+    // zeroed blocks.
+    bytes data = 3;
+    // Deallocates the range, for discard and write-zeroes. Unallocated blocks
+    // read as zeroes.
+    Punch punch = 4;
   }
 }

@@ -35,9 +35,10 @@ async fn disk_pruning() {
     fixture.stop().await;
 }
 
-/// A disk's journal carries no floor until sustained traffic completes a
-/// horizon, and the acknowledgement which completes one stores its floor on the
-/// journal.
+/// Sustained traffic completes horizons, and the acknowledgement which completes
+/// one stores its floor on the journal. A horizon opens wherever replay bytes pass
+/// the threshold, so the first commit, which writes several megabytes, may
+/// already have completed one.
 async fn fragments_below_the_stored_floor_can_be_deleted(
     fixture: &support::Fixture,
     daemon: &support::Daemon,
@@ -53,9 +54,8 @@ async fn fragments_below_the_stored_floor_can_be_deleted(
 
     () = committed.write(&mount.join("data"));
     _ = support::commit(&mut disk).await;
-    assert_eq!(fixture.stored_floor(journal).await, None);
 
-    let mut floor = None;
+    let mut floor = fixture.stored_floor(journal).await;
 
     for _ in 0..2 {
         let mut advanced = None;

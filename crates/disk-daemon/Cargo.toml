@@ -29,6 +29,7 @@ clap = { workspace = true }
 futures = { workspace = true }
 io-uring = { workspace = true }
 libc = { workspace = true }
+prost = { workspace = true }
 rand = { workspace = true }
 rustls = { workspace = true }
 thiserror = { workspace = true }

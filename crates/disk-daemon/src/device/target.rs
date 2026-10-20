@@ -1,356 +1,201 @@
-use super::queue;
-use super::recording;
-use crate::horizon;
-use crate::image;
+use super::chunk;
+use super::horizon;
+use super::image;
+use super::ublk;
 use crate::proto;
-use crate::ublk;
+use anyhow::Context;
 
-/// The disk's ublk target, which answers its requests and records each mutation
-/// for the journal writer.
+/// Most blocks one horizon copy reads, so a copy is a mutation of the same order as
+/// the largest device request.
+const COPY_BLOCKS: u32 = ublk::MAX_IO_BUF_BYTES / crate::BLOCK_SIZE;
+
+/// A disk's image and recovery horizon. A rebuilder thread replays the journal's
+/// chunks into them, and then the owner serves the disk's requests from them. Both
+/// apply chunks alike.
 pub(super) struct Target {
-    /// Kernel device ID, which names this disk in logs and errors.
-    dev_id: u32,
-    /// The disk's content, which reads are served from and mutations applied to.
+    /// The disk's content, which reads are served from and chunks applied to.
     image: image::Image,
-    /// Mutation channel to the journal writer.
-    recorder: recording::Recorder,
-    /// Mutations waiting for room, or for a cut to end, oldest first.
-    parked: std::collections::VecDeque<(u16, Change)>,
-    /// Whether a mutation is admitted now, and whether a cut may close admission.
-    admission: Admission,
     /// The horizon this disk is discharging, held only while one is open.
     horizon: Option<horizon::Horizon>,
     /// Horizon opening thresholds and copy budget.
-    policy: horizon::Policy,
-    /// The next delta's journal range above the floor, which decides whether it
-    /// opens a horizon.
-    range: u64,
-    /// Whether the delta since the last cut has recorded anything.
-    recorded: bool,
+    horizon_policy: horizon::Policy,
+    /// Encoded chunk bytes applied since the recovery floor, which a replay from
+    /// the floor reads, and which decide whether a horizon opens.
+    replay_bytes: u64,
 }
 
 impl Target {
-    /// `horizon` resumes any horizon left open by replay.
-    pub fn new(
-        dev_id: u32,
-        image: image::Image,
-        recorder: recording::Recorder,
-        horizon: Option<horizon::Horizon>,
-        policy: horizon::Policy,
-    ) -> Self {
+    pub fn new(image: image::Image, horizon_policy: horizon::Policy) -> Self {
         Self {
-            dev_id,
             image,
-            recorder,
-            parked: std::collections::VecDeque::new(),
-            admission: Admission::Open,
-            horizon,
-            policy,
-            range: 0,
-            recorded: false,
+            horizon: None,
+            horizon_policy,
+            replay_bytes: 0,
         }
     }
 
-    /// Handle a request. A read is answered at once.
-    pub fn on_request(
-        &mut self,
-        tag: u16,
-        request: queue::Request,
-        replies: &mut Vec<(u16, queue::Reply)>,
-    ) {
-        let change = match request {
-            queue::Request::Read(range) => return replies.push((tag, self.read(range))),
-            queue::Request::Write { start, data } => Change::Write { start, data },
-            queue::Request::Punch(range) => Change::Punch(range),
-        };
-        self.parked.push_back((tag, change))
+    /// Apply one committed chunk the journal replayed, as the device applied it
+    /// while served. A horizon opens where `opens_horizon` says one did, and closes
+    /// where nothing it holds is pending: from a floor, a replay rebuilds the same
+    /// pending blocks.
+    pub fn replay(&mut self, chunk: proto::Chunk, opens_horizon: bool) -> anyhow::Result<()> {
+        _ = self
+            .apply(&chunk, opens_horizon)
+            .with_context(|| format!("applying chunk at block {}", chunk.block))?;
+        Ok(())
     }
 
-    /// Record, apply, and answer parked mutations, oldest first, until admission is
-    /// closed or the channel has no room. Each is applied before the next is
-    /// recorded, so the image takes them in journal order.
-    pub fn admit(&mut self, replies: &mut Vec<(u16, queue::Reply)>) {
-        // A closed admission reopens by a command, which wakes the owner itself, so
-        // only a mutation which could be admitted now waits on room.
-        while !matches!(self.admission, Admission::Closed) && !self.parked.is_empty() {
-            let Some(permit) = self.recorder.reserve() else {
-                return;
-            };
-            let (tag, change) = self.parked.pop_front().expect("one is parked");
-            let chunks = change.chunks();
+    /// Apply one served write or punch, and then the copies it earned. Returns the
+    /// mutations to send, in order: `chunk`'s own, and then each copy's.
+    pub fn serve(&mut self, chunk: proto::Chunk) -> anyhow::Result<Vec<super::Mutation>> {
+        let opens_horizon = self.horizon.is_none()
+            && self
+                .horizon_policy
+                .opens(self.replay_bytes, self.image.allocated_bytes());
 
-            // Only a delta's first mutation opens a horizon, so a replay from its record
-            // sees every chunk which discharges it. Snapshot allocation before the
-            // mutation applies, as replay does.
-            let opens_horizon = !self.recorded
-                && self.horizon.is_none()
-                && self.policy.opens(
-                    self.range,
-                    self.image.allocated().count_ones() as u64 * crate::BLOCK_SIZE as u64,
-                );
-            if opens_horizon {
-                let horizon = horizon::Horizon::open(self.image.allocated());
-                tracing::info!(
-                    dev_id = self.dev_id,
-                    range = self.range,
-                    pending = horizon.pending(),
-                    "opened a recovery horizon"
-                );
-                self.horizon = Some(horizon);
-            }
-            if let Some(horizon) = &mut self.horizon {
-                () = horizon.published(change.range());
-                () = horizon.changed(crate::chunk::data_bytes(&chunks));
-            }
-            () = permit.send(recording::Mutation {
-                chunks,
-                opens_horizon,
-            });
-            self.recorded = true;
-            replies.push((tag, self.apply(change)));
+        let discharges_horizon = self
+            .apply(&chunk, opens_horizon)
+            .context("applying a chunk to the image")?;
+
+        if opens_horizon {
+            tracing::info!(
+                replay_bytes = self.replay_bytes,
+                "opened a recovery horizon"
+            );
         }
-    }
-
-    /// Copy runs of the open horizon's pending blocks into the recording channel, as
-    /// far as the copy budget this delta's mutations earned allows.
-    pub fn compact(&mut self) {
-        /// Most blocks one horizon copy reads, so a copy is a mutation of the same
-        /// order as the largest device request.
-        const COPY_BLOCKS: u32 = ublk::MAX_IO_BUF_BYTES / crate::BLOCK_SIZE;
-
-        let Some(horizon) = &mut self.horizon else {
-            return;
-        };
-        if !matches!(self.admission, Admission::Open) || !self.parked.is_empty() {
-            return;
+        // Only a served chunk earns copies, so a replayed horizon carries no budget
+        // into serving.
+        if let Some(horizon) = &mut self.horizon {
+            () = horizon.changed(chunk::data_bytes(&chunk));
         }
-        // Room is reserved before a run is selected: a full channel is the usual
-        // reason to stop, and selecting scans the horizon's bitmap.
-        while let Some(permit) = self.recorder.reserve() {
-            let Some(run) = horizon.next_copy(&self.policy, COPY_BLOCKS) else {
-                return;
-            };
+        let mut served = vec![super::Mutation {
+            chunk,
+            opens_horizon,
+            discharges_horizon,
+        }];
+
+        // Spend what this chunk earned at once, so the budget cannot build into a
+        // burst.
+        while let Some(horizon) = &mut self.horizon
+            && let Some(run) = horizon.next_copy(&self.horizon_policy, COPY_BLOCKS)
+        {
             let mut data = vec![0; run.len() * crate::BLOCK_SIZE as usize];
 
-            // An image which cannot be read back has failed, and every pass would
-            // retry this run. No request asked for the copy, so fail the next cut,
-            // which fails the attachment.
-            if let Err(err) = self.image.read_at(run.start, &mut data) {
-                let err = anyhow::Error::new(err).context("copying a horizon run out of the image");
-                self.admission = Admission::Failed(err);
-                return;
-            }
-            let chunks = crate::chunk::encode_write(run.start, &data.into());
+            () = self
+                .image
+                .read_at(run.start, &mut data)
+                .context("copying a horizon run out of the image")?;
 
-            () = horizon.copied(run, crate::chunk::data_bytes(&chunks));
-            () = permit.send(recording::Mutation {
-                chunks,
+            let copy = chunk::encode_write(run.start, &data.into());
+            () = horizon.copied(run.clone(), chunk::data_bytes(&copy));
+
+            // The image already holds the copy's content, so it's published as an
+            // applied chunk is, without writing it again.
+            let discharges_horizon = self.publish(&copy, run);
+            served.push(super::Mutation {
+                chunk: copy,
                 opens_horizon: false,
+                discharges_horizon,
             });
-            self.recorded = true;
         }
+        Ok(served)
     }
 
-    /// Close admission, ending the delta, and return whether it discharged the
-    /// open horizon.
-    pub fn close_admission(&mut self) -> anyhow::Result<bool> {
-        if let Admission::Failed(failed) = &self.admission {
-            anyhow::bail!("device {} failed: {failed:#}", self.dev_id);
-        }
-        self.admission = Admission::Closed;
-        self.recorded = false;
+    /// Fill `buf` with the image's blocks from `start`.
+    pub fn read(&self, start: u32, buf: &mut [u8]) -> anyhow::Result<()> {
+        self.image.read_at(start, buf).context("reading the image")
+    }
 
-        let Some(horizon) = &mut self.horizon else {
-            return Ok(false);
+    /// Apply `chunk` to the image, as a served or a replayed one is: open a horizon
+    /// first where `opens_horizon`, over the blocks allocated before the chunk,
+    /// then publish it. Returns whether that discharged the horizon's last pending
+    /// block.
+    fn apply(&mut self, chunk: &proto::Chunk, opens_horizon: bool) -> std::io::Result<bool> {
+        // A served disk opens a horizon only where none is open, so a replayed
+        // opener never replaces one, short of a corrupt journal.
+        if opens_horizon {
+            self.horizon = Some(horizon::Horizon::open(
+                self.image.allocated(),
+                self.replay_bytes,
+            ));
+        }
+        let covered = self.image.apply(chunk)?;
+        Ok(self.publish(chunk, covered))
+    }
+
+    /// Publish `chunk`, whose content the image holds over `covered`: discharge
+    /// those blocks from the open horizon, and count the chunk into the replay
+    /// bytes. A horizon left with nothing pending closes, and the replay bytes then
+    /// count from where it opened. Returns whether one closed.
+    fn publish(&mut self, chunk: &proto::Chunk, covered: std::ops::Range<u32>) -> bool {
+        if let Some(horizon) = &mut self.horizon {
+            () = horizon.published(covered);
+        }
+        self.replay_bytes += prost::Message::encoded_len(chunk) as u64;
+
+        let Some(horizon) = self.horizon.take_if(|horizon| horizon.pending() == 0) else {
+            return false;
         };
-        // Only a recorded mutation or copy discharges a block, and the cut which
-        // first finds none pending drops the horizon.
-        if horizon.pending() == 0 {
-            self.horizon = None;
-            return Ok(true);
-        }
-        () = horizon.cut();
-        Ok(false)
-    }
-
-    /// Reopen admission with the next delta's journal `range`.
-    pub fn resume_admission(&mut self, range: u64) {
-        self.range = range;
-
-        if matches!(self.admission, Admission::Closed) {
-            self.admission = Admission::Open;
-        }
-    }
-
-    /// Read `range` out of the image.
-    fn read(&self, range: std::ops::Range<u32>) -> queue::Reply {
-        let mut buf = vec![0; range.len() * crate::BLOCK_SIZE as usize];
-
-        match self.image.read_at(range.start, &mut buf) {
-            Ok(()) => queue::Reply::Data(buf),
-            Err(err) => {
-                tracing::error!(dev_id = self.dev_id, ?err, "reading the image failed");
-                queue::Reply::Failed(libc::EIO)
-            }
-        }
-    }
-
-    /// Apply a recorded mutation to the image.
-    fn apply(&mut self, change: Change) -> queue::Reply {
-        let (applied, bytes) = match &change {
-            Change::Write { start, data } => (self.image.write_at(*start, data), data.len() as u32),
-            Change::Punch(range) => (self.image.punch(range.start, range.len() as u32), 0),
-        };
-
-        match applied {
-            Ok(()) => queue::Reply::Done(bytes),
-            // This mutation was already sent to the writer, but the image refused it,
-            // perhaps after taking part of it. Its delta must never commit, so refuse
-            // every later cut.
-            Err(err) => {
-                if matches!(self.admission, Admission::Open) {
-                    let err = anyhow::Error::new(err).context("applying a mutation to the image");
-                    self.admission = Admission::Failed(err);
-                }
-                queue::Reply::Failed(libc::EIO)
-            }
-        }
-    }
-}
-
-/// Whether the target admits mutations, and whether a cut may close it.
-enum Admission {
-    /// Mutations are admitted in arrival order, and horizon copies run while
-    /// none is parked.
-    Open,
-    /// A prepare's cut closed admission until it resumes.
-    Closed,
-    /// A recorded mutation failed to reach the image, or a copy could not read
-    /// it. Every later cut is refused, so the delta never commits.
-    Failed(anyhow::Error),
-}
-
-/// What a device request changes in the image.
-enum Change {
-    Write { start: u32, data: bytes::Bytes },
-    Punch(std::ops::Range<u32>),
-}
-
-impl Change {
-    /// The blocks this change covers, which it publishes to a horizon.
-    fn range(&self) -> std::ops::Range<u32> {
-        match self {
-            Change::Write { start, data } => {
-                *start..*start + (data.len() / crate::BLOCK_SIZE as usize) as u32
-            }
-            Change::Punch(range) => range.clone(),
-        }
-    }
-
-    /// The chunks which make this change durable.
-    fn chunks(&self) -> Vec<proto::Chunk> {
-        match self {
-            Change::Write { start, data } => crate::chunk::encode_write(*start, data),
-            Change::Punch(range) => {
-                vec![crate::chunk::encode_punch(range.start, range.len() as u32)]
-            }
-        }
+        self.replay_bytes -= horizon.replay_bytes_at_open();
+        true
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::Target;
+    use super::super::Mutation;
+    use super::{Target, chunk, horizon, image};
     use crate::BLOCK_SIZE;
-    use crate::device::queue;
-    use crate::device::recording;
-    use crate::horizon;
-    use crate::image;
     use crate::proto;
     use std::fmt::Write as _;
+
+    /// A policy which never opens a horizon.
+    const NEVER_OPENS: horizon::Policy = horizon::Policy {
+        open_ratio: 1.0,
+        copy_ratio: 0.0,
+        minimum_bytes: u64::MAX,
+    };
 
     /// Blocks of the image a trace or property case serves.
     const BLOCKS: u32 = 16;
 
-    /// Any journal range beyond the allocated size opens a horizon, and a delta may
-    /// copy as many bytes as it changed.
-    const POLICY: horizon::Policy = horizon::Policy {
-        open_ratio: 1.0,
-        copy_ratio: 1.0,
-        minimum_bytes: 0,
-    };
-
-    /// A journal range which opens a horizon over any disk, under [`POLICY`].
-    const WIDE: u64 = u64::MAX;
-
-    /// A target over a recording channel, and the consumer's end of that channel.
+    /// A serving target, and every mutation it returned, in the order a journal
+    /// would hold them.
     struct Case {
-        /// The target under test.
         target: Target,
-        /// `None` once the consumer has gone away.
-        recorded: Option<recording::Recorded>,
-        /// Every mutation the consumer took, in the order a journal would hold them.
-        taken: Vec<Vec<proto::Chunk>>,
-        /// Whether each mutation of `taken` opened a horizon.
-        opens: Vec<bool>,
+        served: Vec<Mutation>,
     }
 
     impl Case {
-        fn new(image: image::Image, capacity: usize, policy: horizon::Policy) -> Self {
-            let (recorder, recorded) =
-                recording::channel(capacity, std::task::Waker::noop().clone());
-
+        fn new(image: image::Image, horizon_policy: horizon::Policy) -> Self {
             Self {
-                target: Target::new(0, image, recorder, None, policy),
-                recorded: Some(recorded),
-                taken: Vec::new(),
-                opens: Vec::new(),
+                target: Target::new(image, horizon_policy),
+                served: Vec::new(),
             }
         }
 
-        /// Hand over `request`, then admit what admission lets through, as one pass
-        /// of the owner does.
-        fn request(&mut self, tag: u16, request: queue::Request) -> Vec<(u16, queue::Reply)> {
-            let mut replies = Vec::new();
-            () = self.target.on_request(tag, request, &mut replies);
-            () = self.target.admit(&mut replies);
-            replies
+        /// Serve `chunk`, keeping and returning the mutations it returned.
+        fn serve(&mut self, chunk: proto::Chunk) -> anyhow::Result<&[Mutation]> {
+            let begins = self.served.len();
+            self.served.extend(self.target.serve(chunk)?);
+            Ok(&self.served[begins..])
         }
 
-        fn write(
-            &mut self,
-            tag: u16,
-            start: u32,
-            blocks: u32,
-            fill: u8,
-        ) -> Vec<(u16, queue::Reply)> {
-            let data = vec![fill; (blocks * BLOCK_SIZE) as usize].into();
-            self.request(tag, queue::Request::Write { start, data })
+        /// How many blocks the open horizon has pending, and the replay bytes.
+        fn horizon_state(&self) -> (Option<u32>, u64) {
+            horizon_state(&self.target)
         }
+    }
 
-        fn punch(&mut self, tag: u16, start: u32, blocks: u32) -> Vec<(u16, queue::Reply)> {
-            self.request(tag, queue::Request::Punch(start..start + blocks))
-        }
+    fn horizon_state(target: &Target) -> (Option<u32>, u64) {
+        let pending = (target.horizon.as_ref()).map(horizon::Horizon::pending);
+        (pending, target.replay_bytes)
+    }
 
-        /// Admit what admission lets through, as each pass of the owner does.
-        fn admit(&mut self) -> Vec<(u16, queue::Reply)> {
-            let mut replies = Vec::new();
-            () = self.target.admit(&mut replies);
-            replies
-        }
-
-        /// Have the consumer take one mutation, if one is queued.
-        fn take(&mut self) -> Option<recording::Mutation> {
-            let mutation = self.recorded.as_mut()?.try_recv().ok()?;
-            self.taken.push(mutation.chunks.clone());
-            self.opens.push(mutation.opens_horizon);
-            Some(mutation)
-        }
-
-        /// Take every queued mutation, and return how many.
-        fn take_all(&mut self) -> usize {
-            std::iter::from_fn(|| self.take()).count()
-        }
+    /// A write of `blocks` blocks of `fill` from `start`, as the owner encodes one.
+    fn write(start: u32, blocks: u32, fill: u8) -> proto::Chunk {
+        let data = vec![fill; (blocks * BLOCK_SIZE) as usize].into();
+        chunk::encode_write(start, &data)
     }
 
     fn fresh_image() -> image::Image {
@@ -379,22 +224,31 @@ mod test {
         image::Image::from_file(file, BLOCKS)
     }
 
-    /// Render replies readably: the bytes a request transferred, the first byte of a
-    /// read's data, or the name of the errno it failed with.
-    fn render(replies: &[(u16, queue::Reply)]) -> String {
-        if replies.is_empty() {
-            return "-".to_string();
-        }
-        let replies: Vec<String> = replies
+    /// Render what a serve returned: the blocks each mutation covers and what it
+    /// did to a horizon, or the error.
+    fn render(served: anyhow::Result<&[Mutation]>) -> String {
+        let served = match served {
+            Ok(served) => served,
+            Err(err) => return format!("{err:#}"),
+        };
+        let served: Vec<String> = served
             .iter()
-            .map(|(tag, reply)| match reply {
-                queue::Reply::Done(bytes) => format!("{tag}: {bytes} bytes"),
-                queue::Reply::Data(buf) => format!("{tag}: read {}", buf[0]),
-                queue::Reply::Failed(libc::EIO) => format!("{tag}: EIO"),
-                queue::Reply::Failed(errno) => format!("{tag}: errno {errno}"),
+            .map(|mutation| {
+                let mut out = format!(
+                    "{}..{}",
+                    mutation.chunk.block,
+                    mutation.chunk.block + mutation.chunk.blocks
+                );
+                if mutation.opens_horizon {
+                    out.push_str(" opens");
+                }
+                if mutation.discharges_horizon {
+                    out.push_str(" discharges");
+                }
+                out
             })
             .collect();
-        format!("replied [{}]", replies.join(", "))
+        format!("[{}]", served.join(", "))
     }
 
     /// Report allocated blocks and their fill bytes, using `?` for unreadable blocks.
@@ -405,438 +259,381 @@ mod test {
             .allocated()
             .iter_ones()
             .map(|index| match image.read_at(index as u32, &mut block) {
-                Ok(()) => format!("({index}, {})", block[0]),
-                Err(_) => format!("({index}, ?)"),
+                Ok(()) => format!("{index}={}", block[0]),
+                Err(_) => format!("{index}=?"),
             })
             .collect();
-        format!("[{}]", blocks.join(", "))
+        format!("[{}]", blocks.join(" "))
     }
 
     #[derive(Debug, Clone, Copy)]
     enum Step {
-        /// The request at `.0` writes the block at `.1`, filled with `.2`.
-        Write(u16, u32, u8),
-        /// The request at `.0` reads the block at `.1`.
-        Read(u16, u32),
-        /// Admit what admission lets through, as each pass of the owner does.
-        Admit,
-        Take,
-        DropConsumer,
-        Cut,
-        /// Resume over a range which opens no horizon.
-        Resume,
-        /// Resume over a range which opens a horizon at the next delta.
-        ResumeWide,
-        /// Spend the open delta's copy budget, as each pass of the owner does.
-        Compact,
+        /// Write the block at `.0`, filled with `.1`.
+        Write(u32, u8),
+        /// Punch the block at `.0`.
+        Punch(u32),
+        /// Read the block at `.0`.
+        Read(u32),
     }
     use Step::*;
 
-    /// Trace replies, parked mutations, pending horizon blocks, and image allocation.
+    /// Trace the open horizon's pending blocks, the replay bytes, and image content
+    /// after each step, and what the step returned.
     fn trace(case: &mut Case, steps: &[Step]) -> String {
         let mut out = String::new();
 
         for &step in steps {
             let outcome = match step {
-                Write(tag, block, fill) => render(&case.write(tag, block, 1, fill)),
-                Read(tag, block) => {
-                    render(&case.request(tag, queue::Request::Read(block..block + 1)))
-                }
-                Admit => render(&case.admit()),
-                Take => match case.take() {
-                    Some(recording::Mutation {
-                        chunks,
-                        opens_horizon,
-                    }) => {
-                        let blocks = crate::chunk::covered_blocks(&chunks[0]);
-                        let opens = if opens_horizon {
-                            ", opens a horizon"
-                        } else {
-                            ""
-                        };
-                        format!("took {blocks:?}{opens}")
+                Write(block, fill) => render(case.serve(write(block, 1, fill))),
+                Punch(block) => render(case.serve(chunk::encode_punch(block, 1))),
+                Read(block) => {
+                    let mut data = vec![0; BLOCK_SIZE as usize];
+                    match case.target.read(block, &mut data) {
+                        Ok(()) => format!("read {}", data[0]),
+                        Err(err) => format!("{err:#}"),
                     }
-                    None => "nothing to take".to_string(),
-                },
-                DropConsumer => {
-                    case.recorded = None;
-                    "dropped".to_string()
-                }
-                Cut => match case.target.close_admission() {
-                    Ok(false) => "closed".to_string(),
-                    Ok(true) => "closed, discharged".to_string(),
-                    Err(err) => format!("refused: {err:#}"),
-                },
-                Resume => {
-                    case.target.resume_admission(0);
-                    "resumed".to_string()
-                }
-                ResumeWide => {
-                    case.target.resume_admission(WIDE);
-                    "resumed".to_string()
-                }
-                Compact => {
-                    () = case.target.compact();
-                    "-".to_string()
                 }
             };
-            let parked = case.target.parked.len();
             let horizon = match &case.target.horizon {
                 Some(horizon) => horizon.pending().to_string(),
                 None => "-".to_string(),
             };
-            let image = allocated(&case.target.image);
             let step = format!("{step:?}");
 
             writeln!(
                 out,
-                "{step:<16}{outcome:<36}  parked {parked}  horizon {horizon:<2} image {image}"
+                "{step:<12}horizon {horizon:<2} replay {:<6}image {:<18}{outcome}",
+                case.target.replay_bytes,
+                allocated(&case.target.image),
             )
             .unwrap();
         }
         out
     }
 
+    /// Opens a horizon over any disk once anything was applied, and copies
+    /// nothing: writes alone discharge it.
+    const OPENS_EAGERLY: horizon::Policy = horizon::Policy {
+        open_ratio: 0.0,
+        copy_ratio: 0.0,
+        minimum_bytes: 0,
+    };
+
+    /// As `OPENS_EAGERLY`, where each write earns a copy of as many bytes as it
+    /// changed.
+    const COPIES: horizon::Policy = horizon::Policy {
+        copy_ratio: 1.0,
+        ..OPENS_EAGERLY
+    };
+
+    /// A named case: the image it serves, its horizon policy, and its steps.
+    type Scenario = (
+        &'static str,
+        fn() -> image::Image,
+        horizon::Policy,
+        &'static [Step],
+    );
+
     #[test]
-    fn test_requests_parking_and_failures() {
-        let cases: &[(&str, fn() -> image::Image, usize, &[Step])] = &[
+    fn test_serves_horizons_and_failures() {
+        let cases: &[Scenario] = &[
             (
-                "a dropped consumer frees parked requests",
+                "a chunk applies before it is returned, and a read is served from the image",
                 fresh_image,
-                1,
+                NEVER_OPENS,
+                &[Write(0, 1), Read(0), Punch(0), Read(0)],
+            ),
+            (
+                "a horizon opens over the blocks then allocated, and the mutation which \
+                 discharges its last pending block says so",
+                fresh_image,
+                OPENS_EAGERLY,
                 &[
-                    Write(1, 0, 1),
-                    Write(2, 1, 2),
-                    Write(3, 2, 3),
-                    Admit,
-                    // A channel without a consumer takes every mutation, and discards
-                    // it, so the unmount of a disk being torn down completes.
-                    DropConsumer,
-                    Admit,
+                    // Nothing is applied yet, so no horizon opens.
+                    Write(0, 1),
+                    Write(1, 2),
+                    Write(0, 3),
+                    // Replay bytes count from the last horizon's opening, so the next
+                    // write opens another, over blocks 0 and 1. Punches discharge too.
+                    Write(2, 4),
+                    Punch(0),
+                    Punch(1),
                 ],
             ),
             (
-                "a cut parks mutations until admission resumes",
+                "the copies a write earns follow it",
                 fresh_image,
-                4,
+                COPIES,
                 &[
-                    Write(1, 0, 1),
-                    Cut,
-                    Write(2, 1, 2),
-                    // Reads go on while admission is closed, and a parked write has
-                    // not reached the image.
-                    Read(3, 1),
-                    Admit,
-                    Resume,
-                    Admit,
+                    Write(0, 1),
+                    // Block 0 is pending, and this write earns its copy.
+                    Write(1, 2),
+                    // Blocks 0 and 1 are pending, and a write earns one of them.
+                    Write(5, 5),
+                    // A punch earns nothing, and the write after it the rest.
+                    Punch(9),
+                    Write(9, 6),
                 ],
             ),
             (
-                "a delta's first mutation opens a horizon, and the cut which finds it \
-                 discharged drops it",
-                fresh_image,
-                8,
-                &[
-                    Write(1, 0, 1),
-                    Write(2, 1, 2),
-                    Cut,
-                    // An empty delta opens nothing, whatever the range.
-                    ResumeWide,
-                    Cut,
-                    ResumeWide,
-                    // Blocks 0 and 1 are allocated before the opener, which itself
-                    // publishes block 2.
-                    Write(3, 2, 3),
-                    Write(4, 0, 4),
-                    Take,
-                    Take,
-                    Take,
-                    Take,
-                    Cut,
-                    // Already open, so this delta opens nothing.
-                    ResumeWide,
-                    Write(5, 1, 5),
-                    Take,
-                    Cut,
-                    Resume,
-                    Write(6, 3, 6),
-                    Take,
-                    Cut,
-                ],
-            ),
-            (
-                "a copy waits for room, and behind any parked mutation",
-                fresh_image,
-                1,
-                &[
-                    Write(1, 0, 1),
-                    Take,
-                    Cut,
-                    ResumeWide,
-                    // A write elsewhere opens a horizon over block 0, earns the budget
-                    // of its copy, and fills the channel.
-                    Write(2, 5, 2),
-                    Compact,
-                    Write(3, 6, 3),
-                    Take,
-                    // The room a take frees goes to the parked mutation first.
-                    Compact,
-                    Admit,
-                    Take,
-                    Compact,
-                ],
-            ),
-            // An image write the host refuses fails its own request, and then every
-            // cut which follows: its mutation was recorded, so its delta must never
-            // commit.
-            (
-                "a failed image write fails every later cut",
+                "an image write which fails is an error",
                 full_image,
-                4,
-                &[
-                    Write(1, 0, 1),
-                    Take,
-                    Cut,
-                    // Admission stays open for the unmount a teardown makes, so a later
-                    // request is answered rather than parked.
-                    Write(2, 0, 2),
-                    Resume,
-                    Cut,
-                ],
+                NEVER_OPENS,
+                &[Write(0, 1)],
             ),
-            // A read the image refuses recorded nothing, so the cut goes ahead.
             (
-                "a failed image read fails only its request",
+                "an image read which fails is an error",
                 unreadable_image,
-                4,
-                &[Write(1, 0, 1), Read(2, 0), Cut],
+                NEVER_OPENS,
+                &[Write(0, 1), Read(0)],
             ),
-            // A horizon run which cannot be read out of the image records nothing, and
-            // no request asked for it. It fails every later cut instead.
             (
-                "an unreadable horizon run fails every later cut",
+                "a horizon run which cannot be read fails the write which earned the copy",
                 unreadable_image,
-                4,
-                &[
-                    Write(1, 0, 1),
-                    Cut,
-                    ResumeWide,
-                    // A write elsewhere opens a horizon over block 0, and earns the
-                    // budget of its copy.
-                    Write(2, 5, 2),
-                    Compact,
-                    Cut,
-                ],
+                COPIES,
+                &[Write(0, 1), Write(5, 2)],
             ),
         ];
 
         let mut out = String::new();
-        for (name, image, capacity, steps) in cases {
-            let mut case = Case::new(image(), *capacity, POLICY);
+        for (name, image, horizon_policy, steps) in cases {
+            let mut case = Case::new(image(), *horizon_policy);
             writeln!(out, "{name}:").unwrap();
             out.push_str(&trace(&mut case, steps));
         }
         insta::assert_snapshot!(out, @"
-        a dropped consumer frees parked requests:
-        Write(1, 0, 1)  replied [1: 4096 bytes]               parked 0  horizon -  image [(0, 1)]
-        Write(2, 1, 2)  -                                     parked 1  horizon -  image [(0, 1)]
-        Write(3, 2, 3)  -                                     parked 2  horizon -  image [(0, 1)]
-        Admit           -                                     parked 2  horizon -  image [(0, 1)]
-        DropConsumer    dropped                               parked 2  horizon -  image [(0, 1)]
-        Admit           replied [2: 4096 bytes, 3: 4096 bytes]  parked 0  horizon -  image [(0, 1), (1, 2), (2, 3)]
-        a cut parks mutations until admission resumes:
-        Write(1, 0, 1)  replied [1: 4096 bytes]               parked 0  horizon -  image [(0, 1)]
-        Cut             closed                                parked 0  horizon -  image [(0, 1)]
-        Write(2, 1, 2)  -                                     parked 1  horizon -  image [(0, 1)]
-        Read(3, 1)      replied [3: read 0]                   parked 1  horizon -  image [(0, 1)]
-        Admit           -                                     parked 1  horizon -  image [(0, 1)]
-        Resume          resumed                               parked 1  horizon -  image [(0, 1)]
-        Admit           replied [2: 4096 bytes]               parked 0  horizon -  image [(0, 1), (1, 2)]
-        a delta's first mutation opens a horizon, and the cut which finds it discharged drops it:
-        Write(1, 0, 1)  replied [1: 4096 bytes]               parked 0  horizon -  image [(0, 1)]
-        Write(2, 1, 2)  replied [2: 4096 bytes]               parked 0  horizon -  image [(0, 1), (1, 2)]
-        Cut             closed                                parked 0  horizon -  image [(0, 1), (1, 2)]
-        ResumeWide      resumed                               parked 0  horizon -  image [(0, 1), (1, 2)]
-        Cut             closed                                parked 0  horizon -  image [(0, 1), (1, 2)]
-        ResumeWide      resumed                               parked 0  horizon -  image [(0, 1), (1, 2)]
-        Write(3, 2, 3)  replied [3: 4096 bytes]               parked 0  horizon 2  image [(0, 1), (1, 2), (2, 3)]
-        Write(4, 0, 4)  replied [4: 4096 bytes]               parked 0  horizon 1  image [(0, 4), (1, 2), (2, 3)]
-        Take            took 0..1                             parked 0  horizon 1  image [(0, 4), (1, 2), (2, 3)]
-        Take            took 1..2                             parked 0  horizon 1  image [(0, 4), (1, 2), (2, 3)]
-        Take            took 2..3, opens a horizon            parked 0  horizon 1  image [(0, 4), (1, 2), (2, 3)]
-        Take            took 0..1                             parked 0  horizon 1  image [(0, 4), (1, 2), (2, 3)]
-        Cut             closed                                parked 0  horizon 1  image [(0, 4), (1, 2), (2, 3)]
-        ResumeWide      resumed                               parked 0  horizon 1  image [(0, 4), (1, 2), (2, 3)]
-        Write(5, 1, 5)  replied [5: 4096 bytes]               parked 0  horizon 0  image [(0, 4), (1, 5), (2, 3)]
-        Take            took 1..2                             parked 0  horizon 0  image [(0, 4), (1, 5), (2, 3)]
-        Cut             closed, discharged                    parked 0  horizon -  image [(0, 4), (1, 5), (2, 3)]
-        Resume          resumed                               parked 0  horizon -  image [(0, 4), (1, 5), (2, 3)]
-        Write(6, 3, 6)  replied [6: 4096 bytes]               parked 0  horizon -  image [(0, 4), (1, 5), (2, 3), (3, 6)]
-        Take            took 3..4                             parked 0  horizon -  image [(0, 4), (1, 5), (2, 3), (3, 6)]
-        Cut             closed                                parked 0  horizon -  image [(0, 4), (1, 5), (2, 3), (3, 6)]
-        a copy waits for room, and behind any parked mutation:
-        Write(1, 0, 1)  replied [1: 4096 bytes]               parked 0  horizon -  image [(0, 1)]
-        Take            took 0..1                             parked 0  horizon -  image [(0, 1)]
-        Cut             closed                                parked 0  horizon -  image [(0, 1)]
-        ResumeWide      resumed                               parked 0  horizon -  image [(0, 1)]
-        Write(2, 5, 2)  replied [2: 4096 bytes]               parked 0  horizon 1  image [(0, 1), (5, 2)]
-        Compact         -                                     parked 0  horizon 1  image [(0, 1), (5, 2)]
-        Write(3, 6, 3)  -                                     parked 1  horizon 1  image [(0, 1), (5, 2)]
-        Take            took 5..6, opens a horizon            parked 1  horizon 1  image [(0, 1), (5, 2)]
-        Compact         -                                     parked 1  horizon 1  image [(0, 1), (5, 2)]
-        Admit           replied [3: 4096 bytes]               parked 0  horizon 1  image [(0, 1), (5, 2), (6, 3)]
-        Take            took 6..7                             parked 0  horizon 1  image [(0, 1), (5, 2), (6, 3)]
-        Compact         -                                     parked 0  horizon 0  image [(0, 1), (5, 2), (6, 3)]
-        a failed image write fails every later cut:
-        Write(1, 0, 1)  replied [1: EIO]                      parked 0  horizon -  image []
-        Take            took 0..1                             parked 0  horizon -  image []
-        Cut             refused: device 0 failed: applying a mutation to the image: No space left on device (os error 28)  parked 0  horizon -  image []
-        Write(2, 0, 2)  replied [2: EIO]                      parked 0  horizon -  image []
-        Resume          resumed                               parked 0  horizon -  image []
-        Cut             refused: device 0 failed: applying a mutation to the image: No space left on device (os error 28)  parked 0  horizon -  image []
-        a failed image read fails only its request:
-        Write(1, 0, 1)  replied [1: 4096 bytes]               parked 0  horizon -  image [(0, ?)]
-        Read(2, 0)      replied [2: EIO]                      parked 0  horizon -  image [(0, ?)]
-        Cut             closed                                parked 0  horizon -  image [(0, ?)]
-        an unreadable horizon run fails every later cut:
-        Write(1, 0, 1)  replied [1: 4096 bytes]               parked 0  horizon -  image [(0, ?)]
-        Cut             closed                                parked 0  horizon -  image [(0, ?)]
-        ResumeWide      resumed                               parked 0  horizon -  image [(0, ?)]
-        Write(2, 5, 2)  replied [2: 4096 bytes]               parked 0  horizon 1  image [(0, ?), (5, ?)]
-        Compact         -                                     parked 0  horizon 1  image [(0, ?), (5, ?)]
-        Cut             refused: device 0 failed: copying a horizon run out of the image: Bad file descriptor (os error 9)  parked 0  horizon 1  image [(0, ?), (5, ?)]
+        a chunk applies before it is returned, and a read is served from the image:
+        Write(0, 1) horizon -  replay 4101  image [0=1]             [0..1]
+        Read(0)     horizon -  replay 4101  image [0=1]             read 1
+        Punch(0)    horizon -  replay 4105  image []                [0..1]
+        Read(0)     horizon -  replay 4105  image []                read 0
+        a horizon opens over the blocks then allocated, and the mutation which discharges its last pending block says so:
+        Write(0, 1) horizon -  replay 4101  image [0=1]             [0..1]
+        Write(1, 2) horizon 1  replay 8204  image [0=1 1=2]         [1..2 opens]
+        Write(0, 3) horizon -  replay 8204  image [0=3 1=2]         [0..1 discharges]
+        Write(2, 4) horizon 2  replay 12307 image [0=3 1=2 2=4]     [2..3 opens]
+        Punch(0)    horizon 1  replay 12311 image [1=2 2=4]         [0..1]
+        Punch(1)    horizon -  replay 4113  image [2=4]             [1..2 discharges]
+        the copies a write earns follow it:
+        Write(0, 1) horizon -  replay 4101  image [0=1]             [0..1]
+        Write(1, 2) horizon -  replay 8204  image [0=1 1=2]         [1..2 opens, 0..1 discharges]
+        Write(5, 5) horizon 1  replay 16408 image [0=1 1=2 5=5]     [5..6 opens, 0..1]
+        Punch(9)    horizon 1  replay 16414 image [0=1 1=2 5=5]     [9..10]
+        Write(9, 6) horizon -  replay 16416 image [0=1 1=2 5=5 9=6] [9..10, 1..2 discharges]
+        an image write which fails is an error:
+        Write(0, 1) horizon -  replay 0     image []                applying a chunk to the image: No space left on device (os error 28)
+        an image read which fails is an error:
+        Write(0, 1) horizon -  replay 4101  image [0=?]             [0..1]
+        Read(0)     horizon -  replay 4101  image [0=?]             reading the image: Bad file descriptor (os error 9)
+        a horizon run which cannot be read fails the write which earned the copy:
+        Write(0, 1) horizon -  replay 4101  image [0=?]             [0..1]
+        Write(5, 2) horizon 1  replay 8204  image [0=? 5=?]         copying a horizon run out of the image: Bad file descriptor (os error 9)
+        ");
+    }
+
+    /// A replay opens a horizon only where a record did, and discharges it as the
+    /// device which served it did.
+    #[test]
+    fn test_a_replay_opens_horizons_where_records_did() {
+        let mut target = Target::new(fresh_image(), NEVER_OPENS);
+        let mut out = String::new();
+
+        for (what, chunk, opens_horizon) in [
+            ("write 0", write(0, 1, 1), false),
+            ("write 1", write(1, 1, 2), false),
+            ("write 2, opening", write(2, 1, 3), true),
+            ("write 0", write(0, 1, 4), false),
+            ("write 1", write(1, 1, 6), false),
+            ("write 4, opening", write(4, 1, 7), true),
+        ] {
+            () = target.replay(chunk, opens_horizon).unwrap();
+
+            let (pending, replay_bytes) = horizon_state(&target);
+            let pending = match pending {
+                Some(pending) => pending.to_string(),
+                None => "-".to_string(),
+            };
+            writeln!(
+                out,
+                "{what:<18}pending {pending:<4}replay {replay_bytes:<6}image {}",
+                allocated(&target.image),
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(out, @"
+        write 0           pending -   replay 4101  image [0=1]
+        write 1           pending -   replay 8204  image [0=1 1=2]
+        write 2, opening  pending 2   replay 12307 image [0=1 1=2 2=3]
+        write 0           pending 1   replay 16408 image [0=4 1=2 2=3]
+        write 1           pending -   replay 12307 image [0=4 1=6 2=3]
+        write 4, opening  pending 3   replay 16410 image [0=4 1=6 2=3 4=7]
         ");
     }
 
     #[derive(Clone, Debug)]
     enum Op {
-        Write { start: u32, blocks: u32, fill: u8 },
-        Punch { start: u32, blocks: u32 },
-        Admit,
-        Take,
+        Write {
+            start: u32,
+            blocks: u32,
+            fill: u8,
+        },
+        Punch {
+            start: u32,
+            blocks: u32,
+        },
+        /// The writer cuts a delta, which later commits.
         Cut,
-        Resume { wide: bool },
-        Compact,
     }
 
     impl quickcheck::Arbitrary for Op {
         fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            // Small, overlapping ranges, so that mutations of the same blocks park
-            // behind one another and race the copies of an open horizon. A copy goes
-            // only while the channel has room and nothing is parked, so takes and
-            // compactions are as common as the mutations which fill the channel.
+            // Small, overlapping ranges, so that writes rewrite each other's blocks,
+            // discharge horizons, and race their copies.
             let start = u32::arbitrary(g) % BLOCKS;
             let blocks = 1 + u32::arbitrary(g) % std::cmp::min(4, BLOCKS - start);
 
-            match u8::arbitrary(g) % 14 {
-                0..=2 => Op::Write {
+            match u8::arbitrary(g) % 8 {
+                0..=4 => Op::Write {
                     start,
                     blocks,
                     fill: u8::arbitrary(g),
                 },
-                3 => Op::Punch { start, blocks },
-                4 | 5 => Op::Admit,
-                6..=8 => Op::Take,
-                9 | 10 => Op::Cut,
-                11 | 12 => Op::Resume {
-                    wide: bool::arbitrary(g),
-                },
-                _ => Op::Compact,
+                5 => Op::Punch { start, blocks },
+                _ => Op::Cut,
             }
         }
     }
 
-    /// Run `ops` against a channel of `capacity`, then drain it, compacting as the
-    /// owner does while the consumer takes. Every request must be answered once, in
-    /// the order it arrived, and the stream the consumer took must replay to the
-    /// image served. Its horizons must sequence as a writer requires.
-    fn answers_in_order_and_replays_identically(capacity: u8, ops: Vec<Op>) -> bool {
-        let mut case = Case::new(fresh_image(), 1 + capacity as usize % 3, POLICY);
-        let (mut expected, mut answered) = (Vec::new(), Vec::new());
-        // Each cut's position in `case.taken`, and whether it discharged the horizon.
+    /// Policies a property case serves under, which open and discharge horizons at
+    /// different rates.
+    const HORIZON_POLICIES: [horizon::Policy; 3] = [
+        // A horizon opens at the first mutation after one closes.
+        horizon::Policy {
+            open_ratio: 0.0,
+            copy_ratio: 1.0,
+            minimum_bytes: 0,
+        },
+        horizon::Policy {
+            open_ratio: 1.0,
+            copy_ratio: 0.5,
+            minimum_bytes: 0,
+        },
+        // Copies too slow to do much, so that writes discharge most blocks.
+        horizon::Policy {
+            open_ratio: 0.5,
+            copy_ratio: 0.1,
+            minimum_bytes: 8192,
+        },
+    ];
+
+    /// `served`, replayed onto a fresh image.
+    fn replay(served: &[Mutation]) -> image::Image {
+        let mut replayed = fresh_image();
+
+        for mutation in served {
+            _ = replayed.apply(&mutation.chunk).unwrap();
+        }
+        replayed
+    }
+
+    /// `left` and `right` hold the same bytes in the same allocated blocks. A
+    /// served stream, replayed, must rebuild the image served, which is why the
+    /// local image is disposable.
+    fn assert_identical(left: &image::Image, right: &image::Image, what: &str) {
+        assert_eq!(
+            left.allocated(),
+            right.allocated(),
+            "{what} tracked other blocks"
+        );
+
+        // The block at which they first differ names where a replay went wrong,
+        // rather than dumping either image.
+        let (mut left_buf, mut right_buf) = (
+            vec![0u8; BLOCK_SIZE as usize],
+            vec![0u8; BLOCK_SIZE as usize],
+        );
+        let differs = (0..BLOCKS).find(|&block| {
+            () = left.read_at(block, &mut left_buf).unwrap();
+            () = right.read_at(block, &mut right_buf).unwrap();
+            left_buf != right_buf
+        });
+        assert_eq!(differs, None, "{what} differs in content");
+    }
+
+    /// Serve `ops`, cutting deltas as a writer does, and commit every delta. At each
+    /// commit, a writer stores the opener of a horizon which a mutation of that
+    /// delta discharged as the floor. Replay from the floor must then rebuild the
+    /// image which replay from the start does, and a rebuild from it must hold
+    /// the horizon and replay bytes which the device held. Every chunk is served.
+    fn floors_rebuild_the_disk(horizon_policy: u8, ops: Vec<Op>) -> bool {
+        let horizon_policy = HORIZON_POLICIES[horizon_policy as usize % HORIZON_POLICIES.len()];
+        let mut case = Case::new(fresh_image(), horizon_policy);
+
+        // Each cut's position in `case.served`, and the device's horizon state then.
         let mut cuts = Vec::new();
 
         for op in ops {
-            let tag = expected.len() as u16;
-
             match op {
                 Op::Write {
                     start,
                     blocks,
                     fill,
-                } => {
-                    expected.push((tag, queue::Reply::Done(blocks * BLOCK_SIZE)));
-                    answered.extend(case.write(tag, start, blocks, fill));
-                }
+                } => _ = case.serve(write(start, blocks, fill)).unwrap(),
                 Op::Punch { start, blocks } => {
-                    expected.push((tag, queue::Reply::Done(0)));
-                    answered.extend(case.punch(tag, start, blocks));
+                    _ = case.serve(chunk::encode_punch(start, blocks)).unwrap()
                 }
-                Op::Admit => answered.extend(case.admit()),
-                Op::Take => _ = case.take(),
-                Op::Cut => {
-                    let discharged = case.target.close_admission().unwrap();
-                    // As a writer's prepare drains the delta.
-                    _ = case.take_all();
-                    cuts.push((case.taken.len(), discharged));
-                }
-                Op::Resume { wide } => case.target.resume_admission(if wide { WIDE } else { 0 }),
-                Op::Compact => case.target.compact(),
+                Op::Cut => cuts.push((case.served.len(), case.horizon_state())),
             }
         }
+        cuts.push((case.served.len(), case.horizon_state()));
 
-        case.target.resume_admission(0);
-        while !case.target.parked.is_empty() {
-            _ = case.take_all();
-            answered.extend(case.admit());
-        }
-        // Whatever budget the open delta has left goes to copies, each of which must
-        // carry the image's content to the replay.
-        loop {
-            () = case.target.compact();
+        let (mut opener, mut completes, mut floor) = (None, None, 0);
+        let mut begins = 0;
 
-            if case.take_all() == 0 {
-                break;
+        for (ends, held) in cuts {
+            for (index, mutation) in case.served[begins..ends].iter().enumerate() {
+                if mutation.opens_horizon {
+                    assert_eq!(opener, None, "a horizon opened over an open one");
+                    opener = Some(begins + index);
+                }
+                if mutation.discharges_horizon {
+                    completes = Some(opener.take().expect("a mutation discharged no horizon"));
+                }
             }
+            begins = ends;
+
+            if let Some(completed) = completes.take() {
+                assert!(completed >= floor, "the floor moved back");
+                floor = completed;
+            }
+            let from_floor = &case.served[floor..ends];
+
+            assert_identical(
+                &replay(from_floor),
+                &replay(&case.served[..ends]),
+                "a replay from the floor",
+            );
+
+            let mut rebuilt = Target::new(fresh_image(), horizon_policy);
+            for mutation in from_floor {
+                () = rebuilt
+                    .replay(mutation.chunk.clone(), mutation.opens_horizon)
+                    .unwrap();
+            }
+            assert!(
+                horizon_state(&rebuilt) == held,
+                "a replay from the floor rebuilt another horizon"
+            );
         }
 
-        assert_eq!(
-            answered, expected,
-            "requests were answered out of order, or not at all"
-        );
-        () = crate::test_support::assert_replays_identically(&case.target.image, &case.taken);
-        () = assert_horizons_sequence(&case.opens, &cuts);
+        assert_identical(&replay(&case.served), &case.target.image, "the replay");
         true
     }
 
-    /// Check that horizons sequence as the ledger and replay require: one opens only at
-    /// a delta's first mutation and while none is open, and a cut discharges only
-    /// an open horizon of a non-empty delta.
-    fn assert_horizons_sequence(opens: &[bool], cuts: &[(usize, bool)]) {
-        let (mut open, mut begins) = (false, 0);
-        let mut cuts = cuts.iter().peekable();
-
-        for index in 0..=opens.len() {
-            while let Some(&(end, discharged)) = cuts.next_if(|(end, _)| *end == index) {
-                if discharged {
-                    assert!(open, "a cut at {end} discharged no open horizon");
-                    assert!(end > begins, "an empty delta at {end} was discharged");
-                    open = false;
-                }
-                begins = end;
-            }
-            if opens.get(index) == Some(&true) {
-                assert_eq!(index, begins, "a horizon opened within a delta");
-                assert!(!open, "a horizon opened at {index} over an open one");
-                open = true;
-            }
-        }
-    }
-
     #[test]
-    fn test_any_interleaving_answers_in_order_and_replays_identically() {
+    fn test_any_disk_rebuilds_from_its_floor() {
         quickcheck::QuickCheck::new()
-            .tests(64)
-            .quickcheck(answers_in_order_and_replays_identically as fn(u8, Vec<Op>) -> bool);
+            .tests(256)
+            .quickcheck(floors_rebuild_the_disk as fn(u8, Vec<Op>) -> bool);
     }
 }

@@ -12,8 +12,13 @@ pub(super) struct Ledger {
     prepared: Option<Prepared>,
     /// Records built into the delta which is accumulating now.
     delta_records: usize,
-    /// Offset of the horizon this attachment opened or resumed.
+    /// Offset of the open horizon's opening record. At first, it is the last
+    /// committed opener, whose horizon the device may since have discharged: the
+    /// device's next opener then replaces it, where a discharge completes it.
     horizon: Option<i64>,
+    /// The floor which the delta accumulating now installs when it commits: the
+    /// opener of a horizon which one of its records discharged.
+    completes: Option<i64>,
 }
 
 impl Ledger {
@@ -24,6 +29,7 @@ impl Ledger {
             prepared: None,
             delta_records: 0,
             horizon,
+            completes: None,
         }
     }
 
@@ -35,33 +41,34 @@ impl Ledger {
         self.delta_records == 0
     }
 
-    /// Journal bytes between the recovery floor and `head`, which the device's
-    /// horizon policy weighs.
-    pub(super) fn range(&self, head: i64, floor: i64) -> u64 {
-        let floor = self
-            .prepared
-            .as_ref()
-            .and_then(|prepared| prepared.floor)
-            .unwrap_or(floor);
-        u64::try_from(head - floor).expect("the floor is at or below the head")
-    }
-
-    /// Build one mutation's `CONTINUE_TXN` record, which opens a horizon at
-    /// `opens_at`, its own offset, if given.
+    /// Build one mutation's `CONTINUE_TXN` record. It opens a horizon at
+    /// `opens_at`, its own offset, if given, and `discharges` says whether it
+    /// discharged the open horizon's last pending block.
     pub(super) fn build_uncommitted(
         &mut self,
         now: std::time::SystemTime,
-        chunks: Vec<proto::Chunk>,
+        chunk: proto::Chunk,
         opens_at: Option<i64>,
+        discharges: bool,
     ) -> proto::DiskRecord {
+        // A device opens a horizon only where none is open, so an opener replaces
+        // only a recovered horizon which the device had already discharged.
         if opens_at.is_some() {
-            assert!(
-                self.delta_is_empty() && self.horizon.is_none(),
-                "only a delta's first record opens a horizon, and only where none is open"
-            );
             self.horizon = opens_at;
         }
-        let record = self.build(now, uuid::Flags::CONTINUE_TXN, chunks, opens_at.is_some());
+        if discharges {
+            let opener = self
+                .horizon
+                .take()
+                .expect("only an open horizon is discharged");
+            self.completes = Some(opener);
+        }
+        let record = self.build(
+            now,
+            uuid::Flags::CONTINUE_TXN,
+            Some(chunk),
+            opens_at.is_some(),
+        );
         self.delta_records += 1;
 
         record
@@ -69,22 +76,15 @@ impl Ledger {
 
     /// End the delta: build its `ACK_TXN` record, clocked after each of its
     /// records, and hold it until acknowledged.
-    pub(super) fn cut(
-        &mut self,
-        now: std::time::SystemTime,
-        completes_horizon: bool,
-    ) -> bytes::Bytes {
-        let record = self.build(now, uuid::Flags::ACK_TXN, Vec::new(), false);
+    pub(super) fn cut(&mut self, now: std::time::SystemTime) -> bytes::Bytes {
+        let record = self.build(now, uuid::Flags::ACK_TXN, None, false);
         let mut buf = bytes::BytesMut::new();
         proto_gazette::fixed_framing::encode(&record, &mut buf);
         let ack = buf.freeze();
 
         self.prepared = Some(Prepared {
             ack: ack.clone(),
-            floor: completes_horizon.then(|| {
-                self.horizon
-                    .expect("the device reported a discharge with no horizon open")
-            }),
+            floor: self.completes.take(),
         });
         self.delta_records = 0;
 
@@ -99,10 +99,6 @@ impl Ledger {
                 "the acknowledgement matches no prepared delta",
             ));
         };
-
-        if prepared.floor.is_some() {
-            self.horizon = None;
-        }
         Ok(prepared.floor)
     }
 
@@ -111,7 +107,7 @@ impl Ledger {
         &mut self,
         now: std::time::SystemTime,
         flags: uuid::Flags,
-        chunks: Vec<proto::Chunk>,
+        chunk: Option<proto::Chunk>,
         opens_horizon: bool,
     ) -> proto::DiskRecord {
         self.clock.update(uuid::Clock::from_time(now));
@@ -119,7 +115,7 @@ impl Ledger {
 
         proto::DiskRecord {
             uuid: super::uuid_bytes(self.producer, clock, flags),
-            chunks,
+            chunk,
             opens_horizon,
         }
     }
@@ -134,6 +130,7 @@ struct Prepared {
 #[cfg(test)]
 mod test {
     use super::Ledger;
+    use crate::proto;
     use proto_gazette::uuid;
     use std::fmt::Write as _;
 
@@ -142,8 +139,9 @@ mod test {
         std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds)
     }
 
-    fn ledger() -> Ledger {
-        Ledger::new(crate::test_support::producer('a'), None)
+    /// A ledger which starts from `opener`, the last committed horizon opener.
+    fn ledger(opener: Option<i64>) -> Ledger {
+        Ledger::new(crate::test_support::producer('a'), opener)
     }
 
     /// The flags and clock of a built record.
@@ -159,11 +157,10 @@ mod test {
         Mutation,
         /// As `Mutation`, where it opens a horizon at this offset.
         Opens(i64),
-        /// Ask the next delta's range at this head and floor.
-        Range(i64, i64),
-        /// A client prepares. The `bool` is whether the device found the open
-        /// horizon discharged at this cut.
-        Prepare(bool),
+        /// As `Mutation`, where it discharges the open horizon.
+        Discharges,
+        /// A client prepares.
+        Prepare,
         /// A client acknowledges exactly what was last prepared.
         Ack,
         /// A client acknowledges other bytes.
@@ -173,9 +170,9 @@ mod test {
 
     /// Run `steps` as the writer's task drives the ledger, and render what each
     /// returned and whether the ledger then awaits an acknowledgement, how many
-    /// records its delta holds, and its open horizon.
-    fn trace(steps: &[Step]) -> String {
-        let mut ledger = ledger();
+    /// records its delta holds, its open horizon, and the floor its delta completes.
+    fn trace(opener: Option<i64>, steps: &[Step]) -> String {
+        let mut ledger = ledger(opener);
         let mut out = String::new();
         let mut last_ack = bytes::Bytes::new();
         let mut now = 0;
@@ -184,19 +181,26 @@ mod test {
             now += 1;
 
             let outcome = match step {
-                Mutation | Opens(_) if ledger.awaiting_ack() => "left in the channel".to_string(),
-                Mutation | Opens(_) => {
+                Mutation | Opens(_) | Discharges if ledger.awaiting_ack() => {
+                    "left in the channel".to_string()
+                }
+                Mutation | Opens(_) | Discharges => {
                     let opens_at = match step {
                         Opens(at) => Some(at),
                         _ => None,
                     };
-                    let record = ledger.build_uncommitted(at(now), Vec::new(), opens_at);
+                    let discharges = matches!(step, Discharges);
+                    let record = ledger.build_uncommitted(
+                        at(now),
+                        proto::Chunk::default(),
+                        opens_at,
+                        discharges,
+                    );
                     format!("built, opens {}", record.opens_horizon)
                 }
-                Range(head, floor) => format!("range {}", ledger.range(head, floor)),
-                Prepare(_) if ledger.delta_is_empty() => "nothing to commit".to_string(),
-                Prepare(completes) => {
-                    last_ack = ledger.cut(at(now), completes);
+                Prepare if ledger.delta_is_empty() => "nothing to commit".to_string(),
+                Prepare => {
+                    last_ack = ledger.cut(at(now));
                     "prepared".to_string()
                 }
                 Ack | AckOther => {
@@ -214,10 +218,11 @@ mod test {
 
             writeln!(
                 out,
-                "{step:<28}{outcome:<92}awaiting ack {:<6}delta {}  horizon {:?}",
+                "{step:<12}{outcome:<78}awaiting ack {:<6}delta {}  horizon {:<11}completes {:?}",
                 ledger.awaiting_ack(),
                 ledger.delta_records,
-                ledger.horizon,
+                format!("{:?}", ledger.horizon),
+                ledger.completes,
             )
             .unwrap();
         }
@@ -228,27 +233,22 @@ mod test {
     /// takes nothing between the two, and an empty delta commits nothing.
     #[test]
     fn test_a_delta_is_prepared_and_acknowledged() {
-        let trace = trace(&[
-            Prepare(false),
-            Mutation,
-            Mutation,
-            Prepare(false),
-            Mutation,
-            Ack,
-            Mutation,
-            Prepare(false),
-            Ack,
-        ]);
+        let trace = trace(
+            None,
+            &[
+                Prepare, Mutation, Mutation, Prepare, Mutation, Ack, Mutation, Prepare, Ack,
+            ],
+        );
         insta::assert_snapshot!(trace, @"
-        Prepare(false)              nothing to commit                                                                           awaiting ack false delta 0  horizon None
-        Mutation                    built, opens false                                                                          awaiting ack false delta 1  horizon None
-        Mutation                    built, opens false                                                                          awaiting ack false delta 2  horizon None
-        Prepare(false)              prepared                                                                                    awaiting ack true  delta 0  horizon None
-        Mutation                    left in the channel                                                                         awaiting ack true  delta 0  horizon None
-        Ack                         acknowledged, floor None                                                                    awaiting ack false delta 0  horizon None
-        Mutation                    built, opens false                                                                          awaiting ack false delta 1  horizon None
-        Prepare(false)              prepared                                                                                    awaiting ack true  delta 0  horizon None
-        Ack                         acknowledged, floor None                                                                    awaiting ack false delta 0  horizon None
+        Prepare     nothing to commit                                                             awaiting ack false delta 0  horizon None       completes None
+        Mutation    built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
+        Mutation    built, opens false                                                            awaiting ack false delta 2  horizon None       completes None
+        Prepare     prepared                                                                      awaiting ack true  delta 0  horizon None       completes None
+        Mutation    left in the channel                                                           awaiting ack true  delta 0  horizon None       completes None
+        Ack         acknowledged, floor None                                                      awaiting ack false delta 0  horizon None       completes None
+        Mutation    built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
+        Prepare     prepared                                                                      awaiting ack true  delta 0  horizon None       completes None
+        Ack         acknowledged, floor None                                                      awaiting ack false delta 0  horizon None       completes None
         ");
     }
 
@@ -257,46 +257,78 @@ mod test {
     /// attachment over it is the writer's.
     #[test]
     fn test_an_acknowledgement_out_of_turn_is_refused() {
-        let trace = trace(&[Mutation, Prepare(false), AckOther, Ack, Ack]);
+        let trace = trace(None, &[Mutation, Prepare, AckOther, Ack, Ack]);
         insta::assert_snapshot!(trace, @"
-        Mutation                    built, opens false                                                                          awaiting ack false delta 1  horizon None
-        Prepare(false)              prepared                                                                                    awaiting ack true  delta 0  horizon None
-        AckOther                    refused: the acknowledgement matches no prepared delta (FailedPrecondition)                 awaiting ack true  delta 0  horizon None
-        Ack                         acknowledged, floor None                                                                    awaiting ack false delta 0  horizon None
-        Ack                         refused: the acknowledgement matches no prepared delta (FailedPrecondition)                 awaiting ack false delta 0  horizon None
+        Mutation    built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
+        Prepare     prepared                                                                      awaiting ack true  delta 0  horizon None       completes None
+        AckOther    refused: the acknowledgement matches no prepared delta (FailedPrecondition)   awaiting ack true  delta 0  horizon None       completes None
+        Ack         acknowledged, floor None                                                      awaiting ack false delta 0  horizon None       completes None
+        Ack         refused: the acknowledgement matches no prepared delta (FailedPrecondition)   awaiting ack false delta 0  horizon None       completes None
         ");
     }
 
-    /// A delta's first record opens a horizon, and a delta which the cut found
-    /// discharging it moves the floor when it commits. The range after its
-    /// prepare counts from that floor.
+    /// A horizon opens at any record, and the delta whose record discharged it
+    /// moves the floor to its opener when that delta commits. One delta may
+    /// discharge a horizon and open the next.
     #[test]
-    fn test_a_horizon_opens_at_a_deltas_first_record_and_completes_at_its_commit() {
-        let trace = trace(&[
-            Range(900, 100),
-            Opens(1000),
-            Mutation,
-            Prepare(false),
-            Range(1100, 100),
-            Ack,
-            Mutation,
-            Prepare(true),
-            Range(2000, 100),
-            Ack,
-            Range(3000, 1000),
-        ]);
+    fn test_a_horizon_completes_at_the_commit_of_the_delta_which_discharged_it() {
+        let trace = trace(
+            None,
+            &[
+                Mutation,
+                Opens(1000),
+                Prepare,
+                Ack,
+                Mutation,
+                Discharges,
+                Opens(2000),
+                Prepare,
+                Ack,
+                Discharges,
+                Prepare,
+                Ack,
+            ],
+        );
         insta::assert_snapshot!(trace, @"
-        Range(900, 100)             range 800                                                                                   awaiting ack false delta 0  horizon None
-        Opens(1000)                 built, opens true                                                                           awaiting ack false delta 1  horizon Some(1000)
-        Mutation                    built, opens false                                                                          awaiting ack false delta 2  horizon Some(1000)
-        Prepare(false)              prepared                                                                                    awaiting ack true  delta 0  horizon Some(1000)
-        Range(1100, 100)            range 1000                                                                                  awaiting ack true  delta 0  horizon Some(1000)
-        Ack                         acknowledged, floor None                                                                    awaiting ack false delta 0  horizon Some(1000)
-        Mutation                    built, opens false                                                                          awaiting ack false delta 1  horizon Some(1000)
-        Prepare(true)               prepared                                                                                    awaiting ack true  delta 0  horizon Some(1000)
-        Range(2000, 100)            range 1000                                                                                  awaiting ack true  delta 0  horizon Some(1000)
-        Ack                         acknowledged, floor Some(1000)                                                              awaiting ack false delta 0  horizon None
-        Range(3000, 1000)           range 2000                                                                                  awaiting ack false delta 0  horizon None
+        Mutation    built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
+        Opens(1000) built, opens true                                                             awaiting ack false delta 2  horizon Some(1000) completes None
+        Prepare     prepared                                                                      awaiting ack true  delta 0  horizon Some(1000) completes None
+        Ack         acknowledged, floor None                                                      awaiting ack false delta 0  horizon Some(1000) completes None
+        Mutation    built, opens false                                                            awaiting ack false delta 1  horizon Some(1000) completes None
+        Discharges  built, opens false                                                            awaiting ack false delta 2  horizon None       completes Some(1000)
+        Opens(2000) built, opens true                                                             awaiting ack false delta 3  horizon Some(2000) completes Some(1000)
+        Prepare     prepared                                                                      awaiting ack true  delta 0  horizon Some(2000) completes None
+        Ack         acknowledged, floor Some(1000)                                                awaiting ack false delta 0  horizon Some(2000) completes None
+        Discharges  built, opens false                                                            awaiting ack false delta 1  horizon None       completes Some(2000)
+        Prepare     prepared                                                                      awaiting ack true  delta 0  horizon None       completes None
+        Ack         acknowledged, floor Some(2000)                                                awaiting ack false delta 0  horizon None       completes None
+        ");
+    }
+
+    /// A writer starts from the last committed opener, whose horizon the device may
+    /// hold open still. A discharge then completes it. Or an opener replaces it,
+    /// as a device opens one only where its recovery had discharged that horizon.
+    #[test]
+    fn test_a_recovered_opener_is_completed_or_replaced() {
+        let mut out = String::new();
+
+        for (case, steps) in [
+            ("held open", &[Discharges, Prepare, Ack][..]),
+            ("discharged", &[Opens(2000), Discharges, Prepare, Ack]),
+        ] {
+            writeln!(out, "{case}:").unwrap();
+            out.push_str(&trace(Some(500), steps));
+        }
+        insta::assert_snapshot!(out, @"
+        held open:
+        Discharges  built, opens false                                                            awaiting ack false delta 1  horizon None       completes Some(500)
+        Prepare     prepared                                                                      awaiting ack true  delta 0  horizon None       completes None
+        Ack         acknowledged, floor Some(500)                                                 awaiting ack false delta 0  horizon None       completes None
+        discharged:
+        Opens(2000) built, opens true                                                             awaiting ack false delta 1  horizon Some(2000) completes None
+        Discharges  built, opens false                                                            awaiting ack false delta 2  horizon None       completes Some(2000)
+        Prepare     prepared                                                                      awaiting ack true  delta 0  horizon None       completes None
+        Ack         acknowledged, floor Some(2000)                                                awaiting ack false delta 0  horizon None       completes None
         ");
     }
 
@@ -305,13 +337,13 @@ mod test {
     /// record of the next delta.
     #[test]
     fn test_clocks_advance_though_the_wall_clock_steps_back() {
-        let mut ledger = ledger();
+        let mut ledger = ledger(None);
 
-        let first = ledger.build_uncommitted(at(100), Vec::new(), None);
-        let second = ledger.build_uncommitted(at(50), Vec::new(), None);
-        let ack = ledger.cut(at(40), false);
+        let first = ledger.build_uncommitted(at(100), proto::Chunk::default(), None, false);
+        let second = ledger.build_uncommitted(at(50), proto::Chunk::default(), None, false);
+        let ack = ledger.cut(at(40));
         () = ledger.begin_acknowledge(&ack).map(|_| ()).unwrap();
-        let next = ledger.build_uncommitted(at(200), Vec::new(), None);
+        let next = ledger.build_uncommitted(at(200), proto::Chunk::default(), None, false);
 
         let mut ack = bytes::BytesMut::from(&ack[..]);
         let proto_gazette::fixed_framing::Frame::Record { message: ack, .. } =

@@ -2,15 +2,16 @@
 //! before it, so a journal is not written before it's fenced, or served before
 //! it's replayed:
 //!
-//! 1. [`Standby::new`] replays the journal to its head. The standby then keeps
-//!    tailing it with [`Standby::follow`] until promoted.
-//! 2. [`Standby::promote`] fences the previous writer and finishes replay.
-//! 3. [`Promoted::into_writer`] hands the journal to a [`writer::Writer`], which
+//! 1. `Standby::new` replays the journal to its head, handing each committed
+//!    delta to the disk's device. The standby then keeps tailing it with
+//!    `Standby::follow` until promoted.
+//! 2. `Standby::promote` fences the previous writer, finishes replay, and gives
+//!    back the sender of the device's replayed chunks.
+//! 3. `Promoted::into_writer` hands the journal to a `writer::Writer`, which
 //!    appends deltas.
 
 use super::{replay, sequencer, uncommitted, writer};
 use crate::device;
-use crate::image;
 use crate::proto;
 use anyhow::Context;
 use proto_gazette::{broker, fixed_framing, uuid};
@@ -24,14 +25,14 @@ pub struct Standby {
 }
 
 impl Standby {
-    /// Replay `journal` into `image` from its recovery floor, and return once replay
-    /// reaches the journal's current head, or fail if the attachment is cancelled
-    /// first.
+    /// Replay `journal` into `replayed_tx` from its recovery floor, and return once
+    /// replay reaches the journal's current head, or fail if the attachment is
+    /// cancelled first.
     pub async fn new(
         client: &gazette::journal::Client,
         journal: String,
         cancel: tokio_util::sync::CancellationToken,
-        image: image::Image,
+        replayed_tx: tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
         uncommitted: uncommitted::UncommittedDelta,
     ) -> anyhow::Result<Self> {
         let client = client.clone();
@@ -62,7 +63,7 @@ impl Standby {
             let head = super::confirm_head(&client, &journal).await?;
             let floor = super::listed_floor(&journal, listing, head)?;
 
-            let mut replay = replay::Replay::new(image, uncommitted, floor);
+            let mut replay = replay::Replay::new(replayed_tx, uncommitted, floor);
 
             // A journal with no content may be fully suspended, refusing all but
             // appends, so neither read nor tail it. Promotion's fence resumes it, and
@@ -99,11 +100,12 @@ impl Standby {
         }
     }
 
-    /// Fence the previous writer, then finish replay through the fenced head.
+    /// Fence the previous writer, then finish replay through the fenced head, and
+    /// give back the sender of the device's replayed chunks.
     pub async fn promote(
         self,
         recovered_ack: Option<bytes::Bytes>,
-    ) -> anyhow::Result<(Promoted, Recovered)> {
+    ) -> anyhow::Result<(Promoted, tokio::sync::mpsc::Sender<(proto::Chunk, bool)>)> {
         let cancel = self.journal.cancel.clone();
 
         let promoting = async move {
@@ -156,16 +158,10 @@ impl Standby {
 
                 // The fence excludes other writers, so the ack landed where replay
                 // stopped. Sequence it there, as later replays will.
-                () = replay.record(&record, &ack)?;
+                () = replay.record(&record, &ack).await?;
             }
 
-            let chunks = replay.applied_chunks();
-            let (image, opened) = replay.into_parts();
-
-            let (horizon_at, horizon) = match opened {
-                Some(replay::OpenHorizon { at, blocks }) => (Some(at), Some(blocks)),
-                None => (None, None),
-            };
+            let (replayed_tx, opener, chunks) = replay.into_parts();
 
             if chunks == 0 && recovered_ack.is_some() {
                 return Err(crate::invalid_argument(format!(
@@ -175,54 +171,51 @@ impl Standby {
                 )));
             }
 
-            anyhow::Ok((
-                Promoted {
-                    journal,
-                    appender,
-                    horizon: horizon_at,
-                },
-                Recovered {
-                    image,
-                    fresh: chunks == 0,
-                    horizon,
-                },
-            ))
+            let promoted = Promoted {
+                journal,
+                appender,
+                opener,
+                fresh: chunks == 0,
+            };
+            anyhow::Ok((promoted, replayed_tx))
         };
         super::unless_cancelled(&cancel, promoting).await
     }
 }
 
-/// A replayed journal which this attachment holds, ready for its [`writer::Writer`].
+/// A replayed journal which this attachment holds, ready for its `writer::Writer`.
 pub struct Promoted {
     /// Journal ownership and recovery offsets after promotion.
     journal: super::Journal,
     /// Fenced append pipeline passed to the writer.
     appender: publisher::Appender,
-    /// Offset of a horizon the replay left open, which the writer completes rather
-    /// than opening one of its own.
-    horizon: Option<i64>,
+    /// Offset of the last committed record which opened a horizon, which the writer
+    /// completes if the device holds it open still.
+    opener: Option<i64>,
+    /// Whether the journal held no committed data, so the disk must be formatted.
+    fresh: bool,
 }
 
 impl Promoted {
-    pub fn into_writer(self, recorded: device::Recorded) -> writer::Writer {
+    /// Whether the journal held no committed data, so the disk must be formatted.
+    pub fn fresh(&self) -> bool {
+        self.fresh
+    }
+
+    /// Start the writer of the device's served mutations, `served_rx`.
+    pub fn into_writer(
+        self,
+        served_rx: tokio::sync::mpsc::Receiver<device::Mutation>,
+    ) -> writer::Writer {
         let Self {
             journal,
             appender,
-            horizon,
+            opener,
+            ..
         } = self;
 
-        writer::Writer::new(journal, appender, horizon, recorded)
+        writer::Writer::spawn(journal, appender, opener, served_rx)
     }
-}
-
-/// What a recovery of a disk found in its journal.
-pub struct Recovered {
-    /// The disk's committed state, rebuilt.
-    pub image: image::Image,
-    /// True if the journal held no committed data, so the caller formats the disk.
-    pub fresh: bool,
-    /// Pending blocks of the horizon left open by replay.
-    pub horizon: Option<crate::horizon::Horizon>,
 }
 
 /// Fence the previous writer, giving promotion a fixed head to reach, and return the
@@ -319,7 +312,7 @@ mod test {
     #[test]
     fn test_a_recovered_acknowledgement_is_one_ack() {
         let a = test_support::producer('a');
-        let ack = test_support::record(a, 2, uuid::Flags::ACK_TXN, Vec::new());
+        let ack = test_support::record(a, 2, uuid::Flags::ACK_TXN, None);
         let frame = |record: proto::DiskRecord| test_support::frame([&record]);
 
         let cases: [(&str, bytes::BytesMut); 6] = [
@@ -339,12 +332,7 @@ mod test {
             ),
             (
                 "a data record",
-                frame(test_support::record(
-                    a,
-                    2,
-                    uuid::Flags::CONTINUE_TXN,
-                    Vec::new(),
-                )),
+                frame(test_support::record(a, 2, uuid::Flags::CONTINUE_TXN, None)),
             ),
         ];
 
@@ -371,7 +359,6 @@ mod test {
 
 #[cfg(test)]
 mod broker_test {
-    use crate::chunk;
     use crate::test_support;
     use crate::test_support::broker;
 
@@ -404,16 +391,15 @@ mod broker_test {
     /// First use fences the journal, then appends its delta under that fence.
     async fn first_use_fences_the_journal(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/first-use";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        recorder
-            .try_send(broker::mutation(vec![chunk::encode_punch(3, 2)]))
+        served_tx
+            .try_send(broker::mutation(test_support::punch_chunk(3, 2)))
             .unwrap();
         let ack = writer
-            .prepare(false)
+            .prepare()
             .await
             .unwrap()
-            .0
             .expect("the delta is not empty");
         () = writer.acknowledge(ack).await.unwrap();
 
@@ -421,7 +407,7 @@ mod broker_test {
 
         insta::assert_snapshot!(out, @"
         fence     author 1
-        continue  author 1  blocks 3..5: punch 2
+        continue  author 1  blocks 3..5: punch
         ack       author 1
         ");
     }
@@ -430,27 +416,27 @@ mod broker_test {
     /// cannot append.
     async fn a_replacement_writer_fences_the_first(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/contended";
-        let (first_recorder, mut first) = fixture.open(journal).await.unwrap();
+        let (first_served_tx, first) = fixture.open(journal).await.unwrap();
 
-        first_recorder
-            .try_send(broker::mutation(vec![chunk::encode_punch(0, 1)]))
+        first_served_tx
+            .try_send(broker::mutation(test_support::punch_chunk(0, 1)))
             .unwrap();
-        let ack = first.prepare(false).await.unwrap().0.unwrap();
+        let ack = first.prepare().await.unwrap().unwrap();
         () = first.acknowledge(ack).await.unwrap();
 
         // The journal now holds a committed delta, so a replacement fences it as that
         // replacement recovers.
-        let (_second_recorder, _second, _blocks) = fixture.recover(journal, None).await.unwrap();
+        let (_second_served_tx, _second, _blocks) = fixture.recover(journal, None).await.unwrap();
 
-        first_recorder
-            .try_send(broker::mutation(vec![chunk::encode_punch(1, 1)]))
+        first_served_tx
+            .try_send(broker::mutation(test_support::punch_chunk(1, 1)))
             .unwrap();
 
         // The append which lost the fence fails as `ABORTED`, which tells its client
         // that another attachment owns the disk. The failure is terminal.
         let mut out = Vec::new();
         for what in ["fenced-out prepare", "later prepare"] {
-            let err = first.prepare(false).await.unwrap_err();
+            let err = first.prepare().await.unwrap_err();
             out.push(format!("{what:<20}{}", refusal(&err)));
         }
         insta::assert_snapshot!(out.join("\n"), @"
@@ -464,10 +450,10 @@ mod broker_test {
     /// the disk is ever written.
     async fn an_attachment_which_never_prepares_appends_only_its_fence(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/untouched";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        let (ack, _range) = writer.prepare(false).await.unwrap();
-        drop((recorder, writer));
+        let ack = writer.prepare().await.unwrap();
+        drop((served_tx, writer));
 
         let mut out = vec![format!("prepared  {ack:?}")];
         out.push(broker::render(&fixture.read(journal).await));
@@ -493,22 +479,22 @@ mod broker_test {
     /// acknowledgement never reached the journal.
     async fn recovery_applies_only_committed_deltas(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/recovered";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
         for (block, fill) in [(1, 0xaa), (2, 0xbb)] {
-            recorder.try_send(broker::write(block, fill)).unwrap();
+            served_tx.try_send(broker::write(block, fill)).unwrap();
         }
-        let ack = writer.prepare(false).await.unwrap().0.unwrap();
+        let ack = writer.prepare().await.unwrap().unwrap();
         () = writer.acknowledge(ack).await.unwrap();
 
         // A second delta, prepared but never committed. An attachment which crashed
         // between the two leaves this behind.
-        recorder.try_send(broker::write(2, 0xcc)).unwrap();
-        recorder.try_send(broker::write(3, 0xdd)).unwrap();
-        _ = writer.prepare(false).await.unwrap().0.unwrap();
-        drop((recorder, writer));
+        served_tx.try_send(broker::write(2, 0xcc)).unwrap();
+        served_tx.try_send(broker::write(3, 0xdd)).unwrap();
+        _ = writer.prepare().await.unwrap().unwrap();
+        drop((served_tx, writer));
 
-        let (_recorder, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
+        let (_served_tx, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
         assert_eq!(blocks, vec![(1, 0xaa), (2, 0xbb)]);
     }
 
@@ -516,13 +502,13 @@ mod broker_test {
     /// Recovery appends it verbatim, which commits the delta it acknowledges.
     async fn a_recovered_acknowledgement_is_repaired(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/repaired";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        recorder.try_send(broker::write(4, 0x11)).unwrap();
-        let ack = writer.prepare(false).await.unwrap().0.unwrap();
-        drop((recorder, writer));
+        served_tx.try_send(broker::write(4, 0x11)).unwrap();
+        let ack = writer.prepare().await.unwrap().unwrap();
+        drop((served_tx, writer));
 
-        let (_recorder, _writer, blocks) =
+        let (_served_tx, _writer, blocks) =
             fixture.recover(journal, Some(ack.clone())).await.unwrap();
         let mut out = vec![format!(
             "repaired        {}",
@@ -532,7 +518,7 @@ mod broker_test {
         // A second repair hands back the same acknowledgement, which the journal now
         // holds, so nothing is appended for it. An attachment which repeats a repair
         // therefore recovers the same disk.
-        let (_recorder, _writer, blocks) = fixture.recover(journal, Some(ack)).await.unwrap();
+        let (_served_tx, _writer, blocks) = fixture.recover(journal, Some(ack)).await.unwrap();
         out.push(format!(
             "repaired again  {}",
             test_support::render_blocks(&blocks)
@@ -550,23 +536,23 @@ mod broker_test {
     /// on.
     async fn a_stale_recovered_acknowledgement_is_refused(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/stale-ack";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        recorder.try_send(broker::write(1, 0x11)).unwrap();
-        let stale = writer.prepare(false).await.unwrap().0.unwrap();
-        drop((recorder, writer));
+        served_tx.try_send(broker::write(1, 0x11)).unwrap();
+        let stale = writer.prepare().await.unwrap().unwrap();
+        drop((served_tx, writer));
 
         // An attachment which promoted without that acknowledgement, and wrote past it.
-        let (recorder, mut writer, blocks) = fixture.recover(journal, None).await.unwrap();
+        let (served_tx, writer, blocks) = fixture.recover(journal, None).await.unwrap();
         let mut out = vec![format!(
             "promoted without it   {}",
             test_support::render_blocks(&blocks)
         )];
 
-        recorder.try_send(broker::write(2, 0x22)).unwrap();
-        let ack = writer.prepare(false).await.unwrap().0.unwrap();
+        served_tx.try_send(broker::write(2, 0x22)).unwrap();
+        let ack = writer.prepare().await.unwrap().unwrap();
         () = writer.acknowledge(ack).await.unwrap();
-        drop((recorder, writer));
+        drop((served_tx, writer));
 
         // Normalize the acknowledgement's random author and clock for the snapshot.
         let (_record, author, clock) = super::parse_ack(&stale).unwrap();
@@ -579,7 +565,7 @@ mod broker_test {
         out.push(format!("the stale ack         {refused}"));
 
         // Nothing of it reached the journal, so the disk still recovers.
-        let (_recorder, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
+        let (_served_tx, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
         out.push(format!(
             "recovered after       {}",
             test_support::render_blocks(&blocks)
@@ -596,18 +582,18 @@ mod broker_test {
     /// its disk is fresh.
     async fn an_orphaned_journal_recovers_nothing(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/orphaned";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        recorder.try_send(broker::write(5, 0x22)).unwrap();
-        _ = writer.prepare(false).await.unwrap().0.unwrap();
-        drop((recorder, writer));
+        served_tx.try_send(broker::write(5, 0x22)).unwrap();
+        _ = writer.prepare().await.unwrap().unwrap();
+        drop((served_tx, writer));
 
         assert!(
             fixture.head(journal).await > 0,
             "the delta reached the journal"
         );
 
-        let (_recorder, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
+        let (_served_tx, _writer, blocks) = fixture.recover(journal, None).await.unwrap();
         assert!(blocks.is_empty(), "{blocks:?}");
     }
 
@@ -619,24 +605,21 @@ mod broker_test {
         fixture: &broker::Fixture,
     ) {
         let journal = "acmeCo/disk/landed-ack";
-        let (recorder, mut writer) = fixture.open(journal).await.unwrap();
+        let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        recorder.try_send(broker::write(1, 0xaa)).unwrap();
-        let ack = writer.prepare(false).await.unwrap().0.unwrap();
+        served_tx.try_send(broker::write(1, 0xaa)).unwrap();
+        let ack = writer.prepare().await.unwrap().unwrap();
         () = writer.acknowledge(ack.clone()).await.unwrap();
 
-        // The next transaction writes. The writer appends the write during a drain.
+        // The next transaction writes, which the writer appends at once.
         let head = fixture.head(journal).await;
-        recorder.try_send(broker::write(2, 0xbb)).unwrap();
-        () = writer
-            .drain_while(fixture.advances(journal, head))
-            .await
-            .unwrap();
-        drop((recorder, writer));
+        served_tx.try_send(broker::write(2, 0xbb)).unwrap();
+        () = fixture.advances(journal, head).await;
+        drop((served_tx, writer));
 
         // The client failed before it committed the next transaction, so its checkpoint
         // still holds the acknowledgement it last committed.
-        let (_recorder, _second, blocks) = fixture.recover(journal, Some(ack)).await.unwrap();
+        let (_served_tx, _second, blocks) = fixture.recover(journal, Some(ack)).await.unwrap();
         let mut out = vec![format!(
             "blocks    {}",
             test_support::render_blocks(&blocks)
@@ -667,13 +650,13 @@ mod broker_test {
             test_support::producer('b'),
             1,
             proto_gazette::uuid::Flags::ACK_TXN,
-            Vec::new(),
+            None,
         )]);
 
         let mut out = Vec::new();
         for (what, ack) in [("no ack", None), ("an ack", Some(ack.freeze()))] {
-            let outcome = match fixture.promote(journal, ack).await {
-                Ok((_promoted, blocks)) => {
+            let outcome = match fixture.recover(journal, ack).await {
+                Ok((_served_tx, _writer, blocks)) => {
                     format!("recovered {}", test_support::render_blocks(&blocks))
                 }
                 Err(err) => refusal(&err),

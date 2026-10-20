@@ -199,14 +199,14 @@ mod test {
 
         match record {
             Write(name, ticks) => {
-                test_support::record(producer(name), ticks, uuid::Flags::CONTINUE_TXN, Vec::new())
+                test_support::record(producer(name), ticks, uuid::Flags::CONTINUE_TXN, None)
             }
             Ack(name, ticks) => {
-                test_support::record(producer(name), ticks, uuid::Flags::ACK_TXN, Vec::new())
+                test_support::record(producer(name), ticks, uuid::Flags::ACK_TXN, None)
             }
             Fence(name) => test_support::fence(producer(name)),
             Outside(name, ticks) => {
-                test_support::record(producer(name), ticks, uuid::Flags::OUTSIDE_TXN, Vec::new())
+                test_support::record(producer(name), ticks, uuid::Flags::OUTSIDE_TXN, None)
             }
         }
     }

@@ -37,20 +37,21 @@ pub struct Args {
     #[arg(long, env = "LOG_FORMAT", default_value = "text")]
     pub log_format: LogFormat,
 
-    /// Journal range above the recovery floor beyond which a disk opens a
-    /// recovery horizon, as a multiple of that disk's live allocated size.
-    /// Together with the copy ratio it bounds the range a recovery reads.
+    /// Replay bytes beyond which a disk opens a recovery horizon, as a multiple of
+    /// that disk's live allocated size. Replay bytes are the encoded size of the
+    /// chunks applied since the recovery floor, which is the journal's content
+    /// less its record framing. Together with the copy ratio it bounds what a
+    /// recovery reads.
     #[arg(long, env = "HORIZON_OPEN_RATIO", default_value = "2.0")]
     pub horizon_open_ratio: f64,
 
-    /// Unchanged bytes a delta may copy for each byte it changed. These copies
-    /// discharge a horizon over blocks nothing is writing. Journal write
-    /// amplification during compaction is at most one plus this.
+    /// Unchanged bytes a horizon may copy for each byte written while it is open.
+    /// These copies discharge a horizon over blocks nothing is writing. Journal
+    /// write amplification during compaction is at most one plus this.
     #[arg(long, env = "HORIZON_COPY_RATIO", default_value = "0.5")]
     pub horizon_copy_ratio: f64,
 
-    /// Journal range below which no horizon opens, whatever the ratio. It keeps
-    /// a small disk from compacting constantly.
+    /// Replay bytes below which no horizon opens, whatever the ratio. It keeps a small disk from compacting constantly.
     #[arg(long, env = "HORIZON_MINIMUM_BYTES", default_value_t = 1 << 30)]
     pub horizon_minimum_bytes: u64,
 }
@@ -68,14 +69,12 @@ pub(crate) struct Config {
     /// Parent directory of per-device mounts.
     pub(crate) mount_dir: std::path::PathBuf,
     /// When a disk opens a recovery horizon, and how fast it discharges one.
-    pub(crate) horizon: crate::horizon::Policy,
+    pub(crate) horizon_policy: crate::device::horizon::Policy,
     /// Brokers of every disk journal.
     pub(crate) brokers: gazette::journal::Client,
 }
 
 pub async fn run(args: Args) -> anyhow::Result<()> {
-    let control = std::sync::Arc::new(crate::ublk::Control::open()?);
-
     let brokers = broker_client(
         &args.broker_address,
         &args.gazette_zone,
@@ -86,7 +85,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let config = std::sync::Arc::new(Config {
         image_dir: args.image_dir.clone(),
         mount_dir: args.mount_dir.clone(),
-        horizon: crate::horizon::Policy {
+        horizon_policy: crate::device::horizon::Policy {
             open_ratio: args.horizon_open_ratio,
             copy_ratio: args.horizon_copy_ratio,
             minimum_bytes: args.horizon_minimum_bytes,
@@ -97,7 +96,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     tracing::info!(
         image_dir = ?args.image_dir,
         mount_dir = ?args.mount_dir,
-        horizon = ?config.horizon,
+        horizon_policy = ?config.horizon_policy,
         zone = args.gazette_zone,
         "disk daemon starting",
     );
@@ -122,7 +121,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 
     let service = Service {
         config,
-        control,
         draining: draining.clone(),
         attachments: attachments.clone(),
     };
@@ -186,8 +184,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 struct Service {
     /// Configuration shared by all attachments.
     config: std::sync::Arc<Config>,
-    /// Shared kernel device control handle.
-    control: std::sync::Arc<crate::ublk::Control>,
     /// Cancelled when the daemon drains, so that no attachment outlives it.
     draining: tokio_util::sync::CancellationToken,
     /// Every attachment's task, which the daemon waits on before it exits.
@@ -216,7 +212,6 @@ impl proto_grpc::disk::disk_server::Disk for Service {
 
         self.attachments.spawn(crate::attachment::run(
             self.config.clone(),
-            self.control.clone(),
             peer,
             self.draining.child_token(),
             request.into_inner(),

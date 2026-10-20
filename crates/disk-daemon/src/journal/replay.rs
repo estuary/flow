@@ -1,24 +1,25 @@
 use super::{sequencer, uncommitted};
-use crate::horizon;
-use crate::image;
 use crate::proto;
 use anyhow::Context;
 use proto_gazette::{broker, fixed_framing};
 
-/// Image and sequencing state shared by backfill, tailing, and promotion.
+/// Sequencing state shared by backfill, tailing, and promotion, which hands each
+/// delta to the device as it commits.
 pub(super) struct Replay {
-    /// The disk's committed state, rebuilt so far.
-    image: image::Image,
+    /// Where each committed record's chunk goes, in journal order, with whether it
+    /// opens a horizon.
+    replayed_tx: tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
     /// Per-producer ordering and acknowledgement state.
     sequencer: sequencer::Sequencer,
     /// Records of the current delta, held until it's acknowledged.
     uncommitted: uncommitted::UncommittedDelta,
-    /// Offset of the held record which opens a horizon, if any.
+    /// Offset of the last held record which opens a horizon, if any.
     held_opens_at: Option<i64>,
-    /// A horizon which has opened and is not yet discharged.
-    horizon: Option<OpenHorizon>,
-    /// Counts across reads and cancellation. Promotion tells committed state from a
-    /// fresh disk by this count.
+    /// Offset of the last committed record which opened a horizon. The device knows
+    /// whether that horizon is still open, and this is its floor once it completes.
+    opener: Option<i64>,
+    /// Chunks committed, across reads and cancellation. Promotion tells committed
+    /// state from a fresh disk by this count.
     applied_chunks: usize,
     /// Whether this replay has taken a record. Only before then may a read skip
     /// ahead, past content pruned below the floor. Any later skip is a gap.
@@ -28,28 +29,23 @@ pub(super) struct Replay {
 }
 
 impl Replay {
-    /// A replay into `image` from `floor`, which holds each delta in `uncommitted`
-    /// until its acknowledgement.
+    /// A replay from `floor` into `replayed_tx`, which holds each delta in
+    /// `uncommitted` until its acknowledgement.
     pub fn new(
-        image: image::Image,
+        replayed_tx: tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
         uncommitted: uncommitted::UncommittedDelta,
         floor: i64,
     ) -> Self {
         Self {
-            image,
+            replayed_tx,
             sequencer: sequencer::Sequencer::default(),
             uncommitted,
             held_opens_at: None,
-            horizon: None,
+            opener: None,
             applied_chunks: 0,
             read_any: false,
             offset: floor,
         }
-    }
-
-    /// Chunks applied, which is zero for a journal with no committed state.
-    pub fn applied_chunks(&self) -> usize {
-        self.applied_chunks
     }
 
     /// The replay's sequencing, which says which acknowledgements it can honor.
@@ -57,14 +53,22 @@ impl Replay {
         &self.sequencer
     }
 
-    /// Take the image and any horizon still open, once the replay is done. A delta
-    /// still held is dropped: past the fence, no acknowledgement can commit it.
-    pub fn into_parts(self) -> (image::Image, Option<OpenHorizon>) {
-        (self.image, self.horizon)
+    /// Take the sender of replayed chunks, the offset of the last committed
+    /// horizon opener, and the chunks committed, which is zero for a journal with no
+    /// committed state. A delta still held is dropped: past the fence, no
+    /// acknowledgement can commit it.
+    pub fn into_parts(
+        self,
+    ) -> (
+        tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
+        Option<i64>,
+        usize,
+    ) {
+        (self.replayed_tx, self.opener, self.applied_chunks)
     }
 
     /// Consume a read response, retaining partial frames in `buf`.
-    fn take(
+    async fn take(
         &mut self,
         buf: &mut bytes::BytesMut,
         offset: i64,
@@ -91,6 +95,7 @@ impl Replay {
                 fixed_framing::Frame::Record { message, framed } => {
                     () = self
                         .record(&message, &framed)
+                        .await
                         .with_context(|| format!("taking the record at offset {at}"))?;
                 }
                 fixed_framing::Frame::Desync { skipped } => anyhow::bail!(
@@ -103,7 +108,11 @@ impl Replay {
     }
 
     /// Take `record`, whole and framed as `framed`, at this replay's offset.
-    pub fn record(&mut self, record: &proto::DiskRecord, framed: &[u8]) -> anyhow::Result<()> {
+    pub async fn record(
+        &mut self,
+        record: &proto::DiskRecord,
+        framed: &[u8],
+    ) -> anyhow::Result<()> {
         let offset = self.offset;
         self.read_any = true;
         let sequencer::Step { displaced, action } = self.sequencer.on_record(record)?;
@@ -123,59 +132,38 @@ impl Replay {
                 self.uncommitted.push(framed)
             }
             sequencer::Action::Commit => {
-                // Apply before checking completion: these chunks may discharge the
-                // horizon's last pending blocks.
-                let opens_at = self.held_opens_at.take();
-                self.applied_chunks += self.apply_held(opens_at)?;
+                () = self.apply_held().await?;
 
-                // A committed delta which discharged the last block of the horizon
-                // completes it, and its writer stored the floor as it committed.
-                _ = self.horizon.take_if(|open| open.blocks.pending() == 0);
+                if let Some(opens_at) = self.held_opens_at.take() {
+                    self.opener = Some(opens_at);
+                }
                 Ok(())
             }
         }
     }
 
-    /// Apply the acknowledged delta in record order and count its chunks.
-    fn apply_held(&mut self, opens_at: Option<i64>) -> anyhow::Result<usize> {
-        let Self {
-            image,
-            uncommitted,
-            horizon,
-            ..
-        } = self;
-        let mut applied = 0;
+    /// Hand the acknowledged delta to the device in record order, and count its
+    /// chunks.
+    async fn apply_held(&mut self) -> anyhow::Result<()> {
+        let mut held = self.uncommitted.drain();
 
-        () = uncommitted.drain(|record| {
-            if record.opens_horizon {
-                let at = opens_at.expect("the replay held the offset of an opening record");
-                let blocks = horizon::Horizon::open(image.allocated());
-                *horizon = Some(OpenHorizon { at, blocks });
-            }
+        while let Some(record) = held.next()? {
+            self.applied_chunks += 1;
 
-            // A horizon opens at a record and a replay is a forward pass, so every
-            // chunk here is at or after any horizon which is open.
-            for chunk in &record.chunks {
-                let covered = image
-                    .apply(chunk)
-                    .with_context(|| format!("applying chunk at block {}", chunk.block))?;
-
-                if let Some(open) = horizon {
-                    () = open.blocks.published(covered);
-                }
-            }
-            applied += record.chunks.len();
-
-            Ok(())
-        })?;
-
-        Ok(applied)
+            let chunk = record.chunk.expect("a delta's record carries a chunk");
+            () = self
+                .replayed_tx
+                .send((chunk, record.opens_horizon))
+                .await
+                .map_err(|_| anyhow::anyhow!("the disk's device failed to rebuild its image"))?;
+        }
+        Ok(())
     }
 }
 
 /// Continue from the replay's next record boundary. `Some(head)` reads to a
 /// broker-confirmed head; `None` tails until cancelled or an error occurs.
-/// [`Replay::take`] checks any offset jump returned by the broker.
+/// `Replay::take` checks any offset jump returned by the broker.
 pub(super) async fn read(
     client: &gazette::journal::Client,
     journal: &str,
@@ -214,32 +202,21 @@ pub(super) async fn read(
 
         () = replay
             .take(&mut buf, response.offset, &response.content)
+            .await
             .with_context(|| format!("replaying {journal}"))?;
     }
     Ok(())
 }
 
-/// A recovery horizon this replay has opened.
-pub(super) struct OpenHorizon {
-    /// Offset at which the record which opened this horizon begins.
-    pub at: i64,
-    /// Committed blocks still pending a copy for this horizon.
-    pub blocks: horizon::Horizon,
-}
-
 #[cfg(test)]
 mod test {
     use super::Replay;
-    use crate::chunk;
-    use crate::image;
     use crate::proto;
     use crate::test_support;
     use proto_gazette::uuid;
     use std::fmt::Write as _;
 
-    const BLOCKS: u32 = 64;
-
-    /// `record` as the first of a delta which opens a horizon.
+    /// `record` as one which opens a horizon.
     fn opens(record: proto::DiskRecord) -> proto::DiskRecord {
         proto::DiskRecord {
             opens_horizon: true,
@@ -248,19 +225,19 @@ mod test {
     }
 
     fn write(producer: uuid::Producer, clock: u64, block: u32, fill: u8) -> proto::DiskRecord {
-        let chunks = test_support::broker::write(block, fill).chunks;
-        test_support::record(producer, clock, uuid::Flags::CONTINUE_TXN, chunks)
+        let chunk = test_support::broker::write(block, fill).chunk;
+        test_support::record(producer, clock, uuid::Flags::CONTINUE_TXN, Some(chunk))
     }
 
     /// A record of `producer`'s delta which punches `block`. It frames far smaller than
     /// a write, which keeps the offsets of a case small enough to read.
     fn punch(producer: uuid::Producer, clock: u64, block: u32) -> proto::DiskRecord {
-        let chunks = vec![chunk::encode_punch(block, 1)];
-        test_support::record(producer, clock, uuid::Flags::CONTINUE_TXN, chunks)
+        let chunk = test_support::punch_chunk(block, 1);
+        test_support::record(producer, clock, uuid::Flags::CONTINUE_TXN, Some(chunk))
     }
 
     fn ack(producer: uuid::Producer, clock: u64) -> proto::DiskRecord {
-        test_support::record(producer, clock, uuid::Flags::ACK_TXN, Vec::new())
+        test_support::record(producer, clock, uuid::Flags::ACK_TXN, None)
     }
 
     /// Journal offset at which the record at `index` begins.
@@ -271,17 +248,37 @@ mod test {
             .sum()
     }
 
-    /// A replay from `floor` into an image of its own within `dir`.
-    fn replay(dir: &tempfile::TempDir, floor: i64) -> Replay {
-        Replay::new(
-            image::Image::create(dir.path(), BLOCKS).unwrap(),
-            super::uncommitted::UncommittedDelta::create(dir.path()).unwrap(),
-            floor,
-        )
+    /// A replay, and the device's end of its replayed chunks.
+    struct Case {
+        replay: Replay,
+        replayed_rx: tokio::sync::mpsc::Receiver<(proto::Chunk, bool)>,
+    }
+
+    /// A replay from `floor`, which holds deltas within `dir`.
+    fn replay(dir: &tempfile::TempDir, floor: i64) -> Case {
+        let (replayed_tx, replayed_rx) = tokio::sync::mpsc::channel(16);
+
+        Case {
+            replay: Replay::new(
+                replayed_tx,
+                super::uncommitted::UncommittedDelta::create(dir.path()).unwrap(),
+                floor,
+            ),
+            replayed_rx,
+        }
+    }
+
+    /// `3=aa` fills block 3 with 0xaa, and `punch 3` discards it.
+    fn change(chunk: &proto::Chunk) -> String {
+        match &chunk.content {
+            Some(proto::chunk::Content::Data(data)) => format!("{}={:02x}", chunk.block, data[0]),
+            Some(proto::chunk::Content::Punch(_)) => format!("punch {}", chunk.block),
+            None => panic!("a chunk without content"),
+        }
     }
 
     /// `write a@2 3=aa` fills block 3 with 0xaa at producer a's clock 2.
-    /// `punch` discards a block; `opens` is a write that opens a horizon.
+    /// `punch` discards a block; `opens` is a record that opens a horizon.
     fn label(record: &proto::DiskRecord) -> String {
         let (producer, clock, flags) =
             uuid::parse(uuid::Uuid::from_slice(&record.uuid).unwrap()).unwrap();
@@ -297,52 +294,56 @@ mod test {
         if flags.is_ack() {
             return format!("ack {who}");
         }
-        let [change] = &record.chunks[..] else {
-            panic!("a record of {} chunks", record.chunks.len());
-        };
-        let (kind, what) = match &change.content {
-            Some(proto::chunk::Content::Data(data)) => {
-                ("write", format!("{}={:02x}", change.block, data[0]))
-            }
-            Some(proto::chunk::Content::Punch(_)) => ("punch", change.block.to_string()),
-            None => panic!("a chunk without content"),
-        };
-        let kind = if record.opens_horizon { "opens" } else { kind };
+        let what = change(
+            record
+                .chunk
+                .as_ref()
+                .expect("a delta's record carries a chunk"),
+        );
 
-        format!("{kind} {who} {what}")
+        match (record.opens_horizon, what.strip_prefix("punch ")) {
+            (true, _) => format!("opens {who} {what}"),
+            (false, Some(block)) => format!("punch {who} {block}"),
+            (false, None) => format!("write {who} {what}"),
+        }
     }
 
-    /// Trace each record's offset, committed blocks, held bytes, and recovery state.
-    /// Stop at the first rejected record. The final offset is where the next read
-    /// resumes.
-    fn play(replay: &mut Replay, records: &[proto::DiskRecord]) -> String {
+    /// Trace each record's offset, the chunks it hands to the device, held bytes,
+    /// and the last committed opener. Stop at the first rejected record. The final
+    /// offset is where the next read resumes.
+    async fn play(case: &mut Case, records: &[proto::DiskRecord]) -> String {
+        let Case {
+            replay,
+            replayed_rx,
+        } = case;
         let mut out = String::new();
 
         for record in records {
             write!(out, "at {:<7}{:<17}", replay.offset, label(record)).unwrap();
 
-            if let Err(err) = replay.record(record, &test_support::frame([record])) {
+            if let Err(err) = replay.record(record, &test_support::frame([record])).await {
                 writeln!(out, "{err:#}").unwrap();
                 break;
             }
-            let blocks: Vec<String> = test_support::allocated(&replay.image)
-                .into_iter()
-                .map(|(block, fill)| format!("{block}={fill:02x}"))
-                .collect();
-            let blocks = match blocks.is_empty() {
+            let mut applies = Vec::new();
+            while let Ok((chunk, opens_horizon)) = replayed_rx.try_recv() {
+                let opens = if opens_horizon { "opens " } else { "" };
+                applies.push(format!("{opens}{}", change(&chunk)));
+            }
+            let applies = match applies.is_empty() {
                 true => "-".to_string(),
-                false => blocks.join(" "),
+                false => applies.join(" "),
             };
             let held = match super::uncommitted::test::held(&replay.uncommitted) {
                 0 => "-".to_string(),
                 held => held.to_string(),
             };
-            let horizon = match &replay.horizon {
-                Some(open) => format!("{} pending {}", open.at, open.blocks.pending()),
+            let opener = match replay.opener {
+                Some(opener) => opener.to_string(),
                 None => "-".to_string(),
             };
 
-            writeln!(out, "blocks {blocks:<11}held {held:<6}horizon {horizon}",).unwrap();
+            writeln!(out, "applies {applies:<19}held {held:<6}opener {opener}").unwrap();
         }
         writeln!(out, "stands at {}", replay.offset).unwrap();
         out
@@ -350,8 +351,8 @@ mod test {
 
     /// A delta reaches the image only at its acknowledgement, and all of it lands
     /// there at once.
-    #[test]
-    fn test_a_delta_applies_at_its_acknowledgement() {
+    #[tokio::test]
+    async fn test_a_delta_applies_at_its_acknowledgement() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
@@ -363,20 +364,21 @@ mod test {
                 write(a, 3, 4, 0xbb),
                 ack(a, 4),
             ],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
-        at 0      fence a          blocks -          held -     horizon -
-        at 26     write a@2 3=aa   blocks -          held 4130  horizon -
-        at 4156   write a@3 4=bb   blocks -          held 8260  horizon -
-        at 8286   ack a@4          blocks 3=aa 4=bb  held -     horizon -
-        stands at 8312
+        at 0      fence a          applies -                  held -     opener -
+        at 26     write a@2 3=aa   applies -                  held 4132  opener -
+        at 4158   write a@3 4=bb   applies -                  held 8264  opener -
+        at 8290   ack a@4          applies 3=aa 4=bb          held -     opener -
+        stands at 8316
         ");
     }
 
     /// Keep unacknowledged changes out of the committed image, but resume reads
     /// after them so continuation does not fetch the held delta again.
-    #[test]
-    fn test_a_delta_still_in_doubt_is_held_and_not_applied() {
+    #[tokio::test]
+    async fn test_a_delta_still_in_doubt_is_held_and_not_applied() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
@@ -389,21 +391,22 @@ mod test {
                 write(a, 3, 4, 0xbb),
                 write(a, 4, 5, 0xcc),
             ],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
-        at 0      write a@1 3=aa   blocks -          held 4130  horizon -
-        at 4130   ack a@2          blocks 3=aa       held -     horizon -
-        at 4156   write a@3 4=bb   blocks 3=aa       held 4130  horizon -
-        at 8286   write a@4 5=cc   blocks 3=aa       held 8260  horizon -
-        stands at 12416
+        at 0      write a@1 3=aa   applies -                  held 4132  opener -
+        at 4132   ack a@2          applies 3=aa               held -     opener -
+        at 4158   write a@3 4=bb   applies -                  held 4132  opener -
+        at 8290   write a@4 5=cc   applies -                  held 8264  opener -
+        stands at 12422
         ");
     }
 
     /// A delta which a replacement attachment's records follow is abandoned. Those
     /// records displace it, so it is dropped rather than carried for the rest of the
     /// replay, and nothing of it is ever applied.
-    #[test]
-    fn test_a_delta_a_replacement_attachment_abandoned_is_not_applied() {
+    #[tokio::test]
+    async fn test_a_delta_a_replacement_attachment_abandoned_is_not_applied() {
         let dir = tempfile::tempdir().unwrap();
         let (a, b) = (test_support::producer('a'), test_support::producer('b'));
 
@@ -417,22 +420,23 @@ mod test {
                 write(b, 5, 6, 0xee),
                 ack(b, 6),
             ],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
-        at 0      write a@1 3=aa   blocks -          held 4130  horizon -
-        at 4130   ack a@2          blocks 3=aa       held -     horizon -
-        at 4156   write a@3 5=cc   blocks 3=aa       held 4130  horizon -
-        at 8286   fence b          blocks 3=aa       held 4130  horizon -
-        at 8312   write b@5 6=ee   blocks 3=aa       held 4130  horizon -
-        at 12442  ack b@6          blocks 3=aa 6=ee  held -     horizon -
-        stands at 12468
+        at 0      write a@1 3=aa   applies -                  held 4132  opener -
+        at 4132   ack a@2          applies 3=aa               held -     opener -
+        at 4158   write a@3 5=cc   applies -                  held 4132  opener -
+        at 8290   fence b          applies -                  held 4132  opener -
+        at 8316   write b@5 6=ee   applies -                  held 4132  opener -
+        at 12448  ack b@6          applies 6=ee               held -     opener -
+        stands at 12474
         ");
     }
 
     /// A promotion repairs the acknowledgement its client held before it appends
     /// anything of its own, so the delta that fence displaced is still applied.
-    #[test]
-    fn test_a_delta_a_promotion_repaired_is_applied() {
+    #[tokio::test]
+    async fn test_a_delta_a_promotion_repaired_is_applied() {
         let dir = tempfile::tempdir().unwrap();
         let (a, b) = (test_support::producer('a'), test_support::producer('b'));
 
@@ -445,36 +449,37 @@ mod test {
                 write(b, 4, 5, 0xcc),
                 ack(b, 5),
             ],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
-        at 0      write a@1 3=aa   blocks -          held 4130  horizon -
-        at 4130   fence b          blocks -          held 4130  horizon -
-        at 4156   ack a@3          blocks 3=aa       held -     horizon -
-        at 4182   write b@4 5=cc   blocks 3=aa       held 4130  horizon -
-        at 8312   ack b@5          blocks 3=aa 5=cc  held -     horizon -
-        stands at 8338
+        at 0      write a@1 3=aa   applies -                  held 4132  opener -
+        at 4132   fence b          applies -                  held 4132  opener -
+        at 4158   ack a@3          applies 3=aa               held -     opener -
+        at 4184   write b@4 5=cc   applies -                  held 4132  opener -
+        at 8316   ack b@5          applies 5=cc               held -     opener -
+        stands at 8342
         ");
     }
 
     /// The range may begin within a delta. That delta's acknowledgement then
     /// commits only the records which were in range.
-    #[test]
-    fn test_a_delta_which_begins_below_the_range_commits_what_is_in_it() {
+    #[tokio::test]
+    async fn test_a_delta_which_begins_below_the_range_commits_what_is_in_it() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
-        let trace = play(&mut replay(&dir, 0), &[write(a, 5, 2, 0xaa), ack(a, 9)]);
+        let trace = play(&mut replay(&dir, 0), &[write(a, 5, 2, 0xaa), ack(a, 9)]).await;
         insta::assert_snapshot!(trace, @"
-        at 0      write a@5 2=aa   blocks -          held 4130  horizon -
-        at 4130   ack a@9          blocks 2=aa       held -     horizon -
-        stands at 4156
+        at 0      write a@5 2=aa   applies -                  held 4132  opener -
+        at 4132   ack a@9          applies 2=aa               held -     opener -
+        stands at 4158
         ");
     }
 
     /// At-least-once appends repeat records. Sequencing drops a repeat rather than
     /// applying it a second time over a newer value.
-    #[test]
-    fn test_duplicate_records_are_not_applied_again() {
+    #[tokio::test]
+    async fn test_duplicate_records_are_not_applied_again() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
@@ -487,19 +492,20 @@ mod test {
                 ack(a, 3),
                 ack(a, 3),
             ],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
-        at 0      write a@1 2=aa   blocks -          held 4130  horizon -
-        at 4130   write a@2 2=bb   blocks -          held 8260  horizon -
-        at 8260   write a@1 2=aa   blocks -          held 8260  horizon -
-        at 12390  ack a@3          blocks 2=bb       held -     horizon -
-        at 12416  ack a@3          blocks 2=bb       held -     horizon -
-        stands at 12442
+        at 0      write a@1 2=aa   applies -                  held 4132  opener -
+        at 4132   write a@2 2=bb   applies -                  held 8264  opener -
+        at 8264   write a@1 2=aa   applies -                  held 8264  opener -
+        at 12396  ack a@3          applies 2=aa 2=bb          held -     opener -
+        at 12422  ack a@3          applies -                  held -     opener -
+        stands at 12448
         ");
     }
 
-    #[test]
-    fn test_a_punch_deallocates_what_an_earlier_delta_wrote() {
+    #[tokio::test]
+    async fn test_a_punch_deallocates_what_an_earlier_delta_wrote() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
@@ -512,23 +518,22 @@ mod test {
                 punch(a, 4, 8),
                 ack(a, 5),
             ],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
-        at 0      write a@1 8=aa   blocks -          held 4130  horizon -
-        at 4130   write a@2 9=bb   blocks -          held 8260  horizon -
-        at 8260   ack a@3          blocks 8=aa 9=bb  held -     horizon -
-        at 8286   punch a@4 8      blocks 8=aa 9=bb  held 32    horizon -
-        at 8318   ack a@5          blocks 9=bb       held -     horizon -
-        stands at 8344
+        at 0      write a@1 8=aa   applies -                  held 4132  opener -
+        at 4132   write a@2 9=bb   applies -                  held 8264  opener -
+        at 8264   ack a@3          applies 8=aa 9=bb          held -     opener -
+        at 8290   punch a@4 8      applies -                  held 34    opener -
+        at 8324   ack a@5          applies punch 8            held -     opener -
+        stands at 8350
         ");
     }
 
-    /// A record which opens a horizon snapshots the blocks allocated before its own
-    /// chunks apply, and committed chunks discharge them. A horizon the range leaves
-    /// open is the next attachment's to resume, with both where it opened and what it
-    /// has left to discharge. The commit which discharges its last block closes it.
-    #[test]
-    fn test_a_horizon_stays_open_until_a_commit_discharges_it() {
+    /// A record which opens a horizon reaches the device, flagged, once its delta
+    /// commits, and replay keeps its offset.
+    #[tokio::test]
+    async fn test_a_committed_opener_is_its_horizon_s_floor() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
@@ -543,24 +548,24 @@ mod test {
                 write(a, 6, 4, 0xdd),
                 ack(a, 7),
             ],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
-        at 0      write a@1 3=aa   blocks -          held 4130  horizon -
-        at 4130   write a@2 4=bb   blocks -          held 8260  horizon -
-        at 8260   ack a@3          blocks 3=aa 4=bb  held -     horizon -
-        at 8286   opens a@4 3=cc   blocks 3=aa 4=bb  held 4132  horizon -
-        at 12418  ack a@5          blocks 3=cc 4=bb  held -     horizon 8286 pending 1
-        at 12444  write a@6 4=dd   blocks 3=cc 4=bb  held 4130  horizon 8286 pending 1
-        at 16574  ack a@7          blocks 3=cc 4=dd  held -     horizon -
-        stands at 16600
+        at 0      write a@1 3=aa   applies -                  held 4132  opener -
+        at 4132   write a@2 4=bb   applies -                  held 8264  opener -
+        at 8264   ack a@3          applies 3=aa 4=bb          held -     opener -
+        at 8290   opens a@4 3=cc   applies -                  held 4134  opener -
+        at 12424  ack a@5          applies opens 3=cc         held -     opener 8290
+        at 12450  write a@6 4=dd   applies -                  held 4132  opener 8290
+        at 16582  ack a@7          applies 4=dd               held -     opener 8290
+        stands at 16608
         ");
     }
 
-    /// A range may hold several horizons. Each replaces the one before it, so the one
-    /// a range leaves open is the last which opened: here the second, whose block 3
-    /// is still pending a copy, where the first would have closed.
-    #[test]
-    fn test_a_later_horizon_replaces_an_earlier_one() {
+    /// A range may hold several horizons. A device opens one only where none is open,
+    /// so the only horizon it can hold open after a replay is the last which opened.
+    #[tokio::test]
+    async fn test_a_later_opener_replaces_an_earlier_one() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
@@ -575,24 +580,45 @@ mod test {
                 opens(write(a, 6, 4, 0xdd)),
                 ack(a, 7),
             ],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
-        at 0      write a@1 3=aa   blocks -          held 4130  horizon -
-        at 4130   write a@2 4=bb   blocks -          held 8260  horizon -
-        at 8260   ack a@3          blocks 3=aa 4=bb  held -     horizon -
-        at 8286   opens a@4 3=cc   blocks 3=aa 4=bb  held 4132  horizon -
-        at 12418  ack a@5          blocks 3=cc 4=bb  held -     horizon 8286 pending 1
-        at 12444  opens a@6 4=dd   blocks 3=cc 4=bb  held 4132  horizon 8286 pending 1
-        at 16576  ack a@7          blocks 3=cc 4=dd  held -     horizon 12444 pending 1
-        stands at 16602
+        at 0      write a@1 3=aa   applies -                  held 4132  opener -
+        at 4132   write a@2 4=bb   applies -                  held 8264  opener -
+        at 8264   ack a@3          applies 3=aa 4=bb          held -     opener -
+        at 8290   opens a@4 3=cc   applies -                  held 4134  opener -
+        at 12424  ack a@5          applies opens 3=cc         held -     opener 8290
+        at 12450  opens a@6 4=dd   applies -                  held 4134  opener 8290
+        at 16584  ack a@7          applies opens 4=dd         held -     opener 12450
+        stands at 16610
+        ");
+    }
+
+    /// A horizon may open at any record of a delta, and its floor is then that
+    /// record's own offset, not the delta's start.
+    #[tokio::test]
+    async fn test_an_opener_within_a_delta_keeps_its_own_offset() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = test_support::producer('a');
+
+        let trace = play(
+            &mut replay(&dir, 0),
+            &[write(a, 1, 3, 0xaa), opens(write(a, 2, 4, 0xbb)), ack(a, 3)],
+        )
+        .await;
+        insta::assert_snapshot!(trace, @"
+        at 0      write a@1 3=aa   applies -                  held 4132  opener -
+        at 4132   opens a@2 4=bb   applies -                  held 8266  opener -
+        at 8266   ack a@3          applies 3=aa opens 4=bb    held -     opener 4132
+        stands at 8292
         ");
     }
 
     /// A horizon belongs to its delta. A horizon whose delta is never acknowledged
     /// never existed, exactly as its chunks never applied, and neither did one whose
-    /// delta another producer's records displaced.
-    #[test]
-    fn test_a_horizon_of_an_uncommitted_delta_does_not_exist() {
+    /// delta another producer's records displaced. Neither reaches the device.
+    #[tokio::test]
+    async fn test_a_horizon_of_an_uncommitted_delta_does_not_exist() {
         let dir = tempfile::tempdir().unwrap();
         let (a, b) = (test_support::producer('a'), test_support::producer('b'));
 
@@ -600,7 +626,8 @@ mod test {
             play(
                 &mut replay(&dir, 0),
                 &[write(a, 1, 3, 0xaa), ack(a, 2), opens(write(a, 3, 4, 0xbb))],
-            ),
+            )
+            .await,
             play(
                 &mut replay(&dir, 0),
                 &[
@@ -610,26 +637,27 @@ mod test {
                     write(b, 4, 5, 0xcc),
                     ack(b, 5),
                 ],
-            ),
+            )
+            .await,
         ]
         .join("\n");
         insta::assert_snapshot!(trace, @"
-        at 0      write a@1 3=aa   blocks -          held 4130  horizon -
-        at 4130   ack a@2          blocks 3=aa       held -     horizon -
-        at 4156   opens a@3 4=bb   blocks 3=aa       held 4132  horizon -
-        stands at 8288
+        at 0      write a@1 3=aa   applies -                  held 4132  opener -
+        at 4132   ack a@2          applies 3=aa               held -     opener -
+        at 4158   opens a@3 4=bb   applies -                  held 4134  opener -
+        stands at 8292
 
-        at 0      write a@1 3=aa   blocks -          held 4130  horizon -
-        at 4130   ack a@2          blocks 3=aa       held -     horizon -
-        at 4156   opens a@3 4=bb   blocks 3=aa       held 4132  horizon -
-        at 8288   write b@4 5=cc   blocks 3=aa       held 4130  horizon -
-        at 12418  ack b@5          blocks 3=aa 5=cc  held -     horizon -
-        stands at 12444
+        at 0      write a@1 3=aa   applies -                  held 4132  opener -
+        at 4132   ack a@2          applies 3=aa               held -     opener -
+        at 4158   opens a@3 4=bb   applies -                  held 4134  opener -
+        at 8292   write b@4 5=cc   applies -                  held 4132  opener -
+        at 12424  ack b@5          applies 5=cc               held -     opener -
+        stands at 12450
         ");
     }
 
-    #[test]
-    fn test_malformed_records_are_rejected() {
+    #[tokio::test]
+    async fn test_malformed_records_are_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
@@ -646,7 +674,9 @@ mod test {
         let mut out = String::new();
         for (what, record) in cases {
             let err = replay(&dir, 0)
+                .replay
                 .record(&record, &test_support::frame([&record]))
+                .await
                 .unwrap_err();
 
             writeln!(out, "{what:<22}{err:#}").unwrap();
@@ -658,8 +688,8 @@ mod test {
 
     /// An acknowledgement cannot order two deltas whose records interleaved, so it
     /// is rejected.
-    #[test]
-    fn test_an_interleaved_acknowledgement_is_an_ordering_error() {
+    #[tokio::test]
+    async fn test_an_interleaved_acknowledgement_is_an_ordering_error() {
         let dir = tempfile::tempdir().unwrap();
         let (a, b) = (test_support::producer('a'), test_support::producer('b'));
 
@@ -671,13 +701,14 @@ mod test {
                 ack(b, 3),
                 ack(a, 4),
             ],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
-        at 0      write a@1 2=aa   blocks -          held 4130  horizon -
-        at 4130   write b@2 3=bb   blocks -          held 4130  horizon -
-        at 8260   ack b@3          blocks 3=bb       held -     horizon -
-        at 8286   ack a@4          acknowledgement of a delta of Producer(61:00:00:00:00:61) which another producer's records interleaved
-        stands at 8286
+        at 0      write a@1 2=aa   applies -                  held 4132  opener -
+        at 4132   write b@2 3=bb   applies -                  held 4132  opener -
+        at 8264   ack b@3          applies 3=bb               held -     opener -
+        at 8290   ack a@4          acknowledgement of a delta of Producer(61:00:00:00:00:61) which another producer's records interleaved
+        stands at 8290
         ");
     }
 
@@ -686,8 +717,8 @@ mod test {
     ///
     /// This requires writes past a replacement's fence, possible if etcd loses
     /// the `author` register.
-    #[test]
-    fn test_a_displaced_delta_which_resumes_is_never_committed() {
+    #[tokio::test]
+    async fn test_a_displaced_delta_which_resumes_is_never_committed() {
         let dir = tempfile::tempdir().unwrap();
         let (a, b) = (test_support::producer('a'), test_support::producer('b'));
 
@@ -699,11 +730,14 @@ mod test {
             write(a, 4, 4, 0xcc),
         ];
         let mut resumed = replay(&dir, 0);
-        let mut first = play(&mut resumed, &displaced);
+        let mut first = play(&mut resumed, &displaced).await;
         writeln!(
             first,
             "recovered ack a@5  {:?}",
-            resumed.sequencer().recovered_ack(a, test_support::clock(5)),
+            resumed
+                .replay
+                .sequencer()
+                .recovered_ack(a, test_support::clock(5)),
         )
         .unwrap();
 
@@ -721,35 +755,35 @@ mod test {
 
         let trace = [
             first,
-            play(&mut replay(&dir, 0), &acknowledged),
-            play(&mut replay(&dir, 0), &interleaving),
+            play(&mut replay(&dir, 0), &acknowledged).await,
+            play(&mut replay(&dir, 0), &interleaving).await,
         ]
         .join("\n");
         insta::assert_snapshot!(trace, @"
-        at 0      write a@1 2=aa   blocks -          held 4130  horizon -
-        at 4130   write b@2 3=bb   blocks -          held 4130  horizon -
-        at 8260   ack b@3          blocks 3=bb       held -     horizon -
-        at 8286   write a@4 4=cc   blocks 3=bb       held -     horizon -
-        stands at 12416
+        at 0      write a@1 2=aa   applies -                  held 4132  opener -
+        at 4132   write b@2 3=bb   applies -                  held 4132  opener -
+        at 8264   ack b@3          applies 3=bb               held -     opener -
+        at 8290   write a@4 4=cc   applies -                  held -     opener -
+        stands at 12422
         recovered ack a@5  Refused
 
-        at 0      write a@1 2=aa   blocks -          held 4130  horizon -
-        at 4130   write b@2 3=bb   blocks -          held 4130  horizon -
-        at 8260   ack b@3          blocks 3=bb       held -     horizon -
-        at 8286   write a@4 4=cc   blocks 3=bb       held -     horizon -
-        at 12416  ack a@5          acknowledgement of a delta of Producer(61:00:00:00:00:61) which another producer's records interleaved
-        stands at 12416
+        at 0      write a@1 2=aa   applies -                  held 4132  opener -
+        at 4132   write b@2 3=bb   applies -                  held 4132  opener -
+        at 8264   ack b@3          applies 3=bb               held -     opener -
+        at 8290   write a@4 4=cc   applies -                  held -     opener -
+        at 12422  ack a@5          acknowledgement of a delta of Producer(61:00:00:00:00:61) which another producer's records interleaved
+        stands at 12422
 
-        at 0      write a@1 2=aa   blocks -          held 4130  horizon -
-        at 4130   write b@2 3=bb   blocks -          held 4130  horizon -
-        at 8260   write a@3 4=cc   blocks -          held -     horizon -
-        at 12390  ack b@4          acknowledgement of a delta of Producer(63:00:00:00:00:62) which another producer's records interleaved
-        stands at 12390
+        at 0      write a@1 2=aa   applies -                  held 4132  opener -
+        at 4132   write b@2 3=bb   applies -                  held 4132  opener -
+        at 8264   write a@3 4=cc   applies -                  held -     opener -
+        at 12396  ack b@4          acknowledgement of a delta of Producer(63:00:00:00:00:62) which another producer's records interleaved
+        stands at 12396
         ");
     }
 
-    #[test]
-    fn test_an_acknowledgement_which_rolls_back_is_rejected() {
+    #[tokio::test]
+    async fn test_an_acknowledgement_which_rolls_back_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
@@ -761,25 +795,27 @@ mod test {
                 write(a, 7, 3, 0xbb),
                 ack(a, 6),
             ],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
-        at 0      write a@5 2=aa   blocks -          held 4130  horizon -
-        at 4130   ack a@6          blocks 2=aa       held -     horizon -
-        at 4156   write a@7 3=bb   blocks 2=aa       held 4130  horizon -
-        at 8286   ack a@6          acknowledgement of Producer(61:00:00:00:00:61) at Clock(0s 6000ns) rolls back records this replay sequenced
-        stands at 8286
+        at 0      write a@5 2=aa   applies -                  held 4132  opener -
+        at 4132   ack a@6          applies 2=aa               held -     opener -
+        at 4158   write a@7 3=bb   applies -                  held 4132  opener -
+        at 8290   ack a@6          acknowledgement of Producer(61:00:00:00:00:61) at Clock(0s 6000ns) rolls back records this replay sequenced
+        stands at 8290
         ");
     }
 
     /// Hand each `(offset, content)` to `replay` as the responses of one read, and
     /// render the offset the replay stands at after each, or the failure which ends
     /// the read, then what the read holds of a record it ended within.
-    fn trace(replay: &mut Replay, responses: &[(i64, &[u8])]) -> String {
+    async fn trace(case: &mut Case, responses: &[(i64, &[u8])]) -> String {
+        let replay = &mut case.replay;
         let mut buf = bytes::BytesMut::new();
         let mut out = String::new();
 
         for &(offset, content) in responses {
-            match replay.take(&mut buf, offset, content) {
+            match replay.take(&mut buf, offset, content).await {
                 Ok(()) => writeln!(out, "at {offset:<5}stands at {}", replay.offset).unwrap(),
                 Err(err) => {
                     writeln!(out, "at {offset:<5}{err:#}").unwrap();
@@ -793,8 +829,8 @@ mod test {
 
     /// Records straddle the responses which carry them, header and body alike, and
     /// each is taken whole once its last byte arrives.
-    #[test]
-    fn test_records_are_taken_across_responses() {
+    #[tokio::test]
+    async fn test_records_are_taken_across_responses() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
 
@@ -809,11 +845,11 @@ mod test {
             .map(|w| (w[0], &journal[w[0] as usize..w[1] as usize]))
             .collect();
 
-        insta::assert_snapshot!(trace(&mut replay(&dir, 0), &responses), @"
+        insta::assert_snapshot!(trace(&mut replay(&dir, 0), &responses).await, @"
         at 0    stands at 0
-        at 3    stands at 32
-        at 60   stands at 64
-        at 69   stands at 90
+        at 3    stands at 34
+        at 64   stands at 68
+        at 73   stands at 94
         holds 0 bytes
         ");
     }
@@ -822,8 +858,8 @@ mod test {
     /// store no longer holds is below the real floor. Once the replay has begun
     /// taking content, a skip is a gap: within a record, between records, or at the
     /// start of a read which continues the replay.
-    #[test]
-    fn test_only_a_replay_s_start_may_skip() {
+    #[tokio::test]
+    async fn test_only_a_replay_s_start_may_skip() {
         let dir = tempfile::tempdir().unwrap();
         let a = test_support::producer('a');
         let (one, two) = (
@@ -837,37 +873,40 @@ mod test {
             trace(
                 &mut replay(&dir, 40),
                 &[(100, &one), (after, &two[..10]), (500, &two)],
-            ),
-            trace(&mut replay(&dir, 40), &[(100, &one[..10]), (500, &two)]),
-            trace(&mut continued, &[(100, &one)]) + &trace(&mut continued, &[(500, &two)]),
+            )
+            .await,
+            trace(&mut replay(&dir, 40), &[(100, &one[..10]), (500, &two)]).await,
+            trace(&mut continued, &[(100, &one)]).await
+                + &trace(&mut continued, &[(500, &two)]).await,
         ]
         .join("\n");
         insta::assert_snapshot!(trace, @"
-        at 100  stands at 132
-        at 132  stands at 132
-        at 500  content this replay needed was deleted from the store, from offset 142 to 500
+        at 100  stands at 134
+        at 134  stands at 134
+        at 500  content this replay needed was deleted from the store, from offset 144 to 500
         holds 10 bytes
 
         at 100  stands at 100
         at 500  content this replay needed was deleted from the store, from offset 110 to 500
         holds 10 bytes
 
-        at 100  stands at 132
+        at 100  stands at 134
         holds 0 bytes
-        at 500  content this replay needed was deleted from the store, from offset 132 to 500
+        at 500  content this replay needed was deleted from the store, from offset 134 to 500
         holds 0 bytes
         ");
     }
 
     /// Content which frames no record is refused rather than skipped over.
-    #[test]
-    fn test_unframed_content_is_refused() {
+    #[tokio::test]
+    async fn test_unframed_content_is_refused() {
         let dir = tempfile::tempdir().unwrap();
 
         let trace = trace(
             &mut replay(&dir, 0),
             &[(0, b"these bytes frame no record at all")],
-        );
+        )
+        .await;
         insta::assert_snapshot!(trace, @"
         at 0    31 unframed bytes at offset 0, which a replay cannot skip
         holds 3 bytes
