@@ -24,13 +24,8 @@ impl UncommittedDelta {
     /// Create the file of an uncommitted delta within `dir`, which is the daemon's image
     /// directory.
     pub fn create(dir: &std::path::Path) -> std::io::Result<Self> {
-        let mut options = std::fs::OpenOptions::new();
-        options.read(true).write(true);
-        std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_TMPFILE);
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-
         Ok(Self {
-            file: options.open(dir)?,
+            file: tempfile::tempfile_in(dir)?,
             spilled: 0,
             buffered: bytes::BytesMut::new(),
             spill_bytes: SPILL_BYTES,

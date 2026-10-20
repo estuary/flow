@@ -5,7 +5,6 @@ mod chunk;
 pub mod horizon;
 mod image;
 mod owner;
-mod queue;
 mod target;
 mod ublk;
 
@@ -44,9 +43,12 @@ impl Standby {
         size_blocks: u32,
         horizon_policy: horizon::Policy,
     ) -> anyhow::Result<(Self, tokio::sync::mpsc::Sender<(proto::Chunk, bool)>)> {
-        let image = image::Image::create(image_dir, size_blocks)
+        let file = tempfile::tempfile_in(image_dir)
             .with_context(|| format!("creating an image in {image_dir:?}"))?;
-        let mut target = target::Target::new(image, horizon_policy);
+        () = file
+            .set_len(size_blocks as u64 * crate::BLOCK_SIZE as u64)
+            .with_context(|| format!("sizing an image in {image_dir:?}"))?;
+        let mut target = target::Target::new(image::Image::new(file, size_blocks), horizon_policy);
 
         let (replayed_tx, mut replayed_rx) = tokio::sync::mpsc::channel(ublk::QUEUE_DEPTH as usize);
         let rebuilder = std::thread::Builder::new()

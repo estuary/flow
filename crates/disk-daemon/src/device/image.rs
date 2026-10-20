@@ -1,36 +1,21 @@
 use crate::proto;
 
-/// One bit per device block, used for allocation and pending horizon copies.
-/// Plain words suffice because each bitmap has one owner. Block indices fit
-/// `u32`; `Open` rejects larger devices.
+/// One bit per device block, used for tracking allocation and pending horizon
+/// copies.
 pub type Bitmap = bitvec::vec::BitVec<u64, bitvec::order::Lsb0>;
 
 /// An image and the bitmap which tracks what it has allocated.
 pub struct Image {
-    /// Sparse file of the disk's blocks, where each unallocated block is a hole.
+    /// Sparse file of the disk's blocks.
     file: std::fs::File,
-    /// Blocks which hold data rather than a hole.
+    /// Blocks which hold data.
     allocated: Bitmap,
-    /// Set bits of `allocated`, kept as it changes. Counting them would scan the
-    /// whole bitmap, and the device weighs this at every write.
+    /// Running count of set bits from `allocated`.
     allocated_blocks: u64,
 }
 
 impl Image {
-    pub fn create(dir: &std::path::Path, blocks: u32) -> std::io::Result<Self> {
-        let mut options = std::fs::OpenOptions::new();
-        options.read(true).write(true);
-        std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_TMPFILE);
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-
-        let file = options.open(dir)?;
-        file.set_len(blocks as u64 * crate::BLOCK_SIZE as u64)?;
-
-        Ok(Self::from_file(file, blocks))
-    }
-
-    /// An image of `blocks` over `file`.
-    pub fn from_file(file: std::fs::File, blocks: u32) -> Self {
+    pub fn new(file: std::fs::File, blocks: u32) -> Self {
         Self {
             file,
             allocated: Bitmap::repeat(false, blocks as usize),
@@ -50,7 +35,11 @@ impl Image {
     /// Read blocks back, which serves a device read, copies a horizon run out of the
     /// image, and lets a test inspect one.
     pub fn read_at(&self, block: u32, buf: &mut [u8]) -> std::io::Result<()> {
-        std::os::unix::fs::FileExt::read_exact_at(&self.file, buf, self.offset(block))
+        std::os::unix::fs::FileExt::read_exact_at(
+            &self.file,
+            buf,
+            block as u64 * crate::BLOCK_SIZE as u64,
+        )
     }
 
     /// Apply `chunk`, as a device write, punch, or copy does and as a recovery does:
@@ -64,7 +53,7 @@ impl Image {
 
         let range = chunk.block..chunk.block + chunk.blocks;
         let (offset, len) = (
-            self.offset(range.start),
+            range.start as u64 * crate::BLOCK_SIZE as u64,
             range.len() * crate::BLOCK_SIZE as usize,
         );
 
@@ -99,11 +88,6 @@ impl Image {
             false => self.allocated_blocks - before,
         };
         Ok(range)
-    }
-
-    /// Byte offset at which `block` begins.
-    fn offset(&self, block: u32) -> u64 {
-        block as u64 * crate::BLOCK_SIZE as u64
     }
 }
 
@@ -170,8 +154,11 @@ mod test {
 
     const BLOCKS: u32 = 64;
 
-    fn image(dir: &tempfile::TempDir) -> Image {
-        Image::create(dir.path(), BLOCKS).unwrap()
+    /// A fresh image over a sparse file of `BLOCKS`.
+    fn image() -> Image {
+        let file = tempfile::tempfile().unwrap();
+        file.set_len(BLOCKS as u64 * BLOCK_SIZE as u64).unwrap();
+        Image::new(file, BLOCKS)
     }
 
     /// Render allocation and per-block byte runs from a single read.
@@ -198,20 +185,18 @@ mod test {
     /// A full-size anonymous image starts with no allocated host blocks.
     #[test]
     fn test_fresh_image_is_all_holes() {
-        let dir = tempfile::tempdir().unwrap();
-        let image = image(&dir);
+        let image = image();
         let metadata = image.file.metadata().unwrap();
 
         let fresh = format!(
-            "blocks {}, file len {}, st_blocks {}, directory entries {}\n{}",
+            "blocks {}, file len {}, st_blocks {}\n{}",
             image.allocated().len(),
             metadata.len(),
             std::os::unix::fs::MetadataExt::blocks(&metadata),
-            std::fs::read_dir(dir.path()).unwrap().count(),
             readout(&image, BLOCKS - 1..BLOCKS),
         );
         insta::assert_snapshot!(fresh, @"
-        blocks 64, file len 262144, st_blocks 0, directory entries 0
+        blocks 64, file len 262144, st_blocks 0
         allocated []
           block 63: 0x00x4096
         ");
@@ -219,8 +204,7 @@ mod test {
 
     #[test]
     fn test_write_read_and_punch() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut image = image(&dir);
+        let mut image = image();
         let mut trace = String::new();
 
         let data = bytes::Bytes::from(vec![0xab; 3 * BLOCK_SIZE as usize]);
@@ -251,8 +235,7 @@ mod test {
 
     #[test]
     fn test_punching_an_unallocated_range_is_a_no_op() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut image = image(&dir);
+        let mut image = image();
 
         let data = bytes::Bytes::from(vec![1; BLOCK_SIZE as usize]);
         _ = image.apply(&chunk::encode_write(0, &data)).unwrap();
@@ -278,7 +261,7 @@ mod test {
         #[test]
         fn test_replay_zero_fills_a_trimmed_tail() {
             let dir = tempfile::tempdir().unwrap();
-            let mut image = Image::create(dir.path(), DEVICE_BLOCKS).unwrap();
+            let mut image = Image::new(sparse_file(&dir, "image"), DEVICE_BLOCKS);
             let mut trace = String::new();
 
             // Two blocks of content, then a ten-byte rewrite of the first block.
@@ -443,7 +426,7 @@ mod test {
         fn replays_identically(Ops(ops): Ops) -> bool {
             let dir = tempfile::tempdir().unwrap();
             let direct = sparse_file(&dir, "direct");
-            let mut replayed = Image::create(dir.path(), DEVICE_BLOCKS).unwrap();
+            let mut replayed = Image::new(sparse_file(&dir, "replayed"), DEVICE_BLOCKS);
 
             let mut expected = std::collections::BTreeSet::new();
 

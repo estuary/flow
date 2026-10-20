@@ -5,13 +5,13 @@ use super::ublk;
 use crate::proto;
 use anyhow::Context;
 
-/// Most blocks one horizon copy reads, so a copy is a mutation of the same order as
-/// the largest device request.
+/// Most blocks one horizon copy reads, so a copy is a mutation of the same
+/// order as the largest device request.
 const COPY_BLOCKS: u32 = ublk::MAX_IO_BUF_BYTES / crate::BLOCK_SIZE;
 
-/// A disk's image and recovery horizon. A rebuilder thread replays the journal's
-/// chunks into them, and then the owner serves the disk's requests from them. Both
-/// apply chunks alike.
+/// A disk's image and recovery horizon. A rebuilder thread replays the
+/// journal's chunks into them, and then the owner serves the disk's requests
+/// from them. Both apply chunks alike.
 pub(super) struct Target {
     /// The disk's content, which reads are served from and chunks applied to.
     image: image::Image,
@@ -199,7 +199,9 @@ mod test {
     }
 
     fn fresh_image() -> image::Image {
-        image::Image::create(&std::env::temp_dir(), BLOCKS).unwrap()
+        let file = tempfile::tempfile().unwrap();
+        file.set_len((BLOCKS * BLOCK_SIZE) as u64).unwrap();
+        image::Image::new(file, BLOCKS)
     }
 
     /// `/dev/full`, which refuses every write.
@@ -209,7 +211,7 @@ mod test {
             .write(true)
             .open("/dev/full")
             .unwrap();
-        image::Image::from_file(full, BLOCKS)
+        image::Image::new(full, BLOCKS)
     }
 
     /// A write-only image, which takes every write and refuses every read.
@@ -221,7 +223,7 @@ mod test {
 
         let file = options.open(std::env::temp_dir()).unwrap();
         file.set_len((BLOCKS * BLOCK_SIZE) as u64).unwrap();
-        image::Image::from_file(file, BLOCKS)
+        image::Image::new(file, BLOCKS)
     }
 
     /// Render what a serve returned: the blocks each mutation covers and what it

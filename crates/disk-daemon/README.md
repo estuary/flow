@@ -65,7 +65,7 @@ Paths below are relative to `src/`.
 | `daemon.rs` | Flags, configuration, the `Disk` gRPC service and its socket, shared broker credentials, and process drain. |
 | `attachment.rs` | `Attachment`: request ordering, promotion, the bootstrap commit, error codes, and teardown of writer, mount, and device. |
 | `device/mod.rs` | `Standby`: open, the rebuilder thread, promotion, and join. `Device`: stop. `Mutation`, which the served channel carries. |
-| `device/owner.rs`, `device/queue.rs` | Owner thread and request dispatch, which sends each write's mutations before answering it, and exits on an image failure. The ublk queue protocol: tags, the ring, and character-device data copies. |
+| `device/owner.rs` | The owner thread, which arms and serves the ublk queue: tags, the ring, and character-device data copies. It sends each write's mutations before answering it, and exits on an image failure. |
 | `device/target.rs` | The image and its horizon: `replay` of a committed chunk, `serve` of a write or punch into the mutations to send, reads, horizon opening, copies, discharge, and replay bytes, testable without a real device. |
 | `device/ublk/` | Kernel control commands and ABI bindings generated from `ublk_cmd.h`. |
 | `device/image.rs`, `device/chunk.rs` | Sparse image allocation, and the durable write/punch codec: one chunk per device write, punch, or copy, which `Image::apply` writes with one `pwritev` or `fallocate`, served and recovered alike. |
@@ -144,7 +144,8 @@ label only if no fragments below it were deleted.
 
 The host needs Linux 6.5 or later with `ublk` support, for `UBLK_F_USER_COPY`. It also
 needs e2fsprogs with `assume_storage_prezeroed`, and an image filesystem supporting
-`O_TMPFILE` and hole punching. Required privileges are `CAP_SYS_ADMIN` for devices and
+hole punching. Images and spilled deltas are unnamed files, made with `O_TMPFILE`
+where the filesystem supports it. Required privileges are `CAP_SYS_ADMIN` for devices and
 mounts, `CAP_SYS_RESOURCE` for owner-thread I/O flusher status, and `CAP_CHOWN` for
 recovered mount ownership. The daemon also needs access to `/dev/ublk-control` and its
 `/dev/ublkc*` nodes. It checks none of this at startup: an attachment fails on what
