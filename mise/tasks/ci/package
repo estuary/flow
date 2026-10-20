@@ -22,6 +22,7 @@ $(git describe --tags --dirty)
 EOF
 
 ln $(which sops) ${PACKAGE_DIR}/sops
+ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/capture-python ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/derive-python ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/derive-typescript ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/flow-connector-init ${PACKAGE_DIR}/

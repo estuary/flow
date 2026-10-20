@@ -314,6 +314,9 @@ fn validate_connector_image(image: &str, plane: crate::Plane) -> anyhow::Result<
         if image.starts_with("ghcr.io/estuary/derive-python:") {
             anyhow::bail!("Python derivations may only run in private data-planes");
         }
+        if image.starts_with("ghcr.io/estuary/capture-python:") {
+            anyhow::bail!("Python captures may only run in private data-planes");
+        }
     }
     Ok(())
 }
@@ -926,8 +929,9 @@ mod test {
         assert!(validate("ghcr.io/estuary/source-http-ingest:dev").is_ok());
         assert!(validate("ghcr.io/estuary/materialize-postgres:v1").is_ok());
 
-        // Blocked: derive-python
+        // Blocked: derive-python and capture-python
         assert!(validate("ghcr.io/estuary/derive-python:latest").is_err());
+        assert!(validate("ghcr.io/estuary/capture-python:stable").is_err());
 
         // Blocked: non-estuary images
         assert!(validate("alpine").is_err());
