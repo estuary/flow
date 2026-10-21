@@ -22,7 +22,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	go.etcd.io/etcd/api/v3 v3.6.5
 	go.etcd.io/etcd/client/v3 v3.6.5
-	go.gazette.dev/core v0.103.1-0.20261020144817-68bf8eee7101
+	go.gazette.dev/core v0.103.1-0.20261021141923-9d0b274c68d1
 	golang.org/x/net v0.60.0
 	google.golang.org/api v0.264.0
 	google.golang.org/grpc v1.83.2
@@ -77,7 +77,7 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/jgraettinger/cockroach-encoding v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-ieproxy v0.0.12 // indirect
