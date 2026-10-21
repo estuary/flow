@@ -1114,19 +1114,13 @@ mod test {
         let denied: serde_json::Value = server
             .graphql(&lookup("aliceCo/ci-deploy-bot"), Some(&bob_token))
             .await;
-        assert_eq!(
-            denied["data"],
-            serde_json::json!({ "serviceAccount": null })
-        );
+        assert!(denied["data"].is_null());
         assert_eq!(denied["errors"][0]["extensions"]["code"], "FORBIDDEN");
 
         let invalid: serde_json::Value = server
             .graphql(&lookup("aliceCo/bad name"), Some(&alice_token))
             .await;
-        assert_eq!(
-            invalid["data"],
-            serde_json::json!({ "serviceAccount": null })
-        );
+        assert!(invalid["data"].is_null());
         assert!(
             invalid["errors"][0]["message"]
                 .as_str()
