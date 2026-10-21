@@ -36,7 +36,7 @@ impl Target {
     /// Apply one served write or punch, then copy pending horizon blocks in
     /// proportion to the bytes it changed. Returns the live chunks to send to the
     /// journal, in order: `chunk`'s own, and then each copy's.
-    pub fn serve(&mut self, chunk: proto::Chunk) -> anyhow::Result<Vec<super::LiveChunk>> {
+    pub fn serve(&mut self, chunk: proto::Chunk) -> anyhow::Result<Vec<crate::LiveChunk>> {
         () = self
             .apply_chunk(&chunk)
             .context("applying a chunk to the image")?;

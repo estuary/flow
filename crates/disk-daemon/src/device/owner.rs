@@ -9,7 +9,7 @@ pub(super) fn spawn(
     dev_id: u32,
     cdev: std::fs::File,
     target: target::Target,
-    served_tx: tokio::sync::mpsc::Sender<super::LiveChunk>,
+    served_tx: tokio::sync::mpsc::Sender<crate::LiveChunk>,
 ) -> anyhow::Result<std::thread::JoinHandle<anyhow::Result<()>>> {
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
 
@@ -34,7 +34,7 @@ fn run(
     dev_id: u32,
     cdev: std::fs::File,
     mut target: target::Target,
-    served_tx: tokio::sync::mpsc::Sender<super::LiveChunk>,
+    served_tx: tokio::sync::mpsc::Sender<crate::LiveChunk>,
     ready_tx: std::sync::mpsc::Sender<()>,
 ) -> anyhow::Result<()> {
     // Names the device in every event the owner logs.

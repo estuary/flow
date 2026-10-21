@@ -1,4 +1,3 @@
-use crate::proto;
 use anyhow::Context;
 
 mod chunk;
@@ -12,16 +11,6 @@ mod ublk;
 /// can be received from the device.
 const CHUNK_CHANNEL_CAPACITY: usize = ublk::QUEUE_DEPTH as usize;
 
-/// A chunk the live device applied: a device write or punch, or a horizon copy.
-pub struct LiveChunk {
-    /// The blocks it writes or punches.
-    pub chunk: proto::Chunk,
-    /// A recovery horizon opened at this chunk.
-    pub opens_horizon: bool,
-    /// This chunk discharged the open horizon's last pending block.
-    pub discharges_horizon: bool,
-}
-
 /// A disk's image while it is rebuilt from the journal's replayed chunks,
 /// before any kernel device exists.
 pub struct Standby {
@@ -29,18 +18,17 @@ pub struct Standby {
     size_blocks: u32,
     /// Applies replayed chunks to the image.
     rebuilder: std::thread::JoinHandle<anyhow::Result<target::Target>>,
-    /// The sender of replayed chunks.
-    replayed_tx: tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
 }
 
 impl Standby {
-    /// Start a rebuilder thread over a new sparse image. Send every chunk the
-    /// image should hold through `Standby::replayed_tx`.
+    /// Start a rebuilder thread over a new sparse image. Returns the standby
+    /// and the sender of the chunks its image rebuilds from. Hand the sender to
+    /// `Standby::promote`, or drop it and then `Standby::discard`.
     pub fn open(
         image_dir: &std::path::Path,
         size_blocks: u32,
         horizon_policy: compactor::Policy,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<(Self, tokio::sync::mpsc::Sender<crate::ReplayedChunk>)> {
         let file = tempfile::tempfile_in(image_dir)
             .with_context(|| format!("creating an image in {image_dir:?}"))?;
         () = file
@@ -52,41 +40,40 @@ impl Standby {
         let rebuilder = std::thread::Builder::new()
             .name("disk-rebuilder".to_string())
             .spawn(move || {
-                while let Some((chunk, opens_horizon)) = replayed_rx.blocking_recv() {
+                while let Some(crate::ReplayedChunk {
+                    chunk,
+                    opens_horizon,
+                }) = replayed_rx.blocking_recv()
+                {
                     () = target.replay(chunk, opens_horizon)?;
                 }
                 Ok(target)
             })
             .context("spawning a disk's rebuilder")?;
 
-        Ok(Self {
+        let standby = Self {
             size_blocks,
             rebuilder,
-            replayed_tx,
-        })
+        };
+        Ok((standby, replayed_tx))
     }
 
-    /// Where to send the chunks the image rebuilds from, each with whether a horizon
-    /// opened at it.
-    pub fn replayed_tx(&self) -> &tokio::sync::mpsc::Sender<(proto::Chunk, bool)> {
-        &self.replayed_tx
-    }
-
-    /// Finish the rebuild and serve the rebuilt image as a ublk device.
+    /// End the rebuild, closing `replayed_tx`, and serve the rebuilt image as a
+    /// ublk device.
     pub async fn promote(
         self,
+        replayed_tx: tokio::sync::mpsc::Sender<crate::ReplayedChunk>,
     ) -> anyhow::Result<(
         Device,
         std::path::PathBuf,
-        tokio::sync::mpsc::Receiver<LiveChunk>,
+        tokio::sync::mpsc::Receiver<crate::LiveChunk>,
     )> {
         let Self {
             size_blocks,
             rebuilder,
-            replayed_tx,
         } = self;
 
-        // Finish the rebuild.
+        // The rebuilder returns once it has applied the last chunk sent.
         drop(replayed_tx);
         let target = tokio::task::spawn_blocking(move || {
             rebuilder
@@ -138,16 +125,11 @@ impl Standby {
         Ok((device, block_path, served_rx))
     }
 
-    /// Discard the standby and return how its rebuild went.
+    /// Discard the standby, and return how its rebuild went. Drop the sender of
+    /// replayed chunks first, or this waits for it.
     pub async fn discard(self) -> anyhow::Result<()> {
-        let Self {
-            rebuilder,
-            replayed_tx,
-            ..
-        } = self;
+        let Self { rebuilder, .. } = self;
 
-        // Finish the rebuild.
-        drop(replayed_tx);
         tokio::task::spawn_blocking(move || {
             rebuilder
                 .join()

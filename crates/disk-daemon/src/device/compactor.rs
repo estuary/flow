@@ -34,10 +34,10 @@ impl Compactor {
     }
 
     /// Account for `copy`, a write of the range `next_copy_range` returned.
-    pub fn on_copied(&mut self, copy: proto::Chunk) -> super::LiveChunk {
+    pub fn on_copied(&mut self, copy: proto::Chunk) -> crate::LiveChunk {
         let discharges_horizon = self.apply(&copy, false);
 
-        super::LiveChunk {
+        crate::LiveChunk {
             chunk: copy,
             opens_horizon: false,
             discharges_horizon,
@@ -50,7 +50,7 @@ impl Compactor {
     }
 
     /// Account for a served write or punch.
-    pub fn on_served(&mut self, chunk: proto::Chunk) -> super::LiveChunk {
+    pub fn on_served(&mut self, chunk: proto::Chunk) -> crate::LiveChunk {
         let allocated_bytes = self.allocated.ones as u64 * crate::BLOCK_SIZE as u64;
         let opens_horizon = self.horizon.is_none()
             && self
@@ -64,7 +64,7 @@ impl Compactor {
             horizon.changed += data.len() as u64;
         }
 
-        super::LiveChunk {
+        crate::LiveChunk {
             chunk,
             opens_horizon,
             discharges_horizon,
@@ -206,7 +206,8 @@ impl Bitmap {
 mod test {
     use super::{Bitmap, COPY_BLOCKS, Compactor, Horizon, Policy};
     use crate::BLOCK_SIZE;
-    use crate::device::{LiveChunk, chunk};
+    use crate::LiveChunk;
+    use crate::device::chunk;
     use crate::proto;
 
     #[test]

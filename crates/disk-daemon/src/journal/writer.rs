@@ -1,5 +1,4 @@
 use super::ledger;
-use crate::device;
 use anyhow::Context;
 
 /// Handle to an attachment's journal writer: a task which appends the device's
@@ -31,7 +30,7 @@ impl Writer {
         journal: super::Journal,
         appender: publisher::Appender,
         opener: Option<i64>,
-        served_rx: tokio::sync::mpsc::Receiver<device::LiveChunk>,
+        served_rx: tokio::sync::mpsc::Receiver<crate::LiveChunk>,
     ) -> Self {
         let cancel = journal.cancel.clone();
         let failed = std::sync::Arc::new(std::sync::OnceLock::new());
@@ -97,7 +96,7 @@ struct Task {
     /// Journal, ledger, and appender.
     appending: Appending,
     /// The device's live chunks.
-    served_rx: tokio::sync::mpsc::Receiver<device::LiveChunk>,
+    served_rx: tokio::sync::mpsc::Receiver<crate::LiveChunk>,
     /// Set by the task's first failure, which its handle reads.
     failed: std::sync::Arc<std::sync::OnceLock<tonic::Status>>,
     /// The attachment's cancellation, which gives up a broker call and which a
@@ -200,7 +199,7 @@ impl Appending {
     /// Serve `Writer::prepare`.
     async fn prepare(
         &mut self,
-        served_rx: &mut tokio::sync::mpsc::Receiver<device::LiveChunk>,
+        served_rx: &mut tokio::sync::mpsc::Receiver<crate::LiveChunk>,
     ) -> anyhow::Result<Option<bytes::Bytes>> {
         // Refuse before the drain, which would take live chunks past the awaited ack.
         if self.ledger.awaiting_ack() {
@@ -279,8 +278,8 @@ impl Appending {
         Ok(())
     }
 
-    async fn append_chunk(&mut self, live: device::LiveChunk) -> anyhow::Result<()> {
-        let device::LiveChunk {
+    async fn append_chunk(&mut self, live: crate::LiveChunk) -> anyhow::Result<()> {
+        let crate::LiveChunk {
             chunk,
             opens_horizon,
             discharges_horizon,
@@ -539,7 +538,7 @@ mod broker_test {
             for record in 0..4 {
                 let fill = delta * 4 + record + 1;
                 served_tx
-                    .try_send(crate::device::LiveChunk {
+                    .try_send(crate::LiveChunk {
                         chunk: test_support::write_chunk(0, test_support::broker::BLOCKS, fill),
                         opens_horizon: record == 0,
                         discharges_horizon: record == 3,
@@ -591,7 +590,7 @@ mod broker_test {
             [(0, false, false), (1, true, false), (2, false, true)]
         {
             served_tx
-                .try_send(crate::device::LiveChunk {
+                .try_send(crate::LiveChunk {
                     chunk: test_support::write_chunk(0, test_support::broker::BLOCKS, record + 1),
                     opens_horizon,
                     discharges_horizon,

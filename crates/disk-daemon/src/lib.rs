@@ -22,6 +22,27 @@ pub const BLOCK_SIZE: u32 = 4096;
 /// to a collection journal or shard recovery log.
 pub const CONTENT_TYPE_DISK: &str = "application/x-journal-backed-disk";
 
+/// A chunk the live device applied, which the journal's writer records: a device
+/// write or punch, or a horizon copy.
+pub(crate) struct LiveChunk {
+    /// The blocks it writes or punches.
+    pub chunk: proto::Chunk,
+    /// A recovery horizon opened at this chunk.
+    pub opens_horizon: bool,
+    /// This chunk discharged the open horizon's last pending block.
+    pub discharges_horizon: bool,
+}
+
+/// A committed chunk the journal replayed, which the device's rebuilder applies.
+/// It carries no discharge: the device's compactor finds each one again as it
+/// applies the chunks.
+pub(crate) struct ReplayedChunk {
+    /// The blocks it writes or punches.
+    pub chunk: proto::Chunk,
+    /// Its record opened a recovery horizon.
+    pub opens_horizon: bool,
+}
+
 /// A failure of something the attachment asked for, which fails the attachment with
 /// `INVALID_ARGUMENT`: no retry of the same request can succeed.
 pub(crate) fn invalid_argument(message: String) -> anyhow::Error {

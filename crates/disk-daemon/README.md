@@ -44,26 +44,29 @@ transaction client ── Attach RPC ──► attachment task
 ```
 
 The device owns the disk's image from `Open` to teardown. A `device::Standby`'s
-rebuilder thread applies the committed chunks which the journal's replay sends
-it, each with whether a horizon opened there. Promotion ends that rebuild and turns
-the standby into a `device::Device`, whose owner thread serves the image as a ublk
-device, sending each write, punch, and copy it applies to the writer as a
-`device::LiveChunk`. Both threads apply a chunk the same way. The journal
-side owns everything about records: sequencing, fencing, offsets, and the floor
-label. The two sides step through the same phases: the journal replays into a sender
-which the device's standby lends it, and which the device's promotion ends, and the
-device's promotion returns the live chunks which the journal's writer appends.
+rebuilder thread applies each committed chunk which the journal's replay sends it
+as a `ReplayedChunk`. Promotion ends that rebuild and turns the standby into a
+`device::Device`, whose owner thread serves the image as a ublk device, sending
+each write, punch, and copy it applies to the writer as a `LiveChunk`. These two
+types, at the crate root, are all that `device` and `journal` share: neither
+imports the other, and `attachment.rs` connects them. Both threads apply a chunk
+the same way. The journal side owns everything about records: sequencing, fencing,
+offsets, and the floor label. The two sides step through the same phases: the
+device's standby opens with the sender of replayed chunks, which the journal's
+standby owns while it replays, and the journal's promotion gives back for the
+device's promotion to end. The device's promotion returns the live chunks which the
+journal's writer appends.
 
 Paths below are relative to `src/`.
 
 | Path | Start here for |
 | --- | --- |
 | `client.rs` | `Client`, `Standby`, `Disk`, and `Error`; the caller's transaction and recovery contract. |
-| `lib.rs` | Protocol exports, block size, disk content type, and attachment status codes. |
+| `lib.rs` | Protocol exports, block size, disk content type, the `LiveChunk` and `ReplayedChunk` which the device and journal exchange, and attachment status codes. |
 | `main.rs` | Process setup: crypto provider, tracing, and the runtime. |
 | `daemon.rs` | Flags, configuration, the `Disk` gRPC service and its socket, shared broker credentials, and process drain. |
 | `attachment.rs` | `Attachment`: request ordering, promotion, the bootstrap commit, error codes, and teardown of writer, mount, and device. |
-| `device/mod.rs` | `Standby`: open, the rebuilder thread, promotion, and discard. `Device`: stop. `LiveChunk`, which the served channel carries. |
+| `device/mod.rs` | `Standby`: open, the rebuilder thread, promotion, and discard. `Device`: stop. |
 | `device/owner.rs` | The owner thread, which arms and serves the ublk queue: tags, the ring, and character-device data copies. It sends each write's live chunks before answering it, and exits on an image failure. |
 | `device/target.rs` | The sparse image and its compactor: `replay` of a committed chunk, `serve` of a write or punch and the copies it earns into the live chunks to send, and reads. Each chunk is written with `pwrite` or punched with `fallocate`, served and recovered alike, testable without a real device. |
 | `device/ublk.rs` | `Control`, which adds, starts, stops, and deletes one device; queue parameters; the request descriptor mapping, which decodes each request into an `Op`; the queue's fetch and commit commands; and the kernel ABI, hand-transcribed from Linux's `include/uapi/linux/ublk_cmd.h`. |

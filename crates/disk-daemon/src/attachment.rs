@@ -109,14 +109,9 @@ impl Attachment {
         let (journal, blocks) = check_open(open)?;
         let config = &self.config;
 
-        let replayed_tx = self
-            .device_standby
-            .insert(device::Standby::open(
-                &config.image_dir,
-                blocks,
-                config.horizon_policy,
-            )?)
-            .replayed_tx();
+        let (device_standby, replayed_tx) =
+            device::Standby::open(&config.image_dir, blocks, config.horizon_policy)?;
+        self.device_standby = Some(device_standby);
 
         let uncommitted = journal::UncommittedDelta::create(&config.image_dir)
             .with_context(|| format!("creating an uncommitted delta in {:?}", config.image_dir))?;
@@ -148,19 +143,19 @@ impl Attachment {
                     ));
                 }
             },
-            failure = journal_standby.follow(replayed_tx) => return Err(failure),
+            failure = journal_standby.follow() => return Err(failure),
         };
 
         // Fence the previous writer, finish replay at the fenced head, and repair
         // any ack the client recovered.
         let recovered_ack = (!ack.is_empty()).then_some(ack);
-        let promoted = journal_standby.promote(recovered_ack, replayed_tx).await?;
+        let (promoted, replayed_tx) = journal_standby.promote(recovered_ack).await?;
 
         let device_standby = self
             .device_standby
             .take()
             .expect("a disk's device stands by until its promotion");
-        let (device, block_path, served_rx) = device_standby.promote().await?;
+        let (device, block_path, served_rx) = device_standby.promote(replayed_tx).await?;
         self.device = Some(device);
 
         let fresh = promoted.fresh();
@@ -240,6 +235,8 @@ impl Attachment {
             }
         }
 
+        // `serve` has returned, dropping the journal's standby and the sender of the
+        // chunks it replayed, so the rebuilder exits once it applies what it holds.
         match self.device_standby.take() {
             Some(device_standby) => device_standby.discard().await,
             None => Ok(()),
