@@ -54,8 +54,9 @@
 //!
 //! ### Back-pressure
 //!
-//! Documents are written as they are parsed — prepared in batches across
-//! worker threads, then appended in fixture order ([`segments::push_prepared`])
+//! Documents are written as they are parsed — built into shuffle log Appends in
+//! batches across worker threads, then pushed in fixture order
+//! ([`segments::push_append`])
 //! — so the feeder holds one batch and one block per shard rather than a whole
 //! transaction, and the
 //! feeder pauses between transactions while its sealed segments exceed
@@ -72,9 +73,10 @@ use anyhow::Context;
 use futures::StreamExt;
 use proto_gazette::uuid;
 use runtime_local::segments::{
-    self, FixtureItem, OpenBackfills, PreparedDoc, ShardWriter, Transaction, TxnItem, TxnState,
-    finish_txn, open_shard_writers, prepare_binding, push_item, push_prepared, write_transaction,
+    self, FixtureItem, OpenBackfills, ShardWriter, Transaction, TxnItem, TxnState, build_append,
+    finish_txn, open_shard_writers, push_append, push_item, write_transaction,
 };
+use shuffle::proto::log_request::Append;
 use std::collections::HashMap;
 use tokio::io::AsyncBufReadExt;
 
@@ -242,10 +244,10 @@ pub fn start_streaming(
     let (bindings, sources, validators, collection_bindings) = segments::task_bindings(task)?;
 
     // Each worker validates with its own validators.
-    let preparers = (0..prepare_workers())
+    let builders = (0..append_workers())
         .map(|_| {
             let (_, _, validators, _) = segments::task_bindings(task)?;
-            Ok(Preparer::new(validators, validate))
+            Ok(AppendBuilder::new(validators, validate))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -272,7 +274,7 @@ pub fn start_streaming(
         bindings,
         sources,
         validators,
-        preparers,
+        builders,
         collection_bindings,
         path,
         segments::full_range_shards(n_shards),
@@ -289,7 +291,7 @@ async fn feed_stream(
     bindings: Vec<shuffle::Binding>,
     sources: Vec<shuffle::Source>,
     mut validators: Vec<doc::Validator>,
-    mut preparers: Vec<Preparer>,
+    mut builders: Vec<AppendBuilder>,
     collection_bindings: HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
     shards: Vec<shuffle::proto::Shard>,
@@ -304,7 +306,7 @@ async fn feed_stream(
         &bindings,
         &sources,
         &mut validators,
-        &mut preparers,
+        &mut builders,
         &collection_bindings,
         path,
         &shards,
@@ -348,7 +350,7 @@ async fn feed_lines(
     bindings: &[shuffle::Binding],
     sources: &[shuffle::Source],
     validators: &mut [doc::Validator],
-    preparers: &mut [Preparer],
+    builders: &mut [AppendBuilder],
     collection_bindings: &HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
     shards: &[shuffle::proto::Shard],
@@ -446,11 +448,11 @@ async fn feed_lines(
             batch_bytes += line.len();
             batch.push((lineno, line));
             txn_items += 1;
-            if batch.len() >= PREPARE_BATCH_LINES || batch_bytes >= PREPARE_BATCH_BYTES {
+            if batch.len() >= APPEND_BATCH_LINES || batch_bytes >= APPEND_BATCH_BYTES {
                 push_batch(
                     &mut txn,
                     &mut batch,
-                    preparers,
+                    builders,
                     bindings,
                     sources,
                     collection_bindings,
@@ -466,7 +468,7 @@ async fn feed_lines(
         push_batch(
             &mut txn,
             &mut batch,
-            preparers,
+            builders,
             bindings,
             sources,
             collection_bindings,
@@ -523,7 +525,7 @@ async fn feed_lines(
     push_batch(
         &mut txn,
         &mut batch,
-        preparers,
+        builders,
         bindings,
         sources,
         collection_bindings,
@@ -551,13 +553,13 @@ async fn feed_lines(
     Ok(())
 }
 
-/// Document lines prepared per batch, and the batch's byte bound.
-const PREPARE_BATCH_LINES: usize = 16 * 1024;
-const PREPARE_BATCH_BYTES: usize = 64 * 1024 * 1024;
+/// Document lines built per batch, and the batch's byte bound.
+const APPEND_BATCH_LINES: usize = 16 * 1024;
+const APPEND_BATCH_BYTES: usize = 64 * 1024 * 1024;
 
-/// Threads preparing documents: the cores less two left for the shards, at
-/// most sixteen.
-fn prepare_workers() -> usize {
+/// Threads building Appends: the cores less two left for the shards, at most
+/// sixteen.
+fn append_workers() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
@@ -565,8 +567,9 @@ fn prepare_workers() -> usize {
         .clamp(1, 16)
 }
 
-/// One worker's state for preparing fixture documents.
-struct Preparer {
+/// One worker's state for building the shuffle log Appends of fixture lines,
+/// as the live slice builds them from journal reads.
+struct AppendBuilder {
     parser: simd_doc::Parser,
     alloc: doc::Allocator,
     validators: Vec<doc::Validator>,
@@ -574,7 +577,7 @@ struct Preparer {
     packed_key: bytes::BytesMut,
 }
 
-impl Preparer {
+impl AppendBuilder {
     fn new(validators: Vec<doc::Validator>, validate: bool) -> Self {
         Self {
             parser: simd_doc::Parser::new(),
@@ -585,11 +588,11 @@ impl Preparer {
         }
     }
 
-    /// Prepare a `["collection", {...}]` line for every binding of its
-    /// collection, parsing the document once per binding straight into a
+    /// Build an Append of a `["collection", {...}]` line for every binding of
+    /// its collection, parsing the document once per binding straight into a
     /// `HeapNode`.
     #[allow(clippy::too_many_arguments)]
-    fn prepare_line(
+    fn build_appends(
         &mut self,
         line: &str,
         lineno: usize,
@@ -597,8 +600,7 @@ impl Preparer {
         bindings: &[shuffle::Binding],
         sources: &[shuffle::Source],
         collection_bindings: &HashMap<String, Vec<usize>>,
-        shards: &[shuffle::proto::Shard],
-        out: &mut Vec<PreparedDoc>,
+        out: &mut Vec<Append>,
     ) -> anyhow::Result<()> {
         let (collection, doc): (String, &serde_json::value::RawValue) =
             serde_json::from_str(line.trim()).with_context(|| {
@@ -624,9 +626,8 @@ impl Preparer {
             let validator = validate.then(|| &mut validators[bindings[bi].source as usize]);
 
             out.push(
-                prepare_binding(
-                    &mut heap, alloc, bi, doc_clock, bindings, sources, validator, shards,
-                    packed_key,
+                build_append(
+                    &mut heap, alloc, bi, doc_clock, bindings, sources, validator, packed_key,
                 )
                 .with_context(|| format!("fixture line {lineno}"))?,
             );
@@ -635,14 +636,14 @@ impl Preparer {
     }
 }
 
-/// Prepare a batch of document lines across `preparers`, then push the results
-/// in fixture order, so blocks and document clocks match a serial feeder. Each
-/// line consumes one clock, whether or not the task sources its collection.
+/// Build the Appends of a batch of document lines across `builders`, then push
+/// them in fixture order, so blocks and document clocks match a serial feeder.
+/// Each line consumes one clock, whether or not the task sources its collection.
 #[allow(clippy::too_many_arguments)]
 fn push_batch(
     txn: &mut TxnState,
     batch: &mut Vec<(usize, String)>,
-    preparers: &mut [Preparer],
+    builders: &mut [AppendBuilder],
     bindings: &[shuffle::Binding],
     sources: &[shuffle::Source],
     collection_bindings: &HashMap<String, Vec<usize>>,
@@ -655,26 +656,25 @@ fn push_batch(
         return Ok(());
     }
     let first_seconds = txn.take_doc_seconds(batch.len() as u64);
-    let chunk = batch.len().div_ceil(preparers.len());
+    let chunk = batch.len().div_ceil(builders.len());
 
-    let prepared: Vec<anyhow::Result<Vec<PreparedDoc>>> = std::thread::scope(|scope| {
+    let built: Vec<anyhow::Result<Vec<Append>>> = std::thread::scope(|scope| {
         let workers: Vec<_> = batch
             .chunks(chunk)
-            .zip(preparers.iter_mut())
+            .zip(builders.iter_mut())
             .enumerate()
-            .map(|(worker, (lines, preparer))| {
+            .map(|(worker, (lines, builder))| {
                 let first = first_seconds + (worker * chunk) as u64;
                 scope.spawn(move || {
                     let mut out = Vec::with_capacity(lines.len());
                     for (i, (lineno, line)) in lines.iter().enumerate() {
-                        preparer.prepare_line(
+                        builder.build_appends(
                             line,
                             *lineno,
                             uuid::Clock::from_unix(first + i as u64, 0),
                             bindings,
                             sources,
                             collection_bindings,
-                            shards,
                             &mut out,
                         )?;
                     }
@@ -684,17 +684,18 @@ fn push_batch(
             .collect();
         workers
             .into_iter()
-            .map(|w| w.join().expect("fixture prepare worker panicked"))
+            .map(|w| w.join().expect("fixture append worker panicked"))
             .collect()
     });
 
-    for docs in prepared {
-        for doc in docs? {
-            push_prepared(
+    for appends in built {
+        for append in appends? {
+            push_append(
                 txn,
-                doc,
+                append,
                 bindings,
                 sources,
+                shards,
                 writers,
                 rolled,
                 journal_offsets,
@@ -1115,28 +1116,26 @@ mod test {
         }
     }
 
-    /// The parallel path parses straight into a `HeapNode`; its documents must
-    /// archive exactly as the `serde_json::Value` path's do.
+    /// The parallel path parses straight into a `HeapNode`; its Appends must
+    /// equal the `serde_json::Value` path's.
     #[test]
-    fn prepared_lines_match_the_value_path() {
+    fn built_appends_match_the_value_path() {
         let task = events_task(2);
         let (bindings, sources, mut validators, collection_bindings) =
             segments::task_bindings(&task).unwrap();
-        let shards = segments::full_range_shards(3);
         let line = r#"["acmeCo/events",{"id":42,"pad":"x\u00e9y","n":[1.5,-0.0,null,{"b":true,"a":"\""}]}]"#;
         let clock = uuid::Clock::from_unix(7, 0);
 
-        let mut preparer = Preparer::new(segments::task_bindings(&task).unwrap().2, true);
+        let mut builder = AppendBuilder::new(segments::task_bindings(&task).unwrap().2, true);
         let mut parallel = Vec::new();
-        preparer
-            .prepare_line(
+        builder
+            .build_appends(
                 line,
                 1,
                 clock,
                 &bindings,
                 &sources,
                 &collection_bindings,
-                &shards,
                 &mut parallel,
             )
             .unwrap();
@@ -1149,7 +1148,7 @@ mod test {
                 let alloc = doc::HeapNode::new_allocator();
                 let mut heap = doc::HeapNode::from_serde(&doc, &alloc).unwrap();
                 let validator = &mut validators[bindings[bi].source as usize];
-                prepare_binding(
+                build_append(
                     &mut heap,
                     &alloc,
                     bi,
@@ -1157,7 +1156,6 @@ mod test {
                     &bindings,
                     &sources,
                     Some(validator),
-                    &shards,
                     &mut packed_key,
                 )
                 .unwrap()
@@ -1195,8 +1193,8 @@ mod test {
                 segments::task_bindings(&task).unwrap();
             let shards = segments::full_range_shards(2);
             let mut writers = open_shard_writers(tmp.path(), 2).unwrap();
-            let mut preparers: Vec<_> = (0..workers)
-                .map(|_| Preparer::new(segments::task_bindings(&task).unwrap().2, true))
+            let mut builders: Vec<_> = (0..workers)
+                .map(|_| AppendBuilder::new(segments::task_bindings(&task).unwrap().2, true))
                 .collect();
             let mut txn = TxnState::for_txn(2, 0);
             let (mut rolled, mut offsets) = (Vec::new(), HashMap::new());
@@ -1204,7 +1202,7 @@ mod test {
             push_batch(
                 &mut txn,
                 &mut lines.clone(),
-                &mut preparers,
+                &mut builders,
                 &bindings,
                 &sources,
                 &collection_bindings,
