@@ -2,6 +2,8 @@ module github.com/estuary/flow
 
 go 1.26.0
 
+toolchain go1.26.10
+
 require (
 	cloud.google.com/go/storage v1.57.0
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
