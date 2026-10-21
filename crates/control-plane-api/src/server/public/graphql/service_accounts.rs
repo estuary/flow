@@ -76,6 +76,41 @@ const MAX_PREFIXES: usize = 20;
 
 #[async_graphql::Object]
 impl ServiceAccountsQuery {
+    async fn service_account(
+        &self,
+        ctx: &Context<'_>,
+        catalog_name: models::Name,
+    ) -> async_graphql::Result<Option<ServiceAccount>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        if let Err(err) = validator::Validate::validate(&catalog_name) {
+            return Err(async_graphql::Error::new(format!(
+                "invalid catalog name: {err}"
+            )));
+        }
+        super::verify_authorization(
+            env,
+            catalog_name.as_str(),
+            models::authz::Capability::QueryServiceAccounts,
+        )
+        .await?;
+
+        let Some(user_id) = sqlx::query_scalar!(
+            r#"
+        SELECT user_id
+        FROM internal.service_accounts
+        WHERE catalog_name = $1::text::catalog_name
+        "#,
+            catalog_name.as_str(),
+        )
+        .fetch_optional(&env.pg_pool)
+        .await?
+        else {
+            return Ok(None);
+        };
+
+        load_service_account(&env.pg_pool, user_id).await.map(Some)
+    }
+
     async fn service_accounts(
         &self,
         ctx: &Context<'_>,
@@ -1020,6 +1055,84 @@ mod test {
         assert!(created_grants[0]["updatedAt"].is_string());
         assert_eq!(created_grants[1]["prefix"], "aliceCo/data/");
         assert_eq!(created_grants[1]["capability"], "read");
+
+        let lookup = |name: &str| {
+            serde_json::json!({
+                "query": r#"
+                query($catalogName: Name!) {
+                    serviceAccount(catalogName: $catalogName) {
+                        catalogName createdByEmail createdAt lastUsedAt
+                        grants { prefix capability detail createdAt updatedAt }
+                        apiKeys { id }
+                    }
+                }"#,
+                "variables": { "catalogName": name }
+            })
+        };
+        let found: serde_json::Value = server
+            .graphql(&lookup("aliceCo/ci-deploy-bot"), Some(&alice_token))
+            .await;
+        assert_eq!(
+            found,
+            serde_json::json!({ "data": { "serviceAccount": sa } })
+        );
+
+        let missing: serde_json::Value = server
+            .graphql(&lookup("aliceCo/missing-bot"), Some(&alice_token))
+            .await;
+        assert_eq!(
+            missing,
+            serde_json::json!({ "data": { "serviceAccount": null } })
+        );
+
+        let batched: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        missing: serviceAccount(catalogName: "aliceCo/missing-bot") {
+                            catalogName
+                        }
+                        found: serviceAccount(catalogName: "aliceCo/ci-deploy-bot") {
+                            catalogName
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            batched,
+            serde_json::json!({
+                "data": {
+                    "missing": null,
+                    "found": { "catalogName": "aliceCo/ci-deploy-bot" }
+                }
+            })
+        );
+
+        let denied: serde_json::Value = server
+            .graphql(&lookup("aliceCo/ci-deploy-bot"), Some(&bob_token))
+            .await;
+        assert_eq!(
+            denied["data"],
+            serde_json::json!({ "serviceAccount": null })
+        );
+        assert_eq!(denied["errors"][0]["extensions"]["code"], "FORBIDDEN");
+
+        let invalid: serde_json::Value = server
+            .graphql(&lookup("aliceCo/bad name"), Some(&alice_token))
+            .await;
+        assert_eq!(
+            invalid["data"],
+            serde_json::json!({ "serviceAccount": null })
+        );
+        assert!(
+            invalid["errors"][0]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("invalid catalog name:")
+        );
 
         // === A catalog name is unique to one service account ===
         // A second account cannot claim the same handle, even for an authorized
