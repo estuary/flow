@@ -2707,6 +2707,7 @@ type QueryRoot {
 	List refresh tokens owned by the authenticated user.
 	"""
 	refreshTokens(after: String, first: Int): RefreshTokenInfoConnection!
+	serviceAccount(catalogName: Name!): ServiceAccount
 	serviceAccounts(after: String, first: Int): ServiceAccountConnection!
 	"""
 	List secrets the caller may view, in catalog-name order.
