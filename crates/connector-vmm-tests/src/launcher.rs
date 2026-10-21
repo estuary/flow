@@ -54,6 +54,24 @@ pub fn root() -> Root {
     }
 }
 
+/// Seed the mounts directory with launch-compatible permissions before a launch.
+pub fn mounts(root: &Root) -> String {
+    use std::os::unix::fs::DirBuilderExt;
+
+    // SAFETY: geteuid takes nothing and cannot fail.
+    let mounts = format!("{}/connector-mounts-{}", root.tmp_dir, unsafe {
+        libc::geteuid()
+    });
+    if let Err(err) = std::fs::DirBuilder::new().mode(0o711).create(&mounts)
+        && err.kind() != std::io::ErrorKind::AlreadyExists
+    {
+        panic!("creating {mounts}: {err}");
+    }
+    std::fs::set_permissions(&mounts, std::os::unix::fs::PermissionsExt::from_mode(0o711))
+        .unwrap_or_else(|e| panic!("setting the mode of {mounts}: {e}"));
+    mounts
+}
+
 pub fn calls(root: &Root) -> Vec<String> {
     match std::fs::read_to_string(format!("{}/calls", root.dir)) {
         Ok(calls) => calls.lines().map(ToString::to_string).collect(),

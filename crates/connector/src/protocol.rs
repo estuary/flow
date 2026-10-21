@@ -457,7 +457,14 @@ pub(crate) fn create_connector_mount() -> anyhow::Result<tempfile::TempDir> {
         std::env::temp_dir().join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
     #[cfg(not(unix))]
     let parent = std::env::temp_dir().join("connector-mounts");
-    std::fs::create_dir_all(&parent).context("creating connector mounts directory")?;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    // Avoid a writable-by-others window that concurrent VMM launches would refuse.
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o711);
+    builder
+        .create(&parent)
+        .context("creating connector mounts directory")?;
     set_mount_mode(&parent, 0o711)?;
 
     let dir = tempfile::Builder::new()

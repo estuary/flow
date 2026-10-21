@@ -403,7 +403,10 @@ EOF or status. A client which does not drain responses may park the handler.
   holding `flow-connector-init` (0555) and `image-inspect.json` (0444), bound
   read-only at its own path into the container and at `/connector-mount` in
   the guest, which `CONNECTOR_MOUNT` names. TMPDIR, like the state directory, must therefore be the
-  same path for this process and the engine. Ordinary launches use the same
+  same path for this process and the engine. A `connector-mounts-<euid>`
+  which is a link, another user's, or writable by others is refused as
+  `FailedPrecondition`. Launches make it at 0711, which the umask can only
+  narrow. Ordinary launches use the same
   connector mount contract. When task-update
   credentials are configured, the launch writes and rotates `task-update.json`
   there until teardown starts.
