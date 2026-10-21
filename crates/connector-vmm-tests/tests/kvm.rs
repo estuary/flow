@@ -400,7 +400,8 @@ fn image_user_through_linked_account_files() {
         ]
     );
 
-    std::mem::drop((guest, vmm));
+    std::mem::drop(guest);
+    run::stop(vmm);
     run::podman(&["image", "rm", &image]);
 }
 
@@ -486,7 +487,8 @@ fn image_user_reads_through_a_supplementary_group() {
         "secret"
     );
 
-    std::mem::drop((guest, vmm));
+    std::mem::drop(guest);
+    run::stop(vmm);
     run::podman(&["image", "rm", &image]);
 }
 
@@ -560,7 +562,8 @@ fn image_environment() {
         assert_eq!(env["HOSTNAME"], kernel.as_str(), "{name} HOSTNAME: {env}");
     }
 
-    std::mem::drop((guest, vmm));
+    std::mem::drop(guest);
+    run::stop(vmm);
     run::podman(&["image", "rm", &image]);
 }
 

@@ -198,7 +198,8 @@ real binary's path, invokes Rust `check-launch` before staging. It then serves
 `/sock/init.sock` at mode 0777 and hands the workload `CONNECTOR_MOUNT`,
 `LOG_FORMAT` and `LOG_LEVEL`. `/rootfs` is read-only, so connector-init runs
 chrooted into a copy of it in `/scratch-backing`, from a copy of the connector
-mount at `/connector-mount`, and socat bridges the socket to its TCP port. The
+mount at `/connector-mount`, and socat bridges the socket to TCP port 19092,
+outside Linux's default automatic source-port range. The
 copy costs the image's size on the state directory's filesystem for each
 launch, and is given the owner of `/scratch-backing` so an unprivileged
 launcher can remove it. It needs none of the launch line's devices or
