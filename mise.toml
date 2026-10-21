@@ -3,7 +3,7 @@
 
 # Tool versions
 [tools]
-go = { version = "1.26" }
+go = { version = "1.26.10" }
 # `rust` is required, but installation via mise is incompatible with Swatim/rust-cache
 
 "github:wasm-bindgen/wasm-pack" = { version = "0.13.1" }

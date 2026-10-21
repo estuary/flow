@@ -2,6 +2,8 @@ module github.com/estuary/flow
 
 go 1.26.0
 
+toolchain go1.26.10
+
 require (
 	cloud.google.com/go/storage v1.57.0
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
@@ -22,7 +24,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	go.etcd.io/etcd/api/v3 v3.6.5
 	go.etcd.io/etcd/client/v3 v3.6.5
-	go.gazette.dev/core v0.103.1-0.20261021141923-9d0b274c68d1
+	go.gazette.dev/core v0.103.1-0.20261021182939-b8ff0a385a99
 	golang.org/x/net v0.60.0
 	google.golang.org/api v0.264.0
 	google.golang.org/grpc v1.83.2
