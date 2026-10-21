@@ -29,7 +29,7 @@ require (
 	github.com/jgraettinger/cockroach-encoding v1.1.0
 	github.com/jgraettinger/gorocksdb v0.0.0-20250815051509-2d5c1f160b80
 	github.com/jgraettinger/urkel v0.2.0
-	github.com/klauspost/compress v1.18.0
+	github.com/klauspost/compress v1.18.7
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/olekukonko/tablewriter v1.1.0
