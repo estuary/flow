@@ -230,7 +230,7 @@ async fn launch(
             "VMM execution runs a static flow-connector-init beside this program or on its PATH",
         )
         .map_err(precondition)?;
-    let connector_mounts = connector_mounts().map_err(precondition)?;
+    let connector_mounts = connector_mounts(&std::env::temp_dir()).map_err(precondition)?;
 
     for attempt in 1..=ATTEMPTS {
         let plan = plan::plan(
@@ -592,18 +592,52 @@ async fn fenced(podman: &str, args: &[String], record: &std::fs::File) -> anyhow
 /// commonly runs as an unprivileged UID of its own choosing which must reach
 /// the files it's told the names of without enumerating them. It's scoped to
 /// this process's user, so that users sharing a TMPDIR don't contend over it.
-fn connector_mounts() -> anyhow::Result<String> {
+fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<String> {
+    use std::os::unix::fs::DirBuilderExt;
+
     // SAFETY: geteuid takes nothing and cannot fail.
     let euid = unsafe { libc::geteuid() };
-    let mounts = std::env::temp_dir().join(format!("connector-mounts-{euid}"));
+    let mounts = tmp.join(format!("connector-mounts-{euid}"));
 
-    std::fs::create_dir_all(&mounts).with_context(|| format!("creating {}", mounts.display()))?;
+    // Other users may pre-create this name in a shared TMPDIR.
+    // Create it without a writable-by-others window for concurrent launches.
+    match std::fs::DirBuilder::new().mode(0o711).create(&mounts) {
+        Ok(()) => (),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            check_mounts_owner(&mounts, euid)
+                .with_context(|| format!("connector mounts directory {}", mounts.display()))?;
+        }
+        Err(err) => {
+            return Err(anyhow::Error::new(err).context(format!("creating {}", mounts.display())));
+        }
+    }
     set_mode(&mounts, 0o711)?;
 
     mounts
         .into_os_string()
         .into_string()
         .map_err(|mounts| anyhow::anyhow!("the connector mounts directory {mounts:?} is not UTF-8"))
+}
+
+/// The connector mounts directory is this process's own: a real directory, not
+/// a link, owned by this process's user, and writable by no one else.
+fn check_mounts_owner(path: &std::path::Path, euid: u32) -> anyhow::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_dir() {
+        anyhow::bail!("is not a directory, or is a link to one");
+    }
+    if metadata.uid() != euid {
+        anyhow::bail!(
+            "is owned by uid {}, not this process's uid {euid}",
+            metadata.uid()
+        );
+    }
+    if metadata.mode() & 0o022 != 0 {
+        anyhow::bail!("is writable by a user other than its owner");
+    }
+    Ok(())
 }
 
 /// Make `path` exclusively and mark it in the launch's record as `dir`,
@@ -763,3 +797,75 @@ async fn stop(podman: &str, container: Option<&str>, attached: Option<Attached>)
 // The FIFO harness relies on Linux read-write semantics.
 #[cfg(all(test, target_os = "linux"))]
 mod readiness_tests;
+
+#[cfg(test)]
+mod test {
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+
+    /// Set fixture modes explicitly so cases do not depend on the umask.
+    #[test]
+    fn connector_mounts() {
+        // SAFETY: geteuid takes nothing and cannot fail.
+        let name = format!("connector-mounts-{}", unsafe { libc::geteuid() });
+        let dir = |mode: u32| {
+            move |path: &Path| {
+                std::fs::create_dir(path).unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+            }
+        };
+        let link = move |path: &Path| {
+            let target = path.with_extension("target");
+            dir(0o711)(&target);
+            std::os::unix::fs::symlink(&target, path).unwrap();
+        };
+        let dangling = |path: &Path| std::os::unix::fs::symlink("absent", path).unwrap();
+        let file = |path: &Path| {
+            std::fs::write(path, "").unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        };
+
+        let cases: Vec<(&str, Box<dyn Fn(&Path)>)> = vec![
+            ("nothing", Box::new(|_: &Path| ())),
+            ("a directory of mode 0700", Box::new(dir(0o700))),
+            ("a directory of mode 0755", Box::new(dir(0o755))),
+            ("a directory of mode 0775", Box::new(dir(0o775))),
+            ("a directory of mode 0757", Box::new(dir(0o757))),
+            ("a link to a directory of mode 0711", Box::new(link)),
+            ("a dangling link", Box::new(dangling)),
+            ("a file", Box::new(file)),
+        ];
+
+        let mut table = String::new();
+        for (label, plant) in cases {
+            let tmp = tempfile::tempdir().unwrap();
+            let path = tmp.path().join(&name);
+            plant(&path);
+
+            let outcome = match super::connector_mounts(tmp.path()) {
+                Ok(mounts) => {
+                    assert_eq!(Path::new(&mounts), path);
+                    "taken".to_string()
+                }
+                Err(err) => format!("refused: {err:#}"),
+            };
+            let mode = std::fs::metadata(&path).map_or("none".to_string(), |m| {
+                format!("{:o}", m.permissions().mode() & 0o7777)
+            });
+            table.push_str(&format!("{label}: {outcome}; mode {mode}\n"));
+            table = table
+                .replace(tmp.path().to_str().unwrap(), "$TMPDIR")
+                .replace(&name, "connector-mounts-$EUID");
+        }
+        insta::assert_snapshot!(table, @r"
+        nothing: taken; mode 711
+        a directory of mode 0700: taken; mode 711
+        a directory of mode 0755: taken; mode 711
+        a directory of mode 0775: refused: connector mounts directory $TMPDIR/connector-mounts-$EUID: is writable by a user other than its owner; mode 775
+        a directory of mode 0757: refused: connector mounts directory $TMPDIR/connector-mounts-$EUID: is writable by a user other than its owner; mode 757
+        a link to a directory of mode 0711: refused: connector mounts directory $TMPDIR/connector-mounts-$EUID: is not a directory, or is a link to one; mode 711
+        a dangling link: refused: connector mounts directory $TMPDIR/connector-mounts-$EUID: is not a directory, or is a link to one; mode none
+        a file: refused: connector mounts directory $TMPDIR/connector-mounts-$EUID: is not a directory, or is a link to one; mode 644
+        ");
+    }
+}

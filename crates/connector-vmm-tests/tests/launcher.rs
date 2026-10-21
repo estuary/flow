@@ -531,6 +531,32 @@ impl Owner {
     }
 }
 
+/// Release owners after test panics so they cannot retain records or stderr.
+/// Kill owners that do not exit within `RELEASED`.
+impl Drop for Owner {
+    fn drop(&mut self) {
+        // This may run while unwinding, where a panic would abort.
+        std::mem::drop(self.stdin.take());
+        let deadline = std::time::Instant::now() + RELEASED;
+        while matches!(self.child.try_wait(), Ok(None)) {
+            if std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+            // Unknown until the owner reports it, and kill(0) would signal
+            // this process's whole group.
+            if self.host_pid > 0 {
+                // SAFETY: kill takes plain integers.
+                unsafe { libc::kill(self.host_pid, libc::SIGKILL) };
+            } else {
+                _ = self.child.kill();
+            }
+            _ = self.child.wait();
+            return;
+        }
+    }
+}
+
 /// An RPC held open on the VMM of launch `name`, from this process.
 fn hold_rpc(
     runtime: &tokio::runtime::Runtime,
@@ -1692,10 +1718,7 @@ fn owners_alike_by_pid() {
 fn records_which_prove_nothing() {
     let (run, root, runtime) = setup();
     let router = router(vmm(&root, &run.fake_image));
-    // SAFETY: geteuid takes nothing and cannot fail.
-    let mounts = format!("{}/connector-mounts-{}", root.tmp_dir, unsafe {
-        libc::geteuid()
-    });
+    let mounts = launcher::mounts(&root);
     let new_name = || format!("fv_{}", run::random_hex());
     let token = format!("{}{}", run::random_hex(), run::random_hex());
     let made = "{\"created\":\"mount\"}\n{\"created\":\"state\"}\n";
@@ -1879,10 +1902,7 @@ impl Sentinels {
         .to_string();
 
         let id = format!("fv_{}", run::random_hex());
-        // SAFETY: geteuid takes nothing and cannot fail.
-        let mounts = format!("{}/connector-mounts-{}", root.tmp_dir, unsafe {
-            libc::geteuid()
-        });
+        let mounts = launcher::mounts(root);
         let mut files = Vec::new();
         for dir in [
             format!("{}/{id}", root.state_dir),
