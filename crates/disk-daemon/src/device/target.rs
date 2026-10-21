@@ -25,9 +25,9 @@ impl Target {
     }
 
     /// Apply one committed chunk the journal replayed.
-    pub fn replay(&mut self, chunk: proto::Chunk, opens_horizon: bool) -> anyhow::Result<()> {
+    pub fn replay(&mut self, chunk: &proto::Chunk, opens_horizon: bool) -> anyhow::Result<()> {
         () = self
-            .apply_chunk(&chunk)
+            .apply_chunk(chunk)
             .with_context(|| format!("applying chunk at block {}", chunk.block))?;
         () = self.compactor.on_replayed(chunk, opens_horizon);
         Ok(())
@@ -39,7 +39,7 @@ impl Target {
     pub fn serve(&mut self, chunk: proto::Chunk) -> anyhow::Result<Vec<crate::LiveChunk>> {
         () = self
             .apply_chunk(&chunk)
-            .context("applying a chunk to the image")?;
+            .with_context(|| format!("applying chunk at block {}", chunk.block))?;
         let mut served = vec![self.compactor.on_served(chunk)];
 
         while let Some(range) = self.compactor.next_copy_range() {
@@ -50,7 +50,7 @@ impl Target {
 
             served.push(
                 self.compactor
-                    .on_copied(chunk::encode_write(range.start, &copied_data.into())),
+                    .on_copied(chunk::encode_write(range.start, copied_data.into())),
             );
         }
         Ok(served)
@@ -137,7 +137,7 @@ mod test {
         short[..10].copy_from_slice(b"0123456789");
         live.extend(
             target
-                .serve(chunk::encode_write(0, &short.clone().into()))
+                .serve(chunk::encode_write(0, short.clone().into()))
                 .unwrap(),
         );
         assert_eq!(read(&target, 0), short);
@@ -149,7 +149,7 @@ mod test {
         // A replay of every live chunk rebuilds the same image.
         let mut replayed = Target::new(fresh_image(), BLOCKS, COPIES);
         for live in live {
-            () = replayed.replay(live.chunk, live.opens_horizon).unwrap();
+            () = replayed.replay(&live.chunk, live.opens_horizon).unwrap();
         }
         assert!(
             content(&replayed.image) == content(&target.image),
@@ -278,7 +278,7 @@ mod test {
                         let data = patterned_data(blocks, fill, zero_tail);
                         let offset = block as u64 * BLOCK_SIZE as u64;
                         std::os::unix::fs::FileExt::write_all_at(&direct, &data, offset).unwrap();
-                        chunk::encode_write(block, &data)
+                        chunk::encode_write(block, data)
                     }
                     Op::Punch { block, blocks } => {
                         let (offset, len) = (
@@ -298,7 +298,7 @@ mod test {
                 };
 
                 for live in target.serve(chunk).unwrap() {
-                    () = replayed.replay(live.chunk, live.opens_horizon).unwrap();
+                    () = replayed.replay(&live.chunk, live.opens_horizon).unwrap();
                 }
                 assert!(
                     content(&replayed.image) == content(&target.image),
@@ -339,7 +339,7 @@ mod test {
 
     /// A one-block write of `fill` at `block`, as the owner encodes it.
     fn write(block: u32, fill: u8) -> proto::Chunk {
-        chunk::encode_write(block, &vec![fill; BLOCK_SIZE as usize].into())
+        chunk::encode_write(block, vec![fill; BLOCK_SIZE as usize].into())
     }
 
     /// The image's block at `block`, as the target reads it.

@@ -29,7 +29,7 @@ pub(super) fn spawn(
 }
 
 /// The owner thread: arm the queue, then serve requests from `target` until the
-/// kernel stops the device, or the image fails.
+/// kernel stops the device, or the image or a data copy fails.
 fn run(
     dev_id: u32,
     cdev: std::fs::File,
@@ -50,7 +50,7 @@ fn run(
     // Carries only ublk commands. Room for one command per tag, the most this
     // queue ever has queued or in flight. io_uring sizes its rings in powers of
     // two, and makes its completion ring twice the size of its submission ring.
-    let mut ring = io_uring::IoUring::new((ublk::QUEUE_DEPTH as u32).next_power_of_two())
+    let mut ring = io_uring::IoUring::new(ublk::QUEUE_DEPTH as u32)
         .with_context(|| format!("creating the ring of device {dev_id}"))?;
 
     // Kernel request descriptors, indexed by tag.
@@ -113,36 +113,29 @@ fn run(
                     // character device.
                     let len = range.len() * crate::BLOCK_SIZE as usize;
                     () = target.read(range.start, &mut read_buf[..len])?;
+                    () = std::os::unix::fs::FileExt::write_all_at(&cdev, &read_buf[..len], offset)
+                        .context("handing read data to the device")?;
 
-                    let copied =
-                        std::os::unix::fs::FileExt::write_all_at(&cdev, &read_buf[..len], offset)
-                            .map(|()| len as u32)
-                            .context("handing read data to the device");
-                    (None, copied)
+                    (None, len as i32)
                 }
                 ublk::Op::Write(range) => {
                     // Read from the character device and write what was read to
                     // the image.
                     let len = range.len() * crate::BLOCK_SIZE as usize;
                     let mut data = vec![0; len];
+                    () = std::os::unix::fs::FileExt::read_exact_at(&cdev, &mut data, offset)
+                        .context("taking write data from the device")?;
 
-                    match std::os::unix::fs::FileExt::read_exact_at(&cdev, &mut data, offset) {
-                        Ok(()) => (
-                            Some(chunk::encode_write(range.start, &data.into())),
-                            Ok(len as u32),
-                        ),
-                        Err(err) => (
-                            None,
-                            Err(anyhow::Error::new(err)
-                                .context("taking write data from the device")),
-                        ),
-                    }
+                    (
+                        Some(chunk::encode_write(range.start, data.into())),
+                        len as i32,
+                    )
                 }
                 ublk::Op::Punch(range) => {
                     // Nothing to read or write; just hole punch the image.
                     (
                         Some(chunk::encode_punch(range.start, range.len() as u32)),
-                        Ok(0),
+                        0,
                     )
                 }
             };
@@ -156,17 +149,9 @@ fn run(
                 }
             }
 
-            let result = match transferred {
-                Ok(bytes) => bytes as i32,
-                Err(err) => {
-                    tracing::error!(tag, ?err, "device request failed");
-                    -rustix::io::Errno::IO.raw_os_error()
-                }
-            };
-
             // Answer the request on this tag and arm it for its next
             // request.
-            push(&mut ring, ublk::commit_and_fetch(&cdev, tag, result));
+            push(&mut ring, ublk::commit_and_fetch(&cdev, tag, transferred));
         }
     }
     Ok(())

@@ -67,10 +67,10 @@ Paths below are relative to `src/`.
 | `daemon.rs` | Flags, configuration, the `Disk` gRPC service and its socket, shared broker credentials, and process drain. |
 | `attachment.rs` | `Attachment`: request ordering, promotion, the bootstrap commit, error codes, and teardown of writer, mount, and device. |
 | `device/mod.rs` | `Standby`: open, the rebuilder thread, promotion, and discard. `Device`: stop. |
-| `device/owner.rs` | The owner thread, which arms and serves the ublk queue: tags, the ring, and character-device data copies. It sends each write's live chunks before answering it, and exits on an image failure. |
+| `device/owner.rs` | The owner thread, which arms and serves the ublk queue: tags, the ring, and character-device data copies. It sends each write's live chunks before answering it, and exits on a failure of the image or of a data copy. |
 | `device/target.rs` | The sparse image and its compactor: `replay` of a committed chunk, `serve` of a write or punch and the copies it earns into the live chunks to send, and reads. Each chunk is written with `pwrite` or punched with `fallocate`, served and recovered alike, testable without a real device. |
 | `device/ublk.rs` | `Control`, which adds, starts, stops, and deletes one device; queue parameters; the request descriptor mapping, which decodes each request into an `Op`; the queue's fetch and commit commands; and the kernel ABI, hand-transcribed from Linux's `include/uapi/linux/ublk_cmd.h`. |
-| `device/compactor.rs` | `Compactor`: allocation, bytes since the floor, and the open recovery horizon, as pure state over the chunks applied. Where a horizon opens, which ranges to copy, and which chunk discharges it. `compactor::Policy`, of when a horizon opens and how fast copies discharge it, and `Policy::DEFAULT`, which the daemon's flags start from. |
+| `device/compactor.rs` | `Compactor`: allocation, bytes since the floor, and the open recovery horizon, as pure state over the chunks applied. Where a horizon opens, which ranges to copy, and which chunk discharges it. `Policy`, re-exported as `device::Policy`, of when a horizon opens and how fast copies discharge it, and `Policy::DEFAULT`, which the daemon's flags start from. |
 | `device/chunk.rs` | The durable write/punch codec: one chunk per device write, punch, or copy. |
 | `filesystem.rs` | ext4 format, mount, ownership, and `syncfs`. |
 | `journal/lifecycle.rs` | Opening, standby playback, fencing, and promotion. |

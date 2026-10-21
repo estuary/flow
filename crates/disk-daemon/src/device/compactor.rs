@@ -28,9 +28,32 @@ impl Compactor {
     }
 
     /// The next range of the open horizon's pending blocks due to be copied out
-    /// of the image. Hand the result to `on_copied`.
+    /// of the image. Hand the result to `on_copied` before calling this again.
     pub fn next_copy_range(&mut self) -> Option<std::ops::Range<u32>> {
-        self.horizon.as_mut()?.next_copy_range(&self.horizon_policy)
+        let horizon = self.horizon.as_mut()?;
+        let budget =
+            (horizon.changed as f64 * self.horizon_policy.copy_ratio) as u64 - horizon.copied;
+        let limit = std::cmp::min(COPY_BLOCKS as u64, budget / crate::BLOCK_SIZE as u64) as u32;
+
+        if limit == 0 {
+            return None;
+        }
+        let size_blocks = horizon.pending.bits.len() as u32;
+        let start = horizon.scan_from
+            + horizon.pending.bits[horizon.scan_from as usize..]
+                .first_one()
+                .expect("an open horizon has a pending block at or after scan_from")
+                as u32;
+        let mut end = start + 1;
+
+        while end < std::cmp::min(start + limit, size_blocks) && horizon.pending.bits[end as usize]
+        {
+            end += 1;
+        }
+        horizon.copied += (end - start) as u64 * crate::BLOCK_SIZE as u64;
+        horizon.scan_from = end;
+
+        Some(start..end)
     }
 
     /// Account for `copy`, a write of the range `next_copy_range` returned.
@@ -45,8 +68,8 @@ impl Compactor {
     }
 
     /// Account for a chunk the journal replayed.
-    pub fn on_replayed(&mut self, chunk: proto::Chunk, opens_horizon: bool) {
-        _ = self.apply(&chunk, opens_horizon);
+    pub fn on_replayed(&mut self, chunk: &proto::Chunk, opens_horizon: bool) {
+        _ = self.apply(chunk, opens_horizon);
     }
 
     /// Account for a served write or punch.
@@ -74,7 +97,13 @@ impl Compactor {
     /// Account for any chunk. Returns whether it discharged the open horizon.
     fn apply(&mut self, chunk: &proto::Chunk, opens_horizon: bool) -> bool {
         if opens_horizon {
-            self.horizon = Some(Horizon::open(&self.allocated, self.bytes_since_floor));
+            self.horizon = Some(Horizon {
+                pending: self.allocated.clone(),
+                scan_from: 0,
+                changed: 0,
+                copied: 0,
+                bytes_since_floor_at_open: self.bytes_since_floor,
+            });
         }
         let covered = chunk.block..(chunk.block + chunk.blocks);
         let data = matches!(chunk.content, Some(proto::chunk::Content::Data(_)));
@@ -114,40 +143,6 @@ struct Horizon {
     bytes_since_floor_at_open: u64,
 }
 
-impl Horizon {
-    fn open(allocated: &Bitmap, bytes_since_floor: u64) -> Self {
-        Self {
-            pending: allocated.clone(),
-            scan_from: 0,
-            changed: 0,
-            copied: 0,
-            bytes_since_floor_at_open: bytes_since_floor,
-        }
-    }
-
-    /// The next range of blocks to copy.
-    fn next_copy_range(&mut self, horizon_policy: &Policy) -> Option<std::ops::Range<u32>> {
-        let budget = horizon_policy.budget(self.changed) - self.copied;
-        let limit = std::cmp::min(COPY_BLOCKS as u64, budget / crate::BLOCK_SIZE as u64) as u32;
-
-        if limit == 0 {
-            return None;
-        }
-        let size_blocks = self.pending.bits.len() as u32;
-        let start =
-            self.scan_from + self.pending.bits[self.scan_from as usize..].first_one()? as u32;
-        let mut end = start + 1;
-
-        while end < std::cmp::min(start + limit, size_blocks) && self.pending.bits[end as usize] {
-            end += 1;
-        }
-        self.copied += (end - start) as u64 * crate::BLOCK_SIZE as u64;
-        self.scan_from = end;
-
-        Some(start..end)
-    }
-}
-
 /// When a horizon opens, and how quickly it is discharged.
 #[derive(Clone, Copy, Debug)]
 pub struct Policy {
@@ -171,10 +166,6 @@ impl Policy {
     fn opens(&self, bytes_since_floor: u64, allocated: u64) -> bool {
         let scaled = (allocated as f64 * self.open_ratio) as u64;
         bytes_since_floor > std::cmp::max(self.minimum_bytes, scaled)
-    }
-
-    fn budget(&self, changed: u64) -> u64 {
-        (changed as f64 * self.copy_ratio) as u64
     }
 }
 
@@ -252,7 +243,7 @@ mod test {
         let replay = |chunks: &[LiveChunk]| {
             let mut rebuilt = Compactor::new(16, horizon_policy);
             for live in chunks {
-                () = rebuilt.on_replayed(live.chunk.clone(), live.opens_horizon);
+                () = rebuilt.on_replayed(&live.chunk, live.opens_horizon);
             }
             rebuilt
         };
@@ -392,15 +383,15 @@ mod test {
         };
         let mut compactor = Compactor::new(16, horizon_policy);
 
-        () = compactor.on_replayed(write(0, 1, 1), false);
-        () = compactor.on_replayed(write(1, 1, 1), false);
+        () = compactor.on_replayed(&write(0, 1, 1), false);
+        () = compactor.on_replayed(&write(1, 1, 1), false);
         assert_eq!(pending(&compactor), None);
 
-        () = compactor.on_replayed(write(2, 1, 1), true);
+        () = compactor.on_replayed(&write(2, 1, 1), true);
         assert_eq!(pending(&compactor), Some(vec![0, 1]));
 
-        () = compactor.on_replayed(write(0, 1, 1), false);
-        () = compactor.on_replayed(write(1, 1, 1), false);
+        () = compactor.on_replayed(&write(0, 1, 1), false);
+        () = compactor.on_replayed(&write(1, 1, 1), false);
         assert_eq!(pending(&compactor), None);
     }
 
@@ -461,9 +452,8 @@ mod test {
                 "stops at the disk end",
                 ONE_TO_ONE,
                 &[END - 4..END],
-                &[(8 * BLOCK, Some(END - 4..END)), (0, None)],
+                &[(8 * BLOCK, Some(END - 4..END))],
             ),
-            ("nothing pending", ONE_TO_ONE, &[], &[(4 * BLOCK, None)]),
             (
                 "hands out each pending block once, in order",
                 ONE_TO_ONE,
@@ -474,26 +464,27 @@ mod test {
                     (0, None),
                     (2 * BLOCK, Some(6..7)),
                     (0, Some(END - 1..END)),
-                    // Budget remains, but every pending block was handed out.
-                    (2 * BLOCK, None),
                 ],
             ),
         ];
 
-        for (case, horizon_policy, allocated, calls) in cases {
+        for (case, horizon_policy, pending, calls) in cases {
             let mut bits = Bitmap::new(END);
-            for range in *allocated {
+            for range in *pending {
                 () = bits.fill(range.clone(), true);
             }
-            let mut horizon = Horizon::open(&bits, 0);
+            let mut compactor = Compactor::new(END, *horizon_policy);
+            compactor.horizon = Some(Horizon {
+                pending: bits,
+                scan_from: 0,
+                changed: 0,
+                copied: 0,
+                bytes_since_floor_at_open: 0,
+            });
 
             for (index, (changed, range)) in calls.iter().enumerate() {
-                horizon.changed += changed;
-                assert_eq!(
-                    horizon.next_copy_range(horizon_policy),
-                    *range,
-                    "{case}, call {index}"
-                );
+                compactor.horizon.as_mut().unwrap().changed += changed;
+                assert_eq!(compactor.next_copy_range(), *range, "{case}, call {index}");
             }
         }
     }
@@ -634,7 +625,7 @@ mod test {
                 }
                 let mut rebuilt = Compactor::new(BLOCKS, horizon_policy);
                 for live in &served[floor..ends] {
-                    () = rebuilt.on_replayed(live.chunk.clone(), live.opens_horizon);
+                    () = rebuilt.on_replayed(&live.chunk, live.opens_horizon);
                 }
                 assert_eq!(
                     state(&rebuilt),
@@ -652,8 +643,7 @@ mod test {
 
     /// A write of `blocks` blocks of `fill` from `start`, as the owner encodes one.
     fn write(start: u32, blocks: u32, fill: u8) -> proto::Chunk {
-        let data = vec![fill; (blocks * BLOCK_SIZE) as usize].into();
-        chunk::encode_write(start, &data)
+        chunk::encode_write(start, vec![fill; (blocks * BLOCK_SIZE) as usize].into())
     }
 
     /// Serve `chunk`, and then the copies it earned, as a target does. A copy reads

@@ -1,31 +1,31 @@
-use crate::proto::{self, chunk};
+use crate::proto;
 
 /// Encode a device write of `data` beginning at `block`, as one chunk covering every
 /// block it writes. The chunk's data stops at the write's last non-zero byte, and
 /// its range zeroes the rest.
-pub fn encode_write(block: u32, data: &bytes::Bytes) -> proto::Chunk {
+pub(super) fn encode_write(block: u32, data: bytes::Bytes) -> proto::Chunk {
     let trimmed = data.len() - data.iter().rev().take_while(|&&b| b == 0).count();
 
     proto::Chunk {
         block,
         blocks: (data.len() / crate::BLOCK_SIZE as usize) as u32,
-        content: Some(chunk::Content::Data(data.slice(..trimmed))),
+        content: Some(proto::chunk::Content::Data(data.slice(..trimmed))),
     }
 }
 
 /// Encode a device discard or write-zeroes request.
-pub fn encode_punch(block: u32, blocks: u32) -> proto::Chunk {
+pub(super) fn encode_punch(block: u32, blocks: u32) -> proto::Chunk {
     proto::Chunk {
         block,
         blocks,
-        content: Some(chunk::Content::Punch(chunk::Punch {})),
+        content: Some(proto::chunk::Content::Punch(proto::chunk::Punch {})),
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::{encode_punch, encode_write};
-    use crate::proto::{self, chunk};
+    use crate::proto;
 
     const BLOCK: usize = crate::BLOCK_SIZE as usize;
 
@@ -36,11 +36,11 @@ mod test {
         let write = filled(2, BLOCK + 100);
 
         assert_eq!(
-            encode_write(10, &bytes::Bytes::from(write.clone())),
+            encode_write(10, bytes::Bytes::from(write.clone())),
             proto::Chunk {
                 block: 10,
                 blocks: 2,
-                content: Some(chunk::Content::Data(bytes::Bytes::copy_from_slice(
+                content: Some(proto::chunk::Content::Data(bytes::Bytes::copy_from_slice(
                     &write[..BLOCK + 100]
                 ))),
             }
@@ -52,7 +52,7 @@ mod test {
             proto::Chunk {
                 block: 20,
                 blocks: 8,
-                content: Some(chunk::Content::Punch(chunk::Punch {})),
+                content: Some(proto::chunk::Content::Punch(proto::chunk::Punch {})),
             }
         );
     }
@@ -74,7 +74,7 @@ mod test {
         ];
 
         for (case, write, kept) in cases {
-            let chunk = encode_write(7, &bytes::Bytes::from(write.clone()));
+            let chunk = encode_write(7, bytes::Bytes::from(write.clone()));
 
             // The range covers every block of the write, zero blocks included.
             assert_eq!(
@@ -83,7 +83,7 @@ mod test {
                 "{case}"
             );
 
-            let Some(chunk::Content::Data(data)) = &chunk.content else {
+            let Some(proto::chunk::Content::Data(data)) = &chunk.content else {
                 panic!("{case}: not a data chunk");
             };
             assert_eq!(data.len(), kept, "{case}");

@@ -1,10 +1,12 @@
 use anyhow::Context;
 
 mod chunk;
-pub mod compactor;
+mod compactor;
 mod owner;
 mod target;
 mod ublk;
+
+pub use compactor::Policy;
 
 /// The capacity, in chunks, of the channels between the journal and the image.
 /// It's set to the ublk queue depth, which is how many simultaneous requests
@@ -45,7 +47,7 @@ impl Standby {
                     opens_horizon,
                 }) = replayed_rx.blocking_recv()
                 {
-                    () = target.replay(chunk, opens_horizon)?;
+                    () = target.replay(&chunk, opens_horizon)?;
                 }
                 Ok(target)
             })
@@ -166,9 +168,9 @@ impl Device {
             Ok(served) => served.with_context(|| format!("serving device {dev_id}")),
             Err(_panic) => Err(anyhow::anyhow!("the owner of device {dev_id} panicked")),
         };
-        let deleted = control.delete();
-
-        () = served?;
-        deleted
+        match served {
+            Ok(()) => control.delete(),
+            Err(err) => Err(control.abandon(err)),
+        }
     }
 }

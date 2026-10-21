@@ -1,10 +1,10 @@
 use anyhow::Context;
 
 /// The number of requests that the kernel can give the device at the same time.
-pub const QUEUE_DEPTH: u16 = 16;
+pub(super) const QUEUE_DEPTH: u16 = 16;
 
 /// The largest request, in bytes, that the device accepts.
-pub const MAX_IO_BUF_BYTES: u32 = 128 * 1024;
+pub(super) const MAX_IO_BUF_BYTES: u32 = 128 * 1024;
 
 /// The largest discard or write-zeroes request, in bytes, that the device
 /// accepts.
@@ -61,7 +61,7 @@ const CONTROL_PATH: &str = "/dev/ublk-control";
 ///
 /// Each command is an io_uring `URING_CMD` on a private ring, and each call waits
 /// until its command completes.
-pub struct Control {
+pub(super) struct Control {
     file: std::fs::File,
     ring: io_uring::IoUring<io_uring::squeue::Entry128, io_uring::cqueue::Entry>,
     dev_id: u32,
@@ -82,7 +82,7 @@ impl Control {
         // so the control ring uses 128-byte entries, which have room for 80.
         let ring =
             io_uring::IoUring::<io_uring::squeue::Entry128, io_uring::cqueue::Entry>::builder()
-                .build(4)?;
+                .build(1)?;
 
         // A `dev_id` of `u32::MAX`, which the kernel reads as -1, tells it to
         // choose the device number. The command and its `info` payload must
@@ -261,8 +261,8 @@ fn command(dev_id: u32) -> UblksrvCtrlCmd {
 
 /// A device request, over blocks of the `/dev/ublkbN` block device, which the
 /// image mirrors.
-#[derive(Debug, PartialEq)]
-pub enum Op {
+#[derive(Debug)]
+pub(super) enum Op {
     Read(std::ops::Range<u32>),
     Write(std::ops::Range<u32>),
     Punch(std::ops::Range<u32>),
@@ -288,7 +288,7 @@ impl Op {
 
 /// The request descriptors of the device's queue, which the kernel shares
 /// read-only through an `mmap` of the character device.
-pub struct IoDescs {
+pub(super) struct IoDescs {
     /// The descriptor of tag 0, which the descriptor of each other tag follows.
     base: *const UblksrvIoDesc,
 }
@@ -337,12 +337,16 @@ impl Drop for IoDescs {
 }
 
 /// Fetch the next request for `tag`.
-pub fn fetch(cdev: &std::fs::File, tag: u16) -> io_uring::squeue::Entry {
+pub(super) fn fetch(cdev: &std::fs::File, tag: u16) -> io_uring::squeue::Entry {
     io_command(cdev, UBLK_U_IO_FETCH_REQ, tag, 0)
 }
 
 /// Answer the request on `tag` with `result`, and fetch its next request.
-pub fn commit_and_fetch(cdev: &std::fs::File, tag: u16, result: i32) -> io_uring::squeue::Entry {
+pub(super) fn commit_and_fetch(
+    cdev: &std::fs::File,
+    tag: u16,
+    result: i32,
+) -> io_uring::squeue::Entry {
     io_command(cdev, UBLK_U_IO_COMMIT_AND_FETCH_REQ, tag, result)
 }
 
@@ -368,7 +372,7 @@ fn io_command(cdev: &std::fs::File, cmd_op: u32, tag: u16, result: i32) -> io_ur
 
 /// The offset in `/dev/ublkcN` where `pread` and `pwrite` move the data of the
 /// request on `tag`, on the device's only queue.
-pub fn io_buf_offset(tag: u16) -> u64 {
+pub(super) fn io_buf_offset(tag: u16) -> u64 {
     UBLKSRV_IO_BUF_OFFSET + ((tag as u64) << UBLK_TAG_OFF)
 }
 
@@ -407,10 +411,10 @@ const UBLK_F_USER_COPY: u64 = 1 << 7;
 const UBLK_F_NO_AUTO_PART_SCAN: u64 = 1 << 18;
 
 /// The result of a fetch that gives a request to its tag.
-pub const UBLK_IO_RES_OK: i32 = 0;
+pub(super) const UBLK_IO_RES_OK: i32 = 0;
 /// The result of a fetch that the kernel aborts. The kernel aborts all fetches
 /// after the device stops.
-pub const UBLK_IO_RES_ABORT: i32 = -rustix::io::Errno::NODEV.raw_os_error();
+pub(super) const UBLK_IO_RES_ABORT: i32 = -rustix::io::Errno::NODEV.raw_os_error();
 
 const UBLK_IO_OP_READ: u32 = 0;
 const UBLK_IO_OP_WRITE: u32 = 1;
@@ -459,7 +463,6 @@ struct UblksrvCtrlDevInfo {
 
 /// `nr_sectors` shares a union with `nr_zones`, which serves only zoned devices.
 #[repr(C)]
-#[derive(Default)]
 struct UblksrvIoDesc {
     op_flags: u32,
     nr_sectors: u32,
@@ -562,24 +565,42 @@ mod test {
     fn test_a_descriptor_decodes_to_the_blocks_it_covers() {
         let sectors_per_block = crate::BLOCK_SIZE as u64 / SECTOR_SIZE;
 
-        // (operation and any flags, first block, blocks, decoded)
+        // (operation and any flags, first block, blocks)
         let cases = [
-            (UBLK_IO_OP_READ, 0, 1, Op::Read(0..1)),
-            (UBLK_IO_OP_WRITE, 3, 2, Op::Write(3..5)),
-            (UBLK_IO_OP_DISCARD, 8, 8, Op::Punch(8..16)),
-            (UBLK_IO_OP_WRITE_ZEROES, 15, 1, Op::Punch(15..16)),
+            (UBLK_IO_OP_READ, 0, 1),
+            (UBLK_IO_OP_WRITE, 3, 2),
+            (UBLK_IO_OP_DISCARD, 8, 8),
+            (UBLK_IO_OP_WRITE_ZEROES, 15, 1),
             // A metadata read, as ext4 issues: UBLK_IO_F_META sits above the op.
-            (UBLK_IO_OP_READ | 1 << 11, 2, 1, Op::Read(2..3)),
+            (UBLK_IO_OP_READ | 1 << 11, 2, 1),
         ];
-        for (op_flags, block, blocks, decoded) in cases {
-            let desc = UblksrvIoDesc {
+        let decoded = cases.map(|(op_flags, block, blocks)| {
+            Op::decode(&UblksrvIoDesc {
                 op_flags,
                 nr_sectors: blocks * sectors_per_block as u32,
                 start_sector: block * sectors_per_block,
-                ..Default::default()
-            };
+                addr: 0,
+            })
+        });
 
-            assert_eq!(Op::decode(&desc), decoded);
-        }
+        insta::assert_debug_snapshot!(decoded, @"
+        [
+            Read(
+                0..1,
+            ),
+            Write(
+                3..5,
+            ),
+            Punch(
+                8..16,
+            ),
+            Punch(
+                15..16,
+            ),
+            Read(
+                2..3,
+            ),
+        ]
+        ");
     }
 }

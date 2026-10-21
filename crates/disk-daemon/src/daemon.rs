@@ -45,7 +45,7 @@ pub struct Args {
     #[arg(
         long,
         env = "HORIZON_OPEN_RATIO",
-        default_value_t = crate::device::compactor::Policy::DEFAULT.open_ratio
+        default_value_t = crate::device::Policy::DEFAULT.open_ratio
     )]
     pub horizon_open_ratio: f64,
 
@@ -55,7 +55,7 @@ pub struct Args {
     #[arg(
         long,
         env = "HORIZON_COPY_RATIO",
-        default_value_t = crate::device::compactor::Policy::DEFAULT.copy_ratio
+        default_value_t = crate::device::Policy::DEFAULT.copy_ratio
     )]
     pub horizon_copy_ratio: f64,
 
@@ -63,7 +63,7 @@ pub struct Args {
     #[arg(
         long,
         env = "HORIZON_MINIMUM_BYTES",
-        default_value_t = crate::device::compactor::Policy::DEFAULT.minimum_bytes
+        default_value_t = crate::device::Policy::DEFAULT.minimum_bytes
     )]
     pub horizon_minimum_bytes: u64,
 }
@@ -81,7 +81,7 @@ pub(crate) struct Config {
     /// Parent directory of per-device mounts.
     pub(crate) mount_dir: std::path::PathBuf,
     /// When a disk opens a recovery horizon, and how fast it discharges one.
-    pub(crate) horizon_policy: crate::device::compactor::Policy,
+    pub(crate) horizon_policy: crate::device::Policy,
     /// Brokers of every disk journal.
     pub(crate) brokers: gazette::journal::Client,
 }
@@ -97,7 +97,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let config = std::sync::Arc::new(Config {
         image_dir: args.image_dir.clone(),
         mount_dir: args.mount_dir.clone(),
-        horizon_policy: crate::device::compactor::Policy {
+        horizon_policy: crate::device::Policy {
             open_ratio: args.horizon_open_ratio,
             copy_ratio: args.horizon_copy_ratio,
             minimum_bytes: args.horizon_minimum_bytes,
