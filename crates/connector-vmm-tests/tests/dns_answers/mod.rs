@@ -774,6 +774,12 @@ fn dns_answer_changes() {
             format!("a fresh connect to A: {result}"),
         );
     }
+    // A completed connect may still be queued for the listener's accept thread.
+    run::eventually(
+        "listener A's baseline accepts",
+        Duration::from_secs(2),
+        || (accepted(&la).0 >= 3).then_some(()),
+    );
     baseline(
         accepted(&la).0 == 3,
         format!("listener A accepted {:?}, not 3", accepted(&la)),
@@ -1018,6 +1024,14 @@ fn dns_answer_changes() {
         .iter()
         .filter(|(_, reply)| reply == "pong")
         .count() as u64;
+    run::eventually(
+        "the allowed listeners' accepts",
+        Duration::from_secs(2),
+        || {
+            (accepted(&la).0 >= 1 + connected(Target::A) && accepted(&lc).0 >= connected(Target::C))
+                .then_some(())
+        },
+    );
     let (a_accepts, a_bytes) = accepted(&la);
     let (c_accepts, c_bytes) = accepted(&lc);
     if a_accepts != 1 + connected(Target::A) || a_bytes != 5 * exchanged {

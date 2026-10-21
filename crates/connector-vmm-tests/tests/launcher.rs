@@ -2525,9 +2525,10 @@ fn eight_launches_recover_shared_orphans() {
 
     let barrier = format!("{}/barrier", shared.dir);
     let launchers: Vec<launcher::Root> = (0..8).map(|_| launcher::root()).collect();
+    let orphan_tokens: Vec<&str> = orphans.iter().map(|orphan| orphan.token.as_str()).collect();
     let holds: Vec<launcher::Hold> = launchers
         .iter()
-        .map(|root| launcher::hold(root, "ps"))
+        .map(|root| launcher::hold_naming(root, "ps", &orphan_tokens))
         .collect();
     let owners: Vec<Owner> = launchers
         .iter()
