@@ -55,9 +55,12 @@ use `sudo -n`.
 
 `src/launch.rs` defines reference container launch lines also used by
 `connector`'s plan tests. `src/run.rs` owns test VMMs and their resources.
+Tests removing connector images use `run::stop` to check container and
+image-volume removal before removing the image.
 `src/launcher.rs` and `fixtures/podman.sh` provide launcher control and fault
-injection. `src/host.rs` reads kernel state; `src/guest.rs` talks to the
-stdlib Python probe server in `fixtures/probes.py`.
+injection. Recovery holds match the seeded orphans' tokens so a failed launch
+can release its own resources. `src/host.rs` reads kernel state; `src/guest.rs`
+talks to the stdlib Python probe server in `fixtures/probes.py`.
 
 `src/dns.rs` and `src/endpoint.rs` serve controlled DNS and TCP traffic.
 `src/netns.rs` and `fixtures/bind.py` bind sockets in the endpoint namespace.

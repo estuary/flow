@@ -5,6 +5,7 @@ set -euo pipefail
 TEST=$(dirname "$(readlink -f "$0")")
 readonly TEST
 readonly RESOURCES="${TEST%/*}/resources"
+readonly CALL="$*"
 
 # The launcher's own arguments, before any control below changes them.
 printf '%s\n' "$*" >>"${TEST}/calls"
@@ -127,6 +128,15 @@ fi
 # the next ordinal by exclusive creation.
 claim() {
     [[ -n "${step}" && -e "${TEST}/$1-${step}" ]] || return 1
+    if [[ -e "${TEST}/$1-${step}-naming" ]]; then
+        local naming matched=0
+        while IFS= read -r naming; do
+            if [[ -n "${naming}" && "${CALL}" == *"${naming}"* ]]; then
+                matched=1
+            fi
+        done <"${TEST}/$1-${step}-naming"
+        [[ "${matched}" -eq 1 ]] || return 1
+    fi
     local nth ordinal=1
     nth=$(<"${TEST}/$1-${step}")
     while ! mkdir "${TEST}/taken-$1-${step}-${ordinal}" 2>/dev/null; do

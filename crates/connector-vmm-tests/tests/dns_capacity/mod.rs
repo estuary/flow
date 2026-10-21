@@ -716,6 +716,11 @@ fn dns_capacity() {
     );
     s.resolves("refill", EDGE, vec![a_record(r_ip)]);
     let connected = s.tcp("refill", r_ip, r_port);
+    if connected == "connected" {
+        run::eventually("listener R's accept", Duration::from_secs(2), || {
+            (!endpoint::accepted(&lr).is_empty()).then_some(())
+        });
+    }
     if connected != "connected" || endpoint::accepted(&lr).len() != 1 {
         s.violations.push(format!(
             "refill: R answered {connected}, listener R accepted {:?}",

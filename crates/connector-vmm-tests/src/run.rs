@@ -522,6 +522,37 @@ pub fn eventually<T>(what: &str, timeout: Duration, mut probe: impl FnMut() -> O
     }
 }
 
+/// Release the container and its image-backed volume before a test removes
+/// the connector image. Drop remains best-effort cleanup during unwinding.
+pub fn stop(mut vmm: Vmm) {
+    remove_checked(&["podman", "rm", "-f", "--time", "0", "--ignore", &vmm.name]);
+    eventually(
+        "the attached podman client to exit",
+        Duration::from_secs(10),
+        || vmm.child.try_wait().expect("waiting for podman run"),
+    );
+    remove_checked(&["podman", "volume", "rm", &vmm.name]);
+}
+
+fn remove_checked(args: &[&str]) {
+    // An explicit removal may overlap podman's --rm cleanup.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let output = sudo_output(args, None);
+        if output.status.success() {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "sudo {}: {}\n{}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 impl Drop for Vmm {
     fn drop(&mut self) {
         if std::thread::panicking() {
