@@ -11,6 +11,7 @@ codec the image speaks.
 
 - `src/main.rs`: CLI. Installs the `ops::Log` tracing layer (stderr, always
   structured) and a current-thread Tokio runtime, then calls `run`.
+  Runtime errors are logged and exit with status 1.
 - `src/lib.rs`: `Args` and `run`. Binds the listener, writes the readiness
   byte, parses the image inspection, and serves the three services and
   `tonic-health`'s standard `grpc.health.v1.Health` until the `watchdog` sees
@@ -52,6 +53,8 @@ that answer means init serves the connector's protocol. It runs no connector.
 
 `src/health_test.rs` runs `run` over TCP with an entrypoint that cannot be
 executed: health is SERVING, and a capture RPC fails to start the connector.
+`src/main.rs` checks in a subprocess that a listener bind failure exits with
+status 1 and reports its cause.
 
 `src/vsock_test.rs` dials CID 1, which needs the `vsock_loopback` kernel module.
 Without it the test skips, unless `CONNECTOR_VMM_KVM` is set, in which case a

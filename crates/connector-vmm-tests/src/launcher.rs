@@ -83,6 +83,16 @@ pub fn hold(root: &Root, step: &str) -> Hold {
     hold_as(root, "hold", step, 1)
 }
 
+/// Hold only queries for the named resources, leaving failed launches free
+/// to clean up their own resources while recovery remains held.
+pub fn hold_naming(root: &Root, step: &str, naming: &[&str]) -> Hold {
+    let hold = hold(root, step);
+    let path = format!("{}-naming", hold.path);
+    std::fs::write(&path, format!("{}\n", naming.join("\n")))
+        .unwrap_or_else(|e| panic!("creating {path}: {e}"));
+    hold
+}
+
 /// A hold whose waiting runs as root, beneath sudo: it, and the fence it
 /// keeps as its stdin, outlive the kill of everything its launcher's user
 /// can signal, as a rootful podman command does.
@@ -126,6 +136,7 @@ fn hold_as(root: &Root, control: &str, step: &str, nth: u32) -> Hold {
 impl Drop for Hold {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
+        let _ = std::fs::remove_file(format!("{}-naming", self.path));
         let Ok(entries) = std::fs::read_dir(&self.dir) else {
             return;
         };

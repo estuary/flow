@@ -6,7 +6,8 @@ set -euo pipefail
 
 # flow-connector-vmm's code for a failure before the VM would have started.
 readonly EXIT_FAILED=2
-readonly PORT=49092
+# Keep socat's automatic source ports separate from init's listener.
+readonly PORT=19092
 readonly SOCK=/sock/init.sock
 readonly ROOTFS=/rootfs
 readonly ROOT=/scratch-backing/root

@@ -252,6 +252,33 @@ fn a_hold_can_catch_a_later_call() {
 }
 
 #[test]
+fn a_hold_ignores_queries_for_other_resources() {
+    let setup = setup();
+    control(&setup, "hold-ps", "");
+    control(&setup, "hold-ps-naming", "token-a\ntoken-b\n");
+
+    let own = ["ps", "--all", "--filter", "token-own"];
+    call(&setup, &own);
+    assert!(!setup.test.join("held-ps").exists());
+
+    let held = spawn(&setup, &["ps", "--all", "--filter", "token-b"]);
+    wait_for(setup.test.join("held-ps"));
+    call(&setup, &own);
+    call(&setup, &["ps", "--all", "--filter", "token-a"]);
+
+    std::fs::remove_file(setup.test.join("hold-ps")).unwrap();
+    assert!(held.wait_with_output().unwrap().status.success());
+    let ran = std::fs::read_to_string(setup.stubs.join("log")).unwrap();
+    assert_eq!(
+        ran.lines()
+            .filter(|line| line.starts_with("podman "))
+            .count(),
+        4,
+        "{ran}"
+    );
+}
+
+#[test]
 fn the_readiness_gate_keeps_only_its_checkpoint() {
     const CHECKPOINT: &str = "connector-vmm-tests: a checkpoint";
     let resembling = format!(
