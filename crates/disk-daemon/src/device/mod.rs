@@ -95,61 +95,47 @@ impl Standby {
         })
         .await??;
 
-        // Start the owner thread for the device.
+        // Add the device, start its owner thread, and then start the device.
         let (served_tx, served_rx) = tokio::sync::mpsc::channel(CHUNK_CHANNEL_CAPACITY);
-        let (control, dev_id, owner) = tokio::task::spawn_blocking(move || {
-            let control = ublk::Control::open()?;
-            let dev_id = control.add_dev(ublk::QUEUE_DEPTH, ublk::MAX_IO_BUF_BYTES)?;
+        let device = tokio::task::spawn_blocking(move || {
+            let control = ublk::Control::add(size_blocks)?;
+            let dev_id = control.dev_id();
 
-            // Cleanup the device which `err` left unserved, and return `err`.
-            let delete = |err: anyhow::Error| match control.del_dev(dev_id) {
-                Ok(()) => err,
-                Err(deleted) => err.context(format!(
-                    "device {dev_id} could not be served, nor deleted ({deleted:#})"
-                )),
-            };
-
-            () = control
-                .set_params(dev_id, &ublk::params(size_blocks))
-                .map_err(delete)?;
-
-            let cdev_path = ublk::char_path(dev_id);
-            let cdev = std::fs::OpenOptions::new()
+            let cdev_path = control.char_path();
+            let cdev = match std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .open(&cdev_path)
-                .with_context(|| format!("opening {cdev_path:?}"))
-                .map_err(delete)?;
+            {
+                Ok(cdev) => cdev,
+                Err(err) => {
+                    return Err(control.abandon(
+                        anyhow::Error::new(err).context(format!("opening {cdev_path:?}")),
+                    ));
+                }
+            };
+            let owner = match owner::spawn(dev_id, cdev, target, served_tx) {
+                Ok(owner) => owner,
+                Err(err) => return Err(control.abandon(err)),
+            };
+            let mut device = Device { control, owner };
 
-            match owner::spawn(dev_id, cdev, target, served_tx) {
-                Ok(owner) => Ok((control, dev_id, owner)),
-                Err(err) => Err(delete(err)),
+            // `owner::spawn` returns once every tag has a fetch in flight, which
+            // the start waits for.
+            match device.control.start() {
+                Ok(()) => Ok(device),
+                Err(err) => Err(match device.stop_blocking() {
+                    Ok(()) => err,
+                    Err(stopped) => err.context(format!(
+                        "device {dev_id} could not be started, nor stopped ({stopped:#})"
+                    )),
+                }),
             }
         })
         .await??;
 
-        let device = Device {
-            control: std::sync::Arc::new(control),
-            owner,
-            dev_id,
-        };
-
-        let control = device.control.clone();
-        let started = tokio::task::spawn_blocking(move || control.start_dev(dev_id))
-            .await
-            .map_err(anyhow::Error::new)
-            .and_then(|started| started);
-
-        if let Err(err) = started {
-            return Err(match device.stop().await {
-                Ok(()) => err,
-                Err(stopped) => err.context(format!(
-                    "device {dev_id} could not be started, nor stopped ({stopped:#})"
-                )),
-            });
-        }
-
-        Ok((device, ublk::block_path(dev_id), served_rx))
+        let block_path = device.control.block_path();
+        Ok((device, block_path, served_rx))
     }
 
     /// Discard the standby and return how its rebuild went.
@@ -175,11 +161,9 @@ impl Standby {
 /// A promoted disk, whose owner thread serves its image as a ublk device.
 pub struct Device {
     /// This device's own kernel control handle, which starts, stops, and deletes it.
-    control: std::sync::Arc<ublk::Control>,
+    control: ublk::Control,
     /// The owner's thread, which returns once the kernel stops the device.
     owner: std::thread::JoinHandle<anyhow::Result<()>>,
-    /// Kernel device ID.
-    dev_id: u32,
 }
 
 impl Device {
@@ -187,24 +171,22 @@ impl Device {
     /// of its live chunks first, and unmount any filesystem on it, since this
     /// would otherwise block on them.
     pub async fn stop(self) -> anyhow::Result<()> {
-        let Self {
-            control,
-            owner,
-            dev_id,
-        } = self;
+        tokio::task::spawn_blocking(move || self.stop_blocking()).await?
+    }
 
-        tokio::task::spawn_blocking(move || {
-            () = control.stop_dev(dev_id)?;
+    fn stop_blocking(self) -> anyhow::Result<()> {
+        let Self { mut control, owner } = self;
+        let dev_id = control.dev_id();
 
-            let served = match owner.join() {
-                Ok(served) => served.with_context(|| format!("serving device {dev_id}")),
-                Err(_panic) => Err(anyhow::anyhow!("the owner of device {dev_id} panicked")),
-            };
-            let deleted = control.del_dev(dev_id);
+        () = control.stop()?;
 
-            () = served?;
-            deleted
-        })
-        .await?
+        let served = match owner.join() {
+            Ok(served) => served.with_context(|| format!("serving device {dev_id}")),
+            Err(_panic) => Err(anyhow::anyhow!("the owner of device {dev_id} panicked")),
+        };
+        let deleted = control.delete();
+
+        () = served?;
+        deleted
     }
 }

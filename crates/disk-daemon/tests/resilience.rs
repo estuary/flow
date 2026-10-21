@@ -23,6 +23,7 @@ async fn disk_resilience() {
     a_drain_cancels_attachments_stalled_in_a_broker_outage(&fixture).await;
     a_sigterm_under_load_tears_every_disk_down(&fixture).await;
     a_drain_waits_on_a_departed_clients_teardown(&fixture).await;
+    a_killed_daemons_socket_is_reclaimed(&fixture).await;
 
     fixture.stop().await;
 }
@@ -271,6 +272,21 @@ async fn a_drain_waits_on_a_departed_clients_teardown(fixture: &support::Fixture
 
     // Only a teardown which ran to its end removes the mount point.
     assert!(!mount.exists(), "the teardown did not finish: {mount:?}");
+    () = fixture.assert_no_leaks();
+}
+
+/// A daemon killed without draining leaves its socket behind, and the next daemon on
+/// that path reclaims it.
+async fn a_killed_daemons_socket_is_reclaimed(fixture: &support::Fixture) {
+    let daemon = support::Daemon::start(fixture, "reclaimed").await;
+    let uds_path = daemon.uds_path.clone();
+
+    () = daemon.kill().await;
+    assert!(uds_path.exists(), "a killed daemon removed its socket");
+
+    // `start` returns once the new daemon serves on the same path.
+    let daemon = support::Daemon::start(fixture, "reclaimed").await;
+    () = daemon.drain().await;
     () = fixture.assert_no_leaks();
 }
 

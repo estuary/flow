@@ -18,7 +18,8 @@ mise run build:gazette
 mise run build:flowctl-go
 mise run ci:nextest-build
 mise run local:bigtable
-sudo modprobe ublk_drv
+# ublk's behavior varies by kernel, so the log records the kernel its tests ran on.
+sudo modprobe ublk_drv && uname -r
 mise run ci:nextest-run
 mise run ci:doctest
 mise run ci:gotest

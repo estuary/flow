@@ -66,7 +66,7 @@ Paths below are relative to `src/`.
 | `device/mod.rs` | `Standby`: open, the rebuilder thread, promotion, and discard. `Device`: stop. `LiveChunk`, which the served channel carries. |
 | `device/owner.rs` | The owner thread, which arms and serves the ublk queue: tags, the ring, and character-device data copies. It sends each write's live chunks before answering it, and exits on an image failure. |
 | `device/target.rs` | The sparse image and its compactor: `replay` of a committed chunk, `serve` of a write or punch and the copies it earns into the live chunks to send, and reads. Each chunk is written with `pwrite` or punched with `fallocate`, served and recovered alike, testable without a real device. |
-| `device/ublk.rs` | Kernel control commands, queue parameters, the request descriptor mapping, and ABI bindings generated from `ublk_cmd.h`. |
+| `device/ublk.rs` | `Control`, which adds, starts, stops, and deletes one device; queue parameters; the request descriptor mapping, which decodes each request into an `Op`; the queue's fetch and commit commands; and ABI bindings generated from `ublk_cmd.h`, whose unions `build.rs` flattens. |
 | `device/compactor.rs` | `Compactor`: allocation, bytes since the floor, and the open recovery horizon, as pure state over the chunks applied. Where a horizon opens, which ranges to copy, and which chunk discharges it. `compactor::Policy`, of when a horizon opens and how fast copies discharge it, and `Policy::DEFAULT`, which the daemon's flags start from. |
 | `device/chunk.rs` | The durable write/punch codec: one chunk per device write, punch, or copy. |
 | `filesystem.rs` | ext4 format, mount, ownership, and `syncfs`. |
@@ -140,14 +140,16 @@ label below the head, such as one copied from another journal, goes undetected a
 may fail replay or skip committed history. An operator may correct a known-wrong
 label only if no fragments below it were deleted.
 
-The host needs Linux 6.5 or later with `ublk` support, for `UBLK_F_USER_COPY`. It also
+The host needs Linux 6.5 or later with `ublk` support, for `UBLK_F_USER_COPY`. Before
+Linux 6.11, deleting a device waits for every reference to it, so a teardown waits on a
+filesystem that a lazy unmount left open, or that a sandbox still re-exports. It also
 needs e2fsprogs with `assume_storage_prezeroed`, and an image filesystem supporting
 hole punching. Images and spilled deltas are unnamed files, made with `O_TMPFILE`
 where the filesystem supports it. Required privileges are `CAP_SYS_ADMIN` for devices and
 mounts, `CAP_SYS_RESOURCE` for owner-thread I/O flusher status, and `CAP_CHOWN` for
 recovered mount ownership. The daemon also needs access to `/dev/ublk-control` and its
 `/dev/ublkc*` nodes. It checks none of this at startup: an attachment fails on what
-its host lacks, and on a kernel without user copy, at `Open`.
+its host lacks, and on a kernel without user copy, its promotion may hang.
 
 Mounts belong to the Unix-socket peer UID/GID, so clients need no privilege. Socket
 access authorizes access to all disk journals in the data plane. The socket is
@@ -164,6 +166,12 @@ joining its rebuilder thread, whose failure, if any, is the attachment's. See `a
 and `device/mod.rs`.
 The daemon waits for every teardown, so the supervisor's stop timeout bounds a
 drain.
+
+A daemon killed without draining leaves its disks behind. The kernel stops their devices,
+so their I/O fails, but the devices and their mounts remain until the host reboots. The
+next daemon on the same `--uds-path` replaces the socket the killed one left. A daemon
+started on a path that another still serves takes the path over, and the other keeps
+only the attachments it already holds.
 
 Deployment owns capacity and placement: the daemon reserves no space and limits
 no disk count. Every attachment holds an image and a thread from `Open`: a rebuilder

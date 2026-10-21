@@ -168,7 +168,7 @@ rsasl = { version = "2", default-features = false, features = [
     "plain",
 ] }
 rusqlite = { version = "0.39", features = ["bundled-full", "fallible_uint"] }
-rustix = { version = "1", features = ["fs", "process"] }
+rustix = { version = "1", features = ["fs", "mm", "process"] }
 rustyline = "17"
 schemars = { version = "1", features = ["chrono04"] }
 serde = { version = "1", features = ["derive"] }

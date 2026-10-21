@@ -424,6 +424,14 @@ impl Daemon {
         assert!(status.success(), "the daemon drained with {status}");
     }
 
+    /// End the daemon as an OOM kill or a supervisor's stop timeout does, without
+    /// a drain. Killing a daemon with ublk requests in flight can wedge the host's
+    /// later control commands, so kill only one which serves no disk.
+    pub async fn kill(mut self) {
+        () = self.signal("KILL");
+        _ = self.child.wait().await.expect("waiting for the daemon");
+    }
+
     async fn wait_until_serving(&self) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
 

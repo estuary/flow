@@ -28,7 +28,6 @@ bytes = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 io-uring = { workspace = true }
-libc = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 rustix = { workspace = true }
@@ -45,6 +44,7 @@ zerocopy = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
 async-process = { path = "../async-process" }

@@ -289,8 +289,24 @@ pub(crate) fn broker_client(
     ))
 }
 
-/// Bind the socket which attachments are served over.
+/// Bind the socket which attachments are served over. A daemon killed without
+/// draining leaves its socket behind, so this first removes any socket at `path`,
+/// and the daemon started last on a path serves it.
 fn listen(path: &std::path::Path) -> anyhow::Result<tokio::net::UnixListener> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            // A path that is not a socket is not the daemon's to remove.
+            anyhow::ensure!(
+                std::os::unix::fs::FileTypeExt::is_socket(&metadata.file_type()),
+                "{path:?} exists and is not a socket"
+            );
+            () = std::fs::remove_file(path).with_context(|| format!("removing {path:?}"))?;
+            tracing::info!(socket = ?path, "removed the socket already at the path");
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (),
+        Err(err) => return Err(anyhow::Error::new(err).context(format!("reading {path:?}"))),
+    }
+
     let listener =
         tokio::net::UnixListener::bind(path).with_context(|| format!("binding {path:?}"))?;
 
