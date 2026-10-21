@@ -59,9 +59,6 @@ apache-avro = { version = "0", default-features = false, features = [
     "bzip",
 ] }
 
-# Held at the version librocksdb-sys resolves to, so only one bindgen is built.
-bindgen = "0.72"
-
 # For some reason, the version requirement "0" resulted in cargo downgrading
 # this dependency to an incompatible version. The requirement here is intended
 # to be similarly permissive of update versions, while preventing downgrade.

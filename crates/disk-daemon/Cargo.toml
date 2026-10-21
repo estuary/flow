@@ -42,10 +42,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 zerocopy = { workspace = true }
 
-[build-dependencies]
-bindgen = { workspace = true }
-regex = { workspace = true }
-
 [dev-dependencies]
 async-process = { path = "../async-process" }
 e2e-support = { path = "../e2e-support" }
