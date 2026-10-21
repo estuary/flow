@@ -557,8 +557,7 @@ async fn feed_lines(
 const APPEND_BATCH_LINES: usize = 16 * 1024;
 const APPEND_BATCH_BYTES: usize = 64 * 1024 * 1024;
 
-/// Threads building Appends: the cores less two left for the shards, at most
-/// sixteen.
+/// Threads building Appends: two less than the number of cores for the shards
 fn append_workers() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
@@ -567,8 +566,6 @@ fn append_workers() -> usize {
         .clamp(1, 16)
 }
 
-/// One worker's state for building the shuffle log Appends of fixture lines,
-/// as the live slice builds them from journal reads.
 struct AppendBuilder {
     parser: simd_doc::Parser,
     alloc: doc::Allocator,
