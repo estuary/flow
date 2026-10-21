@@ -13,8 +13,7 @@ pub fn encode_write(block: u32, data: &bytes::Bytes) -> proto::Chunk {
     }
 }
 
-/// Encode a device discard or write-zeroes request of `blocks` blocks
-/// beginning at `block`.
+/// Encode a device discard or write-zeroes request.
 pub fn encode_punch(block: u32, blocks: u32) -> proto::Chunk {
     proto::Chunk {
         block,
@@ -23,63 +22,83 @@ pub fn encode_punch(block: u32, blocks: u32) -> proto::Chunk {
     }
 }
 
-/// Data bytes after zero trimming, excluding framing and metadata. This is the
-/// compaction budget's unit; punches and allocated zero blocks contribute zero.
-pub fn data_bytes(chunk: &proto::Chunk) -> u64 {
-    match &chunk.content {
-        Some(chunk::Content::Data(data)) => data.len() as u64,
-        _ => 0,
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::{encode_punch, encode_write};
-    use crate::BLOCK_SIZE;
-    use crate::test_support;
+    use crate::proto::{self, chunk};
 
-    /// A `blocks`-block write of `fill` bytes whose final `zero_tail` bytes are zero.
-    fn write_data(blocks: u32, fill: u8, zero_tail: usize) -> bytes::Bytes {
-        let span = (blocks * BLOCK_SIZE) as usize;
-        let body = span - zero_tail;
-        bytes::Bytes::from(
-            (0..span)
-                .map(|i| if i < body { fill } else { 0 })
-                .collect::<Vec<u8>>(),
-        )
+    const BLOCK: usize = crate::BLOCK_SIZE as usize;
+
+    #[test]
+    fn test_encode_a_write_and_a_discard() {
+        // Two blocks from block 10, such as the end of a file: a block of content,
+        // then 100 bytes of content and zeroes to the end of the block.
+        let write = filled(2, BLOCK + 100);
+
+        assert_eq!(
+            encode_write(10, &bytes::Bytes::from(write.clone())),
+            proto::Chunk {
+                block: 10,
+                blocks: 2,
+                content: Some(chunk::Content::Data(bytes::Bytes::copy_from_slice(
+                    &write[..BLOCK + 100]
+                ))),
+            }
+        );
+
+        // A discard of 8 blocks from block 20, such as a deleted file's blocks.
+        assert_eq!(
+            encode_punch(20, 8),
+            proto::Chunk {
+                block: 20,
+                blocks: 8,
+                content: Some(chunk::Content::Punch(chunk::Punch {})),
+            }
+        );
     }
 
     #[test]
-    fn test_chunk_encoding() {
+    fn test_encode_write_trims_only_trailing_zeroes() {
+        // Zeroes before the last non-zero byte are content, not a tail.
+        let mut interior = vec![0; 2 * BLOCK];
+        interior[0] = 0xaa;
+        interior[99] = 0xbb;
+
+        // (case, write, length of the chunk's data)
         let cases = [
-            (
-                "no trailing zeroes",
-                encode_write(0, &write_data(2, 0xaa, 0)),
-            ),
-            // Replay zeroes the rest of the second block.
-            (
-                "ends mid-block",
-                encode_write(7, &write_data(2, 0xaa, 4092)),
-            ),
-            // Each whole zero block stays allocated rather than being dropped.
-            (
-                "zero tail blocks",
-                encode_write(100, &write_data(4, 0xaa, 3 * BLOCK_SIZE as usize)),
-            ),
-            ("all zero", encode_write(5, &write_data(3, 0x00, 0))),
-            ("punch", encode_punch(11, 4)),
+            ("no trailing zeroes", filled(2, 2 * BLOCK), 2 * BLOCK),
+            ("ends mid-block", filled(2, BLOCK + 4), BLOCK + 4),
+            ("whole zero blocks", filled(4, BLOCK), BLOCK),
+            ("all zero", filled(3, 0), 0),
+            ("interior zeroes", interior, 100),
         ];
 
-        let mut out = Vec::new();
-        for (case, chunk) in cases {
-            out.push(format!("{case:<20}{}", test_support::render_chunk(&chunk)));
+        for (case, write, kept) in cases {
+            let chunk = encode_write(7, &bytes::Bytes::from(write.clone()));
+
+            // The range covers every block of the write, zero blocks included.
+            assert_eq!(
+                (chunk.block, chunk.blocks),
+                (7, (write.len() / BLOCK) as u32),
+                "{case}"
+            );
+
+            let Some(chunk::Content::Data(data)) = &chunk.content else {
+                panic!("{case}: not a data chunk");
+            };
+            assert_eq!(data.len(), kept, "{case}");
+
+            // Replay writes the data and zeroes the rest of the range.
+            let mut replayed = data.to_vec();
+            replayed.resize(chunk.blocks as usize * BLOCK, 0);
+            assert!(replayed == write, "{case}: replay differs from the write");
         }
-        insta::assert_snapshot!(out.join("\n"), @"
-        no trailing zeroes  blocks 0..2: data len 8192 [0xaax8192]
-        ends mid-block      blocks 7..9: data len 4100 [0xaax4100]
-        zero tail blocks    blocks 100..104: data len 4096 [0xaax4096]
-        all zero            blocks 5..8: zeroed
-        punch               blocks 11..15: punch
-        ");
+    }
+
+    /// `blocks` blocks whose first `filled` bytes are `0xaa`, and the rest zero.
+    fn filled(blocks: usize, filled: usize) -> Vec<u8> {
+        let mut data = vec![0; blocks * BLOCK];
+        data[..filled].fill(0xaa);
+        data
     }
 }

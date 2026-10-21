@@ -274,12 +274,15 @@ impl Fixture {
 
     /// Signal every broker. SIGSTOP/SIGCONT simulate an outage with no replies,
     /// which clients must wait through.
-    pub fn signal_brokers(&self, signal: libc::c_int) {
+    pub fn signal_brokers(&self, signal: rustix::process::Signal) {
         for broker in &self.data_plane.gazette.brokers {
-            let pid = broker.process.id() as libc::pid_t;
+            let pid = broker.process.id();
 
-            // SAFETY: `pid` is a child of this process, which has not been reaped.
-            assert_eq!(unsafe { libc::kill(pid, signal) }, 0, "signalling {pid}");
+            () = rustix::process::kill_process(
+                rustix::process::Pid::from_raw(pid as i32).expect("a broker's pid is positive"),
+                signal,
+            )
+            .unwrap_or_else(|err| panic!("signalling {pid}: {err}"));
         }
     }
 
@@ -293,14 +296,17 @@ impl Fixture {
     pub async fn wait_for_teardown(&self) {
         let deadline = std::time::Instant::now() + TEARDOWN;
 
-        while std::time::Instant::now() < deadline {
-            if std::fs::read_dir("/sys/block")
-                .unwrap()
-                .filter_map(Result::ok)
-                .all(|entry| !entry.file_name().to_string_lossy().starts_with("ublkb"))
-            {
+        loop {
+            let blocks = entries("/sys/block", |name| name.starts_with("ublkb"));
+            if blocks.is_empty() {
                 break;
             }
+            // The daemon logs each step of a teardown, so its output shows which step
+            // stalled. A device no log mentions belongs to another daemon on this host.
+            assert!(
+                std::time::Instant::now() < deadline,
+                "block devices {blocks:?} outlived a teardown of {TEARDOWN:?}",
+            );
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
         self.assert_no_leaks();

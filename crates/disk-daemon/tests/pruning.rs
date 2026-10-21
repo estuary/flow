@@ -36,8 +36,8 @@ async fn disk_pruning() {
 }
 
 /// Sustained traffic completes horizons, and the acknowledgement which completes
-/// one stores its floor on the journal. A horizon opens wherever replay bytes pass
-/// the threshold, so the first commit, which writes several megabytes, may
+/// one stores its floor on the journal. A horizon opens wherever the bytes since the
+/// floor pass the threshold, so the first commit, which writes several megabytes, may
 /// already have completed one.
 async fn fragments_below_the_stored_floor_can_be_deleted(
     fixture: &support::Fixture,

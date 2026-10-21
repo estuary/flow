@@ -3,7 +3,7 @@ use crate::device;
 use anyhow::Context;
 
 /// Handle to an attachment's journal writer: a task which appends the device's
-/// mutations, and serves prepares and acknowledgements.
+/// live chunks, and serves prepares and acknowledgements.
 pub struct Writer {
     /// Requests to the task.
     commands: tokio::sync::mpsc::Sender<Command>,
@@ -31,7 +31,7 @@ impl Writer {
         journal: super::Journal,
         appender: publisher::Appender,
         opener: Option<i64>,
-        served_rx: tokio::sync::mpsc::Receiver<device::Mutation>,
+        served_rx: tokio::sync::mpsc::Receiver<device::LiveChunk>,
     ) -> Self {
         let cancel = journal.cancel.clone();
         let failed = std::sync::Arc::new(std::sync::OnceLock::new());
@@ -58,7 +58,7 @@ impl Writer {
 
     /// Cut the delta and return its unappended acknowledgement, or `None` for an
     /// empty delta. Sync the disk's filesystem first: the delta then holds every
-    /// mutation which the device served before the sync returned.
+    /// live chunk which the device served before the sync returned.
     pub async fn prepare(&self) -> anyhow::Result<Option<bytes::Bytes>> {
         self.call(Command::Prepare).await
     }
@@ -96,8 +96,8 @@ impl Writer {
 struct Task {
     /// Journal, ledger, and appender.
     appending: Appending,
-    /// The device's mutations.
-    served_rx: tokio::sync::mpsc::Receiver<device::Mutation>,
+    /// The device's live chunks.
+    served_rx: tokio::sync::mpsc::Receiver<device::LiveChunk>,
     /// Set by the task's first failure, which its handle reads.
     failed: std::sync::Arc<std::sync::OnceLock<tonic::Status>>,
     /// The attachment's cancellation, which gives up a broker call and which a
@@ -106,7 +106,7 @@ struct Task {
 }
 
 impl Task {
-    /// Append mutations and serve requests until the handle is dropped. A failure
+    /// Append live chunks and serve requests until the handle is dropped. A failure
     /// ends appending, but every later request is still answered with it.
     async fn serve(mut self, mut commands: tokio::sync::mpsc::Receiver<Command>) {
         loop {
@@ -126,10 +126,10 @@ impl Task {
                         _ = reply.send(self.acknowledge(ack).await);
                     }
                 },
-                mutation = self.served_rx.recv(), if taking => {
-                    let appended = match mutation {
-                        Some(mutation) => {
-                            let appending = self.appending.append_mutation(mutation);
+                live = self.served_rx.recv(), if taking => {
+                    let appended = match live {
+                        Some(live) => {
+                            let appending = self.appending.append_chunk(live);
                             super::unless_cancelled(&self.cancel, appending).await
                         }
                         None => Err(anyhow::anyhow!("the disk's device failed")),
@@ -171,7 +171,7 @@ impl Task {
     }
 
     /// Fail the writer with `err`, which then answers every later request. It
-    /// takes no more mutations, so the device discards them, and it cancels its
+    /// takes no more live chunks, so the device discards them, and it cancels its
     /// attachment. Returns `err` as each request receives it.
     fn fail(&mut self, err: anyhow::Error) -> anyhow::Error {
         let failure = self
@@ -200,9 +200,9 @@ impl Appending {
     /// Serve `Writer::prepare`.
     async fn prepare(
         &mut self,
-        served_rx: &mut tokio::sync::mpsc::Receiver<device::Mutation>,
+        served_rx: &mut tokio::sync::mpsc::Receiver<device::LiveChunk>,
     ) -> anyhow::Result<Option<bytes::Bytes>> {
-        // Refuse before the drain, which would take mutations past the awaited ack.
+        // Refuse before the drain, which would take live chunks past the awaited ack.
         if self.ledger.awaiting_ack() {
             return Err(crate::failed_precondition(
                 "a prepared delta is still awaiting its commit",
@@ -214,7 +214,7 @@ impl Appending {
         // delta holds them all.
         loop {
             match served_rx.try_recv() {
-                Ok(mutation) => () = self.append_mutation(mutation).await?,
+                Ok(live) => () = self.append_chunk(live).await?,
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
                     anyhow::bail!("the disk's device failed")
@@ -279,12 +279,12 @@ impl Appending {
         Ok(())
     }
 
-    async fn append_mutation(&mut self, mutation: device::Mutation) -> anyhow::Result<()> {
-        let device::Mutation {
+    async fn append_chunk(&mut self, live: device::LiveChunk) -> anyhow::Result<()> {
+        let device::LiveChunk {
             chunk,
             opens_horizon,
             discharges_horizon,
-        } = mutation;
+        } = live;
 
         // A horizon's floor is its opening record's offset. Confirm the delta's
         // earlier records first, so that the opener lands at the confirmed head. A
@@ -322,8 +322,8 @@ mod broker_test {
         let fixture = broker::Fixture::start().await;
 
         a_committed_delta_reads_back_as_its_chunks(&fixture).await;
-        mutations_offered_while_a_commit_is_outstanding_wait_for_it(&fixture).await;
-        a_large_delta_carries_one_record_per_mutation(&fixture).await;
+        chunks_offered_while_a_commit_is_outstanding_wait_for_it(&fixture).await;
+        a_large_delta_carries_one_record_per_chunk(&fixture).await;
         a_delta_which_spans_several_appends_keeps_its_records(&fixture).await;
         a_completed_horizon_stores_its_openers_offset(&fixture).await;
         an_opener_within_a_delta_stores_its_own_offset(&fixture).await;
@@ -338,7 +338,7 @@ mod broker_test {
         let journal = "acmeCo/disk/delta";
         let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        let mutations = [
+        let chunks = [
             test_support::write_chunk(0, 2, 0x11),
             // A zeroed block, which a device records as empty data.
             proto::Chunk {
@@ -348,8 +348,8 @@ mod broker_test {
             },
             test_support::punch_chunk(3, 4),
         ];
-        for chunk in mutations {
-            served_tx.try_send(broker::mutation(chunk)).unwrap();
+        for chunk in chunks {
+            served_tx.try_send(broker::live_chunk(chunk)).unwrap();
         }
 
         let ack = writer.prepare().await.unwrap().unwrap();
@@ -371,23 +371,21 @@ mod broker_test {
         ");
     }
 
-    /// Mutations stay in the channel until the outstanding acknowledgement commits.
-    async fn mutations_offered_while_a_commit_is_outstanding_wait_for_it(
-        fixture: &broker::Fixture,
-    ) {
+    /// Live chunks stay in the channel until the outstanding acknowledgement commits.
+    async fn chunks_offered_while_a_commit_is_outstanding_wait_for_it(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/outstanding";
         let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
         served_tx.try_send(broker::write(1, 0xaa)).unwrap();
         let first = writer.prepare().await.unwrap().unwrap();
 
-        // Offer the second delta's mutations before the first delta commits.
+        // Offer the second delta's live chunks before the first delta commits.
         served_tx.try_send(broker::write(2, 0xbb)).unwrap();
         served_tx.try_send(broker::write(3, 0xcc)).unwrap();
         () = tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(
             !is_drained(&served_tx),
-            "the writer took a mutation while an acknowledgement was outstanding",
+            "the writer took a live chunk while an acknowledgement was outstanding",
         );
 
         () = writer.acknowledge(first).await.unwrap();
@@ -413,8 +411,8 @@ mod broker_test {
         ");
     }
 
-    /// A delta has exactly one record per mutation.
-    async fn a_large_delta_carries_one_record_per_mutation(fixture: &broker::Fixture) {
+    /// A delta has exactly one record per live chunk.
+    async fn a_large_delta_carries_one_record_per_chunk(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/bounded";
         const WRITES: usize = 8;
 
@@ -422,7 +420,9 @@ mod broker_test {
         let write = test_support::write_chunk(0, 32, 0x22);
 
         for _ in 0..WRITES {
-            served_tx.try_send(broker::mutation(write.clone())).unwrap();
+            served_tx
+                .try_send(broker::live_chunk(write.clone()))
+                .unwrap();
         }
 
         let ack = writer.prepare().await.unwrap().unwrap();
@@ -444,21 +444,21 @@ mod broker_test {
         ");
     }
 
-    /// A delta that spans several append RPCs keeps one record per mutation, in order.
+    /// A delta that spans several append RPCs keeps one record per live chunk, in order.
     async fn a_delta_which_spans_several_appends_keeps_its_records(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/batched";
 
         // Make the delta larger than the appender's flush threshold.
-        const MUTATIONS: usize = 40;
+        const CHUNKS: usize = 40;
         let each = test_support::broker::BLOCKS as usize * BLOCK_SIZE as usize;
-        assert!(MUTATIONS * each > publisher::Appender::BUFFER_FLUSH_THRESHOLD);
+        assert!(CHUNKS * each > publisher::Appender::BUFFER_FLUSH_THRESHOLD);
 
         let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
-        for index in 0..MUTATIONS {
+        for index in 0..CHUNKS {
             let fill = (index + 1) as u8;
             served_tx
-                .try_send(broker::mutation(test_support::write_chunk(
+                .try_send(broker::live_chunk(test_support::write_chunk(
                     0,
                     test_support::broker::BLOCKS,
                     fill,
@@ -539,7 +539,7 @@ mod broker_test {
             for record in 0..4 {
                 let fill = delta * 4 + record + 1;
                 served_tx
-                    .try_send(crate::device::Mutation {
+                    .try_send(crate::device::LiveChunk {
                         chunk: test_support::write_chunk(0, test_support::broker::BLOCKS, fill),
                         opens_horizon: record == 0,
                         discharges_horizon: record == 3,
@@ -591,7 +591,7 @@ mod broker_test {
             [(0, false, false), (1, true, false), (2, false, true)]
         {
             served_tx
-                .try_send(crate::device::Mutation {
+                .try_send(crate::device::LiveChunk {
                     chunk: test_support::write_chunk(0, test_support::broker::BLOCKS, record + 1),
                     opens_horizon,
                     discharges_horizon,
@@ -623,7 +623,7 @@ mod broker_test {
     }
 
     /// A failed append fails the writer and cancels its attachment. Every later request
-    /// is answered with that failure, and the device's later mutations are refused.
+    /// is answered with that failure, and the device's later live chunks are refused.
     async fn a_failed_append_answers_every_later_request(fixture: &broker::Fixture) {
         let journal = "acmeCo/disk/failed-append";
         let (served_tx, writer) = fixture.open(journal).await.unwrap();
@@ -631,7 +631,7 @@ mod broker_test {
         // A replacement attachment fences this one out, so its next append fails.
         let (_served_tx, _replacement, _blocks) = fixture.recover(journal, None).await.unwrap();
 
-        // Offer mutations until the failed writer closes its channel.
+        // Offer live chunks until the failed writer closes its channel.
         while !matches!(
             served_tx.try_send(broker::write(1, 0x11)),
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_))
@@ -688,7 +688,7 @@ mod broker_test {
         ");
     }
 
-    /// Wait for the writer to take every mutation the recording channel holds.
+    /// Wait for the writer to take every live chunk the recording channel holds.
     async fn drains(served_tx: &broker::ServedTx) {
         for _ in 0..1000 {
             if is_drained(served_tx) {
@@ -696,10 +696,10 @@ mod broker_test {
             }
             () = tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
-        panic!("the writer did not take the mutations offered to it");
+        panic!("the writer did not take the live chunks offered to it");
     }
 
-    /// Whether the writer has taken every mutation the recording channel held.
+    /// Whether the writer has taken every live chunk the recording channel held.
     fn is_drained(served_tx: &broker::ServedTx) -> bool {
         served_tx.capacity() == served_tx.max_capacity()
     }

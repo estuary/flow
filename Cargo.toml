@@ -168,6 +168,7 @@ rsasl = { version = "2", default-features = false, features = [
     "plain",
 ] }
 rusqlite = { version = "0.39", features = ["bundled-full", "fallible_uint"] }
+rustix = { version = "1", features = ["fs", "process"] }
 rustyline = "17"
 schemars = { version = "1", features = ["chrono04"] }
 serde = { version = "1", features = ["derive"] }
@@ -249,6 +250,7 @@ quickcheck_macros = "1"
 wasm-bindgen = "0"
 xxhash-rust = { version = "0", features = ["xxh3"] }
 yaml-merge-keys = { version = "0", features = ["serde_yaml"] }
+zerocopy = { version = "0.8", features = ["derive"] }
 zip = "4"
 zstd = "0"
 derivative = "2"

@@ -33,14 +33,14 @@ struct Outage<'a>(&'a support::Fixture);
 
 impl<'a> Outage<'a> {
     fn start(fixture: &'a support::Fixture) -> Self {
-        () = fixture.signal_brokers(libc::SIGSTOP);
+        () = fixture.signal_brokers(rustix::process::Signal::STOP);
         Self(fixture)
     }
 }
 
 impl Drop for Outage<'_> {
     fn drop(&mut self) {
-        self.0.signal_brokers(libc::SIGCONT);
+        self.0.signal_brokers(rustix::process::Signal::CONT);
     }
 }
 
@@ -145,7 +145,7 @@ async fn an_abrupt_disconnect_tears_the_disk_down(
 }
 
 /// Teardown must release parked writes even during a broker outage. Abandon the
-/// append and drain mutations before stopping the device; stop waits on all
+/// append and drain live chunks before stopping the device; stop waits on all
 /// outstanding requests, including unmount writes.
 async fn a_disk_torn_down_in_a_broker_outage_releases_its_parked_writes(
     fixture: &support::Fixture,

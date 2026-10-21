@@ -61,8 +61,8 @@ impl Fixture {
         journal: &str,
         ack: Option<bytes::Bytes>,
     ) -> anyhow::Result<(ServedTx, crate::journal::Writer, Vec<(u32, u8)>)> {
-        let (standby, rebuilding) = self.standby(journal).await?;
-        let (promoted, replayed_tx) = standby.promote(ack).await?;
+        let (standby, replayed_tx, rebuilding) = self.standby(journal).await?;
+        let promoted = standby.promote(ack, &replayed_tx).await?;
 
         // A device would take its kernel device now. This one has nothing to take.
         drop(replayed_tx);
@@ -73,11 +73,12 @@ impl Fixture {
     }
 
     /// Open `journal` and play it back to its head, having created it from
-    /// `Fixture::spec` as a deployment's activation would.
+    /// `Fixture::spec` as a deployment's activation would. Returns the standby, the
+    /// sender it replays into, and what that replay rebuilds.
     pub async fn standby(
         &self,
         journal: &str,
-    ) -> anyhow::Result<(crate::journal::Standby, Rebuilding)> {
+    ) -> anyhow::Result<(crate::journal::Standby, ReplayedTx, Rebuilding)> {
         () = self.create_journal(self.spec(journal)).await?;
 
         self.standby_uncreated(journal).await
@@ -88,7 +89,7 @@ impl Fixture {
     pub async fn standby_uncreated(
         &self,
         journal: &str,
-    ) -> anyhow::Result<(crate::journal::Standby, Rebuilding)> {
+    ) -> anyhow::Result<(crate::journal::Standby, ReplayedTx, Rebuilding)> {
         // The delta outlives its directory, having no directory entry of its own.
         let dir = tempfile::tempdir()?;
         let uncommitted = crate::journal::UncommittedDelta::create(dir.path())?;
@@ -108,12 +109,12 @@ impl Fixture {
             &self.daemon_brokers,
             journal.to_string(),
             tokio_util::sync::CancellationToken::new(),
-            replayed_tx,
+            &replayed_tx,
             uncommitted,
         )
         .await?;
 
-        Ok((standby, rebuilding))
+        Ok((standby, replayed_tx, rebuilding))
     }
 
     /// Use uncompressed fragments for scenarios inspecting raw records.
@@ -246,16 +247,19 @@ impl Fixture {
     }
 }
 
+/// The scenario's sender of a standby's replayed chunks, where a device would be.
+pub type ReplayedTx = tokio::sync::mpsc::Sender<(proto::Chunk, bool)>;
+
 /// The fill byte of every block a standby's replayed chunks leave allocated, once
 /// their sender is dropped.
 pub type Rebuilding = tokio::task::JoinHandle<Vec<(u32, u8)>>;
 
 /// The scenario's end of a writer's recording channel, where a device would be.
-pub type ServedTx = tokio::sync::mpsc::Sender<crate::device::Mutation>;
+pub type ServedTx = tokio::sync::mpsc::Sender<crate::device::LiveChunk>;
 
-/// `chunk` as one served mutation, which neither opens nor discharges a horizon.
-pub fn mutation(chunk: proto::Chunk) -> crate::device::Mutation {
-    crate::device::Mutation {
+/// `chunk` as one live chunk, which neither opens nor discharges a horizon.
+pub fn live_chunk(chunk: proto::Chunk) -> crate::device::LiveChunk {
+    crate::device::LiveChunk {
         chunk,
         opens_horizon: false,
         discharges_horizon: false,
@@ -263,8 +267,8 @@ pub fn mutation(chunk: proto::Chunk) -> crate::device::Mutation {
 }
 
 /// One block of `fill`, as a device records a write of it.
-pub fn write(block: u32, fill: u8) -> crate::device::Mutation {
-    mutation(super::write_chunk(block, 1, fill))
+pub fn write(block: u32, fill: u8) -> crate::device::LiveChunk {
+    live_chunk(super::write_chunk(block, 1, fill))
 }
 
 /// A journal's parsed UUID: who wrote a record, when, and what it is.

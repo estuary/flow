@@ -109,9 +109,14 @@ impl Attachment {
         let (journal, blocks) = check_open(open)?;
         let config = &self.config;
 
-        let (device_standby, replayed_tx) =
-            device::Standby::open(&config.image_dir, blocks, config.horizon_policy)?;
-        self.device_standby = Some(device_standby);
+        let replayed_tx = self
+            .device_standby
+            .insert(device::Standby::open(
+                &config.image_dir,
+                blocks,
+                config.horizon_policy,
+            )?)
+            .replayed_tx();
 
         let uncommitted = journal::UncommittedDelta::create(&config.image_dir)
             .with_context(|| format!("creating an uncommitted delta in {:?}", config.image_dir))?;
@@ -143,19 +148,19 @@ impl Attachment {
                     ));
                 }
             },
-            failure = journal_standby.follow() => return Err(failure),
+            failure = journal_standby.follow(replayed_tx) => return Err(failure),
         };
 
         // Fence the previous writer, finish replay at the fenced head, and repair
         // any ack the client recovered.
         let recovered_ack = (!ack.is_empty()).then_some(ack);
-        let (promoted, replayed_tx) = journal_standby.promote(recovered_ack).await?;
+        let promoted = journal_standby.promote(recovered_ack, replayed_tx).await?;
 
         let device_standby = self
             .device_standby
             .take()
             .expect("a disk's device stands by until its promotion");
-        let (device, block_path, served_rx) = device_standby.promote(replayed_tx).await?;
+        let (device, block_path, served_rx) = device_standby.promote().await?;
         self.device = Some(device);
 
         let fresh = promoted.fresh();
@@ -212,25 +217,31 @@ impl Attachment {
     /// unmount writes, and the device's stop waits for every request in flight.
     /// Returns how the rebuild of a device still standing by went.
     async fn teardown(&mut self) -> anyhow::Result<()> {
+        // Each step is logged, so a teardown which stalls shows the step it stalled in.
+        let mount_path = self.mount.as_ref().map(|mount| mount.path().to_path_buf());
+        tracing::info!(
+            mount = ?mount_path,
+            cancelled = self.cancel.is_cancelled(),
+            "tearing down a disk"
+        );
         drop(self.writer.take());
 
-        if let Some(mount) = self.mount.take()
-            && let Err(err) = mount.unmount().await
-        {
-            tracing::error!(?err, "failed to unmount a disk");
+        if let Some(mount) = self.mount.take() {
+            match mount.unmount().await {
+                Ok(()) => tracing::info!(mount = ?mount_path, "unmounted a disk"),
+                Err(err) => tracing::error!(?err, mount = ?mount_path, "failed to unmount a disk"),
+            }
         }
 
         if let Some(device) = self.device.take() {
             match device.stop().await {
-                Ok(()) => tracing::info!("closed a disk"),
-                Err(err) => tracing::error!(?err, "a disk's device failed"),
+                Ok(()) => tracing::info!(mount = ?mount_path, "closed a disk"),
+                Err(err) => tracing::error!(?err, mount = ?mount_path, "a disk's device failed"),
             }
         }
 
-        // `serve` has returned, dropping the journal's standby and the sender of the
-        // chunks it replayed, so the rebuilder exits once it applies what it holds.
         match self.device_standby.take() {
-            Some(device_standby) => device_standby.join().await,
+            Some(device_standby) => device_standby.discard().await,
             None => Ok(()),
         }
     }

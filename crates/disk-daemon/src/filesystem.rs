@@ -120,15 +120,7 @@ impl Drop for Mount {
 /// Flush every filesystem write of the mount at `path` to its device.
 pub fn sync(path: &Path) -> anyhow::Result<()> {
     let dir = std::fs::File::open(path).with_context(|| format!("opening {path:?}"))?;
-
-    // SAFETY: `dir` holds the descriptor open across the call, which reads no
-    // user memory.
-    let rc = unsafe { libc::syncfs(std::os::fd::AsRawFd::as_raw_fd(&dir)) };
-
-    if rc != 0 {
-        return Err(std::io::Error::last_os_error()).with_context(|| format!("syncing {path:?}"));
-    }
-    Ok(())
+    rustix::fs::syncfs(&dir).with_context(|| format!("syncing {path:?}"))
 }
 
 /// Run `command` to completion, and require that it succeed.

@@ -8,7 +8,7 @@ pub(super) struct Ledger {
     producer: uuid::Producer,
     /// Clock of the last record built. It only advances.
     clock: uuid::Clock,
-    /// A cut delta awaiting acknowledgement. No mutation is taken until it commits.
+    /// A cut delta awaiting acknowledgement. No chunk is taken until it commits.
     prepared: Option<Prepared>,
     /// Records built into the delta which is accumulating now.
     delta_records: usize,
@@ -41,7 +41,7 @@ impl Ledger {
         self.delta_records == 0
     }
 
-    /// Build one mutation's `CONTINUE_TXN` record. It opens a horizon at
+    /// Build one live chunk's `CONTINUE_TXN` record. It opens a horizon at
     /// `opens_at`, its own offset, if given, and `discharges` says whether it
     /// discharged the open horizon's last pending block.
     pub(super) fn build_uncommitted(
@@ -152,12 +152,12 @@ mod test {
 
     #[derive(Debug, Clone, Copy)]
     enum Step {
-        /// A mutation arrives. The writer takes it only while no acknowledgement
+        /// A live chunk arrives. The writer takes it only while no acknowledgement
         /// is awaited.
-        Mutation,
-        /// As `Mutation`, where it opens a horizon at this offset.
+        Chunk,
+        /// As `Chunk`, where it opens a horizon at this offset.
         Opens(i64),
-        /// As `Mutation`, where it discharges the open horizon.
+        /// As `Chunk`, where it discharges the open horizon.
         Discharges,
         /// A client prepares.
         Prepare,
@@ -181,10 +181,10 @@ mod test {
             now += 1;
 
             let outcome = match step {
-                Mutation | Opens(_) | Discharges if ledger.awaiting_ack() => {
+                Chunk | Opens(_) | Discharges if ledger.awaiting_ack() => {
                     "left in the channel".to_string()
                 }
-                Mutation | Opens(_) | Discharges => {
+                Chunk | Opens(_) | Discharges => {
                     let opens_at = match step {
                         Opens(at) => Some(at),
                         _ => None,
@@ -236,17 +236,17 @@ mod test {
         let trace = trace(
             None,
             &[
-                Prepare, Mutation, Mutation, Prepare, Mutation, Ack, Mutation, Prepare, Ack,
+                Prepare, Chunk, Chunk, Prepare, Chunk, Ack, Chunk, Prepare, Ack,
             ],
         );
         insta::assert_snapshot!(trace, @"
         Prepare     nothing to commit                                                             awaiting ack false delta 0  horizon None       completes None
-        Mutation    built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
-        Mutation    built, opens false                                                            awaiting ack false delta 2  horizon None       completes None
+        Chunk       built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
+        Chunk       built, opens false                                                            awaiting ack false delta 2  horizon None       completes None
         Prepare     prepared                                                                      awaiting ack true  delta 0  horizon None       completes None
-        Mutation    left in the channel                                                           awaiting ack true  delta 0  horizon None       completes None
+        Chunk       left in the channel                                                           awaiting ack true  delta 0  horizon None       completes None
         Ack         acknowledged, floor None                                                      awaiting ack false delta 0  horizon None       completes None
-        Mutation    built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
+        Chunk       built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
         Prepare     prepared                                                                      awaiting ack true  delta 0  horizon None       completes None
         Ack         acknowledged, floor None                                                      awaiting ack false delta 0  horizon None       completes None
         ");
@@ -257,9 +257,9 @@ mod test {
     /// attachment over it is the writer's.
     #[test]
     fn test_an_acknowledgement_out_of_turn_is_refused() {
-        let trace = trace(None, &[Mutation, Prepare, AckOther, Ack, Ack]);
+        let trace = trace(None, &[Chunk, Prepare, AckOther, Ack, Ack]);
         insta::assert_snapshot!(trace, @"
-        Mutation    built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
+        Chunk       built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
         Prepare     prepared                                                                      awaiting ack true  delta 0  horizon None       completes None
         AckOther    refused: the acknowledgement matches no prepared delta (FailedPrecondition)   awaiting ack true  delta 0  horizon None       completes None
         Ack         acknowledged, floor None                                                      awaiting ack false delta 0  horizon None       completes None
@@ -275,11 +275,11 @@ mod test {
         let trace = trace(
             None,
             &[
-                Mutation,
+                Chunk,
                 Opens(1000),
                 Prepare,
                 Ack,
-                Mutation,
+                Chunk,
                 Discharges,
                 Opens(2000),
                 Prepare,
@@ -290,11 +290,11 @@ mod test {
             ],
         );
         insta::assert_snapshot!(trace, @"
-        Mutation    built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
+        Chunk       built, opens false                                                            awaiting ack false delta 1  horizon None       completes None
         Opens(1000) built, opens true                                                             awaiting ack false delta 2  horizon Some(1000) completes None
         Prepare     prepared                                                                      awaiting ack true  delta 0  horizon Some(1000) completes None
         Ack         acknowledged, floor None                                                      awaiting ack false delta 0  horizon Some(1000) completes None
-        Mutation    built, opens false                                                            awaiting ack false delta 1  horizon Some(1000) completes None
+        Chunk       built, opens false                                                            awaiting ack false delta 1  horizon Some(1000) completes None
         Discharges  built, opens false                                                            awaiting ack false delta 2  horizon None       completes Some(1000)
         Opens(2000) built, opens true                                                             awaiting ack false delta 3  horizon Some(2000) completes Some(1000)
         Prepare     prepared                                                                      awaiting ack true  delta 0  horizon Some(2000) completes None

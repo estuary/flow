@@ -33,7 +33,7 @@ transaction client ── Attach RPC ──► attachment task
        ▼                                  ▼
     workload ──► ext4 ──► ublk ──► owner thread + io_uring
                                         │              │
-                                   image I/O      served mutations
+                                   image I/O      live chunks
                                         ▼              ▼
                                    sparse image    writer task ──► Gazette
                                         ▲
@@ -48,12 +48,11 @@ rebuilder thread applies the committed chunks which the journal's replay sends
 it, each with whether a horizon opened there. Promotion ends that rebuild and turns
 the standby into a `device::Device`, whose owner thread serves the image as a ublk
 device, sending each write, punch, and copy it applies to the writer as a
-`device::Mutation`. Both threads apply a chunk the same way. The journal
+`device::LiveChunk`. Both threads apply a chunk the same way. The journal
 side owns everything about records: sequencing, fencing, offsets, and the floor
-label. The two sides step through the same phases: the journal's promotion returns
-the sender of replayed chunks which the device's promotion ends, and the
-device's promotion returns the served mutations which the journal's writer
-appends.
+label. The two sides step through the same phases: the journal replays into a sender
+which the device's standby lends it, and which the device's promotion ends, and the
+device's promotion returns the live chunks which the journal's writer appends.
 
 Paths below are relative to `src/`.
 
@@ -64,17 +63,17 @@ Paths below are relative to `src/`.
 | `main.rs` | Process setup: crypto provider, tracing, and the runtime. |
 | `daemon.rs` | Flags, configuration, the `Disk` gRPC service and its socket, shared broker credentials, and process drain. |
 | `attachment.rs` | `Attachment`: request ordering, promotion, the bootstrap commit, error codes, and teardown of writer, mount, and device. |
-| `device/mod.rs` | `Standby`: open, the rebuilder thread, promotion, and join. `Device`: stop. `Mutation`, which the served channel carries. |
-| `device/owner.rs` | The owner thread, which arms and serves the ublk queue: tags, the ring, and character-device data copies. It sends each write's mutations before answering it, and exits on an image failure. |
-| `device/target.rs` | The image and its horizon: `replay` of a committed chunk, `serve` of a write or punch into the mutations to send, reads, horizon opening, copies, discharge, and replay bytes, testable without a real device. |
-| `device/ublk/` | Kernel control commands and ABI bindings generated from `ublk_cmd.h`. |
-| `device/image.rs`, `device/chunk.rs` | Sparse image allocation, and the durable write/punch codec: one chunk per device write, punch, or copy, which `Image::apply` writes with one `pwritev` or `fallocate`, served and recovered alike. |
-| `device/horizon.rs` | Recovery-horizon bitmap, and the `horizon::Policy` of when a horizon opens and how fast copies discharge it. |
+| `device/mod.rs` | `Standby`: open, the rebuilder thread, promotion, and discard. `Device`: stop. `LiveChunk`, which the served channel carries. |
+| `device/owner.rs` | The owner thread, which arms and serves the ublk queue: tags, the ring, and character-device data copies. It sends each write's live chunks before answering it, and exits on an image failure. |
+| `device/target.rs` | The sparse image and its compactor: `replay` of a committed chunk, `serve` of a write or punch and the copies it earns into the live chunks to send, and reads. Each chunk is written with `pwrite` or punched with `fallocate`, served and recovered alike, testable without a real device. |
+| `device/ublk.rs` | Kernel control commands, queue parameters, the request descriptor mapping, and ABI bindings generated from `ublk_cmd.h`. |
+| `device/compactor.rs` | `Compactor`: allocation, bytes since the floor, and the open recovery horizon, as pure state over the chunks applied. Where a horizon opens, which ranges to copy, and which chunk discharges it. `compactor::Policy`, of when a horizon opens and how fast copies discharge it, and `Policy::DEFAULT`, which the daemon's flags start from. |
+| `device/chunk.rs` | The durable write/punch codec: one chunk per device write, punch, or copy. |
 | `filesystem.rs` | ext4 format, mount, ownership, and `syncfs`. |
 | `journal/lifecycle.rs` | Opening, standby playback, fencing, and promotion. |
 | `journal/mod.rs` | Append state shared by the lifecycle and writer, head confirmation, and parsing and setting the recovery-floor label. |
 | `journal/replay.rs`, `journal/sequencer.rs`, `journal/uncommitted.rs` | Replay I/O, pure sequencing decisions, and buffered uncommitted deltas. |
-| `journal/writer.rs`, `journal/ledger.rs` | The writer task, which appends the device's mutations and serves prepares and acknowledgements, and the pure delta ledger. |
+| `journal/writer.rs`, `journal/ledger.rs` | The writer task, which appends the device's live chunks and serves prepares and acknowledgements, and the pure delta ledger. |
 
 The wire contract and durable record schema are in
 [`disk.proto`](../../go/protocols/disk/disk.proto). Public modules are `client`
@@ -95,7 +94,7 @@ The device records each write before it completes, and has no volatile cache, so
 any prefix of its stream is a crash-consistent image. The writer chooses the cut:
 after the filesystem's `syncfs`, the delta takes everything recorded so far. Only
 one prepared delta may await acknowledgement. The writer stops consuming
-mutations until the acknowledgement is confirmed, and once the bounded recording
+live chunks until the acknowledgement is confirmed, and once the bounded recording
 channel fills, the device serves no request until it drains.
 `journal/writer.rs` explains the Gazette sequencing rule requiring this barrier.
 `attachment.rs` commits format and mount writes before returning `Promoted`.
@@ -115,15 +114,14 @@ it is not stored in the journal.
 A **recovery horizon** becomes a **recovery floor** once committed changes and
 copies cover every allocated block at or after its opening offset. Compaction
 trades write amplification for less replay, with no copying while the disk is
-idle. A disk's **replay bytes** are the encoded size of the chunks applied since
-the floor, which the device measures exactly, both while it recovers and while it
+idle. A disk's **bytes since the floor** are the encoded size of the chunks applied
+after it, which the device measures exactly, both while it recovers and while it
 serves. They are a policy target, not a hard bound on transaction size or process
-memory. The device opens a horizon at any mutation once they pass the policy, and
-flags the mutation which discharges it. The writer confirms the delta's earlier
+memory. The device opens a horizon at any live chunk once they pass the policy, and
+flags the chunk which discharges it. The writer confirms the delta's earlier
 records before appending an opener, so the opener's offset is exact, and stores it
 as the floor once the delta holding the discharge commits. Recovery rebuilds the
-same pending blocks from a floor. See `device/horizon.rs`, `device/target.rs`, and
-the writer ledger.
+same pending blocks from a floor. See `device/compactor.rs` and the writer ledger.
 
 ## Journal and host responsibilities
 
@@ -161,8 +159,8 @@ supply neither broker endpoints nor credentials; key rotation requires a restart
 cancels existing ones. Teardown of a promoted disk drops the writer, which abandons
 its appends and lets the device apply later writes unsent, then unmounts, then
 stops and deletes the device. This order is required because unmount writes, and a
-device stop waits for every request in flight. Teardown of a standby joins its
-rebuilder thread, whose failure, if any, is the attachment's. See `attachment.rs`
+device stop waits for every request in flight. Teardown of a standby discards it,
+joining its rebuilder thread, whose failure, if any, is the attachment's. See `attachment.rs`
 and `device/mod.rs`.
 The daemon waits for every teardown, so the supervisor's stop timeout bounds a
 drain.

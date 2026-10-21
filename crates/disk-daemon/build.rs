@@ -31,10 +31,29 @@ ENCODED(UBLK_U_IO_COMMIT_AND_FETCH_REQ, UBLK_IOCTL_COMMIT_AND_FETCH_REQ)
         .allowlist_type("ublk.*")
         .allowlist_var("UBLK.*")
         .derive_default(true)
+        .parse_callbacks(Box::new(Derives))
         .use_core()
         .ctypes_prefix("libc")
         .generate()
         .expect("generating ublk bindings")
         .write_to_file(&out)
         .expect("writing ublk bindings");
+}
+
+/// Derives zerocopy's `IntoBytes` for the control command, so it copies into a
+/// `uring_cmd` entry without `unsafe`. The derive fails the build if the struct
+/// has padding.
+#[derive(Debug)]
+struct Derives;
+
+impl bindgen::callbacks::ParseCallbacks for Derives {
+    fn add_derives(&self, info: &bindgen::callbacks::DeriveInfo<'_>) -> Vec<String> {
+        match info.name {
+            "ublksrv_ctrl_cmd" => vec![
+                "zerocopy::IntoBytes".to_string(),
+                "zerocopy::Immutable".to_string(),
+            ],
+            _ => Vec::new(),
+        }
+    }
 }

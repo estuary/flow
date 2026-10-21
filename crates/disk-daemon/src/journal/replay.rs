@@ -6,9 +6,6 @@ use proto_gazette::{broker, fixed_framing};
 /// Sequencing state shared by backfill, tailing, and promotion, which hands each
 /// delta to the device as it commits.
 pub(super) struct Replay {
-    /// Where each committed record's chunk goes, in journal order, with whether it
-    /// opens a horizon.
-    replayed_tx: tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
     /// Per-producer ordering and acknowledgement state.
     sequencer: sequencer::Sequencer,
     /// Records of the current delta, held until it's acknowledged.
@@ -29,15 +26,10 @@ pub(super) struct Replay {
 }
 
 impl Replay {
-    /// A replay from `floor` into `replayed_tx`, which holds each delta in
-    /// `uncommitted` until its acknowledgement.
-    pub fn new(
-        replayed_tx: tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
-        uncommitted: uncommitted::UncommittedDelta,
-        floor: i64,
-    ) -> Self {
+    /// A replay from `floor`, which holds each delta in `uncommitted` until its
+    /// acknowledgement.
+    pub fn new(uncommitted: uncommitted::UncommittedDelta, floor: i64) -> Self {
         Self {
-            replayed_tx,
             sequencer: sequencer::Sequencer::default(),
             uncommitted,
             held_opens_at: None,
@@ -53,18 +45,12 @@ impl Replay {
         &self.sequencer
     }
 
-    /// Take the sender of replayed chunks, the offset of the last committed
-    /// horizon opener, and the chunks committed, which is zero for a journal with no
+    /// Take the offset of the last committed horizon opener, and the chunks
+    /// committed, which is zero for a journal with no
     /// committed state. A delta still held is dropped: past the fence, no
     /// acknowledgement can commit it.
-    pub fn into_parts(
-        self,
-    ) -> (
-        tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
-        Option<i64>,
-        usize,
-    ) {
-        (self.replayed_tx, self.opener, self.applied_chunks)
+    pub fn into_parts(self) -> (Option<i64>, usize) {
+        (self.opener, self.applied_chunks)
     }
 
     /// Consume a read response, retaining partial frames in `buf`.
@@ -73,6 +59,7 @@ impl Replay {
         buf: &mut bytes::BytesMut,
         offset: i64,
         content: &[u8],
+        replayed_tx: &tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
     ) -> anyhow::Result<()> {
         let expected = self.offset + buf.len() as i64;
 
@@ -94,7 +81,7 @@ impl Replay {
             {
                 fixed_framing::Frame::Record { message, framed } => {
                     () = self
-                        .record(&message, &framed)
+                        .record(&message, &framed, replayed_tx)
                         .await
                         .with_context(|| format!("taking the record at offset {at}"))?;
                 }
@@ -112,6 +99,7 @@ impl Replay {
         &mut self,
         record: &proto::DiskRecord,
         framed: &[u8],
+        replayed_tx: &tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
     ) -> anyhow::Result<()> {
         let offset = self.offset;
         self.read_any = true;
@@ -132,7 +120,7 @@ impl Replay {
                 self.uncommitted.push(framed)
             }
             sequencer::Action::Commit => {
-                () = self.apply_held().await?;
+                () = self.apply_held(replayed_tx).await?;
 
                 if let Some(opens_at) = self.held_opens_at.take() {
                     self.opener = Some(opens_at);
@@ -144,15 +132,17 @@ impl Replay {
 
     /// Hand the acknowledged delta to the device in record order, and count its
     /// chunks.
-    async fn apply_held(&mut self) -> anyhow::Result<()> {
+    async fn apply_held(
+        &mut self,
+        replayed_tx: &tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
+    ) -> anyhow::Result<()> {
         let mut held = self.uncommitted.drain();
 
         while let Some(record) = held.next()? {
             self.applied_chunks += 1;
 
             let chunk = record.chunk.expect("a delta's record carries a chunk");
-            () = self
-                .replayed_tx
+            () = replayed_tx
                 .send((chunk, record.opens_horizon))
                 .await
                 .map_err(|_| anyhow::anyhow!("the disk's device failed to rebuild its image"))?;
@@ -162,13 +152,15 @@ impl Replay {
 }
 
 /// Continue from the replay's next record boundary. `Some(head)` reads to a
-/// broker-confirmed head; `None` tails until cancelled or an error occurs.
+/// broker-confirmed head; `None` tails until cancelled or an error occurs. Each
+/// committed chunk goes to `replayed_tx`, with whether it opens a horizon.
 /// `Replay::take` checks any offset jump returned by the broker.
 pub(super) async fn read(
     client: &gazette::journal::Client,
     journal: &str,
     through: Option<i64>,
     replay: &mut Replay,
+    replayed_tx: &tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
 ) -> anyhow::Result<()> {
     let (end_offset, block) = match through {
         Some(head) => (head, false),
@@ -201,7 +193,7 @@ pub(super) async fn read(
         };
 
         () = replay
-            .take(&mut buf, response.offset, &response.content)
+            .take(&mut buf, response.offset, &response.content, replayed_tx)
             .await
             .with_context(|| format!("replaying {journal}"))?;
     }
@@ -248,9 +240,10 @@ mod test {
             .sum()
     }
 
-    /// A replay, and the device's end of its replayed chunks.
+    /// A replay, and both ends of its replayed chunks.
     struct Case {
         replay: Replay,
+        replayed_tx: tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
         replayed_rx: tokio::sync::mpsc::Receiver<(proto::Chunk, bool)>,
     }
 
@@ -260,10 +253,10 @@ mod test {
 
         Case {
             replay: Replay::new(
-                replayed_tx,
                 super::uncommitted::UncommittedDelta::create(dir.path()).unwrap(),
                 floor,
             ),
+            replayed_tx,
             replayed_rx,
         }
     }
@@ -314,6 +307,7 @@ mod test {
     async fn play(case: &mut Case, records: &[proto::DiskRecord]) -> String {
         let Case {
             replay,
+            replayed_tx,
             replayed_rx,
         } = case;
         let mut out = String::new();
@@ -321,7 +315,10 @@ mod test {
         for record in records {
             write!(out, "at {:<7}{:<17}", replay.offset, label(record)).unwrap();
 
-            if let Err(err) = replay.record(record, &test_support::frame([record])).await {
+            if let Err(err) = replay
+                .record(record, &test_support::frame([record]), replayed_tx)
+                .await
+            {
                 writeln!(out, "{err:#}").unwrap();
                 break;
             }
@@ -673,9 +670,10 @@ mod test {
         // the sequencing state another one left behind.
         let mut out = String::new();
         for (what, record) in cases {
-            let err = replay(&dir, 0)
+            let mut case = replay(&dir, 0);
+            let err = case
                 .replay
-                .record(&record, &test_support::frame([&record]))
+                .record(&record, &test_support::frame([&record]), &case.replayed_tx)
                 .await
                 .unwrap_err();
 
@@ -810,12 +808,16 @@ mod test {
     /// render the offset the replay stands at after each, or the failure which ends
     /// the read, then what the read holds of a record it ended within.
     async fn trace(case: &mut Case, responses: &[(i64, &[u8])]) -> String {
-        let replay = &mut case.replay;
+        let Case {
+            replay,
+            replayed_tx,
+            ..
+        } = case;
         let mut buf = bytes::BytesMut::new();
         let mut out = String::new();
 
         for &(offset, content) in responses {
-            match replay.take(&mut buf, offset, content).await {
+            match replay.take(&mut buf, offset, content, replayed_tx).await {
                 Ok(()) => writeln!(out, "at {offset:<5}stands at {}", replay.offset).unwrap(),
                 Err(err) => {
                     writeln!(out, "at {offset:<5}{err:#}").unwrap();

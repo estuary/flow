@@ -37,22 +37,34 @@ pub struct Args {
     #[arg(long, env = "LOG_FORMAT", default_value = "text")]
     pub log_format: LogFormat,
 
-    /// Replay bytes beyond which a disk opens a recovery horizon, as a multiple of
-    /// that disk's live allocated size. Replay bytes are the encoded size of the
-    /// chunks applied since the recovery floor, which is the journal's content
+    /// Bytes since the recovery floor beyond which a disk opens a recovery horizon,
+    /// as a multiple of that disk's live allocated size. They are the encoded size of
+    /// the chunks applied since the floor, which is the journal's content
     /// less its record framing. Together with the copy ratio it bounds what a
     /// recovery reads.
-    #[arg(long, env = "HORIZON_OPEN_RATIO", default_value = "2.0")]
+    #[arg(
+        long,
+        env = "HORIZON_OPEN_RATIO",
+        default_value_t = crate::device::compactor::Policy::DEFAULT.open_ratio
+    )]
     pub horizon_open_ratio: f64,
 
     /// Unchanged bytes a horizon may copy for each byte written while it is open.
     /// These copies discharge a horizon over blocks nothing is writing. Journal
     /// write amplification during compaction is at most one plus this.
-    #[arg(long, env = "HORIZON_COPY_RATIO", default_value = "0.5")]
+    #[arg(
+        long,
+        env = "HORIZON_COPY_RATIO",
+        default_value_t = crate::device::compactor::Policy::DEFAULT.copy_ratio
+    )]
     pub horizon_copy_ratio: f64,
 
-    /// Replay bytes below which no horizon opens, whatever the ratio. It keeps a small disk from compacting constantly.
-    #[arg(long, env = "HORIZON_MINIMUM_BYTES", default_value_t = 1 << 30)]
+    /// Bytes since the recovery floor below which no horizon opens, whatever the ratio. It keeps a small disk from compacting constantly.
+    #[arg(
+        long,
+        env = "HORIZON_MINIMUM_BYTES",
+        default_value_t = crate::device::compactor::Policy::DEFAULT.minimum_bytes
+    )]
     pub horizon_minimum_bytes: u64,
 }
 
@@ -69,7 +81,7 @@ pub(crate) struct Config {
     /// Parent directory of per-device mounts.
     pub(crate) mount_dir: std::path::PathBuf,
     /// When a disk opens a recovery horizon, and how fast it discharges one.
-    pub(crate) horizon_policy: crate::device::horizon::Policy,
+    pub(crate) horizon_policy: crate::device::compactor::Policy,
     /// Brokers of every disk journal.
     pub(crate) brokers: gazette::journal::Client,
 }
@@ -85,7 +97,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let config = std::sync::Arc::new(Config {
         image_dir: args.image_dir.clone(),
         mount_dir: args.mount_dir.clone(),
-        horizon_policy: crate::device::horizon::Policy {
+        horizon_policy: crate::device::compactor::Policy {
             open_ratio: args.horizon_open_ratio,
             copy_ratio: args.horizon_copy_ratio,
             minimum_bytes: args.horizon_minimum_bytes,

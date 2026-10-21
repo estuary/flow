@@ -5,8 +5,7 @@
 //! 1. `Standby::new` replays the journal to its head, handing each committed
 //!    delta to the disk's device. The standby then keeps tailing it with
 //!    `Standby::follow` until promoted.
-//! 2. `Standby::promote` fences the previous writer, finishes replay, and gives
-//!    back the sender of the device's replayed chunks.
+//! 2. `Standby::promote` fences the previous writer and finishes replay.
 //! 3. `Promoted::into_writer` hands the journal to a `writer::Writer`, which
 //!    appends deltas.
 
@@ -32,7 +31,7 @@ impl Standby {
         client: &gazette::journal::Client,
         journal: String,
         cancel: tokio_util::sync::CancellationToken,
-        replayed_tx: tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
+        replayed_tx: &tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
         uncommitted: uncommitted::UncommittedDelta,
     ) -> anyhow::Result<Self> {
         let client = client.clone();
@@ -63,13 +62,13 @@ impl Standby {
             let head = super::confirm_head(&client, &journal).await?;
             let floor = super::listed_floor(&journal, listing, head)?;
 
-            let mut replay = replay::Replay::new(replayed_tx, uncommitted, floor);
+            let mut replay = replay::Replay::new(uncommitted, floor);
 
             // A journal with no content may be fully suspended, refusing all but
             // appends, so neither read nor tail it. Promotion's fence resumes it, and
             // its read through the fence catches any writes made meanwhile.
             if head != 0 {
-                () = replay::read(&client, &journal, Some(head), &mut replay).await?;
+                () = replay::read(&client, &journal, Some(head), &mut replay, replayed_tx).await?;
             }
 
             anyhow::Ok(Self {
@@ -87,25 +86,30 @@ impl Standby {
         super::unless_cancelled(&cancel, opening).await
     }
 
-    /// Tail the journal until reading it fails, and return that failure.
-    pub async fn follow(&mut self) -> anyhow::Error {
+    /// Tail the journal into `replayed_tx` until reading it fails, and return that
+    /// failure.
+    pub async fn follow(
+        &mut self,
+        replayed_tx: &tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
+    ) -> anyhow::Error {
         if self.journal.head == 0 {
             return std::future::pending().await;
         }
         let super::Journal { client, name, .. } = &self.journal;
 
-        match replay::read(client, name, None, &mut self.replay).await {
+        match replay::read(client, name, None, &mut self.replay, replayed_tx).await {
             Ok(()) => unreachable!("a tailing read never ends"),
             Err(err) => err,
         }
     }
 
-    /// Fence the previous writer, then finish replay through the fenced head, and
-    /// give back the sender of the device's replayed chunks.
+    /// Fence the previous writer, then finish replay into `replayed_tx` through the
+    /// fenced head.
     pub async fn promote(
         self,
         recovered_ack: Option<bytes::Bytes>,
-    ) -> anyhow::Result<(Promoted, tokio::sync::mpsc::Sender<(proto::Chunk, bool)>)> {
+        replayed_tx: &tokio::sync::mpsc::Sender<(proto::Chunk, bool)>,
+    ) -> anyhow::Result<Promoted> {
         let cancel = self.journal.cancel.clone();
 
         let promoting = async move {
@@ -123,6 +127,7 @@ impl Standby {
                 &journal.name,
                 Some(journal.head),
                 &mut replay,
+                replayed_tx,
             )
             .await?;
 
@@ -158,10 +163,10 @@ impl Standby {
 
                 // The fence excludes other writers, so the ack landed where replay
                 // stopped. Sequence it there, as later replays will.
-                () = replay.record(&record, &ack).await?;
+                () = replay.record(&record, &ack, replayed_tx).await?;
             }
 
-            let (replayed_tx, opener, chunks) = replay.into_parts();
+            let (opener, chunks) = replay.into_parts();
 
             if chunks == 0 && recovered_ack.is_some() {
                 return Err(crate::invalid_argument(format!(
@@ -177,7 +182,7 @@ impl Standby {
                 opener,
                 fresh: chunks == 0,
             };
-            anyhow::Ok((promoted, replayed_tx))
+            anyhow::Ok(promoted)
         };
         super::unless_cancelled(&cancel, promoting).await
     }
@@ -202,10 +207,10 @@ impl Promoted {
         self.fresh
     }
 
-    /// Start the writer of the device's served mutations, `served_rx`.
+    /// Start the writer of the device's live chunks, `served_rx`.
     pub fn into_writer(
         self,
-        served_rx: tokio::sync::mpsc::Receiver<device::Mutation>,
+        served_rx: tokio::sync::mpsc::Receiver<device::LiveChunk>,
     ) -> writer::Writer {
         let Self {
             journal,
@@ -394,7 +399,7 @@ mod broker_test {
         let (served_tx, writer) = fixture.open(journal).await.unwrap();
 
         served_tx
-            .try_send(broker::mutation(test_support::punch_chunk(3, 2)))
+            .try_send(broker::live_chunk(test_support::punch_chunk(3, 2)))
             .unwrap();
         let ack = writer
             .prepare()
@@ -419,7 +424,7 @@ mod broker_test {
         let (first_served_tx, first) = fixture.open(journal).await.unwrap();
 
         first_served_tx
-            .try_send(broker::mutation(test_support::punch_chunk(0, 1)))
+            .try_send(broker::live_chunk(test_support::punch_chunk(0, 1)))
             .unwrap();
         let ack = first.prepare().await.unwrap().unwrap();
         () = first.acknowledge(ack).await.unwrap();
@@ -429,7 +434,7 @@ mod broker_test {
         let (_second_served_tx, _second, _blocks) = fixture.recover(journal, None).await.unwrap();
 
         first_served_tx
-            .try_send(broker::mutation(test_support::punch_chunk(1, 1)))
+            .try_send(broker::live_chunk(test_support::punch_chunk(1, 1)))
             .unwrap();
 
         // The append which lost the fence fails as `ABORTED`, which tells its client
