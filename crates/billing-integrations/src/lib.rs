@@ -45,6 +45,25 @@ fn parse_month(arg: &str) -> anyhow::Result<chrono::NaiveDate> {
     Ok(date)
 }
 
+/// Billing queries can exceed the default statement timeout.
+async fn connect_db(connection_string: &str, max_connections: u32) -> anyhow::Result<sqlx::PgPool> {
+    use anyhow::Context;
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(max_connections)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                // Raise the statement timeout to 10 minutes
+                sqlx::query("set statement_timeout to 600000")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(connection_string)
+        .await
+        .context("Connecting to billing database")
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;
@@ -57,18 +76,17 @@ mod tests {
         );
         for command in ["publish-invoices", "send-invoices"] {
             for month in ["2026-08", "2026-08-01", "2026-08-15", "2026-13", "invalid"] {
-                let mut args = vec![
+                let args = vec![
                     "billing-integrations",
                     command,
                     "--stripe-api-key",
+                    "test",
+                    "--connection-string",
                     "test",
                     "--all-tenants",
                     "--month",
                     month,
                 ];
-                if command == "publish-invoices" {
-                    args.extend(["--connection-string", "test"]);
-                }
                 assert_eq!(
                     super::Cli::try_parse_from(args).is_ok(),
                     matches!(month, "2026-08" | "2026-08-01"),
