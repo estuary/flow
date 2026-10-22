@@ -8,7 +8,7 @@ use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::Postgres;
-use sqlx::{Pool, postgres::PgPoolOptions, types::chrono::NaiveDate};
+use sqlx::{Pool, types::chrono::NaiveDate};
 use std::collections::HashMap;
 
 const CREATED_BY_BILLING_AUTOMATION: &str = "estuary.dev/created_by_automation";
@@ -188,7 +188,7 @@ impl InvoiceAction {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, sqlx::FromRow)]
-struct Invoice {
+pub(crate) struct Invoice {
     subtotal: i64,
     line_items: sqlx::types::Json<Vec<LineItem>>,
     date_start: NaiveDate,
@@ -199,7 +199,7 @@ struct Invoice {
     has_full_pipeline: bool,
     payment_provider: PaymentProvider,
     tenant_trial_start: Option<NaiveDate>,
-    stripe_invoice_id: Option<String>,
+    pub(crate) stripe_invoice_id: Option<String>,
     stripe_customer_id: Option<String>,
 }
 
@@ -276,7 +276,7 @@ impl Invoice {
         }
     }
 
-    fn metadata(&self) -> InvoiceMetadata {
+    pub(crate) fn metadata(&self) -> InvoiceMetadata {
         InvoiceMetadata {
             tenant: self.billed_prefix.to_owned(),
             invoice_type: self.invoice_type,
@@ -788,10 +788,11 @@ impl Invoice {
     }
 }
 
-async fn load_invoices(
+pub(crate) async fn load_invoices(
     pool: &sqlx::PgPool,
     month: NaiveDate,
     tenants: &[String],
+    exclude_tenants: &[String],
 ) -> anyhow::Result<Vec<Invoice>> {
     Ok(sqlx::query_as::<_, Invoice>(
         r#"
@@ -831,10 +832,12 @@ async fn load_invoices(
             and invoice_type = 'manual'
         ))
         and (cardinality($2::text[]) = 0 or billed_prefix = any($2))
+        and not (billed_prefix = any($3))
         "#,
     )
     .bind(month)
     .bind(tenants)
+    .bind(exclude_tenants)
     .fetch_all(pool)
     .await?)
 }
@@ -843,25 +846,13 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
     let stripe_client = stripe::Client::new(cmd.stripe_api_key.to_owned())
         .with_strategy(stripe::RequestStrategy::ExponentialBackoff(4));
     let billing_provider = StripeBillingProvider::from_client(stripe_client.clone());
-    let db_pool = PgPoolOptions::new()
-        .max_connections(5)
-        .after_connect(|conn, _meta| {
-            Box::pin(async move {
-                // Raise the statement timeout to 10 minutes
-                sqlx::query("set statement_timeout to 600000")
-                    .execute(conn)
-                    .await?;
-                Ok(())
-            })
-        })
-        .connect(&cmd.connection_string)
-        .await?;
+    let db_pool = crate::connect_db(&cmd.connection_string, 5).await?;
 
     let month_human_repr = cmd.month.format("%B %Y");
 
     tracing::info!("Fetching billing data for {month_human_repr}");
 
-    let invoices = load_invoices(&db_pool, cmd.month, &cmd.tenants).await?;
+    let invoices = load_invoices(&db_pool, cmd.month, &cmd.tenants, &[]).await?;
 
     let mut invoice_type_counter: HashMap<InvoiceType, usize> = HashMap::new();
     invoices.iter().for_each(|invoice| {
@@ -1646,7 +1637,8 @@ mod tests {
         let invoices = load_invoices(
             &pool,
             "2026-08-01".parse().unwrap(),
-            &["acmeCo/".to_string()],
+            &[],
+            &["otherCo/".to_string()],
         )
         .await
         .unwrap();
@@ -1685,6 +1677,7 @@ mod tests {
             &pool,
             "2026-08-01".parse().unwrap(),
             &["otherCo/".to_string()],
+            &[],
         )
         .await
         .unwrap();

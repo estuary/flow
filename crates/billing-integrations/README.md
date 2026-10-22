@@ -24,9 +24,10 @@ approving collection.
   after approval requires another send run. Per-invoice failures do not prevent
   other invoices from completing, but cause the command to exit unsuccessfully.
   Errors use structured logging so invoice context is retained in redirected output.
+  Bills are selected from the database with the same query as publishing, and each bill's invoice is retrieved by its recorded ID. Usage bills without one are skipped; a manual bill without one is skipped with a warning. After editing a manual bill's dates, republish its draft before sending it.
 - `stripe_utils.rs` wraps Stripe invoices for metadata access and operator tables.
 
-All commands accept `--month YYYY-MM` or the legacy `YYYY-MM-01` form.
+All commands require `--connection-string` and accept `--month YYYY-MM` or the legacy `YYYY-MM-01` form.
 
 Calculate a tenant's invoice with `generate-invoices --month 2026-08 --tenants acmeCo/`
 and a control-plane `--connection-string`. Use `--all-tenants` for every tenant.
