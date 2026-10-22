@@ -127,15 +127,24 @@ where
     let mut stdin = connector.stdin.take().expect("connector stdin is a pipe");
     let stderr = connector.stderr.take().expect("connector stderr is a pipe");
 
-    // Future which processes decoded logs from the connector's stderr, forwarding to
-    // our `log_handler` and, when stderr closes, resolving to a final Log.
-    let last_log = process_logs(stderr, log_handler, std::time::SystemTime::now);
+    // Task which processes decoded logs from the connector's stderr, forwarding to
+    // our `log_handler` and, when stderr closes, resolving to a final Log. It runs
+    // apart from our stdin writes below: a connector blocked writing its stderr
+    // may stop reading its stdin, and a blocked stdin write must not stop stderr
+    // from draining.
+    let last_log = AutoAbortHandle(tokio::spawn(process_logs(
+        stderr,
+        log_handler,
+        std::time::SystemTime::now,
+    )));
 
     // Future which awaits the connector's exit and stderr result, and returns Ok(())
     // if it exited successfully or an error with embedded stderr content otherwise.
     let exit = async {
         let (wait, last_log) = futures::join!(connector.wait(), last_log);
         let status = wait.map_err(|err| map_status("failed to wait for connector", err))?;
+        let last_log =
+            last_log.map_err(|err| map_status("failed to process connector logs", err))?;
 
         if !status.success() {
             tracing::error!(%status, "connector failed");
@@ -462,6 +471,47 @@ mod test {
             "###);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_bidi_drains_stderr_while_stdin_is_full() {
+        // A connector which logs heavily before it reads any input, while
+        // we send it more input than its stdin pipe holds. Its stderr must
+        // keep draining though our write to its stdin is blocked.
+        let requests = futures::stream::repeat_with(|| {
+            Ok(TestSpec {
+                name: "x".repeat(1024),
+                ..Default::default()
+            })
+        })
+        .take(2048);
+
+        // Unstructured lines may fold into fewer Logs, so count their bytes.
+        let logged = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = logged.clone();
+
+        let responses = bidi::<TestSpec, TestSpec, _, _, _>(
+            new_command(&[
+                "sh",
+                "-c",
+                "head -c 4000000 /dev/zero | tr '\\0' x | fold -w 100 >&2; cat >/dev/null",
+            ]),
+            Codec::Proto,
+            requests,
+            sync_log_handler(move |log| {
+                let xs = log.message.bytes().filter(|b| *b == b'x').count();
+                counted.fetch_add(xs, std::sync::atomic::Ordering::Relaxed);
+            }),
+        )
+        .unwrap()
+        .collect::<Vec<_>>();
+
+        let responses = tokio::time::timeout(std::time::Duration::from_secs(60), responses)
+            .await
+            .expect("connector deadlocked on its stderr");
+
+        assert!(responses.is_empty(), "{responses:?}");
+        assert_eq!(logged.load(std::sync::atomic::Ordering::Relaxed), 4_000_000);
     }
 
     #[tokio::test]
