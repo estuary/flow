@@ -1375,6 +1375,7 @@ dependencies = [
  "async-graphql",
  "async-stripe",
  "async-trait",
+ "axum",
  "catalog-stats",
  "chrono",
  "futures",
