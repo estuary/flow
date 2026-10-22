@@ -1,6 +1,6 @@
 use super::BillingProvider;
+use crate::{customer_create_idempotency_key, tenant_metadata};
 use anyhow::Context;
-use billing_types::{customer_create_idempotency_key, tenant_metadata};
 
 /// Production `BillingProvider` backed by the Stripe API.
 #[derive(Clone)]
@@ -55,7 +55,7 @@ impl BillingProvider for StripeBillingProvider {
         // rather than waiting for the tenant controller to observe a later edit.
         if let Some(billing_name) = billing_name {
             metadata.insert(
-                billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                crate::CUSTOMER_NAME_METADATA_KEY.to_string(),
                 billing_name.to_string(),
             );
         }
@@ -196,7 +196,7 @@ impl BillingProvider for StripeBillingProvider {
         // `Customer.name` and retire this metadata field.
         let metadata = name.map(|name| {
             std::collections::HashMap::from([(
-                billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                crate::CUSTOMER_NAME_METADATA_KEY.to_string(),
                 name.to_string(),
             )])
         });

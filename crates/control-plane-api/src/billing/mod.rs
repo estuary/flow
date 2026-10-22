@@ -2,9 +2,8 @@ pub mod customer;
 pub mod db;
 #[cfg(any(test, feature = "test-support"))]
 pub mod memory;
-pub mod provider;
-pub mod stripe_impl;
 
+pub use billing_types::{BillingProvider, StripeBillingProvider, default_payment_method_id};
 pub use billing_types::{
     CUSTOMER_NAME_METADATA_KEY, InvoiceMetadata, InvoiceSearch, InvoiceType, TENANT_METADATA_KEY,
 };
@@ -15,5 +14,3 @@ pub use db::{
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use memory::InMemoryBillingProvider;
-pub use provider::{BillingProvider, default_payment_method_id};
-pub use stripe_impl::StripeBillingProvider;

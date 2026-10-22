@@ -1383,6 +1383,7 @@ dependencies = [
  "anyhow",
  "async-graphql",
  "async-stripe",
+ "async-trait",
  "serde",
  "serde_json",
  "sqlx",
