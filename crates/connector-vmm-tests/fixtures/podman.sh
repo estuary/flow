@@ -122,6 +122,21 @@ if [[ "${step}" == create && -e "${TEST}/vmm-flags" ]]; then
     set -- "$@" "${flags[@]}"
 fi
 
+# Verify the launcher's completed mount before podman can use it or teardown
+# can remove it. The platform test supplies the expected static binary.
+if [[ "${step}" == create && -e "${TEST}/expected-connector-init" ]]; then
+    mount= name=
+    for arg in "$@"; do
+        case "${arg}" in
+        --env=CONNECTOR_MOUNT=*) mount=${arg#--env=CONNECTOR_MOUNT=} ;;
+        --name=*) name=${arg#--name=} ;;
+        esac
+    done
+    [[ -n "${mount}" && -n "${name}" ]]
+    cmp -- "$(<"${TEST}/expected-connector-init")" "${mount}/flow-connector-init" >&2
+    printf '%s\n' "${name}" >>"${TEST}/checked-mounts"
+fi
+
 # Whether this call is the one a hold of its step catches: only the Nth while
 # the hold is in place, N being what the hold holds or else 1, so that a hold
 # never catches a launch other than the one the test awaits. Each call claims

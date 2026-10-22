@@ -1,0 +1,12 @@
+---
+source: crates/connector-vmm/src/resolver/mod.rs
+expression: log
+---
+targets=false fresh.mirror.acmeco.example: answer: rcode=2 ancount=0 bytes=45
+targets=false mixed.mirror.acmeco.example: answer: rcode=2 ancount=0 bytes=45
+targets=false refresh: answer: rcode=0 ancount=1 bytes=94
+targets=false reclaimed: answer: rcode=0 ancount=1 bytes=88
+targets=true fresh.mirror.acmeco.example: answer: rcode=2 ancount=0 bytes=45
+targets=true mixed.mirror.acmeco.example: answer: rcode=2 ancount=0 bytes=45
+targets=true refresh: answer: rcode=0 ancount=1 bytes=108
+targets=true reclaimed: answer: rcode=0 ancount=1 bytes=101

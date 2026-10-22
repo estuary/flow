@@ -33,16 +33,6 @@ pub fn call(
     op: &str,
     arguments: serde_json::Value,
 ) -> serde_json::Value {
-    call_timed(guest, probe, op, arguments).0
-}
-
-/// As `call`, with how long the probe took as the guest measured it.
-pub fn call_timed(
-    guest: &mut Guest,
-    probe: &str,
-    op: &str,
-    arguments: serde_json::Value,
-) -> (serde_json::Value, Duration) {
     let mut request = arguments;
     request["probe"] = probe.into();
     request["op"] = op.into();
@@ -64,8 +54,7 @@ pub fn call_timed(
     let mut response: serde_json::Value = serde_json::from_str(&response)
         .unwrap_or_else(|e| panic!("{probe}: the guest answered {response:?}: {e}"));
     assert_eq!(response["probe"], probe, "the guest answered another probe");
-    let elapsed = Duration::from_millis(response["ms"].as_u64().unwrap_or_default());
-    (response["result"].take(), elapsed)
+    response["result"].take()
 }
 
 /// Whether the guest's side of the channel has gone, within `timeout`: EOF or
@@ -84,38 +73,4 @@ pub fn closed_within(guest: &mut Guest, timeout: Duration) -> bool {
             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
         ),
     }
-}
-
-/// Run one probe on the host, as root, inside the network namespace of process
-/// `pid`: a VMM container's, say. That is strictly more than the VMM itself
-/// may do there, which is the point when the question is what the host lets
-/// out of that namespace. `probes.py once` answers on its stderr.
-pub fn once_in(pid: u32, probe: &str, op: &str, arguments: serde_json::Value) -> serde_json::Value {
-    let mut request = arguments;
-    request["probe"] = probe.into();
-    request["op"] = op.into();
-
-    let script = crate::run::fixture("probes.py");
-    let pid = pid.to_string();
-    let request = request.to_string();
-    let output = crate::run::sudo_output(
-        &[
-            "nsenter",
-            "-t",
-            &pid,
-            "-n",
-            "python3",
-            script.to_str().expect("a UTF-8 path"),
-            "once",
-            &request,
-        ],
-        None,
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success(), "{probe} in {pid}: {stderr}");
-
-    let line = stderr.lines().last().unwrap_or_default();
-    let mut response: serde_json::Value = serde_json::from_str(line)
-        .unwrap_or_else(|e| panic!("{probe} in {pid} answered {line:?}: {e}"));
-    response["result"].take()
 }

@@ -1,1 +1,1 @@
-{"egress": "public", "allowedNames": ["*.acmeco.example"], "ttlFloorSecs": 3, "ttlCapSecs": 10}
+{"egress": "public", "allowedNames": ["*.acmeco.example"], "ttlFloorSecs": 30, "ttlCapSecs": 60}
