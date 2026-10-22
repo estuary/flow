@@ -55,9 +55,10 @@ struct Args {
     #[derivative(Debug = "ignore")]
     #[clap(long = "stripe-webhook-secret", env = "STRIPE_WEBHOOK_SECRET")]
     stripe_webhook_secret: Option<String>,
-    /// JSON configuration file for the optional control-plane OAuth service.
-    #[clap(long, env = "OAUTH_CONFIG")]
-    oauth_config: Option<std::path::PathBuf>,
+    /// Optional control-plane OAuth service.
+    #[derivative(Debug = "ignore")]
+    #[command(flatten)]
+    oauth_config: Option<control_plane_api::server::public::oauth::Config>,
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
@@ -409,9 +410,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         sprites,
         args.stripe_webhook_secret,
     );
-    if let Some(path) = args.oauth_config {
-        let config: control_plane_api::server::public::oauth::Config =
-            serde_json::from_slice(&std::fs::read(path)?)?;
+    if let Some(config) = args.oauth_config {
         config.validate()?;
         api_app.oauth = Some(Arc::new(config));
     }

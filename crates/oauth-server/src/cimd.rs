@@ -1,16 +1,37 @@
-//! Client ID Metadata Documents identify clients without a registration database.
+//! Client ID Metadata Documents (CIMD) identify clients without a registration database.
 //! The client's `client_id` is an HTTPS URL serving its OAuth metadata.
-//!
-//! Fetching a caller-chosen URL is an SSRF primitive. `assert_safe_target` rejects
-//! non-public addresses, and the fetch pins those addresses and refuses redirects.
-//! Client names are untrusted text: the consent UI must also show the hostname
-//! of the client ID, whose ownership is established by DNS and TLS.
 
 use super::Error;
 
-// Bound streaming responses so a metadata endpoint cannot exhaust memory.
 const MAX_DOCUMENT_BYTES: usize = 5 * 1024;
 const FETCH_TIMEOUT_SECONDS: u64 = 10;
+
+// Copied from crates/egress on daveg/libkrun-sandbox.
+// TODO: Use egress::baseline(&[]) when that crate lands.
+const BASELINE: &[&str] = &[
+    "0.0.0.0/8",
+    "10.0.0.0/8",
+    "100.64.0.0/10",
+    "127.0.0.0/8",
+    "169.254.0.0/16",
+    "172.16.0.0/12",
+    "192.0.0.0/24",
+    "192.0.2.0/24",
+    "192.88.99.0/24",
+    "192.168.0.0/16",
+    "198.18.0.0/15",
+    "198.51.100.0/24",
+    "203.0.113.0/24",
+    "224.0.0.0/4",
+    "240.0.0.0/4",
+];
+
+fn baseline() -> Vec<ipnetwork::Ipv4Network> {
+    BASELINE
+        .iter()
+        .map(|raw| raw.parse().expect("BASELINE entries are constants"))
+        .collect()
+}
 
 #[derive(serde::Deserialize)]
 pub(super) struct ClientMetadata {
@@ -24,19 +45,13 @@ pub(super) struct ClientMetadata {
 fn validate_client_id_url(client_id: &str) -> Result<url::Url, Error> {
     let url = url::Url::parse(client_id)
         .map_err(|_| Error("invalid_client", "client_id must be a valid URL"))?;
-    // URL parsing normalizes dot segments, so check the original path as well.
-    let path = client_id
-        .split(['?', '#'])
-        .next()
-        .unwrap()
-        .split_once("://")
-        .and_then(|(_, rest)| rest.split_once('/'))
-        .map(|(_, path)| path)
-        .unwrap_or("");
+    // Require the supplied identity to match the parser's serialized URL so
+    // displayed client IDs and fetched URLs cannot differ through normalization.
     if url.scheme() != "https"
         || url.host_str().is_none()
-        || path.is_empty()
-        || path.split('/').any(|segment| matches!(segment, "." | ".."))
+        || matches!(url.host(), Some(url::Host::Ipv6(_)))
+        || url.path() == "/"
+        || url.as_str() != client_id
         || url.query().is_some()
         || url.fragment().is_some()
         || !url.username().is_empty()
@@ -44,13 +59,12 @@ fn validate_client_id_url(client_id: &str) -> Result<url::Url, Error> {
     {
         return Err(Error(
             "invalid_client",
-            "client_id must be an HTTPS document URL without credentials, query, fragment, or dot segments",
+            "client_id must be a canonical HTTPS URL with a non-root path and without credentials, query, fragment, or an IPv6 host",
         ));
     }
     Ok(url)
 }
 
-/// Network IO is bounded here; document parsing is handled by `parse_client_metadata`.
 pub(super) async fn fetch_client_metadata(client_id: &str) -> Result<ClientMetadata, Error> {
     tokio::time::timeout(
         std::time::Duration::from_secs(FETCH_TIMEOUT_SECONDS),
@@ -64,11 +78,11 @@ async fn fetch_client_metadata_inner(client_id: &str) -> Result<ClientMetadata, 
     let url = validate_client_id_url(client_id)?;
     let host = url.host_str().unwrap();
     let addresses = assert_safe_target(&url).await?;
-    // Pin the validated DNS answer to prevent rebinding. Redirects and ambient
-    // proxies must not introduce a second, unvalidated destination.
     let http = reqwest::Client::builder()
+        // Redirects and proxies are rejected to protect against unvalidated destinations.
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
+        // Pin the validated DNS answer to prevent rebinding.
         .resolve_to_addrs(host, &addresses)
         .build()
         .map_err(super::internal)?;
@@ -84,7 +98,7 @@ async fn fetch_client_metadata_inner(client_id: &str) -> Result<ClientMetadata, 
             "client metadata endpoint must return HTTP 200",
         ));
     }
-    // Enforce the cap during streaming, including responses without Content-Length.
+    // Limit bytes read even when Content-Length is absent.
     let mut bytes = Vec::new();
     while let Some(chunk) = response
         .chunk()
@@ -103,19 +117,9 @@ async fn fetch_client_metadata_inner(client_id: &str) -> Result<ClientMetadata, 
 }
 
 fn parse_client_metadata(client_id: &str, body: &[u8]) -> Result<ClientMetadata, Error> {
-    let document: serde_json::Value = serde_json::from_slice(body)
-        .map_err(|_| Error("invalid_client", "client metadata must be valid JSON"))?;
-    // Public metadata must not publish a client secret, even as a null value.
-    if document.get("client_secret").is_some() {
-        return Err(Error(
-            "invalid_client",
-            "client metadata must not contain client_secret",
-        ));
-    }
     let mut client: ClientMetadata =
-        serde_json::from_value(document).map_err(|_| Error("invalid_client", "client metadata must contain string client_id and client_name fields and a redirect_uris string list"))?;
+        serde_json::from_slice(body).map_err(|_| Error("invalid_client", "client metadata must contain string client_id and client_name fields and a redirect_uris string list"))?;
     client.client_name = client.client_name.trim().to_owned();
-    // Exact self-reference binds the document to the URL that served it.
     if client.client_id != client_id
         || client.client_name.is_empty()
         || client.redirect_uris.is_empty()
@@ -128,9 +132,8 @@ fn parse_client_metadata(client_id: &str, body: &[u8]) -> Result<ClientMetadata,
     Ok(client)
 }
 
-/// Match registered callbacks exactly, except for loopback hosts and ports.
-/// Native clients choose a free port when starting authorization, so their
-/// callback port cannot be fixed in the metadata document.
+/// Match registered callbacks, allowing loopback hosts and ports to vary.
+/// Native clients may choose an available callback port at runtime.
 pub(super) fn assert_redirect_uri_allowed(
     requested: &str,
     registered: &[String],
@@ -148,8 +151,7 @@ pub(super) fn assert_redirect_uri_allowed(
     ))
 }
 
-// Metadata is client-controlled, so membership alone cannot authorize browser
-// navigation. In particular, executable schemes can run in the dashboard origin.
+// Reject unsafe callbacks, e.g. client-controlled metadata could supply a javascript: URL.
 pub(super) fn validate_redirect_uri(uri: &str) -> Result<url::Url, Error> {
     let url = url::Url::parse(uri)
         .map_err(|_| Error("invalid_request", "redirect_uri must be a valid URL"))?;
@@ -187,50 +189,39 @@ pub(super) fn is_loopback_host(host: Option<url::Host<&str>>) -> bool {
     }
 }
 
-/// Anyone can choose a client ID, so refuse destinations inside the network perimeter.
-/// Return the checked addresses for pinning: a second DNS lookup could yield a
-/// different destination and bypass this check.
+/// Return validated addresses that the caller must pin to the hostname to avoid unchecked DNS results.
 async fn assert_safe_target(url: &url::Url) -> Result<Vec<std::net::SocketAddr>, Error> {
     let host = url.host_str().unwrap();
     let addresses = tokio::net::lookup_host((host, url.port_or_known_default().unwrap()))
         .await
-        .map_err(|_| Error("invalid_client", "client_id hostname could not be resolved"))?
-        .collect::<Vec<_>>();
-    if addresses.is_empty() || addresses.iter().any(|a| !public_ip(a.ip())) {
-        return Err(Error(
-            "invalid_client",
-            "client_id must resolve only to public addresses",
-        ));
-    }
-    Ok(addresses)
+        .map_err(|_| Error("invalid_client", "client_id hostname could not be resolved"))?;
+    ipv4_targets(addresses)
 }
 
-/// Only globally routable unicast destinations are eligible for metadata fetches.
-/// IPv4-mapped IPv6, transition ranges, and special-purpose ranges fail closed.
-fn public_ip(ip: std::net::IpAddr) -> bool {
-    if ip.is_multicast() {
-        return false;
+fn ipv4_targets(
+    addresses: impl IntoIterator<Item = std::net::SocketAddr>,
+) -> Result<Vec<std::net::SocketAddr>, Error> {
+    // Ignore IPv6 answers so hosts with both IPv4 and IPv6 remain usable.
+    let addresses = addresses
+        .into_iter()
+        .filter_map(|address| match address {
+            std::net::SocketAddr::V4(address) => Some(address),
+            std::net::SocketAddr::V6(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let baseline = baseline();
+    if addresses.is_empty()
+        || addresses
+            .iter()
+            .any(|a| baseline.iter().any(|network| network.contains(*a.ip())))
+    {
+        return Err(Error(
+            "invalid_client",
+            "client_id must resolve to IPv4 addresses, all of which must be public",
+        ));
     }
-    match ip {
-        std::net::IpAddr::V4(ip) => {
-            let [a, b, c, _] = ip.octets();
-            !(a == 0
-                || a == 10
-                || a == 127
-                || a >= 240
-                || (a == 100 && (64..=127).contains(&b))
-                || (a == 169 && b == 254)
-                || (a == 172 && (16..=31).contains(&b))
-                || (a == 192 && (b == 0 || b == 168 || (b == 88 && c == 99)))
-                || (a == 198 && (b == 18 || b == 19 || (b == 51 && c == 100)))
-                || (a == 203 && b == 0 && c == 113))
-        }
-        std::net::IpAddr::V6(ip) => {
-            let s = ip.segments();
-            (s[0] & 0xe000) == 0x2000
-                && !(s[0] == 0x2001 && (s[1] < 0x200 || s[1] == 0xdb8))
-                && s[0] != 0x2002
-                && !(s[0] == 0x3fff && s[1] < 0x1000)
-        }
-    }
+    Ok(addresses
+        .into_iter()
+        .map(std::net::SocketAddr::V4)
+        .collect())
 }
