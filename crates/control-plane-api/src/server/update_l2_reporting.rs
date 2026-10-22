@@ -98,14 +98,12 @@ pub async fn update_l2_reporting(
     let models::Derivation {
         transforms: l2_stats_transforms,
         using: l2_stats_using,
-        shards: l2_stats_shards,
         ..
     } = &mut l2_stats.model.as_mut().unwrap().derive.as_mut().unwrap();
 
     let models::Derivation {
         transforms: l2_stats_new_transforms,
         using: l2_stats_new_using,
-        shards: l2_stats_new_shards,
         ..
     } = &mut l2_stats_new
         .model
@@ -276,13 +274,6 @@ export class Derivation extends Types.IDerivation {"#
     l2_stats_new_module.push_str("\n}\n");
     *l2_stats_new_module_raw =
         models::RawValue::from_value(&serde_json::json!(l2_stats_new_module));
-
-    for shards in [l2_stats_shards, l2_stats_new_shards] {
-        shards.flags.insert(
-            models::Token::new(models::ENABLE_RUNTIME_V2),
-            models::Token::new("true"),
-        );
-    }
 
     let draft = tables::DraftCatalog {
         collections: tables::DraftCollections::from_iter([
