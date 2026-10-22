@@ -399,6 +399,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         agent::id_generator::with_random_shard(),
         billing_provider,
         catalog_stats,
+        connector_factory.clone(),
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),

@@ -71,6 +71,7 @@ pub struct TestServer {
     pub addr: std::net::SocketAddr,
     pub encoding_key: tokens::jwt::EncodingKey,
     pub decoding_keys: Vec<tokens::jwt::DecodingKey>,
+    pub connectors: Arc<SpecConnectors>,
     _shutdown_tx: tokio::sync::oneshot::Sender<()>,
 }
 
@@ -138,10 +139,12 @@ impl TestServer {
             Box::new(NoopBuilder),
         );
 
+        let connectors = Arc::new(SpecConnectors::default());
         let app = Arc::new(crate::App::new(
             models::IdGenerator::new(0),
             billing_provider,
             catalog_stats,
+            connectors.clone(),
             b"test-jwt-secret-for-integration-tests",
             pg_pool.clone(),
             publisher,
@@ -173,6 +176,7 @@ impl TestServer {
             addr,
             encoding_key,
             decoding_keys,
+            connectors,
             _shutdown_tx: shutdown_tx,
         }
     }
@@ -296,6 +300,81 @@ impl crate::publications::builds::Builder for NoopBuilder {
         _logs_token: sqlx::types::Uuid,
     ) -> anyhow::Result<build::Output> {
         panic!("NoopBuilder::build called in test - this should not happen for authorization tests")
+    }
+}
+
+/// Answers capture and materialization Spec requests with a fixed spec, and
+/// records each request with the data plane it was dialed in.
+#[derive(Debug, Default)]
+pub struct SpecConnectors {
+    pub requests: std::sync::Mutex<Vec<(models::Id, proto_flow::connector::Request)>>,
+}
+
+impl crate::connectors::ConnectorFactory for SpecConnectors {
+    fn make_connectors<'a>(
+        &'a self,
+        _snapshot: &'a crate::Snapshot,
+        _log_task: &'static str,
+        _logs_token: uuid::Uuid,
+    ) -> Box<crate::connectors::Connectors<'a>> {
+        use futures::FutureExt;
+        use proto_flow::{capture, connector, materialize};
+
+        Box::new(move |data_plane_id, request| {
+            self.requests
+                .lock()
+                .unwrap()
+                .push((data_plane_id, request.clone()));
+
+            let response = match request.kind {
+                Some(connector::request::Kind::Capture(capture::Request {
+                    kind: Some(capture::request::Kind::Spec(_)),
+                    ..
+                })) => {
+                    let spec = Box::new(capture::response::Spec {
+                        config_schema_json: r#"{"type":"object","title":"capture"}"#.into(),
+                        resource_config_schema_json: r#"{"type":"object"}"#.into(),
+                        documentation_url: "https://example.test/capture".to_string(),
+                        ..Default::default()
+                    });
+                    Ok((
+                        connector::response::Started {
+                            spec: Some(connector::response::started::Spec::Capture(spec.clone())),
+                            ..Default::default()
+                        },
+                        connector::response::Kind::Capture(capture::Response {
+                            kind: Some(capture::response::Kind::Spec(spec)),
+                            ..Default::default()
+                        }),
+                    ))
+                }
+                Some(connector::request::Kind::Materialize(materialize::Request {
+                    kind: Some(materialize::request::Kind::Spec(_)),
+                    ..
+                })) => {
+                    let spec = Box::new(materialize::response::Spec {
+                        config_schema_json: r#"{"type":"object","title":"materialization"}"#.into(),
+                        resource_config_schema_json: r#"{"type":"object"}"#.into(),
+                        documentation_url: "https://example.test/materialization".to_string(),
+                        ..Default::default()
+                    });
+                    Ok((
+                        connector::response::Started {
+                            spec: Some(connector::response::started::Spec::Materialize(
+                                spec.clone(),
+                            )),
+                            ..Default::default()
+                        },
+                        connector::response::Kind::Materialize(materialize::Response {
+                            kind: Some(materialize::response::Kind::Spec(spec)),
+                            ..Default::default()
+                        }),
+                    ))
+                }
+                _ => Err(anyhow::anyhow!("unexpected connector request")),
+            };
+            async move { response }.boxed()
+        })
     }
 }
 

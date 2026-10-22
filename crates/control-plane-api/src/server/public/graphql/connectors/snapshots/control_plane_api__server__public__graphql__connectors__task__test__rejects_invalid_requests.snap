@@ -1,0 +1,15 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/connectors/task.rs
+expression: results
+---
+{
+  "collection": "only captures and materializations have a connector spec",
+  "imageAndTask": "provide either 'fullImageName', or 'catalogName' with optional 'draftId' and 'dataPlane'",
+  "imageWithDraft": "provide either 'fullImageName', or 'catalogName' with optional 'draftId' and 'dataPlane'",
+  "livePlaneMismatch": "data plane differs from the live capture",
+  "localEndpoint": "a local connector has no image to ask for its spec",
+  "neither": "provide either 'fullImageName', or 'catalogName' with optional 'draftId' and 'dataPlane'",
+  "othersDraft": "draft not found",
+  "stagedDeletion": "draft entry is a deletion",
+  "unreadable": "PermissionDenied: bob@example.test is not authorized to access prefix or name 'aliceCo/in/capture-foo' with required capability CatalogRead"
+}

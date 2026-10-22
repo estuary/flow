@@ -9,26 +9,26 @@ use crate::server::public::graphql::{JsonObject, PgDataLoader, connectors::Conne
 /// and resources.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct ConnectorSpec {
-    /// The database ID of the connector_tags row backing this spec.
+    /// The database ID of the connector_tags row backing this spec, if there is one.
     #[graphql(
         deprecation = "Not intended to be part of the public API. To be removed once downstream components no longer depend on this field."
     )]
-    id: Id,
+    pub(super) id: Option<Id>,
     /// The OCI Image tag this spec was resolved from, including the leading `:`. For example `:v1`.
     /// This may differ from the requested tag if the request fell back to the default.
-    image_tag: String,
+    pub(super) image_tag: String,
     /// The protocol of the connector (capture or materialization)
-    protocol: Option<ConnectorProto>,
+    pub(super) protocol: Option<ConnectorProto>,
     /// URL pointing to the documentation page for this connector
-    documentation_url: Option<String>,
+    pub(super) documentation_url: Option<String>,
     /// Endpoint configuration JSON Schema. Returned as raw JSON because JSON Schema is a recursive format that cannot be meaningfully decomposed into GraphQL fields.
-    endpoint_spec_schema: Option<JsonObject>,
+    pub(super) endpoint_spec_schema: Option<JsonObject>,
     /// Resource configuration JSON Schema. Returned as raw JSON because JSON Schema is a recursive format that cannot be meaningfully decomposed into GraphQL fields.
-    resource_spec_schema: Option<JsonObject>,
+    pub(super) resource_spec_schema: Option<JsonObject>,
     /// Whether backfill should be disabled for this connector
-    disable_backfill: bool,
+    pub(super) disable_backfill: bool,
     /// The default interval between invocations of a capture using this connector. Formatted as HH:MM:SS. Only applicable to non-streaming (polling) capture connectors.
-    default_capture_interval: Option<String>,
+    pub(super) default_capture_interval: Option<String>,
 }
 
 /// Internal key for the DataLoader, not exposed in GraphQL.
@@ -71,7 +71,7 @@ impl async_graphql::dataloader::Loader<ConnectorSpecKey> for PgDataLoader {
                 let key = ConnectorSpecKey(row.id);
 
                 let val = ConnectorSpec {
-                    id: row.id,
+                    id: Some(row.id),
                     image_tag: row.image_tag,
                     protocol: row.protocol,
                     documentation_url: row.documentation_url,

@@ -40,6 +40,9 @@ pub struct App {
     pub id_generator: std::sync::Mutex<models::IdGenerator>,
     pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
     pub catalog_stats: Option<Arc<catalog_stats::Client>>,
+    /// Dials connectors in data planes, as `connectorSpec` does to resolve the
+    /// Spec of a drafted or live task.
+    pub connector_factory: Arc<dyn crate::connectors::ConnectorFactory>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
     pub pg_pool: sqlx::PgPool,
@@ -60,6 +63,7 @@ impl App {
         id_generator: models::IdGenerator,
         billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
         catalog_stats: Option<Arc<catalog_stats::Client>>,
+        connector_factory: Arc<dyn crate::connectors::ConnectorFactory>,
         jwt_secret: &[u8],
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
@@ -71,6 +75,7 @@ impl App {
             id_generator: std::sync::Mutex::new(id_generator),
             billing_provider,
             catalog_stats,
+            connector_factory,
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
             pg_pool,

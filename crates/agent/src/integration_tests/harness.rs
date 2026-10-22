@@ -1806,6 +1806,7 @@ impl TestHarness {
             id_gen,
             None,
             None,
+            self.connectors.clone(),
             &jwt_secret,
             self.pool.clone(),
             self.publisher.clone(),
