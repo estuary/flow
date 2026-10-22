@@ -73,10 +73,6 @@ impl StatusFilter {
     }
 }
 
-pub fn customer_search_query(tenant: &str) -> String {
-    format!(r#"metadata["{TENANT_METADATA_KEY}"]:"{tenant}""#)
-}
-
 /// Build the Stripe metadata map that stamps a tenant onto a tenant-scoped
 /// object — the SetupIntent created for `setBillingPaymentMethod`. The
 /// `setup_intent.succeeded` webhook recovers
@@ -90,8 +86,7 @@ pub fn tenant_metadata(tenant: &str) -> HashMap<String, String> {
 
 /// Deterministic Stripe Idempotency-Key for `Customer::create` calls. Using the
 /// tenant name collapses concurrent or retried creations across processes within
-/// Stripe's 24-hour idempotency window, so a search-index lag race can't produce
-/// duplicate customer rows for the same tenant.
+/// Stripe's 24-hour idempotency window.
 pub fn customer_create_idempotency_key(tenant: &str) -> String {
     format!("flow-customer-create:{tenant}")
 }
@@ -205,14 +200,6 @@ mod tests {
                 "estuary.dev/tenant_name".to_string(),
                 "acme/widgets".to_string()
             )])
-        );
-    }
-
-    #[test]
-    fn customer_query_format() {
-        assert_eq!(
-            customer_search_query("acme/widgets"),
-            r#"metadata["estuary.dev/tenant_name"]:"acme/widgets""#
         );
     }
 

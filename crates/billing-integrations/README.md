@@ -7,6 +7,7 @@ Operator CLI for publishing control-plane bills to Stripe and approving collecti
   performs read-only classification against Stripe. Manual bills always use
   `send_invoice`. `--recreate-existing` (alias `--recreate-finalized`) replaces
   eligible usage invoices; it does not reissue manual bills.
+  A bill's invoice and a tenant's customer are retrieved by the IDs recorded in `stripe_invoice_id` (of `internal.billing_historicals` and `internal.manual_bills`) and `tenants.stripe_customer_id`. Without a recorded ID, execution creates the customer or invoice and records its ID. A manual bill keeps one invoice across the months it spans and across edits to its dates; each publish refreshes its draft.
 - `send.rs` checks current Stripe state before approval and again before
   finalization. Usage drafts without a payment method can switch to Net 30 with
   operator approval. Failed switches are excluded from finalization; incorrectly

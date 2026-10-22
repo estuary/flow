@@ -1365,6 +1365,7 @@ dependencies = [
  "comfy-table",
  "futures",
  "indicatif",
+ "insta",
  "itertools 0.14.0",
  "num-format",
  "serde",
