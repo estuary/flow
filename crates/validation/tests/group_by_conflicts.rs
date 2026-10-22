@@ -66,6 +66,68 @@ test://example/catalog.yaml:
 }
 
 #[test]
+fn test_trial_storage_disables_binding() {
+    let (selections, errors) = common::run_selection(
+        MODEL_YAML,
+        r#"
+driver:
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial, prefix: collection-data/ }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
+"#,
+    );
+    insta::assert_debug_snapshot!((selections, errors));
+}
+
+#[test]
+fn test_trial_storage_with_task_backfill() {
+    let (selections, errors) = common::run_selection(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      onIncompatibleSchemaChange: backfill
+
+driver:
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial, prefix: collection-data/ }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
+"#,
+    );
+    insta::assert_debug_snapshot!((selections, errors));
+}
+
+#[test]
+fn test_trial_storage_with_binding_backfill() {
+    let (selections, errors) = common::run_selection(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      bindings:
+        - source: the/collection
+          resource:
+            _meta: { path: [a] }
+            table: a
+          fields:
+            recommended: 1
+          onIncompatibleSchemaChange: backfill
+
+driver:
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial, prefix: collection-data/ }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
+"#,
+    );
+    insta::assert_debug_snapshot!((selections, errors));
+}
+
+#[test]
 fn test_reenable_with_backfill() {
     // A binding which was disabled by a group-by change is re-enabled with an
     // incremented backfill. The backfill rebuilds the resource under the new
@@ -76,7 +138,6 @@ fn test_reenable_with_backfill() {
 test://example/catalog.yaml:
   materializations:
     the/materialization:
-      onIncompatibleSchemaChange: disableBinding
       bindings:
         - source: the/collection
           resource:
@@ -97,6 +158,10 @@ driver:
           fields:
             recommended: 1
           disable: true
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial, prefix: collection-data/ }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
 "#,
     );
     insta::assert_debug_snapshot!((selections, errors));

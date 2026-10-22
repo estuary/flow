@@ -707,6 +707,12 @@ impl StorageMapping {
     async fn fragment_stores(&self) -> Vec<FragmentStore> {
         self.spec.stores.iter().map(FragmentStore::from).collect()
     }
+
+    /// Whether any store of this mapping is an Estuary trial store, which
+    /// retains only recent collection data.
+    async fn is_trial(&self) -> bool {
+        self.spec.stores.iter().any(models::Store::is_trial)
+    }
 }
 
 /// Storage provider of a fragment store.

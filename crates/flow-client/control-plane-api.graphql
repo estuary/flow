@@ -3328,6 +3328,11 @@ type StorageMapping {
 	Stores for journal fragments under this mapping.
 	"""
 	fragmentStores: [FragmentStore!]!
+	"""
+	Whether any store of this mapping is an Estuary trial store, which
+	retains only recent collection data.
+	"""
+	isTrial: Boolean!
 }
 
 type StorageMappingConnection {

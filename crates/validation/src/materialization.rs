@@ -231,6 +231,7 @@ async fn walk_materialization(
                 shards.disable,
                 &live_bindings_model,
                 &live_bindings_spec,
+                storage_mappings,
                 &mut model_fixes,
                 &mut auto_disabled_bindings,
                 errors,
@@ -474,9 +475,12 @@ async fn walk_materialization(
         match (
             !conflicts_other.is_empty(),
             !conflicts_incompatible.is_empty(),
-            model
-                .on_incompatible_schema_change
-                .unwrap_or(on_incompatible_schema_change),
+            resolve_on_incompatible_schema_change(
+                model.on_incompatible_schema_change,
+                on_incompatible_schema_change,
+                model.source.collection(),
+                storage_mappings,
+            ),
         ) {
             (false, false, _) => {
                 // No conflicts.
@@ -735,13 +739,14 @@ async fn walk_materialization(
 fn walk_materialization_binding<'a>(
     scope: Scope<'a>,
     pub_id: models::Id,
-    default_on_incompatible_schema_change: models::OnIncompatibleSchemaChange,
+    default_on_incompatible_schema_change: Option<models::OnIncompatibleSchemaChange>,
     mut model: models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
     catalog_name: &models::Materialization,
     disable: bool,
     live_bindings_model: &BTreeMap<Vec<String>, &models::MaterializationBinding>,
     live_bindings_spec: &LiveBindings,
+    storage_mappings: &tables::StorageMappings,
     model_fixes: &mut Vec<String>,
     auto_disabled_bindings: &mut Vec<models::status::AutoDisabledBinding>,
     errors: &mut tables::Errors,
@@ -826,10 +831,12 @@ fn walk_materialization_binding<'a>(
         errors,
     );
 
-    // The binding setting takes precedence, if specified.
-    let on_incompatible_schema_change = model
-        .on_incompatible_schema_change
-        .unwrap_or(default_on_incompatible_schema_change);
+    let on_incompatible_schema_change = resolve_on_incompatible_schema_change(
+        model.on_incompatible_schema_change,
+        default_on_incompatible_schema_change,
+        source,
+        storage_mappings,
+    );
 
     // Was this binding's source collection reset under its current backfill count?
     let was_reset = live_spec.is_some_and(|live_spec| {
@@ -930,6 +937,29 @@ fn walk_materialization_binding<'a>(
     };
 
     (model_path, model, None, Some(validate))
+}
+
+/// Resolve the effective `onIncompatibleSchemaChange` of a binding.
+/// The binding's setting takes precedence over the task's. If neither is set,
+/// a binding whose source collection is in trial storage is disabled rather
+/// than backfilled: trial storage retains only recent fragments, so a backfill
+/// would rebuild the target resource from a partial history.
+fn resolve_on_incompatible_schema_change(
+    binding: Option<models::OnIncompatibleSchemaChange>,
+    task: Option<models::OnIncompatibleSchemaChange>,
+    source: &models::Collection,
+    storage_mappings: &tables::StorageMappings,
+) -> models::OnIncompatibleSchemaChange {
+    binding.or(task).unwrap_or_else(|| {
+        if storage_mappings
+            .lookup(source)
+            .is_some_and(|m| m.stores.iter().any(models::Store::is_trial))
+        {
+            models::OnIncompatibleSchemaChange::DisableBinding
+        } else {
+            models::OnIncompatibleSchemaChange::Backfill
+        }
+    })
 }
 
 /// Carry live bindings over as inactive bindings of the spec being built,
