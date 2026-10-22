@@ -2,6 +2,8 @@ use clap::Parser;
 
 mod publish;
 mod send;
+#[cfg(test)]
+mod stripe_stub;
 mod stripe_utils;
 
 #[derive(Debug, Parser)]
