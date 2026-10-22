@@ -2,6 +2,23 @@ use crate::{CatalogStats, Client, Grain, pack_name_prefix_range};
 use anyhow::Context;
 use googleapis_tonic_google_bigtable_v2::google::bigtable::v2::{self as bt, mutation, row_filter};
 
+/// Connects to `instance` on this stack's BigTable emulator, where
+/// `mise run local:bigtable` creates the `estuary-local` instance. The host
+/// port is per-stack and set by mise/tasks/local/stack-env, so tests must run
+/// via mise.
+pub async fn connect_emulator(instance: &str) -> Client {
+    let port = std::env::var("FLOW_PORT_BIGTABLE")
+        .expect("FLOW_PORT_BIGTABLE must be set; run via 'mise run' (see local:bigtable)");
+
+    Client::connect(&crate::BigtableConfig {
+        project: "estuary-local".to_string(),
+        instance: instance.to_string(),
+        emulator_host: Some(format!("localhost:{port}")),
+    })
+    .await
+    .expect("BigTable emulator must be running: `mise run local:bigtable`")
+}
+
 /// Seeds one row per `(grain, stats)` pair, writing into
 /// `catalog_stats_<grain>`.
 pub async fn seed_rows(client: &Client, rows: &[(Grain, CatalogStats)]) -> anyhow::Result<()> {
