@@ -78,8 +78,8 @@ pub fn customer_search_query(tenant: &str) -> String {
 }
 
 /// Build the Stripe metadata map that stamps a tenant onto a tenant-scoped
-/// object — the SetupIntent created for `setBillingPaymentMethod`, and the base
-/// map for a tenant's Customer. The `setup_intent.succeeded` webhook recovers
+/// object — the SetupIntent created for `setBillingPaymentMethod`. The
+/// `setup_intent.succeeded` webhook recovers
 /// the tenant from exactly this map. Centralizing construction here keeps
 /// `TENANT_METADATA_KEY` in one place and gives us a single spot to add further
 /// tenant-scoped metadata fields later; callers needing extra keys start from
