@@ -200,6 +200,86 @@ async fn test_alert_notifications() {
     started_resolved.assert_emails_sent(&["alerts@robins.test", "robin@robins.test"]);
     assert_task_deleted(starting_resolved_id, &mut harness).await;
 
+    sqlx::raw_sql(r#"
+        update alert_subscriptions set include_alert_types = array['shard_failed']::alert_type[]
+        where catalog_prefix = 'robins/';
+        insert into alert_subscriptions (id, catalog_prefix, email, include_alert_types) values
+          ('1818181818181818', 'robins/', 'first@robins.test', array['bindings_auto_disabled', 'task_auto_disabled_failing', 'task_auto_disabled_idle']::alert_type[]),
+          ('1919191919191919', 'robins/', 'second@robins.test', array['bindings_auto_disabled', 'task_auto_disabled_failing', 'task_auto_disabled_idle']::alert_type[]);
+    "#).execute(&pool).await.unwrap();
+
+    // Event completion must not select resolution payloads or discard recipient progress.
+    for (index, alert_type) in [
+        AlertType::BindingsAutoDisabled,
+        AlertType::TaskAutoDisabledFailing,
+        AlertType::TaskAutoDisabledIdle,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = models::Id::new([20 + index as u8; 8]);
+        let arguments = serde_json::json!({
+            "spec_type": "materialization",
+            "failing_since": "2025-08-01",
+            "bindings": [{"collection": "robins/nests", "resource_path": ["nests"],
+                "reason": "incompatible_schema_change", "detail": "original firing detail"}]
+        });
+        let mut txn = pool.begin().await.unwrap();
+        apply_alert_actions(
+            vec![AlertAction::Fire(control_plane_api::alerts::FireAlert {
+                id,
+                catalog_name: format!("robins/event-{index}"),
+                alert_type,
+                fired_at: resolved_at,
+                base_arguments: serde_json::from_value(arguments).unwrap(),
+            })],
+            &mut txn,
+        )
+        .await
+        .unwrap();
+        txn.commit().await.unwrap();
+        sqlx::query("update alert_history set resolved_arguments = $2 where id = $1")
+            .bind(id)
+            .bind(serde_json::json!({"recipients": [{"email": "wrong@robins.test"}]}))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        if index == 0 {
+            harness.alert_sender.set_fail_after(1).await;
+            let partial = harness.assert_alert_resolved(id).await;
+            assert_eq!(Some(partial.alert.fired_at), partial.alert.resolved_at);
+            partial.assert_emails_sent(&["first@robins.test"]);
+            assert!(
+                partial.notifications[0]
+                    .body
+                    .contains("original firing detail")
+            );
+            assert_eq!(
+                partial.expect_notification_state().max_idempotency_key,
+                Some(format!("{id}-fired-0"))
+            );
+            harness.alert_sender.set_fail_after(usize::MAX).await;
+            let completed = harness.assert_alert_resolved(id).await;
+            completed.assert_emails_sent(&["second@robins.test"]);
+            assert_eq!(
+                completed.notifications[0].idempotency_key,
+                format!("{id}-fired-1")
+            );
+            assert_task_deleted(id, &mut harness).await;
+        } else {
+            harness.alert_sender.set_fail_after(usize::MAX).await;
+            let completed = harness.assert_alert_resolved(id).await;
+            completed.assert_emails_sent(&["first@robins.test", "second@robins.test"]);
+            assert_eq!(Some(completed.alert.fired_at), completed.alert.resolved_at);
+            assert_eq!(
+                completed.notifications[0].idempotency_key,
+                format!("{id}-fired-0")
+            );
+            assert_task_deleted(id, &mut harness).await;
+        }
+    }
+
     /*
      * It's common for a given alert to not have any subscribers, which results
      * in an alert_history row with arguments that have no `recipients`. Test

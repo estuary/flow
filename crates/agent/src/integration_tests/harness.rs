@@ -921,6 +921,29 @@ impl TestHarness {
         }
     }
 
+    pub async fn assert_alert_event(
+        &mut self,
+        catalog_name: &str,
+        alert_type: AlertType,
+    ) -> TestAlert {
+        assert!(alert_type.is_event());
+        let id: Id = sqlx::query_scalar(
+            "select id from alert_history where catalog_name = $1 and alert_type = $2 order by fired_at desc, id desc limit 1",
+        )
+        .bind(catalog_name)
+        .bind(alert_type)
+        .fetch_one(&self.pool)
+        .await
+        .expect("event must be recorded");
+        let event = self.assert_alert_resolved(id).await;
+        assert_eq!(Some(event.alert.fired_at), event.alert.resolved_at);
+        assert!(
+            event.notification_state.is_null(),
+            "event delivery must finish"
+        );
+        event
+    }
+
     /// Sets the `wake_at` time of the given task to the smallest possible value.
     /// Panics if the task does not exist.
     pub async fn set_min_task_wake_at(&mut self, task_id: models::Id) {
