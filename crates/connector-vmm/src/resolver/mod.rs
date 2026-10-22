@@ -1296,6 +1296,176 @@ mod tests {
         assert!(matches!(handled.decision.outcome, Outcome::Resolved));
     }
 
+    /// A rejected answer cannot change an earlier promise or remember any of
+    /// its CNAME targets, regardless of the order of its address records.
+    #[test]
+    fn refused_answers_preserve_authorization() {
+        let name = "artifacts.acmeco.example";
+        let forbidden = Ipv4Addr::new(10, 1, 2, 3);
+        let mut log = String::new();
+        for (label, records) in [
+            ("private", vec![Rr::A(name, forbidden, 300)]),
+            (
+                "held then private",
+                vec![Rr::A(name, public(10), 300), Rr::A(name, forbidden, 300)],
+            ),
+            (
+                "new then private",
+                vec![Rr::A(name, public(11), 300), Rr::A(name, forbidden, 300)],
+            ),
+            (
+                "private then new",
+                vec![Rr::A(name, forbidden, 300), Rr::A(name, public(11), 300)],
+            ),
+            (
+                "CNAME to private",
+                vec![
+                    Rr::Cname(name, "bad.cdn.example", 300),
+                    Rr::A("bad.cdn.example", forbidden, 300),
+                ],
+            ),
+        ] {
+            let recorder = Recorder::default();
+            let mut resolver = resolver(
+                upstream(vec![((name, dns::TYPE_A), records)]),
+                recorder.clone(),
+            );
+            let expiry = Instant::now() + Duration::from_secs(86_400);
+            resolver.addresses.insert(public(10), expiry);
+            resolver
+                .targets
+                .insert("held.cdn.example".to_string(), expiry);
+            let before = (resolver.addresses.clone(), resolver.targets.clone());
+            let handled = resolver
+                .handle(&query(1, name, dns::TYPE_A), Instant::now())
+                .unwrap();
+            assert_eq!(
+                (&resolver.addresses, &resolver.targets),
+                (&before.0, &before.1),
+                "{label}: existing promises are unchanged"
+            );
+            assert!(recorder.calls().is_empty(), "{label}: no kernel update");
+            assert!(!resolver.allowed("bad.cdn.example", Instant::now()));
+            log.push_str(&format!("{label}: {}\n", summarize(&handled)));
+        }
+        insta::assert_snapshot!(log);
+    }
+
+    /// Both capacities reject whole answers, permit refreshes, and reclaim
+    /// expired entries only after the kernel's garbage-collection allowance.
+    #[test]
+    fn capacities_reject_partial_answers_and_reclaim() {
+        let mut log = String::new();
+        for targets in [false, true] {
+            let recorder = Recorder::default();
+            let existing = "existing.mirror.acmeco.example";
+            let mixed = "mixed.mirror.acmeco.example";
+            let fresh = "fresh.mirror.acmeco.example";
+            let record = |name, new| {
+                if targets {
+                    Rr::Cname(
+                        name,
+                        if new {
+                            "new.cdn.example"
+                        } else {
+                            "held.cdn.example"
+                        },
+                        300,
+                    )
+                } else {
+                    Rr::A(name, public(if new { 11 } else { 10 }), 300)
+                }
+            };
+            let mut resolver = resolver(
+                upstream(vec![
+                    ((existing, dns::TYPE_A), vec![record(existing, false)]),
+                    (
+                        (mixed, dns::TYPE_A),
+                        vec![record(mixed, false), record(mixed, true)],
+                    ),
+                    ((fresh, dns::TYPE_A), vec![record(fresh, true)]),
+                ]),
+                recorder.clone(),
+            );
+            let expiry = Instant::now() + Duration::from_secs(86_400);
+            if targets {
+                resolver
+                    .targets
+                    .insert("held.cdn.example".to_string(), expiry);
+                for index in 1..super::CAP {
+                    resolver
+                        .targets
+                        .insert(format!("held-{index}.cdn.example"), expiry);
+                }
+            } else {
+                resolver.addresses.insert(public(10), expiry);
+                for index in 1..super::CAP {
+                    resolver
+                        .addresses
+                        .insert(Ipv4Addr::from(index as u32), expiry);
+                }
+            }
+            let before = (resolver.addresses.clone(), resolver.targets.clone());
+            for name in [fresh, mixed] {
+                let handled = resolver
+                    .handle(&query(1, name, dns::TYPE_A), Instant::now())
+                    .unwrap();
+                assert_eq!(
+                    (&resolver.addresses, &resolver.targets),
+                    (&before.0, &before.1)
+                );
+                assert!(
+                    recorder.calls().is_empty(),
+                    "capacity failure cannot write a partial answer"
+                );
+                log.push_str(&format!(
+                    "targets={targets} {name}: {}\n",
+                    summarize(&handled)
+                ));
+            }
+            let handled = resolver
+                .handle(&query(2, existing, dns::TYPE_A), Instant::now())
+                .unwrap();
+            assert!(matches!(handled.decision.outcome, Outcome::Resolved));
+            log.push_str(&format!(
+                "targets={targets} refresh: {}\n",
+                summarize(&handled)
+            ));
+
+            let expired = Instant::now();
+            for expiry in resolver
+                .addresses
+                .values_mut()
+                .chain(resolver.targets.values_mut())
+            {
+                *expiry = expired;
+            }
+            if targets {
+                assert!(
+                    !resolver.allowed("held.cdn.example", expired),
+                    "an expired target no longer admits a query"
+                );
+            }
+            resolver.prune(expired + super::RECLAIM - Duration::from_nanos(1));
+            assert_eq!(
+                resolver.addresses.len() + resolver.targets.len(),
+                super::CAP
+            );
+            resolver.prune(expired + super::RECLAIM);
+            assert!(resolver.addresses.is_empty() && resolver.targets.is_empty());
+            let handled = resolver
+                .handle(&query(3, fresh, dns::TYPE_A), Instant::now())
+                .unwrap();
+            assert!(matches!(handled.decision.outcome, Outcome::Resolved));
+            assert_eq!(resolver.addresses.len() + resolver.targets.len(), 1);
+            log.push_str(&format!(
+                "targets={targets} reclaimed: {}\n",
+                summarize(&handled)
+            ));
+        }
+        insta::assert_snapshot!(log);
+    }
+
     /// An upstream that answers with an ICMP rejection rather than a message
     /// is a request-local drop: the guest retries.
     #[test]

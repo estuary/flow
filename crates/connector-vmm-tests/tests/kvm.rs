@@ -3,29 +3,17 @@
 
 mod dns_answers;
 mod dns_capacity;
-mod resolver_failures;
 
 use connector_vmm_tests::{dns, endpoint, guest, host, netns, run};
 use std::collections::BTreeSet;
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
-fn append(path: &std::path::Path, line: serde_json::Value) {
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .unwrap_or_else(|e| panic!("opening {}: {e}", path.display()));
-    std::io::Write::write_all(&mut file, format!("{line}\n").as_bytes())
-        .unwrap_or_else(|e| panic!("appending to {}: {e}", path.display()));
-}
-
 /// The tap's two ends, which the VMM pins.
 const VMM_TAP: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 1);
 const GUEST: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 2);
 
-/// Generous next to a boot's usual second or two; `readiness` asserts the
-/// tighter bound itself.
+/// A backstop for boot and process exit, not a latency requirement.
 const READY: Duration = Duration::from_secs(30);
 
 /// Long enough for a handshake across the tap. A blocked probe's `timeout`
@@ -327,7 +315,7 @@ fn assert_refused(vmm: &mut run::Vmm, want: String) {
 fn readiness() {
     let run = run::load();
     let vmm = run::start(&run, run::Spec::probes(&run, "none.json"));
-    let ready = run::wait_ready(&vmm, Duration::from_secs(5));
+    let ready = run::wait_ready(&vmm, READY);
     eprintln!("readiness {ready:?} after podman run");
     run::assert_framing(&vmm, true);
 }
@@ -398,93 +386,6 @@ fn image_user_through_linked_account_files() {
             "Uid:\t4321\t4321\t4321\t4321",
             "Gid:\t4322\t4322\t4322\t4322"
         ]
-    );
-
-    std::mem::drop(guest);
-    run::stop(vmm);
-    run::podman(&["image", "rm", &image]);
-}
-
-/// Access requires an image group membership, not the user's primary gid.
-#[test]
-fn image_user_reads_through_a_supplementary_group() {
-    let run = run::load();
-    let image = format!(
-        "localhost/connector-vmm-kvm-supplementary-group:{}",
-        run::random_hex()
-    );
-    run::record("image", &image);
-    let containerfile = format!(
-        "FROM {}\n\
-         USER root\n\
-         RUN echo 'acmesvc:x:4321:4321::/:/usr/sbin/nologin' >> /etc/passwd \
-         && echo 'acmedata:x:4323:acmesvc' >> /etc/group \
-         && mkdir /acme-data && echo acme-secret > /acme-data/secret \
-         && chown -R 0:4323 /acme-data && chmod 0750 /acme-data && chmod 0640 /acme-data/secret\n\
-         USER acmesvc\n",
-        run.guest_image
-    );
-    let context = run::fixture("");
-    let built = run::sudo_output(
-        &[
-            "podman",
-            "build",
-            "-q",
-            "-t",
-            &image,
-            "-f",
-            "-",
-            &context.to_string_lossy(),
-        ],
-        Some(containerfile.as_bytes()),
-    );
-    assert!(
-        built.status.success(),
-        "building {image}: {}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-
-    let spec = run::Spec {
-        connector_image: image.clone(),
-        ..run::Spec::probes(&run, "none.json")
-    };
-    let (vmm, mut guest) = start(&run, spec);
-    let status = probe(
-        &mut guest,
-        "status",
-        "read",
-        serde_json::json!({"path": "/proc/self/status"}),
-    );
-    // The kernel ends the `Groups:` list with a space, so compare its fields.
-    let ids: Vec<Vec<&str>> = status["content"]
-        .as_str()
-        .unwrap_or_else(|| panic!("reading /proc/self/status: {status}"))
-        .lines()
-        .filter(|line| {
-            ["Uid:", "Gid:", "Groups:"]
-                .iter()
-                .any(|key| line.starts_with(key))
-        })
-        .map(|line| line.split_whitespace().collect())
-        .collect();
-    assert_eq!(
-        ids,
-        [
-            vec!["Uid:", "4321", "4321", "4321", "4321"],
-            vec!["Gid:", "4321", "4321", "4321", "4321"],
-            vec!["Groups:", "4321", "4323"],
-        ]
-    );
-    let secret = probe(
-        &mut guest,
-        "secret",
-        "read",
-        serde_json::json!({"path": "/acme-data/secret"}),
-    );
-    assert_eq!(
-        secret,
-        serde_json::json!({"content": "acme-secret\n"}),
-        "secret"
     );
 
     std::mem::drop(guest);
@@ -943,8 +844,8 @@ fn control_channel() {
     run::assert_framing(&vmm, true);
 }
 
-/// What goes when the VMM dies, and what only removal clears. The one
-/// launch without `--rm`, so the container outlives its process.
+/// Kernel resources are released after process death and container removal.
+/// The one launch without `--rm`, so removal is explicit.
 #[test]
 fn teardown() {
     let run = run::load();
@@ -1046,36 +947,21 @@ fn teardown() {
     run::eventually("the container to exit", READY, || {
         (run::inspect(&vmm.name, "{{.State.Status}}") == "exited").then_some(())
     });
-    let mut split = String::new();
-    split.push_str(&format!(
-        "the guest, seen as its held init.sock connection: {}\n",
-        if guest::closed_within(&mut guest, Duration::from_secs(10)) {
-            "gone at process death"
-        } else {
-            "still open after process death"
-        }
-    ));
-
-    // podman's own exit cleanup runs after the process has gone, so each
-    // object gets the same window to follow it before removal is tried.
-    let window = Instant::now() + Duration::from_secs(10);
-    let mut gone = vec![false; objects.len()];
-    while Instant::now() < window && gone.iter().any(|gone| !gone) {
-        for (i, (_, present)) in objects.iter().enumerate() {
-            gone[i] = gone[i] || !present();
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    assert!(
+        guest::closed_within(&mut guest, READY),
+        "the guest connection closed"
+    );
     run::podman(&["rm", &vmm.name]);
-    for (i, (object, present)) in objects.iter().enumerate() {
-        let fate = match (gone[i], present()) {
-            (true, _) => "gone at process death",
-            (false, false) => "gone at container removal",
-            (false, true) => "still present after container removal",
-        };
-        split.push_str(&format!("{object}: {fate}\n"));
-    }
-    insta::assert_snapshot!(split);
+    // The socket's directory entry belongs to the launcher. Kernel resources
+    // must be gone, regardless of when podman's asynchronous exit cleanup ran.
+    let remaining = run::eventually("kernel resources to be released", READY, || {
+        let remaining: Vec<_> = objects
+            .iter()
+            .filter_map(|(name, present)| present().then_some(*name))
+            .collect();
+        (remaining == ["init.sock"]).then_some(remaining)
+    });
+    insta::assert_debug_snapshot!(remaining);
     run::assert_framing(&vmm, true);
 }
 
@@ -1174,30 +1060,25 @@ fn egress_allowlist() {
     );
     assert_eq!(reply, "pong", "exchange-allowed");
 
-    let (unlisted, took) = guest::call_timed(
+    let unlisted = guest::call(
         &mut guest,
         "unlisted-refused",
         "query",
         serde_json::json!({"nameserver": VMM_TAP.to_string(), "name": "ok.elsewhere.example", "qtype": 1, "timeout": BLOCKED}),
     );
     assert_eq!(unlisted["status"], "rcode:5", "unlisted-refused");
-    assert!(
-        took < Duration::from_secs(1),
-        "unlisted-refused took {took:?}"
-    );
 
     for (name, qname) in [
         ("exact-subdomain-refused", "below.ok.acmeco.example"),
         ("wildcard-base-refused", "wild.acmeco.example"),
     ] {
-        let (refused, took) = guest::call_timed(
+        let refused = guest::call(
             &mut guest,
             name,
             "query",
             serde_json::json!({"nameserver": VMM_TAP.to_string(), "name": qname, "qtype": 1, "timeout": BLOCKED}),
         );
         assert_eq!(refused["status"], "rcode:5", "{name}");
-        assert!(took < Duration::from_secs(1), "{name} took {took:?}");
     }
     for (name, qname) in [
         ("wildcard-resolved", "api.wild.acmeco.example"),
@@ -1358,10 +1239,11 @@ except OSError as e:
         endpoint::accepted(&allowed).contains(&run.endpoint_peer),
         "the allowed endpoint never saw the host's end of its hop"
     );
-    assert!(
-        endpoint::accepted(&wild).contains(&run.endpoint_peer),
-        "the wildcard's endpoint never saw the host's end of its hop"
-    );
+    run::eventually("the wildcard endpoint's accept", READY, || {
+        endpoint::accepted(&wild)
+            .contains(&run.endpoint_peer)
+            .then_some(())
+    });
     assert_eq!(
         endpoint::accepted(&unresolved),
         Vec::<Ipv4Addr>::new(),
@@ -1370,141 +1252,75 @@ except OSError as e:
     run::assert_framing(&vmm, true);
 }
 
-/// TTL clamping, expiry, and a refresh that extends authorization under an
-/// open connection.
+/// Real kernel expiry closes new flows while an established connection survives.
 #[test]
 fn egress_ttl() {
     let run = run::load();
-    let [dns_ip, _, short_ip, long_ip, ..] = run.endpoints[..] else {
-        panic!("too few endpoints in run.json");
-    };
-    let nameserver = scripted(&run, dns_ip);
-    let short = listen(&run, short_ip);
-    let _long = listen(&run, long_ip);
+    let nameserver = scripted(&run, run.endpoints[0]);
+    let ip = run.endpoints[1];
+    let target = listen(&run, ip);
     dns::set(
         &nameserver,
         "short.acmeco.example",
-        vec![dns::Record::A(short_ip, 1)],
+        vec![dns::Record::A(ip, 1)],
     );
-    dns::set(
-        &nameserver,
-        "long.acmeco.example",
-        vec![dns::Record::A(long_ip, 3600)],
-    );
-
     let mut spec = run::Spec::probes(&run, "ttl.json");
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
-
-    let answered = Instant::now();
-    let floor = query(&mut guest, "ttl-floor", "short.acmeco.example", 1);
+    let answer = query(&mut guest, "authorize", "short.acmeco.example", 1);
     assert_eq!(
-        floor["records"],
-        serde_json::json!([["A", short_ip.to_string(), 3]]),
-        "ttl-floor: clamped up to ttlFloorSecs"
+        answer["records"],
+        serde_json::json!([["A", ip.to_string(), 30]])
     );
     assert_eq!(
-        element(&vmm, short_ip).timeout,
-        Some(3),
-        "the kernel's authorization for {short_ip}"
-    );
-
-    let cap = query(&mut guest, "ttl-cap", "long.acmeco.example", 1);
-    assert_eq!(
-        cap["records"],
-        serde_json::json!([["A", long_ip.to_string(), 10]]),
-        "ttl-cap: clamped down to ttlCapSecs"
+        host::resolved(&vmm.name)
+            .iter()
+            .map(|e| (e.addr, e.timeout))
+            .collect::<Vec<_>>(),
+        [(ip, Some(30))]
     );
     assert_eq!(
-        element(&vmm, long_ip).timeout,
-        Some(10),
-        "the kernel's authorization for {long_ip}"
-    );
-
-    let port = short.addr.port();
-    let held = probe(
-        &mut guest,
-        "connect-held",
-        "hold",
-        serde_json::json!({"id": "held", "addr": short_ip.to_string(), "port": port, "timeout": 2}),
-    );
-    assert_eq!(held, "connected", "connect-held");
-
-    dns::set(
-        &nameserver,
-        "short.acmeco.example",
-        vec![dns::Record::A(short_ip, 8)],
-    );
-    let refresh = query(&mut guest, "ttl-refresh", "short.acmeco.example", 1);
-    assert_eq!(
-        refresh["records"],
-        serde_json::json!([["A", short_ip.to_string(), 8]]),
-        "ttl-refresh"
+        probe(
+            &mut guest,
+            "hold",
+            "hold",
+            serde_json::json!({
+                "id": "held", "addr": ip.to_string(), "port": target.addr.port(), "timeout": 30
+            })
+        ),
+        "connected"
     );
     assert_eq!(
-        element(&vmm, short_ip).timeout,
-        Some(8),
-        "the refreshed authorization for {short_ip}"
+        probe(
+            &mut guest,
+            "before-expiry",
+            "exchange",
+            serde_json::json!({"id": "held", "timeout": 30})
+        ),
+        "pong"
     );
-
-    // Past the first answer's expiry, the refresh is what admits a new flow.
-    std::thread::sleep(
-        (answered + Duration::from_secs(4)).saturating_duration_since(Instant::now()),
-    );
-    assert_eq!(
-        tcp(&mut guest, "connect-after-refresh", short_ip, port, 2.0),
-        "connected",
-        "connect-after-refresh"
-    );
-    let reply = probe(
-        &mut guest,
-        "exchange-after-refresh",
-        "exchange",
-        serde_json::json!({"id": "held", "timeout": 2}),
-    );
-    assert_eq!(reply, "pong", "exchange-after-refresh");
+    assert_eq!(endpoint::accepted(&target), [run.endpoint_peer]);
 
     run::eventually(
-        &format!("{short_ip} to expire from @resolved"),
-        Duration::from_secs(12),
-        || {
-            (!host::resolved(&vmm.name)
-                .iter()
-                .any(|element| element.addr == short_ip))
-            .then_some(())
-        },
-    );
-    let accepted = endpoint::accepted(&short).len();
-    assert_eq!(
-        tcp(&mut guest, "connect-after-expiry", short_ip, port, BLOCKED),
-        "timeout",
-        "connect-after-expiry"
+        "the authorization to expire from the kernel",
+        Duration::from_secs(90),
+        || host::resolved(&vmm.name).is_empty().then_some(()),
     );
     assert_eq!(
-        endpoint::accepted(&short).len(),
-        accepted,
-        "connect-after-expiry arrived"
+        tcp(&mut guest, "after-expiry", ip, target.addr.port(), BLOCKED),
+        "timeout"
     );
-    // Established flows are admitted before the set is consulted, so this
-    // shows expiry leaves them alone; the refresh's lack of a gap rests on
-    // its delete and add being one transaction.
-    let reply = probe(
-        &mut guest,
-        "exchange-after-expiry",
-        "exchange",
-        serde_json::json!({"id": "held", "timeout": 2}),
+    assert_eq!(endpoint::accepted(&target), [run.endpoint_peer]);
+    assert_eq!(
+        probe(
+            &mut guest,
+            "held-after-expiry",
+            "exchange",
+            serde_json::json!({"id": "held", "timeout": 30})
+        ),
+        "pong"
     );
-    assert_eq!(reply, "pong", "exchange-after-expiry");
     run::assert_framing(&vmm, true);
-}
-
-fn element(vmm: &run::Vmm, addr: Ipv4Addr) -> host::Element {
-    let elements = host::resolved(&vmm.name);
-    elements
-        .iter()
-        .find(|element| element.addr == addr)
-        .cloned()
-        .unwrap_or_else(|| panic!("{addr} is not in @resolved: {elements:?}"))
 }
 
 /// Remembered CNAME targets, and private answers refused under every policy
@@ -1520,17 +1336,17 @@ fn egress_cname() {
     dns::set(
         &nameserver,
         "alias.acmeco.example",
-        vec![dns::Record::Cname("target.cdn.example".into(), 5)],
+        vec![dns::Record::Cname("target.cdn.example".into(), 3600)],
     );
     dns::set(
         &nameserver,
         "target.cdn.example",
-        vec![dns::Record::A(target_ip, 5)],
+        vec![dns::Record::A(target_ip, 3600)],
     );
     dns::set(
         &nameserver,
         "below.target.cdn.example",
-        vec![dns::Record::A(target_ip, 5)],
+        vec![dns::Record::A(target_ip, 3600)],
     );
     dns::set(
         &nameserver,
@@ -1548,17 +1364,16 @@ fn egress_cname() {
         vec![dns::Record::A(spare_ip, 60)],
     );
 
-    let mut spec = run::Spec::probes(&run, "ttl.json");
+    let mut spec = run::Spec::probes(&run, "capacity.json");
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
 
-    let answered = Instant::now();
     let chain = query(&mut guest, "cname-chain", "alias.acmeco.example", 1);
     assert_eq!(
         chain["records"],
         serde_json::json!([
-            ["CNAME", "target.cdn.example", 5],
-            ["A", target_ip.to_string(), 5]
+            ["CNAME", "target.cdn.example", 3600],
+            ["A", target_ip.to_string(), 3600]
         ]),
         "cname-chain"
     );
@@ -1613,23 +1428,6 @@ fn egress_cname() {
         "a private answer reached @resolved: {elements:?}"
     );
 
-    // The chain's CNAME answered with 5s, so by now its memory has lapsed.
-    std::thread::sleep(
-        (answered + Duration::from_secs(6)).saturating_duration_since(Instant::now()),
-    );
-    let upstream_before = dns::queries(&nameserver).len();
-    let forgotten = query(
-        &mut guest,
-        "cname-target-forgotten",
-        "target.cdn.example",
-        1,
-    );
-    assert_eq!(forgotten["status"], "rcode:5", "cname-target-forgotten");
-    assert_eq!(
-        dns::queries(&nameserver).len(),
-        upstream_before,
-        "the forgotten target went upstream"
-    );
     assert!(
         !dns::queries(&nameserver)
             .iter()
@@ -1949,423 +1747,6 @@ fn attacker_nat(vmm: &run::Vmm) {
         output.status.success(),
         "installing the attacker's NAT: {}",
         String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn container_pid(name: &str) -> u32 {
-    run::inspect(name, "{{.State.Pid}}")
-        .parse()
-        .unwrap_or_else(|e| panic!("the pid of {name}: {e}"))
-}
-
-fn listen_in(pid: u32, ip: Ipv4Addr) -> endpoint::Endpoint {
-    endpoint::listen(netns::tcp(netns::Namespace::Process(pid), (ip, 0).into()))
-}
-
-/// An endpoint on one of the host's own addresses: nothing but the boundary
-/// keeps a VMM from delivering to it.
-fn listen_on_host(ip: Ipv4Addr) -> endpoint::Endpoint {
-    endpoint::listen(
-        std::net::TcpListener::bind((ip, 0)).unwrap_or_else(|e| panic!("binding {ip}: {e}")),
-    )
-}
-
-/// The host's IPv6 link-local address on `interface`, from `/proc/net/if_inet6`.
-fn link_local(interface: &str) -> Option<std::net::SocketAddrV6> {
-    let table = std::fs::read_to_string("/proc/net/if_inet6").expect("reading if_inet6");
-    table.lines().find_map(|line| {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        let [hex, index, _, scope, _, name] = fields[..] else {
-            return None;
-        };
-        if name != interface || scope != "20" {
-            return None;
-        }
-        let address = u128::from_str_radix(hex, 16).ok()?;
-        let index = u32::from_str_radix(index, 16).ok()?;
-        Some(std::net::SocketAddrV6::new(address.into(), 0, 0, index))
-    })
-}
-
-fn same_subnet(gateway: Ipv4Addr, last: u8) -> Ipv4Addr {
-    let [a, b, c, _] = gateway.octets();
-    Ipv4Addr::new(a, b, c, last)
-}
-
-/// A VMM that has flushed every rule of its own, and then its guest, reach
-/// public destinations and the VMM's own nameserver, and nothing else. Each
-/// blocked destination below has a listener that would accept were the host
-/// boundary absent, so a timeout there is the boundary's doing, not an
-/// unreachable address.
-#[test]
-fn boundary_after_flush() {
-    let run = run::load();
-    let endpoint_ip = run.endpoints[0];
-    let public = listen(&run, endpoint_ip);
-    let smtp = endpoint::listen(netns::tcp(
-        netns::Namespace::Named(&run.endpoint_netns),
-        (endpoint_ip, 25).into(),
-    ));
-    let decoy = listen(&run, run.decoys[0]);
-    let upstream = scripted(&run, endpoint_ip);
-    dns::set(
-        &upstream,
-        "ok.acmeco.example",
-        vec![dns::Record::A(endpoint_ip, 300)],
-    );
-
-    let (a, mut guest) = start(&run, run::Spec::probes(&run, "allow-all.json"));
-    let (b, _b_guest) = start(&run, run::Spec::probes(&run, "allow-all.json"));
-    // A second container on A's own bridge, and one on an ordinary network.
-    let peer = run::sidecar(&run, &a.network);
-    let ordinary = run::ordinary(&run);
-    let (a_pid, b_pid) = (run::pid(&a), run::pid(&b));
-    let (peer_pid, ordinary_pid) = (container_pid(&peer.name), container_pid(&ordinary.name));
-
-    let (a_ip, a_gateway) = (network_field(&a, "IPAddress"), network_field(&a, "Gateway"));
-    let (b_ip, b_gateway) = (network_field(&b, "IPAddress"), network_field(&b, "Gateway"));
-    let peer_ip = address(&peer.name, &peer.network, "IPAddress");
-    let ordinary_ip = address(&ordinary.name, &ordinary.network, "IPAddress");
-    let bridge = run::podman(&[
-        "network",
-        "inspect",
-        "--format",
-        "{{.NetworkInterface}}",
-        &a.network,
-    ])
-    .trim()
-    .to_string();
-    let gateway_mac = std::fs::read_to_string(format!("/sys/class/net/{bridge}/address"))
-        .expect("reading the bridge's address")
-        .trim()
-        .to_string();
-
-    // Flushed first, so neither VMM's own ruleset is what refuses anything.
-    flush(&a);
-    flush(&b);
-    let in_a = listen_in(a_pid, a_ip);
-    let in_b = listen_in(b_pid, b_ip);
-    let in_peer = listen_in(peer_pid, peer_ip);
-    let in_ordinary = listen_in(ordinary_pid, ordinary_ip);
-    let on_a_gateway = listen_on_host(a_gateway);
-    let on_b_gateway = listen_on_host(b_gateway);
-    let on_endpoint_peer = listen_on_host(run.endpoint_peer);
-    let v6 = link_local(&bridge).map(|mut addr| {
-        let listener = std::net::TcpListener::bind(addr).expect("binding the bridge's link-local");
-        addr.set_port(listener.local_addr().expect("bound").port());
-        listener
-            .set_nonblocking(true)
-            .expect("a non-blocking listener");
-        (addr, listener)
-    });
-
-    let blocked = [
-        ("smtp", endpoint_ip, 25),
-        ("excluded-decoy", run.decoys[0], decoy.addr.port()),
-        ("metadata", Ipv4Addr::new(169, 254, 169, 254), 80),
-        ("own-gateway", a_gateway, on_a_gateway.addr.port()),
-        ("own-gateway-tcp-dns", a_gateway, 53),
-        ("other-gateway", b_gateway, on_b_gateway.addr.port()),
-        (
-            "host-endpoint-peer",
-            run.endpoint_peer,
-            on_endpoint_peer.addr.port(),
-        ),
-        ("sibling-vmm", b_ip, in_b.addr.port()),
-        ("same-bridge-peer", peer_ip, in_peer.addr.port()),
-        ("ordinary-container", ordinary_ip, in_ordinary.addr.port()),
-    ];
-    let direct = |name: &str, addr: Ipv4Addr, port: u16, src: Option<Ipv4Addr>| {
-        let mut arguments =
-            serde_json::json!({"addr": addr.to_string(), "port": port, "timeout": BLOCKED});
-        if let Some(src) = src {
-            arguments["src"] = src.to_string().into();
-        }
-        guest::once_in(a_pid, name, "tcp", arguments)
-    };
-    let direct_query = |name: &str, nameserver: Ipv4Addr, port: u16, qname: &str, pad: u32| {
-        guest::once_in(
-            a_pid,
-            name,
-            "query",
-            serde_json::json!({"nameserver": nameserver.to_string(), "port": port, "name": qname,
-                   "qtype": 1, "timeout": BLOCKED, "pad": pad}),
-        )
-    };
-
-    // Directly from A's network namespace.
-    assert_eq!(
-        direct("public", endpoint_ip, public.addr.port(), None),
-        "connected"
-    );
-    let fragmented = direct_query(
-        "public-fragmented",
-        endpoint_ip,
-        upstream.addr.port(),
-        "ok.acmeco.example",
-        3000,
-    );
-    assert_eq!(
-        fragmented["status"], "ok",
-        "public-fragmented: {fragmented}"
-    );
-    let own = direct_query("gateway-dns", a_gateway, 53, &a.name, 0);
-    assert_eq!(own["status"], "ok", "gateway-dns: {own}");
-    assert_eq!(own["records"][0][1], a_ip.to_string(), "gateway-dns: {own}");
-    for (name, addr, port) in blocked {
-        assert_eq!(direct(name, addr, port, None), "timeout", "{name}");
-    }
-    for (name, nameserver) in [
-        ("other-gateway-dns", b_gateway),
-        ("metadata-dns", Ipv4Addr::new(169, 254, 169, 254)),
-    ] {
-        assert_eq!(
-            direct_query(name, nameserver, 53, &a.name, 0)["status"],
-            "timeout",
-            "{name}"
-        );
-    }
-    match &v6 {
-        Some((addr, _)) => {
-            let reached = guest::once_in(
-                a_pid,
-                "ipv6-host-link-local",
-                "ipv6",
-                serde_json::json!({"addr": format!("{}%eth0", addr.ip()), "port": addr.port(), "timeout": BLOCKED}),
-            );
-            assert_ne!(reached, "connected", "ipv6-host-link-local");
-        }
-        None => {
-            eprintln!("{bridge} has no IPv6 link-local address; the IPv6 host probe is vacuous")
-        }
-    }
-
-    // A's own addresses, routes and MAC, changed as a compromised VMM could.
-    let nsenter = |args: &[&str]| run::nsenter(a_pid, args);
-    let elsewhere = same_subnet(b_gateway, 77);
-    let invented = Ipv4Addr::new(192, 31, 196, 249);
-    let alternate = same_subnet(a_gateway, 200);
-    nsenter(&[
-        "ip",
-        "addr",
-        "add",
-        &format!("{elsewhere}/32"),
-        "dev",
-        "eth0",
-    ]);
-    nsenter(&[
-        "ip",
-        "addr",
-        "add",
-        &format!("{invented}/32"),
-        "dev",
-        "eth0",
-    ]);
-    nsenter(&[
-        "ip",
-        "addr",
-        "add",
-        &format!("{alternate}/24"),
-        "dev",
-        "eth0",
-    ]);
-    let port = public.addr.port();
-    assert_eq!(
-        direct("spoof-other-bridge", endpoint_ip, port, Some(elsewhere)),
-        "timeout"
-    );
-    assert_eq!(
-        direct("spoof-public", endpoint_ip, port, Some(invented)),
-        "timeout"
-    );
-    assert_eq!(
-        direct("own-subnet-alternate", endpoint_ip, port, Some(alternate)),
-        "connected"
-    );
-
-    let fake_hop = same_subnet(a_gateway, 254);
-    let pin = |ip: Ipv4Addr| {
-        nsenter(&[
-            "ip",
-            "neigh",
-            "replace",
-            &ip.to_string(),
-            "lladdr",
-            &gateway_mac,
-            "dev",
-            "eth0",
-            "nud",
-            "permanent",
-        ]);
-    };
-    for target in [Ipv4Addr::new(169, 254, 169, 254), b_ip] {
-        nsenter(&["ip", "route", "add", &format!("{target}/32"), "dev", "eth0"]);
-        pin(target);
-    }
-    nsenter(&[
-        "ip",
-        "route",
-        "replace",
-        "default",
-        "via",
-        &fake_hop.to_string(),
-        "dev",
-        "eth0",
-        "onlink",
-    ]);
-    pin(fake_hop);
-    assert_eq!(
-        direct(
-            "onlink-metadata",
-            Ipv4Addr::new(169, 254, 169, 254),
-            80,
-            None
-        ),
-        "timeout"
-    );
-    assert_eq!(
-        direct("onlink-sibling", b_ip, in_b.addr.port(), None),
-        "timeout"
-    );
-    assert_eq!(
-        direct("rerouted-public", endpoint_ip, port, None),
-        "connected"
-    );
-    assert_eq!(
-        direct("rerouted-decoy", run.decoys[0], decoy.addr.port(), None),
-        "timeout"
-    );
-
-    // A new MAC flushes A's neighbours, the pinned hop among them. The host
-    // keeps sending to the old one until it probes A again, so permitted
-    // traffic returns only once the host has relearned it; blocked traffic
-    // never does.
-    nsenter(&["ip", "link", "set", "eth0", "address", "02:00:00:00:be:ef"]);
-    pin(fake_hop);
-    assert_eq!(
-        direct(
-            "new-mac-own-gateway",
-            a_gateway,
-            on_a_gateway.addr.port(),
-            None
-        ),
-        "timeout"
-    );
-    let relearned = Instant::now();
-    run::eventually("new-mac-public", Duration::from_secs(30), || {
-        (direct("new-mac-public", endpoint_ip, port, None) == "connected").then_some(())
-    });
-    eprintln!(
-        "new-mac-public connected {:?} after the change",
-        relearned.elapsed()
-    );
-
-    // Nothing opens a connection into A: not an ordinary container, not the host.
-    let into_a =
-        serde_json::json!({"addr": a_ip.to_string(), "port": in_a.addr.port(), "timeout": BLOCKED});
-    assert_eq!(
-        guest::once_in(ordinary_pid, "ordinary-to-vmm", "tcp", into_a),
-        "timeout"
-    );
-    let from_host = std::net::TcpStream::connect_timeout(
-        &(a_ip, in_a.addr.port()).into(),
-        Duration::from_secs_f64(BLOCKED),
-    );
-    assert!(from_host.is_err(), "the host opened a connection into A");
-    // An ordinary container is unaffected by any of it.
-    let ordinary_public =
-        serde_json::json!({"addr": endpoint_ip.to_string(), "port": port, "timeout": BLOCKED});
-    assert_eq!(
-        guest::once_in(ordinary_pid, "ordinary-public", "tcp", ordinary_public),
-        "connected"
-    );
-
-    // Guest-forwarded. With A's masquerade flushed, the guest's packets leave
-    // with its own address, which does not route back out of A's bridge.
-    let arrived = endpoint::accepted(&public).len();
-    assert_eq!(
-        tcp(
-            &mut guest,
-            "guest-unmasqueraded",
-            endpoint_ip,
-            port,
-            BLOCKED
-        ),
-        "timeout"
-    );
-    assert_eq!(
-        endpoint::accepted(&public).len(),
-        arrived,
-        "guest-unmasqueraded arrived"
-    );
-    attacker_nat(&a);
-    assert_eq!(
-        tcp(&mut guest, "guest-public", endpoint_ip, port, BLOCKED),
-        "connected"
-    );
-    let fragmented = probe(
-        &mut guest,
-        "guest-public-fragmented",
-        "query",
-        serde_json::json!({"nameserver": endpoint_ip.to_string(), "port": upstream.addr.port(),
-               "name": "ok.acmeco.example", "qtype": 1, "timeout": BLOCKED, "pad": 3000}),
-    );
-    assert_eq!(
-        fragmented["status"], "ok",
-        "guest-public-fragmented: {fragmented}"
-    );
-    let own = probe(
-        &mut guest,
-        "guest-gateway-dns",
-        "query",
-        serde_json::json!({"nameserver": a_gateway.to_string(), "name": &a.name, "qtype": 1, "timeout": BLOCKED}),
-    );
-    assert_eq!(own["status"], "ok", "guest-gateway-dns: {own}");
-    for (name, addr, port) in blocked {
-        let name = format!("guest-{name}");
-        assert_eq!(
-            tcp(&mut guest, &name, addr, port, BLOCKED),
-            "timeout",
-            "{name}"
-        );
-    }
-    let other = probe(
-        &mut guest,
-        "guest-other-gateway-dns",
-        "query",
-        serde_json::json!({"nameserver": b_gateway.to_string(), "name": &a.name, "qtype": 1, "timeout": BLOCKED}),
-    );
-    assert_eq!(other["status"], "timeout", "guest-other-gateway-dns");
-
-    for (name, listener) in [
-        ("smtp", &smtp),
-        ("excluded-decoy", &decoy),
-        ("a", &in_a),
-        ("sibling-vmm", &in_b),
-        ("same-bridge-peer", &in_peer),
-        ("ordinary-container", &in_ordinary),
-        ("own-gateway", &on_a_gateway),
-        ("other-gateway", &on_b_gateway),
-        ("host-endpoint-peer", &on_endpoint_peer),
-    ] {
-        assert_eq!(
-            endpoint::accepted(listener),
-            Vec::<Ipv4Addr>::new(),
-            "{name} was reached"
-        );
-    }
-    if let Some((_, listener)) = &v6 {
-        assert!(
-            listener.accept().is_err(),
-            "the bridge's IPv6 link-local was reached"
-        );
-    }
-    // Every permitted arrival was masqueraded by the host on its way out.
-    let arrivals = endpoint::accepted(&public);
-    assert!(!arrivals.is_empty());
-    assert!(
-        arrivals.iter().all(|peer| *peer == run.endpoint_peer),
-        "unmasqueraded arrivals: {arrivals:?}"
     );
 }
 

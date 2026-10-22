@@ -4,8 +4,7 @@
 //! over a Unix socket, and the test then serves on it as on any other.
 //!
 //! This is how the controlled endpoints live behind a routed hop instead of on
-//! the host, where the host boundary rightly refuses a VMM's traffic, and how
-//! a test listens inside a sibling container to see whether anything arrives.
+//! the host, where the host boundary rightly refuses a VMM's traffic.
 
 use std::net::{SocketAddr, TcpListener, UdpSocket};
 use std::os::fd::{FromRawFd, OwnedFd};
@@ -13,7 +12,6 @@ use std::os::unix::net::UnixListener;
 
 pub enum Namespace<'a> {
     Named(&'a str),
-    Process(u32),
 }
 
 pub fn tcp(namespace: Namespace, addr: SocketAddr) -> TcpListener {
@@ -32,14 +30,8 @@ fn bind(namespace: Namespace, kind: &str, addr: SocketAddr) -> OwnedFd {
     let listener =
         UnixListener::bind(&path).unwrap_or_else(|e| panic!("binding {}: {e}", path.display()));
 
-    let pid;
-    let mut argv: Vec<&str> = match namespace {
-        Namespace::Named(name) => vec!["ip", "netns", "exec", name],
-        Namespace::Process(process) => {
-            pid = process.to_string();
-            vec!["nsenter", "-t", &pid, "-n"]
-        }
-    };
+    let Namespace::Named(name) = namespace;
+    let mut argv: Vec<&str> = vec!["ip", "netns", "exec", name];
     let helper = crate::run::fixture("bind.py");
     let (ip, port) = (addr.ip().to_string(), addr.port().to_string());
     argv.extend([

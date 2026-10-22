@@ -440,6 +440,25 @@ mod test {
         insta::assert_snapshot!(table);
     }
 
+    /// Advance Tokio's clock explicitly so each command's deadline is checked
+    /// without relying on the scheduler to observe a wall-clock boundary.
+    #[tokio::test(start_paused = true)]
+    async fn engine_commands_each_have_a_timeout() {
+        let mut elapsed = Vec::new();
+        for _ in 0..3 {
+            let began = tokio::time::Instant::now();
+            let command = super::command("sleep", &["86400"]);
+            tokio::pin!(command);
+            assert!(futures::poll!(&mut command).is_pending());
+            tokio::time::advance(super::COMMAND_TIMEOUT - std::time::Duration::from_secs(1)).await;
+            assert!(futures::poll!(&mut command).is_pending());
+            tokio::time::advance(std::time::Duration::from_secs(1)).await;
+            let error = command.await.expect_err("the engine command timed out");
+            elapsed.push((began.elapsed().as_secs(), error.to_string()));
+        }
+        insta::assert_debug_snapshot!(elapsed);
+    }
+
     #[derive(Debug)]
     enum Outcome {
         Finds,

@@ -7,7 +7,8 @@ engine, and platform.
 
 ## Running
 
-- `mise run ci:connector-vmm-kvm` runs the KVM and launcher tests.
+- `mise run ci:connector-vmm-kvm` runs the KVM and launcher tests, with two
+  tests at a time. Individual tests may launch several VMMs.
 - Append a test-name filter to run a subset. Filtered runs skip
   connector-init's separate vsock test.
 - `mise run ci:connector-vmm-kvm --platform` previews and publishes a Python
@@ -32,16 +33,20 @@ connector-init over a guest's vsock connection.
   isolation, RPC, teardown, egress allowlists and expiry, and host isolation
   after a VMM removes its own rules. Connector-mount tests check that host
   file replacements become visible inside the guest.
-- `tests/dns_answers/`, `tests/dns_capacity/`, `tests/resolver_failures/`:
-  changing DNS answers, authorization capacity and expiry, and the distinction
-  between upstream failure and failure to install kernel authorization.
+- `tests/dns_answers/`, `tests/dns_capacity/`: refused answers and capacity
+  overflow must not partially authorize addresses in the kernel. Resolver
+  unit tests cover TTL retention, CNAME capacity, and reclamation with explicit
+  expiry states; `kvm::egress_ttl` checks real kernel expiry.
 - `tests/launcher.rs`: launches through `connector::Service`, readiness,
   task egress, cancellation, ownership, and recovery after process death or
-  stalled container-engine commands.
+  a stalled container query. Release state-machine tests in `connector` cover
+  failure combinations; the integration test checks actual command termination
+  and recovery without asserting elapsed time.
 - `tests/replacement/`: an old generation's cleanup must leave its running
   replacement intact.
 - `tests/platform.rs`: preview, publication, derived documents, logs, and
-  cleanup through flowctl and the reactor.
+  cleanup through flowctl and the reactor. The podman wrapper verifies each
+  connector mount synchronously before container creation.
 - `tests/release.rs`, `tests/wrapper.rs`: resource cleanup and the podman
   wrapper, tested against stand-in commands.
 
