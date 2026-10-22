@@ -1,10 +1,9 @@
 //! The scripted upstream nameserver a test's VMM forwards to through
 //! `--resolver-upstream`. It answers only what the test scripted and says
 //! NXDOMAIN to everything else: it never forwards, so no deterministic test
-//! depends on, or sends a query to, a real nameserver. A name can also be
-//! silenced, so that its queries arrive and are counted but never answered.
+//! depends on, or sends a query to, a real nameserver.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex};
 
@@ -25,8 +24,6 @@ pub struct Nameserver {
 struct Zone {
     records: HashMap<String, Vec<Record>>,
     queries: Vec<String>,
-    silent: HashSet<String>,
-    suppressed: Vec<String>,
 }
 
 /// Serve on `socket`, bound on one of the controlled endpoints.
@@ -45,10 +42,6 @@ pub fn serve(socket: UdpSocket) -> Nameserver {
             let Some((name, reply)) = answer(&buffer[..read], &zone.records) else {
                 continue;
             };
-            if zone.silent.contains(&name) {
-                zone.suppressed.push(name);
-                continue;
-            }
             zone.queries.push(name);
             drop(zone);
             let _ = socket.send_to(&reply, peer);
@@ -70,21 +63,6 @@ pub fn set(nameserver: &Nameserver, name: &str, records: Vec<Record>) {
 /// The names answered so far, in order.
 pub fn queries(nameserver: &Nameserver) -> Vec<String> {
     nameserver.zone.lock().unwrap().queries.clone()
-}
-
-/// While `silent`, a query for `name` is received and counted in `suppressed`,
-/// but never answered: an upstream that has stopped responding.
-pub fn silence(nameserver: &Nameserver, name: &str, silent: bool) {
-    let mut zone = nameserver.zone.lock().unwrap();
-    match silent {
-        true => zone.silent.insert(name.to_string()),
-        false => zone.silent.remove(name),
-    };
-}
-
-/// The names received while silenced, in order.
-pub fn suppressed(nameserver: &Nameserver) -> Vec<String> {
-    nameserver.zone.lock().unwrap().suppressed.clone()
 }
 
 /// The response to one query, and the name it asked for. `None` for anything

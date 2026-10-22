@@ -1,8 +1,8 @@
 """Bind one socket in this network namespace and hand it to the suite.
 
-Run as root inside another network namespace (`ip netns exec` or `nsenter
--n`). A socket stays in the namespace it was created in, so the unprivileged
-test that receives the descriptor over PATH serves from there.
+Run as root inside another network namespace (`ip netns exec`). A socket
+stays in the namespace it was created in, so the unprivileged test that
+receives the descriptor over PATH serves from there.
 
     bind.py PATH tcp|udp ADDRESS PORT
 """

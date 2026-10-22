@@ -1,0 +1,9 @@
+---
+source: crates/connector-vmm/src/resolver/mod.rs
+expression: log
+---
+private: answer: rcode=5 ancount=0 bytes=42
+held then private: answer: rcode=5 ancount=0 bytes=42
+new then private: answer: rcode=5 ancount=0 bytes=42
+private then new: answer: rcode=5 ancount=0 bytes=42
+CNAME to private: answer: rcode=5 ancount=0 bytes=42

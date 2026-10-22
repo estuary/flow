@@ -372,8 +372,10 @@ per-query decision lines are separate, and test-only.
 - **Nothing here needs the kernel.** `print-ruleset` and every test in this
   crate run without KVM, podman or root: the resolver's tests speak to a fake
   upstream nameserver on loopback and record what the resolver asked of the set
-  rather than writing to one, and the launch sequence is snapshotted through a
-  recording implementation of the libkrun trait. An applied ruleset, a batch
+  rather than writing to one. Capacity reclamation uses explicit expiry states;
+  the integration suite checks the kernel set and real expiry. The launch
+  sequence is snapshotted through a recording implementation of the libkrun
+  trait. An applied ruleset, a batch
   that reaches a real kernel, and a guest that actually boots are proven by the
   integration suite, [`crates/connector-vmm-tests`](../connector-vmm-tests/README.md).
 - **The descriptor sweep is tested in a subprocess.** It closes descriptors the

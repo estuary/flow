@@ -428,14 +428,9 @@ pub fn boundary(run: &Run, network: &str, action: &str) -> std::process::Output 
     sudo_output(&argv.iter().map(String::as_str).collect::<Vec<_>>(), None)
 }
 
-/// A plain container beside the VMMs, running `sleep` from the VMM image:
-/// something on a network for a VMM to try to reach, or to try to reach a
-/// VMM from.
+/// A plain container beside the VMMs, running `sleep` from the VMM image.
 pub struct Sidecar {
     pub name: String,
-    pub network: String,
-    /// Whether the sidecar made its network, and so removes it after itself.
-    owns_network: bool,
 }
 
 /// A sidecar on an existing network, such as a VMM's.
@@ -453,30 +448,12 @@ pub fn sidecar(run: &Run, network: &str) -> Sidecar {
         &run.vmm_image,
         "infinity",
     ]);
-    Sidecar {
-        name,
-        network: network.to_string(),
-        owns_network: false,
-    }
-}
-
-/// A sidecar on an ordinary podman network of its own, as a connector that
-/// does not run in a VMM would be.
-pub fn ordinary(run: &Run) -> Sidecar {
-    let network = format!("connector-vmm-kvm-{}", random_hex());
-    record("network", &network);
-    podman(&["network", "create", &network]);
-    let mut sidecar = sidecar(run, &network);
-    sidecar.owns_network = true;
-    sidecar
+    Sidecar { name }
 }
 
 impl Drop for Sidecar {
     fn drop(&mut self) {
         remove_container(&self.name);
-        if self.owns_network {
-            remove_network(&self.network);
-        }
     }
 }
 

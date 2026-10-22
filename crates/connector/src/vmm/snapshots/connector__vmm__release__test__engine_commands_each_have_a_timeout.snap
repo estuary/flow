@@ -1,0 +1,18 @@
+---
+source: crates/connector/src/vmm/release.rs
+expression: elapsed
+---
+[
+    (
+        60,
+        "sleep command [\"86400\"] did not finish within 60s",
+    ),
+    (
+        60,
+        "sleep command [\"86400\"] did not finish within 60s",
+    ),
+    (
+        60,
+        "sleep command [\"86400\"] did not finish within 60s",
+    ),
+]

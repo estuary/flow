@@ -34,9 +34,6 @@ import time
 VSOCK_PORT = 49092
 VMADDR_CID_HOST = 2
 TSI_PROXY_CREATE = 1024
-# From linux/in.h; Python's socket module does not export them.
-IP_MTU_DISCOVER = 10
-IP_PMTUDISC_DONT = 0
 
 # virtio device ids, from the virtio specification.
 VIRTIO_NAMES = {1: "net", 2: "blk", 3: "console", 4: "rng", 5: "balloon",
@@ -55,12 +52,10 @@ def oserror(error):
     return "error:%s" % errno.errorcode.get(error.errno, error.errno)
 
 
-def connect(family, kind, address, timeout, source=None):
+def connect(family, kind, address, timeout):
     sock = socket.socket(family, kind)
     sock.settimeout(timeout)
     try:
-        if source:
-            sock.bind((source, 0))
         sock.connect(address)
         return sock, "connected"
     except socket.timeout:
@@ -72,10 +67,7 @@ def connect(family, kind, address, timeout, source=None):
 
 
 def op_tcp(r):
-    """`src` binds a source address first, which is how the host-boundary
-    probes send from an address the VMM gave itself."""
-    sock, result = connect(socket.AF_INET, socket.SOCK_STREAM, (r["addr"], r["port"]),
-                           r["timeout"], r.get("src"))
+    sock, result = connect(socket.AF_INET, socket.SOCK_STREAM, (r["addr"], r["port"]), r["timeout"])
     if sock:
         sock.close()
     return result
@@ -119,22 +111,17 @@ def op_resolve(r):
 
 def op_query(r):
     """A raw query, which is the only way to see the TTL the resolver wrote.
-    `pad` appends that many bytes after the question, which a nameserver
-    ignores, and turns off path MTU discovery so the query leaves in
-    fragments. `raw` adds the whole response, as hex, to any parsed one."""
+    `raw` adds the whole response, as hex, to any parsed one."""
     query_id = random.randrange(0, 65536)
     question = b"".join(bytes([len(label)]) + label.encode()
                         for label in r["name"].split(".")) + b"\x00"
     message = struct.pack("!HHHHHH", query_id, 0x0100, 1, 0, 0, 0) + question
     message += struct.pack("!HH", r.get("qtype", 1), 1)
-    message += b"\x00" * r.get("pad", 0)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    if r.get("pad"):
-        sock.setsockopt(socket.IPPROTO_IP, IP_MTU_DISCOVER, IP_PMTUDISC_DONT)
     sock.settimeout(r["timeout"])
     try:
-        sock.sendto(message, (r["nameserver"], r.get("port", 53)))
+        sock.sendto(message, (r["nameserver"], 53))
         response, _ = sock.recvfrom(4096)
     except socket.timeout:
         return {"status": "timeout"}
