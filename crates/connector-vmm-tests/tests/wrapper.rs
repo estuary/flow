@@ -406,3 +406,40 @@ fn a_stall_catches_every_call_it_names() {
     assert!(ran.contains("token-b"), "{ran}");
     assert!(!ran.contains("token-a"), "{ran}");
 }
+
+#[test]
+fn connector_mount_is_checked_before_create() {
+    let setup = setup();
+    let expected = setup.dir.join("static-init");
+    let mount = setup.dir.join("mount");
+    std::fs::create_dir(&mount).unwrap();
+    std::fs::write(&expected, "static connector-init").unwrap();
+    std::fs::copy(&expected, mount.join("flow-connector-init")).unwrap();
+    control(
+        &setup,
+        "expected-connector-init",
+        expected.to_str().unwrap(),
+    );
+    let env = format!("--env=CONNECTOR_MOUNT={}", mount.display());
+    call(&setup, &["create", "--name=fv_checked", &env, "vmm-image"]);
+    assert_eq!(
+        std::fs::read_to_string(setup.test.join("checked-mounts")).unwrap(),
+        "fv_checked\n"
+    );
+    let before = std::fs::read(setup.stubs.join("log")).unwrap();
+
+    std::fs::write(mount.join("flow-connector-init"), "wrong binary").unwrap();
+    let output = spawn(&setup, &["create", "--name=fv_wrong", &env, "vmm-image"])
+        .wait_with_output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert_eq!(
+        std::fs::read(setup.stubs.join("log")).unwrap(),
+        before,
+        "podman cannot use an unchecked mount"
+    );
+    assert_eq!(
+        std::fs::read_to_string(setup.test.join("checked-mounts")).unwrap(),
+        "fv_checked\n"
+    );
+}

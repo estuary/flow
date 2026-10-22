@@ -75,17 +75,12 @@ test-group = 'capped-shard-reconfiguration'
 default-filter = 'binary_id(/connector-vmm-tests::kvm/) or binary_id(/connector-vmm-tests::launcher/)'
 # Backstop for a hung test; the task's resource list handles cleanup.
 slow-timeout = { period = "60s", terminate-after = 3 }
-# Each test boots a guest costing about 1 GiB of host memory.
-test-threads = 4
+# A test may boot several guests and run concurrent engine commands.
+# Leave headroom for their progress and for the test observing them.
+test-threads = 2
 success-output = "final"
 # Every result of a run which takes minutes to set up.
 fail-fast = false
-
-# Its launch waits out connector's 60s release command timeout once for each
-# of three records in turn, so it alone runs past the profile's backstop.
-[[profile.connector-vmm-kvm.overrides]]
-filter = 'binary_id(/connector-vmm-tests::launcher/) and test(=stalled_queries_of_three_records_each_time_out)'
-slow-timeout = { period = "60s", terminate-after = 7 }
 
 # Replacement launches must survive the old generation's cleanup.
 [[profile.connector-vmm-kvm.overrides]]

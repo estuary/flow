@@ -5,8 +5,6 @@
 use connector_vmm_tests::{launcher, run};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const DERIVATION: &str = "acmeCo/vmm-python/numbers";
@@ -200,81 +198,6 @@ fn launched(calls: &[String]) -> Vec<String> {
     names
 }
 
-/// Every VMM connector mount which appears beneath the shared TMPDIR, and whether
-/// its `flow-connector-init` was ever seen to be the static build's bytes. A
-/// mount is watched from creation until it's gone, so a file read while the
-/// launcher was still writing it is read again.
-struct Mounts {
-    seen: Arc<Mutex<BTreeMap<String, Result<(), String>>>>,
-    stop: Arc<AtomicBool>,
-    thread: Option<std::thread::JoinHandle<()>>,
-}
-
-fn watch_mounts(platform: &Platform) -> Mounts {
-    // SAFETY: geteuid takes nothing and cannot fail.
-    let euid = unsafe { libc::geteuid() };
-    let dir = PathBuf::from(format!("{}/tmp/connector-mounts-{euid}", platform.dir));
-    let expected = std::fs::read(&platform.connector_init)
-        .unwrap_or_else(|e| panic!("reading {}: {e}", platform.connector_init));
-
-    let seen = Arc::new(Mutex::new(BTreeMap::new()));
-    let stop = Arc::new(AtomicBool::new(false));
-    let thread = {
-        let (seen, stop) = (seen.clone(), stop.clone());
-        std::thread::spawn(move || {
-            let gone = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
-            while !stop.load(Ordering::Relaxed) {
-                let entries = match std::fs::read_dir(&dir) {
-                    Ok(entries) => entries,
-                    Err(e) if gone(&e) => {
-                        std::thread::sleep(Duration::from_millis(50));
-                        continue;
-                    }
-                    Err(e) => panic!("reading {}: {e}", dir.display()),
-                };
-                for entry in entries {
-                    let entry = entry.unwrap_or_else(|e| panic!("reading {}: {e}", dir.display()));
-                    let file = entry.file_name().to_string_lossy().to_string();
-                    let Some(name) = file.strip_prefix("mount-") else {
-                        continue;
-                    };
-                    if !name.starts_with("fv_") {
-                        continue;
-                    }
-                    let mut seen = seen.lock().unwrap();
-                    if matches!(seen.get(name), Some(Ok(()))) {
-                        continue;
-                    }
-                    let path = entry.path().join("flow-connector-init");
-                    let outcome = match std::fs::read(&path) {
-                        Ok(bytes) if bytes == expected => Ok(()),
-                        Ok(bytes) => Err(format!("{} bytes unlike the static build", bytes.len())),
-                        Err(e) if gone(&e) => Err("not yet written".to_string()),
-                        Err(e) => panic!("reading {}: {e}", path.display()),
-                    };
-                    seen.insert(name.to_string(), outcome);
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-        })
-    };
-    Mounts {
-        seen,
-        stop,
-        thread: Some(thread),
-    }
-}
-
-impl Mounts {
-    fn finish(mut self) -> BTreeMap<String, Result<(), String>> {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Err(panic) = self.thread.take().unwrap().join() {
-            std::panic::resume_unwind(panic);
-        }
-        self.seen.lock().unwrap().clone()
-    }
-}
-
 /// `calls`, with what differs between runs replaced: each launch's id, token
 /// and container ID by its ordinal, and this run's directory and VMM image.
 fn normalize_calls(platform: &Platform, calls: &[String]) -> String {
@@ -337,7 +260,11 @@ fn assert_vmm_logs(what: &str, logs: &str) {
 fn a_python_derivation_through_the_platform() {
     let platform = load();
     let root = root(&platform);
-    let mounts = watch_mounts(&platform);
+    std::fs::write(
+        format!("{}/expected-connector-init", platform.dir),
+        &platform.connector_init,
+    )
+    .expect("configuring the wrapper's mount check");
     let mut evidence = Vec::new();
 
     let before = launcher::calls(&root).len();
@@ -605,15 +532,16 @@ fn a_python_derivation_through_the_platform() {
     assert!(state.is_empty(), "the state directory holds {state:?}");
     let all = launcher::calls(&root);
 
-    let observed = mounts.finish();
+    let observed = std::fs::read_to_string(format!("{}/checked-mounts", platform.dir))
+        .expect("reading the wrapper's mount checks");
     assert_eq!(
-        observed.keys().cloned().collect::<BTreeSet<_>>(),
+        observed
+            .lines()
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>(),
         launches.iter().cloned().collect(),
-        "a connector mount was seen for each launch"
+        "every launch received the static connector-init"
     );
-    for (name, outcome) in &observed {
-        assert_eq!(outcome, &Ok(()), "{name}'s flow-connector-init");
-    }
     for call in all.iter().filter(|call| call.starts_with("create ")) {
         assert!(
             call.contains(&format!(" {} run ", platform.vmm_image)),

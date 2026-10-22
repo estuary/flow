@@ -424,6 +424,9 @@ EOF or status. A client which does not drain responses may park the handler.
   serving unless a connector RPC has begun, so waiting such a dial out leaves
   the Spec too little time: the VMM exits before readiness, or drops the Spec.
 
+- **VMM release deadlines use a paused clock in tests.** `vmm/release.rs`
+  checks each command's deadline and snapshots failure-state transitions.
+  The KVM suite checks real command termination and subsequent recovery.
 - **VMM readiness is tested without KVM.** `vmm/launch/readiness_tests.rs`
   exercises the real launcher with a scripted engine and Unix socket peers,
   checking startup, cancellation, the dial's deadline, a health which is not
