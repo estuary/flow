@@ -194,6 +194,7 @@ pub struct TestHarness {
     pub runtime_v2_new_captures: bool,
     pub runtime_v2_new_materializations: bool,
     pub runtime_v2_new_derivations: bool,
+    pub runtime_v2_all_derivations: bool,
     // Control plane API app instance for GraphQL queries
     control_plane_app: Option<Arc<control_plane_api::App>>,
 }
@@ -312,6 +313,7 @@ impl HarnessBuilder {
             runtime_v2_new_captures: false,
             runtime_v2_new_materializations: false,
             runtime_v2_new_derivations: false,
+            runtime_v2_all_derivations: false,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -1147,6 +1149,7 @@ impl TestHarness {
                     runtime_v2_new_captures: self.runtime_v2_new_captures,
                     runtime_v2_new_materializations: self.runtime_v2_new_materializations,
                     runtime_v2_new_derivations: self.runtime_v2_new_derivations,
+                    runtime_v2_all_derivations: self.runtime_v2_all_derivations,
                 })
             }
             task_types::DISCOVERS => {

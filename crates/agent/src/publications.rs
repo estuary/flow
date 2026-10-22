@@ -24,6 +24,8 @@ pub struct PublicationsExecutor {
     pub runtime_v2_new_materializations: bool,
     /// When true, newly-created derivations are published onto runtime v2; see [`RuntimeV2Rollout`].
     pub runtime_v2_new_derivations: bool,
+    /// When true, new and updated derivations are published onto runtime v2.
+    pub runtime_v2_all_derivations: bool,
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -210,6 +212,7 @@ impl PublicationsExecutor {
                     new_captures: self.runtime_v2_new_captures,
                     new_materializations: self.runtime_v2_new_materializations,
                     new_derivations: self.runtime_v2_new_derivations,
+                    all_derivations: self.runtime_v2_all_derivations,
                 },
             ),
             finalize: PruneUnboundCollections,

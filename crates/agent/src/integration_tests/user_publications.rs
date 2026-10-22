@@ -778,7 +778,9 @@ async fn test_runtime_v2_new_materializations() {
 /// never candidates. Covers: a derivation created while it's off is untouched; a
 /// new derivation created while it's on is enabled in both the committed model
 /// and the built-spec shard label; an explicit flag is preserved; and an existing
-/// derivation is never retroactively enabled on republish.
+/// derivation is never retroactively enabled on republish. Under `all_derivations`,
+/// that republish does enable it, while a derivation it only touches stays unflagged,
+/// and an update whose draft omits a live `false` keeps it.
 #[tokio::test]
 async fn test_runtime_v2_new_derivations() {
     let mut harness = TestHarness::init("test_runtime_v2_new_derivations").await;
@@ -840,6 +842,7 @@ async fn test_runtime_v2_new_derivations() {
         "collections": {
             "cats/source": collection(),
             "cats/early": derivation("cats/source", "select $id;"),
+            "cats/bystander": derivation("cats/source", "select $id;"),
         },
     }));
     let result = harness
@@ -930,6 +933,41 @@ async fn test_runtime_v2_new_derivations() {
         model_flag(&mut harness, "cats/early").await,
         None,
         "an existing derivation must stay unflagged on republish"
+    );
+
+    // Under `all_derivations`, the same republish enables `cats/early`.
+    // `cats/bystander` reads the drafted `cats/source`, so the publication
+    // touches it. `cats/pinned` is edited with a draft that omits its pin.
+    harness.runtime_v2_all_derivations = true;
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "cats/source": collection(),
+            "cats/early": derivation("cats/source", "select $id, $id as also_id;"),
+            "cats/pinned": derivation("cats/source", "select $id, $id as also_id;"),
+        },
+    }));
+    let result = harness
+        .user_publication(user, "republish under all_derivations", draft)
+        .await;
+    assert!(
+        result.status.is_success(),
+        "publication failed: {:?}",
+        result.errors
+    );
+    assert_eq!(
+        model_flag(&mut harness, "cats/early").await.as_deref(),
+        Some("true"),
+        "an existing derivation is enabled on republish"
+    );
+    assert_eq!(
+        model_flag(&mut harness, "cats/bystander").await,
+        None,
+        "a touched derivation must stay unflagged"
+    );
+    assert_eq!(
+        model_flag(&mut harness, "cats/pinned").await.as_deref(),
+        Some("false"),
+        "an update keeps the live task's explicit `false`"
     );
 }
 

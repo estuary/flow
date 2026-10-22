@@ -172,6 +172,12 @@ struct Args {
     #[clap(long, env = "RUNTIME_V2_NEW_DERIVATIONS", default_value = "false")]
     runtime_v2_new_derivations: bool,
 
+    /// When `true`, any derivation that a user publication creates or updates
+    /// without an explicit `enable-runtime-v2` shard flag is published onto
+    /// runtime v2. An update keeps the live task's explicit flag, if it has one.
+    #[clap(long, env = "RUNTIME_V2_ALL_DERIVATIONS", default_value = "false")]
+    runtime_v2_all_derivations: bool,
+
     /// Required BigTable configuration for controller and GraphQL stats.
     #[command(flatten)]
     catalog_stats_config: control_plane_api::catalog_stats::CatalogStatsConfig,
@@ -421,6 +427,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                 runtime_v2_new_captures: args.runtime_v2_new_captures,
                 runtime_v2_new_materializations: args.runtime_v2_new_materializations,
                 runtime_v2_new_derivations: args.runtime_v2_new_derivations,
+                runtime_v2_all_derivations: args.runtime_v2_all_derivations,
             })
             .register(agent::DiscoverExecutor {
                 handler: discover_handler,

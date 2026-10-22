@@ -121,6 +121,10 @@ pub struct RuntimeV2Rollout {
     pub new_materializations: bool,
     /// When true, newly-created derivations without an explicit flag run runtime v2.
     pub new_derivations: bool,
+    /// When true, every new or updated derivation without an explicit flag runs runtime v2.
+    /// An update whose draft omits the flag keeps the live task's explicit flag.
+    /// Implies `new_derivations`.
+    pub all_derivations: bool,
 }
 
 impl Initialize for RuntimeV2Rollout {
@@ -141,8 +145,7 @@ impl Initialize for RuntimeV2Rollout {
 
         // Gather candidate names across the task types whose rollout is enabled.
         // Catalog names are globally unique, so all task types share the single
-        // existence query below. Derivations are collections carrying a `derive`
-        // block, and their shards live at `derive.shards` rather than `shards`.
+        // live-spec query below.
         let mut candidates = Vec::new();
         if self.new_captures {
             candidates.extend(
@@ -170,7 +173,7 @@ impl Initialize for RuntimeV2Rollout {
                     .map(|row| row.materialization.to_string()),
             );
         }
-        if self.new_derivations {
+        if self.new_derivations || self.all_derivations {
             candidates.extend(
                 draft
                     .collections
@@ -188,21 +191,22 @@ impl Initialize for RuntimeV2Rollout {
             return Ok(());
         }
 
-        // Only *new* tasks are enabled. A candidate that already has a
-        // non-tombstone live spec is an update, so it's left as-is. A tombstone
-        // (`spec is null`, a deleted spec a controller hasn't yet reaped) is
-        // excluded by `spec is not null`, so re-creating a task counts as new.
-        let existing: std::collections::HashSet<String> = sqlx::query!(
-            r#"select catalog_name
+        // A candidate that already has a non-tombstone live spec is an update.
+        // A tombstone (`spec is null`, a deleted spec a controller hasn't yet
+        // reaped) is excluded by `spec is not null`, so re-creating a task
+        // counts as new.
+        let live: std::collections::HashMap<String, Option<String>> = sqlx::query!(
+            r#"select catalog_name, spec->'derive'->'shards'->'flags'->>$2::text as "derive_flag"
                from live_specs
                where catalog_name = any($1::text[]) and spec is not null"#,
             &candidates as &[String],
+            models::ENABLE_RUNTIME_V2,
         )
         .fetch_all(db)
         .await
-        .context("fetching existing task names")?
+        .context("fetching live task names and flags")?
         .into_iter()
-        .map(|row| row.catalog_name)
+        .map(|row| (row.catalog_name, row.derive_flag))
         .collect();
 
         if self.new_captures {
@@ -211,7 +215,7 @@ impl Initialize for RuntimeV2Rollout {
                     continue;
                 };
                 if is_candidate(row.is_touch, &model.shards)
-                    && !existing.contains(row.capture.as_str())
+                    && !live.contains_key(row.capture.as_str())
                 {
                     model
                         .shards
@@ -226,7 +230,7 @@ impl Initialize for RuntimeV2Rollout {
                     continue;
                 };
                 if is_candidate(row.is_touch, &model.shards)
-                    && !existing.contains(row.materialization.as_str())
+                    && !live.contains_key(row.materialization.as_str())
                 {
                     model
                         .shards
@@ -235,20 +239,27 @@ impl Initialize for RuntimeV2Rollout {
                 }
             }
         }
-        if self.new_derivations {
+        if self.new_derivations || self.all_derivations {
             for row in draft.collections.iter_mut() {
                 let Some(derive) = row.model.as_mut().and_then(|model| model.derive.as_mut())
                 else {
                     continue;
                 };
-                if is_candidate(row.is_touch, &derive.shards)
-                    && !existing.contains(row.collection.as_str())
-                {
-                    derive
-                        .shards
-                        .flags
-                        .insert(flag.clone(), models::Token::new("true"));
+                if !is_candidate(row.is_touch, &derive.shards) {
+                    continue;
                 }
+                // An update keeps the live flag, so a pin such as `false`
+                // survives a draft that omits it.
+                let value = match live.get(row.collection.as_str()) {
+                    None => "true",
+                    Some(_) if !self.all_derivations => continue,
+                    Some(Some(live_flag)) => live_flag.as_str(),
+                    Some(None) => "true",
+                };
+                derive
+                    .shards
+                    .flags
+                    .insert(flag.clone(), models::Token::new(value));
             }
         }
 
