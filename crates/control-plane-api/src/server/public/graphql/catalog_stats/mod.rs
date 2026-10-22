@@ -138,22 +138,6 @@ mod tests {
     use crate::test_server;
     use chrono::TimeZone as _;
 
-    /// The emulator's port is per-stack, so the ambient mise env is required.
-    async fn emulator() -> std::sync::Arc<catalog_stats::Client> {
-        let port = std::env::var("FLOW_PORT_BIGTABLE")
-            .expect("FLOW_PORT_BIGTABLE must be set — run via 'mise run' (see local:bigtable)");
-
-        let client = catalog_stats::Client::connect(&catalog_stats::BigtableConfig {
-            project: "estuary-local".to_string(),
-            instance: "estuary-local".to_string(),
-            emulator_host: Some(format!("localhost:{port}")),
-        })
-        .await
-        .expect("BigTable emulator must be running: `mise run local:bigtable`");
-
-        std::sync::Arc::new(client)
-    }
-
     fn ts(hour: u32) -> chrono::DateTime<chrono::Utc> {
         chrono::Utc
             .with_ymd_and_hms(2026, 5, 5, hour, 0, 0)
@@ -260,7 +244,8 @@ mod tests {
     )]
     async fn test_graphql_catalog_stats(pool: sqlx::PgPool) {
         let _guard = test_server::init();
-        let client = emulator().await;
+        let client =
+            std::sync::Arc::new(catalog_stats::test_util::connect_emulator("estuary-local").await);
         let prefix = "aliceCo/ctest-catalog-stats/";
         seed(&client, prefix).await;
 
