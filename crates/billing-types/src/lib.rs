@@ -4,11 +4,15 @@ use std::collections::HashMap;
 mod calculate;
 mod db;
 pub mod invoices;
+mod provider;
 mod stripe_helpers;
+mod stripe_impl;
 pub(crate) use calculate::{Adjustment, BillingTerms, DailyUsage, calculate};
 pub use calculate::{Invoice, InvoiceUsage, LineItem};
 pub use db::record_customer_id;
+pub use provider::{BillingProvider, default_payment_method_id};
 pub use stripe_helpers::{SearchParams, stripe_search};
+pub use stripe_impl::StripeBillingProvider;
 
 pub const TENANT_METADATA_KEY: &str = "estuary.dev/tenant_name";
 // The human billing-contact name is stored under this customer-metadata key
