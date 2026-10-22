@@ -120,6 +120,8 @@ async fn walk_materialization(
         target_naming,
         endpoint,
         secrets,
+        vmm,
+        egress,
         bindings: bindings_model,
         mut shards,
         expect_pub_id: _,
@@ -138,6 +140,16 @@ async fn walk_materialization(
     );
 
     let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
+    let execution = super::walk_execution(
+        scope,
+        "materialization",
+        materialization,
+        models::CatalogType::Materialization,
+        vmm,
+        egress.as_ref(),
+        &shards,
+        errors,
+    );
 
     let max_bindings = crate::max_bindings(indirect_specs);
 
@@ -298,6 +310,7 @@ async fn walk_materialization(
         noop_materializations || shards.disable,
         data_plane_id,
         shards.log_level.as_deref(),
+        execution.clone(),
         connector::request::Kind::Materialize(materialize::Request {
             kind: Some(materialize::request::Kind::Validate(Box::new(
                 validate_request,
@@ -683,6 +696,7 @@ async fn walk_materialization(
         sync_schedule_json,
         linked_collections: Vec::new(),
         secrets: secrets_spec,
+        execution,
     };
     linked::install_materialization_spec(&mut spec, interner, indirect_specs);
 
@@ -692,6 +706,8 @@ async fn walk_materialization(
         on_incompatible_schema_change,
         endpoint,
         secrets,
+        vmm,
+        egress,
         bindings: bindings_model,
         shards,
         expect_pub_id: None,

@@ -1,0 +1,17 @@
+---
+source: crates/validation/tests/execution_tests.rs
+expression: executions(&outcome)
+---
+derivation acmeCo/egress-derivation: Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["Api.AcmeCo.example", "*.svc.acmeco.example", "api.acmeco.example"] }) })
+derivation acmeCo/empty-egress-derivation: Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) })
+materialization acmeCo/egress-materialization: Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["*.warehouse.acmeco.example"] }) })
+materialization acmeCo/null-egress-materialization: None
+error test://example/catalog.yaml#/captures/acmeCo~1empty-egress-capture/egress: capture acmeCo/empty-egress-capture declares egress, which its connector's execution cannot enforce; egress is enforced only by VMM execution (`vmm: true`)
+error test://example/catalog.yaml#/captures/acmeCo~1invalid-egress-capture/egress/hosts/0: capture acmeCo/invalid-egress-capture declares an invalid egress host: egress.hosts "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+error test://example/catalog.yaml#/captures/acmeCo~1invalid-egress-capture/egress/hosts/2: capture acmeCo/invalid-egress-capture declares an invalid egress host: egress.hosts "10.0.0.1" ends in an all-numeric label; egress.hosts takes names, not addresses
+error test://example/catalog.yaml#/captures/acmeCo~1invalid-egress-capture/egress/hosts/3: capture acmeCo/invalid-egress-capture declares an invalid egress host: egress.hosts "*.github.io" is a wildcard over the public suffix "github.io", in the Public Suffix List's private section; names beneath a public suffix belong to unrelated registrants
+error test://example/catalog.yaml#/captures/acmeCo~1invalid-egress-capture/egress/hosts/4: capture acmeCo/invalid-egress-capture declares an invalid egress host: egress.hosts "api..acmeco.example" has an empty label
+error test://example/catalog.yaml#/captures/acmeCo~1invalid-egress-capture/egress/hosts/5: capture acmeCo/invalid-egress-capture declares an invalid egress host: egress.hosts "api.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+error test://example/catalog.yaml#/collections/acmeCo~1disabled-egress-derivation/derive/egress: derivation acmeCo/disabled-egress-derivation declares egress, which its connector's execution cannot enforce; egress is enforced only by VMM execution (`vmm: true`)
+error test://example/catalog.yaml#/collections/acmeCo~1ordinary-egress-derivation/derive/egress: derivation acmeCo/ordinary-egress-derivation declares egress, which its connector's execution cannot enforce; egress is enforced only by VMM execution (`vmm: true`)
+error test://example/catalog.yaml#/collections/acmeCo~1v1-egress-derivation/derive/egress: derivation acmeCo/v1-egress-derivation declares egress, which its connector's execution cannot enforce; egress is enforced only by VMM execution (`vmm: true`)

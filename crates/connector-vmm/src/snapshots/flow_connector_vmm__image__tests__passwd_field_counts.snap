@@ -1,0 +1,23 @@
+---
+source: crates/connector-vmm/src/image.rs
+expression: table
+---
+## seven fields, one with an empty home and one with an empty shell
+"acmeemptyhome" -> 1006:1006 groups [1006] HOME=""
+"1006" -> 1006:1006 groups [1006] HOME=""
+"acmeemptyshell" -> 1012:1012 groups [1012] HOME="/home/acmeemptyshell"
+"1012" -> 1012:1012 groups [1012] HOME="/home/acmeemptyshell"
+
+## six fields, no shell
+"acmesix" -> refused: user "acmesix" is not in the image's /etc/passwd
+"1011" -> 1011:1011 groups [1011] HOME="/home/acmesix"
+
+## eight fields
+"acmeeight" -> refused: user "acmeeight" is not in the image's /etc/passwd
+"1014" -> 1014:1014 groups [1014] HOME="/home/acmeeight"
+
+## seven fields below six
+"root" -> 0:0 groups [0] HOME="/acmeroot"
+"acmeafter" -> refused: user "acmeafter" is not in the image's /etc/passwd
+"acmeafter:0" -> refused: user "acmeafter" is not in the image's /etc/passwd
+"1020" -> 1020:1020 groups [1020] HOME="/home/acmeafter"

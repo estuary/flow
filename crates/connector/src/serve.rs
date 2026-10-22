@@ -47,6 +47,7 @@ where
 
     let first = request_rx.next().await;
     let Authorized {
+        execution,
         log_level,
         sqlite_vfs_uri,
         task_name,
@@ -60,6 +61,7 @@ where
     let result = start_and_pump(
         &service,
         log_sink,
+        execution,
         log_level,
         sqlite_vfs_uri,
         &task_name,
@@ -90,6 +92,7 @@ where
 async fn start_and_pump<R>(
     service: &crate::Service,
     log_sink: crate::LogSink,
+    execution: proto_flow::flow::ConnectorExecution,
     log_level: ops::LogLevel,
     sqlite_vfs_uri: String,
     task_name: &str,
@@ -108,6 +111,7 @@ where
             run::<crate::capture::Capture, R>(
                 service,
                 log_sink,
+                execution,
                 log_level,
                 sqlite_vfs_uri,
                 task_name,
@@ -122,6 +126,7 @@ where
             run::<crate::derive::Derive, R>(
                 service,
                 log_sink,
+                execution,
                 log_level,
                 sqlite_vfs_uri,
                 task_name,
@@ -136,6 +141,7 @@ where
             run::<crate::materialize::Materialize, R>(
                 service,
                 log_sink,
+                execution,
                 log_level,
                 sqlite_vfs_uri,
                 task_name,
@@ -152,6 +158,7 @@ where
 async fn run<P, R>(
     service: &crate::Service,
     log_sink: crate::LogSink,
+    execution: proto_flow::flow::ConnectorExecution,
     log_level: ops::LogLevel,
     sqlite_vfs_uri: Option<String>,
     task_name: &str,
@@ -166,6 +173,7 @@ where
 {
     let ctx = crate::protocol::StartContext {
         container_network: service.container_network.clone(),
+        execution,
         log_level,
         log_sink,
         plane: service.plane,
@@ -173,6 +181,7 @@ where
         secret_resolver: service.secret_resolver.clone(),
         task_name: task_name.to_string(),
         task_update: service.task_update.clone(),
+        vmm: service.vmm.clone(),
     };
     let started = tokio::select! {
         () = response_tx.closed() => return Err(client_dropped()),
@@ -191,7 +200,7 @@ fn client_dropped() -> anyhow::Error {
 
 /// Forward requests and responses in independent bursts. A full request
 /// channel parks only its forwarding future, leaving responses free to drain.
-async fn pump<P, R>(
+pub(crate) async fn pump<P, R>(
     mut request_rx: R,
     started: crate::Started<P>,
     response_tx: &mpsc::Sender<tonic::Result<proto::Response>>,
@@ -204,6 +213,7 @@ where
         connector_tx,
         mut connector_rx,
         guard,
+        execution,
         ..
     } = started;
 
@@ -223,6 +233,8 @@ where
                         .to_string(),
                 ));
             };
+            crate::vmm::check_spec_execution(&execution, P::spec_execution(&request).as_ref())?;
+
             if connector_tx.send(request).await.is_err() {
                 break;
             }
@@ -261,6 +273,7 @@ where
 }
 
 struct Authorized {
+    execution: proto_flow::flow::ConnectorExecution,
     log_level: ops::LogLevel,
     sqlite_vfs_uri: String,
     task_name: String,
@@ -278,6 +291,7 @@ fn authorize(
 
     let (
         Some(proto::request::Start {
+            execution,
             log_level,
             sqlite_vfs_uri,
         }),
@@ -314,6 +328,7 @@ fn authorize(
     );
 
     Ok(Authorized {
+        execution: execution.unwrap_or_default(),
         log_level,
         sqlite_vfs_uri,
         task_name,
@@ -337,10 +352,12 @@ mod test {
             started: proto::Response::default(),
             connector_tx,
             connector_rx: futures::stream::pending().boxed(),
+            execution: Default::default(),
             guard: crate::Guard {
                 _process: None,
+                _vmm: None,
                 _refresh: None,
-                _mount: tempfile::tempdir().unwrap(),
+                _mount: Some(tempfile::tempdir().unwrap()),
             },
         };
         std::mem::drop(response_rx);
@@ -356,5 +373,191 @@ mod test {
             format!("{err:#}").contains("dropped its response stream"),
             "{err:#}",
         );
+    }
+    use crate::execution_fixture::*;
+    use proto_flow::{capture, derive, flow, materialize};
+    /// Immediate connector EOF must not hide a ready request's execution mismatch.
+    async fn pump_later<P: crate::protocol::Protocol>(
+        execution: flow::ConnectorExecution,
+        request: proto::Request,
+    ) -> (usize, anyhow::Result<()>) {
+        let (connector_tx, mut connector_rx) = mpsc::channel(1);
+        let (response_tx, _response_rx) = mpsc::channel(1);
+        let started = crate::Started::<P> {
+            started: proto::Response::default(),
+            connector_tx,
+            connector_rx: futures::stream::empty().boxed(),
+            guard: crate::Guard {
+                _process: None,
+                _vmm: None,
+                _refresh: None,
+                _mount: None,
+            },
+            execution,
+        };
+
+        let requests = futures::stream::iter([Ok::<_, tonic::Status>(request)]);
+        let result = crate::serve::pump(requests, started, &response_tx).await;
+
+        let mut forwarded = 0;
+        while connector_rx.try_recv().is_ok() {
+            forwarded += 1;
+        }
+        (forwarded, result)
+    }
+
+    /// Drive `pump` directly to cover VMM sessions without launching a VMM.
+    #[tokio::test]
+    async fn later_requests_must_match_the_session_execution() {
+        const EMBEDS_SPEC: &[&str] = &[
+            "capture Apply",
+            "capture Open",
+            "derive Open",
+            "materialize Apply",
+            "materialize Open",
+        ];
+        let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
+        let config: bytes::Bytes = config.to_string().into();
+        let hosts = &["api.acmeco.example", "*.svc.acmeco.example"];
+        let previous = egress_execution(true, &["previous.acmeco.example"]);
+
+        let sessions = [
+            ("ordinary", None),
+            ("vmm", vmm_execution()),
+            ("vmm egress [api, *.svc]", egress_execution(true, hosts)),
+        ];
+        let laters = [
+            ("unset", None),
+            ("ordinary", Some(flow::ConnectorExecution::default())),
+            ("vmm", vmm_execution()),
+            ("egress []", egress_execution(false, &[])),
+            ("vmm egress []", egress_execution(true, &[])),
+            ("vmm egress [api, *.svc]", egress_execution(true, hosts)),
+            ("vmm egress [api]", egress_execution(true, &hosts[..1])),
+        ];
+
+        let mut rows = Vec::new();
+        for (session_name, session) in &sessions {
+            for (later_name, later) in &laters {
+                let mut refused = Vec::new();
+
+                for (label, task_type, _task_name, kind) in
+                    every_first_request(image_connector_type, &config, later.clone())
+                {
+                    let request = proto::Request {
+                        start: None,
+                        kind: Some(with_previous_specs(kind, &previous)),
+                    };
+                    let session = session.clone().unwrap_or_default();
+
+                    let (forwarded, result) = match task_type {
+                        ops::TaskType::Capture => {
+                            pump_later::<crate::capture::Capture>(session, request).await
+                        }
+                        ops::TaskType::Derivation => {
+                            pump_later::<crate::derive::Derive>(session, request).await
+                        }
+                        ops::TaskType::Materialization => {
+                            pump_later::<crate::materialize::Materialize>(session, request).await
+                        }
+                        _ => unreachable!(),
+                    };
+                    match result {
+                        Ok(()) => assert_eq!(forwarded, 1, "{label}"),
+                        Err(err) => {
+                            assert_eq!(forwarded, 0, "{label}");
+                            let status = err.downcast_ref::<proto_grpc::StatusError>().unwrap();
+                            assert_eq!(status.code(), tonic::Code::InvalidArgument, "{label}");
+                            refused.push(label);
+                        }
+                    }
+                }
+
+                assert!(
+                    refused.is_empty() || refused == EMBEDS_SPEC,
+                    "session {session_name} later {later_name}: {refused:?}"
+                );
+                rows.push(format!(
+                    "session {session_name:<23} later {later_name:<23} => {}",
+                    if refused.is_empty() {
+                        "forwarded"
+                    } else {
+                        "refused"
+                    },
+                ));
+            }
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r"
+    session ordinary                later unset                   => forwarded
+    session ordinary                later ordinary                => forwarded
+    session ordinary                later vmm                     => refused
+    session ordinary                later egress []               => refused
+    session ordinary                later vmm egress []           => refused
+    session ordinary                later vmm egress [api, *.svc] => refused
+    session ordinary                later vmm egress [api]        => refused
+    session vmm                     later unset                   => refused
+    session vmm                     later ordinary                => refused
+    session vmm                     later vmm                     => forwarded
+    session vmm                     later egress []               => refused
+    session vmm                     later vmm egress []           => refused
+    session vmm                     later vmm egress [api, *.svc] => refused
+    session vmm                     later vmm egress [api]        => refused
+    session vmm egress [api, *.svc] later unset                   => refused
+    session vmm egress [api, *.svc] later ordinary                => refused
+    session vmm egress [api, *.svc] later vmm                     => refused
+    session vmm egress [api, *.svc] later egress []               => refused
+    session vmm egress [api, *.svc] later vmm egress []           => refused
+    session vmm egress [api, *.svc] later vmm egress [api, *.svc] => forwarded
+    session vmm egress [api, *.svc] later vmm egress [api]        => refused
+    ");
+    }
+    fn with_previous_specs(
+        mut kind: proto::request::Kind,
+        execution: &Option<flow::ConnectorExecution>,
+    ) -> proto::request::Kind {
+        use proto::request::Kind;
+
+        let capture = || flow::CaptureSpec {
+            execution: execution.clone(),
+            ..Default::default()
+        };
+        let materialization = || flow::MaterializationSpec {
+            execution: execution.clone(),
+            ..Default::default()
+        };
+
+        match &mut kind {
+            Kind::Capture(capture::Request {
+                kind: Some(capture::request::Kind::Validate(validate)),
+                ..
+            }) => validate.last_capture = Some(capture()),
+            Kind::Capture(capture::Request {
+                kind: Some(capture::request::Kind::Apply(apply)),
+                ..
+            }) => apply.last_capture = Some(capture()),
+            Kind::Derive(derive::Request {
+                kind: Some(derive::request::Kind::Validate(validate)),
+                ..
+            }) => {
+                validate.last_collection = Some(flow::CollectionSpec {
+                    derivation: Some(Box::new(flow::collection_spec::Derivation {
+                        execution: execution.clone(),
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                })
+            }
+            Kind::Materialize(materialize::Request {
+                kind: Some(materialize::request::Kind::Validate(validate)),
+                ..
+            }) => validate.last_materialization = Some(materialization()),
+            Kind::Materialize(materialize::Request {
+                kind: Some(materialize::request::Kind::Apply(apply)),
+                ..
+            }) => apply.last_materialization = Some(materialization()),
+            _ => {}
+        }
+        kind
     }
 }

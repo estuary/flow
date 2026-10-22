@@ -1,0 +1,1 @@
+{"egress": "public", "allowedNames": ["ok.acmeco.example", "*.wild.acmeco.example"]}
