@@ -38,7 +38,10 @@
           }
         ],
         "shards": {
-          "minTxnDuration": "5s"
+          "minTxnDuration": "5s",
+          "flags": {
+            "enable-runtime-v2": "true"
+          }
         }
       }
     },
@@ -67,7 +70,10 @@
           }
         ],
         "shards": {
-          "minTxnDuration": "5s"
+          "minTxnDuration": "5s",
+          "flags": {
+            "enable-runtime-v2": "true"
+          }
         }
       }
     },
@@ -109,7 +115,10 @@
           }
         ],
         "shards": {
-          "minTxnDuration": "10s"
+          "minTxnDuration": "10s",
+          "flags": {
+            "enable-runtime-v2": "true"
+          }
         }
       }
     },
