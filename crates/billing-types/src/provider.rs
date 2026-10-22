@@ -3,7 +3,7 @@ use std::collections::HashMap;
 /// `BillingProvider` is intentionally a narrow seam around outbound Stripe API
 /// calls. It is not meant to be a complete billing service boundary, which is
 /// why the interface still uses Stripe-native types. Database-backed billing
-/// reads live separately under `control_plane_api::billing::db`, and
+/// reads live separately under `control_plane_api::billing::db`, and the API's
 /// resolution of a tenant's recorded customer ID, which combines both, lives
 /// under `control_plane_api::billing::customer`.
 ///
