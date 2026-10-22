@@ -1,6 +1,7 @@
 use super::BillingProvider;
 use crate::{customer_create_idempotency_key, tenant_metadata};
 use anyhow::Context;
+use std::collections::HashMap;
 
 /// Production `BillingProvider` backed by the Stripe API.
 #[derive(Clone)]
@@ -20,10 +21,14 @@ impl std::fmt::Debug for StripeBillingProvider {
 
 impl StripeBillingProvider {
     pub fn new(api_key: String) -> Self {
-        Self {
-            client: stripe::Client::new(api_key)
+        Self::from_client(
+            stripe::Client::new(api_key)
                 .with_strategy(stripe::RequestStrategy::ExponentialBackoff(4)),
-        }
+        )
+    }
+
+    pub fn from_client(client: stripe::Client) -> Self {
+        Self { client }
     }
 }
 
@@ -39,27 +44,11 @@ impl BillingProvider for StripeBillingProvider {
     async fn create_customer(
         &self,
         tenant: &str,
-        user_email: &str,
-        user_name: Option<&str>,
-        billing_name: Option<&str>,
+        email: Option<&str>,
         address: Option<stripe::Address>,
+        mut metadata: HashMap<String, String>,
     ) -> anyhow::Result<stripe::Customer> {
-        let mut metadata = tenant_metadata(tenant);
-        metadata.insert("created_by_user_email".to_string(), user_email.to_string());
-        if let Some(name) = user_name {
-            metadata.insert("created_by_user_name".to_string(), name.to_string());
-        }
-        // The billing-contact name is stored in metadata, not `Customer.name`; see
-        // `update_customer_billing_profile`. Set it at creation alongside email and
-        // address so a contact captured before the customer existed is reflected,
-        // rather than waiting for the tenant controller to observe a later edit.
-        if let Some(billing_name) = billing_name {
-            metadata.insert(
-                crate::CUSTOMER_NAME_METADATA_KEY.to_string(),
-                billing_name.to_string(),
-            );
-        }
-
+        metadata.insert(crate::TENANT_METADATA_KEY.to_string(), tenant.to_string());
         let description = format!("Represents the billing entity for Flow tenant '{tenant}'");
         // Two near-simultaneous `find_or_create_customer` calls can both find
         // no customer and both create one. Pinning a deterministic
@@ -71,10 +60,10 @@ impl BillingProvider for StripeBillingProvider {
             .with_strategy(stripe::RequestStrategy::Idempotent(
                 customer_create_idempotency_key(tenant),
             ));
-        let customer = stripe::Customer::create(
+        Ok(stripe::Customer::create(
             &client,
             stripe::CreateCustomer {
-                email: Some(user_email),
+                email,
                 name: Some(tenant),
                 address,
                 description: Some(&description),
@@ -82,8 +71,7 @@ impl BillingProvider for StripeBillingProvider {
                 ..Default::default()
             },
         )
-        .await?;
-        Ok(customer)
+        .await?)
     }
 
     async fn update_customer_default_payment_method(
