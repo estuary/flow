@@ -90,7 +90,10 @@
             "kind": {
               "Enum": [
                 "stripe",
-                "external"
+                "external",
+                "aws_marketplace",
+                "gcp_marketplace",
+                "snowflake_marketplace"
               ]
             }
           }
