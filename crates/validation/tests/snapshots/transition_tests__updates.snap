@@ -1955,6 +1955,7 @@ Outcome {
               "removed dropped exclude projection FY of source collection the/collection",
               "removed dropped exclude projection does/not/exist of source collection the/collection"
             ],
+            auto_disabled_bindings: [],
             validated: Validated {
                 bindings: [
                     Binding {

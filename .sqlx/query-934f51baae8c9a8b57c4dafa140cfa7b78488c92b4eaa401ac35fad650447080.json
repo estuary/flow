@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        delete from internal.tasks t\n        where t.task_type = 9\n          and (t.task_id = any($1::flowid[])\n            or t.task_id in (\n                select id from alert_history\n                where catalog_name = $2 and alert_type = any($3::alert_type[])\n            ))\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "Text",
+        {
+          "Custom": {
+            "name": "alert_type[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "alert_type",
+                  "kind": {
+                    "Enum": [
+                      "free_trial",
+                      "free_trial_ending",
+                      "free_trial_stalled",
+                      "missing_payment_method",
+                      "data_movement_stalled",
+                      "data_not_processed_in_interval",
+                      "shard_failed",
+                      "auto_discover_failed",
+                      "background_publication_failed",
+                      "task_chronically_failing",
+                      "task_auto_disabled_failing",
+                      "task_idle",
+                      "task_auto_disabled_idle",
+                      "bindings_auto_disabled"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "934f51baae8c9a8b57c4dafa140cfa7b78488c92b4eaa401ac35fad650447080"
+}

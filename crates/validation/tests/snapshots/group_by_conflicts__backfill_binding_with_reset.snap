@@ -75,6 +75,7 @@ expression: "(selections, errors)"
             [
                 "backfilled binding of reset collection the/collection",
             ],
+            [],
         ),
     ],
     [],

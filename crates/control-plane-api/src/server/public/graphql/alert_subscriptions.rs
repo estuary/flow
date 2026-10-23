@@ -273,7 +273,8 @@ mod test {
                 "free_trial",
                 "free_trial_ending",
                 "free_trial_stalled",
-                "missing_payment_method"
+                "missing_payment_method",
+                "bindings_auto_disabled"
               ]
             }
           }
@@ -426,7 +427,8 @@ mod test {
                 "free_trial",
                 "free_trial_ending",
                 "free_trial_stalled",
-                "missing_payment_method"
+                "missing_payment_method",
+                "bindings_auto_disabled"
               ],
               "catalogPrefix": "aliceCo/",
               "destination": "mailto:alice@example.test",

@@ -86,6 +86,52 @@ expression: schema
         }
       ]
     },
+    "AutoDisabledBinding": {
+      "description": "A binding which Flow disabled, and why.",
+      "properties": {
+        "collection": {
+          "$ref": "#/$defs/Collection",
+          "description": "Source collection of the disabled binding."
+        },
+        "detail": {
+          "description": "Description of the change that caused Flow to disable the binding.",
+          "type": "string"
+        },
+        "pub_id": {
+          "$ref": "#/$defs/Id",
+          "description": "The publication which disabled the binding."
+        },
+        "reason": {
+          "$ref": "#/$defs/AutoDisabledReason",
+          "description": "Why Flow disabled the binding."
+        },
+        "resource_path": {
+          "description": "Resource path of the disabled binding.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "resource_path",
+        "collection",
+        "reason",
+        "detail",
+        "pub_id"
+      ],
+      "type": "object"
+    },
+    "AutoDisabledReason": {
+      "description": "Reason that Flow disabled a binding.",
+      "oneOf": [
+        {
+          "const": "incompatible_schema_change",
+          "description": "A schema change was incompatible with the binding's target resource,\nand its `onIncompatibleSchemaChange` is `disableBinding`.",
+          "type": "string"
+        }
+      ]
+    },
     "AutoDiscoverFailure": {
       "properties": {
         "count": {
@@ -545,6 +591,13 @@ expression: schema
             "$ref": "#/$defs/ControllerAlert"
           },
           "type": "object"
+        },
+        "auto_disabled_bindings": {
+          "description": "Bindings which Flow disabled, and which remain disabled.",
+          "items": {
+            "$ref": "#/$defs/AutoDisabledBinding"
+          },
+          "type": "array"
         },
         "config_updates": {
           "anyOf": [

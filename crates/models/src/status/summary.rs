@@ -24,9 +24,10 @@ pub enum StatusSummaryType {
     /// The task is currently disabled. Only pertains to captures, derivations,
     /// and materializations.
     TaskDisabled,
-    /// Something isn't fully working, but the condition is expected to clear
-    /// automatically soon. Nothing to worry about as long as the condition
-    /// doesn't persist for too long.
+    /// Something isn't fully working, but the task is running. Either the
+    /// condition is expected to clear automatically soon, and is nothing to
+    /// worry about unless it persists, or it needs action from the user but
+    /// doesn't stop the task.
     Warning,
     /// There's some sort of error with this catalog spec.
     Error,
@@ -128,6 +129,16 @@ impl Summary {
                     return Summary::error("one or more task shards are failed");
                 }
             }
+        }
+
+        // Disabled bindings remain disabled until the user acts, but the task
+        // continues to run its other bindings.
+        if let ControllerStatus::Materialization(status) = controller_status
+            && !status.auto_disabled_bindings.is_empty()
+        {
+            return Summary::warning(super::AutoDisabledBinding::describe(
+                &status.auto_disabled_bindings,
+            ));
         }
 
         // Not all tasks will have a connector status, but if they do then we
@@ -368,6 +379,64 @@ mod test {
             message: "connector is ready",
         }
         "###);
+
+        // Bindings disabled by Flow are a warning, which takes precedence over
+        // the connector status.
+        let auto_disabled = |n: usize| {
+            let mut status = activated_ok.clone();
+            let ControllerStatus::Materialization(m) = &mut status else {
+                unreachable!()
+            };
+            m.auto_disabled_bindings = (0..n)
+                .map(|i| crate::status::AutoDisabledBinding {
+                    resource_path: vec![format!("table_{i}")],
+                    collection: crate::Collection::new(format!("acmeCo/collection_{i}")),
+                    reason: crate::status::AutoDisabledReason::IncompatibleSchemaChange,
+                    detail: "a detail".to_string(),
+                    pub_id: last_build,
+                })
+                .collect();
+            status
+        };
+        let one_auto_disabled = Summary::of(
+            false,
+            last_build,
+            no_error,
+            Some(&auto_disabled(1)),
+            Some(&ok_connector_status),
+        );
+        insta::assert_debug_snapshot!(one_auto_disabled, @r#"
+        Summary {
+            status: Warning,
+            message: "1 binding disabled because of an incompatible schema change",
+        }
+        "#);
+        let two_auto_disabled = Summary::of(
+            false,
+            last_build,
+            no_error,
+            Some(&auto_disabled(2)),
+            Some(&ok_connector_status),
+        );
+        insta::assert_debug_snapshot!(two_auto_disabled, @r#"
+        Summary {
+            status: Warning,
+            message: "2 bindings disabled because of incompatible schema changes",
+        }
+        "#);
+        let disabled_task_with_auto_disabled = Summary::of(
+            true,
+            last_build,
+            no_error,
+            Some(&auto_disabled(1)),
+            Some(&ok_connector_status),
+        );
+        insta::assert_debug_snapshot!(disabled_task_with_auto_disabled, @r#"
+        Summary {
+            status: TaskDisabled,
+            message: "Task shards are disabled",
+        }
+        "#);
 
         // Everything else looks good, except there's a controller error
         let controller_error_two = Summary::of(

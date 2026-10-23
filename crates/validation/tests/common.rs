@@ -548,6 +548,7 @@ pub fn run_selection(
         Vec<flow::FieldSelection>,
         Option<models::MaterializationDef>,
         Vec<String>,
+        Vec<models::status::AutoDisabledBinding>,
     )>,
     tables::Errors,
 ) {
@@ -564,6 +565,7 @@ pub fn run_selection(
                  spec,
                  model,
                  model_fixes: fixes,
+                 auto_disabled_bindings,
                  ..
              }| {
                 (
@@ -573,6 +575,7 @@ pub fn run_selection(
                         .collect::<Vec<_>>(),
                     model,
                     fixes,
+                    auto_disabled_bindings,
                 )
             },
         )

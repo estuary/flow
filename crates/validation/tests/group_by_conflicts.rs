@@ -66,6 +66,43 @@ test://example/catalog.yaml:
 }
 
 #[test]
+fn test_reenable_with_backfill() {
+    // A binding which was disabled by a group-by change is re-enabled with an
+    // incremented backfill. The backfill rebuilds the resource under the new
+    // group-by, so the binding remains enabled.
+    let (selections, errors) = common::run_selection(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      onIncompatibleSchemaChange: disableBinding
+      bindings:
+        - source: the/collection
+          resource:
+            _meta: { path: [a] }
+            table: a
+          fields:
+            recommended: 1
+          backfill: 1
+
+driver:
+  liveMaterializations:
+    the/materialization:
+      bindings:
+        - source: the/collection
+          resource:
+            _meta: { path: [a] }
+            table: a
+          fields:
+            recommended: 1
+          disable: true
+"#,
+    );
+    insta::assert_debug_snapshot!((selections, errors));
+}
+
+#[test]
 fn test_noop_with_manual_group_by() {
     let (selections, errors) = common::run_selection(
         MODEL_YAML,

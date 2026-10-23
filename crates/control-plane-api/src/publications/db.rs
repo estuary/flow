@@ -110,12 +110,13 @@ pub async fn update_live_specs(
     data_plane_ids: &[Id],
     is_touches: &[bool],
     dependency_hashes: &[Option<&str>],
+    auto_disabled_bindings: &[Option<Json<&[models::status::AutoDisabledBinding]>>],
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<Vec<LiveSpecUpdate>> {
     let fails = sqlx::query_as!(
         LiveSpecUpdate,
         r#"
-        with inputs(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, id) as (
+        with inputs(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, id, auto_disabled_bindings) as (
             select * from unnest(
                 $3::text[],
                 $4::catalog_spec_type[],
@@ -129,10 +130,11 @@ pub async fn update_live_specs(
                 $12::flowid[],
                 $13::boolean[],
                 $14::text[],
-                $15::flowid[]
+                $15::flowid[],
+                $16::json[]
             )
         ),
-        joined(catalog_name, spec_type, spec, built_spec, expect_build_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, id, last_build_id, next_pub_id, controller_task_id) as (
+        joined(catalog_name, spec_type, spec, built_spec, expect_build_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, id, last_build_id, next_pub_id, controller_task_id, inbox_message) as (
             select
                 inputs.catalog_name,
                 inputs.spec_type,
@@ -149,7 +151,18 @@ pub async fn update_live_specs(
                 inputs.id,
                 case when ls.spec is null then '00:00:00:00:00:00:00:00'::flowid else ls.last_build_id end as last_build_id,
                 case when inputs.is_touch then ls.last_pub_id else $1::flowid end as next_pub_id,
-                case when ls.controller_task_id is null then internal.id_generator() else ls.controller_task_id end as controller_task_id
+                case when ls.controller_task_id is null then internal.id_generator() else ls.controller_task_id end as controller_task_id,
+                json_build_array(
+                    '00:00:00:00:00:00:00:00',
+                    case when inputs.auto_disabled_bindings is null
+                    then json_build_object('type', 'spec_published', 'pub_id', $1::text)
+                    else json_build_object(
+                        'type', 'spec_published',
+                        'pub_id', $1::text,
+                        'auto_disabled_bindings', inputs.auto_disabled_bindings
+                    )
+                    end
+                ) as inbox_message
             from inputs
             left outer join live_specs ls on ls.catalog_name = inputs.catalog_name
         ),
@@ -159,28 +172,20 @@ pub async fn update_live_specs(
                 controller_task_id,
                 2,
                 now(),
-                array[json_build_array(
-                    '00:00:00:00:00:00:00:00',
-                    json_build_object('type', 'spec_published', 'pub_id', $1::text)
-                )] as inbox
+                array[inbox_message] as inbox
             from joined
             on conflict (task_id) do update set
             wake_at = now(),
+            -- `excluded.inbox[1]` is the `inbox_message` of this spec.
             inbox =
                 CASE WHEN internal.tasks.heartbeat = '0001-01-01T00:00:00Z'
-                THEN ARRAY_APPEND(internal.tasks.inbox, json_build_array(
-                                    '00:00:00:00:00:00:00:00',
-                                    json_build_object('type', 'spec_published', 'pub_id', $1::text)
-                                ))
+                THEN ARRAY_APPEND(internal.tasks.inbox, excluded.inbox[1])
                 ELSE internal.tasks.inbox
                 END,
             inbox_next =
                 CASE WHEN internal.tasks.heartbeat = '0001-01-01T00:00:00Z'
                 THEN internal.tasks.inbox_next
-                ELSE ARRAY_APPEND(internal.tasks.inbox_next, json_build_array(
-                                                    '00:00:00:00:00:00:00:00',
-                                                    json_build_object('type', 'spec_published', 'pub_id', $1::text)
-                                                ))
+                ELSE ARRAY_APPEND(internal.tasks.inbox_next, excluded.inbox[1])
                 END
             returning task_id
         ),
@@ -282,6 +287,7 @@ pub async fn update_live_specs(
     is_touches as &[bool], // 13
     dependency_hashes as &[Option<&str>], // 14
     control_ids as &[Id], // 15
+    auto_disabled_bindings as &[Option<Json<&[models::status::AutoDisabledBinding]>>], // 16
     )
     .fetch_all(&mut **txn)
     .await?;
