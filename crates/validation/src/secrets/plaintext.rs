@@ -2,6 +2,8 @@
 //! Value constraints never eliminate candidates: secret injection may supply
 //! missing fields or replace values which currently select a different branch.
 
+use json::schema::applicable;
+
 pub(super) fn find(schema: &[u8], config: &serde_json::Value) -> anyhow::Result<Vec<String>> {
     let schema = doc::validation::build_bundle(schema)?;
 
@@ -16,7 +18,7 @@ pub(super) fn find(schema: &[u8], config: &serde_json::Value) -> anyhow::Result<
 }
 
 fn walk<'s>(
-    mut candidates: Vec<&'s doc::Schema>,
+    candidates: Vec<&'s doc::Schema>,
     index: &doc::SchemaIndex<'s>,
     node: &serde_json::Value,
     ptr: &mut String,
@@ -34,57 +36,16 @@ fn walk<'s>(
         return;
     }
 
-    // Deduplicate within this document location, not across locations: recursive
-    // schemas must be revisited as we descend through a finite configuration.
-    let mut seen = std::collections::HashSet::new();
-    let mut expanded = Vec::new();
-
-    while let Some(schema) = candidates.pop() {
-        if !seen.insert(schema as *const doc::Schema) {
-            continue;
-        }
-        expanded.push(schema);
-
-        for kw in schema.keywords.iter() {
-            match kw {
-                json::schema::Keyword::Annotation { annotation }
-                    if matches!(&**annotation, doc::Annotation::Secret(true)) =>
-                {
-                    out.push(ptr.clone());
-                    return;
-                }
-                json::schema::Keyword::Ref { r#ref } => {
-                    candidates.push(index.fetch(r#ref).expect("verified reference").0);
-                }
-                json::schema::Keyword::DynamicRef { dynamic_ref } => {
-                    let (target, dynamic) = index.fetch(dynamic_ref).expect("verified reference");
-                    candidates.push(target);
-                    // Any matching dynamic anchor is an over-approximation of
-                    // the possible dynamic scopes, including recursive ones.
-                    // A $dynamicRef without a fragment behaves as a plain $ref.
-                    if let (true, Some((_, fragment))) = (dynamic, dynamic_ref.rsplit_once('#')) {
-                        candidates.extend(index.iter().filter_map(|(uri, dynamic, schema)| {
-                            (dynamic && uri.rsplit_once('#').map(|(_, f)| f) == Some(fragment))
-                                .then_some(schema)
-                        }));
-                    }
-                }
-                json::schema::Keyword::AllOf { all_of: schemas }
-                | json::schema::Keyword::AnyOf { any_of: schemas }
-                | json::schema::Keyword::OneOf { one_of: schemas } => {
-                    candidates.extend(schemas.iter())
-                }
-                json::schema::Keyword::If { r#if: schema }
-                | json::schema::Keyword::Then { then: schema }
-                | json::schema::Keyword::Else { r#else: schema } => candidates.push(schema),
-                json::schema::Keyword::DependentSchemas { dependent_schemas } => {
-                    candidates.extend(dependent_schemas.iter().map(|(_, schema)| schema));
-                }
-                // `not` discards annotations; propertyNames describes keys, not
-                // values. Definitions apply only when referenced.
-                _ => {}
-            }
-        }
+    let expanded = applicable::expand(candidates, index);
+    let is_secret = expanded.iter().any(|schema| {
+        schema.keywords.iter().any(|kw| {
+            matches!(kw, json::schema::Keyword::Annotation { annotation }
+                if matches!(&**annotation, doc::Annotation::Secret(true)))
+        })
+    });
+    if is_secret {
+        out.push(ptr.clone());
+        return;
     }
 
     let mut child = |token: String, value: &serde_json::Value, schemas| {
@@ -97,75 +58,17 @@ fn walk<'s>(
     match node {
         serde_json::Value::Object(fields) => {
             for (name, value) in fields {
-                let mut schemas = Vec::new();
-                for schema in &expanded {
-                    let mut matched = false;
-                    let mut additional = None;
-                    for kw in schema.keywords.iter() {
-                        match kw {
-                            json::schema::Keyword::Properties { properties } => {
-                                for (property, schema) in properties.iter() {
-                                    // '+' entries represent required-only properties,
-                                    // which do not exclude additionalProperties.
-                                    if property.as_bytes()[0] != b'+' && &property[1..] == name {
-                                        matched = true;
-                                        schemas.push(schema);
-                                    }
-                                }
-                            }
-                            json::schema::Keyword::PatternProperties { pattern_properties } => {
-                                for (pattern, schema) in pattern_properties.iter() {
-                                    if pattern.is_match(name) {
-                                        matched = true;
-                                        schemas.push(schema);
-                                    }
-                                }
-                            }
-                            json::schema::Keyword::AdditionalProperties {
-                                additional_properties,
-                            } => additional = Some(&**additional_properties),
-                            // Evaluation depends on branch success, which we do
-                            // not establish. Include these for every child.
-                            json::schema::Keyword::UnevaluatedProperties {
-                                unevaluated_properties,
-                            } => schemas.push(unevaluated_properties),
-                            _ => {}
-                        }
-                    }
-                    if !matched {
-                        schemas.extend(additional);
-                    }
-                }
-                child(name.replace('~', "~0").replace('/', "~1"), value, schemas);
+                let token = name.replace('~', "~0").replace('/', "~1");
+                child(token, value, applicable::property(&expanded, name));
             }
         }
         serde_json::Value::Array(items) => {
             for (position, value) in items.iter().enumerate() {
-                let mut schemas = Vec::new();
-                for schema in &expanded {
-                    let mut prefix = false;
-                    let mut additional = None;
-                    for kw in schema.keywords.iter() {
-                        match kw {
-                            json::schema::Keyword::PrefixItems { prefix_items } => {
-                                if let Some(schema) = prefix_items.get(position) {
-                                    prefix = true;
-                                    schemas.push(schema);
-                                }
-                            }
-                            json::schema::Keyword::Items { items } => additional = Some(&**items),
-                            json::schema::Keyword::Contains { contains: schema }
-                            | json::schema::Keyword::UnevaluatedItems {
-                                unevaluated_items: schema,
-                            } => schemas.push(schema),
-                            _ => {}
-                        }
-                    }
-                    if !prefix {
-                        schemas.extend(additional);
-                    }
-                }
-                child(position.to_string(), value, schemas);
+                child(
+                    position.to_string(),
+                    value,
+                    applicable::item(&expanded, position),
+                );
             }
         }
         _ => {}
