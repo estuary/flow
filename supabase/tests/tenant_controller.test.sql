@@ -142,12 +142,26 @@ begin
     'a no-op payment_provider update does not re-wake the controller'
   );
 
-  -- Transitioning away from external (external -> stripe) must not wake the
-  -- controller: the trigger only fires when the new value is 'external'.
+  -- Leaving external means the tenant needs a payment method again, which its
+  -- controller's daily alert checks must resume for.
   update tenants set payment_provider = 'stripe' where tenant = 'acmeCo/';
   return query select ok(
-    (select wake_at is null from internal.tasks where task_id = v_task_id),
-    'changing payment_provider away from external does not wake the controller'
+    (select wake_at is not null from internal.tasks where task_id = v_task_id),
+    'changing payment_provider away from external wakes the controller'
+  );
+
+  update internal.tasks set wake_at = null where task_id = v_task_id;
+  update tenants set plan_kind = 'contract' where tenant = 'acmeCo/';
+  return query select ok(
+    (select wake_at is not null from internal.tasks where task_id = v_task_id),
+    'changing plan_kind wakes the controller'
+  );
+
+  update internal.tasks set wake_at = null where task_id = v_task_id;
+  update tenants set collection_method = 'send_invoice' where tenant = 'acmeCo/';
+  return query select ok(
+    (select wake_at is not null from internal.tasks where task_id = v_task_id),
+    'changing collection_method wakes the controller'
   );
 
 end;
