@@ -1,0 +1,38 @@
+---
+source: crates/agent/src/tenant_controller/free_trial.rs
+expression: results
+---
+[
+  {
+    "tenant": "freeTrialAtLimits/",
+    "trialStart": null
+  },
+  {
+    "tenant": "freeTrialDailyHours/",
+    "trialStart": "2026-05-20"
+  },
+  {
+    "tenant": "freeTrialStaleDay/",
+    "trialStart": null
+  },
+  {
+    "tenant": "freeTrialMonthlyHours/",
+    "trialStart": "2026-05-20"
+  },
+  {
+    "tenant": "freeTrialMonthlyBytes/",
+    "trialStart": "2026-05-20"
+  },
+  {
+    "tenant": "freeTrialLastMonth/",
+    "trialStart": null
+  },
+  {
+    "tenant": "freeTrialContract/",
+    "trialStart": null
+  },
+  {
+    "tenant": "freeTrialInternal/",
+    "trialStart": null
+  }
+]

@@ -61,3 +61,72 @@ pub async fn connect(config: CatalogStatsConfig) -> anyhow::Result<Arc<catalog_s
 
     Ok(Arc::new(client))
 }
+
+/// Collects a complete stats read, with at most three retries of consecutive
+/// transient failures. Callers set the deadline for their operation.
+pub async fn collect(
+    stream: impl futures::Stream<Item = catalog_stats::RetryResult<catalog_stats::CatalogStats>>,
+) -> anyhow::Result<Vec<catalog_stats::CatalogStats>> {
+    const MAX_READ_RETRIES: usize = 3;
+    let mut stream = std::pin::pin!(stream);
+    let mut rows = Vec::new();
+
+    while let Some(item) = futures::StreamExt::next(&mut stream).await {
+        match item {
+            Ok(row) => rows.push(row),
+            // Transient failures leave the stream alive for another attempt.
+            // Other failures end it and must not be mistaken for a complete read.
+            Err(err) if err.inner.is_transient() && err.attempt < MAX_READ_RETRIES => {
+                tracing::warn!(attempt = err.attempt, error = %err.inner, "retrying catalog stats read");
+            }
+            Err(err) => return Err(anyhow::Error::new(err.inner).context("reading catalog stats")),
+        }
+    }
+    Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn collects_complete_reads() {
+        let row = catalog_stats::CatalogStats {
+            meta: ops::Meta {
+                uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            },
+            catalog_name: "acmeCo/".to_string(),
+            ts: chrono::DateTime::from_timestamp(0, 0).unwrap(),
+            stats_summary: Default::default(),
+            task_stats: Default::default(),
+        };
+        let next_row = catalog_stats::CatalogStats {
+            catalog_name: "acmeCo/task".to_string(),
+            ..row.clone()
+        };
+        let transient = |attempt| {
+            catalog_stats::Error::Grpc(tonic::Status::unavailable("retry")).with_attempt(attempt)
+        };
+        let rows = collect(futures::stream::iter([
+            Ok(row.clone()),
+            Err(transient(0)),
+            Err(transient(1)),
+            Err(transient(2)),
+            Ok(next_row.clone()),
+        ]))
+        .await
+        .unwrap();
+        assert_eq!(rows, [row.clone(), next_row]);
+
+        for error in [
+            catalog_stats::Error::Grpc(tonic::Status::permission_denied("denied")).with_attempt(0),
+            transient(3),
+        ] {
+            assert!(
+                collect(futures::stream::iter([Ok(row.clone()), Err(error)]))
+                    .await
+                    .is_err()
+            );
+        }
+    }
+}

@@ -1,11 +1,14 @@
+//! Reconciles tenant state through the automations framework.
+
 mod billing_contact;
+mod free_trial;
 mod outcome;
 mod quotas;
 
 use crate::tenant_controller::outcome::Outcome;
 use anyhow::Context;
 use automations::{Action, Executor, task_types};
-use billing_types::PaymentProvider;
+use billing_types::{PaymentProvider, PlanKind};
 use control_plane_api::billing::BillingProvider;
 use std::sync::Arc;
 
@@ -44,15 +47,24 @@ pub struct TenantControllerState {
     pub billing_contact: Option<TaskStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quota_status: Option<quotas::QuotaUpdateStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free_trial: Option<free_trial::FreeTrialStatus>,
 }
 
 pub struct TenantController {
     billing_provider: Option<Arc<dyn BillingProvider>>,
+    catalog_stats: Arc<catalog_stats::Client>,
 }
 
 impl TenantController {
-    pub fn new(billing_provider: Option<Arc<dyn BillingProvider>>) -> Self {
-        Self { billing_provider }
+    pub fn new(
+        billing_provider: Option<Arc<dyn BillingProvider>>,
+        catalog_stats: Arc<catalog_stats::Client>,
+    ) -> Self {
+        Self {
+            billing_provider,
+            catalog_stats,
+        }
     }
 }
 
@@ -62,6 +74,8 @@ pub(crate) struct Tenant {
     pub billing_name: Option<String>,
     pub billing_address: Option<serde_json::Value>,
     pub payment_provider: Option<PaymentProvider>,
+    pub plan_kind: PlanKind,
+    pub trial_start: Option<chrono::NaiveDate>,
 }
 
 async fn fetch_tenant_by_controller_task(
@@ -71,7 +85,7 @@ async fn fetch_tenant_by_controller_task(
     let row = sqlx::query_as!(
         Tenant,
         r#"
-        SELECT tenant as "tenant!", billing_email, billing_name, billing_address, payment_provider as "payment_provider: PaymentProvider"
+        SELECT tenant as "tenant!", billing_email, billing_name, billing_address, payment_provider as "payment_provider: PaymentProvider", plan_kind as "plan_kind: PlanKind", trial_start
         FROM tenants
         WHERE controller_task_id = $1
         "#,
@@ -106,8 +120,8 @@ impl Executor for TenantController {
             return Ok(Action::Done);
         };
 
-        // A wake message means the desired billing contact changed. Cancel any
-        // pending retry backoff so the new state is reconciled now rather than
+        // Wake messages request reconciliation of the current tenant state. Cancel
+        // pending billing retry backoff so new state is reconciled now rather than
         // after the backoff window (a timer-driven poll arrives with an empty
         // inbox and keeps its backoff).
         let woken_by_message = !inbox.is_empty();
@@ -122,16 +136,194 @@ impl Executor for TenantController {
             quota_status.task_status.next_retry = None;
         }
 
-        let result =
-            billing_contact::reconcile(billing_status, pool, &tenant, &self.billing_provider)
-                .await?;
-        let result = result.combine(
-            quotas::update_quotas(quota_status, pool, &tenant, &self.billing_provider).await?,
+        // Billing contact and quotas each search Stripe for the tenant's
+        // customer, so they run only when woken by a message or to retry their
+        // own failure. Daily polls for the free trial check must not fan out
+        // into a Stripe search per tenant.
+        let mut result = Outcome::Idle;
+        if woken_by_message || billing_status.failures != 0 {
+            result = result.combine(
+                billing_contact::reconcile(billing_status, pool, &tenant, &self.billing_provider)
+                    .await?,
+            );
+        }
+        if woken_by_message || quota_status.task_status.failures != 0 {
+            result = result.combine(
+                quotas::update_quotas(quota_status, pool, &tenant, &self.billing_provider).await?,
+            );
+        }
+
+        let free_trial_status = state.free_trial.get_or_insert_with(Default::default);
+        result = result.combine(
+            free_trial::check(
+                free_trial_status,
+                pool,
+                &tenant,
+                &self.catalog_stats,
+                chrono::Utc::now(),
+            )
+            .await?,
         );
 
-        match result {
-            Outcome::Idle => Ok(Action::Suspend),
-            Outcome::WaitForRetry(duration) => Ok(Action::Sleep(duration)),
+        match result.wait() {
+            None => Ok(Action::Suspend),
+            Some(duration) => Ok(Action::Sleep(duration)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use control_plane_api::billing::InMemoryBillingProvider;
+    use sqlx::types::Json;
+
+    const TENANT: &str = "tenantControllerPoll/";
+
+    async fn poll_ready(server: &automations::Server, pool: &sqlx::PgPool) {
+        let heartbeat_timeout = std::time::Duration::from_secs(5);
+        let mut permits = Arc::new(tokio::sync::Semaphore::new(1))
+            .acquire_many_owned(1)
+            .await
+            .unwrap();
+        let mut ready = automations::server::dequeue_tasks(
+            &mut permits,
+            pool,
+            server,
+            &[task_types::TENANT_CONTROLLER.0],
+            heartbeat_timeout,
+        )
+        .await
+        .unwrap();
+        assert_eq!(ready.len(), 1);
+        automations::executors::poll_task(ready.pop().unwrap(), heartbeat_timeout)
+            .await
+            .unwrap();
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn only_messages_reconcile_billing(pool: sqlx::PgPool) {
+        let provider = Arc::new(InMemoryBillingProvider::new());
+        provider.add_customer(TENANT, "cus_test", Some("pm_test"));
+
+        let client = Arc::new(catalog_stats::test_util::connect_emulator("estuary-local").await);
+        catalog_stats::test_util::delete_rows_with_prefix(&client, TENANT)
+            .await
+            .unwrap();
+        let server = automations::Server::new()
+            .register(TenantController::new(Some(provider.clone()), client));
+
+        sqlx::query("INSERT INTO tenants (tenant, billing_email, tasks_quota, collections_quota, stripe_customer_id) VALUES ($1, 'billing@acme.co', 2, 10, 'cus_test')")
+            .bind(TENANT)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        poll_ready(&server, &pool).await;
+        let (Json(state), scheduled, quotas): (Json<TenantControllerState>, bool, Vec<i32>) = sqlx::query_as(
+            "SELECT t.inner_state, t.wake_at > NOW() AND t.wake_at <= NOW() + INTERVAL '1 day', ARRAY[te.tasks_quota, te.collections_quota] FROM tenants te JOIN internal.tasks t ON te.controller_task_id = t.task_id WHERE te.tenant = $1")
+            .bind(TENANT)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(scheduled);
+        assert_eq!(quotas, [2, 10]);
+        assert_eq!(provider.update_billing_profile_call_count(), 0);
+        let next_check = state.free_trial.unwrap().next_check;
+        assert!(next_check.is_some());
+
+        sqlx::query("SELECT internal.wake_tenant_controller($1)")
+            .bind(TENANT)
+            .execute(&pool)
+            .await
+            .unwrap();
+        poll_ready(&server, &pool).await;
+        let (Json(state), consumed, quotas): (Json<TenantControllerState>, bool, Vec<i32>) = sqlx::query_as(
+            "SELECT t.inner_state, t.inbox IS NULL AND t.inbox_next IS NULL, ARRAY[te.tasks_quota, te.collections_quota] FROM tenants te JOIN internal.tasks t ON te.controller_task_id = t.task_id WHERE te.tenant = $1")
+            .bind(TENANT)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(consumed);
+        assert_eq!(quotas, [100, 10000]);
+        assert_eq!(provider.update_billing_profile_call_count(), 1);
+        assert_eq!(state.free_trial.unwrap().next_check, next_check);
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn resetting_trial_resumes_checks(pool: sqlx::PgPool) {
+        let tenant = "tenantControllerReset/";
+        let client = Arc::new(catalog_stats::test_util::connect_emulator("estuary-local").await);
+        catalog_stats::test_util::delete_rows_with_prefix(&client, tenant)
+            .await
+            .unwrap();
+        let server = automations::Server::new().register(TenantController::new(None, client));
+        sqlx::query("INSERT INTO tenants (tenant, trial_start) VALUES ($1, CURRENT_DATE - 40)")
+            .bind(tenant)
+            .execute(&pool)
+            .await
+            .unwrap();
+        poll_ready(&server, &pool).await;
+        let suspended: bool = sqlx::query_scalar("SELECT t.wake_at IS NULL AND te.trial_start = CURRENT_DATE - 40 FROM tenants te JOIN internal.tasks t ON te.controller_task_id = t.task_id WHERE te.tenant = $1")
+            .bind(tenant).fetch_one(&pool).await.unwrap();
+        assert!(suspended);
+
+        sqlx::query("UPDATE tenants SET trial_start = NULL WHERE tenant = $1")
+            .bind(tenant)
+            .execute(&pool)
+            .await
+            .unwrap();
+        poll_ready(&server, &pool).await;
+        let (Json(state), scheduled, untouched): (Json<TenantControllerState>, bool, bool) = sqlx::query_as(
+            "SELECT t.inner_state, t.wake_at > NOW(), te.trial_start IS NULL FROM tenants te JOIN internal.tasks t ON te.controller_task_id = t.task_id WHERE te.tenant = $1")
+            .bind(tenant).fetch_one(&pool).await.unwrap();
+        assert!(scheduled && untouched);
+        assert!(state.free_trial.unwrap().next_check.is_some());
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn failed_trial_check_recovers(pool: sqlx::PgPool) {
+        let tenant = "tenantControllerRetry/";
+        let bad_client =
+            Arc::new(catalog_stats::test_util::connect_emulator("missing-instance").await);
+        let bad_server =
+            automations::Server::new().register(TenantController::new(None, bad_client));
+        sqlx::query("INSERT INTO tenants (tenant) VALUES ($1)")
+            .bind(tenant)
+            .execute(&pool)
+            .await
+            .unwrap();
+        poll_ready(&bad_server, &pool).await;
+        let (Json(mut state), retrying, untouched): (Json<TenantControllerState>, bool, bool) = sqlx::query_as(
+            "SELECT t.inner_state, t.wake_at > NOW() + INTERVAL '50 seconds' AND t.wake_at < NOW() + INTERVAL '70 seconds', te.trial_start IS NULL FROM tenants te JOIN internal.tasks t ON te.controller_task_id = t.task_id WHERE te.tenant = $1")
+            .bind(tenant).fetch_one(&pool).await.unwrap();
+        assert!(retrying && untouched);
+        let status = state.free_trial.as_mut().unwrap();
+        assert_eq!(status.task_status.failures, 1);
+        assert!(
+            status
+                .task_status
+                .last_error
+                .as_deref()
+                .unwrap()
+                .contains("daily usage")
+        );
+        status.task_status.next_retry = Some(chrono::Utc::now() - chrono::Duration::seconds(1));
+        sqlx::query("UPDATE internal.tasks SET inner_state = $2, wake_at = NOW() WHERE task_id = (SELECT controller_task_id FROM tenants WHERE tenant = $1)")
+            .bind(tenant).bind(Json(state)).execute(&pool).await.unwrap();
+
+        let client = Arc::new(catalog_stats::test_util::connect_emulator("estuary-local").await);
+        catalog_stats::test_util::delete_rows_with_prefix(&client, tenant)
+            .await
+            .unwrap();
+        let server = automations::Server::new().register(TenantController::new(None, client));
+        poll_ready(&server, &pool).await;
+        let (Json(state), scheduled): (Json<TenantControllerState>, bool) = sqlx::query_as(
+            "SELECT t.inner_state, t.wake_at > NOW() AND t.wake_at <= NOW() + INTERVAL '1 day' FROM tenants te JOIN internal.tasks t ON te.controller_task_id = t.task_id WHERE te.tenant = $1")
+            .bind(tenant).fetch_one(&pool).await.unwrap();
+        let status = state.free_trial.unwrap();
+        assert!(scheduled && status.next_check.is_some());
+        assert_eq!(status.task_status.failures, 0);
+        assert!(status.task_status.next_retry.is_none() && status.task_status.last_error.is_none());
     }
 }

@@ -237,7 +237,13 @@ async fn persist_action(
         Some(Duration::ZERO) // Always poll immediately if inbox items remain.
     } else {
         match &action {
-            Action::Sleep(interval) => Some(*interval),
+            Action::Sleep(interval) => {
+                // SQLx rejects submicrosecond precision in PostgreSQL intervals.
+                Some(Duration::new(
+                    interval.as_secs(),
+                    interval.subsec_micros() * 1000,
+                ))
+            }
             // These outcomes do not suspend the task, and it should wake as soon as possible.
             Action::Spawn(..) | Action::Send(..) | Action::Yield(..) => Some(Duration::ZERO),
             // Suspend indefinitely (note that NOW() + NULL::INTERVAL is NULL).
@@ -286,4 +292,39 @@ async fn persist_action(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn persists_sleep_at_microsecond_precision(pool: sqlx::PgPool) {
+        let task_id = crate::next_task_id();
+        sqlx::query("SELECT internal.create_task($1, 32766::SMALLINT, NULL::public.flowid)")
+            .bind(task_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut txn = pool.begin().await.unwrap();
+        persist_action(
+            Action::Sleep(std::time::Duration::new(1, 234_567_891)),
+            &mut txn,
+            task_id,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let precise: bool = sqlx::query_scalar(
+            "SELECT wake_at = NOW() + INTERVAL '1.234567 seconds' FROM internal.tasks WHERE task_id = $1",
+        )
+        .bind(task_id)
+        .fetch_one(&mut *txn)
+        .await
+        .unwrap();
+        txn.commit().await.unwrap();
+        assert!(precise);
+    }
 }
