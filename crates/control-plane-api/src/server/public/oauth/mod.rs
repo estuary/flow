@@ -77,3 +77,63 @@ impl oauth_server::Backend for crate::App {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn consent_requires_unrestricted_human(pool: sqlx::PgPool) {
+        use axum::extract::FromRequestParts;
+        use oauth_server::Backend;
+
+        let server = crate::test_server::TestServer::start(
+            pool.clone(),
+            crate::test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        for (mask, scope, service_account, allowed) in [
+            (None, None, false, true),
+            (Some(vec![]), None, false, false),
+            (Some(vec!["admin".into()]), None, false, false),
+            (None, Some("acmeCo/".into()), false, false),
+            (None, Some(String::new()), false, false),
+            (None, None, true, false),
+        ] {
+            if service_account {
+                sqlx::query("INSERT INTO internal.service_accounts (user_id, catalog_name, created_by) VALUES ($1, 'acmeCo/bot', $1)")
+                    .bind(alice).execute(&pool).await.unwrap();
+            }
+            let bearer = server.make_restricted_access_token(alice, None, mask, scope);
+            let (mut parts, _) = axum::http::Request::builder()
+                .uri("/oauth/authorize")
+                .header("authorization", format!("Bearer {bearer}"))
+                .body(())
+                .unwrap()
+                .into_parts();
+            let env = crate::Envelope::from_request_parts(&mut parts, &server.app)
+                .await
+                .unwrap();
+            let result = server.app.authorize_user(env).await;
+            if allowed {
+                assert_eq!(result.unwrap(), alice);
+            } else {
+                assert_eq!(result.unwrap_err().0, "access_denied");
+            }
+        }
+        let (mut parts, _) = axum::http::Request::builder()
+            .uri("/oauth/authorize")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let env = crate::Envelope::from_request_parts(&mut parts, &server.app)
+            .await
+            .unwrap();
+        assert_eq!(
+            server.app.authorize_user(env).await.unwrap_err().0,
+            "access_denied"
+        );
+    }
+}

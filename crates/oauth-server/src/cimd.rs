@@ -225,3 +225,67 @@ fn ipv4_targets(
         .map(std::net::SocketAddr::V4)
         .collect())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn client_urls_and_addresses() {
+        assert!(super::validate_client_id_url("https://client.example.test/metadata.json").is_ok());
+        for url in [
+            "http://client.example.test/metadata.json",
+            "https://client.example.test/",
+            "https://user@client.example.test/metadata.json",
+            "https://client.example.test/metadata.json?query",
+            "https://client.example.test/metadata.json#fragment",
+            "https://CLIENT.example.test/metadata.json",
+            "https://[::1]/metadata.json",
+        ] {
+            assert!(super::validate_client_id_url(url).is_err(), "{url}");
+        }
+        for (addresses, allowed) in [
+            (vec!["8.8.8.8:443"], true),
+            (vec!["8.8.8.8:443", "[2606:4700:4700::1111]:443"], true),
+            (vec!["[2606:4700:4700::1111]:443"], false),
+            (vec!["8.8.8.8:443", "127.0.0.1:443"], false),
+            (vec!["10.0.0.1:443"], false),
+            (vec!["169.254.169.254:443"], false),
+        ] {
+            assert_eq!(
+                super::ipv4_targets(addresses.iter().map(|a| a.parse().unwrap())).is_ok(),
+                allowed,
+                "{addresses:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn callbacks() {
+        let registered = vec![
+            "https://client.example.test/callback?fixed=1".into(),
+            "http://localhost:8000/callback?fixed=1".into(),
+            "javascript:alert(1)".into(),
+        ];
+        for (uri, allowed) in [
+            ("https://client.example.test/callback?fixed=1", true),
+            ("https://other.example.test/callback?fixed=1", false),
+            ("https://client.example.test/callback?fixed=2", false),
+            ("http://127.0.0.1:9000/callback?fixed=1", true),
+            ("http://[::1]:9000/callback?fixed=1", true),
+            ("http://localhost:9000/other?fixed=1", false),
+            ("http://localhost:9000/callback?fixed=2", false),
+            ("http://other.example.test:9000/callback?fixed=1", false),
+            ("javascript:alert(1)", false),
+            ("https://user@client.example.test/callback?fixed=1", false),
+            (
+                "https://client.example.test/callback?fixed=1#fragment",
+                false,
+            ),
+        ] {
+            assert_eq!(
+                super::assert_redirect_uri_allowed(uri, &registered).is_ok(),
+                allowed,
+                "{uri}"
+            );
+        }
+    }
+}

@@ -6,6 +6,8 @@ use sha2::Digest;
 use std::sync::Arc;
 
 mod cimd;
+#[cfg(test)]
+mod tests;
 
 /// Host integration for session authorization and Estuary refresh-token storage.
 #[async_trait::async_trait]
