@@ -2,12 +2,8 @@ use itertools::Itertools;
 use proto_flow::flow;
 use std::fmt::Write;
 
-mod ast;
-mod mapper;
-
 use super::LambdaConfig;
-use ast::Context;
-use mapper::Mapper;
+use typescript_connector::ts_types::{Context, Mapper, camel_case};
 
 pub fn types_ts(
     collection: &flow::CollectionSpec,
@@ -228,20 +224,4 @@ fn collection_mappers(c: &flow::CollectionSpec, anchor_prefix: &str) -> (Mapper,
             Some(Mapper::new(&c.read_schema_json, anchor_prefix)),
         )
     }
-}
-
-fn camel_case(name: &str, mut upper: bool) -> String {
-    let mut w = String::new();
-
-    for c in name.chars() {
-        if !c.is_alphanumeric() {
-            upper = true
-        } else if upper {
-            w.extend(c.to_uppercase());
-            upper = false;
-        } else {
-            w.push(c);
-        }
-    }
-    w
 }

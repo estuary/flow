@@ -1,5 +1,5 @@
 ---
-source: src/codegen/mapper.rs
+source: crates/typescript-connector/src/ts_types/mapper.rs
 expression: w
 ---
 Schema for test/collection-anchor with CURI test://example/catalog.yaml?ptr=/collections/test~1collection-anchor/schema with anchors:

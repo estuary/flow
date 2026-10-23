@@ -12,6 +12,7 @@ connector-environment = { path = "../connector-environment" }
 doc = { path = "../doc" }
 json = { path = "../json" }
 proto-flow = { path = "../proto-flow" }
+typescript-connector = { path = "../typescript-connector" }
 
 anyhow = "1"
 itertools = "0"
