@@ -3,16 +3,18 @@ use std::sync::Arc;
 use super::{TaskStatus, Tenant};
 use crate::tenant_controller::{outcome::Outcome, retry_backoff};
 use anyhow::Context;
-use control_plane_api::billing::{self, BillingProvider, CUSTOMER_NAME_METADATA_KEY};
+use control_plane_api::billing::{BillingProvider, CUSTOMER_NAME_METADATA_KEY};
 
+/// `customer` is the tenant's Stripe customer as retrieved by this poll, which
+/// is `None` only if there's no billing provider or a retry isn't due.
 pub async fn reconcile(
     status: &mut TaskStatus,
-    pool: &sqlx::PgPool,
     tenant_row: &Tenant,
     billing_provider: &Option<Arc<dyn BillingProvider>>,
+    customer: Option<&anyhow::Result<Option<stripe::Customer>>>,
+    now: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<Outcome> {
     if let Some(next_retry) = status.next_retry {
-        let now = chrono::Utc::now();
         if next_retry > now {
             let wait = (next_retry - now)
                 .to_std()
@@ -21,7 +23,7 @@ pub async fn reconcile(
         }
     }
 
-    match do_reconcile(pool, tenant_row, billing_provider).await {
+    match do_reconcile(tenant_row, billing_provider, customer).await {
         Ok(()) => {
             status.failures = 0;
             status.next_retry = None;
@@ -31,7 +33,7 @@ pub async fn reconcile(
         Err(err) => {
             status.failures += 1;
             let backoff = retry_backoff(status.failures);
-            status.next_retry = Some(chrono::Utc::now() + chrono::Duration::from_std(backoff)?);
+            status.next_retry = Some(now + chrono::Duration::from_std(backoff)?);
             status.last_error = Some(format!("{err:#}"));
             tracing::warn!(
                 tenant = %tenant_row.tenant,
@@ -45,18 +47,17 @@ pub async fn reconcile(
 }
 
 async fn do_reconcile(
-    pool: &sqlx::PgPool,
     tenant_row: &Tenant,
     billing_provider: &Option<Arc<dyn BillingProvider>>,
+    customer: Option<&anyhow::Result<Option<stripe::Customer>>>,
 ) -> anyhow::Result<()> {
-    let Some(provider) = billing_provider else {
+    let (Some(provider), Some(customer)) = (billing_provider, customer) else {
         return Ok(());
     };
-
-    let customer = billing::find_customer(pool, provider.as_ref(), &tenant_row.tenant)
-        .await
-        .context("looking up Stripe customer")?;
-    let Some(customer) = customer else {
+    let Some(customer) = customer
+        .as_ref()
+        .map_err(|err| anyhow::anyhow!("{err:#}"))?
+    else {
         return Ok(());
     };
 
@@ -122,10 +123,10 @@ mod tests {
     use std::sync::Arc;
 
     use control_plane_api::billing::{
-        BillingProvider, CUSTOMER_NAME_METADATA_KEY, InMemoryBillingProvider,
+        self, BillingProvider, CUSTOMER_NAME_METADATA_KEY, InMemoryBillingProvider,
     };
 
-    use super::super::{PlanKind, Tenant};
+    use super::super::{CollectionMethod, PlanKind, Tenant};
     use super::{Outcome, TaskStatus, reconcile};
 
     const TENANT: &str = "acmeCo/";
@@ -143,6 +144,7 @@ mod tests {
             billing_address: address,
             payment_provider: None,
             plan_kind: PlanKind::SelfServe,
+            collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
         }
     }
@@ -207,8 +209,11 @@ mod tests {
         status: &mut TaskStatus,
         row: &Tenant,
     ) -> Outcome {
+        let customer = billing::find_customer(pool, provider.as_ref(), TENANT).await;
         let provider: Option<Arc<dyn BillingProvider>> = Some(provider.clone());
-        reconcile(status, pool, row, &provider).await.unwrap()
+        reconcile(status, row, &provider, Some(&customer), chrono::Utc::now())
+            .await
+            .unwrap()
     }
 
     async fn current_customer(provider: &InMemoryBillingProvider) -> stripe::Customer {
@@ -313,7 +318,9 @@ mod tests {
         assert_eq!(status.failures, 0);
 
         // No provider at all is likewise idle.
-        let outcome = reconcile(&mut status, &pool, &row, &None).await.unwrap();
+        let outcome = reconcile(&mut status, &row, &None, None, chrono::Utc::now())
+            .await
+            .unwrap();
         assert!(matches!(outcome, Outcome::Idle));
     }
 

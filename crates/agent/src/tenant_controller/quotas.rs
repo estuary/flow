@@ -1,7 +1,5 @@
 use crate::tenant_controller::{Outcome, PaymentProvider, TaskStatus, Tenant, retry_backoff};
-use anyhow::Context as _;
-use control_plane_api::billing::{self, BillingProvider};
-use std::sync::Arc;
+use control_plane_api::billing;
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct QuotaUpdateStatus {
@@ -11,14 +9,16 @@ pub struct QuotaUpdateStatus {
     pub task_status: TaskStatus,
 }
 
+/// `customer` is the tenant's Stripe customer as retrieved by this poll, which
+/// is `None` only if there's no billing provider or a retry isn't due.
 pub async fn update_quotas(
     status: &mut QuotaUpdateStatus,
     pool: &sqlx::PgPool,
     tenant: &Tenant,
-    billing_provider: &Option<Arc<dyn BillingProvider>>,
+    customer: Option<&anyhow::Result<Option<stripe::Customer>>>,
+    now: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<Outcome> {
     if let Some(next_retry) = status.task_status.next_retry {
-        let now = chrono::Utc::now();
         if next_retry > now {
             let wait = (next_retry - now)
                 .to_std()
@@ -27,7 +27,7 @@ pub async fn update_quotas(
         }
     }
 
-    match do_update_quotas(status, pool, tenant, billing_provider).await {
+    match do_update_quotas(status, pool, tenant, customer).await {
         Ok(()) => {
             status.task_status.failures = 0;
             status.task_status.next_retry = None;
@@ -37,8 +37,7 @@ pub async fn update_quotas(
         Err(err) => {
             status.task_status.failures += 1;
             let backoff = retry_backoff(status.task_status.failures);
-            status.task_status.next_retry =
-                Some(chrono::Utc::now() + chrono::Duration::from_std(backoff)?);
+            status.task_status.next_retry = Some(now + chrono::Duration::from_std(backoff)?);
             status.task_status.last_error = Some(format!("{err:#}"));
             tracing::warn!(
                 tenant = %tenant.tenant,
@@ -55,7 +54,7 @@ async fn do_update_quotas(
     status: &mut QuotaUpdateStatus,
     pool: &sqlx::PgPool,
     tenant: &Tenant,
-    billing_provider: &Option<Arc<dyn BillingProvider>>,
+    customer: Option<&anyhow::Result<Option<stripe::Customer>>>,
 ) -> anyhow::Result<()> {
     if status.updated_quotas {
         return Ok(());
@@ -79,19 +78,17 @@ async fn do_update_quotas(
         return Ok(());
     }
 
-    let Some(provider) = billing_provider else {
-        return Ok(());
-    };
-
-    let customer = billing::find_customer(pool, provider.as_ref(), &tenant.tenant)
-        .await
-        .context("looking up Stripe customer")?;
-
     let Some(customer) = customer else {
         return Ok(());
     };
+    let Some(customer) = customer
+        .as_ref()
+        .map_err(|err| anyhow::anyhow!("{err:#}"))?
+    else {
+        return Ok(());
+    };
 
-    if billing::default_payment_method_id(&customer).is_some() {
+    if billing::default_payment_method_id(customer).is_some() {
         // Updating tenant quotas using name
         let did_update = update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
         if did_update {
@@ -141,8 +138,8 @@ mod tests {
 
     use super::super::Tenant;
     use super::{Outcome, QuotaUpdateStatus, update_quotas};
-    use crate::tenant_controller::{PaymentProvider, PlanKind};
-    use control_plane_api::billing::{BillingProvider, InMemoryBillingProvider};
+    use crate::tenant_controller::{CollectionMethod, PaymentProvider, PlanKind};
+    use control_plane_api::billing::{self, BillingProvider, InMemoryBillingProvider};
     use std::sync::Arc;
 
     const TENANT_1: &str = "acmeCo/";
@@ -175,8 +172,8 @@ mod tests {
         tenant: &Tenant,
         pool: &sqlx::PgPool,
     ) -> Outcome {
-        let provider: Option<Arc<dyn BillingProvider>> = Some(provider.clone());
-        update_quotas(status, pool, tenant, &provider)
+        let customer = billing::find_customer(pool, provider.as_ref(), &tenant.tenant).await;
+        update_quotas(status, pool, tenant, Some(&customer), chrono::Utc::now())
             .await
             .unwrap()
     }
@@ -194,6 +191,7 @@ mod tests {
             billing_address: None,
             payment_provider: None,
             plan_kind: PlanKind::SelfServe,
+            collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
@@ -213,6 +211,7 @@ mod tests {
             billing_address: None,
             payment_provider: None,
             plan_kind: PlanKind::SelfServe,
+            collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
@@ -253,6 +252,7 @@ mod tests {
             billing_address: None,
             payment_provider: None,
             plan_kind: PlanKind::SelfServe,
+            collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
@@ -286,6 +286,7 @@ mod tests {
             billing_address: None,
             payment_provider: Some(PaymentProvider::External),
             plan_kind: PlanKind::SelfServe,
+            collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
         };
         let mut status = QuotaUpdateStatus::default();
@@ -311,6 +312,7 @@ mod tests {
             billing_address: None,
             payment_provider: None,
             plan_kind: PlanKind::SelfServe,
+            collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
         };
 

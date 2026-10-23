@@ -1,41 +1,29 @@
-use crate::{alerts::EvaluatorMessage, integration_tests::harness::TestHarness};
+use crate::integration_tests::harness::TestHarness;
 use models::status::AlertType;
 
 /// Runs through user onboarding, from signup, to free trial, to entering a
-/// credit card. Asserts that we send the proper emails at each step.
+/// credit card, to the end of the trial. Asserts that the tenant controller
+/// sends the proper emails at each step.
 #[tokio::test]
 async fn test_tenant_alerts_happy_path() {
     let mut harness = TestHarness::init("new_user_onboarding").await;
 
     let _user_id = harness.setup_tenant("deer").await;
+    let task_id: models::Id = sqlx::query_scalar!(
+        r#"update tenants
+        set stripe_customer_id = 'cus_deer'
+        where tenant = 'deer/'
+        returning controller_task_id as "task_id!: models::Id""#,
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .expect("failed to record the tenant's Stripe customer");
 
-    let alert_task_id = harness
-        .run_automation_task(automations::task_types::TENANT_ALERT_EVALS)
-        .await
-        .expect("tenant alerts task must have run");
-
-    let state: serde_json::Value = harness.get_task_state(alert_task_id).await;
-
-    insta::assert_json_snapshot!(state, { ".last_evaluation_time" => "[redacted]" }, @r#"
-    {
-      "failures": 0,
-      "last_evaluation_time": "[redacted]",
-      "last_result": {
-        "fired": {
-          "missing_payment_method": 1
-        },
-        "view_evaluated": {
-          "free_trial": 1,
-          "missing_payment_method": 1
-        }
-      },
-      "open_alerts": {
-        "missing_payment_method": 1
-      },
-      "paused_at": null
-    }
-    "#);
-
+    run_tenant_controller(task_id, &mut harness).await;
+    assert_eq!(
+        open_alert_types(&harness).await,
+        [AlertType::MissingPaymentMethod]
+    );
     let missing_payment_alert = harness
         .assert_alert_firing(
             "deer/alerts/missing_payment_method",
@@ -46,125 +34,51 @@ async fn test_tenant_alerts_happy_path() {
 
     let today = chrono::Utc::now().date_naive();
     set_free_trial_start_date(&mut harness, "deer/", today).await;
-
-    let state = eval_tenant_alerts(alert_task_id, &mut harness).await;
-    insta::assert_json_snapshot!(state, { ".last_evaluation_time" => "[redacted]" }, @r#"
-    {
-      "failures": 0,
-      "last_evaluation_time": "[redacted]",
-      "last_result": {
-        "fired": {
-          "free_trial": 1
-        },
-        "starting_open": {
-          "missing_payment_method": 1
-        },
-        "view_evaluated": {
-          "free_trial": 1,
-          "missing_payment_method": 1
-        }
-      },
-      "open_alerts": {
-        "free_trial": 1,
-        "missing_payment_method": 1
-      },
-      "paused_at": null
-    }
-    "#);
-
-    let free_trial_emails = harness
+    run_tenant_controller(task_id, &mut harness).await;
+    assert_eq!(
+        open_alert_types(&harness).await,
+        [AlertType::FreeTrial, AlertType::MissingPaymentMethod]
+    );
+    let free_trial_alert = harness
         .assert_alert_firing("deer/alerts/free_trial", AlertType::FreeTrial)
         .await;
-    free_trial_emails.assert_emails_sent(&["deer@new_user_onboarding.test"]);
+    free_trial_alert.assert_emails_sent(&["deer@new_user_onboarding.test"]);
     assert_eq!(
         "Estuary Free Trial",
-        free_trial_emails.notifications[0].subject
+        free_trial_alert.notifications[0].subject
     );
 
+    // The trial ends in one to four days, as months have 28 to 31 days.
     set_free_trial_start_date(
         &mut harness,
         "deer/",
-        today.checked_sub_days(chrono::Days::new(25)).unwrap(),
+        today.checked_sub_days(chrono::Days::new(27)).unwrap(),
     )
     .await;
-    let state = eval_tenant_alerts(alert_task_id, &mut harness).await;
-    insta::assert_json_snapshot!(state, { ".last_evaluation_time" => "[redacted]" }, @r#"
-    {
-      "failures": 0,
-      "last_evaluation_time": "[redacted]",
-      "last_result": {
-        "fired": {
-          "free_trial_ending": 1
-        },
-        "starting_open": {
-          "free_trial": 1,
-          "missing_payment_method": 1
-        },
-        "view_evaluated": {
-          "free_trial": 1,
-          "free_trial_ending": 1,
-          "missing_payment_method": 1
-        }
-      },
-      "open_alerts": {
-        "free_trial": 1,
-        "free_trial_ending": 1,
-        "missing_payment_method": 1
-      },
-      "paused_at": null
-    }
-    "#);
-
-    let emails = harness
+    run_tenant_controller(task_id, &mut harness).await;
+    assert_eq!(
+        open_alert_types(&harness).await,
+        [
+            AlertType::FreeTrial,
+            AlertType::FreeTrialEnding,
+            AlertType::MissingPaymentMethod
+        ]
+    );
+    let trial_ending_alert = harness
         .assert_alert_firing("deer/alerts/free_trial_ending", AlertType::FreeTrialEnding)
         .await;
-    emails.assert_emails_sent(&["deer@new_user_onboarding.test"]);
+    trial_ending_alert.assert_emails_sent(&["deer@new_user_onboarding.test"]);
     assert_eq!(
         "Next Up: Estuary Paid Tier",
-        &emails.notifications[0].subject
+        &trial_ending_alert.notifications[0].subject
     );
 
-    sqlx::query(
-        r#"insert into stripe.customers (
-          name,
-          "invoice_settings/default_payment_method",
-          id,
-          flow_document
-        ) values ('deer/', 'some-non-null-value', 'test-deer-id', '{}');"#,
-    )
-    .execute(&harness.pool)
-    .await
-    .expect("updating stripe.customers");
-
-    let state = eval_tenant_alerts(alert_task_id, &mut harness).await;
-    insta::assert_json_snapshot!(state, { ".last_evaluation_time" => "[redacted]" }, @r#"
-    {
-      "failures": 0,
-      "last_evaluation_time": "[redacted]",
-      "last_result": {
-        "resolved": {
-          "missing_payment_method": 1
-        },
-        "starting_open": {
-          "free_trial": 1,
-          "free_trial_ending": 1,
-          "missing_payment_method": 1
-        },
-        "view_evaluated": {
-          "free_trial": 1,
-          "free_trial_ending": 1,
-          "missing_payment_method": 1
-        }
-      },
-      "open_alerts": {
-        "free_trial": 1,
-        "free_trial_ending": 1,
-        "missing_payment_method": 0
-      },
-      "paused_at": null
-    }
-    "#);
-
+    set_mirrored_payment_method(&mut harness, Some("pm_deer")).await;
+    run_tenant_controller(task_id, &mut harness).await;
+    assert_eq!(
+        open_alert_types(&harness).await,
+        [AlertType::FreeTrial, AlertType::FreeTrialEnding]
+    );
     let emails = harness
         .assert_alert_resolved(missing_payment_alert.alert.id)
         .await;
@@ -174,38 +88,74 @@ async fn test_tenant_alerts_happy_path() {
         &emails.notifications[0].subject
     );
 
+    // The trial ended five to eight days ago.
     set_free_trial_start_date(
         &mut harness,
         "deer/",
         today.checked_sub_days(chrono::Days::new(36)).unwrap(),
     )
     .await;
-    let state = eval_tenant_alerts(alert_task_id, &mut harness).await;
-    insta::assert_json_snapshot!(state, { ".last_evaluation_time" => "[redacted]" }, @r#"
-    {
-      "failures": 0,
-      "last_evaluation_time": "[redacted]",
-      "last_result": {
-        "resolved": {
-          "free_trial": 1,
-          "free_trial_ending": 1
-        },
-        "starting_open": {
-          "free_trial": 1,
-          "free_trial_ending": 1
-        },
-        "view_evaluated": {
-          "free_trial": 1,
-          "missing_payment_method": 1
-        }
-      },
-      "open_alerts": {
-        "free_trial": 0,
-        "free_trial_ending": 0
-      },
-      "paused_at": null
-    }
-    "#);
+    run_tenant_controller(task_id, &mut harness).await;
+    assert_eq!(open_alert_types(&harness).await, []);
+    let emails = harness
+        .assert_alert_resolved(free_trial_alert.alert.id)
+        .await;
+    emails.assert_emails_sent(&["deer@new_user_onboarding.test"]);
+    assert_eq!("Estuary: Paid Tier", &emails.notifications[0].subject);
+    harness
+        .assert_alert_resolved(trial_ending_alert.alert.id)
+        .await
+        .assert_emails_sent(&[]);
+
+    // Removing the payment method after the trial has ended stalls it.
+    set_mirrored_payment_method(&mut harness, None).await;
+    run_tenant_controller(task_id, &mut harness).await;
+    assert_eq!(
+        open_alert_types(&harness).await,
+        [AlertType::FreeTrialStalled, AlertType::MissingPaymentMethod]
+    );
+    harness
+        .assert_alert_firing(
+            "deer/alerts/free_trial_stalled",
+            AlertType::FreeTrialStalled,
+        )
+        .await
+        .assert_emails_sent(&["deer@new_user_onboarding.test"]);
+}
+
+async fn run_tenant_controller(task_id: models::Id, harness: &mut TestHarness) {
+    harness.set_min_task_wake_at(task_id).await;
+    assert_eq!(
+        Some(task_id),
+        harness
+            .run_automation_task(automations::task_types::TENANT_CONTROLLER)
+            .await,
+        "tenant controller task must have run"
+    );
+}
+
+async fn open_alert_types(harness: &TestHarness) -> Vec<AlertType> {
+    sqlx::query_scalar!(
+        r#"select alert_type as "alert_type!: AlertType"
+        from alert_history
+        where starts_with(catalog_name, 'deer/') and resolved_at is null
+        order by alert_type::text"#,
+    )
+    .fetch_all(&harness.pool)
+    .await
+    .expect("failed to fetch open alerts")
+}
+
+async fn set_mirrored_payment_method(harness: &mut TestHarness, payment_method: Option<&str>) {
+    sqlx::query!(
+        r#"insert into stripe.customers (id, "invoice_settings/default_payment_method", flow_document)
+        values ('cus_deer', $1, '{}')
+        on conflict (id) do update set "invoice_settings/default_payment_method" = $1"#,
+        payment_method,
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to update stripe.customers");
 }
 
 async fn set_free_trial_start_date(
@@ -224,15 +174,4 @@ async fn set_free_trial_start_date(
     .fetch_one(&harness.pool)
     .await
     .expect("failed to set tenant free trial start date");
-}
-
-async fn eval_tenant_alerts(task_id: models::Id, harness: &mut TestHarness) -> serde_json::Value {
-    harness
-        .send_automation_message(task_id, models::Id::zero(), EvaluatorMessage::ManualTrigger)
-        .await;
-    harness
-        .run_automation_task(automations::task_types::TENANT_ALERT_EVALS)
-        .await
-        .expect("tenant alerts task must have run");
-    harness.get_task_state(task_id).await
 }

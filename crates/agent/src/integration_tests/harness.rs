@@ -836,23 +836,6 @@ impl TestHarness {
         .unwrap();
     }
 
-    pub async fn send_automation_message<T: serde::Serialize>(
-        &mut self,
-        to_task: models::Id,
-        from_task: models::Id,
-        message: T,
-    ) {
-        sqlx::query!(
-            r#"select internal.send_to_task($1::flowid, $2::flowid, $3::json)"#,
-            to_task as models::Id,
-            from_task as models::Id,
-            sqlx::types::Json(message) as sqlx::types::Json<T>,
-        )
-        .execute(&self.pool)
-        .await
-        .expect("failed to send message to task");
-    }
-
     /// Asserts that the given alert type is firing for the given
     /// `catalog_name`, and returns the alert status for further assertions.
     pub async fn assert_alert_firing(&mut self, catalog_name: &str, alert: AlertType) -> TestAlert {
@@ -1162,8 +1145,10 @@ impl TestHarness {
                     snapshot_watch: self.snapshot_watch.clone(),
                 })
             }
-            task_types::TENANT_ALERT_EVALS => Server::new().register(
-                crate::alerts::new_tenant_alerts_executor(std::time::Duration::from_mins(5)),
+            // Without a billing provider, tenant controllers read payment
+            // methods from the `stripe.customers` mirror.
+            task_types::TENANT_CONTROLLER => Server::new().register(
+                crate::tenant_controller::TenantController::new(None, self.catalog_stats.clone()),
             ),
             task_types::ALERT_NOTIFICATIONS => Server::new().register(
                 crate::alerts::AlertNotifications::new(
