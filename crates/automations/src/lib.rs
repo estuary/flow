@@ -45,8 +45,8 @@ pub mod task_types {
     /// Evaluates data_movement_stalled alerts
     pub const DATA_MOVEMENT_ALERT_EVALS: TaskType = TaskType(11);
     /// Per-tenant controller that reconciles billing contact with Stripe,
-    /// raises quotas for a payment method or external billing, starts free trials,
-    /// and fires trial and payment method alerts
+    /// raises the tenant's quotas once it has a payment method or doesn't need
+    /// one, starts free trials, and fires trial and payment method alerts
     pub const TENANT_CONTROLLER: TaskType = TaskType(12);
     /// Second deployment of the data-plane-controller, which serves only the
     /// data-planes explicitly assigned to it. This is the *same* executor as
