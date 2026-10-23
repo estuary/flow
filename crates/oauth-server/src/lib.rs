@@ -357,7 +357,6 @@ async fn consent<B: Backend>(
 ) -> Result<axum::Json<serde_json::Value>, Error> {
     let config = app.config()?;
     let pending: Pending = unseal(config, "consent", &decision.request)?;
-    validate_request(&pending.request)?;
     let user_id = app.authorize_user(session).await?;
     let mut redirect = cimd::validate_redirect_uri(&pending.request.redirect_uri)?;
     if let Some(state) = &pending.request.state {
