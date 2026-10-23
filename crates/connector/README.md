@@ -410,7 +410,9 @@ EOF or status. A client which does not drain responses may park the handler.
   there until teardown starts.
 
 - **A VMM is reached only through `init.sock`.** Its `Container` has no
-  address, ports or mapped ports, and carries the image's usage rate.
+  address, ports or mapped ports, and carries the image's usage rate. The
+  launcher owns the socket's parent directory at mode 0700, restricting
+  access to its host UID and root.
 
 - **A VMM is ready when connector-init's health is SERVING.** The launch
   dials `init.sock` and calls standard `grpc.health.v1.Health/Check` for the
