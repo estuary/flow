@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT tenant as \"tenant!\", billing_email, billing_name, billing_address, payment_provider as \"payment_provider: PaymentProvider\", plan_kind as \"plan_kind: PlanKind\", trial_start\n        FROM tenants\n        WHERE controller_task_id = $1\n        ",
+  "query": "\n        SELECT tenant as \"tenant!\", billing_email, billing_name, billing_address, payment_provider as \"payment_provider: PaymentProvider\", plan_kind as \"plan_kind: PlanKind\", collection_method as \"collection_method: CollectionMethod\", trial_start\n        FROM tenants\n        WHERE controller_task_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -95,6 +95,27 @@
       },
       {
         "ordinal": 6,
+        "name": "collection_method: CollectionMethod",
+        "type_info": {
+          "Custom": {
+            "name": "collection_method_type",
+            "kind": {
+              "Enum": [
+                "charge_default_payment_method",
+                "send_invoice"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "collection_method"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "trial_start",
         "type_info": "Date",
         "origin": {
@@ -117,8 +138,9 @@
       true,
       true,
       false,
+      false,
       true
     ]
   },
-  "hash": "806a201ff8e8bb50ebe365a4191f570aa3e655615a455b319ee83f766eaa775f"
+  "hash": "8d86dd086b880c63c1fad34baad2c498ed0fb32ef207c1f9a7b2a16c66710553"
 }

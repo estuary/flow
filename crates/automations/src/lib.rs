@@ -40,12 +40,13 @@ pub mod task_types {
     pub const DATA_PLANE_MIGRATION: TaskType = TaskType(8);
     /// Sends notifications when alerts are fired or resolved
     pub const ALERT_NOTIFICATIONS: TaskType = TaskType(9);
-    /// Evaluates tenant-related alerts
+    /// Retired: tenant controllers evaluate tenant alerts
     pub const TENANT_ALERT_EVALS: TaskType = TaskType(10);
     /// Evaluates data_movement_stalled alerts
     pub const DATA_MOVEMENT_ALERT_EVALS: TaskType = TaskType(11);
     /// Per-tenant controller that reconciles billing contact with Stripe,
-    /// raises quotas for a payment method or external billing, and starts free trials
+    /// raises quotas for a payment method or external billing, starts free trials,
+    /// and fires trial and payment method alerts
     pub const TENANT_CONTROLLER: TaskType = TaskType(12);
     /// Second deployment of the data-plane-controller, which serves only the
     /// data-planes explicitly assigned to it. This is the *same* executor as
