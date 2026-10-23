@@ -203,6 +203,8 @@ impl BillingMutation {
         } else {
             billing::default_payment_method_id(&customer)
         };
+
+        crate::server::wake_tenant_controller(&env.pg_pool, tenant.as_str()).await?;
         let primary_payment_method = primary_id
             .and_then(|id| remaining_methods.iter().find(|m| m.id.as_str() == id))
             .map(PaymentMethod::from);
@@ -384,6 +386,15 @@ mod tests {
             )
             .await;
         insta::assert_json_snapshot!("delete_default_payment_method", delete_default_response);
+
+        // Setting and deleting a payment method each wake the tenant controller.
+        let wakes: i32 = sqlx::query_scalar(
+            "select coalesce(cardinality(t.inbox), 0) from tenants te join internal.tasks t on t.task_id = te.controller_task_id where te.tenant = 'billingmock/'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(wakes, 2);
 
         let cross_tenant_delete_response: serde_json::Value = server
             .graphql(
