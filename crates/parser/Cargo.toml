@@ -38,6 +38,7 @@ parquet = { workspace = true }
 protobuf = { workspace = true }
 protobuf-json-mapping = { workspace = true }
 protobuf-parse = { workspace = true }
+quick-xml = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
