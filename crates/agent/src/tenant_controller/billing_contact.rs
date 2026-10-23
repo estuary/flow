@@ -62,7 +62,9 @@ async fn do_reconcile(
 
     // Desired state comes from the DB. A NULL column means "no desired value",
     // so it never counts as a mismatch and is never pushed to Stripe.
-    let desired_email = tenant_row.billing_email.as_deref();
+    //
+    // A Stripe customer has a single email, so the sync must pick one of `tenants.billing_emails`, and it picks the first.
+    let desired_email = tenant_row.billing_emails.first().map(String::as_str);
     let desired_name = tenant_row.billing_name.as_deref();
     let desired_address: Option<stripe::Address> = tenant_row
         .billing_address
@@ -138,7 +140,7 @@ mod tests {
     ) -> Tenant {
         Tenant {
             tenant: TENANT.to_string(),
-            billing_email: email.map(str::to_string),
+            billing_emails: email.into_iter().map(str::to_string).collect(),
             billing_name: name.map(str::to_string),
             billing_address: address,
             payment_provider: None,

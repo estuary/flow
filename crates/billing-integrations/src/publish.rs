@@ -972,7 +972,7 @@ async fn process_invoice(
     // Stripe, so that check is necessarily skipped.)
     if cmd.dry_run && !matches!(action, InvoiceAction::Skip { .. }) {
         if !billing_email_available(db_pool, action.customer(), &invoice.billed_prefix).await? {
-            let reason = "no customer email, tenants.billing_email, or admin user to invoice";
+            let reason = "no customer email, tenants.billing_emails, or admin user to invoice";
             tracing::warn!(
                 tenant = invoice.billed_prefix,
                 "[dry-run] Would fail: {reason}"
@@ -1197,7 +1197,7 @@ async fn ensure_customer_for_invoicing(
 
         let email = match db_email {
             Some(email) => {
-                tracing::info!("Using billing_email from tenants table: {email}");
+                tracing::info!("Using billing_emails from tenants table: {email}");
                 email
             }
             None => match earliest_admin_email(db_client, tenant).await? {
@@ -1239,7 +1239,7 @@ async fn tenant_billing_row(
 ) -> anyhow::Result<Option<TenantBillingRow>> {
     Ok(sqlx::query_as!(
         TenantBillingRow,
-        r#"SELECT billing_email, billing_address FROM tenants WHERE tenant = $1"#,
+        r#"SELECT billing_emails[1] AS billing_email, billing_address FROM tenants WHERE tenant = $1"#,
         tenant,
     )
     .fetch_optional(db_client)
@@ -1278,7 +1278,7 @@ async fn earliest_admin_email(
 
 /// Read-only mirror of the email requirement enforced by
 /// `ensure_customer_for_invoicing`: the classified customer's email, else
-/// `tenants.billing_email`, else the earliest tenant admin. Returns whether an
+/// the first of `tenants.billing_emails`, else the earliest tenant admin. Returns whether an
 /// email could be resolved without performing any writes, so --dry-run can
 /// report tenants that would fail to invoice rather than over-reporting success.
 async fn billing_email_available(
