@@ -2,9 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 mod db;
-mod stripe_helpers;
+mod provider;
+mod stripe_impl;
 pub use db::record_customer_id;
-pub use stripe_helpers::{SearchParams, stripe_search};
+pub use provider::{BillingProvider, default_payment_method_id};
+pub use stripe_impl::StripeBillingProvider;
 
 pub const TENANT_METADATA_KEY: &str = "estuary.dev/tenant_name";
 // The human billing-contact name is stored under this customer-metadata key
@@ -44,38 +46,9 @@ pub enum InvoiceType {
     Manual,
 }
 
-/// Status clause to append to a Stripe invoice search query.
-///
-/// Stripe's search DSL accepts both positive (`status:"open"`) and negative
-/// (`-status:"draft"`) filters
-#[derive(Debug, Clone, Copy, Default)]
-pub enum StatusFilter {
-    /// No status clause.
-    #[default]
-    Any,
-    /// `status:"<name>"`: match only invoices with this status.
-    Only(stripe::InvoiceStatus),
-    /// `-status:"<name>"`: exclude invoices with this status.
-    Exclude(stripe::InvoiceStatus),
-}
-
-impl StatusFilter {
-    fn clause(self) -> Option<String> {
-        match self {
-            StatusFilter::Any => None,
-            StatusFilter::Only(s) => Some(format!(r#"status:"{}""#, s.as_str())),
-            StatusFilter::Exclude(s) => Some(format!(r#"-status:"{}""#, s.as_str())),
-        }
-    }
-}
-
-pub fn customer_search_query(tenant: &str) -> String {
-    format!(r#"metadata["{TENANT_METADATA_KEY}"]:"{tenant}""#)
-}
-
 /// Build the Stripe metadata map that stamps a tenant onto a tenant-scoped
-/// object — the SetupIntent created for `setBillingPaymentMethod`, and the base
-/// map for a tenant's Customer. The `setup_intent.succeeded` webhook recovers
+/// object — the SetupIntent created for `setBillingPaymentMethod`. The
+/// `setup_intent.succeeded` webhook recovers
 /// the tenant from exactly this map. Centralizing construction here keeps
 /// `TENANT_METADATA_KEY` in one place and gives us a single spot to add further
 /// tenant-scoped metadata fields later; callers needing extra keys start from
@@ -86,15 +59,14 @@ pub fn tenant_metadata(tenant: &str) -> HashMap<String, String> {
 
 /// Deterministic Stripe Idempotency-Key for `Customer::create` calls. Using the
 /// tenant name collapses concurrent or retried creations across processes within
-/// Stripe's 24-hour idempotency window, so a search-index lag race can't produce
-/// duplicate customer rows for the same tenant.
+/// Stripe's 24-hour idempotency window.
 pub fn customer_create_idempotency_key(tenant: &str) -> String {
     format!("flow-customer-create:{tenant}")
 }
 
 /// Tenant, bill type, and billing period attached to a Flow invoice in Stripe.
-/// These fields support historical backfill matching and batch selection by
-/// `send-invoices`. The bill's `stripe_invoice_id` records its invoice identity.
+/// These fields support historical backfill matching.
+/// The bill's `stripe_invoice_id` records its invoice identity.
 /// Manual bill dates can be edited; publishing refreshes a draft's metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvoiceMetadata {
@@ -115,57 +87,6 @@ impl InvoiceMetadata {
             ),
             (BILLING_PERIOD_END_KEY.to_string(), self.period_end.clone()),
         ])
-    }
-
-    /// Parse an `InvoiceMetadata` from a Stripe invoice's metadata map.
-    /// Returns `Some` only if all four expected fields are present and the
-    /// invoice type parses; otherwise returns `None`.
-    pub fn from_metadata_map(map: &HashMap<String, String>) -> Option<Self> {
-        Some(Self {
-            tenant: map.get(TENANT_METADATA_KEY)?.clone(),
-            invoice_type: map.get(INVOICE_TYPE_KEY)?.parse().ok()?,
-            period_start: map.get(BILLING_PERIOD_START_KEY)?.clone(),
-            period_end: map.get(BILLING_PERIOD_END_KEY)?.clone(),
-        })
-    }
-}
-
-/// Filter for a Stripe invoice search. Each `Some` field becomes an AND-joined
-/// clause in the resulting query; `None` fields are omitted.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct InvoiceSearch<'a> {
-    pub customer_id: Option<&'a str>,
-    pub invoice_type: Option<InvoiceType>,
-    pub period_start: Option<&'a str>,
-    pub period_end: Option<&'a str>,
-    pub status: StatusFilter,
-}
-
-impl InvoiceSearch<'_> {
-    pub fn to_query(&self) -> String {
-        let mut clauses = Vec::with_capacity(5);
-        if let Some(id) = self.customer_id {
-            clauses.push(format!(r#"customer:"{id}""#));
-        }
-        if let Some(invoice_type) = self.invoice_type {
-            clauses.push(format!(
-                r#"metadata["{INVOICE_TYPE_KEY}"]:"{invoice_type}""#
-            ));
-        }
-        if let Some(period_start) = self.period_start {
-            clauses.push(format!(
-                r#"metadata["{BILLING_PERIOD_START_KEY}"]:"{period_start}""#
-            ));
-        }
-        if let Some(period_end) = self.period_end {
-            clauses.push(format!(
-                r#"metadata["{BILLING_PERIOD_END_KEY}"]:"{period_end}""#
-            ));
-        }
-        if let Some(status) = self.status.clause() {
-            clauses.push(status);
-        }
-        clauses.join(" AND ")
     }
 }
 
@@ -205,14 +126,6 @@ mod tests {
     }
 
     #[test]
-    fn customer_query_format() {
-        assert_eq!(
-            customer_search_query("acme/widgets"),
-            r#"metadata["estuary.dev/tenant_name"]:"acme/widgets""#
-        );
-    }
-
-    #[test]
     fn customer_create_idempotency_key_format() {
         // Same input must produce the same key across processes for cross-call
         // idempotency to work; the prefix namespaces it from future deterministic
@@ -225,84 +138,5 @@ mod tests {
             customer_create_idempotency_key("acme/widgets"),
             customer_create_idempotency_key("acme/widgets"),
         );
-    }
-
-    #[test]
-    fn invoice_metadata_round_trip() {
-        let original = InvoiceMetadata {
-            tenant: "acme/widgets".to_string(),
-            invoice_type: InvoiceType::Final,
-            period_start: "2026-04-01".to_string(),
-            period_end: "2026-04-30".to_string(),
-        };
-        let parsed = InvoiceMetadata::from_metadata_map(&original.to_metadata_map());
-        assert_eq!(parsed, Some(original));
-    }
-
-    #[test]
-    fn invoice_metadata_missing_field_returns_none() {
-        let mut map = InvoiceMetadata {
-            tenant: "acme/widgets".to_string(),
-            invoice_type: InvoiceType::Final,
-            period_start: "2026-04-01".to_string(),
-            period_end: "2026-04-30".to_string(),
-        }
-        .to_metadata_map();
-        map.remove(BILLING_PERIOD_END_KEY);
-        assert_eq!(InvoiceMetadata::from_metadata_map(&map), None);
-    }
-
-    #[test]
-    fn search_full_exclude_draft() {
-        let got = InvoiceSearch {
-            customer_id: Some("cus_123"),
-            invoice_type: Some(InvoiceType::Final),
-            period_start: Some("2026-04-01"),
-            period_end: Some("2026-04-30"),
-            status: StatusFilter::Exclude(stripe::InvoiceStatus::Draft),
-        }
-        .to_query();
-        assert_eq!(
-            got,
-            r#"customer:"cus_123" AND metadata["estuary.dev/invoice_type"]:"final" AND metadata["estuary.dev/period_start"]:"2026-04-01" AND metadata["estuary.dev/period_end"]:"2026-04-30" AND -status:"draft""#
-        );
-    }
-
-    #[test]
-    fn search_full_exclude_void() {
-        let got = InvoiceSearch {
-            customer_id: Some("cus_123"),
-            invoice_type: Some(InvoiceType::Final),
-            period_start: Some("2026-04-01"),
-            period_end: Some("2026-04-30"),
-            status: StatusFilter::Exclude(stripe::InvoiceStatus::Void),
-        }
-        .to_query();
-        assert!(got.ends_with(r#"AND -status:"void""#));
-    }
-
-    #[test]
-    fn search_type_and_period_start() {
-        let got = InvoiceSearch {
-            invoice_type: Some(InvoiceType::Final),
-            period_start: Some("2026-04-01"),
-            status: StatusFilter::Only(stripe::InvoiceStatus::Draft),
-            ..Default::default()
-        }
-        .to_query();
-        assert_eq!(
-            got,
-            r#"metadata["estuary.dev/invoice_type"]:"final" AND metadata["estuary.dev/period_start"]:"2026-04-01" AND status:"draft""#
-        );
-    }
-
-    #[test]
-    fn search_type_only_status_any() {
-        let got = InvoiceSearch {
-            invoice_type: Some(InvoiceType::Manual),
-            ..Default::default()
-        }
-        .to_query();
-        assert_eq!(got, r#"metadata["estuary.dev/invoice_type"]:"manual""#);
     }
 }
