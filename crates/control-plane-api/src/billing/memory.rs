@@ -8,6 +8,7 @@ struct State {
     invoices: Vec<stripe::Invoice>,
     payment_intents: Vec<stripe::PaymentIntent>,
     setup_intent_counter: u64,
+    retrieve_customer_calls: usize,
     update_billing_profile_calls: usize,
 }
 
@@ -20,6 +21,12 @@ pub struct InMemoryBillingProvider {
 impl InMemoryBillingProvider {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Number of `retrieve_customer` calls, letting tests assert which polls
+    /// call Stripe.
+    pub fn retrieve_customer_call_count(&self) -> usize {
+        self.state.lock().unwrap().retrieve_customer_calls
     }
 
     /// Number of `update_customer_billing_profile` calls, letting tests assert
@@ -90,7 +97,8 @@ impl BillingProvider for InMemoryBillingProvider {
         &self,
         customer_id: &stripe::CustomerId,
     ) -> anyhow::Result<stripe::Customer> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        state.retrieve_customer_calls += 1;
         state
             .customers
             .iter()

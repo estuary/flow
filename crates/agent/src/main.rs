@@ -150,11 +150,6 @@ struct Args {
     #[clap(long, env, default_value = "https://dashboard.estuary.dev/")]
     dashboard_base_url: String,
 
-    /// How frequently to evaluate tenant-related alert conditions.
-    #[clap(long, env, default_value = "1h")]
-    #[arg(value_parser = humantime::parse_duration)]
-    tenant_alert_interval: std::time::Duration,
-
     /// When `true`, any *newly-created* capture without an explicit
     /// `enable-runtime-v2` shard flag is published onto runtime v2. Existing
     /// captures are unaffected, and an explicit per-task flag always takes
@@ -445,9 +440,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             })
             .register(connector_tags_executor)
             .register(migrate::automation::MigrationExecutor)
-            .register(agent::alerts::new_tenant_alerts_executor(
-                args.tenant_alert_interval,
-            ))
             .register(agent::tenant_controller::TenantController::new(
                 tenant_controller_billing_provider,
                 tenant_controller_catalog_stats,

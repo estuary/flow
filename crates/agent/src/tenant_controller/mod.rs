@@ -1,5 +1,6 @@
 //! Reconciles tenant state through the automations framework.
 
+mod alerts;
 mod billing_contact;
 mod free_trial;
 mod outcome;
@@ -8,8 +9,8 @@ mod quotas;
 use crate::tenant_controller::outcome::Outcome;
 use anyhow::Context;
 use automations::{Action, Executor, task_types};
-use billing_types::{PaymentProvider, PlanKind};
-use control_plane_api::billing::BillingProvider;
+use billing_types::{CollectionMethod, PaymentProvider, PlanKind};
+use control_plane_api::billing::{self, BillingProvider};
 use std::sync::Arc;
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -49,6 +50,8 @@ pub struct TenantControllerState {
     pub quota_status: Option<quotas::QuotaUpdateStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub free_trial: Option<free_trial::FreeTrialStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alerts: Option<TaskStatus>,
 }
 
 pub struct TenantController {
@@ -75,7 +78,21 @@ pub(crate) struct Tenant {
     pub billing_address: Option<serde_json::Value>,
     pub payment_provider: Option<PaymentProvider>,
     pub plan_kind: PlanKind,
+    pub collection_method: CollectionMethod,
     pub trial_start: Option<chrono::NaiveDate>,
+}
+
+impl Tenant {
+    /// Whether the tenant's invoices are charged to its default payment method,
+    /// which it must then have. Tenants with an `external` payment provider
+    /// don't need one either. Existing contracts are `external`, and keep the
+    /// `self_serve` default of `plan_kind` until it's set.
+    /// TODO(billing): remove the `external` exemption once no tenant uses it.
+    pub fn needs_payment_method(&self) -> bool {
+        self.plan_kind == PlanKind::SelfServe
+            && self.collection_method == CollectionMethod::ChargeDefaultPaymentMethod
+            && self.payment_provider != Some(PaymentProvider::External)
+    }
 }
 
 async fn fetch_tenant_by_controller_task(
@@ -85,7 +102,7 @@ async fn fetch_tenant_by_controller_task(
     let row = sqlx::query_as!(
         Tenant,
         r#"
-        SELECT tenant as "tenant!", billing_emails, billing_name, billing_address, payment_provider as "payment_provider: PaymentProvider", plan_kind as "plan_kind: PlanKind", trial_start
+        SELECT tenant as "tenant!", billing_emails, billing_name, billing_address, payment_provider as "payment_provider: PaymentProvider", plan_kind as "plan_kind: PlanKind", collection_method as "collection_method: CollectionMethod", trial_start
         FROM tenants
         WHERE controller_task_id = $1
         "#,
@@ -112,7 +129,7 @@ impl Executor for TenantController {
         state: &'s mut Self::State,
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
     ) -> anyhow::Result<Self::Outcome> {
-        let Some(tenant) = fetch_tenant_by_controller_task(pool, task_id)
+        let Some(mut tenant) = fetch_tenant_by_controller_task(pool, task_id)
             .await
             .context("fetching tenant for controller task")?
         else {
@@ -136,20 +153,45 @@ impl Executor for TenantController {
             quota_status.task_status.next_retry = None;
         }
 
-        // Billing contact and quotas each search Stripe for the tenant's
-        // customer, so they run only when woken by a message or to retry their
-        // own failure. Daily polls for the free trial check must not fan out
-        // into a Stripe search per tenant.
+        // Billing contact and quotas run only when woken by a message or once a
+        // retry of their own failure is due. They share one retrieval of the
+        // tenant's Stripe customer with alerts, and other polls don't retrieve
+        // it, so that daily polls don't fan out into a Stripe call per tenant.
+        let now = chrono::Utc::now();
+        let retry_due = |status: &TaskStatus| {
+            status.failures != 0 && status.next_retry.is_none_or(|at| at <= now)
+        };
+        let customer = match &self.billing_provider {
+            Some(provider)
+                if woken_by_message
+                    || retry_due(billing_status)
+                    || retry_due(&quota_status.task_status) =>
+            {
+                Some(
+                    billing::find_customer(pool, provider.as_ref(), &tenant.tenant)
+                        .await
+                        .context("looking up Stripe customer"),
+                )
+            }
+            _ => None,
+        };
+
         let mut result = Outcome::Idle;
         if woken_by_message || billing_status.failures != 0 {
             result = result.combine(
-                billing_contact::reconcile(billing_status, pool, &tenant, &self.billing_provider)
-                    .await?,
+                billing_contact::reconcile(
+                    billing_status,
+                    &tenant,
+                    &self.billing_provider,
+                    customer.as_ref(),
+                    now,
+                )
+                .await?,
             );
         }
         if woken_by_message || quota_status.task_status.failures != 0 {
             result = result.combine(
-                quotas::update_quotas(quota_status, pool, &tenant, &self.billing_provider).await?,
+                quotas::update_quotas(quota_status, pool, &tenant, customer.as_ref(), now).await?,
             );
         }
 
@@ -158,12 +200,17 @@ impl Executor for TenantController {
             free_trial::check(
                 free_trial_status,
                 pool,
-                &tenant,
+                &mut tenant,
                 &self.catalog_stats,
-                chrono::Utc::now(),
+                now,
             )
             .await?,
         );
+
+        // Alerts run last, so that they see a trial started by this poll.
+        let alerts_status = state.alerts.get_or_insert_with(Default::default);
+        result = result
+            .combine(alerts::evaluate(alerts_status, pool, &tenant, customer.as_ref(), now).await?);
 
         match result.wait() {
             None => Ok(Action::Suspend),
@@ -228,6 +275,7 @@ mod tests {
             .unwrap();
         assert!(scheduled);
         assert_eq!(quotas, [2, 10]);
+        assert_eq!(provider.retrieve_customer_call_count(), 0);
         assert_eq!(provider.update_billing_profile_call_count(), 0);
         let next_check = state.free_trial.unwrap().next_check;
         assert!(next_check.is_some());
@@ -246,8 +294,25 @@ mod tests {
             .unwrap();
         assert!(consumed);
         assert_eq!(quotas, [100, 10000]);
+        assert_eq!(provider.retrieve_customer_call_count(), 1);
         assert_eq!(provider.update_billing_profile_call_count(), 1);
-        assert_eq!(state.free_trial.unwrap().next_check, next_check);
+        assert_eq!(state.free_trial.as_ref().unwrap().next_check, next_check);
+
+        // A poll before a pending retry is due doesn't call Stripe.
+        let mut state = state;
+        state.billing_contact = Some(TaskStatus {
+            failures: 1,
+            next_retry: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+            last_error: None,
+        });
+        sqlx::query("UPDATE internal.tasks SET inner_state = $2, wake_at = NOW() WHERE task_id = (SELECT controller_task_id FROM tenants WHERE tenant = $1)")
+            .bind(TENANT)
+            .bind(Json(state))
+            .execute(&pool)
+            .await
+            .unwrap();
+        poll_ready(&server, &pool).await;
+        assert_eq!(provider.retrieve_customer_call_count(), 1);
     }
 
     #[sqlx::test(migrations = "../../supabase/migrations")]
@@ -258,7 +323,9 @@ mod tests {
             .await
             .unwrap();
         let server = automations::Server::new().register(TenantController::new(None, client));
-        sqlx::query("INSERT INTO tenants (tenant, trial_start) VALUES ($1, CURRENT_DATE - 40)")
+        // A `send_invoice` tenant needs no payment method, so no daily alert
+        // check follows its trial.
+        sqlx::query("INSERT INTO tenants (tenant, trial_start, collection_method) VALUES ($1, CURRENT_DATE - 40, 'send_invoice')")
             .bind(tenant)
             .execute(&pool)
             .await
