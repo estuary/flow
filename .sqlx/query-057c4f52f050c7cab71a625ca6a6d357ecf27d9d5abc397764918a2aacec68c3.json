@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT EXISTS (\n            SELECT 1\n            FROM tenants t\n            JOIN stripe.customers c ON c.id = t.stripe_customer_id\n            WHERE t.tenant = $1\n              AND c.\"invoice_settings/default_payment_method\" IS NOT NULL\n        ) AS \"found!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "found!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "057c4f52f050c7cab71a625ca6a6d357ecf27d9d5abc397764918a2aacec68c3"
+}

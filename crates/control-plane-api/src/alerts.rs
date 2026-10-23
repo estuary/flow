@@ -312,6 +312,32 @@ pub async fn cleanup_open_alerts(
     Ok(())
 }
 
+/// Resolves the given open alerts and deletes their notification tasks, so that
+/// no resolution notifications are sent.
+pub async fn resolve_alerts_silently(
+    ids: Vec<models::Id>,
+    txn: &mut sqlx::PgConnection,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        r#"
+        with resolved as (
+            update alert_history
+            set resolved_at = now()
+            where id = any($1::flowid[])
+              and resolved_at is null
+            returning id
+        )
+        delete from internal.tasks t
+        using resolved
+        where t.task_id = resolved.id
+        "#,
+        ids as Vec<models::Id>,
+    )
+    .execute(txn)
+    .await?;
+    Ok(())
+}
+
 pub async fn fetch_open_alerts_by_type(
     alert_types: &[AlertType],
     pool: &sqlx::PgPool,

@@ -1,0 +1,56 @@
+---
+source: crates/agent/src/tenant_controller/alerts.rs
+expression: results
+---
+[
+  {
+    "case": "self-serve without a trial",
+    "isDailyCheck": true,
+    "next": "2026-01-01T18:59:26Z"
+  },
+  {
+    "case": "before the trial starts",
+    "isDailyCheck": false,
+    "next": "2026-01-31T00:00:00Z"
+  },
+  {
+    "case": "before the trial ends in 5 days",
+    "isDailyCheck": false,
+    "next": "2026-02-23T00:00:00Z"
+  },
+  {
+    "case": "before the trial ends",
+    "isDailyCheck": false,
+    "next": "2026-02-28T00:00:00Z"
+  },
+  {
+    "case": "before the trial stalls",
+    "isDailyCheck": false,
+    "next": "2026-03-05T00:00:00Z"
+  },
+  {
+    "case": "after the trial",
+    "isDailyCheck": true,
+    "next": "2026-03-05T18:59:26Z"
+  },
+  {
+    "case": "contract during the trial",
+    "isDailyCheck": false,
+    "next": null
+  },
+  {
+    "case": "internal during the trial",
+    "isDailyCheck": false,
+    "next": null
+  },
+  {
+    "case": "external without a trial",
+    "isDailyCheck": false,
+    "next": null
+  },
+  {
+    "case": "send_invoice during the trial",
+    "isDailyCheck": false,
+    "next": null
+  }
+]
