@@ -61,7 +61,7 @@ task: typing.Any = load_task()
 }
 
 /// Components of the Python module generated for a catalog `name`, such as
-/// a derived collection: each `/`-separated component of the
+/// a derived collection or a capture: each `/`-separated component of the
 /// name, sanitized into a Python identifier.
 pub fn module_parts(name: &str) -> Vec<String> {
     name.split('/')

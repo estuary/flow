@@ -1,6 +1,6 @@
 ---
 source: crates/python-connector/src/config_types.rs
-expression: "[render(spec), render(absent)].join(\"\\n=====\\n\")"
+expression: "[render(spec, Resources::Derivation),\nrender(absent, Resources::Derivation),].join(\"\\n=====\\n\")"
 ---
 # Generated for the endpoint configuration of `spec.configSchema`.
 class EndpointConfig(_pydantic.BaseModel):
@@ -18,6 +18,8 @@ class ResourceConfig(_pydantic.BaseModel):
 
 
 
+# uses_common: false, has_path: false
+
 =====
 # Generated for the endpoint configuration of `spec.configSchema`.
 class EndpointConfig(_pydantic.BaseModel):
@@ -28,3 +30,9 @@ class EndpointConfig(_pydantic.BaseModel):
 # Generated for the resource configuration of `spec.resourceConfigSchema`.
 class ResourceConfig(_pydantic.BaseModel):
     model_config = _pydantic.ConfigDict(extra='allow')
+
+
+
+
+
+# uses_common: false, has_path: false

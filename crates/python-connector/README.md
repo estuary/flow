@@ -1,7 +1,7 @@
 # python-connector
 
 Shared machinery of connectors which run user-authored Python projects:
-`derive-python`, and (in time) capture-python and materialize-python.
+`capture-python`, `derive-python`, and (in time) materialize-python.
 Behavior shared with connectors of other languages, such as the sentinel of a
 built configuration and starter manifests, is in `models::custom_connector`.
 
@@ -13,9 +13,13 @@ built configuration and starter manifests, is in `models::custom_connector`.
   resolves a fresh `uv.lock` (`Resolve`) or checks the project's own (`Check`),
   and installs the `dev` group so that the project's own pyright runs, while a
   running task installs exactly its baked lock without the `dev` group
-  (`Frozen`). The Open of a legacy derivation has no lock, and resolves one
-  without the `dev` group. `Project::run` executes within the project's
-  environment and rewrites paths of errors to be relative to the project.
+  (`Frozen`). A request other than Validate which has no lock (a Discover, or
+  the Open of a legacy derivation) resolves one, without the `dev` group.
+  `Project::prepare` chooses an install per request of a session which stages
+  once: a Validate adds the `dev` group, and an Open removes it, while an
+  install of another request is reused. `Project::run` executes within the
+  project's environment and rewrites paths of errors to be relative to the
+  project.
 - [`load_task_py`](src/generated.rs) — the platform-owned entry point's loader.
   A shim stages its entry at `ENTRY` (`flow_generated/main.py`), which loads the
   task's directory `{dir}/__init__.py` **by path** as the package
@@ -24,7 +28,11 @@ built configuration and starter manifests, is in `models::custom_connector`.
   relatively, and the fixed name can't collide with a dependency.
 - [`config_types_py`](src/config_types.rs) — generated `EndpointConfig` and
   `ResourceConfig` of a `Spec`. `EndpointConfig` is of
-  `Spec::config_schema_or_default`.
+  `Spec::config_schema_or_default`. A capture's declared `ResourceConfig` extends
+  the CDK's `BaseResourceConfig`, with a `path()` of its `x-schema-name` (if
+  any) and `x-collection-name` properties where they're unambiguous. An absent
+  one is the CDK's stock `common.ResourceConfig`. `ConfigTypes` reports whether
+  the CDK's `common` module is used.
 - [`pydantic`](src/pydantic/mod.rs) — maps JSON schemas into Pydantic models.
   `Mapper::for_config` maps configurations, whose literal `default`s become
   field defaults, whose `duration` / `date-time` strings become `timedelta`

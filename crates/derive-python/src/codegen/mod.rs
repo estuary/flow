@@ -43,7 +43,9 @@ pub fn types_py(
     }
 
     // Generate configuration types of the declared spec.
-    w.push_str(&python_connector::config_types_py(spec)?);
+    let config_types =
+        python_connector::config_types_py(spec, python_connector::Resources::Derivation)?;
+    w.push_str(&config_types.source);
 
     // Generate namespaces of the protocol's messages, which are those of the
     // CDK. Each transform's read is specialized with its source documents.

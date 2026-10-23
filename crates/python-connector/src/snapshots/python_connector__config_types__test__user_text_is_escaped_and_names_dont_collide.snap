@@ -1,6 +1,6 @@
 ---
 source: crates/python-connector/src/config_types.rs
-expression: render(spec)
+expression: "render(spec, Resources::Derivation)"
 ---
 # Generated for the endpoint configuration of `spec.configSchema`.
 class EndpointConfig(_pydantic.BaseModel):
@@ -11,7 +11,7 @@ class EndpointConfig(_pydantic.BaseModel):
     datetime: _typing.Optional[_datetime.datetime] = None
     m_json: _typing.Optional[bool] = _pydantic.Field(default=None, alias="json")
     m_model_config: _typing.Optional[str] = _pydantic.Field(default=None, alias="model_config")
-    path: _typing.Optional[str] = None
+    m_path: _typing.Optional[str] = _pydantic.Field(default=None, alias="path")
     """A Windows path like C:\\Users\\me"""
     quoted: _typing.Optional[str] = None
     """Has \"\"\" inside, and a \x00 NUL"""
@@ -24,3 +24,9 @@ class EndpointConfig(_pydantic.BaseModel):
 # Generated for the resource configuration of `spec.resourceConfigSchema`.
 class ResourceConfig(_pydantic.BaseModel):
     model_config = _pydantic.ConfigDict(extra='allow')
+
+
+
+
+
+# uses_common: false, has_path: false

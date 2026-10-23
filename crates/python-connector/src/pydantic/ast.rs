@@ -5,10 +5,15 @@ use std::fmt::Write;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Class {
     pub name: String,
+    /// Base class, or None for `pydantic.BaseModel`.
+    pub base: Option<String>,
     pub docstring: Option<String>,
     pub nested: Vec<Class>,
     pub fields: Vec<Field>,
     pub additional: Option<AST>,
+    /// Further lines of the class body (such as methods), which follow
+    /// its fields and are indented by the class.
+    pub body: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,7 +82,13 @@ impl Mapping {
 impl Class {
     pub fn render(&self, ctx: &mut Context) {
         ctx.push_indent();
-        write!(ctx.into, "class {}(_pydantic.BaseModel):\n", self.name).unwrap();
+        write!(
+            ctx.into,
+            "class {}({}):\n",
+            self.name,
+            self.base.as_deref().unwrap_or("_pydantic.BaseModel")
+        )
+        .unwrap();
         ctx.indent += 1;
 
         if let Some(docstring) = &self.docstring {
@@ -113,7 +124,19 @@ impl Class {
             }
         }
 
-        if self.fields.is_empty() && self.nested.is_empty() && self.additional.is_none() {
+        for line in &self.body {
+            if !line.is_empty() {
+                ctx.push_indent();
+                ctx.into.push_str(line);
+            }
+            ctx.into.push('\n');
+        }
+
+        if self.fields.is_empty()
+            && self.nested.is_empty()
+            && self.additional.is_none()
+            && self.body.is_empty()
+        {
             ctx.push_indent();
             ctx.into.push_str("pass\n");
         }

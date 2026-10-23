@@ -249,10 +249,12 @@ impl Mapper {
 
         classes.push(Class {
             name: type_name.to_owned(),
+            base: None,
             docstring,
             nested,
             fields,
             additional,
+            body: Vec::new(),
         });
 
         AST::Anchor(type_name.to_owned())
@@ -366,8 +368,9 @@ impl Mapper {
 /// and an alias of the property if the name differs.
 ///
 /// A configuration's field also may not collide with an attribute of
-/// `pydantic.BaseModel`, which it would shadow. Document fields keep such names, which existing derivations use.
-fn field_name(property: &str, is_config: bool) -> (String, Option<String>) {
+/// `pydantic.BaseModel` (or the CDK's `BaseResourceConfig`), which it would
+/// shadow. Document fields keep such names, which existing derivations use.
+pub fn field_name(property: &str, is_config: bool) -> (String, Option<String>) {
     let mut sanitized = sanitize_python_identifier(property);
 
     // Pydantic doesn't allow field names starting with single underscore,
@@ -386,7 +389,8 @@ fn field_name(property: &str, is_config: bool) -> (String, Option<String>) {
     }
 }
 
-/// Is `name` an attribute of a `pydantic.BaseModel`?
+/// Is `name` an attribute of a `pydantic.BaseModel`, or of the CDK's
+/// `BaseResourceConfig` (`path()`, `PATH_POINTERS`, and `meta_`)?
 fn is_model_attribute(name: &str) -> bool {
     name.starts_with("model_")
         || matches!(
@@ -403,6 +407,9 @@ fn is_model_attribute(name: &str) -> bool {
                 | "schema_json"
                 | "update_forward_refs"
                 | "validate"
+                | "path"
+                | "PATH_POINTERS"
+                | "meta_"
         )
 }
 

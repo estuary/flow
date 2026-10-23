@@ -7,8 +7,23 @@ pub const GENERATED_PREFIX: &str = "flow_generated/python";
 /// A Python project staged into a temporary directory.
 pub struct Project {
     dir: tempfile::TempDir,
+    // How the project's dependencies are installed, once they are.
+    installed: Option<Install>,
     // Lock of the project's dependencies, once they're installed.
     lock: Option<String>,
+}
+
+/// The use to which a staged project is put, which decides how its
+/// dependencies must be installed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Use {
+    /// A Validate, which runs the project's `dev` tooling (such as pyright).
+    Validate,
+    /// Another unary request, such as a Discover or Apply,
+    /// which is indifferent to whether the `dev` group is installed.
+    Unary,
+    /// An Open of a running task, which must not have the `dev` group.
+    Open,
 }
 
 /// How a project's dependencies are installed.
@@ -31,13 +46,23 @@ impl Install {
     /// Install mode of a request: Validate resolves or checks the project's
     /// lock and runs its `dev` tooling, while other requests install their
     /// lock as-is, without the `dev` group. A request other than Validate
-    /// lacks a lock if it's of a legacy derivation whose built spec predates
-    /// baked locks, and then resolves one.
+    /// lacks a lock if it's not of a built task (as with a Discover), or is
+    /// of a legacy derivation whose built spec predates baked locks, and then
+    /// resolves one.
     pub fn of_request(is_validate: bool, has_lock: bool) -> Self {
         match (is_validate, has_lock) {
             (is_validate, false) => Self::Resolve { dev: is_validate },
             (true, true) => Self::Check,
             (false, true) => Self::Frozen,
+        }
+    }
+
+    /// Does this mode install the `dev` dependency group?
+    pub fn has_dev(self) -> bool {
+        match self {
+            Self::Resolve { dev } => dev,
+            Self::Check => true,
+            Self::Frozen => false,
         }
     }
 }
@@ -47,7 +72,11 @@ impl Project {
     /// Each path must be relative to the project, which validation enforces.
     pub fn stage<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> anyhow::Result<Self> {
         let dir = tempfile::TempDir::new().context("creating temporary project directory")?;
-        let project = Self { dir, lock: None };
+        let project = Self {
+            dir,
+            installed: None,
+            lock: None,
+        };
 
         for (path, content) in files {
             project.write(path, content)?;
@@ -82,6 +111,27 @@ impl Project {
     /// Lock of the project's installed dependencies, if they've been installed.
     pub fn lock(&self) -> Option<&str> {
         self.lock.as_deref()
+    }
+
+    /// Install the project's dependencies for `use_`, if they're not already
+    /// installed in a suitable shape. A project is staged once per session, and
+    /// its requests may differ in their needs: a Validate installs the `dev`
+    /// group, which is removed before an Open, while an install of another
+    /// request is already of the shape which an Open needs.
+    pub fn prepare(&mut self, use_: Use, has_lock: bool) -> anyhow::Result<()> {
+        match (self.installed, use_) {
+            (None, use_) => self.install(Install::of_request(use_ == Use::Validate, has_lock)),
+            (Some(installed), Use::Validate) if !installed.has_dev() => {
+                self.install(Install::of_request(true, has_lock))
+            }
+            (Some(installed), Use::Open) if installed.has_dev() => {
+                self.uv(&["sync", "--frozen", "--no-dev"])
+                    .context("failed to remove the project's `dev` dependencies")?;
+                self.installed = Some(Install::Frozen);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Install the project's dependencies into its virtual environment.
@@ -121,6 +171,7 @@ impl Project {
                 .join(models::custom_connector::Language::Python.lock()),
         )
         .context("reading the project's lock")?;
+        self.installed = Some(install);
         self.lock = Some(lock);
 
         Ok(())
@@ -210,7 +261,7 @@ mod test {
                 Install::of_request(true, false),
                 Install::of_request(true, true),
                 Install::of_request(false, true),
-                // The Open of a legacy derivation.
+                // A Discover, or the Open of a legacy derivation.
                 Install::of_request(false, false),
             ],
             [
@@ -219,6 +270,16 @@ mod test {
                 Install::Frozen,
                 Install::Resolve { dev: false },
             ]
+        );
+        assert_eq!(
+            [
+                Install::Resolve { dev: true },
+                Install::Resolve { dev: false },
+                Install::Check,
+                Install::Frozen,
+            ]
+            .map(Install::has_dev),
+            [true, false, true, false]
         );
     }
 }
