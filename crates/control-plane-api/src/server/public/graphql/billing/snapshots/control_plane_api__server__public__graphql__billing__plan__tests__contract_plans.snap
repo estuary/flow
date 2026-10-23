@@ -1,0 +1,99 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/plan.rs
+expression: plans
+---
+[
+    (
+        "contract paid through Stripe",
+        Contract(
+            ContractPlan {
+                collection_method: ChargeDefaultPaymentMethod,
+                payment_provider: Stripe,
+                data_tiers: [
+                    PricingTier {
+                        rate_cents: 50,
+                        quantity: None,
+                    },
+                ],
+                usage_tiers: [
+                    PricingTier {
+                        rate_cents: 14,
+                        quantity: Some(
+                            4464,
+                        ),
+                    },
+                    PricingTier {
+                        rate_cents: 7,
+                        quantity: None,
+                    },
+                ],
+            },
+        ),
+    ),
+    (
+        "contract on GCP marketplace, paid by sent invoice",
+        Contract(
+            ContractPlan {
+                collection_method: SendInvoice,
+                payment_provider: GcpMarketplace,
+                data_tiers: [
+                    PricingTier {
+                        rate_cents: 0,
+                        quantity: Some(
+                            1000,
+                        ),
+                    },
+                    PricingTier {
+                        rate_cents: 50,
+                        quantity: None,
+                    },
+                ],
+                usage_tiers: [
+                    PricingTier {
+                        rate_cents: 0,
+                        quantity: Some(
+                            720,
+                        ),
+                    },
+                    PricingTier {
+                        rate_cents: 14,
+                        quantity: Some(
+                            4464,
+                        ),
+                    },
+                    PricingTier {
+                        rate_cents: 7,
+                        quantity: None,
+                    },
+                ],
+            },
+        ),
+    ),
+    (
+        "contract on Snowflake marketplace",
+        Contract(
+            ContractPlan {
+                collection_method: ChargeDefaultPaymentMethod,
+                payment_provider: SnowflakeMarketplace,
+                data_tiers: [
+                    PricingTier {
+                        rate_cents: 50,
+                        quantity: None,
+                    },
+                ],
+                usage_tiers: [
+                    PricingTier {
+                        rate_cents: 14,
+                        quantity: Some(
+                            4464,
+                        ),
+                    },
+                    PricingTier {
+                        rate_cents: 7,
+                        quantity: None,
+                    },
+                ],
+            },
+        ),
+    ),
+]
