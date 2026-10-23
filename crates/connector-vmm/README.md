@@ -156,8 +156,8 @@ exits zero; nothing is cached between launches. The reference lines for all
 three are in [`crates/connector-vmm-tests`](../connector-vmm-tests/README.md)'s
 `src/launch.rs`; `crates/connector`'s `vmm::launch` is the launcher.
 
-The launcher owns access control on `/sock`: the VMM sets `umask(0)` so
-unprivileged clients can connect to `/sock/init.sock`. The socket outlives the
+The launcher must own `/sock` at mode 0700: the VMM sets `umask(0)` so the
+unprivileged launcher can connect to `/sock/init.sock`. The socket outlives the
 container, and libkrun refuses to bind over one (`krun_add_vsock_port2: File
 exists`, exit 2), so each launch needs an empty `/sock`. Its host-side path must
 fit a Unix socket address, under 108 bytes.

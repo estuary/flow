@@ -14,7 +14,7 @@ socket: /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock/init.sock (62 bytes
 ## directories
 0711 /var/lib/flow/connector-vmm/fv_0123456789abcdef
 0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/init
-0711 /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock
+0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock
 0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch
 
 ## egress
