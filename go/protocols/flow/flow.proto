@@ -390,7 +390,7 @@ message CollectionSpec {
     // configuration to the connector.
     map<string, string> secrets = 11;
     // Execution of this derivation's connector, or unset if ordinary.
-    ConnectorExecution execution = 12;
+    ConnectorExecution execution = 13;
   }
   Derivation derivation = 12;
 }
@@ -499,7 +499,7 @@ message CaptureSpec {
   // configuration to the connector.
   map<string, string> secrets = 13;
   // Execution of this capture's connector, or unset if ordinary.
-  ConnectorExecution execution = 14;
+  ConnectorExecution execution = 15;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
@@ -628,7 +628,7 @@ message MaterializationSpec {
   // configuration to the connector.
   map<string, string> secrets = 14;
   // Execution of this materialization's connector, or unset if ordinary.
-  ConnectorExecution execution = 15;
+  ConnectorExecution execution = 16;
 }
 
 // OAuth2 describes an OAuth2 provider

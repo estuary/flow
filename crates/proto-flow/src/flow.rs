@@ -449,7 +449,7 @@ pub mod collection_spec {
             ::prost::alloc::string::String,
         >,
         /// Execution of this derivation's connector, or unset if ordinary.
-        #[prost(message, optional, tag = "12")]
+        #[prost(message, optional, tag = "13")]
         pub execution: ::core::option::Option<super::ConnectorExecution>,
     }
     /// Nested message and enum types in `Derivation`.
@@ -685,7 +685,7 @@ pub struct CaptureSpec {
         ::prost::alloc::string::String,
     >,
     /// Execution of this capture's connector, or unset if ordinary.
-    #[prost(message, optional, tag = "14")]
+    #[prost(message, optional, tag = "15")]
     pub execution: ::core::option::Option<ConnectorExecution>,
 }
 /// Nested message and enum types in `CaptureSpec`.
@@ -822,7 +822,7 @@ pub struct MaterializationSpec {
         ::prost::alloc::string::String,
     >,
     /// Execution of this materialization's connector, or unset if ordinary.
-    #[prost(message, optional, tag = "15")]
+    #[prost(message, optional, tag = "16")]
     pub execution: ::core::option::Option<ConnectorExecution>,
 }
 /// Nested message and enum types in `MaterializationSpec`.

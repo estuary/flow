@@ -99,5 +99,5 @@ expression: proto_test(msg)
 |70617373 776f7264 12152f63 72656465| password../crede 000005e0
 |6e746961 6c732f70 61737377 6f72645a| ntials/passwordZ 000005f0
 |150a1361 636d6543 6f2f7768 6f6c652d| ...acmeCo/whole- 00000600
-|636f6e66 69676204 08011200|          configb.....     00000610
+|636f6e66 69676a04 08011200|          configj.....     00000610
                                                        0000061c
