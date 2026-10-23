@@ -1,0 +1,37 @@
+---
+source: crates/agent/src/tenant_controller/alerts.rs
+expression: results
+---
+[
+  {
+    "case": "scheduled poll reads the mirror",
+    "open": [
+      [
+        "shard_failed",
+        "acmeCo/alerts/missing_payment_method"
+      ]
+    ]
+  },
+  {
+    "case": "live customer without a card",
+    "open": [
+      [
+        "missing_payment_method",
+        "acmeCo/alerts/missing_payment_method"
+      ],
+      [
+        "shard_failed",
+        "acmeCo/alerts/missing_payment_method"
+      ]
+    ]
+  },
+  {
+    "case": "failed retrieval reads the mirror",
+    "open": [
+      [
+        "shard_failed",
+        "acmeCo/alerts/missing_payment_method"
+      ]
+    ]
+  }
+]

@@ -60,9 +60,9 @@ Registered task types in `task_types` module:
 - `CONNECTOR_TAGS` - Manages connector tag updates
 - `DATA_PLANE_MIGRATION` - Migrates tasks between data planes
 - `ALERT_NOTIFICATIONS` - Sends notifications as alerts fire and resolve
-- `TENANT_ALERT_EVALS` - Evaluates tenant-related alerts
+- `TENANT_ALERT_EVALS` - Retired: tenant controllers evaluate tenant alerts
 - `DATA_MOVEMENT_ALERT_EVALS` - Evaluates `data_movement_stalled` alerts
-- `TENANT_CONTROLLER` - Reconciles a tenant's billing contact with Stripe, raises its quotas for a payment method or external billing, and checks daily whether to start its free trial
+- `TENANT_CONTROLLER` - Reconciles a tenant's billing contact with Stripe, raises its quotas once it has a payment method or doesn't need one, checks daily whether to start its free trial, and fires its trial and payment method alerts
 - `DATA_PLANE_CONTROLLER_DEV` - Second data-plane-controller deployment
 
 Task types are the only axis on which the dequeue partitions work, so they

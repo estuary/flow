@@ -78,22 +78,22 @@ impl AlertType {
         ]
     }
 
-    /// For alerts that are evaluated by querying a database view, this returns the
-    /// view name. Returns None for alerts that are evaluated by controllers.
-    pub fn view_name(&self) -> Option<&'static str> {
+    /// Returns true for alerts that are evaluated by tenant controllers, and
+    /// false for alerts that are evaluated by live spec controllers.
+    pub fn is_tenant_alert(&self) -> bool {
         match *self {
-            AlertType::AutoDiscoverFailed => None,
-            AlertType::DataMovementStalled => None,
-            AlertType::FreeTrial => Some("tenant_alerts"),
-            AlertType::FreeTrialEnding => Some("tenant_alerts"),
-            AlertType::FreeTrialStalled => Some("tenant_alerts"),
-            AlertType::MissingPaymentMethod => Some("tenant_alerts"),
-            AlertType::ShardFailed => None,
-            AlertType::TaskChronicallyFailing => None,
-            AlertType::TaskAutoDisabledFailing => None,
-            AlertType::TaskIdle => None,
-            AlertType::TaskAutoDisabledIdle => None,
-            AlertType::BackgroundPublicationFailed => None,
+            AlertType::AutoDiscoverFailed => false,
+            AlertType::DataMovementStalled => false,
+            AlertType::FreeTrial => true,
+            AlertType::FreeTrialEnding => true,
+            AlertType::FreeTrialStalled => true,
+            AlertType::MissingPaymentMethod => true,
+            AlertType::ShardFailed => false,
+            AlertType::TaskChronicallyFailing => false,
+            AlertType::TaskAutoDisabledFailing => false,
+            AlertType::TaskIdle => false,
+            AlertType::TaskAutoDisabledIdle => false,
+            AlertType::BackgroundPublicationFailed => false,
         }
     }
 
