@@ -183,10 +183,35 @@ impl InvoiceSearch<'_> {
     Copy,
     sqlx::Type,
 )]
-#[sqlx(type_name = "payment_provider_type", rename_all = "lowercase")]
+#[sqlx(type_name = "payment_provider_type", rename_all = "snake_case")]
 pub enum PaymentProvider {
     Stripe,
     External,
+    AwsMarketplace,
+    GcpMarketplace,
+    SnowflakeMarketplace,
+}
+
+/// Billing arrangement of the tenant: `tenants.plan_kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(type_name = "plan_kind_type", rename_all = "snake_case")]
+pub enum PlanKind {
+    SelfServe,
+    Contract,
+    Internal,
+}
+
+/// How usage-based invoices are collected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "SCREAMING_SNAKE_CASE")
+)]
+#[sqlx(type_name = "collection_method_type", rename_all = "snake_case")]
+pub enum CollectionMethod {
+    ChargeDefaultPaymentMethod,
+    SendInvoice,
 }
 
 #[cfg(test)]
