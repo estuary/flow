@@ -1,4 +1,5 @@
-//! A Python derivation previewed and published through flowctl and the reactor. Run only under
+//! A Python derivation previewed and published through flowctl and the reactor, and its files
+//! generated from a nested catalog. Run only under
 //! `mise run ci:connector-vmm-kvm --platform`, which configures the local stack
 //! and writes `platform.json`, one test at a time against that one stack.
 
@@ -248,6 +249,26 @@ fn documents(stdout: &str) -> Vec<serde_json::Value> {
             doc
         })
         .collect()
+}
+
+fn files(dir: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        for entry in
+            std::fs::read_dir(&next).unwrap_or_else(|e| panic!("reading {}: {e}", next.display()))
+        {
+            let path = entry.expect("reading a directory entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                let relative = path.strip_prefix(dir).expect("a path underneath dir");
+                found.push(relative.to_string_lossy().into_owned());
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 fn assert_vmm_logs(what: &str, logs: &str) {
@@ -516,6 +537,44 @@ fn a_python_derivation_through_the_platform() {
     evidence.push(format!(
         "after deletion the reactor's sessions {dead:?} were left to recovery; \
          the Spec's launch {respecified} released them"
+    ));
+
+    // A catalog which imports the derivation from a subdirectory. The
+    // derivation's project root is its specification's directory, so its
+    // generated files belong there and not beside the importing catalog.
+    let project = platform.run_dir.join("generate");
+    let nested = project.join("vmm-python");
+    std::fs::create_dir_all(&nested)
+        .unwrap_or_else(|e| panic!("creating {}: {e}", nested.display()));
+    for file in ["numbers.flow.yaml", "numbers.py", "greetings.flow.yaml"] {
+        let from = run::fixture(&format!("platform/{file}"));
+        std::fs::copy(&from, nested.join(file))
+            .unwrap_or_else(|e| panic!("copying {}: {e}", from.display()));
+    }
+    std::fs::write(
+        project.join("flow.yaml"),
+        "import:\n  - vmm-python/numbers.flow.yaml\n",
+    )
+    .expect("writing the importing catalog");
+
+    let before = launcher::calls(&root).len();
+    flowctl(
+        &platform,
+        "generate",
+        &[
+            "generate",
+            "--source",
+            &project.join("flow.yaml").to_string_lossy(),
+        ],
+        &[],
+    );
+    let generated = launched(&launcher::calls(&root)[before..]);
+    let [generated] = &generated[..] else {
+        panic!("one launch for the Validate: {generated:?}");
+    };
+    insta::assert_snapshot!("generated", files(&project).join("\n"));
+    evidence.push(format!(
+        "generate: Validate {generated} placed its files beside the nested specification"
     ));
 
     let launches = launched(&launcher::calls(&root));

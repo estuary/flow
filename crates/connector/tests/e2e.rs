@@ -341,7 +341,8 @@ fn resolving_router(reachable: bool) -> connector::ServiceRouter {
 }
 
 /// Secret resolution happens after Spec, but before the connector receives its
-/// initial Open. The connector sees the resolved config while sealedConfig
+/// initial Open. The internal Spec carries the sealed config, exactly as
+/// published. The connector sees the resolved config while sealedConfig
 /// remains the as-published, non-secret baseline, and the lifecycle id is
 /// observable in the preceding INFO log.
 #[tokio::test]
@@ -349,6 +350,10 @@ async fn resolves_secrets_and_preserves_the_published_open_config() {
     // Each `case` fails with a distinct message, so a regression names itself.
     let script = r#"
 read spec_request
+case "$spec_request" in
+  '{"spec":{"connectorType":"LOCAL","config":{"base":"published"}}}') ;;
+  *) echo 'internal Spec did not carry the sealed configuration' >&2; exit 7 ;;
+esac
 echo '{"spec":{"protocol":3032023,"configSchema":true,"resourceConfigSchema":true,"documentationUrl":"https://example.test/docs"}}'
 read open_request
 case "$open_request" in

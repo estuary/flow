@@ -46,8 +46,10 @@ connector-init over a guest's vsock connection.
 - `tests/replacement/`: an old generation's cleanup must leave its running
   replacement intact.
 - `tests/platform.rs`: preview, publication, derived documents, logs, and
-  cleanup through flowctl and the reactor. The podman wrapper verifies each
-  connector mount synchronously before container creation.
+  cleanup through flowctl and the reactor, and `flowctl generate` placing a
+  nested catalog's generated files beside the derivation's specification.
+  The podman wrapper verifies each connector mount synchronously before
+  container creation.
 - `tests/release.rs`, `tests/wrapper.rs`: resource cleanup and the podman
   wrapper, tested against stand-in commands.
 
