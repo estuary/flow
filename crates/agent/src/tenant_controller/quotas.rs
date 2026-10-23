@@ -189,7 +189,7 @@ mod tests {
         let provider = Arc::new(InMemoryBillingProvider::new());
         let tenant = Tenant {
             tenant: TENANT_1.to_string(),
-            billing_email: None,
+            billing_emails: Vec::new(),
             billing_name: None,
             billing_address: None,
             payment_provider: None,
@@ -206,7 +206,7 @@ mod tests {
         provider.add_customer(tenant_name, CUSTOMER_ID, Some("card_123456"));
         let tenant = Tenant {
             tenant: tenant_name.to_string(),
-            billing_email: None,
+            billing_emails: Vec::new(),
             billing_name: None,
             billing_address: None,
             payment_provider: None,
@@ -244,7 +244,7 @@ mod tests {
         let provider = any_customer(&pool, TENANT_1).await;
         let tenant = Tenant {
             tenant: TENANT_1.to_string(),
-            billing_email: None,
+            billing_emails: Vec::new(),
             billing_name: None,
             billing_address: None,
             payment_provider: None,
@@ -275,7 +275,7 @@ mod tests {
         let provider = Arc::new(provider);
         let tenant = Tenant {
             tenant: TENANT_1.to_string(),
-            billing_email: None,
+            billing_emails: Vec::new(),
             billing_name: None,
             billing_address: None,
             payment_provider: Some(PaymentProvider::External),
@@ -298,7 +298,7 @@ mod tests {
         let provider = any_customer(&pool, TENANT_2).await;
         let tenant = Tenant {
             tenant: TENANT_2.to_string(),
-            billing_email: None,
+            billing_emails: Vec::new(),
             billing_name: None,
             billing_address: None,
             payment_provider: None,
