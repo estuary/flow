@@ -115,6 +115,16 @@ pub enum LogEvent<'a> {
         binding: Option<usize>,
         schema: &'a schemars::Schema,
     },
+
+    /// A derivation shard's periodic liveness report: documents it read from
+    /// its sources and wrote to its derived collection over `window`. Emitted
+    /// even when both counts are zero, so a quiet log still shows a live task.
+    #[non_exhaustive]
+    DeriveHeartbeat {
+        docs_read: u64,
+        docs_written: u64,
+        window: std::time::Duration,
+    },
 }
 
 impl<'a> LogEvent<'a> {
@@ -139,6 +149,7 @@ impl<'a> LogEvent<'a> {
     /// persists, startup checkpoint reconciliation).
     pub fn to_log(&self) -> Option<ops::Log> {
         let mut fields: Vec<(&str, bytes::Bytes)> = Vec::new();
+        let heartbeat_message: String;
 
         let (level, message) = match self {
             LogEvent::Persist { persist, .. } => {
@@ -191,6 +202,24 @@ impl<'a> LogEvent<'a> {
                 }
                 fields.push(("schema", json_field(schema)));
                 (ops::LogLevel::Info, "inferred schema updated")
+            }
+            LogEvent::DeriveHeartbeat {
+                docs_read,
+                docs_written,
+                window,
+                ..
+            } => {
+                fields.push(("docsRead", json_field(docs_read)));
+                fields.push(("docsWritten", json_field(docs_written)));
+                fields.push(("windowSeconds", json_field(&window.as_secs())));
+                // The UI log table shows only the message, so the counts go in
+                // it too. Whole minutes: a window runs up to one actor tick past
+                // the interval, and "5 minutes" reads better than "5.5".
+                heartbeat_message = format!(
+                    "Derivation read {docs_read} and wrote {docs_written} documents in the last {} minutes",
+                    window.as_secs() / 60,
+                );
+                (ops::LogLevel::Info, heartbeat_message.as_str())
             }
         };
 
@@ -392,6 +421,11 @@ mod test {
                 binding: None,
                 schema: &schema,
             },
+            LogEvent::DeriveHeartbeat {
+                docs_read: 1200,
+                docs_written: 340,
+                window: std::time::Duration::from_millis(300_450),
+            },
         ]
         .iter()
         .map(|event| {
@@ -452,6 +486,15 @@ mod test {
             },
             "level": "info",
             "message": "inferred schema updated"
+          },
+          {
+            "fields": {
+              "docsRead": 1200,
+              "docsWritten": 340,
+              "windowSeconds": 300
+            },
+            "level": "info",
+            "message": "Derivation read 1200 and wrote 340 documents in the last 5 minutes"
           }
         ]
         "#);
