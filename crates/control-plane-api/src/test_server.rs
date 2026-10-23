@@ -68,6 +68,7 @@ pub async fn snapshot(pg_pool: sqlx::PgPool, gate: bool) -> Arc<dyn tokens::Watc
 }
 
 pub struct TestServer {
+    pub app: Arc<crate::App>,
     pub addr: std::net::SocketAddr,
     pub encoding_key: tokens::jwt::EncodingKey,
     pub decoding_keys: Vec<tokens::jwt::DecodingKey>,
@@ -158,7 +159,8 @@ impl TestServer {
         let addr = listener.local_addr().expect("failed to get local addr");
 
         let router =
-            crate::server::build_router(app, &[addr.to_string()], alert_config_defaults).unwrap();
+            crate::server::build_router(app.clone(), &[addr.to_string()], alert_config_defaults)
+                .unwrap();
 
         tokio::spawn(async move {
             axum::serve(listener, router)
@@ -170,6 +172,7 @@ impl TestServer {
         });
 
         TestServer {
+            app,
             addr,
             encoding_key,
             decoding_keys,

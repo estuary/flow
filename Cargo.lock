@@ -2246,6 +2246,7 @@ dependencies = [
  "md5",
  "migrate",
  "models",
+ "oauth-server",
  "ops",
  "proto-flow",
  "proto-gazette",
@@ -5839,6 +5840,31 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "oauth-server"
+version = "0.0.0"
+dependencies = [
+ "aes-siv",
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "clap",
+ "ipnetwork",
+ "models",
+ "rand 0.9.2",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokens",
+ "tokio",
+ "tonic",
+ "tracing",
+ "url",
+ "uuid",
 ]
 
 [[package]]

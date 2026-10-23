@@ -55,6 +55,10 @@ struct Args {
     #[derivative(Debug = "ignore")]
     #[clap(long = "stripe-webhook-secret", env = "STRIPE_WEBHOOK_SECRET")]
     stripe_webhook_secret: Option<String>,
+    /// Optional control-plane OAuth service.
+    #[derivative(Debug = "ignore")]
+    #[command(flatten)]
+    oauth_config: Option<control_plane_api::server::public::oauth::Config>,
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
@@ -388,7 +392,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let sprites = args
         .sprites_token
         .map(|token| Arc::new(control_plane_api::sprites::Client::new(token)));
-    let api_app = Arc::new(App::new(
+    let mut api_app = App::new(
         agent::id_generator::with_random_shard(),
         billing_provider,
         Some(catalog_stats),
@@ -398,7 +402,12 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         snapshot_watch.clone(),
         sprites,
         args.stripe_webhook_secret,
-    ));
+    );
+    if let Some(config) = args.oauth_config {
+        config.validate()?;
+        api_app.oauth = Some(Arc::new(config));
+    }
+    let api_app = Arc::new(api_app);
     let api_router = control_plane_api::build_router(
         api_app.clone(),
         &args.allow_origin,

@@ -2,6 +2,7 @@ use axum::response::IntoResponse;
 use std::sync::Arc;
 
 pub mod graphql;
+pub mod oauth;
 mod open_metrics;
 pub mod status;
 pub mod stripe_webhooks;

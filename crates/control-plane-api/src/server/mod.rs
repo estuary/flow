@@ -37,6 +37,7 @@ pub enum Rejection {
 
 /// App is the wired application state of the control-plane API.
 pub struct App {
+    pub oauth: Option<Arc<public::oauth::Config>>,
     pub id_generator: std::sync::Mutex<models::IdGenerator>,
     pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
     pub catalog_stats: Option<Arc<catalog_stats::Client>>,
@@ -68,6 +69,7 @@ impl App {
         stripe_webhook_secret: Option<String>,
     ) -> Self {
         Self {
+            oauth: None,
             id_generator: std::sync::Mutex::new(id_generator),
             billing_provider,
             catalog_stats,
@@ -222,6 +224,11 @@ pub fn build_router(
             post(update_l2_reporting::update_l2_reporting),
         )
         .merge(public_api_router)
+        .merge(if app.oauth.is_some() {
+            public::oauth::router()
+        } else {
+            axum::Router::new()
+        })
         .layer(
             tower_http::trace::TraceLayer::new_for_http()
                 .on_failure(tower_http::trace::DefaultOnFailure::new().level(tracing::Level::INFO)),
