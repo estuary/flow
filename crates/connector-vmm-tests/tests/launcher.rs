@@ -742,6 +742,51 @@ sys.stdout.write(spec)
     );
 }
 
+/// The socket's parent admits only the launcher, even with traversable ancestors.
+#[test]
+fn rpc_socket_rejects_other_users() {
+    let (run, root, runtime) = setup();
+    let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, false);
+    owner.started();
+    let name = launcher::vmm_name(&root).expect("the launch created a network");
+    let directory = format!("{}/{name}/sock", root.state_dir);
+
+    // Check the live socket from another UID, without inherited group access.
+    // Stat the directory after dropping privileges so an inaccessible ancestor
+    // cannot make this test pass without the socket directory protecting it.
+    let result = run::sudo(&[
+        "python3",
+        "-c",
+        r#"
+import os, socket, stat, sys
+path = sys.argv[1]
+uid = os.stat(path).st_uid
+assert stat.S_IMODE(os.stat(path + "/init.sock").st_mode) == 0o777
+os.setgroups([])
+os.setgid(65534)
+os.setuid(65534 if uid != 65534 else 65533)
+os.stat(path)
+with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+    client.setblocking(False)
+    try:
+        client.connect(path + "/init.sock")
+    except PermissionError:
+        print("permission denied")
+    else:
+        raise AssertionError("another UID connected to connector-init")
+"#,
+        &directory,
+    ]);
+    assert_eq!(result.trim(), "permission denied");
+    eprintln!("{}", served(&runtime, &root.state_dir, &name));
+
+    owner.end();
+    assert_eq!(
+        launcher::leftovers(&root, Some(&name)),
+        Vec::<String>::new()
+    );
+}
+
 /// The real VMM: derive-python runs as its image's user, which is not root,
 /// and the unprivileged test process dialed it.
 #[test]

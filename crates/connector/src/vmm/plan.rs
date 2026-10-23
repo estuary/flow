@@ -304,7 +304,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         directories: vec![
             (state.clone(), 0o711),
             (format!("{state}/init"), 0o700),
-            (format!("{state}/sock"), 0o711),
+            (format!("{state}/sock"), 0o700),
             (format!("{state}/scratch"), 0o700),
         ],
         scratch: format!("{state}/scratch"),
