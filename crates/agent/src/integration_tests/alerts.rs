@@ -786,6 +786,7 @@ async fn test_catalog_stats_timeout_releases_controller() {
     let client = catalog_stats::Client::connect(&catalog_stats::BigtableConfig {
         project: "estuary-local".to_string(),
         instance: "estuary-local".to_string(),
+        app_profile_id: None,
         emulator_host: Some(address.to_string()),
     })
     .await

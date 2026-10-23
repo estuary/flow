@@ -1,11 +1,10 @@
 use chrono::{Datelike, TimeZone};
 use futures::StreamExt;
-use ops::stats::DocsAndBytes;
-use std::collections::BTreeMap;
 use std::fmt::Write;
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub async fn handle_get_metrics(
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     env: crate::Envelope,
     axum::extract::Path(prefix): axum::extract::Path<String>,
 ) -> Result<axum::response::Response, crate::ApiError> {
@@ -24,15 +23,22 @@ pub async fn handle_get_metrics(
     );
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
+    let Some(client) = app.catalog_stats.as_deref() else {
+        return Err(tonic::Status::internal("catalog stats are not configured").into());
+    };
+
     // Map `started` to midnight at the open of the current month.
     let started = env.started;
     let started_month = chrono::Utc
         .with_ymd_and_hms(started.year(), started.month(), 1, 0, 0, 0)
         .unwrap();
+    let next_month = started_month
+        .checked_add_months(chrono::Months::new(1))
+        .ok_or_else(|| tonic::Status::invalid_argument("started month is out of range"))?;
 
     let scrape_at = started.timestamp_micros() as f64 / 1_000_000f64;
 
-    // Stream all `catalog_stats` rows from the DB, encoding into metrics.
+    // Stream the month's stats under `prefix` from BigTable, encoding into metrics.
     // Some OpenMetrics clients (Python, grr) expect that metric metadata
     // and all samples appear contiguously, so we jump through some hoops
     // to efficiently accumulate chunked buffers that we can yield in the
@@ -43,24 +49,22 @@ pub async fn handle_get_metrics(
         metric.declare(&mut buf);
     }
 
-    let mut stats = sqlx::query!(
-        r#"
-        SELECT flow_document AS "stats: sqlx::types::Json<CatalogStats>"
-        FROM   catalog_stats
-        WHERE  starts_with(catalog_name, $1) AND right(catalog_name, 1) != '/'
-        AND    grain = 'monthly'
-        AND    ts = $2
-        "#,
+    let stats = client.fetch_range_for_prefix(
         &prefix,
-        started_month,
-    )
-    .fetch(&env.pg_pool);
+        catalog_stats::Grain::Monthly,
+        started_month..next_month,
+    );
+    let mut stats = std::pin::pin!(stats);
 
-    loop {
-        match stats.next().await {
-            Some(Ok(stat)) => encode_metrics(&mut buf, scrape_at, stat.stats.0),
-            Some(Err(err)) => return Err(err.into()),
-            None => break,
+    while let Some(item) = stats.next().await {
+        // Incomplete scrapes would under-report counters.
+        let row = item.map_err(|err| {
+            tonic::Status::unavailable(format!("reading catalog stats: {}", err.inner))
+        })?;
+        // Rows named with a trailing '/' are rollups of the prefix and its
+        // sub-prefixes, which aggregate the tasks and collections below them.
+        if !row.catalog_name.ends_with('/') {
+            encode_metrics(&mut buf, scrape_at, row);
         }
     }
 
@@ -72,7 +76,7 @@ pub async fn handle_get_metrics(
         }
         () = co.yield_(bytes::Bytes::from_static(b"# EOF\n")).await;
 
-        Ok::<(), sqlx::Error>(())
+        Ok::<(), std::convert::Infallible>(())
     });
 
     Ok(axum::response::Response::builder()
@@ -87,57 +91,13 @@ pub async fn handle_get_metrics(
         .expect("response headers are valid"))
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CatalogStats {
-    #[serde(rename = "_meta")]
-    meta: ops::Meta,
-    catalog_name: String,
-    stats_summary: StatsSummary,
-    #[serde(default)]
-    task_stats: TaskStats,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StatsSummary {
-    #[serde(default)]
-    read_by_me: DocsAndBytes,
-    #[serde(default)]
-    read_from_me: DocsAndBytes,
-    #[serde(default)]
-    written_by_me: DocsAndBytes,
-    #[serde(default)]
-    written_to_me: DocsAndBytes,
-    #[serde(default)]
-    warnings: u64,
-    #[serde(default)]
-    errors: u64,
-    #[serde(default)]
-    failures: u64,
-    #[serde(default)]
-    usage_seconds: u64,
-    #[serde(default)]
-    txn_count: u64,
-}
-
-#[derive(Debug, Default, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TaskStats {
-    #[serde(default)]
-    capture: BTreeMap<String, ops::stats::CaptureBinding>,
-    #[serde(default)]
-    derive: Option<ops::stats::Derive>,
-    #[serde(default)]
-    materialize: BTreeMap<String, ops::stats::MaterializeBinding>,
-}
-
-fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
-    let CatalogStats {
+fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: catalog_stats::CatalogStats) {
+    let catalog_stats::CatalogStats {
         catalog_name,
         meta: ops::Meta { uuid: _ },
+        ts: _,
         stats_summary:
-            StatsSummary {
+            catalog_stats::StatsSummary {
                 errors,
                 warnings,
                 failures,
@@ -147,9 +107,10 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
                 written_to_me,
                 usage_seconds,
                 txn_count,
+                last_published_at: _,
             },
         task_stats:
-            TaskStats {
+            catalog_stats::TaskStats {
                 capture,
                 derive,
                 materialize,
@@ -588,3 +549,228 @@ define_metrics! {
 
 const COUNTER: &str = "counter";
 const GAUGE: &str = "gauge";
+
+#[cfg(test)]
+mod tests {
+    use crate::test_server;
+    use chrono::TimeZone as _;
+
+    fn docs_and_bytes(docs: u64, bytes: u64) -> ops::stats::DocsAndBytes {
+        ops::stats::DocsAndBytes {
+            docs_total: docs,
+            bytes_total: bytes,
+        }
+    }
+
+    fn stats(
+        name: String,
+        month: u32,
+        stats_summary: catalog_stats::StatsSummary,
+        task_stats: catalog_stats::TaskStats,
+    ) -> (catalog_stats::Grain, catalog_stats::CatalogStats) {
+        let stats = catalog_stats::CatalogStats {
+            meta: ops::Meta {
+                uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            },
+            catalog_name: name,
+            ts: chrono::Utc
+                .with_ymd_and_hms(2026, month, 1, 0, 0, 0)
+                .unwrap(),
+            stats_summary,
+            task_stats,
+        };
+        (catalog_stats::Grain::Monthly, stats)
+    }
+
+    async fn get_metrics(
+        server: &test_server::TestServer,
+        prefix: &str,
+        token: &str,
+        started: &str,
+    ) -> (u16, String) {
+        let url = server
+            .base_url()
+            .join(&format!("/api/v1/metrics/{prefix}"))
+            .unwrap();
+        let response = reqwest::Client::new()
+            .get(url)
+            .query(&[("started", started)])
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap();
+
+        (response.status().as_u16(), response.text().await.unwrap())
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_open_metrics(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let client =
+            std::sync::Arc::new(catalog_stats::test_util::connect_emulator("estuary-local").await);
+        // Clear only this test's prefix to preserve other tests' emulator rows.
+        let prefix = "aliceCo/ctest-open-metrics/";
+        catalog_stats::test_util::delete_rows_with_prefix(&client, prefix)
+            .await
+            .unwrap();
+
+        let capture = std::collections::BTreeMap::from([(
+            format!("{prefix}data/events"),
+            ops::stats::CaptureBinding {
+                right: Some(docs_and_bytes(2, 200)),
+                out: Some(docs_and_bytes(2, 180)),
+                last_published_at: Some(proto_flow::Timestamp {
+                    seconds: 1_778_000_000,
+                    nanos: 0,
+                }),
+            },
+        )]);
+        let materialize = std::collections::BTreeMap::from([(
+            format!("{prefix}data/events"),
+            ops::stats::MaterializeBinding {
+                left: Some(docs_and_bytes(1, 90)),
+                right: Some(docs_and_bytes(2, 180)),
+                out: Some(docs_and_bytes(3, 270)),
+                last_source_published_at: Some(proto_flow::Timestamp {
+                    seconds: 1_778_000_000,
+                    nanos: 0,
+                }),
+                bytes_behind: 42,
+            },
+        )]);
+
+        let rows = vec![
+            // The prefix rollup is not encoded.
+            stats(
+                prefix.to_string(),
+                5,
+                catalog_stats::StatsSummary {
+                    written_by_me: docs_and_bytes(9, 900),
+                    ..Default::default()
+                },
+                Default::default(),
+            ),
+            stats(
+                format!("{prefix}in/capture"),
+                5,
+                catalog_stats::StatsSummary {
+                    written_by_me: docs_and_bytes(2, 180),
+                    usage_seconds: 3600,
+                    txn_count: 4,
+                    warnings: 1,
+                    ..Default::default()
+                },
+                catalog_stats::TaskStats {
+                    capture,
+                    ..Default::default()
+                },
+            ),
+            // Exercise both month boundaries for the same task.
+            stats(
+                format!("{prefix}in/capture"),
+                4,
+                catalog_stats::StatsSummary {
+                    written_by_me: docs_and_bytes(7, 700),
+                    ..Default::default()
+                },
+                Default::default(),
+            ),
+            stats(
+                format!("{prefix}in/capture"),
+                6,
+                catalog_stats::StatsSummary {
+                    written_by_me: docs_and_bytes(8, 800),
+                    ..Default::default()
+                },
+                Default::default(),
+            ),
+            stats(
+                format!("{prefix}data/events"),
+                5,
+                catalog_stats::StatsSummary {
+                    written_to_me: docs_and_bytes(2, 180),
+                    read_from_me: docs_and_bytes(3, 270),
+                    ..Default::default()
+                },
+                Default::default(),
+            ),
+            stats(
+                format!("{prefix}out/materialize"),
+                5,
+                catalog_stats::StatsSummary {
+                    read_by_me: docs_and_bytes(2, 180),
+                    usage_seconds: 1800,
+                    errors: 2,
+                    ..Default::default()
+                },
+                catalog_stats::TaskStats {
+                    materialize,
+                    ..Default::default()
+                },
+            ),
+        ];
+        catalog_stats::test_util::seed_rows(&client, &rows)
+            .await
+            .unwrap();
+
+        let server = test_server::TestServer::start_with_catalog_stats(
+            pool.clone(),
+            test_server::snapshot(pool, false).await,
+            client,
+        )
+        .await;
+        let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        let (status, body) = get_metrics(&server, prefix, &token, "2026-05-05T18:00:00Z").await;
+        assert_eq!(status, 200, "{body}");
+        assert!(body.ends_with("# EOF\n"));
+        insta::assert_snapshot!(body);
+
+        let (status, body) = get_metrics(&server, prefix, &token, "+262142-12-01T00:00:00Z").await;
+        insta::assert_snapshot!(format!("{status}: {body}"), @"400: started month is out of range");
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_open_metrics_unconfigured(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        let (status, body) = get_metrics(&server, "aliceCo/", &token, "2026-05-05T18:00:00Z").await;
+        insta::assert_snapshot!(format!("{status}: {body}"), @"500: catalog stats are not configured");
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_open_metrics_read_error(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let client = std::sync::Arc::new(
+            catalog_stats::test_util::connect_emulator("ctest-open-metrics-missing").await,
+        );
+        let server = test_server::TestServer::start_with_catalog_stats(
+            pool.clone(),
+            test_server::snapshot(pool, false).await,
+            client,
+        )
+        .await;
+        let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        let (status, body) = get_metrics(&server, "aliceCo/", &token, "2026-05-05T18:00:00Z").await;
+        assert_eq!(status, 503, "{body}");
+        assert!(body.starts_with("reading catalog stats:"), "{body}");
+        assert!(
+            !body.contains("# HELP") && !body.contains("# EOF"),
+            "{body}"
+        );
+    }
+}
