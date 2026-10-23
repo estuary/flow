@@ -1,4 +1,4 @@
-use crate::tenant_controller::{Outcome, PaymentProvider, TaskStatus, Tenant, retry_backoff};
+use crate::tenant_controller::{Outcome, TaskStatus, Tenant, retry_backoff};
 use control_plane_api::billing;
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -61,12 +61,12 @@ async fn do_update_quotas(
     }
     // Check this first because its possible for us to error out while communicating with
     // the billing provider, it's possible for the customer to not exist.
-    if tenant.payment_provider == Some(PaymentProvider::External) {
+    if !tenant.needs_payment_method() {
         let did_update = update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
         if did_update {
             tracing::info!(
                 tenant = %tenant.tenant,
-                "Ran quota update because payment provider is set to external",
+                "Ran quota update because the tenant doesn't need a payment method",
             );
         } else {
             tracing::warn!(
@@ -270,33 +270,59 @@ mod tests {
         fixtures(path = "fixtures", scripts("quotas"))
     )]
     async fn quota_update_success_set_in_db(pool: sqlx::PgPool) {
-        // Isolate the `payment_provider = External` path: the customer has NO
-        // default payment method configured but is configured inside of stripe.
+        // Isolate the plans which don't need a payment method: the customer has
+        // NO default payment method configured but is configured inside of stripe.
         let provider = InMemoryBillingProvider::new();
         provider.add_customer(TENANT_1, CUSTOMER_ID, None);
         billing_types::record_customer_id(&pool, TENANT_1, &CUSTOMER_ID.parse().unwrap())
             .await
             .unwrap();
-
         let provider = Arc::new(provider);
-        let tenant = Tenant {
-            tenant: TENANT_1.to_string(),
-            billing_email: None,
-            billing_name: None,
-            billing_address: None,
-            payment_provider: Some(PaymentProvider::External),
-            plan_kind: PlanKind::SelfServe,
-            collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
-            trial_start: None,
-        };
-        let mut status = QuotaUpdateStatus::default();
-        let outcome = run(&provider, &mut status, &tenant, &pool).await;
-        assert!(matches!(outcome, Outcome::Idle));
-        assert!(status.updated_quotas);
-        assert_eq!(status.task_status.failures, 0);
-        let quotas = get_tenants_quotas(&pool, TENANT_1).await;
-        assert_eq!(quotas.tasks_quota, 100);
-        assert_eq!(quotas.collections_quota, 10000);
+
+        for (payment_provider, plan_kind, collection_method) in [
+            (
+                Some(PaymentProvider::External),
+                PlanKind::SelfServe,
+                CollectionMethod::ChargeDefaultPaymentMethod,
+            ),
+            (
+                Some(PaymentProvider::Stripe),
+                PlanKind::Contract,
+                CollectionMethod::ChargeDefaultPaymentMethod,
+            ),
+            (
+                None,
+                PlanKind::Internal,
+                CollectionMethod::ChargeDefaultPaymentMethod,
+            ),
+            (None, PlanKind::SelfServe, CollectionMethod::SendInvoice),
+        ] {
+            sqlx::query(
+                "UPDATE tenants SET tasks_quota = DEFAULT, collections_quota = DEFAULT WHERE tenant = $1",
+            )
+            .bind(TENANT_1)
+            .execute(&pool)
+            .await
+            .unwrap();
+            let tenant = Tenant {
+                tenant: TENANT_1.to_string(),
+                billing_email: None,
+                billing_name: None,
+                billing_address: None,
+                payment_provider,
+                plan_kind,
+                collection_method,
+                trial_start: None,
+            };
+            let mut status = QuotaUpdateStatus::default();
+            let outcome = run(&provider, &mut status, &tenant, &pool).await;
+            assert!(matches!(outcome, Outcome::Idle), "{plan_kind:?}");
+            assert!(status.updated_quotas, "{plan_kind:?} {collection_method:?}");
+            assert_eq!(status.task_status.failures, 0);
+            let quotas = get_tenants_quotas(&pool, TENANT_1).await;
+            assert_eq!(quotas.tasks_quota, 100);
+            assert_eq!(quotas.collections_quota, 10000);
+        }
     }
 
     #[sqlx::test(
