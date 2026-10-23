@@ -1,18 +1,13 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT billing_email, billing_address FROM tenants WHERE tenant = $1",
+  "query": "SELECT billing_emails[1] AS billing_email, billing_address FROM tenants WHERE tenant = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "billing_email",
         "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "tenants",
-            "name": "billing_email"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 1,
@@ -32,9 +27,9 @@
       ]
     },
     "nullable": [
-      true,
+      null,
       true
     ]
   },
-  "hash": "e13d6639476ce6b9d53f7742a73113ff948598e6292a152aee2e672d61624d35"
+  "hash": "a479d15dc9b0e00373347d519e0559f36a71918cca322554bd093433e00283aa"
 }

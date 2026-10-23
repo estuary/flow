@@ -14,7 +14,10 @@ expression: set_response
           "postalCode": "62704",
           "state": "IL"
         },
-        "email": "billing@example.com",
+        "emails": [
+          "billing@example.com",
+          "ap@example.com"
+        ],
         "name": "Acme Corp"
       }
     }

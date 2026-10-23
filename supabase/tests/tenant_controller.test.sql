@@ -25,7 +25,7 @@ begin
   );
 
   -- Changing a billing field wakes the controller (IS DISTINCT FROM fires).
-  update tenants set billing_email = 'billing@acme.co' where tenant = 'acmeCo/';
+  update tenants set billing_emails = array['billing@acme.co'] where tenant = 'acmeCo/';
   return query select ok(
     (select wake_at is not null from internal.tasks where task_id = v_task_id),
     'a billing-field change wakes the controller'

@@ -1,16 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT billing_email, billing_name, billing_address\n        FROM tenants\n        WHERE tenant = $1\n        ",
+  "query": "\n        UPDATE tenants\n        SET\n            billing_emails = $2,\n            billing_name = $3,\n            billing_address = $4,\n            updated_at = now()\n        WHERE tenant = $1\n        RETURNING billing_emails, billing_name, billing_address\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "billing_email",
-        "type_info": "Text",
+        "name": "billing_emails",
+        "type_info": "TextArray",
         "origin": {
           "Table": {
             "table": "tenants",
-            "name": "billing_email"
+            "name": "billing_emails"
           }
         }
       },
@@ -39,14 +39,17 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "TextArray",
+        "Text",
+        "Jsonb"
       ]
     },
     "nullable": [
-      true,
+      false,
       true,
       true
     ]
   },
-  "hash": "52c5fb16cbcf2821071fa08ec2998abe61cff0649f428ccaf7ecdcc7f604cd8d"
+  "hash": "e0607746168aede6000dc9e1175fd36e17da139083e764f2060124da0f8958a6"
 }

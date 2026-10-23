@@ -58,7 +58,10 @@ impl BillingMutation {
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))?;
 
-        let customer_email = billing_contact.email.as_deref().unwrap_or(user_email);
+        let customer_email = billing_contact
+            .emails
+            .first()
+            .map_or(user_email, String::as_str);
         let stripe_address = billing_contact.address.map(stripe::Address::from);
 
         let provider = billing_provider(ctx)?;
@@ -123,7 +126,7 @@ impl BillingMutation {
         &self,
         ctx: &Context<'_>,
         tenant: String,
-        email: String,
+        emails: Vec<String>,
         name: String,
         address: BillingAddressInput,
     ) -> Result<SetBillingContactPayload> {
@@ -131,9 +134,17 @@ impl BillingMutation {
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 
-        if !email.contains('@') || email.len() > 512 {
+        if emails.is_empty() || emails.len() > 10 {
             return Err(async_graphql::Error::new(
-                "email must contain '@' and be at most 512 characters",
+                "emails must have at least 1 and at most 10 addresses",
+            ));
+        }
+        if emails
+            .iter()
+            .any(|email| !email.contains('@') || email.len() > 512)
+        {
+            return Err(async_graphql::Error::new(
+                "each email must contain '@' and be at most 512 characters",
             ));
         }
         if name.trim().is_empty() || name.len() > 256 {
@@ -143,14 +154,19 @@ impl BillingMutation {
         }
 
         let address = BillingAddress::from(address);
-        let updated =
-            contact::update_billing_contact(&env.pg_pool, tenant.as_str(), &email, &name, &address)
-                .await
-                .map_err(|err| async_graphql::Error::new(err.to_string()))?;
+        let updated = contact::update_billing_contact(
+            &env.pg_pool,
+            tenant.as_str(),
+            &emails,
+            &name,
+            &address,
+        )
+        .await
+        .map_err(|err| async_graphql::Error::new(err.to_string()))?;
 
         Ok(SetBillingContactPayload {
             contact: BillingContact {
-                email: updated.email,
+                emails: updated.emails,
                 name: updated.name,
                 address: updated.address,
             },
@@ -444,7 +460,7 @@ mod tests {
                         mutation {
                           setBillingContact(
                             tenant: "contacttest/"
-                            email: "billing@example.com"
+                            emails: ["billing@example.com", "ap@example.com"]
                             name: "Acme Corp"
                             address: {
                               line1: "123 Main St"
@@ -455,7 +471,7 @@ mod tests {
                             }
                           ) {
                             contact {
-                              email
+                              emails
                               name
                               address { line1 line2 city state postalCode country }
                             }
@@ -476,7 +492,7 @@ mod tests {
                           tenant(name: "contacttest/") {
                             billing {
                               contact {
-                                email
+                                emails
                                 name
                                 address { line1 line2 city state postalCode country }
                               }
@@ -497,11 +513,11 @@ mod tests {
                         mutation {
                           setBillingContact(
                             tenant: "contactvictim/"
-                            email: "hacker@evil.com"
+                            emails: ["hacker@evil.com"]
                             name: "Hacker"
                             address: { line1: "1 Evil St" country: "US" }
                           ) {
-                            contact { email }
+                            contact { emails }
                           }
                         }
                     "#

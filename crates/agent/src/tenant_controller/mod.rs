@@ -58,7 +58,7 @@ impl TenantController {
 
 pub(crate) struct Tenant {
     pub tenant: String,
-    pub billing_email: Option<String>,
+    pub billing_emails: Vec<String>,
     pub billing_name: Option<String>,
     pub billing_address: Option<serde_json::Value>,
     pub payment_provider: Option<PaymentProvider>,
@@ -71,7 +71,7 @@ async fn fetch_tenant_by_controller_task(
     let row = sqlx::query_as!(
         Tenant,
         r#"
-        SELECT tenant as "tenant!", billing_email, billing_name, billing_address, payment_provider as "payment_provider: PaymentProvider"
+        SELECT tenant as "tenant!", billing_emails, billing_name, billing_address, payment_provider as "payment_provider: PaymentProvider"
         FROM tenants
         WHERE controller_task_id = $1
         "#,

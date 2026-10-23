@@ -361,7 +361,7 @@ input BillingAddressInput {
 }
 
 type BillingContact {
-	email: String
+	emails: [String!]!
 	name: String
 	address: BillingAddress
 }
@@ -1888,7 +1888,7 @@ type MutationRoot {
 	): Boolean!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
-	setBillingContact(tenant: String!, email: String!, name: String!, address: BillingAddressInput!): SetBillingContactPayload!
+	setBillingContact(tenant: String!, emails: [String!]!, name: String!, address: BillingAddressInput!): SetBillingContactPayload!
 	deleteBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	"""
 	Create a storage mapping for the given catalog prefix.
