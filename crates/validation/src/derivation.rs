@@ -305,20 +305,23 @@ async fn walk_derivation(
         return None;
     }
 
-    // Only the V2 runtime passes `environment` through to a built-in connector.
+    // `environment` is removed. It still parses, so that a model having one
+    // is rejected here rather than failing to parse.
     let environment = match &using {
-        models::DeriveUsing::Typescript(config) => !config.environment.is_empty(),
-        models::DeriveUsing::Python(config) => !config.environment.is_empty(),
-        _ => false,
-    };
-    if environment && !shards.uses_runtime_v2(models::CatalogType::Collection) {
-        Error::RequireRuntimeV2 {
-            entity: "derivation",
-            name: collection.to_string(),
-            capability: "environment",
-            flag: models::ENABLE_RUNTIME_V2,
+        models::DeriveUsing::Python(python) if !python.environment.is_empty() => Some("python"),
+        models::DeriveUsing::Typescript(typescript) if !typescript.environment.is_empty() => {
+            Some("typescript")
         }
-        .push(scope, errors);
+        _ => None,
+    };
+    if let Some(language) = environment {
+        Error::DerivationEnvironment {}.push(
+            scope
+                .push_prop("using")
+                .push_prop(language)
+                .push_prop("environment"),
+            errors,
+        );
     }
 
     let derive::request::Spec {

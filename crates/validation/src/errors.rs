@@ -209,6 +209,8 @@ pub enum Error {
     },
     #[error("{category} partition selector field {field} cannot be an empty string")]
     SelectorEmptyString { category: String, field: String },
+    #[error("`environment` is no longer supported")]
+    DerivationEnvironment {},
     #[error(
         "cannot infer shuffle key types because all transforms use a computed `lambda` or `any`.\nFlow must know the key types that your computed shuffle lambda will output.\nPlease add an explicit `shuffleKeyTypes` to this derivation."
     )]

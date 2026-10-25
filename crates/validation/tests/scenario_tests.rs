@@ -2170,6 +2170,25 @@ test://example/catalog.yaml:
 }
 
 #[test]
+fn test_derivation_environment_is_rejected() {
+    // `environment` is removed. It still parses, so that a model having one
+    // fails validation rather than parsing.
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derive:
+        using:
+          typescript:
+            environment: { KEY: value }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_materialization_too_many_bindings() {
     let bindings_count = validation::MAX_BINDINGS + 1;
 
