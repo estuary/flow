@@ -320,7 +320,7 @@ mise exec -- flowctl catalog delete --prefix test/secrets/ --dangerous-auto-appr
 
 ```bash
 mise exec -- flowctl preview --source tests/secrets/flow.yaml \
-  --name test/secrets/probe --fixture tests/secrets/events.fixture.jsonl
+  --task test/secrets/probe --fixture tests/secrets/events.fixture.jsonl
 ```
 
 ```json
@@ -341,7 +341,7 @@ derivations, so this one runs the real image, pre-migration, and stops on
 Ctrl-C:
 
 ```bash
-mise exec -- flowctl preview --source tests/secrets/flow.yaml --name test/secrets/source --log-json
+mise exec -- flowctl preview --source tests/secrets/flow.yaml --task test/secrets/source --log-json
 ```
 
 ```json
@@ -369,7 +369,7 @@ echo -n "rotated-t0ken" | mise exec -- flowctl secret set test/secrets/token
 
 ```bash
 mise exec -- flowctl preview --source tests/secrets/flow.yaml \
-  --name test/secrets/probe --fixture tests/secrets/events.fixture.jsonl
+  --task test/secrets/probe --fixture tests/secrets/events.fixture.jsonl
 ```
 
 ```json

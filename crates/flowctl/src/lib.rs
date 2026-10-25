@@ -68,16 +68,15 @@ pub enum Command {
     /// submitting the job to the control plane which runs it on a data-plane.
     /// The discovered bindings are then written to your local Flow catalog files.
     Discover(discover::Discover),
-    /// Generate derivation project files and implementation stubs.
+    /// Generate connector project files and implementation stubs.
     ///
-    /// Generate walks your local Flow catalog source file and its imports
-    /// to gather collections, derivations, and associated JSON schemas.
-    /// Your derivations generate associated project files and supplemental
-    /// type implementations which are then written into its project directory,
+    /// Generate loads your local Flow catalog source file and its imports,
+    /// and selects the capture, derivation, or materialization given by --task.
+    /// It writes stubs for the task's missing endpoint and resource configs.
+    /// It then validates the task with its connector, which may connect to its
+    /// endpoint. Any project files and supplemental type implementations
+    /// the connector generates are written into the task's project directory,
     /// which is the directory of the specification file that defines it.
-    ///
-    /// You then edit the generated stubs in your preferred editor to fill
-    /// out implementations for your derivation transform lambdas.
     Generate(generate::Generate),
     /// Locally run and preview a capture, derivation, or materialization.
     ///

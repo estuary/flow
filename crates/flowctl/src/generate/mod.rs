@@ -10,6 +10,10 @@ pub struct Generate {
     /// Path or URL to a Flow specification file to generate development files for.
     #[clap(long)]
     source: String,
+    /// Name of the task to generate files for within the Flow specification file.
+    /// Required if there are multiple tasks in --source specifications.
+    #[clap(long)]
+    task: Option<String>,
 }
 
 impl Generate {
@@ -18,13 +22,14 @@ impl Generate {
 
         let mut draft = local_specs::load(&source).await;
         sources::inline_draft_catalog(&mut draft);
+        let task = local_specs::select_task(&mut draft, self.task.as_deref())?;
         let connector_router = ctx.local_connector_router();
 
         // Find config URLs we were unable to load and generate stubs for each.
         let (stubs, errors): (
             Vec<(url::Url, models::RawValue, doc::Shape)>,
             Vec<(url::Url, anyhow::Error)>,
-        ) = generate_missing_configs(&mut draft, &*connector_router)
+        ) = generate_missing_configs(&mut draft, &task, &*connector_router)
             .await
             .partition_result();
 
@@ -49,7 +54,7 @@ impl Generate {
     }
 }
 
-// Generates stubs for all missing connector configuration files,
+// Generates stubs for all missing connector configuration files of `task`,
 // returning tuples of:
 // * The missing config file URL.
 // * It's generated stub document.
@@ -57,6 +62,7 @@ impl Generate {
 // Or, if generation fails, then return the error and its scope.
 async fn generate_missing_configs(
     draft: &tables::DraftCatalog,
+    task: &str,
     connector_router: &dyn proto_grpc::connector::Router,
 ) -> impl Iterator<Item = Result<(url::Url, models::RawValue, doc::Shape), (url::Url, anyhow::Error)>>
 {
@@ -67,34 +73,44 @@ async fn generate_missing_configs(
         ..
     } = draft;
 
-    let captures = captures.iter().map(|capture| {
-        async move {
-            match generate_missing_capture_configs(capture, connector_router).await {
-                Ok(ok) => Ok(ok),
-                Err(error) => Err((capture.scope.clone(), error)),
+    let captures = captures
+        .iter()
+        .filter(|c| c.capture.as_str() == task)
+        .map(|capture| {
+            async move {
+                match generate_missing_capture_configs(capture, connector_router).await {
+                    Ok(ok) => Ok(ok),
+                    Err(error) => Err((capture.scope.clone(), error)),
+                }
             }
-        }
-        .boxed()
-    });
-    let collections = collections.iter().map(|collection| {
-        async move {
-            match generate_missing_collection_configs(collection, connector_router).await {
-                Ok(ok) => Ok(ok),
-                Err(error) => Err((collection.scope.clone(), error)),
+            .boxed()
+        });
+    let collections = collections
+        .iter()
+        .filter(|c| c.collection.as_str() == task)
+        .map(|collection| {
+            async move {
+                match generate_missing_collection_configs(collection, connector_router).await {
+                    Ok(ok) => Ok(ok),
+                    Err(error) => Err((collection.scope.clone(), error)),
+                }
             }
-        }
-        .boxed()
-    });
-    let materializations = materializations.iter().map(|materialization| {
-        async move {
-            match generate_missing_materialization_configs(materialization, connector_router).await
-            {
-                Ok(ok) => Ok(ok),
-                Err(error) => Err((materialization.scope.clone(), error)),
+            .boxed()
+        });
+    let materializations = materializations
+        .iter()
+        .filter(|m| m.materialization.as_str() == task)
+        .map(|materialization| {
+            async move {
+                match generate_missing_materialization_configs(materialization, connector_router)
+                    .await
+                {
+                    Ok(ok) => Ok(ok),
+                    Err(error) => Err((materialization.scope.clone(), error)),
+                }
             }
-        }
-        .boxed()
-    });
+            .boxed()
+        });
 
     let results = captures
         .chain(collections)

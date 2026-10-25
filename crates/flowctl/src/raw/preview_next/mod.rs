@@ -23,8 +23,8 @@ pub struct Preview {
     source: String,
     /// Name of the task to preview within the Flow specification file.
     /// Required if there are multiple tasks in --source specifications.
-    #[clap(long)]
-    name: Option<String>,
+    #[clap(long, alias = "name")]
+    task: Option<String>,
     /// Number of synthetic shards to drive in parallel. Default 1.
     /// For captures, N shards fan out as N independent connector instances.
     /// Many connectors ignore the key range and will duplicate output;
@@ -140,7 +140,7 @@ impl Preview {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         let Self {
             source,
-            name,
+            task,
             shards,
             timeout,
             sessions,
@@ -192,12 +192,15 @@ impl Preview {
             ),
         };
 
-        let validations =
-            local_specs::load_and_validate_full(ctx, source_url.as_str(), log_handler)
-                .await?
-                .built;
+        let (task, build::Output { built, .. }) = local_specs::load_and_validate_task(
+            ctx,
+            source_url.as_str(),
+            task.as_deref(),
+            log_handler,
+        )
+        .await?;
 
-        let task = resolve_task(&validations, name.as_deref())?;
+        let task = resolve_task(&built, &task);
 
         let timeout = timeout.map(|i| i.into());
 
@@ -619,68 +622,26 @@ where
     }
 }
 
-fn resolve_task(validations: &tables::Validations, name: Option<&str>) -> anyhow::Result<TaskSpec> {
-    let derivations_count = validations
+/// Resolve the built spec of `task`, which `local_specs::select_task` found
+/// and validation then built without errors.
+fn resolve_task(validations: &tables::Validations, task: &str) -> TaskSpec {
+    if let Some(row) = validations
+        .built_captures
+        .get_key(&models::Capture::new(task))
+    {
+        return TaskSpec::Capture(row.spec.clone().unwrap());
+    }
+    if let Some(row) = validations
+        .built_materializations
+        .get_key(&models::Materialization::new(task))
+    {
+        return TaskSpec::Materialization(row.spec.clone().unwrap());
+    }
+    let row = validations
         .built_collections
-        .iter()
-        .filter(|c| {
-            c.spec
-                .as_ref()
-                .map(|s| s.derivation.is_some())
-                .unwrap_or_default()
-        })
-        .count();
-    let num_tasks = validations.built_captures.len()
-        + validations.built_materializations.len()
-        + derivations_count;
-
-    if num_tasks == 0 {
-        anyhow::bail!(
-            "sourced specification files do not contain any tasks (captures, derivations, or materializations)",
-        );
-    }
-    if num_tasks > 1 && name.is_none() {
-        anyhow::bail!(
-            "sourced specification files contain multiple tasks; use --name to identify the task",
-        );
-    }
-
-    for row in validations.built_captures.iter() {
-        if let Some(target) = name {
-            if row.capture.as_str() != target {
-                continue;
-            }
-        }
-        let Some(spec) = &row.spec else { continue };
-        return Ok(TaskSpec::Capture(spec.clone()));
-    }
-
-    for row in validations.built_materializations.iter() {
-        if let Some(target) = name {
-            if row.materialization.as_str() != target {
-                continue;
-            }
-        }
-        let Some(spec) = &row.spec else { continue };
-        return Ok(TaskSpec::Materialization(spec.clone()));
-    }
-
-    for row in validations.built_collections.iter() {
-        if let Some(target) = name {
-            if row.collection.as_str() != target {
-                continue;
-            }
-        }
-        let Some(spec) = &row.spec else { continue };
-        if spec.derivation.is_some() {
-            return Ok(TaskSpec::Derivation(spec.clone()));
-        }
-    }
-
-    if let Some(target) = name {
-        anyhow::bail!("could not find capture, materialization, or derivation {target}");
-    }
-    anyhow::bail!("no capture, materialization, or derivation found in source");
+        .get_key(&models::Collection::new(task))
+        .unwrap();
+    TaskSpec::Derivation(row.spec.clone().unwrap())
 }
 
 #[cfg(test)]

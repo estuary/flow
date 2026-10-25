@@ -14,26 +14,76 @@ pub(crate) async fn load_and_validate(
     surface_errors(output.into_result())
 }
 
-/// Load and validate sources and all connectors.
-pub(crate) async fn load_and_validate_full(
+/// Load and validate sources, and the connector of one task.
+/// Returns the name of the task selected by `select_task`.
+pub(crate) async fn load_and_validate_task(
     ctx: &crate::CliContext,
     source: &str,
+    task: Option<&str>,
     log_handler: impl ops::LogHandler,
-) -> anyhow::Result<build::Output> {
+) -> anyhow::Result<(String, build::Output)> {
     let source = build::arg_source_to_url(source, false)?;
-    let sources = surface_errors(load(&source).await.into_result())?;
+    let mut sources = surface_errors(load(&source).await.into_result())?;
+    let task = select_task(&mut sources, task)?;
     let output = validate(ctx, false, false, false, sources, log_handler).await;
-    surface_errors(output.into_result())
+    Ok((task, surface_errors(output.into_result())?))
 }
 
-/// Generate connector files by validating sources with derivation connectors.
+/// Select the task named `task`, or else the draft's only task.
+/// Every other task is disabled, so that validation doesn't run its connector.
+/// A connector Validate may reach out to its endpoint, and a user who means
+/// one task shouldn't wait on, or see errors from, all the others.
+pub(crate) fn select_task(
+    draft: &mut tables::DraftCatalog,
+    task: Option<&str>,
+) -> anyhow::Result<String> {
+    let captures = draft.captures.iter_mut().filter_map(|row| {
+        let model = row.model.as_mut()?;
+        Some((row.capture.as_str(), &mut model.shards))
+    });
+    let derivations = draft.collections.iter_mut().filter_map(|row| {
+        let derive = row.model.as_mut()?.derive.as_mut()?;
+        Some((row.collection.as_str(), &mut derive.shards))
+    });
+    let materializations = draft.materializations.iter_mut().filter_map(|row| {
+        let model = row.model.as_mut()?;
+        Some((row.materialization.as_str(), &mut model.shards))
+    });
+    let mut tasks: Vec<(&str, &mut models::ShardTemplate)> = captures
+        .chain(derivations)
+        .chain(materializations)
+        .collect();
+
+    let task = match (task, tasks.as_slice()) {
+        (Some(task), _) => task.to_string(),
+        (None, [(only, _)]) => only.to_string(),
+        (None, []) => anyhow::bail!(
+            "sourced specification files do not contain any tasks (captures, derivations, or materializations)"
+        ),
+        (None, _) => anyhow::bail!(
+            "sourced specification files contain multiple tasks. Use --task to identify a specific one"
+        ),
+    };
+    if !tasks.iter().any(|(name, _)| *name == task) {
+        anyhow::bail!("could not find capture, derivation, or materialization {task}");
+    }
+    for (name, shards) in tasks.iter_mut() {
+        if *name != task {
+            shards.disable = true;
+        }
+    }
+    Ok(task)
+}
+
+/// Generate connector files by validating sources with all connectors.
+/// Callers disable tasks which shouldn't be validated (see `select_task`).
 pub(crate) async fn generate_files(
     ctx: &crate::CliContext,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
     let build::Output {
         mut draft, built, ..
-    } = validate(ctx, true, false, true, sources, ops::tracing_log_handler).await;
+    } = validate(ctx, false, false, false, sources, ops::tracing_log_handler).await;
 
     build::generate_files(&draft.fetches[0].resource, &built)?;
 
@@ -492,7 +542,7 @@ fn chunk_names<'a>(names: &[&'a str]) -> Vec<Vec<&'a str>> {
 
 #[cfg(test)]
 mod test {
-    use super::{API_FETCH_URL_BUDGET, chunk_names, encoded_len};
+    use super::{API_FETCH_URL_BUDGET, chunk_names, encoded_len, select_task};
 
     fn chunk_encoded_len(chunk: &[&str]) -> usize {
         chunk.iter().map(|n| encoded_len(n) + 3).sum()
@@ -551,5 +601,106 @@ mod test {
     #[test]
     fn empty_input_yields_no_chunks() {
         assert!(chunk_names(&[]).is_empty());
+    }
+
+    #[test]
+    fn select_task_disables_all_other_tasks() {
+        let fixture = || -> tables::DraftCatalog {
+            let catalog: models::Catalog = serde_json::from_value(serde_json::json!({
+                "captures": {
+                    "acmeCo/capture-one": {
+                        "endpoint": {"connector": {"image": "an/image", "config": {}}},
+                        "bindings": [],
+                    },
+                    "acmeCo/capture-two": {
+                        "endpoint": {"connector": {"image": "an/image", "config": {}}},
+                        "bindings": [],
+                    },
+                },
+                "collections": {
+                    "acmeCo/derived": {
+                        "schema": {"type": "object"},
+                        "key": ["/id"],
+                        "derive": {"using": {"sqlite": {}}, "transforms": []},
+                    },
+                    "acmeCo/plain": {"schema": {"type": "object"}, "key": ["/id"]},
+                },
+                "materializations": {
+                    "acmeCo/materialize": {
+                        "endpoint": {"connector": {"image": "an/image", "config": {}}},
+                        "bindings": [],
+                    },
+                },
+            }))
+            .unwrap();
+            catalog.into()
+        };
+        let disabled = |draft: &tables::DraftCatalog| -> Vec<(String, bool)> {
+            let captures = draft.captures.iter().map(|row| {
+                let model = row.model.as_ref().unwrap();
+                (row.capture.to_string(), model.shards.disable)
+            });
+            let derivations = draft.collections.iter().filter_map(|row| {
+                let derive = row.model.as_ref()?.derive.as_ref()?;
+                Some((row.collection.to_string(), derive.shards.disable))
+            });
+            let materializations = draft.materializations.iter().map(|row| {
+                let model = row.model.as_ref().unwrap();
+                (row.materialization.to_string(), model.shards.disable)
+            });
+            captures
+                .chain(derivations)
+                .chain(materializations)
+                .collect()
+        };
+
+        let mut draft = fixture();
+        let task = select_task(&mut draft, Some("acmeCo/derived")).unwrap();
+        insta::assert_debug_snapshot!((task, disabled(&draft)), @r#"
+        (
+            "acmeCo/derived",
+            [
+                (
+                    "acmeCo/capture-one",
+                    true,
+                ),
+                (
+                    "acmeCo/capture-two",
+                    true,
+                ),
+                (
+                    "acmeCo/derived",
+                    false,
+                ),
+                (
+                    "acmeCo/materialize",
+                    true,
+                ),
+            ],
+        )
+        "#);
+
+        let mut draft = fixture();
+        insta::assert_snapshot!(select_task(&mut draft, None).unwrap_err(), @"sourced specification files contain multiple tasks. Use --task to identify a specific one");
+        insta::assert_snapshot!(select_task(&mut draft, Some("acmeCo/plain")).unwrap_err(), @"could not find capture, derivation, or materialization acmeCo/plain");
+
+        let mut draft = fixture();
+        draft.captures.clear();
+        draft.collections.clear();
+        let task = select_task(&mut draft, None).unwrap();
+        insta::assert_debug_snapshot!((task, disabled(&draft)), @r#"
+        (
+            "acmeCo/materialize",
+            [
+                (
+                    "acmeCo/materialize",
+                    false,
+                ),
+            ],
+        )
+        "#);
+
+        draft.materializations.clear();
+        insta::assert_snapshot!(select_task(&mut draft, None).unwrap_err(), @"sourced specification files do not contain any tasks (captures, derivations, or materializations)");
     }
 }
