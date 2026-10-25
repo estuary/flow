@@ -8,7 +8,6 @@ name = "derive-typescript"
 path = "src/main.rs"
 
 [dependencies]
-connector-environment = { path = "../connector-environment" }
 doc = { path = "../doc" }
 json = { path = "../json" }
 proto-flow = { path = "../proto-flow" }

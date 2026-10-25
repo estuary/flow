@@ -68,8 +68,6 @@ pub fn run() -> anyhow::Result<()> {
 
     let config = serde_json::from_slice::<Config>(&derivation.config_json)
         .context("Failed to parse derivation config")?;
-    connector_environment::validate_python(&config.environment)
-        .context("invalid derivation environment")?;
 
     let transforms = derivation
         .resolved_transforms()
@@ -107,12 +105,9 @@ pub fn run() -> anyhow::Result<()> {
         "wrote generated files to temp directory"
     );
 
-    tracing::debug!(
-        environment = ?config.environment.keys().collect::<Vec<_>>(),
-        "starting Python derivation"
-    );
+    tracing::debug!("starting Python derivation");
 
-    let mut command = uv_command(temp.path(), &gen_dir, &config.environment);
+    let mut command = uv_command(temp.path(), &gen_dir);
     let mut child = command
         .stdin(Stdio::piped())
         .args(["run", MAIN_NAME])
@@ -141,8 +136,6 @@ pub struct Config {
     module: String,
     #[serde(default)]
     dependencies: std::collections::BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    environment: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -167,8 +160,6 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
 
     let config = serde_json::from_slice::<Config>(config_json)
         .context("invalid derivation configuration")?;
-    connector_environment::validate_python(&config.environment)
-        .context("invalid derivation environment")?;
 
     let transforms = validate
         .resolved_transforms()
@@ -256,12 +247,9 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
         &config.dependencies,
     )?;
 
-    tracing::debug!(
-        environment = ?config.environment.keys().collect::<Vec<_>>(),
-        "validating Python derivation"
-    );
+    tracing::debug!("validating Python derivation");
 
-    let syntax_check = uv_command(temp.path(), &gen_dir, &config.environment)
+    let syntax_check = uv_command(temp.path(), &gen_dir)
         .args(["run", "-m", "py_compile", "module.py", "main.py"])
         .output()?;
 
@@ -273,7 +261,7 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
         );
     }
 
-    let type_check = uv_command(temp.path(), &gen_dir, &config.environment)
+    let type_check = uv_command(temp.path(), &gen_dir)
         .args(["run", "pyright", MODULE_NAME, MAIN_NAME])
         .output()?;
 
@@ -442,16 +430,9 @@ enabled = true
     result
 }
 
-fn uv_command(
-    project_dir: &std::path::Path,
-    gen_dir: &std::path::Path,
-    environment: &std::collections::BTreeMap<String, String>,
-) -> std::process::Command {
+fn uv_command(project_dir: &std::path::Path, gen_dir: &std::path::Path) -> std::process::Command {
     let mut command = std::process::Command::new("uv");
-    command
-        .current_dir(project_dir)
-        .envs(environment)
-        .env("PYTHONPATH", gen_dir);
+    command.current_dir(project_dir).env("PYTHONPATH", gen_dir);
     command
 }
 
@@ -461,15 +442,10 @@ mod test {
     use std::collections::BTreeMap;
 
     #[test]
-    fn uv_command_applies_environment_and_generated_module_path() {
-        let environment = BTreeMap::from([
-            ("API_KEY".to_string(), "secret-value".to_string()),
-            ("REGION".to_string(), "us-east-1".to_string()),
-        ]);
+    fn uv_command_applies_the_generated_module_path() {
         let command = uv_command(
             std::path::Path::new("/tmp/project"),
             std::path::Path::new("/tmp/generated"),
-            &environment,
         );
         let actual: BTreeMap<_, _> = command
             .get_envs()
@@ -481,14 +457,7 @@ mod test {
             })
             .collect();
 
-        assert_eq!(
-            actual,
-            BTreeMap::from([
-                ("API_KEY", "secret-value"),
-                ("PYTHONPATH", "/tmp/generated"),
-                ("REGION", "us-east-1"),
-            ])
-        );
+        assert_eq!(actual, BTreeMap::from([("PYTHONPATH", "/tmp/generated")]));
         assert_eq!(
             command.get_current_dir(),
             Some(std::path::Path::new("/tmp/project"))
