@@ -14,8 +14,9 @@ pub struct DeriveUsingTypescript {
     /// interface.
     #[schemars(schema_with = "DeriveUsingTypescript::module_schema")]
     pub module: super::RawValue,
-    /// # Environment variables made available to the TypeScript module.
+    // Removed. It still parses, and validation requires that it's empty.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(skip)]
     pub environment: BTreeMap<String, String>,
 }
 

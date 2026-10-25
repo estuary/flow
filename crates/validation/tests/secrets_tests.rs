@@ -3,125 +3,6 @@ mod common;
 const SECRETS_YAML: &str = include_str!("secrets.yaml");
 
 #[test]
-fn secrets_publish_with_builtin_environments() {
-    let actual = [("python", "py"), ("typescript", "ts")].map(|(language, extension)| {
-        let dependencies = if language == "python" {
-            "dependencies: {}"
-        } else {
-            ""
-        };
-        let outcome = common::run(
-            SECRETS_YAML,
-            &format!(
-                r#"
-test://example/catalog.yaml:
-  collections:
-    acmeCo/rollups:
-      derive:
-        using:
-          connector: null
-          {language}:
-            module: rollups.{extension}
-            environment: &environment {{ REGION: us-east-1 }}
-        secrets:
-          acmeCo/api-token: /environment/API_TOKEN
-        shards:
-          flags:
-            enable-runtime-v2: "true"
-
-test://example/rollups.{extension}: {language} module placeholder
-
-driver:
-  derivations:
-    acmeCo/rollups:
-      config:
-        image: ghcr.io/estuary/derive-{language}:stable
-        config:
-          address: null
-          module: {language} module placeholder
-          {dependencies}
-          environment: *environment
-"#
-            ),
-        );
-        let derivation = outcome
-            .built_collections
-            .iter()
-            .find(|row| row.collection.as_str() == "acmeCo/rollups")
-            .unwrap()
-            .spec
-            .as_ref()
-            .unwrap()
-            .derivation
-            .as_ref()
-            .unwrap();
-
-        // The mock checks the Validate configuration; also check that the
-        // built spec retains the environment and secrets for runtime startup.
-        let config: serde_json::Value = serde_json::from_slice(&derivation.config_json).unwrap();
-        (language, outcome.errors, config, derivation.secrets.clone())
-    });
-    insta::assert_debug_snapshot!(actual);
-}
-
-/// Typed built-in configurations are serialized for the same plaintext check
-/// as raw connector configurations.
-#[test]
-fn secrets_reject_plaintext_values_of_builtin_environments() {
-    let outcomes = [("python", "py"), ("typescript", "ts")].map(|(language, extension)| {
-        let dependencies = if language == "python" {
-            "dependencies: {}"
-        } else {
-            ""
-        };
-        common::run_errors(
-            SECRETS_YAML,
-            &format!(
-                r#"
-test://example/catalog.yaml:
-  collections:
-    acmeCo/rollups:
-      derive:
-        using:
-          connector: null
-          {language}:
-            module: rollups.{extension}
-            environment: &environment {{ API_TOKEN: plaintext-token }}
-        shards:
-          flags:
-            enable-runtime-v2: "true"
-
-test://example/rollups.{extension}: {language} module placeholder
-
-driver:
-  derivations:
-    acmeCo/rollups:
-      config:
-        image: ghcr.io/estuary/derive-{language}:stable
-        config:
-          address: null
-          module: {language} module placeholder
-          {dependencies}
-          environment: *environment
-      configSchema:
-        type: object
-        properties:
-          environment:
-            type: object
-            properties:
-              API_TOKEN: {{ type: string, secret: true }}
-"#,
-            ),
-        )
-    });
-    insta::assert_debug_snapshot!(outcomes);
-}
-
-/// The base fixture publishes cleanly: one task of each type draws a sibling
-/// secret into a plaintext configuration (the capture without naming the V2
-/// runtime flag at all), a disabled capture skips the connector and its
-/// plaintext invariant, and a capture without a stanza is not subject to it.
-#[test]
 fn secrets_publish_across_task_types() {
     let outcome = common::run(SECRETS_YAML, "{}");
     insta::assert_debug_snapshot!(outcome.errors);
@@ -129,8 +10,7 @@ fn secrets_publish_across_task_types() {
 
 /// A stanza requires the V2 runtime, whose default differs by task type: a
 /// capture opts out only by pinning the flag false, while a derivation or
-/// materialization must opt in. `environment` of a built-in derivation
-/// requires it in its own right.
+/// materialization must opt in.
 #[test]
 fn secrets_require_the_v2_runtime() {
     let errors = common::run_errors(
@@ -147,7 +27,6 @@ test://example/catalog.yaml:
           connector: null
           python:
             module: rollups.py
-            environment: &environment { REGION: us-east-1 }
         shards: { flags: null }
   materializations:
     acmeCo/dest-widgets:
@@ -165,7 +44,6 @@ driver:
           address: null
           module: python module placeholder
           dependencies: {}
-          environment: *environment
 "#,
     );
     insta::assert_debug_snapshot!(errors);

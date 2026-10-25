@@ -18,8 +18,9 @@ pub struct DeriveUsingPython {
     /// These dependencies will be included in the generated pyproject.toml.
     #[serde(default)]
     pub dependencies: BTreeMap<String, String>,
-    /// # Environment variables made available to the Python module.
+    // Removed. It still parses, and validation requires that it's empty.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(skip)]
     pub environment: BTreeMap<String, String>,
 }
 
