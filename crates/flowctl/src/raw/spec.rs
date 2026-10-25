@@ -11,71 +11,20 @@ pub struct Spec {
     source: String,
     /// Name of the task to request the spec for within the Flow specification file.
     /// Required if there are multiple tasks in --source specifications.
-    #[clap(long)]
-    name: Option<String>,
+    #[clap(long, alias = "name")]
+    task: Option<String>,
 }
 
 pub async fn do_spec(
     ctx: &mut crate::CliContext,
-    Spec { source, name }: &Spec,
+    Spec { source, task }: &Spec,
 ) -> anyhow::Result<()> {
     let source = build::arg_source_to_url(source, false)?;
-    let draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
-
-    // Identify the task to inspect.
-    let num_tasks = draft.captures.len()
-        + draft.materializations.len()
-        + draft
-            .collections
-            .iter()
-            .filter(|c| {
-                c.model
-                    .as_ref()
-                    .map(|m| m.derive.is_some())
-                    .unwrap_or_default()
-            })
-            .count();
-
-    if num_tasks == 0 {
-        anyhow::bail!(
-            "sourced specification files do not contain any tasks (captures, derivations, or materializations)"
-        );
-    } else if num_tasks > 1 && name.is_none() {
-        anyhow::bail!(
-            "sourced specification files contain multiple tasks (captures, derivations, or materializations). Use --name to identify a specific task"
-        );
-    }
-
-    let needle = if let Some(needle) = name {
-        needle.as_str()
-    } else if draft.captures.len() == 1 {
-        draft.captures.first().unwrap().capture.as_str()
-    } else if draft.materializations.len() == 1 {
-        draft
-            .materializations
-            .first()
-            .unwrap()
-            .materialization
-            .as_str()
-    } else {
-        draft
-            .collections
-            .iter()
-            .filter(|c| {
-                c.model
-                    .as_ref()
-                    .map(|m| m.derive.is_some())
-                    .unwrap_or_default()
-            })
-            .collect::<Vec<_>>()
-            .first()
-            .unwrap()
-            .collection
-            .as_str()
-    };
+    let mut draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
+    let task = local_specs::select_task(&mut draft, task.as_deref())?;
 
     let router = ctx.local_connector_router();
-    let serialized = get_spec_response(needle, &draft, &*router).await?;
+    let serialized = get_spec_response(&task, &draft, &*router).await?;
     println!("{}", serialized);
 
     Ok(())
@@ -115,12 +64,11 @@ async fn get_spec_response(
             continue;
         }
 
-        let model = row.model.as_ref().and_then(|m| m.derive.as_ref());
-        let model = if model.is_none() {
-            anyhow::bail!("{} is not a derivation", name)
-        } else {
-            model.unwrap()
-        };
+        let model = row
+            .model
+            .as_ref()
+            .and_then(|m| m.derive.as_ref())
+            .expect("not a derivation");
 
         let request = validation::derive_spec_request(&model.using, &model.shards);
         let response =
@@ -158,5 +106,5 @@ async fn get_spec_response(
         return serde_json::to_string(&response).context("Failed to serialize spec response");
     }
 
-    anyhow::bail!("could not find task {}", name);
+    unreachable!("`select_task` found task {name}");
 }

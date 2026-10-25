@@ -60,10 +60,12 @@ pub async fn develop(
         catalog,
         local_specs::pick_policy(overwrite, flat),
     );
-    let sources = local_specs::indirect_and_write_resources(sources)?;
+    local_specs::indirect_and_write_resources(sources)?;
 
     println!("Wrote {count} specifications under {target}.");
-    let () = local_specs::generate_files(ctx, sources).await?;
+    println!(
+        "Run `flowctl generate --source {target} --task <name>` to generate development files."
+    );
 
     Ok(())
 }
