@@ -35,6 +35,7 @@ expression: "(&outcome.errors, &legacy.model_fixes,\n&legacy.model.as_ref().unwr
                 config_schema: None,
                 resource_config_schema: None,
                 oauth2: None,
+                network_ports: {},
             },
             dependencies: {
                 "httpx": ">=0.27",

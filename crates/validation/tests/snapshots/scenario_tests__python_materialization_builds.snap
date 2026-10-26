@@ -1,6 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-expression: "(config, generated)"
+expression: "(config, generated, &spec.network_ports)"
 ---
 [
   {
@@ -11,6 +11,11 @@ expression: "(config, generated)"
           "pyproject.toml": "[project]\n"
         },
         "spec": {
+          "networkPorts": {
+            "8443": {
+              "public": true
+            }
+          },
           "resourceConfigSchema": {
             "$id": "test://example/db-views?ptr=/materializations/testing~1materialize-acme/endpoint/python/spec/resourceConfigSchema",
             "properties": {
@@ -29,5 +34,11 @@ expression: "(config, generated)"
   },
   [
     "test://example/flow_generated/python/testing/materialize_acme/__init__.py"
+  ],
+  [
+    {
+      "number": 8443,
+      "public": true
+    }
   ]
 ]

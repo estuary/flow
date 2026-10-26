@@ -29,6 +29,7 @@ expression: "(current.project.missing(), current.project.has_lock(),\nserde_json
                 ),
                 resource_config_schema: None,
                 oauth2: None,
+                network_ports: {},
             },
         },
         config: {

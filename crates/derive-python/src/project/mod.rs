@@ -157,6 +157,8 @@ fn spec_response(config_json: &[u8]) -> derive::response::Spec {
         config_schema,
         resource_config_schema,
         oauth2,
+        // Validation builds network ports. They aren't part of a Spec response.
+        network_ports: _,
     } = resolve_spec(python_connector::declared_spec(config_json));
 
     let schema_json = |schema: Option<models::Schema>| {

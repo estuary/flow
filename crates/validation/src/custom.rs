@@ -193,8 +193,7 @@ pub fn walk_python(
 }
 
 /// Validate the `spec` of a custom connector. Each declared schema must
-/// compile, else every start of the task would fail when its connector
-/// configuration is examined for IAM authentication.
+/// compile, and each declared network port must be valid.
 ///
 /// `config` isn't validated against `configSchema`: secrets aren't merged
 /// into it until the task is started, and the connector's own types (and not
@@ -204,6 +203,7 @@ fn walk_spec(scope: Scope, spec: &models::custom_connector::Spec, errors: &mut t
         config_schema,
         resource_config_schema,
         oauth2: _,
+        network_ports,
     } = spec;
 
     for (prop, schema) in [
@@ -217,6 +217,31 @@ fn walk_spec(scope: Scope, spec: &models::custom_connector::Spec, errors: &mut t
             err.push(scope.push_prop(prop), errors);
         }
     }
+
+    let ports_scope = scope.push_prop("networkPorts");
+    for &port in network_ports.keys() {
+        let port = u32::from(port);
+        if !super::is_valid_network_port(port) {
+            let name = port.to_string();
+            Error::NetworkPortInvalid { port }.push(ports_scope.push_prop(&name), errors);
+        }
+    }
+}
+
+/// Build the network ports which a custom connector's `spec` declares.
+pub fn network_ports(spec: &models::custom_connector::Spec) -> Vec<proto_flow::flow::NetworkPort> {
+    spec.network_ports
+        .iter()
+        .map(
+            |(&number, models::custom_connector::NetworkPort { protocol, public })| {
+                proto_flow::flow::NetworkPort {
+                    number: number as u32,
+                    protocol: protocol.clone(),
+                    public: *public,
+                }
+            },
+        )
+        .collect()
 }
 
 /// Validate the user `config` of a custom connector.

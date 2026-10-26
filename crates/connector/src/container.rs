@@ -8,10 +8,7 @@ use tokio::io::AsyncBufReadExt;
 
 // Port on which flow-connector-init listens for requests.
 // This is its default, made explicit here.
-// This number was chosen because it seemed unlikely that a connector would try to use it.
-// The main thing is that we want to avoid any common port numbers to avoid conflicts with
-// connectors.
-const CONNECTOR_INIT_PORT: u16 = 49092;
+const CONNECTOR_INIT_PORT: u16 = models::CONNECTOR_INIT_PORT;
 
 // For now, we support only Linux amd64 connectors. `docker pull` must request
 // it explicitly: under Docker's containerd image store a platform-less pull

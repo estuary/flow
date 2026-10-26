@@ -32,6 +32,7 @@ expression: "(&current, parse(br#\"{\"_python\": {\"files\": {\"a.json\": {\"not
                 ),
             ),
             oauth2: None,
+            network_ports: {},
         },
     },
     Err(

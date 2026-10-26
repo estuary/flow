@@ -540,8 +540,25 @@ expression: "&schema"
         }
       ]
     },
+    "CustomConnectorNetworkPort": {
+      "description": "A network port on which a custom connector listens.",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "title": "ALPN protocol of a public port, such as `h2` or `mqtt`.",
+          "description": "Connections to a public port with a protocol are proxied as TCP.\nOtherwise, they're HTTP/1.1 requests, which is the protocol of every\nport that isn't public.",
+          "type": "string"
+        },
+        "public": {
+          "title": "Allow unauthenticated connections to the port?",
+          "description": "Otherwise, only authenticated users with access to the task may connect.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "CustomConnectorSpec": {
-      "description": "Specification of a custom connector, whose code you write.\n\nIt declares the JSON schemas of the connector's endpoint and resource\nconfigurations, and its OAuth2 provider if it has one. Estuary answers\nrequests for the connector's specification from this declaration alone,\nwithout running your code. The schemas also generate the configuration\ntypes that your code receives.",
+      "description": "Specification of a custom connector, whose code you write.\n\nIt declares the JSON schemas of the connector's endpoint and resource\nconfigurations, its OAuth2 provider if it has one, and the network ports\non which it listens. Estuary answers requests for the connector's\nspecification from this declaration alone, without running your code.\nThe schemas also generate the configuration types that your code receives.",
       "type": "object",
       "properties": {
         "configSchema": {
@@ -555,6 +572,17 @@ expression: "&schema"
               "type": "null"
             }
           ]
+        },
+        "networkPorts": {
+          "title": "Network ports on which the connector listens, keyed on port number.",
+          "description": "Estuary proxies connections to each port from a hostname of the task.",
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^\\d+$": {
+              "$ref": "#/$defs/CustomConnectorNetworkPort"
+            }
+          }
         },
         "oauth2": {
           "title": "OAuth2 provider of the connector, if it supports OAuth2.",
