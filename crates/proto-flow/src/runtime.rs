@@ -143,10 +143,11 @@ pub struct Container {
     /// then it is *only* accessible from the hosting server.
     #[prost(string, tag = "1")]
     pub ip_addr: ::prost::alloc::string::String,
-    /// Network ports which are available for this container.
+    /// Network ports which the container's image advertises.
+    /// Validation builds them into the task spec's `network_ports`.
     #[prost(message, repeated, tag = "2")]
-    pub network_ports: ::prost::alloc::vec::Vec<super::flow::NetworkPort>,
-    /// Mapping of ports from `network_ports` to a corresponding "host-ip:port" address,
+    pub advertised_ports: ::prost::alloc::vec::Vec<super::flow::NetworkPort>,
+    /// Mapping of published ports to a corresponding "host-ip:port" address,
     /// as either IPv4 or IPv6, through which the port can be accessed. If empty,
     /// then the container `ip_addr` should be used directly.
     #[prost(btree_map = "uint32, string", tag = "3")]

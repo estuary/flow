@@ -159,6 +159,12 @@ to leave it running.
   host so a connector can reach them; only exact `.localhost` names, and only
   in a local plane, so ordinary DNS keeps its configured resolution.
 
+- **A local plane publishes the network ports of a built spec.**
+  These are the `network_ports` of the initial request's spec (Apply or Open),
+  plus `flow-connector-init`. Requests lacking a built spec publish only
+  `flow-connector-init`. Validation builds a spec's ports from the
+  `Started.container.advertised_ports` which its image `EXPOSE`s.
+
 - **Invalid later requests close connector input and terminate the session.**
 The handler owns request validation, so malformed input cannot disappear as a
 clean connector EOF.

@@ -152,9 +152,9 @@ type application interface {
 	ReplayRange(_ consumer.Shard, _ pb.Journal, begin, end pb.Offset) message.Iterator
 	ReadThrough(pb.Offsets) (pb.Offsets, error)
 
-	// ProxyHook exposes a current Container and ops.Publisher
-	// for use by network.ProxyServer.
-	ProxyHook() (*pr.Container, ops.Publisher)
+	// ProxyHook exposes a current Container, the network ports of the
+	// current task spec, and an ops.Publisher for use by network.ProxyServer.
+	ProxyHook() (*pr.Container, []*pf.NetworkPort, ops.Publisher)
 }
 
 var _ consumer.Application = (*FlowConsumer)(nil)

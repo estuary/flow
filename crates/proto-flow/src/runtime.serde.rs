@@ -2367,7 +2367,7 @@ impl serde::Serialize for Container {
         if !self.ip_addr.is_empty() {
             len += 1;
         }
-        if !self.network_ports.is_empty() {
+        if !self.advertised_ports.is_empty() {
             len += 1;
         }
         if !self.mapped_host_ports.is_empty() {
@@ -2380,8 +2380,8 @@ impl serde::Serialize for Container {
         if !self.ip_addr.is_empty() {
             struct_ser.serialize_field("ipAddr", &self.ip_addr)?;
         }
-        if !self.network_ports.is_empty() {
-            struct_ser.serialize_field("networkPorts", &self.network_ports)?;
+        if !self.advertised_ports.is_empty() {
+            struct_ser.serialize_field("advertisedPorts", &self.advertised_ports)?;
         }
         if !self.mapped_host_ports.is_empty() {
             struct_ser.serialize_field("mappedHostPorts", &self.mapped_host_ports)?;
@@ -2401,8 +2401,8 @@ impl<'de> serde::Deserialize<'de> for Container {
         const FIELDS: &[&str] = &[
             "ip_addr",
             "ipAddr",
-            "network_ports",
-            "networkPorts",
+            "advertised_ports",
+            "advertisedPorts",
             "mapped_host_ports",
             "mappedHostPorts",
             "usage_rate",
@@ -2412,7 +2412,7 @@ impl<'de> serde::Deserialize<'de> for Container {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             IpAddr,
-            NetworkPorts,
+            AdvertisedPorts,
             MappedHostPorts,
             UsageRate,
             __SkipField__,
@@ -2438,7 +2438,7 @@ impl<'de> serde::Deserialize<'de> for Container {
                     {
                         match value {
                             "ipAddr" | "ip_addr" => Ok(GeneratedField::IpAddr),
-                            "networkPorts" | "network_ports" => Ok(GeneratedField::NetworkPorts),
+                            "advertisedPorts" | "advertised_ports" => Ok(GeneratedField::AdvertisedPorts),
                             "mappedHostPorts" | "mapped_host_ports" => Ok(GeneratedField::MappedHostPorts),
                             "usageRate" | "usage_rate" => Ok(GeneratedField::UsageRate),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -2461,7 +2461,7 @@ impl<'de> serde::Deserialize<'de> for Container {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut ip_addr__ = None;
-                let mut network_ports__ = None;
+                let mut advertised_ports__ = None;
                 let mut mapped_host_ports__ = None;
                 let mut usage_rate__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -2472,11 +2472,11 @@ impl<'de> serde::Deserialize<'de> for Container {
                             }
                             ip_addr__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::NetworkPorts => {
-                            if network_ports__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("networkPorts"));
+                        GeneratedField::AdvertisedPorts => {
+                            if advertised_ports__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("advertisedPorts"));
                             }
-                            network_ports__ = Some(map_.next_value()?);
+                            advertised_ports__ = Some(map_.next_value()?);
                         }
                         GeneratedField::MappedHostPorts => {
                             if mapped_host_ports__.is_some() {
@@ -2502,7 +2502,7 @@ impl<'de> serde::Deserialize<'de> for Container {
                 }
                 Ok(Container {
                     ip_addr: ip_addr__.unwrap_or_default(),
-                    network_ports: network_ports__.unwrap_or_default(),
+                    advertised_ports: advertised_ports__.unwrap_or_default(),
                     mapped_host_ports: mapped_host_ports__.unwrap_or_default(),
                     usage_rate: usage_rate__.unwrap_or_default(),
                 })

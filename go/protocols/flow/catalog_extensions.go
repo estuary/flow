@@ -16,6 +16,8 @@ type Task interface {
 	TaskShardTemplate() *ShardSpec
 	// RecoveryLogTemplate is the template of this task's JournalSpecs.
 	TaskRecoveryLogTemplate() *JournalSpec
+	// TaskNetworkPorts are the network ports of this task.
+	TaskNetworkPorts() []*NetworkPort
 }
 
 var _ Task = &CaptureSpec{}
@@ -35,6 +37,11 @@ func (m *CaptureSpec) TaskShardTemplate() *ShardSpec {
 // RecoveryLogTemplate returns the task's recovery log template.
 func (m *CaptureSpec) TaskRecoveryLogTemplate() *JournalSpec {
 	return m.RecoveryLogTemplate
+}
+
+// TaskNetworkPorts returns the network ports of this capture.
+func (m *CaptureSpec) TaskNetworkPorts() []*NetworkPort {
+	return m.NetworkPorts
 }
 
 // TaskName returns the catalog task name of this derivation.
@@ -60,6 +67,15 @@ func (m *CollectionSpec) TaskRecoveryLogTemplate() *JournalSpec {
 	}
 }
 
+// TaskNetworkPorts returns the network ports of this derivation.
+func (m *CollectionSpec) TaskNetworkPorts() []*NetworkPort {
+	if m.Derivation == nil {
+		return nil
+	} else {
+		return m.Derivation.NetworkPorts
+	}
+}
+
 // TaskName returns the catalog task name of this derivation.
 func (m *MaterializationSpec) TaskName() string {
 	return m.Name.String()
@@ -73,6 +89,11 @@ func (m *MaterializationSpec) TaskShardTemplate() *ShardSpec {
 // RecoveryLogTemplate returns the task's recovery log template.
 func (m *MaterializationSpec) TaskRecoveryLogTemplate() *JournalSpec {
 	return m.RecoveryLogTemplate
+}
+
+// TaskNetworkPorts returns the network ports of this materialization.
+func (m *MaterializationSpec) TaskNetworkPorts() []*NetworkPort {
+	return m.NetworkPorts
 }
 
 // Validate returns an error if the BuildAPI_Config is malformed.

@@ -293,7 +293,7 @@ mod test {
             .expect("internal has attached container");
 
         assert_eq!(
-            container.network_ports,
+            container.advertised_ports,
             [proto_flow::flow::NetworkPort {
                 number: 8080,
                 protocol: String::new(),

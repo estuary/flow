@@ -27,7 +27,7 @@ struct Declarations {
     pub runtime_protocol: crate::RuntimeProtocol,
     #[serde(skip)]
     pub codec: connector_init::Codec,
-    pub network_ports: Vec<flow::NetworkPort>,
+    pub advertised_ports: Vec<flow::NetworkPort>,
     /// A rate declared by the image. [`crate::policy`] decides whether it is trusted.
     pub declared_usage_rate: Option<f32>,
     /// Declared image-owned secrets, and the location each must merge at.
@@ -37,7 +37,7 @@ struct Declarations {
 impl Declarations {
     fn parse(inspected: &connector_init::inspect::Image) -> anyhow::Result<Self> {
         let labels = &inspected.config.labels;
-        let mut network_ports = Vec::new();
+        let mut advertised_ports = Vec::new();
 
         for exposed_port in inspected.config.exposed_ports.keys() {
             // Connector networking does not support UDP.
@@ -63,7 +63,7 @@ impl Declarations {
                 )
             })?;
 
-            network_ports.push(flow::NetworkPort {
+            advertised_ports.push(flow::NetworkPort {
                 number: number as u32,
                 protocol,
                 public,
@@ -92,7 +92,7 @@ impl Declarations {
         Ok(Self {
             runtime_protocol,
             codec: inspected.runtime_codec(),
-            network_ports,
+            advertised_ports,
             declared_usage_rate,
             secrets: parse_secrets_label(labels.get(SECRETS_LABEL).map(String::as_str))?,
         })
@@ -108,6 +108,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
     env: BTreeMap<String, String>,
     mount: &std::path::Path,
     secrets: &std::collections::BTreeMap<String, String>,
+    network_ports: Vec<u32>,
     connector_type: i32,   // TODO(johnny): remove with V1 derivations.
     spec_on_own_rpc: bool, // TODO(johnny): remove.
     requests: futures::stream::BoxStream<'static, P::Request>,
@@ -116,7 +117,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
     let Declarations {
         codec,
         declared_usage_rate,
-        network_ports,
+        advertised_ports,
         runtime_protocol,
         secrets: declared_secrets,
     } = Declarations::parse(&inspected.inspection)?;
@@ -169,6 +170,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
             mount: mount.to_owned(),
             network: ctx.container_network.clone(),
             publish_ports: matches!(ctx.plane, crate::Plane::Local),
+            network_ports,
         },
         move |log| crate::policy::sanitize_connector_log(&quoted_task_name, log),
     )
@@ -176,7 +178,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
 
     let container = crate::Container {
         ip_addr: running.ip_addr.to_string(),
-        network_ports,
+        advertised_ports,
         mapped_host_ports: running.mapped_host_ports,
         usage_rate: usage_rate.value,
     };
@@ -295,7 +297,7 @@ mod test {
         let declarations = Declarations::parse(&inspected).unwrap();
 
         assert_eq!(
-            declarations.network_ports,
+            declarations.advertised_ports,
             [
                 flow::NetworkPort {
                     number: 567,
