@@ -8,10 +8,12 @@ alter table public.tenants
     alter column billing_emails type text[]
         using case when billing_emails is null then '{}' else array[billing_emails] end,
     alter column billing_emails set default '{}',
-    alter column billing_emails set not null;
+    alter column billing_emails set not null,
+    add constraint billing_emails_no_null_elements
+        check (array_position(billing_emails, null) is null);
 
 comment on column public.tenants.billing_emails is
-'Billing contact emails. The first is the Stripe customer email.';
+'Email addresses for invoice delivery.';
 
 create or replace function internal.on_tenant_billing_contact_update()
 returns trigger

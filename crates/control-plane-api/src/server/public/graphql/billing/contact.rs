@@ -82,19 +82,13 @@ pub async fn fetch_billing_contact(
     })
 }
 
-pub struct UpdatedBillingContact {
-    pub emails: Vec<String>,
-    pub name: Option<String>,
-    pub address: Option<BillingAddress>,
-}
-
 pub async fn update_billing_contact(
     pool: &sqlx::PgPool,
     tenant: &str,
     emails: &[String],
     name: &str,
     address: &BillingAddress,
-) -> anyhow::Result<UpdatedBillingContact> {
+) -> anyhow::Result<BillingContact> {
     let address_json = serde_json::to_value(address)?;
 
     let row = sqlx::query!(
@@ -122,7 +116,7 @@ pub async fn update_billing_contact(
         .transpose()
         .context("deserializing stored billing_address")?;
 
-    Ok(UpdatedBillingContact {
+    Ok(BillingContact {
         emails: row.billing_emails,
         name: row.billing_name,
         address,

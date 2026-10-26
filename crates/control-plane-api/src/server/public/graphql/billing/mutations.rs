@@ -126,6 +126,10 @@ impl BillingMutation {
         &self,
         ctx: &Context<'_>,
         tenant: String,
+        #[graphql(
+            desc = "Email addresses for invoice delivery.",
+            validator(list, email, min_items = 1, max_items = 10)
+        )]
         emails: Vec<String>,
         name: String,
         address: BillingAddressInput,
@@ -134,19 +138,6 @@ impl BillingMutation {
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 
-        if emails.is_empty() || emails.len() > 10 {
-            return Err(async_graphql::Error::new(
-                "emails must have at least 1 and at most 10 addresses",
-            ));
-        }
-        if emails
-            .iter()
-            .any(|email| !email.contains('@') || email.len() > 512)
-        {
-            return Err(async_graphql::Error::new(
-                "each email must contain '@' and be at most 512 characters",
-            ));
-        }
         if name.trim().is_empty() || name.len() > 256 {
             return Err(async_graphql::Error::new(
                 "name must be non-empty and at most 256 characters",
@@ -154,7 +145,7 @@ impl BillingMutation {
         }
 
         let address = BillingAddress::from(address);
-        let updated = contact::update_billing_contact(
+        let contact = contact::update_billing_contact(
             &env.pg_pool,
             tenant.as_str(),
             &emails,
@@ -164,13 +155,7 @@ impl BillingMutation {
         .await
         .map_err(|err| async_graphql::Error::new(err.to_string()))?;
 
-        Ok(SetBillingContactPayload {
-            contact: BillingContact {
-                emails: updated.emails,
-                name: updated.name,
-                address: updated.address,
-            },
-        })
+        Ok(SetBillingContactPayload { contact })
     }
 
     async fn delete_billing_payment_method(
@@ -483,6 +468,27 @@ mod tests {
             )
             .await;
         insta::assert_json_snapshot!("set_billing_contact", set_response);
+
+        let invalid_email_response: serde_json::Value = server
+            .graphql(
+                &json!({
+                    "query": r#"
+                        mutation {
+                          setBillingContact(
+                            tenant: "contacttest/"
+                            emails: ["billing@example.com", "greg@"]
+                            name: "Changed"
+                            address: { city: "Boston" }
+                          ) {
+                            contact { emails }
+                          }
+                        }
+                    "#
+                }),
+                Some(&token),
+            )
+            .await;
+        insta::assert_json_snapshot!("invalid_billing_contact_email", invalid_email_response);
 
         let query_response: serde_json::Value = server
             .graphql(

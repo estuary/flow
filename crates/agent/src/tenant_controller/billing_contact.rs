@@ -60,10 +60,8 @@ async fn do_reconcile(
         return Ok(());
     };
 
-    // Desired state comes from the DB. A NULL column means "no desired value",
-    // so it never counts as a mismatch and is never pushed to Stripe.
-    //
-    // A Stripe customer has a single email, so the sync must pick one of `tenants.billing_emails`, and it picks the first.
+    // An empty email list or NULL name/address leaves the corresponding Stripe
+    // value unchanged.
     let desired_email = tenant_row.billing_emails.first().map(String::as_str);
     let desired_name = tenant_row.billing_name.as_deref();
     let desired_address: Option<stripe::Address> = tenant_row

@@ -10,6 +10,12 @@ begin
   insert into tenants (tenant) values ('acmeCo/');
   select controller_task_id into v_task_id from tenants where tenant = 'acmeCo/';
 
+  return query select is(
+    (select billing_emails from tenants where tenant = 'acmeCo/'),
+    '{}'::text[],
+    'billing emails default to an empty array'
+  );
+
   return query select ok(
     v_task_id is not null,
     'inserting a tenant auto-creates a controller task'
@@ -25,10 +31,26 @@ begin
   );
 
   -- Changing a billing field wakes the controller (IS DISTINCT FROM fires).
-  update tenants set billing_emails = array['billing@acme.co'] where tenant = 'acmeCo/';
+  update tenants set billing_emails = array['billing@acme.co', 'ap@acme.co'] where tenant = 'acmeCo/';
   return query select ok(
     (select wake_at is not null from internal.tasks where task_id = v_task_id),
     'a billing-field change wakes the controller'
+  );
+
+  return query select throws_ok(
+    $sql$update tenants set billing_emails = '{NULL}' where tenant = 'acmeCo/'$sql$,
+    '23514', 'new row for relation "tenants" violates check constraint "billing_emails_no_null_elements"',
+    'billing emails reject a null element'
+  );
+  return query select throws_ok(
+    $sql$update tenants set billing_emails = array['billing@acme.co', null] where tenant = 'acmeCo/'$sql$,
+    '23514', 'new row for relation "tenants" violates check constraint "billing_emails_no_null_elements"',
+    'billing emails reject a null after a valid email'
+  );
+  return query select is(
+    (select billing_emails from tenants where tenant = 'acmeCo/'),
+    array['billing@acme.co', 'ap@acme.co'],
+    'rejected updates preserve the ordered billing emails'
   );
 
   -- A non-billing update must not wake the controller. Clear wake_at and confirm
