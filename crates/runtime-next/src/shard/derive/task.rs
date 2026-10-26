@@ -26,8 +26,8 @@ pub(super) struct Task {
     pub binding_state_keys: Vec<String>,
     /// Write JSON-Schema of the derived collection.
     pub write_schema_json: bytes::Bytes,
-    /// Inferred Shape of written documents, seeded from `write_schema_json`.
-    pub write_shape: doc::Shape,
+    /// Inferred Shape of written documents.
+    pub inferred_shape: doc::Shape,
 }
 
 /// Transform configuration for a derivation shard.
@@ -169,14 +169,10 @@ impl Task {
         let document_uuid_ptr = json::Pointer::from(uuid_ptr);
         let key_extractors = extractors::for_key(key, projections, &ser_policy)?;
 
-        let built_schema = doc::validation::build_bundle(write_schema_json)
-            .context("derived collection write_schema_json is not a JSON schema")?;
-        let validator = doc::Validator::new(built_schema)
-            .context("could not build a derived collection schema validator")?;
-        let mut write_shape = doc::Shape::infer(validator.schema(), validator.schema_index());
+        let mut inferred_shape = doc::Shape::nothing();
         // Stamp the generation id so inferred-schema updates carry it (mirrors
         // capture `Task::shapes_by_target`).
-        write_shape.annotations.insert(
+        inferred_shape.annotations.insert(
             crate::X_GENERATION_ID.to_string(),
             serde_json::Value::String(collection_generation_id.to_string()),
         );
@@ -190,7 +186,7 @@ impl Task {
             sources,
             binding_state_keys,
             write_schema_json: write_schema_json.clone(),
-            write_shape,
+            inferred_shape,
         })
     }
 
@@ -236,5 +232,33 @@ impl Task {
             self.redact_salt.to_vec(),
             validator,
         ))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// A write schema which declares only its key admits any other property,
+    /// yet inference must still widen for each property it hasn't seen.
+    #[test]
+    fn inferred_shape_widens_for_undeclared_properties() {
+        let spec = flow::CollectionSpec {
+            key: vec!["/id".to_string()],
+            partition_template: Some(proto_gazette::broker::JournalSpec::default()),
+            projections: serde_json::from_value(serde_json::json!([
+                {"field": "id", "ptr": "/id", "inference": {"types": ["string"]}},
+            ]))
+            .unwrap(),
+            write_schema_json: bytes::Bytes::from_static(
+                br#"{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}"#,
+            ),
+            derivation: Some(Box::default()),
+            ..Default::default()
+        };
+        let mut shape = Task::new(&spec).unwrap().inferred_shape;
+
+        assert!(shape.widen(&serde_json::json!({"id": "a"})));
+        assert!(shape.widen(&serde_json::json!({"id": "b", "added": null})));
     }
 }

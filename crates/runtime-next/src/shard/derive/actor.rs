@@ -62,8 +62,8 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     split_fut: Option<crate::shard::SplitFuture>,
     // Task being executed.
     task: Arc<Task>,
-    // Inferred write shape; parked while a drain borrows it.
-    write_shape: Option<doc::Shape>,
+    // Inferred shape; parked while a drain borrows it.
+    inferred_shape: Option<doc::Shape>,
 }
 
 impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
@@ -77,7 +77,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         logger: L,
         publisher: P,
         task: Arc<Task>,
-        write_shape: doc::Shape,
+        inferred_shape: doc::Shape,
     ) -> Self {
         Self {
             connector_pending: VecDeque::new(),
@@ -98,7 +98,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             split_policy: crate::shard::split_policy::SplitPolicy::new(),
             split_fut: None,
             task,
-            write_shape: Some(write_shape),
+            inferred_shape: Some(inferred_shape),
         }
     }
 
@@ -253,7 +253,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     let output = result?;
                     accumulator_idle = Some(output.accumulator);
                     self.publisher = Some(output.publisher);
-                    self.write_shape = Some(output.write_shape);
+                    self.inferred_shape = Some(output.inferred_shape);
                     self.drain_fut = None;
 
                     // The drain just flushed this transaction's collection appends,
@@ -415,10 +415,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 .publisher
                 .take()
                 .context("L:Store while publisher is busy")?;
-            let write_shape = self
-                .write_shape
+            let inferred_shape = self
+                .inferred_shape
                 .take()
-                .context("L:Store while write shape is busy")?;
+                .context("L:Store while inferred shape is busy")?;
 
             self.staged_published_docs = std::mem::take(&mut self.published_docs);
             self.staged_published_bytes = std::mem::take(&mut self.published_bytes);
@@ -433,7 +433,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         parser,
                         publisher,
                         task,
-                        write_shape,
+                        inferred_shape,
                         metrics,
                         logger,
                     )
@@ -670,7 +670,7 @@ mod tests {
             }],
             binding_state_keys: vec!["fromSrc".to_string()],
             write_schema_json: bytes::Bytes::from_static(b"{}"),
-            write_shape: doc::Shape::nothing(),
+            inferred_shape: doc::Shape::nothing(),
         }
     }
 
@@ -695,7 +695,7 @@ mod tests {
             ..Default::default()
         };
         let publisher = crate::JournalPublisher::new_test_real([&spec]);
-        let write_shape = task.write_shape.clone();
+        let inferred_shape = task.inferred_shape.clone();
 
         let mut actor = Actor::new(
             connector_init::Codec::Proto,
@@ -707,7 +707,7 @@ mod tests {
             crate::TracingLogger,
             publisher,
             task,
-            write_shape,
+            inferred_shape,
         );
 
         // Seed a policy under which the observed journal is immediately due.
@@ -787,7 +787,7 @@ mod tests {
 
         let task = Arc::new(test_task());
         let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
-        let write_shape = task.write_shape.clone();
+        let inferred_shape = task.inferred_shape.clone();
         let db = crate::shard::RocksDB::open(None).await.unwrap();
         let shuffle_dir = tempfile::tempdir().unwrap();
         let shuffle_reader = shuffle::log::Reader::new(shuffle_dir.path(), 0);
@@ -802,7 +802,7 @@ mod tests {
             crate::TracingLogger,
             crate::publish::RecordingPublisher::default(),
             task,
-            write_shape,
+            inferred_shape,
         );
 
         let serve_handle = tokio::spawn(async move {
