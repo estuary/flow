@@ -262,10 +262,11 @@ async fn launch(
                 .await;
         }
 
+        let ingress_image = (!plan.ingress.is_empty()).then_some(vmm.image.as_str());
         let file = match record::claim(
             &vmm.state_dir,
             &plan.name,
-            &record::claim_line(&plan.name, &plan.token, &plan.mount),
+            &record::claim_line(&plan.name, &plan.token, &plan.mount, ingress_image),
         ) {
             Ok(file) => file,
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -285,6 +286,7 @@ async fn launch(
                 state: plan.state.clone(),
                 created_mount: false,
                 created_state: false,
+                ingress_image: ingress_image.map(str::to_string),
             },
             container: None,
             attached: None,
@@ -369,6 +371,12 @@ async fn run_vmm(
         ..
     } = input;
 
+    if !plan.ingress.is_empty() {
+        fenced(&vmm.podman, &plan.ingress, &owner.file)
+            .await
+            .context("installing the VMM host ingress permissions")?;
+    }
+
     fenced(&vmm.podman, &plan.rootfs, &owner.file)
         .await
         .context("creating the VMM's private rootfs volume")?;
@@ -442,10 +450,30 @@ async fn run_vmm(
         declarations.declared_usage_rate,
     )?;
 
-    // Reached only through its socket: the plan refused any exposed port.
+    let ip_addr = if plan.ingress.is_empty() {
+        String::new()
+    } else {
+        let address = crate::container::engine_cmd(
+            &vmm.podman,
+            &[
+                "inspect",
+                "--format",
+                "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+                &created,
+            ],
+        )
+        .await
+        .context("inspecting the VMM container address")?;
+        let address = String::from_utf8(address).context("VMM address is UTF-8")?;
+        address
+            .trim()
+            .parse::<std::net::Ipv4Addr>()
+            .context("VMM has an IPv4 address")?
+            .to_string()
+    };
     let container = runtime::Container {
-        ip_addr: String::new(),
-        network_ports: Vec::new(),
+        ip_addr,
+        network_ports: declarations.network_ports,
         usage_rate: usage_rate.value,
         mapped_host_ports: Default::default(),
     };

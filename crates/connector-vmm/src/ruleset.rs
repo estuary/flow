@@ -12,7 +12,11 @@ pub const RESOLVED_SIZE: usize = 1024;
 /// `vmm_subnets` are the VMM's own interface subnets, folded into the
 /// baseline. `run` reads them from `getifaddrs`; `print-ruleset` takes them
 /// from `--vmm-subnet`.
-pub fn render(policy: &Policy, vmm_subnets: &[ipnetwork::Ipv4Network]) -> anyhow::Result<String> {
+pub fn render(
+    policy: &Policy,
+    vmm_subnets: &[ipnetwork::Ipv4Network],
+    ingress_ports: &[u16],
+) -> anyhow::Result<String> {
     let baseline = egress::baseline(vmm_subnets);
     egress::check_declared(policy, &baseline)?;
 
@@ -79,11 +83,21 @@ pub fn render(policy: &Policy, vmm_subnets: &[ipnetwork::Ipv4Network]) -> anyhow
         out,
         "\t\tiifname \"{TAP}\" ip saddr != {GUEST_IP} counter drop comment \"anti-spoof\""
     )?;
-    // Ahead of the baseline drop because a reply, un-NAT'd back to the guest,
-    // is addressed into 192.0.2.0/24, which the baseline itself covers. Only a
-    // connection the guest was allowed to open can be in this state.
+    // Replies to permitted egress and ingress precede the private-address
+    // exclusions. Ingress works independently of the guest's egress policy.
     out.push_str("\t\tct state established,related counter accept comment \"replies\"\n");
     out.push_str("\t\tmeta nfproto ipv6 counter drop comment \"no-ipv6\"\n");
+    if !ingress_ports.is_empty() {
+        let ports = ingress_ports
+            .iter()
+            .map(u16::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(
+            out,
+            "\t\tiifname \"{UPLINK}\" oifname \"{TAP}\" ip daddr {GUEST_IP} ct status dnat tcp dport {{ {ports} }} counter accept comment \"ingress\""
+        )?;
+    }
     // Kills ICMP, which is why it sits after the established/related accept:
     // ICMP errors belonging to a tracked connection are still useful.
     out.push_str("\t\tmeta l4proto != { tcp, udp } counter drop comment \"tcp-udp-only\"\n");
@@ -156,6 +170,18 @@ pub fn render(policy: &Policy, vmm_subnets: &[ipnetwork::Ipv4Network]) -> anyhow
     )?;
     out.push_str("\t}\n");
 
+    if !ingress_ports.is_empty() {
+        let ports = ingress_ports
+            .iter()
+            .map(u16::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(
+            out,
+            "\n\tchain prerouting {{\n\t\ttype nat hook prerouting priority dstnat; policy accept;\n\t\tiifname \"{UPLINK}\" fib daddr type local tcp dport {{ {ports} }} counter dnat ip to {GUEST_IP} comment \"ingress\"\n\t}}"
+        )?;
+    }
+
     out.push_str("}\n");
     Ok(out)
 }
@@ -199,7 +225,7 @@ mod tests {
 
     fn render(document: &str) -> String {
         let policy = egress::parse(document.as_bytes()).expect("fixture parses");
-        super::render(&policy, &vmm_subnets()).expect("fixture renders")
+        super::render(&policy, &vmm_subnets(), &[]).expect("fixture renders")
     }
 
     const PUBLIC: &str = r#"{"egress":"public"}"#;
@@ -222,6 +248,12 @@ mod tests {
         "allowedNames": ["pypi.org"],
         "declaredCidrs": [ { "cidr": "93.184.216.0/24", "ports": [443] } ]
     }"#;
+
+    #[test]
+    fn ingress_without_egress() {
+        let policy = egress::parse(NONE.as_bytes()).unwrap();
+        insta::assert_snapshot!(super::render(&policy, &vmm_subnets(), &[8080, 9090]).unwrap());
+    }
 
     #[test]
     fn public_ruleset() {

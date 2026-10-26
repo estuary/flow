@@ -39,6 +39,8 @@ for when a host's provisioning runs it.
   as the nft JSON document `boundary install` applies and the comparison
   `boundary verify` makes. `src/boundary/listing.json` is the kernel's listing
   of them.
+- `src/ingress.rs`: launch-owned host input and output chains authorizing declared TCP
+  ports with a reserved packet mark.
 - `src/resolver/mod.rs`: the thread, the gate, the CNAME memory and the
   lifetime of an authorization.
 - `src/resolver/dns.rs`: reads a message, rewrites TTLs in place, synthesizes
@@ -236,19 +238,29 @@ the host will have, and every owner installs identical tables.
 | hook | drops, for traffic from or to an `fvm*` bridge |
 |---|---|
 | inet prerouting (raw) | IPv6; a source that does not route back out of the bridge it came in on; IP fragments (none arrive while conntrack reassembles) |
-| inet input | everything addressed to the host, except UDP/53 to the address of the bridge it arrived on |
+| inet input | everything addressed to the host, except UDP/53 to the bridge gateway and TCP replies to authorized host ingress |
 | inet forward | anything to another VMM bridge or back out of its own; `egress::baseline` destinations; TCP/25; IPv6 into a VMM; any packet into a VMM that is not a reply |
-| inet output | IPv6, and anything that is not a reply, from the host into a VMM |
+| inet output | IPv6, and connections from the host into a VMM without a reply state or an ingress authorization |
 | bridge prerouting, output | frames that are neither IPv4 nor ARP |
 | bridge forward | every frame from one port of a VMM bridge to another |
 
-The one accept is the VMM's nameserver: podman's resolver on the gateway of the
-VMM's own bridge, which podman writes into the container's `resolv.conf` and
-`net::upstream_nameserver` reads. The rule names the arrival bridge rather than
-an address, so it cannot disagree with the resolver's configuration. Every
-other rule drops, and a drop in any base chain is final, so netavark's, Docker's
-and anyone else's accepts do not undo them. The chains run at filter priority
--10 so their counters see packets first; the drops would hold at any priority.
+Podman's resolver on the arrival bridge is the DNS exception. Host ingress
+is authorized by `boundary grant --owner TOKEN --bridge BRIDGE --port PORT`
+(repeated for each declared TCP port). It creates a host table named
+`flow_vmm_ingress_TOKEN`. The shared boundary clears reserved packet mark
+`0x46564d49` at priority -12 on local input and output across VMM bridges.
+The launch's chains at priority -11 mark IPv4 TCP packets to declared ports
+in the original direction and established replies from those ports. The shared
+boundary admits those marked packets at priority -10. Every packet must match
+current permissions, so stale conntrack state cannot authorize a replacement.
+A guest-supplied authorization mark is cleared. Forwarded traffic is never authorized.
+
+`boundary revoke --owner TOKEN` atomically removes that owner's table and is
+idempotent. The launcher records the VMM image needed for recovery before
+granting access, and stops the container before revoking permissions. A failed
+revoke retains the record and network for retry. Other launch tokens are
+untouched. The shared chains run at filter priority -10; drops in any base
+chain are final, regardless of other tables' accepts.
 
 One bridge per VMM is what makes the sibling guarantee hold at layer 2. On a
 shared bridge a VMM could rewrite the host's neighbour and forwarding entries
@@ -294,8 +306,10 @@ jumping to `egress_accept` where the only three accepts live: `allowAll`,
 resolver puts something in it. The input chain drops by policy and lets exactly
 one thing in from the tap: the guest's DNS query to the VMM. The output chain
 lets nothing out to the tap that is not an established reply, so nothing in the
-VMM can open a connection to the guest. Postrouting masquerades the guest out
-of the uplink.
+VMM can open a connection to the guest. Declared TCP ports are DNATed from the
+uplink to the guest before the egress exclusions. Their replies use the
+established connection, including with `egress: none`. Postrouting masquerades
+the guest out of the uplink.
 
 ## Public destinations only
 
@@ -406,6 +420,7 @@ control.
 
 The properties this layer does carry are the ones above: no private or
 special-use destination, no IPv6, no protocol other than TCP and UDP, no
-inbound connection, and no path to the VMM itself except the one DNS rule. Of
-these, the host boundary holds the destination, IPv6 and inbound properties
-even against a VMM that has removed this layer.
+inbound connection except host-authorized declared TCP ports, and no
+guest-initiated path to the VMM itself except the DNS rule. The host boundary
+holds the destination, IPv6 and ingress restrictions even against a VMM that
+has removed this layer.

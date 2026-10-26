@@ -4,19 +4,23 @@ expression: table
 ---
 # just claimed
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
-=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false }
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: None }
+
+# owns ingress
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\",\"ingress_image\":\"vmm:local\"}\n"
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: Some("vmm:local") }
 
 # with its mount
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"mount\"}\n"
-=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: true, created_state: false }
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: true, created_state: false, ingress_image: None }
 
 # with both directories
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"mount\"}\n{\"created\":\"state\"}\n"
-=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: true, created_state: true }
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: true, created_state: true, ingress_image: None }
 
 # a torn marker
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"mount\"}"
-=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false }
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: None }
 
 # a torn claim
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}"
@@ -52,7 +56,7 @@ expression: table
 
 # an unknown field
 "{\"version\":1,\"pid\":42,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
-=> refused: reading its claim line: unknown field `pid`, expected one of `version`, `id`, `token`, `mount` at line 1 column 18
+=> refused: reading its claim line: unknown field `pid`, expected one of `version`, `id`, `token`, `mount`, `ingress_image` at line 1 column 18
 
 # another id
 "{\"version\":1,\"id\":\"fv_fedcba9876543210\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"

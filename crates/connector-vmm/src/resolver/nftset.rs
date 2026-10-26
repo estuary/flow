@@ -491,7 +491,7 @@ mod tests {
     #[test]
     fn names_match_the_ruleset() {
         let policy = egress::parse(br#"{"egress":"public"}"#).expect("fixture parses");
-        let text = crate::ruleset::render(&policy, &[]).expect("fixture renders");
+        let text = crate::ruleset::render(&policy, &[], &[]).expect("fixture renders");
 
         assert!(
             text.contains(&format!("table inet {} {{", super::TABLE)),

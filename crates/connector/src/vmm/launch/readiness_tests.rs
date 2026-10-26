@@ -110,6 +110,65 @@ fn a_responding_service_is_ready_with_silent_stderr() {
 }
 
 #[test]
+fn recovery_retries_failed_ingress_removal() {
+    in_child("recovery_retries_failed_ingress_removal", |h| async move {
+        let state = h.dir.join("state");
+        let state = state.to_str().unwrap();
+        let name = "fv_0123456789abcdef";
+        let token = "00112233445566778899aabbccddeeff";
+        let mount = h
+            .dir
+            .join("connector-mounts-1000")
+            .join(format!("mount-{name}"));
+        let line =
+            crate::vmm::record::claim_line(name, token, mount.to_str().unwrap(), Some("vmm:local"));
+        drop(crate::vmm::record::claim(state, name, &line).unwrap());
+        std::fs::write(h.dir.join("ingress"), "").unwrap();
+        std::fs::write(h.dir.join("refuse-revoke"), "").unwrap();
+        let engine = h.dir.join("engine");
+        crate::vmm::release::recover(engine.to_str().unwrap(), state).await;
+        assert!(h.dir.join("ingress").exists());
+        assert!(Path::new(&crate::vmm::record::path(state, name)).exists());
+        std::fs::remove_file(h.dir.join("refuse-revoke")).unwrap();
+        crate::vmm::release::recover(engine.to_str().unwrap(), state).await;
+        assert!(!h.dir.join("ingress").exists());
+        assert!(!Path::new(&crate::vmm::record::path(state, name)).exists());
+        let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+        assert_eq!(
+            calls
+                .matches(&format!("boundary revoke --owner={token}"))
+                .count(),
+            2
+        );
+    });
+}
+
+#[test]
+fn declared_ports_are_reported_and_permissions_released() {
+    in_child(
+        "declared_ports_are_reported_and_permissions_released",
+        |mut h| async move {
+            std::fs::write(h.dir.join("inspection"), r#"[{"Id":"synthetic-image","Created":"2026-01-01T00:00:00Z","Config":{"Env":[],"Labels":{"FLOW_RUNTIME_PROTOCOL":"derive","dev.estuary.port-proto.8080":"http/1.1","dev.estuary.port-public.8080":"true"},"ExposedPorts":{"8080/tcp":{}}}}]"#).unwrap();
+            let report = launch(
+                &mut h,
+                Launch {
+                    stderr: "",
+                    peer: Peer::Serving,
+                    then: Then::Await,
+                },
+            )
+            .await;
+            assert_eq!(render(&report), format!("{ANSWERED}\n"));
+            let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+            assert!(calls.contains("boundary grant --owner="));
+            assert!(calls.contains("--port=8080"));
+            assert!(calls.contains("--ingress-port=8080"));
+            assert!(calls.contains("boundary revoke --owner="));
+        },
+    );
+}
+
+#[test]
 fn a_held_response_is_not_ready_when_the_vmm_exits() {
     in_child(
         "a_held_response_is_not_ready_when_the_vmm_exits",
@@ -824,7 +883,20 @@ async fn launch(h: &mut Harness, Launch { stderr, peer, then }: Launch) -> Repor
     let outcome = match outcome {
         None => "cancelled".to_string(),
         Some(Err(err)) => format!("failed: {err:#}"),
-        Some(Ok((_container, channel, guard, _codec))) => {
+        Some(Ok((container, channel, guard, _codec))) => {
+            if dir.join("inspection").exists() {
+                assert_eq!(container.ip_addr, "10.89.0.2");
+                assert_eq!(
+                    container.network_ports,
+                    vec![proto_flow::flow::NetworkPort {
+                        number: 8080,
+                        protocol: "http/1.1".to_string(),
+                        public: true,
+                    }]
+                );
+                assert!(container.mapped_host_ports.is_empty());
+                assert!(dir.join("ingress").exists());
+            }
             // A peer which cannot answer would leave a check waiting forever.
             let outcome = if let Some(scripted) = &scripted {
                 exchange(
@@ -1354,7 +1426,7 @@ fn left(dir: &Path, name: &str, ended: &str) -> Vec<String> {
             left.push(entry.unwrap().path().display().to_string());
         }
     }
-    for resource in ["container", "network", "volume"] {
+    for resource in ["container", "network", "volume", "ingress"] {
         if dir.join(resource).exists() {
             left.push(format!("the engine's {resource}"));
         }

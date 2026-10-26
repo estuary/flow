@@ -35,6 +35,8 @@ struct Claim {
     id: String,
     token: String,
     mount: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ingress_image: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -64,18 +66,25 @@ pub(crate) struct Record {
     pub state: String,
     pub created_mount: bool,
     pub created_state: bool,
+    pub ingress_image: Option<String>,
 }
 
 pub(crate) fn path(state_dir: &str, name: &str) -> String {
     format!("{state_dir}/{name}{SUFFIX}")
 }
 
-pub(crate) fn claim_line(name: &str, token: &str, mount: &str) -> Vec<u8> {
+pub(crate) fn claim_line(
+    name: &str,
+    token: &str,
+    mount: &str,
+    ingress_image: Option<&str>,
+) -> Vec<u8> {
     line(&Claim {
         version: VERSION,
         id: name.to_string(),
         token: token.to_string(),
         mount: mount.to_string(),
+        ingress_image: ingress_image.map(str::to_string),
     })
 }
 
@@ -155,6 +164,7 @@ pub(crate) fn parse(state_dir: &str, name: &str, content: &[u8]) -> anyhow::Resu
         state: format!("{state_dir}/{name}"),
         created_mount,
         created_state,
+        ingress_image: claim.ingress_image,
     })
 }
 
@@ -296,13 +306,18 @@ mod test {
 
     #[test]
     fn records() {
-        let claim = String::from_utf8(claim_line(NAME, TOKEN, MOUNT)).unwrap();
+        let claim = String::from_utf8(claim_line(NAME, TOKEN, MOUNT, None)).unwrap();
         let mount = String::from_utf8(created_line(Dir::Mount)).unwrap();
         let state = String::from_utf8(created_line(Dir::State)).unwrap();
-        let with_mount = |mount: &str| String::from_utf8(claim_line(NAME, TOKEN, mount)).unwrap();
+        let with_mount =
+            |mount: &str| String::from_utf8(claim_line(NAME, TOKEN, mount, None)).unwrap();
 
         let cases: Vec<(&str, String)> = vec![
             ("just claimed", claim.clone()),
+            (
+                "owns ingress",
+                String::from_utf8(claim_line(NAME, TOKEN, MOUNT, Some("vmm:local"))).unwrap(),
+            ),
             ("with its mount", format!("{claim}{mount}")),
             ("with both directories", format!("{claim}{mount}{state}")),
             ("a torn marker", format!("{claim}{}", mount.trim_end())),
@@ -418,7 +433,7 @@ mod test {
         let dir = tempfile::tempdir().unwrap();
         let state_dir = dir.path().to_str().unwrap();
         let path = super::path(state_dir, NAME);
-        let line = claim_line(NAME, TOKEN, MOUNT);
+        let line = claim_line(NAME, TOKEN, MOUNT, None);
 
         let mut held = super::claim(state_dir, NAME, &line).expect("claims");
         assert_eq!(

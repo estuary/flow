@@ -610,3 +610,34 @@ pub fn random_hex() -> String {
         .expect("reading /dev/urandom");
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
+
+/// Host permissions for a test guest. Recorded before creation for task cleanup.
+pub struct Ingress {
+    image: String,
+    owner: String,
+}
+
+pub fn ingress(run: &Run, vmm: &Vmm, ports: &[u16]) -> Ingress {
+    let owner = format!("{}{}", random_hex(), random_hex());
+    record("ingress", &format!("{} {owner}", run.vmm_image));
+    let mut args = crate::launch::boundary(&run.vmm_image, "host", "grant");
+    args.extend([
+        format!("--owner={owner}"),
+        format!("--bridge=fvm{}", &vmm.name[3..15]),
+    ]);
+    args.extend(ports.iter().map(|port| format!("--port={port}")));
+    podman(&args.iter().map(String::as_str).collect::<Vec<_>>());
+    Ingress {
+        image: run.vmm_image.clone(),
+        owner,
+    }
+}
+
+impl Drop for Ingress {
+    fn drop(&mut self) {
+        let mut args = vec!["podman".to_string()];
+        args.extend(crate::launch::boundary(&self.image, "host", "revoke"));
+        args.push(format!("--owner={}", self.owner));
+        let _ = sudo_output(&args.iter().map(String::as_str).collect::<Vec<_>>(), None);
+    }
+}

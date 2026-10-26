@@ -150,8 +150,9 @@ ordinary network. The `fvm` interface prefix is reserved on the host: podman
 does not notice a non-podman link of the same name, and the boundary treats
 every `fvm*` interface as a VMM's.
 
-Each VMM's nameserver is podman's resolver on its own bridge's gateway, the
-one destination on the host the boundary admits (UDP/53).
+Each VMM's nameserver is podman's resolver on its own bridge's gateway, the only
+guest-initiated destination on the host the boundary admits (UDP/53).
+Replies to host-authorized container networking connections are also allowed.
 
 ## The host boundary
 
