@@ -30,7 +30,13 @@ impl tokens::RestSource for UserSecretDecrypt {
             .append_pair("name", self.name.as_str())
             .append_pair("started", &started.to_rfc3339());
 
-        let request = self.client.http_client.post(url);
+        // Content-Length is explicit for the reason given in
+        // `TaskSecretDecrypt::build_request`.
+        let request = self
+            .client
+            .http_client
+            .post(url)
+            .header(reqwest::header::CONTENT_LENGTH, 0);
 
         Ok(match user_token.result()?.access_ref() {
             Some(token) => request.bearer_auth(token),
@@ -81,6 +87,13 @@ mod tests {
                 .get(reqwest::header::AUTHORIZATION)
                 .unwrap(),
             "Bearer access-token",
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get(reqwest::header::CONTENT_LENGTH)
+                .unwrap(),
+            "0",
         );
     }
 }
