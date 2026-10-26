@@ -285,12 +285,12 @@ pub async fn start(
         "started connector container"
     );
     let usage_rate = image_inspection.usage_rate;
-    let network_ports = image_inspection.network_ports;
+    let advertised_ports = image_inspection.advertised_ports;
 
     Ok((
         runtime::Container {
             ip_addr: format!("{ip_addr}"),
-            network_ports,
+            advertised_ports,
             usage_rate,
             mapped_host_ports,
         },
@@ -557,7 +557,7 @@ struct ImageInspection {
     /// The type of connector
     runtime_protocol: RuntimeProtocol,
     /// Network ports that the connector wishes to expose
-    network_ports: Vec<flow::NetworkPort>,
+    advertised_ports: Vec<flow::NetworkPort>,
     /// The number of usage credits per second that the connector incurs
     usage_rate: f32,
     /// A brief description of how the `usage_rate` was determined
@@ -606,7 +606,7 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
     })?;
 
     let labels = labels.unwrap_or_default();
-    let mut network_ports = Vec::new();
+    let mut advertised_ports = Vec::new();
 
     for (exposed_port, _) in exposed_ports.iter() {
         // We're unable to support UDP at this time.
@@ -634,7 +634,7 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
             )
         })?;
 
-        network_ports.push(flow::NetworkPort {
+        advertised_ports.push(flow::NetworkPort {
             number: number as u32,
             protocol: protocol.unwrap_or_default(),
             public,
@@ -664,7 +664,7 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
 
     Ok(ImageInspection {
         runtime_protocol,
-        network_ports,
+        advertised_ports,
         usage_rate,
         usage_rate_source,
         id,
@@ -796,7 +796,7 @@ mod test {
         ));
 
         assert_eq!(
-            container.network_ports,
+            container.advertised_ports,
             [flow::NetworkPort {
                 number: 8080,
                 protocol: String::new(),
@@ -862,7 +862,7 @@ mod test {
         let inspection = parse_image_inspection(fixture.to_string().as_bytes()).unwrap();
 
         assert_eq!(
-            &inspection.network_ports,
+            &inspection.advertised_ports,
             &[
                 flow::NetworkPort {
                     number: 567,

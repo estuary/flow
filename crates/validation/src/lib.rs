@@ -887,7 +887,7 @@ async fn validate_connector<V>(
         .push(scope, errors);
         return None;
     };
-    let network_ports = started.container.unwrap_or_default().network_ports;
+    let network_ports = started.container.unwrap_or_default().advertised_ports;
 
     use proto_flow::connector::response::started::Spec;
     let spec = match started.spec.expect("unary verified Started.Spec is set") {

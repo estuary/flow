@@ -32,7 +32,10 @@ pub(crate) struct RunParams {
     pub log_sink: LogSink,
     pub mount: std::path::PathBuf,
     pub network: String,
+    /// Publish the `flow-connector-init` port and each of `network_ports`?
     pub publish_ports: bool,
+    /// Network ports of the task's built spec.
+    pub network_ports: Vec<u32>,
 }
 
 /// Lower-level facts of a running image connector.
@@ -74,6 +77,7 @@ where
         mount,
         network,
         publish_ports,
+        network_ports,
     } = params;
 
     // The mount is bind-mounted at its own path, so container-side paths are
@@ -144,17 +148,16 @@ where
     // When running locally, we publish ports so that connectors are accessible
     // on the host from Windows and MacOS (e.x. Docker Desktop).
     if publish_ports {
-        docker_args.append(&mut vec![
-            // Support Docker Desktop in non-production contexts (for example, `flowctl`)
-            // where the container IP is not directly addressable. As an alternative,
-            // we ask Docker to provide mapped host ports that are then advertised
-            // in the attached runtime::Container description.
-            // An empty host port asks Docker to assign a free ephemeral port as
-            // the container starts. Unlike probing for a free port ourselves,
-            // this cannot race host-port allocations of other starting containers.
-            format!("--publish=0.0.0.0::{CONNECTOR_INIT_PORT}"),
-            "--publish-all".to_string(),
-        ]);
+        // Support Docker Desktop in non-production contexts (for example, `flowctl`)
+        // where the container IP is not directly addressable. As an alternative,
+        // we ask Docker to provide mapped host ports, which are reported as
+        // `mapped_host_ports` of the attached runtime::Container.
+        // An empty host port asks Docker to assign a free ephemeral port as
+        // the container starts, so it cannot race host-port allocations of
+        // other starting containers.
+        for port in std::iter::once(CONNECTOR_INIT_PORT as u32).chain(network_ports) {
+            docker_args.push(format!("--publish=0.0.0.0::{port}"));
+        }
     }
 
     if let Some(cgroup_parent) = std::env::var("CONNECTOR_CGROUP_PARENT").ok() {
@@ -593,6 +596,7 @@ mod test {
                 mount: mount.path().to_owned(),
                 network: String::new(),
                 publish_ports: true,
+                network_ports: vec![8080],
             },
             |log| log,
         )

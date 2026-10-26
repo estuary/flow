@@ -113,6 +113,9 @@ pub(crate) struct Extracted<'r, P: Protocol> {
     pub initial_sealed_config_slot: Option<&'r mut bytes::Bytes>,
     /// Build of the initial request's spec, or `None` for requests lacking one.
     pub build: Option<&'r str>,
+    /// Network port numbers of the initial request's spec, or empty for
+    /// requests lacking one.
+    pub network_ports: Vec<u32>,
     /// Secrets of the task. Keys are catalog names of secrets,
     /// while values are JSON pointers into the endpoint config.
     pub secrets: &'r std::collections::BTreeMap<String, String>,
@@ -147,6 +150,7 @@ pub(crate) async fn start<P: Protocol>(
         endpoint,
         initial_config_slot,
         initial_sealed_config_slot,
+        network_ports,
         secrets,
     } = P::extract_endpoint(&mut initial, sqlite_vfs_uri)?;
 
@@ -231,6 +235,7 @@ pub(crate) async fn start<P: Protocol>(
                 env,
                 mount.path(),
                 secrets,
+                network_ports,
                 connector_type,
                 spec_on_own_rpc,
                 requests,

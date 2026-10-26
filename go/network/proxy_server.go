@@ -56,8 +56,8 @@ func (ps *ProxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 	}
 
 	// Resolve the target port to the current container.
-	var container, publisher = resolution.Store.(interface {
-		ProxyHook() (*pr.Container, ops.Publisher)
+	var container, ports, publisher = resolution.Store.(interface {
+		ProxyHook() (*pr.Container, []*pf.NetworkPort, ops.Publisher)
 	}).ProxyHook()
 	resolution.Done()
 
@@ -74,9 +74,10 @@ func (ps *ProxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 		return stream.Send(opened)
 	}
 
-	// Identify a proxy address to use from the container's published ports.
+	// The task spec's ports may be proxied.
+	// Identify a proxy address of the target port within the container.
 	var address string
-	for _, port := range container.NetworkPorts {
+	for _, port := range ports {
 		if open.Open.TargetPort != port.Number {
 			continue
 		}

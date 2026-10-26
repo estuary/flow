@@ -1057,7 +1057,7 @@ fn mock_config_schema(config_schema: Option<&serde_json::Value>) -> bytes::Bytes
 fn mock_response(
     spec: connector::response::started::Spec,
     response: connector::response::Kind,
-    network_ports: Vec<flow::NetworkPort>,
+    advertised_ports: Vec<flow::NetworkPort>,
     usage_rate: f32,
 ) -> (connector::response::Started, connector::response::Kind) {
     (
@@ -1065,7 +1065,7 @@ fn mock_response(
             spec: Some(spec),
             container: Some(Container {
                 ip_addr: "1.2.3.4".to_string(),
-                network_ports,
+                advertised_ports,
                 mapped_host_ports: Default::default(),
                 usage_rate,
             }),
