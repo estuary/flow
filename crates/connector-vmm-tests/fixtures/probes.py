@@ -228,6 +228,12 @@ def op_accepted(r):
     sock.settimeout(r["wait"])
     try:
         peer, address = sock.accept()
+        if r.get("exchange"):
+            peer.settimeout(r["wait"])
+            data = b""
+            while chunk := peer.recv(1024):
+                data += chunk
+            peer.sendall(b"reply:" + data)
         peer.close()
         return "connection-from:%s" % address[0]
     except socket.timeout:
