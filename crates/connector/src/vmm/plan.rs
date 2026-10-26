@@ -146,6 +146,8 @@ pub(crate) struct Plan {
     /// Arguments after `podman`, in the order they run. The container is
     /// started, once created, by its ID.
     pub verify: Vec<String>,
+    /// Host permissions, installed before the container starts.
+    pub ingress: Vec<String>,
     pub network: Vec<String>,
     pub rootfs: Vec<String>,
     pub create: Vec<String>,
@@ -181,20 +183,6 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             "connector protocol {:?} does not match requested type {:?}",
             inspected.runtime_protocol,
             eligible.task_type
-        );
-    }
-
-    // An ordinary connector's ports are reached at its container's address;
-    // a VMM is reached only through its socket, so they would silently vanish.
-    if !inspected.network_ports.is_empty() {
-        let ports: Vec<String> = inspected
-            .network_ports
-            .iter()
-            .map(|port| port.number.to_string())
-            .collect();
-        anyhow::bail!(
-            "connector image '{image}' exposes network ports {}, which VMM execution cannot serve",
-            ports.join(", ")
         );
     }
 
@@ -300,6 +288,25 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         create.push(guest_path.to_string());
     }
 
+    let ports: Vec<u32> = inspected
+        .network_ports
+        .iter()
+        .map(|port| port.number)
+        .filter(|port| *port != 49092)
+        .collect();
+    if ports.contains(&0) {
+        anyhow::bail!("connector image declares TCP port zero");
+    }
+    let mut ingress = Vec::new();
+    if !ports.is_empty() {
+        ingress = host_boundary(&vmm.image, "grant");
+        ingress.extend([format!("--owner={token}"), format!("--bridge={interface}")]);
+        for port in ports {
+            ingress.push(format!("--port={port}"));
+            create.push(format!("--ingress-port={port}"));
+        }
+    }
+
     Ok(Plan {
         directories: vec![
             (state.clone(), 0o711),
@@ -325,18 +332,8 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             (format!("{mount}/flow-connector-init"), 0o555),
             (format!("{mount}/image-inspect.json"), 0o444),
         ],
-        verify: vec![
-            "run".to_string(),
-            "--rm".to_string(),
-            "--network=host".to_string(),
-            "--log-driver=none".to_string(),
-            "--read-only".to_string(),
-            "--cap-drop=all".to_string(),
-            "--cap-add=CAP_NET_ADMIN".to_string(),
-            vmm.image.clone(),
-            "boundary".to_string(),
-            "verify".to_string(),
-        ],
+        ingress,
+        verify: host_boundary(&vmm.image, "verify"),
         network: vec![
             "network".to_string(),
             "create".to_string(),
@@ -462,6 +459,22 @@ fn check_mount_value(value: &str) -> anyhow::Result<()> {
         anyhow::bail!("contains a comma, which podman's --mount cannot carry");
     }
     Ok(())
+}
+
+/// Run a host-side boundary operation from the same image as the VMM.
+pub(super) fn host_boundary(image: &str, action: &str) -> Vec<String> {
+    vec![
+        "run".into(),
+        "--rm".into(),
+        "--network=host".into(),
+        "--log-driver=none".into(),
+        "--read-only".into(),
+        "--cap-drop=all".into(),
+        "--cap-add=CAP_NET_ADMIN".into(),
+        image.into(),
+        "boundary".into(),
+        action.into(),
+    ]
 }
 
 #[cfg(test)]
@@ -638,6 +651,17 @@ mod test {
         }
     }
 
+    #[test]
+    fn declared_ingress() {
+        let vmm = vmm(&[]);
+        let inspection = inspection(
+            json!({"dev.estuary.port-public.8080": "true"}),
+            json!({"8080/tcp": {}, "9090/tcp": {}, "9000/udp": {}, "49092/tcp": {}}),
+        );
+        let plan = super::plan(&vmm, &launch(&inspection)).unwrap();
+        insta::assert_snapshot!(describe(&plan));
+    }
+
     /// Everything one plan holds, where the limits are spelled as an operator
     /// might write them and the guest's differ from the container's, and the
     /// task's egress repeats a default and a label host.
@@ -750,6 +774,7 @@ mod test {
             socket,
             mount_files,
             verify,
+            ingress,
             network,
             rootfs,
             create,
@@ -766,12 +791,13 @@ mod test {
              token: {token}\nmount: {mount}\nscratch: {scratch}\n\
              socket: {socket} ({} bytes)\n\
              \n## directories\n{}\n## egress\n{egress}\n\n## {policy_path}\n{}\n\n## connector mount\n{}\
-             \n## verify\npodman {}\n\n## network\npodman {}\n\n## rootfs\npodman {}\n\n## create\npodman {}\n",
+             \n## verify\npodman {}\n\n## ingress\n{}\n\n## network\npodman {}\n\n## rootfs\npodman {}\n\n## create\npodman {}\n",
             socket.len(),
             modes(directories),
             String::from_utf8_lossy(policy),
             modes(mount_files),
             verify.join(" "),
+            ingress.join(" "),
             network.join(" "),
             rootfs.join(" "),
             create.join(" \\\n  "),

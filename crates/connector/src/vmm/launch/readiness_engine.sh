@@ -7,12 +7,23 @@ printf '%s\n' "$*" >>"$dir/calls"
 case "$1 ${2:-}" in
 "pull "*) ;;
 "image inspect")
+    if [ -e "$dir/inspection" ]; then cat "$dir/inspection"; exit 0; fi
     echo '[{"Id":"synthetic-image","Created":"2026-01-01T00:00:00Z","Config":{"Env":[],"Labels":{"FLOW_RUNTIME_PROTOCOL":"derive"}}}]'
     ;;
 "run --rm")
-    # The boundary's verification, the only container a launch runs.
-    for arg; do last=$arg; done
-    [ "$last" = verify ] || exit 43
+    for arg; do
+        case "$arg" in
+        verify) exit 0 ;;
+        grant) touch "$dir/ingress"; exit 0 ;;
+        revoke)
+            [ ! -e "$dir/refuse-revoke" ] || exit 44
+            rm -f "$dir/ingress"; exit 0 ;;
+        esac
+    done
+    exit 43
+    ;;
+"inspect --format")
+    echo 10.89.0.2
     ;;
 "network create")
     for arg; do name=$arg; done

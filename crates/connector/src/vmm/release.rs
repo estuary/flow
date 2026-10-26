@@ -5,10 +5,10 @@
 //! The container goes first, because nothing else is safe to remove while it
 //! may run: its mount and state are bound into it, and its network holds it.
 //! An unknown container, from a query or removal which failed, stops the
-//! release there. Once it's gone, the network, rootfs volume, mount and state
-//! are each attempted whatever became of the others. The record goes last, and only
-//! once everything it names is gone; otherwise it stays, unchanged, so that a
-//! later release, which repeats every check, can finish the job.
+//! release there. Host ingress permissions go next; a failed revoke keeps the
+//! network and record for retry. Then the network, rootfs volume, mount and state
+//! are each attempted whatever became of the others. The record goes last, once
+//! everything it names is gone; otherwise a later release can finish the job.
 
 use super::record::{self, Record};
 use std::time::Duration;
@@ -32,6 +32,7 @@ pub(crate) enum Progress {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Release {
     pub containers: Progress,
+    pub ingress: Progress,
     pub networks: Progress,
     pub volumes: Progress,
     pub mount: Progress,
@@ -42,6 +43,7 @@ pub(crate) struct Release {
 pub(crate) enum Action {
     FindContainers,
     RemoveContainers(Vec<String>),
+    RemoveIngress,
     FindNetworks,
     RemoveNetworks(Vec<String>),
     FindVolumes,
@@ -65,6 +67,11 @@ impl Release {
         };
         Self {
             containers: Progress::Pending,
+            ingress: if record.ingress_image.is_some() {
+                Progress::Pending
+            } else {
+                Progress::Done
+            },
             networks: Progress::Pending,
             volumes: Progress::Pending,
             mount: dir(record.created_mount),
@@ -78,6 +85,12 @@ impl Release {
             Progress::Found(ids) => return Action::RemoveContainers(ids.clone()),
             Progress::Failed(_) => return Action::Keep,
             Progress::Done => (),
+        }
+        match &self.ingress {
+            Progress::Pending => return Action::RemoveIngress,
+            Progress::Done => (),
+            Progress::Failed(_) => return Action::Keep,
+            Progress::Found(_) => unreachable!("ingress is removed by owner token"),
         }
         match &self.networks {
             Progress::Pending => return Action::FindNetworks,
@@ -110,6 +123,7 @@ impl Release {
     pub(crate) fn failures(&self, record: &Record) -> Vec<(String, String)> {
         [
             (format!("container {}", record.name), &self.containers),
+            (format!("ingress {}", record.token), &self.ingress),
             (format!("network {}", record.name), &self.networks),
             (format!("rootfs volume {}", record.name), &self.volumes),
             (record.mount.clone(), &self.mount),
@@ -159,6 +173,19 @@ pub(crate) async fn release(
                 let mut args = vec!["rm", "--force", "--time=0", "--ignore"];
                 args.extend(ids.iter().map(String::as_str));
                 release.containers = removed(command(podman, &args).await.map(|_| ()));
+            }
+            Action::RemoveIngress => {
+                let image = record
+                    .ingress_image
+                    .as_deref()
+                    .expect("ingress has a VMM image");
+                let mut args = super::plan::host_boundary(image, "revoke");
+                args.push(format!("--owner={}", record.token));
+                release.ingress = removed(
+                    command(podman, &args.iter().map(String::as_str).collect::<Vec<_>>())
+                        .await
+                        .map(|_| ()),
+                );
             }
             Action::FindNetworks => {
                 release.networks = found(
@@ -316,6 +343,30 @@ mod test {
     use super::{Action, Progress, Release};
 
     #[test]
+    fn ingress_cleanup_precedes_network_release() {
+        let record = super::record::parse(
+            "/state",
+            "fv_0123456789abcdef",
+            &super::record::claim_line(
+                "fv_0123456789abcdef",
+                "00112233445566778899aabbccddeeff",
+                "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef",
+                Some("vmm:local"),
+            ),
+        )
+        .unwrap();
+        let mut release = Release::new(&record);
+        assert_eq!(release.next(), Action::FindContainers);
+        release.containers = Progress::Done;
+        assert_eq!(release.next(), Action::RemoveIngress);
+        release.ingress = Progress::Failed("revoke failed".into());
+        assert_eq!(release.next(), Action::Keep);
+        assert_eq!(release.failures(&record).len(), 1);
+        release.ingress = Progress::Done;
+        assert_eq!(release.next(), Action::FindNetworks);
+    }
+
+    #[test]
     fn releases() {
         use Outcome::*;
 
@@ -390,6 +441,7 @@ mod test {
                 state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef".to_string(),
                 created_mount: *created_mount,
                 created_state: *created_state,
+                ingress_image: None,
             };
             let mut release = Release::new(&record);
             let mut outcomes = outcomes.iter();
@@ -420,6 +472,7 @@ mod test {
                     }
                     Action::FindNetworks | Action::RemoveNetworks(_) => release.networks = progress,
                     Action::FindVolumes | Action::RemoveVolumes(_) => release.volumes = progress,
+                    Action::RemoveIngress => release.ingress = progress,
                     Action::RemoveMount => release.mount = progress,
                     Action::RemoveState => release.state = progress,
                     Action::RemoveRecord | Action::Keep => unreachable!(),

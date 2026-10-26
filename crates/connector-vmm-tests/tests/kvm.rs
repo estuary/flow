@@ -1950,3 +1950,217 @@ fn boundary_holds_across_reinstalls() {
         "the decoy was reached"
     );
 }
+
+#[test]
+fn ingress_from_host() {
+    use std::io::{Read, Write};
+
+    let run = run::load();
+    let (sibling, mut sibling_guest) = start(
+        &run,
+        run::Spec {
+            flags: vec!["--ingress-port=8080".to_string()],
+            ..run::Spec::probes(&run, "none.json")
+        },
+    );
+    let _sibling_permissions = run::ingress(&run, &sibling, &[8080]);
+    for policy in ["none.json", "allow-all.json"] {
+        let (vmm, mut guest) = start(
+            &run,
+            run::Spec {
+                flags: vec!["--ingress-port=8080".to_string()],
+                ..run::Spec::probes(&run, policy)
+            },
+        );
+        let permissions = run::ingress(&run, &vmm, &[8080]);
+        let ip = network_field(&vmm, "IPAddress");
+        assert_eq!(
+            probe(
+                &mut guest,
+                "undeclared-listen",
+                "listen",
+                serde_json::json!({"port": 8081})
+            ),
+            "listening"
+        );
+
+        for compromised in [false, true] {
+            if compromised {
+                flush(&vmm);
+                // An escaped VMM can forward every port, but cannot authorize
+                // another port or a remote caller in the host boundary.
+                let rules = format!(
+                    "table ip attacker {{\n\
+                     chain prerouting {{\n\
+                     type nat hook prerouting priority dstnat; policy accept;\n\
+                     iifname eth0 tcp dport {{ 8080, 8081 }} dnat to {GUEST}\n\
+                     }}\n\
+                     chain postrouting {{\n\
+                     type filter hook postrouting priority mangle; policy accept;\n\
+                     meta mark set 0x46564d49\n\
+                     }}\n\
+                     chain guest_nat {{\n\
+                     type nat hook postrouting priority srcnat; policy accept;\n\
+                     oifname eth0 masquerade\n\
+                     }}\n}}\n"
+                );
+                let output = run::sudo_output(
+                    &["podman", "exec", "-i", &vmm.name, "nft", "-f", "-"],
+                    Some(rules.as_bytes()),
+                );
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            assert_eq!(
+                probe(
+                    &mut guest,
+                    "declared-listen",
+                    "listen",
+                    serde_json::json!({"port": 8080})
+                ),
+                "listening"
+            );
+            assert!(
+                std::net::TcpStream::connect_timeout(
+                    &(ip, 8081).into(),
+                    Duration::from_millis(500)
+                )
+                .is_err(),
+                "undeclared port admitted ({policy}, compromised={compromised})"
+            );
+            let remote = format!(
+                "import socket\ns=socket.socket(); s.settimeout(0.5)\ntry:\n s.connect(('{ip}', 8080)); print('connected')\nexcept OSError:\n print('blocked')"
+            );
+            assert_eq!(
+                run::sudo(&[
+                    "ip",
+                    "netns",
+                    "exec",
+                    &run.endpoint_netns,
+                    "python3",
+                    "-c",
+                    &remote
+                ])
+                .trim(),
+                "blocked"
+            );
+
+            assert_eq!(
+                tcp(
+                    &mut sibling_guest,
+                    "sibling-cannot-open-ingress",
+                    ip,
+                    8080,
+                    BLOCKED
+                ),
+                "timeout"
+            );
+
+            let mut stream =
+                std::net::TcpStream::connect_timeout(&(ip, 8080).into(), Duration::from_secs(5))
+                    .expect("host reaches the declared port");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream.write_all(b"ingest documents").unwrap();
+            stream.shutdown(std::net::Shutdown::Write).unwrap();
+            let accepted = probe(
+                &mut guest,
+                "ingress-reply",
+                "accepted",
+                serde_json::json!({"port": 8080, "wait": 5, "exchange": true}),
+            );
+            assert!(accepted.as_str().unwrap().starts_with("connection-from:"));
+            let mut reply = String::new();
+            stream.read_to_string(&mut reply).unwrap();
+            assert_eq!(
+                reply, "reply:ingest documents",
+                "{policy}, compromised={compromised}"
+            );
+
+            let gateway = network_field(&vmm, "Gateway");
+            assert_eq!(
+                tcp(
+                    &mut guest,
+                    "guest-cannot-open-host-connection",
+                    gateway,
+                    8080,
+                    BLOCKED
+                ),
+                "timeout"
+            );
+        }
+        assert_eq!(
+            probe(
+                &mut guest,
+                "listen-before-revoke",
+                "listen",
+                serde_json::json!({"port": 8080})
+            ),
+            "listening"
+        );
+        let mut held =
+            std::net::TcpStream::connect_timeout(&(ip, 8080).into(), Duration::from_secs(5))
+                .unwrap();
+        held.set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
+        held.write_all(b"before revoke").unwrap();
+        held.shutdown(std::net::Shutdown::Write).unwrap();
+        drop(permissions);
+        let accepted = probe(
+            &mut guest,
+            "reply-after-revoke",
+            "accepted",
+            serde_json::json!({"port": 8080, "wait": 5, "exchange": true}),
+        );
+        assert!(accepted.as_str().unwrap().starts_with("connection-from:"));
+        assert!(
+            held.read(&mut [0u8; 64]).is_err(),
+            "stale connection retained ingress permission"
+        );
+        assert_eq!(
+            probe(
+                &mut guest,
+                "listen-after-revoke",
+                "listen",
+                serde_json::json!({"port": 8080})
+            ),
+            "listening"
+        );
+        assert!(
+            std::net::TcpStream::connect_timeout(&(ip, 8080).into(), Duration::from_millis(500))
+                .is_err(),
+            "revoked ingress admitted a connection"
+        );
+        assert_eq!(
+            probe(
+                &mut sibling_guest,
+                "sibling-still-authorized",
+                "listen",
+                serde_json::json!({"port": 8080})
+            ),
+            "listening"
+        );
+        let sibling_ip = network_field(&sibling, "IPAddress");
+        let stream = std::net::TcpStream::connect_timeout(
+            &(sibling_ip, 8080).into(),
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert!(
+            probe(
+                &mut sibling_guest,
+                "sibling-accepted",
+                "accepted",
+                serde_json::json!({"port": 8080, "wait": 5})
+            )
+            .as_str()
+            .unwrap()
+            .starts_with("connection-from:")
+        );
+        drop(stream);
+    }
+}

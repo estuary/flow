@@ -192,6 +192,13 @@ release() {
         # Refused while any VMM bridge remains, this run's or another owner's.
         # Tables already gone are no failure.
         boundary) boundary "${value}" remove || status=$? ;;
+        ingress)
+            local ingress_image ingress_owner
+            read -r ingress_image ingress_owner <<<"${value}"
+            sudo -n podman run --rm --network=host --log-driver=none --read-only \
+                --cap-drop=all --cap-add=CAP_NET_ADMIN "${ingress_image}" \
+                boundary revoke "--owner=${ingress_owner}" || status=$?
+            ;;
         link) remove_listed link "${value}" sudo -n ip link del "${value}" || status=$? ;;
         # "blackhole <prefix> metric <n>", deliberately split.
         route) remove_listed route "${value}" sudo -n ip route del ${value} || status=$? ;;

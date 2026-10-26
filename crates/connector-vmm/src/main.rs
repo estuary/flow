@@ -10,6 +10,7 @@ mod boundary;
 mod console;
 mod disk;
 mod image;
+mod ingress;
 mod krun;
 mod launch;
 mod net;
@@ -97,7 +98,7 @@ fn run(args: &Args) -> anyhow::Result<()> {
             vmm_subnet: vmm_subnets,
         } => {
             let policy = egress::load(policy)?;
-            print!("{}", ruleset::render(&policy, vmm_subnets)?);
+            print!("{}", ruleset::render(&policy, vmm_subnets, &[])?);
             Ok(())
         }
         Command::Boundary { action } => boundary::run(action),

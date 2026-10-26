@@ -82,6 +82,10 @@ pub struct Args {
     #[arg(long, value_name = "N")]
     pub disk_mib: u64,
 
+    /// Declared TCP ports forwarded from the uplink into the guest.
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
+    pub ingress_port: Vec<u16>,
+
     /// Mount the task's persistent disk share at this absolute guest path,
     /// whose first component must not exist in the connector image.
     #[arg(long, value_name = "GUEST_PATH", value_parser = guest_path)]
@@ -188,7 +192,7 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
     // The guest's first packet has to meet a finished ruleset, so the whole
     // network is up before anything else happens.
     let vmm_subnets = net::vmm_subnets()?;
-    let ruleset = crate::ruleset::render(&policy, &vmm_subnets)?;
+    let ruleset = crate::ruleset::render(&policy, &vmm_subnets, &args.ingress_port)?;
     net::create_tap()?;
     net::check_ipv6_disabled(net::TAP)?;
     net::apply_ruleset(&ruleset)?;

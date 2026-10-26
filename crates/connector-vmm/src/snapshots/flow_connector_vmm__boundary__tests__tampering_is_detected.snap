@@ -1,6 +1,5 @@
 ---
 source: crates/connector-vmm/src/boundary.rs
-assertion_line: 605
 expression: report
 ---
 # no tables at all
@@ -22,7 +21,7 @@ unexpected: {"set":{"elem":[{"prefix":{"addr":"0.0.0.0","len":8}},{"prefix":{"ad
 inet forward, rule 0: expected {"rule":{"chain":"forward","comment":"vmm-to-vmm","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"meta":{"key":"oifname"}},"op":"==","right":"fvm*"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}, found {"rule":{"chain":"forward","expr":[{"accept":null}],"family":"inet","table":"flow_vmm_boundary"}}
 
 # a rule deleted
-inet input, rule 1: expected {"rule":{"chain":"input","comment":"host","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}, found nothing
+inet input, rule 2: expected {"rule":{"chain":"input","comment":"host","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}, found nothing
 
 # a rule's match rewritten under the same comment
 inet forward, rule 1: expected {"rule":{"chain":"forward","comment":"baseline","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"payload":{"field":"daddr","protocol":"ip"}},"op":"==","right":"@baseline"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}, found {"rule":{"chain":"forward","comment":"baseline","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvx*"}},{"match":{"left":{"payload":{"field":"daddr","protocol":"ip"}},"op":"==","right":"@baseline"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}

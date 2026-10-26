@@ -11,13 +11,12 @@
 //! installation covers every VMM bridge the host will have, before any exists,
 //! and every owner of such a network installs the same tables.
 //!
-//! Every rule but one drops, and a drop in any base chain is final: nothing
-//! another table accepts (netavark's, Docker's) undoes it, and nothing here
-//! widens what those tables allow. The exception is the VMM's nameserver,
-//! which is podman's resolver on the gateway address of the VMM's own bridge,
-//! the address podman writes into the container's `resolv.conf`. The rule
-//! names the bridge the query arrived on rather than an address, so the
-//! exception cannot drift from what the VMM's resolver uses.
+//! Drops in these base chains cannot be undone by another table's accepts.
+//! Podman's resolver on the arrival bridge is the guest's DNS exception.
+//! Host ingress uses a reserved packet mark cleared at priority -12 and set by
+//! launch-owned chains at priority -11. Permissions are checked on every packet,
+//! so stale conntrack state cannot authorize a replacement launch. Forwarded
+//! ingress and guest-originated host connections remain blocked.
 
 use std::collections::BTreeMap;
 
@@ -49,6 +48,20 @@ pub enum Action {
     Verify,
     /// Delete both tables. Refused while any VMM bridge exists.
     Remove,
+    /// Permit host-originated TCP connections to one launch's declared ports.
+    Grant {
+        #[arg(long, value_parser = crate::ingress::token)]
+        owner: String,
+        #[arg(long, value_parser = crate::ingress::bridge)]
+        bridge: String,
+        #[arg(long, required = true, value_parser = clap::value_parser!(u16).range(1..))]
+        port: Vec<u16>,
+    },
+    /// Remove only the permissions belonging to this owner token.
+    Revoke {
+        #[arg(long, value_parser = crate::ingress::token)]
+        owner: String,
+    },
 }
 
 pub fn run(action: &Action) -> anyhow::Result<()> {
@@ -56,6 +69,12 @@ pub fn run(action: &Action) -> anyhow::Result<()> {
         Action::Install => install(),
         Action::Verify => verify(),
         Action::Remove => remove(),
+        Action::Grant {
+            owner,
+            bridge,
+            port,
+        } => crate::ingress::grant(owner, bridge, port),
+        Action::Revoke { owner } => crate::ingress::revoke(owner),
     }
 }
 
@@ -272,6 +291,10 @@ fn expected() -> Vec<serde_json::Value> {
         chain("inet", "input", FILTER_PRIORITY),
         chain("inet", "forward", FILTER_PRIORITY),
         chain("inet", "output", FILTER_PRIORITY),
+        mark_chain("input"),
+        mark_chain("output"),
+        clear_mark("input", "iifname"),
+        clear_mark("output", "oifname"),
         // IPv6 is dropped rather than filtered: nothing here would bound it.
         rule(
             "inet",
@@ -315,6 +338,19 @@ fn expected() -> Vec<serde_json::Value> {
             ],
             "accept",
         ),
+        rule(
+            "inet",
+            "input",
+            "ingress-replies",
+            vec![
+                from(),
+                meta("l4proto", "tcp".into()),
+                meta("mark", crate::ingress::MARK.into()),
+                ct("direction", "reply".into()),
+                ct("state", "established".into()),
+            ],
+            "accept",
+        ),
         rule("inet", "input", "host", vec![from()], "drop"),
         // Between two VMM bridges, and back out of the same one.
         rule("inet", "forward", "vmm-to-vmm", vec![from(), to()], "drop"),
@@ -339,7 +375,15 @@ fn expected() -> Vec<serde_json::Value> {
             vec![to(), meta("nfproto", "ipv6".into())],
             "drop",
         ),
-        // Nothing opens a connection into a VMM, from anywhere.
+        // Original-direction traffic is blocked even when it matches an
+        // established host ingress connection. Only its local output may pass.
+        rule(
+            "inet",
+            "forward",
+            "original-inbound",
+            vec![to(), ct("direction", "original".into())],
+            "drop",
+        ),
         rule(
             "inet",
             "forward",
@@ -352,6 +396,26 @@ fn expected() -> Vec<serde_json::Value> {
             "output",
             "no-ipv6-inbound",
             vec![to(), meta("nfproto", "ipv6".into())],
+            "drop",
+        ),
+        rule(
+            "inet",
+            "output",
+            "ingress",
+            vec![
+                to(),
+                meta("l4proto", "tcp".into()),
+                meta("mark", crate::ingress::MARK.into()),
+                ct("direction", "original".into()),
+                serde_json::json!({ "match": { "op": "==", "left": { "ct": { "key": "state" } }, "right": { "set": ["established", "new"] } } }),
+            ],
+            "accept",
+        ),
+        rule(
+            "inet",
+            "output",
+            "original-without-ingress",
+            vec![to(), ct("direction", "original".into())],
             "drop",
         ),
         rule("inet", "output", "no-inbound", vec![to(), replies], "drop"),
@@ -383,6 +447,20 @@ fn expected() -> Vec<serde_json::Value> {
             "drop",
         ),
     ]
+}
+
+fn mark_chain(hook: &str) -> serde_json::Value {
+    let mut chain = chain("inet", hook, FILTER_PRIORITY - 2);
+    chain["chain"]["name"] = format!("ingress_{hook}").into();
+    chain
+}
+
+fn clear_mark(hook: &str, interface: &str) -> serde_json::Value {
+    serde_json::json!({ "rule": {
+        "family": "inet", "table": TABLE, "chain": format!("ingress_{hook}"), "comment": "clear-ingress-mark",
+        "expr": [meta(interface, format!("{BRIDGE_PREFIX}*").into()), meta("mark", crate::ingress::MARK.into()),
+            { "counter": null }, { "mangle": { "key": { "meta": { "key": "mark" } }, "value": 0 } }],
+    } })
 }
 
 fn chain(family: &str, name: &str, prio: i32) -> serde_json::Value {
@@ -417,6 +495,10 @@ fn rule(
 
 fn meta(key: &str, right: serde_json::Value) -> serde_json::Value {
     serde_json::json!({ "match": { "op": "==", "left": { "meta": { "key": key } }, "right": right } })
+}
+
+fn ct(key: &str, right: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "match": { "op": "==", "left": { "ct": { "key": key } }, "right": right } })
 }
 
 fn payload(op: &str, protocol: &str, field: &str, right: serde_json::Value) -> serde_json::Value {
@@ -461,6 +543,12 @@ fn ours(item: &serde_json::Value) -> Option<serde_json::Value> {
     {
         if expr["counter"].is_object() {
             *expr = serde_json::json!({ "counter": null });
+        }
+        // Ubuntu's nft 1.0.9 lists the protocol number; Fedora's lists its name.
+        if expr["match"]["left"] == serde_json::json!({ "meta": { "key": "l4proto" } })
+            && expr["match"]["right"] == 6
+        {
+            expr["match"]["right"] = "tcp".into();
         }
     }
     Some(serde_json::json!({ kind: body }))
@@ -522,6 +610,26 @@ mod tests {
     fn the_kernels_listing_verifies() {
         let listing: serde_json::Value = serde_json::from_str(LISTING).expect("fixture parses");
         assert_eq!(super::differences(&listing), Vec::<String>::new());
+    }
+
+    #[test]
+    fn numeric_tcp_protocol_verifies() {
+        let mut listing: serde_json::Value = serde_json::from_str(LISTING).unwrap();
+        for object in listing["nftables"].as_array_mut().unwrap() {
+            if let Some(exprs) = object
+                .get_mut("rule")
+                .and_then(|rule| rule.get_mut("expr"))
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for expr in exprs {
+                    if expr["match"]["left"] == serde_json::json!({ "meta": { "key": "l4proto" } })
+                    {
+                        expr["match"]["right"] = 6.into();
+                    }
+                }
+            }
+        }
+        assert!(super::differences(&listing).is_empty());
     }
 
     #[test]
@@ -606,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn every_rule_is_keyed_on_a_bridge_and_drops() {
+    fn every_rule_is_keyed_on_a_bridge() {
         let mut accepts = Vec::new();
 
         for object in super::expected() {
@@ -625,6 +733,11 @@ mod tests {
             let verdict = expr.last().expect("a verdict");
             if verdict.get("accept").is_some() {
                 accepts.push(format!("{}/{}", rule["chain"], rule["comment"]));
+            } else if rule["comment"] == "clear-ingress-mark" {
+                assert_eq!(
+                    verdict["mangle"],
+                    serde_json::json!({"key": {"meta": {"key": "mark"}}, "value": 0})
+                );
             } else {
                 assert!(
                     verdict.get("drop").is_some(),
@@ -632,7 +745,14 @@ mod tests {
                 );
             }
         }
-        assert_eq!(accepts, vec![r#""input"/"gateway-dns""#]);
+        assert_eq!(
+            accepts,
+            vec![
+                r#""input"/"gateway-dns""#,
+                r#""input"/"ingress-replies""#,
+                r#""output"/"ingress""#
+            ]
+        );
     }
 
     fn position(items: &[serde_json::Value], chain: &str, comment: &str) -> usize {

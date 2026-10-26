@@ -411,10 +411,15 @@ EOF or status. A client which does not drain responses may park the handler.
   credentials are configured, the launch writes and rotates `task-update.json`
   there until teardown starts.
 
-- **A VMM is reached only through `init.sock`.** Its `Container` has no
-  address, ports or mapped ports, and carries the image's usage rate. The
-  launcher owns the socket's parent directory at mode 0700, restricting
-  access to its host UID and root.
+- **VMM control uses `init.sock`; container networking uses declared TCP ports.**
+  A VMM with declared ports reports its container IPv4 address and the image's
+  port declarations. The host proxy dials that address; the VMM forwards to
+  the guest. Ports are not published on host interfaces. Host permissions are
+  keyed by the VMM bridge and declared port, owned by the launch token, and
+  recorded with the VMM image used to revoke them during teardown or recovery.
+  Ingress and its replies work independently of egress policy. Connector-init's
+  reserved port 49092 is never authorized. The control socket's parent has mode
+  0700, restricting access to the launcher's host UID and root.
 
 - **A VMM is ready when connector-init's health is SERVING.** The launch
   dials `init.sock` and calls standard `grpc.health.v1.Health/Check` for the

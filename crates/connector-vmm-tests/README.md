@@ -30,7 +30,8 @@ connector-init over a guest's vsock connection.
 ## Coverage and entry points
 
 - `tests/kvm.rs`: guest boot, devices, filesystem and connector-mount
-  isolation, RPC, teardown, egress allowlists and expiry, and host isolation
+  isolation, RPC, teardown, egress allowlists and expiry, host-only declared
+  TCP ingress with bidirectional traffic under `egress: none`, and host isolation
   after a VMM removes its own rules. Connector-mount tests check that host
   file replacements become visible inside the guest.
 - `tests/dns_answers/`, `tests/dns_capacity/`: refused answers and capacity

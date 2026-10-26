@@ -1,6 +1,5 @@
 ---
 source: crates/connector-vmm/src/main.rs
-assertion_line: 144
 expression: table
 ---
 $ flow-connector-vmm print-ruleset --policy /init/policy.json
@@ -141,6 +140,8 @@ flow-connector-vmm: Commands:
 flow-connector-vmm:   install  Replace both tables in one transaction, then verify them. Fails, having installed them, if VMM bridges already existed while a table was absent: those VMMs ran without the boundary and must be replaced
 flow-connector-vmm:   verify   Exit zero only if both tables are exactly those this binary installs
 flow-connector-vmm:   remove   Delete both tables. Refused while any VMM bridge exists
+flow-connector-vmm:   grant    Permit host-originated TCP connections to one launch's declared ports
+flow-connector-vmm:   revoke   Remove only the permissions belonging to this owner token
 flow-connector-vmm:   help     Print this message or the help of the given subcommand(s)
 flow-connector-vmm:
 flow-connector-vmm: Options:

@@ -68,11 +68,11 @@ labels {"dev.estuary.egress-hosts":"[\"localhost\"]"} ports {}
 
 # a public port
 labels {"dev.estuary.port-public.8080":"true"} ports {"8080/tcp":{}}
-=> refused: connector image 'ghcr.io/estuary/derive-python:stable' exposes network ports 8080, which VMM execution cannot serve
+=> {"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
 
 # a private port
 labels {} ports {"8080/tcp":{},"9090":{}}
-=> refused: connector image 'ghcr.io/estuary/derive-python:stable' exposes network ports 8080, 9090, which VMM execution cannot serve
+=> {"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
 
 # only a UDP port, which ordinary launches ignore too
 labels {} ports {"9000/udp":{}}
