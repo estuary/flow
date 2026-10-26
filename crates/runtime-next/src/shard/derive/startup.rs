@@ -70,7 +70,7 @@ pub(super) struct Startup<P: crate::Publisher> {
     pub publisher: P,
     pub shuffle_reader: shuffle::log::Reader,
     pub task: Task,
-    pub write_shape: doc::Shape,
+    pub inferred_shape: doc::Shape,
 }
 
 pub(super) async fn run<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
@@ -121,7 +121,7 @@ where
     let spec =
         flow::CollectionSpec::decode(spec_bytes.as_ref()).context("invalid Task derivation")?;
     let task = Task::new(&spec).context("building task definition")?;
-    let write_shape = task.write_shape.clone();
+    let inferred_shape = task.inferred_shape.clone();
 
     // The derived collection is the single additional publisher binding;
     // publisher binding zero is the fixed ops-stats journal.
@@ -269,6 +269,6 @@ where
         publisher,
         shuffle_reader,
         task,
-        write_shape,
+        inferred_shape,
     })
 }

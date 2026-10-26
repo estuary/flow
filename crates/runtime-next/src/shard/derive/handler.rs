@@ -206,7 +206,7 @@ where
         publisher,
         shuffle_reader,
         task,
-        write_shape,
+        inferred_shape,
     } = startup::run(
         controller_rx,
         controller_tx,
@@ -237,7 +237,7 @@ where
         logger,
         publisher,
         std::sync::Arc::new(task),
-        write_shape,
+        inferred_shape,
     )
     .serve(
         accumulator,
