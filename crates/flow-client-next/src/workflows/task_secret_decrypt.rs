@@ -92,10 +92,14 @@ impl tokens::RestSource for TaskSecretDecrypt {
         url.query_pairs_mut()
             .append_pair("name", self.name.as_str());
 
+        // The POST has no body, and over HTTP/1.1 reqwest then sends no
+        // Content-Length (even with `.body("")`). The Google Frontend serving
+        // config-encryption rejects such a request with 411 Length Required.
         Ok(self
             .client
             .http_client
             .post(url)
+            .header(reqwest::header::CONTENT_LENGTH, 0)
             .bearer_auth(self.signed_source.sign()?))
     }
 
@@ -141,6 +145,13 @@ mod tests {
         assert_eq!(
             request.url().as_str(),
             "https://config-encryption.example.com/secret/decrypt?name=acmeCo%2Fpassword"
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get(reqwest::header::CONTENT_LENGTH)
+                .unwrap(),
+            "0",
         );
 
         let bearer = request
