@@ -111,7 +111,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         leader_rx: &mut Ldr,
         max_pinned_segments: usize,
         shuffle_reader: shuffle::log::Reader,
-    ) -> anyhow::Result<crate::shard::RocksDB>
+    ) -> anyhow::Result<(crate::shard::RocksDB, doc::Shape)>
     where
         Ctrl: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
         Ldr: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
@@ -310,8 +310,13 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let Some(db) = self.db.take() else {
             anyhow::bail!("leader Stopped while a Persist is in flight");
         };
+        // Hand the inferred shape back so the next session continues inference.
+        let inferred_shape = self
+            .inferred_shape
+            .take()
+            .context("missing inferred shape")?;
 
-        Ok(db)
+        Ok((db, inferred_shape))
     }
 
     fn try_connector_tx(&mut self) -> impl Future<Output = bool> + 'static {
@@ -656,6 +661,7 @@ mod tests {
     fn test_task() -> Task {
         Task {
             collection_name: "test/derived".to_string(),
+            collection_generation_id: models::Id::zero(),
             document_uuid_ptr: json::Pointer::from("/_meta/uuid"),
             key_extractors: Vec::new(),
             redact_salt: bytes::Bytes::new(),
@@ -670,7 +676,6 @@ mod tests {
             }],
             binding_state_keys: vec!["fromSrc".to_string()],
             write_schema_json: bytes::Bytes::from_static(b"{}"),
-            inferred_shape: doc::Shape::nothing(),
         }
     }
 
@@ -695,7 +700,7 @@ mod tests {
             ..Default::default()
         };
         let publisher = crate::JournalPublisher::new_test_real([&spec]);
-        let inferred_shape = task.inferred_shape.clone();
+        let inferred_shape = task.shape_by_generation(None);
 
         let mut actor = Actor::new(
             connector_init::Codec::Proto,
@@ -787,7 +792,7 @@ mod tests {
 
         let task = Arc::new(test_task());
         let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
-        let inferred_shape = task.inferred_shape.clone();
+        let inferred_shape = task.shape_by_generation(None);
         let db = crate::shard::RocksDB::open(None).await.unwrap();
         let shuffle_dir = tempfile::tempdir().unwrap();
         let shuffle_reader = shuffle::log::Reader::new(shuffle_dir.path(), 0);
@@ -977,7 +982,7 @@ mod tests {
             .unwrap();
         std::mem::drop(leader_to_actor_tx);
 
-        let db = serve_handle.await.unwrap().unwrap();
+        let (db, _inferred_shape) = serve_handle.await.unwrap().unwrap();
 
         // Confirm the Persist round-tripped.
         let (_db, recover) = db.scan(Vec::<&str>::new()).await.unwrap();

@@ -65,6 +65,10 @@ where
     let shard_producer = crate::new_producer();
     let leader_producer = crate::new_producer();
 
+    // The inferred document shape is held only in memory and accumulates
+    // across every session of this Shard stream, until the collection is reset.
+    let mut inferred_shape: Option<doc::Shape> = None;
+
     let verify = crate::verify("Derive", "Join", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
@@ -80,6 +84,7 @@ where
                     shard_producer,
                     leader_producer,
                     report_final_state,
+                    &mut inferred_shape,
                 )
                 .await?;
             }
@@ -105,6 +110,7 @@ async fn serve_session<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     shard_producer: proto_gazette::uuid::Producer,
     leader_producer: proto_gazette::uuid::Producer,
     report_final_state: bool,
+    inferred_shape: &mut Option<doc::Shape>,
 ) -> anyhow::Result<crate::shard::RocksDB>
 where
     R: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
@@ -120,6 +126,7 @@ where
         shard_producer,
         leader_producer,
         report_final_state,
+        inferred_shape,
         handler,
     )
     .instrument(span)
@@ -135,6 +142,7 @@ async fn serve_session_inner<R, P: crate::PublisherFactory, L: crate::LoggerFact
     shard_producer: proto_gazette::uuid::Producer,
     leader_producer: proto_gazette::uuid::Producer,
     report_final_state: bool,
+    inferred_shape: &mut Option<doc::Shape>,
     mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<crate::shard::RocksDB>
 where
@@ -206,7 +214,6 @@ where
         publisher,
         shuffle_reader,
         task,
-        inferred_shape,
     } = startup::run(
         controller_rx,
         controller_tx,
@@ -227,6 +234,10 @@ where
 
     handler.set_phase("running");
 
+    // Restore the inferred shape accumulated by prior sessions, and stow the
+    // session's final shape back when it ends.
+    let shape = task.shape_by_generation(inferred_shape.take());
+
     let result = super::actor::Actor::new(
         codec,
         connector_tx,
@@ -237,7 +248,7 @@ where
         logger,
         publisher,
         std::sync::Arc::new(task),
-        inferred_shape,
+        shape,
     )
     .serve(
         accumulator,
@@ -250,8 +261,9 @@ where
     .await;
 
     let db = match result {
-        Ok(db) => {
+        Ok((db, shape)) => {
             handler.finish_ok();
+            *inferred_shape = Some(shape);
             db
         }
         Err(err) => {

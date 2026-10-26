@@ -111,7 +111,8 @@ src/
     │   ├── actor.rs         # independent per-shard capture transaction loop
     │   └── drain.rs         # combiner drain: publish documents, widen inference
     ├── derive/
-    │   ├── handler.rs       # gRPC stream handler
+    │   ├── handler.rs       # gRPC stream handler; stows its inferred
+    │   │                     #   shape across sessions
     │   ├── startup.rs       # join leader, scan RocksDB, open connector
     │   ├── scan.rs          # frontier scan: source documents out as C:Read
     │   ├── actor.rs         # per-shard transaction loop

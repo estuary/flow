@@ -10,6 +10,8 @@ use proto_flow::flow;
 pub(super) struct Task {
     /// Derived collection name.
     pub collection_name: String,
+    /// Generation id of the collection, output as part of updating inferred schemas.
+    pub collection_generation_id: models::Id,
     /// JSON pointer at which document UUIDs are added.
     pub document_uuid_ptr: json::Pointer,
     /// Key components extracted from derived (published) documents.
@@ -26,8 +28,6 @@ pub(super) struct Task {
     pub binding_state_keys: Vec<String>,
     /// Write JSON-Schema of the derived collection.
     pub write_schema_json: bytes::Bytes,
-    /// Inferred Shape of written documents.
-    pub inferred_shape: doc::Shape,
 }
 
 /// Transform configuration for a derivation shard.
@@ -169,16 +169,9 @@ impl Task {
         let document_uuid_ptr = json::Pointer::from(uuid_ptr);
         let key_extractors = extractors::for_key(key, projections, &ser_policy)?;
 
-        let mut inferred_shape = doc::Shape::nothing();
-        // Stamp the generation id so inferred-schema updates carry it (mirrors
-        // capture `Task::shapes_by_target`).
-        inferred_shape.annotations.insert(
-            crate::X_GENERATION_ID.to_string(),
-            serde_json::Value::String(collection_generation_id.to_string()),
-        );
-
         Ok(Self {
             collection_name: collection_name.clone(),
+            collection_generation_id,
             document_uuid_ptr,
             key_extractors,
             redact_salt: redact_salt.clone(),
@@ -186,8 +179,27 @@ impl Task {
             sources,
             binding_state_keys,
             write_schema_json: write_schema_json.clone(),
-            inferred_shape,
         })
+    }
+
+    /// Restore a stowed inferred shape, or a freshly-seeded one if the
+    /// collection has since been reset.
+    pub fn shape_by_generation(&self, prior: Option<doc::Shape>) -> doc::Shape {
+        let generation_id = serde_json::Value::String(self.collection_generation_id.to_string());
+
+        if let Some(prior) = prior
+            && prior.annotations.get(crate::X_GENERATION_ID) == Some(&generation_id)
+        {
+            return prior;
+        }
+
+        let mut shape = doc::Shape::nothing();
+        // Stamp the generation id so inferred-schema updates carry it (mirrors
+        // capture `Task::shapes_by_target`).
+        shape
+            .annotations
+            .insert(crate::X_GENERATION_ID.to_string(), generation_id);
+        shape
     }
 
     /// Build a source-document validator per Source.
@@ -239,11 +251,8 @@ impl Task {
 mod test {
     use super::*;
 
-    /// A write schema which declares only its key admits any other property,
-    /// yet inference must still widen for each property it hasn't seen.
-    #[test]
-    fn inferred_shape_widens_for_undeclared_properties() {
-        let spec = flow::CollectionSpec {
+    fn test_spec() -> flow::CollectionSpec {
+        flow::CollectionSpec {
             key: vec!["/id".to_string()],
             partition_template: Some(proto_gazette::broker::JournalSpec::default()),
             projections: serde_json::from_value(serde_json::json!([
@@ -255,10 +264,44 @@ mod test {
             ),
             derivation: Some(Box::default()),
             ..Default::default()
-        };
-        let mut shape = Task::new(&spec).unwrap().inferred_shape;
+        }
+    }
+
+    /// A write schema which declares only its key admits any other property,
+    /// yet inference must still widen for each property it hasn't seen.
+    #[test]
+    fn inferred_shape_widens_for_undeclared_properties() {
+        let mut shape = Task::new(&test_spec()).unwrap().shape_by_generation(None);
 
         assert!(shape.widen(&serde_json::json!({"id": "a"})));
         assert!(shape.widen(&serde_json::json!({"id": "b", "added": null})));
+    }
+
+    /// A stowed shape is restored into the next session of its collection
+    /// generation, and a reset collection is freshly seeded.
+    #[test]
+    fn inferred_shape_resumes_within_its_generation() {
+        let marker = |shape: &doc::Shape| shape.annotations.get("marker").cloned();
+
+        let task = Task::new(&test_spec()).unwrap();
+        let mut stowed = task.shape_by_generation(None);
+        stowed
+            .annotations
+            .insert("marker".to_string(), serde_json::json!("stowed"));
+
+        let shape = task.shape_by_generation(Some(stowed.clone()));
+        assert_eq!(marker(&shape), Some(serde_json::json!("stowed")));
+
+        // A shape of another generation predates a reset of the collection.
+        stowed.annotations.insert(
+            crate::X_GENERATION_ID.to_string(),
+            serde_json::json!("1122334455667788"),
+        );
+        let shape = task.shape_by_generation(Some(stowed));
+        assert_eq!(marker(&shape), None);
+        assert_eq!(
+            shape.annotations[crate::X_GENERATION_ID],
+            serde_json::json!(task.collection_generation_id.to_string()),
+        );
     }
 }
