@@ -829,6 +829,12 @@ mod test {
     }
 }
 
+/// A task's network port must fit in a u16, and be neither 0 nor the port of
+/// `flow-connector-init`.
+fn is_valid_network_port(port: u32) -> bool {
+    port != 0 && port <= u16::MAX as u32 && port != models::CONNECTOR_INIT_PORT as u32
+}
+
 /// Issue a unary Validate `kind` to the task's connector (or to the permissive
 /// no-op connector when `no_op`). Errors are pushed to `errors` under `scope`.
 /// Returns the Validated response, network ports, and the ConnectorSpec.
@@ -888,6 +894,11 @@ async fn validate_connector<V>(
         return None;
     };
     let network_ports = started.container.unwrap_or_default().advertised_ports;
+    for port in &network_ports {
+        if !is_valid_network_port(port.number) {
+            Error::NetworkPortInvalid { port: port.number }.push(scope, errors);
+        }
+    }
 
     use proto_flow::connector::response::started::Spec;
     let spec = match started.spec.expect("unary verified Started.Spec is set") {

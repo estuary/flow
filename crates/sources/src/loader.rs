@@ -1125,6 +1125,7 @@ impl<F: Fetcher> Loader<F> {
             config_schema,
             resource_config_schema,
             oauth2: _,
+            network_ports: _,
         } = spec;
 
         let load = |prop: &'static str, schema: &'s Option<models::Schema>| async move {

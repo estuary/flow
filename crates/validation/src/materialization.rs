@@ -365,6 +365,13 @@ async fn walk_materialization(
     )
     .await?;
 
+    let network_ports = match &endpoint {
+        models::MaterializationEndpoint::Python(python) => {
+            crate::custom::network_ports(&python.spec)
+        }
+        _ => network_ports,
+    };
+
     crate::secrets::walk_plaintext(
         scope,
         "materialization",

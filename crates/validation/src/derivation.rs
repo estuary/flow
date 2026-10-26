@@ -532,6 +532,11 @@ async fn walk_derivation(
     )
     .await?;
 
+    let network_ports = match &using {
+        models::DeriveUsing::Python(python) => crate::custom::network_ports(&python.spec),
+        _ => network_ports,
+    };
+
     crate::secrets::walk_plaintext(
         scope,
         "derivation",

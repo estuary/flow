@@ -43,6 +43,10 @@ pub fn is_frozen_derive_image(image: &str) -> bool {
         )
 }
 
+/// Port on which `flow-connector-init` serves a connector container's RPCs.
+/// It's unlikely to be a port that a connector would use.
+pub const CONNECTOR_INIT_PORT: u16 = 49092;
+
 /// Catalog-name component which marks where the image repository begins in
 /// the name of an image-owned secret. See [`image_owns_secret`].
 pub const IMAGE_SECRET_SEPARATOR: &str = "connectors";

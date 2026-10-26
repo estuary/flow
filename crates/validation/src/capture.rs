@@ -330,6 +330,11 @@ async fn walk_capture(
     )
     .await?;
 
+    let network_ports = match &endpoint {
+        models::CaptureEndpoint::Python(python) => crate::custom::network_ports(&python.spec),
+        _ => network_ports,
+    };
+
     crate::secrets::walk_plaintext(
         scope,
         "capture",

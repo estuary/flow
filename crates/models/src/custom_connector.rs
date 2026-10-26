@@ -13,10 +13,10 @@ use std::collections::BTreeMap;
 /// Specification of a custom connector, whose code you write.
 ///
 /// It declares the JSON schemas of the connector's endpoint and resource
-/// configurations, and its OAuth2 provider if it has one. Estuary answers
-/// requests for the connector's specification from this declaration alone,
-/// without running your code. The schemas also generate the configuration
-/// types that your code receives.
+/// configurations, its OAuth2 provider if it has one, and the network ports
+/// on which it listens. Estuary answers requests for the connector's
+/// specification from this declaration alone, without running your code.
+/// The schemas also generate the configuration types that your code receives.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(rename = "CustomConnectorSpec")]
@@ -40,6 +40,10 @@ pub struct Spec {
     /// # OAuth2 provider of the connector, if it supports OAuth2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth2: Option<OAuth2>,
+    /// # Network ports on which the connector listens, keyed on port number.
+    /// Estuary proxies connections to each port from a hostname of the task.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub network_ports: BTreeMap<u16, NetworkPort>,
 }
 
 impl Spec {
@@ -106,6 +110,23 @@ pub struct OAuth2 {
     /// # Mapping of the refresh token response into standard names.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub refresh_token_response_map: BTreeMap<String, String>,
+}
+
+/// A network port on which a custom connector listens.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[schemars(rename = "CustomConnectorNetworkPort")]
+pub struct NetworkPort {
+    /// # ALPN protocol of a public port, such as `h2` or `mqtt`.
+    /// Connections to a public port with a protocol are proxied as TCP.
+    /// Otherwise, they're HTTP/1.1 requests, which is the protocol of every
+    /// port that isn't public.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub protocol: String,
+    /// # Allow unauthenticated connections to the port?
+    /// Otherwise, only authenticated users with access to the task may connect.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub public: bool,
 }
 
 /// Files of a custom connector.

@@ -88,3 +88,6 @@ stale lock succeeds, and silently omits newly added dependencies.
 - **`ProjectConfig` and `Project` allow unknown fields**, so an older image
   parses the configuration built by a newer control plane. `ModuleConfig`
   denies them, as its shape is frozen.
+- **A task's network ports come from its model.** Its `spec.networkPorts`
+  become its built spec's ports (`validation::custom::network_ports`).
+  User code binds the ports which it declared.

@@ -1613,9 +1613,31 @@ driver:
 }
 
 #[test]
+fn test_invalid_advertised_network_ports() {
+    // Ports which an image advertises are held to the same rule as those which
+    // a custom connector declares. They're also checked to fit in a u16.
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+driver:
+  captures:
+    testing/s3-source:
+      networkPorts:
+        - { number: 0 }
+        - { number: 49092, public: true }
+        - { number: 65536 }
+        - { number: 567, public: true }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_python_capture_builds() {
     // The built configuration carries the model's files, config, and spec.
     // An absent `resourceConfigSchema` is the connector's to default.
+    // The built spec has the network ports which the model declares.
+    // The driver's image advertises port 9999, which isn't built.
     // Generated files outside `flow_generated/` are dropped, as is
     // a starter of a listed file which exists.
     let outcome = common::run(
@@ -1636,6 +1658,9 @@ test://example/int-string-captures:
               type: object
               properties:
                 greeting: { type: string, default: Howdy }
+            networkPorts:
+              "8080": { protocol: h2, public: true }
+              "9000": {}
       bindings:
         - target: testing/int-string
           resource: { name: greetings }
@@ -1658,8 +1683,13 @@ driver:
                 type: object
                 properties:
                   greeting: { type: string, default: Howdy }
+              networkPorts:
+                "8080": { protocol: h2, public: true }
+                "9000": {}
       bindings:
         - resourcePath: [greetings]
+      networkPorts:
+        - { number: 9999, public: true }
       generatedFiles:
         test://example/flow_generated/python/testing/source_acme/__init__.py: "generated"
         test://example/source-acme/__init__.py: "overwritten"
@@ -1673,8 +1703,8 @@ driver:
         .iter()
         .find(|row| row.capture.as_str() == "testing/source-acme")
         .unwrap();
-    let config: serde_json::Value =
-        serde_json::from_slice(&built.spec.as_ref().unwrap().config_json).unwrap();
+    let spec = built.spec.as_ref().unwrap();
+    let config: serde_json::Value = serde_json::from_slice(&spec.config_json).unwrap();
     let generated: Vec<&String> = built
         .validated
         .as_ref()
@@ -1683,7 +1713,7 @@ driver:
         .keys()
         .collect();
 
-    insta::assert_json_snapshot!((config, generated));
+    insta::assert_json_snapshot!((config, generated, &spec.network_ports));
 }
 
 #[test]
@@ -1710,6 +1740,8 @@ test://example/int-string-captures:
           spec:
             configSchema: { type: object, properties: { a: { type: string, pattern: '(' } } }
             resourceConfigSchema: { type: not-a-type }
+            # Port 0 and the port of flow-connector-init are invalid.
+            networkPorts: { "0": {}, "49092": {}, "8080": {} }
       bindings: []
     # Python captures run only on the V2 runtime.
     testing/source-other:
@@ -1728,6 +1760,8 @@ test://example/int-string-captures:
 fn test_python_materialization_builds() {
     // The built configuration carries the model's files, config, and spec.
     // An absent `configSchema` is the connector's to default.
+    // The built spec has the network ports which the model declares.
+    // The driver's image advertises port 9999, which isn't built.
     // Generated files outside `flow_generated/` are dropped, as is
     // a starter of a listed file which exists.
     let outcome = common::run(
@@ -1748,6 +1782,8 @@ test://example/db-views:
               type: object
               properties:
                 table: { type: string, x-collection-name: true }
+            networkPorts:
+              "8443": { public: true }
       bindings:
         - source: testing/int-string
           resource: { table: greetings }
@@ -1772,11 +1808,15 @@ driver:
                 type: object
                 properties:
                   table: { type: string, x-collection-name: true }
+              networkPorts:
+                "8443": { public: true }
       bindings:
         - constraints:
             flow_document: { type: 2, reason: "location required" }
             int: { type: 3, reason: "recommended" }
           resourcePath: [greetings]
+      networkPorts:
+        - { number: 9999, public: true }
       generatedFiles:
         test://example/flow_generated/python/testing/materialize_acme/__init__.py: "generated"
         test://example/materialize-acme/__init__.py: "overwritten"
@@ -1790,8 +1830,8 @@ driver:
         .iter()
         .find(|row| row.materialization.as_str() == "testing/materialize-acme")
         .unwrap();
-    let config: serde_json::Value =
-        serde_json::from_slice(&built.spec.as_ref().unwrap().config_json).unwrap();
+    let spec = built.spec.as_ref().unwrap();
+    let config: serde_json::Value = serde_json::from_slice(&spec.config_json).unwrap();
     let generated: Vec<&String> = built
         .validated
         .as_ref()
@@ -1800,7 +1840,7 @@ driver:
         .keys()
         .collect();
 
-    insta::assert_json_snapshot!((config, generated));
+    insta::assert_json_snapshot!((config, generated, &spec.network_ports));
 }
 
 #[test]

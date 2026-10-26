@@ -431,6 +431,7 @@ fn inline_custom_spec(
         config_schema,
         resource_config_schema,
         oauth2: _,
+        network_ports: _,
     } = spec;
 
     for (prop, schema) in [

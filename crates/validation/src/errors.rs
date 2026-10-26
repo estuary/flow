@@ -227,6 +227,11 @@ pub enum Error {
     #[error("`config` {detail}")]
     CustomConfig { detail: String },
     #[error(
+        "network port {port} is invalid: it must be between 1 and 65535, and not {} (flow-connector-init)",
+        models::CONNECTOR_INIT_PORT
+    )]
+    NetworkPortInvalid { port: u32 },
+    #[error(
         "cannot infer shuffle key types because all transforms use a computed `lambda` or `any`.\nFlow must know the key types that your computed shuffle lambda will output.\nPlease add an explicit `shuffleKeyTypes` to this derivation."
     )]
     ShuffleKeyCannotInfer {},

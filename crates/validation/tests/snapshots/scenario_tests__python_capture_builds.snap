@@ -1,6 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-expression: "(config, generated)"
+expression: "(config, generated, &spec.network_ports)"
 ---
 [
   {
@@ -20,6 +20,13 @@ expression: "(config, generated)"
               }
             },
             "type": "object"
+          },
+          "networkPorts": {
+            "8080": {
+              "protocol": "h2",
+              "public": true
+            },
+            "9000": {}
           }
         }
       },
@@ -29,5 +36,15 @@ expression: "(config, generated)"
   },
   [
     "test://example/flow_generated/python/testing/source_acme/__init__.py"
+  ],
+  [
+    {
+      "number": 8080,
+      "protocol": "h2",
+      "public": true
+    },
+    {
+      "number": 9000
+    }
   ]
 ]
