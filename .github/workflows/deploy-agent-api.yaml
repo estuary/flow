@@ -49,6 +49,8 @@ jobs:
             DATABASE_CA=/etc/db-ca.crt
             DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
             NO_COLOR=1
+            OAUTH_ISSUER=https://api.estuary.dev
+            OAUTH_CONSENT_URL=https://dashboard.estuary.dev/oauth/consent
 
           secrets: |-
             PGPASSWORD=POSTGRES_PASSWORD:latest
@@ -57,6 +59,7 @@ jobs:
             STRIPE_API_KEY=STRIPE_API_KEY:latest
             STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest
             SPRITES_TOKEN=SPRITES_TOKEN:latest
+            OAUTH_ENCRYPTION_KEY=OAUTH_ENCRYPTION_KEY:latest
 
           env_vars_update_strategy: overwrite
           secrets_update_strategy: overwrite
