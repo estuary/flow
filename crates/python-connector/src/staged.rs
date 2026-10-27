@@ -1,4 +1,4 @@
-use crate::GENERATED_PREFIX;
+use crate::{GENERATED_PREFIX, Project};
 use anyhow::Context;
 use std::path::{Path, PathBuf};
 
@@ -54,7 +54,7 @@ impl Install {
 impl Staged {
     /// Stage `files` at their paths within a new temporary project.
     /// Each path must be relative to the project, which validation enforces.
-    pub fn stage<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> anyhow::Result<Self> {
+    fn stage<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> anyhow::Result<Self> {
         let dir = tempfile::TempDir::new().context("creating temporary project directory")?;
         let project = Self { dir };
 
@@ -62,6 +62,30 @@ impl Staged {
             project.write(path, content)?;
         }
         Ok(project)
+    }
+
+    /// Stage the files of `project` which exist, with its `generated` files,
+    /// and `install` its dependencies.
+    pub fn of_project(
+        project: &Project,
+        generated: &[(String, String)],
+        install: Install,
+    ) -> anyhow::Result<Self> {
+        let mut staged = Self::stage(
+            project
+                .files
+                .iter()
+                .filter_map(|(path, content)| Some((path.as_str(), content.as_deref()?)))
+                .chain(
+                    generated
+                        .iter()
+                        .map(|(path, content)| (path.as_str(), content.as_str())),
+                ),
+        )?;
+        staged.install(install)?;
+
+        tracing::debug!(temp_dir = ?staged.root(), ?install, "staged Python project");
+        Ok(staged)
     }
 
     pub fn root(&self) -> &Path {

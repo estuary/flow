@@ -21,8 +21,12 @@ of a task (`Spec`, `Files`) is `models::custom_connector`.
   `RESERVED` directories, and a task directory's `entry`. `starter_manifest`
   renders [`src/pyproject.toml`](src/pyproject.toml).
 - [`Staged`](src/staged.rs) — a project staged into a temporary directory,
-  from its `files` and its generated files. It installs the project, checks it
-  with its pyright and pytest, and runs user code within its environment.
+  from its `files` and its generated files (`Staged::of_project`). It installs
+  the project, checks it with its pyright and pytest, and runs user code
+  within its environment.
+- [`connector.rs`](src/connector.rs) — what each connector shares: its process
+  `main`, the `declared_spec` and `oauth2` of its Spec responses, and the
+  `starter_files` of a project's missing files.
 - [`ENTRY`](src/generated.rs) — the generated entry point
   (`flow_generated/main.py`), which each connector renders and runs.
 - [`module_files`](src/generated.rs) — the generated Python module of a
@@ -72,8 +76,8 @@ stale lock succeeds, and silently omits newly added dependencies.
   `importlib` import mode, as a test module of a task's directory imports its
   modules relatively, and pytest's default mode requires an identifier
   directory. A project having no tests passes (pytest's exit status 5).
-- **`Staged` is behind the default `staged` feature.** `validation` is built
-  for WASM, and depends on this crate without it.
+- **`Staged` and `connector.rs` are behind the default `staged` feature.**
+  `validation` is built for WASM, and depends on this crate without it.
 - **The cooldown is project configuration**, not a CLI flag. The starter
   `pyproject.toml` sets `[tool.uv] exclude-newer = "1 day"`. A lock records
   its `exclude-newer`, so overriding it with a flag would make

@@ -5,20 +5,26 @@ use std::io::{BufRead, Write};
 use std::process::Stdio;
 
 mod codegen;
+mod project;
 
 pub fn run() -> anyhow::Result<()> {
-    let stdin = std::io::stdin();
+    let mut requests = std::io::BufReader::new(std::io::stdin());
     let mut stdout = std::io::stdout();
-    let mut bin = std::io::BufReader::new(stdin);
     let mut line = String::new();
 
     // Handle Spec and Validate requests, breaking upon an Open.
     let open = loop {
         line.clear();
-        if bin.read_line(&mut line)? == 0 {
+        if requests.read_line(&mut line)? == 0 {
             return Ok(()); // Clean EOF.
         };
         let request: proto_flow::derive::Request = serde_json::from_str(&line)?;
+
+        // A project of `files` is served by `project`. Requests of a legacy
+        // `module` are served here.
+        if project::is_project(&request) {
+            return project::run(request, requests);
+        }
 
         match &request.kind {
             Some(derive::request::Kind::Spec(_)) => {
@@ -118,8 +124,8 @@ pub fn run() -> anyhow::Result<()> {
     let _ = std::thread::spawn(move || {
         let _ = child_stdin.write_all(&serde_json::to_vec(&open).unwrap());
         let _ = child_stdin.write_all("\n".as_bytes());
-        let _ = std::io::copy(&mut bin.buffer(), &mut child_stdin);
-        let _ = std::io::copy(&mut bin.into_inner(), &mut child_stdin);
+        let _ = std::io::copy(&mut requests.buffer(), &mut child_stdin);
+        let _ = std::io::copy(&mut requests.into_inner(), &mut child_stdin);
     });
 
     let status = child.wait()?;

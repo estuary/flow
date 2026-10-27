@@ -3,6 +3,8 @@
 
 mod config;
 mod config_types;
+#[cfg(feature = "staged")]
+mod connector;
 mod generated;
 pub mod pydantic;
 #[cfg(feature = "staged")]
@@ -13,6 +15,8 @@ pub use config::{
     entry, starter_manifest,
 };
 pub use config_types::{config_shape, endpoint_config_py, query_config};
+#[cfg(feature = "staged")]
+pub use connector::{DOCUMENTATION_URL, declared_spec, main, oauth2, project_urls, starter_files};
 pub use generated::{
     ENTRY, GENERATED_PREFIX, imports_py, load_task_py, module_files, module_parts,
 };

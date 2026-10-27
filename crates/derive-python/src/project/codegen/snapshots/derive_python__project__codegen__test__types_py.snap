@@ -1,0 +1,164 @@
+---
+source: crates/derive-python/src/project/codegen/mod.rs
+expression: types_output
+---
+"""Generated types of derivation patterns/sums, from its declared `spec` and transforms."""
+from abc import ABC, abstractmethod
+import collections.abc
+import typing
+import pydantic
+from estuary_cdk.derive import request as _request, response as _response
+import typing as _typing
+import pydantic as _pydantic
+
+
+# Generated for published documents of derived collection patterns/sums
+class Document(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    Count: _typing.Optional[int] = None
+    Key: str
+    Sum: int
+
+
+
+# Generated for documents of transform `fromInts`, of collection patterns/ints
+class SourceFromIntsIntValue(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    Int: int
+    Key: str
+
+SourceFromInts: _typing.TypeAlias = "SourceFromIntsIntValue"
+
+
+# Generated for documents of transform `process-strings`, of collection patterns/strings
+class SourceProcessStrings(_pydantic.BaseModel):
+    class Metadata(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    id: str
+    metadata: _typing.Optional["Metadata"] = None
+    text: str
+
+
+
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    apiKey: _pydantic.SecretStr
+    multiplier: int = 2
+
+
+
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    readOnly: bool = False
+
+
+
+class Request:
+    """Request messages of the derive protocol (`estuary_cdk.derive.request`)."""
+
+    class Validate[C = EndpointConfig, R: pydantic.BaseModel = ResourceConfig](_request.Validate[C, R]):
+        """Validate with the same configuration defaults as IDerivation."""
+
+    class Open[C = EndpointConfig, R: pydantic.BaseModel = ResourceConfig, S = dict[str, typing.Any]](_request.Open[C, R, S]):
+        """Open with the same configuration and state defaults as IDerivation."""
+
+    Read = _request.Read
+    Flush = _request.Flush
+    Reset = _request.Reset
+
+    class ReadFromInts(_request.Read[SourceFromInts]):
+        """A document read by transform `fromInts`."""
+
+    class ReadProcessStrings(_request.Read[SourceProcessStrings]):
+        """A document read by transform `process-strings`."""
+
+
+class Response:
+    """Response messages of the derive protocol (`estuary_cdk.derive.response`)."""
+
+    Validated = _response.Validated
+    ValidatedTransform = _response.ValidatedTransform
+    Opened = _response.Opened
+    Published = _response.Published
+    Flushed = _response.Flushed
+
+
+class IDerivation[C = EndpointConfig, R: pydantic.BaseModel = ResourceConfig, S = dict[str, typing.Any]](ABC):
+    """Abstract base class of derivation implementations.
+
+    `C` is the type of the derivation's `config`, `R` of the resource
+    configuration (`lambda`) of each transform, and `S` of its connector state.
+    `C` and `R` default to the types generated from the derivation's `spec`.
+    A derivation may instead declare types of its own, as
+    `class Derivation(IDerivation[MyConfig, MyResourceConfig, MyState])`, and
+    is then responsible for keeping them equivalent to its declared `spec`.
+
+    `Derivation` must directly subclass `IDerivation`, from which its types
+    are resolved: a validation of the derivation fails otherwise.
+
+    The platform constructs a derivation only through `open`, and its
+    `__init__` is the derivation's own.
+
+    Each transform has a `transform_{name}` method, which yields the documents
+    it derives from each read. Its name is the transform's, in snake case."""
+
+    @classmethod
+    async def open(cls, open: Request.Open[C, R, S]) -> tuple[typing.Self, Response.Opened]:
+        """Construct the derivation from its Open message. Its `config` is
+        `open.collection.derivation.config`, and its state is `open.state`.
+
+        The default is `cls()`, for a derivation which needs neither. Override
+        it to build the derivation's components, which may require awaiting,
+        and pass them to an `__init__` of your own."""
+        return cls(), Response.Opened()
+
+    @classmethod
+    async def validate(cls, validate: Request.Validate[C, R], validated: Response.Validated) -> None:
+        """Validate the derivation as it's published, raising to fail.
+
+        `validated` holds a default of each transform, in the order of
+        `validate.transforms`. A transform is read-only if its resource
+        configuration has a true `readOnly`. Modify it in place.
+        The default does nothing."""
+        pass
+
+    @abstractmethod
+    async def transform_from_ints(self, read: Request.ReadFromInts) -> collections.abc.AsyncIterator[Document]:
+        """Derive documents from a document read by transform `fromInts`."""
+        if False:
+            yield  # Mark as a generator.
+
+    @abstractmethod
+    async def transform_process_strings(self, read: Request.ReadProcessStrings) -> collections.abc.AsyncIterator[Document]:
+        """Derive documents from a document read by transform `process-strings`."""
+        if False:
+            yield  # Mark as a generator.
+
+    async def flush(self, flush: Request.Flush, flushed: Response.Flushed[S]) -> collections.abc.AsyncIterator[Document]:
+        """Complete deferred work for the current transaction, publishing all
+        documents derived from prior reads.
+
+        Set `flushed.state` to contribute a connector state update (an
+        `estuary_cdk.flow.ConnectorStateUpdate`), and/or set `flushed.more = True`
+        to request a further Flush iteration (a scatter/gather round across the
+        derivation's shards). On each call `flush.statePatches` holds the
+        aggregated `state` updates returned by all shards in the previous iteration
+        (empty on the first). All Documents MUST be yielded before flush returns
+        a terminal (`more = False`) Response.Flushed.
+        The default does nothing."""
+        if False:
+            yield  # Mark as a generator.
+
+    async def reset(self) -> None:
+        """Reset internal state for testing. The default does nothing."""
+        pass
