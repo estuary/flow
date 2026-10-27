@@ -770,6 +770,45 @@ mod test {
         ));
     }
 
+    #[test]
+    fn connector_spec_fields_must_be_json() {
+        let spec = proto_flow::flow::ConnectorSpec {
+            config_schema_json: "{\"type\": \"object\"".into(),
+            // An empty schema is permitted, as it's omitted from the built spec.
+            resource_config_schema_json: bytes::Bytes::new(),
+            oauth2: Some(proto_flow::flow::OAuth2 {
+                provider: "acme".to_string(),
+                access_token_headers_json_map: [
+                    ("Accept".to_string(), "\"application/json\"".into()),
+                    ("Authorization".to_string(), "Basic {{ client_id }}".into()),
+                ]
+                .into(),
+                refresh_token_response_json_map: [("access_token".to_string(), "".into())].into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let errors: Vec<String> = connector_spec_errors(&spec)
+            .into_iter()
+            .map(|err| err.to_string())
+            .collect();
+
+        insta::assert_debug_snapshot!(errors, @r#"
+        [
+            "connector Spec response `configSchema` is not JSON: EOF while parsing an object at line 1 column 17",
+            "connector Spec response `oauth2.accessTokenHeaders` \"Authorization\" is not JSON: expected value at line 1 column 1",
+            "connector Spec response `oauth2.refreshTokenResponseMap` \"access_token\" is not JSON: EOF while parsing a value at line 1 column 0",
+        ]
+        "#);
+
+        let valid = proto_flow::flow::ConnectorSpec {
+            config_schema_json: "{\"type\": \"object\"}".into(),
+            resource_config_schema_json: "true".into(),
+            ..Default::default()
+        };
+        assert!(connector_spec_errors(&valid).is_empty());
+    }
+
     fn prefix_fixture() -> tables::StorageMappings {
         let mut storage_mappings = tables::StorageMappings::new();
         storage_mappings.insert_row(
@@ -898,5 +937,71 @@ async fn validate_connector<V>(
         }
     };
 
+    // A field which isn't JSON would fail to persist with the built spec.
+    let spec_errors = connector_spec_errors(&spec);
+    if !spec_errors.is_empty() {
+        for detail in spec_errors {
+            Error::Connector { detail }.push(scope, errors);
+        }
+        return None;
+    }
+
     Some((validated, network_ports, spec))
+}
+
+/// Errors of each field of a connector's Spec response which must be JSON, but
+/// isn't. These fields are carried verbatim into the built spec, which is
+/// persisted as JSON. A connector of the JSON codec can't return one which
+/// isn't, but a connector of the protobuf codec can.
+fn connector_spec_errors(spec: &proto_flow::flow::ConnectorSpec) -> Vec<anyhow::Error> {
+    let proto_flow::flow::ConnectorSpec {
+        config_schema_json,
+        resource_config_schema_json,
+        oauth2,
+        ..
+    } = spec;
+
+    // An empty schema is omitted from the built spec's JSON, but each value
+    // of an OAuth2 map is serialized.
+    let mut fields: Vec<(String, &[u8])> = [
+        ("configSchema", config_schema_json),
+        ("resourceConfigSchema", resource_config_schema_json),
+    ]
+    .into_iter()
+    .filter(|(_, value)| !value.is_empty())
+    .map(|(field, value)| (format!("`{field}`"), value.as_ref()))
+    .collect();
+
+    if let Some(oauth2) = oauth2 {
+        for (field, map) in [
+            ("accessTokenHeaders", &oauth2.access_token_headers_json_map),
+            (
+                "accessTokenResponseMap",
+                &oauth2.access_token_response_json_map,
+            ),
+            (
+                "refreshTokenHeaders",
+                &oauth2.refresh_token_headers_json_map,
+            ),
+            (
+                "refreshTokenResponseMap",
+                &oauth2.refresh_token_response_json_map,
+            ),
+        ] {
+            fields.extend(
+                map.iter()
+                    .map(|(key, value)| (format!("`oauth2.{field}` {key:?}"), value.as_ref())),
+            );
+        }
+    }
+
+    fields
+        .into_iter()
+        .filter_map(|(field, value)| {
+            let err = serde_json::from_slice::<&serde_json::value::RawValue>(value).err()?;
+            Some(anyhow::anyhow!(
+                "connector Spec response {field} is not JSON: {err}"
+            ))
+        })
+        .collect()
 }
