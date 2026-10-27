@@ -810,7 +810,7 @@ impl<T> std::future::Future for AutoAbortHandle<T> {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        unsafe { std::pin::Pin::new_unchecked(&mut self.0) }.poll(cx)
+        std::pin::Pin::new(&mut self.0).poll(cx)
     }
 }
 
