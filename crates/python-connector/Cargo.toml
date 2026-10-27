@@ -11,12 +11,22 @@ license.workspace = true
 [dependencies]
 doc = { path = "../doc" }
 json = { path = "../json" }
+models = { path = "../models" }
 
 anyhow = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 url = { workspace = true }
+
+[features]
+default = ["staged"]
+# Staging and running of projects. `validation`, which is built for WASM,
+# omits it.
+staged = ["dep:tempfile", "dep:tracing"]
 
 [dev-dependencies]
 sources = { path = "../sources" }
