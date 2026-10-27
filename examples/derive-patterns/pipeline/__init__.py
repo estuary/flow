@@ -10,8 +10,9 @@ yielding results as they complete to avoid unbounded memory growth.
 """
 
 import asyncio
+import typing
 from collections.abc import AsyncIterator
-from patterns.pipeline import IDerivation, Document, Request
+from patterns.pipeline import IDerivation, Document, Request, Response
 
 
 class Derivation(IDerivation):
@@ -19,12 +20,11 @@ class Derivation(IDerivation):
 
     MAX_CONCURRENT_TASKS = 10
 
-    def __init__(self, open: Request.Open):
+    def __init__(self):
         """Initialize with no pending tasks."""
-        super().__init__(open)
         self.pending_tasks: set[asyncio.Task[tuple[str, int]]] = set()
 
-    async def from_ints(self, read: Request.ReadFromInts) -> AsyncIterator[Document]:
+    async def transform_from_ints(self, read: Request.ReadFromInts) -> AsyncIterator[Document]:
         """
         Start a new task, but if we've hit our concurrency limit, await
         the first completed task and yield its result before continuing.
@@ -47,8 +47,9 @@ class Derivation(IDerivation):
         task = asyncio.create_task(self._process_int(read.doc.Key, read.doc.Int))
         self.pending_tasks.add(task)
 
-
-    async def flush(self) -> AsyncIterator[Document]:
+    async def flush(
+        self, flush: Request.Flush, flushed: Response.Flushed[dict[str, typing.Any]]
+    ) -> AsyncIterator[Document]:
         """Await any remaining tasks and emit their results."""
 
         results: list[tuple[str, int]] = await asyncio.gather(*self.pending_tasks)

@@ -12,6 +12,7 @@ license.workspace = true
 doc = { path = "../doc" }
 json = { path = "../json" }
 models = { path = "../models" }
+proto-flow = { path = "../proto-flow", optional = true }
 
 anyhow = { workspace = true }
 lazy_static = { workspace = true }
@@ -20,13 +21,14 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 url = { workspace = true }
 
 [features]
 default = ["staged"]
-# Staging and running of projects. `validation`, which is built for WASM,
-# omits it.
-staged = ["dep:tempfile", "dep:tracing"]
+# Staging and running of projects, and the shared pieces of the connectors
+# which serve them. `validation`, which is built for WASM, omits it.
+staged = ["dep:proto-flow", "dep:tempfile", "dep:tracing", "dep:tracing-subscriber"]
 
 [dev-dependencies]
 sources = { path = "../sources" }

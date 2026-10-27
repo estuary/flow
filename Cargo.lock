@@ -2994,7 +2994,6 @@ dependencies = [
  "tables",
  "tempfile",
  "tracing",
- "tracing-subscriber",
  "url",
 ]
 
@@ -6805,6 +6804,7 @@ dependencies = [
  "json",
  "lazy_static",
  "models",
+ "proto-flow",
  "regex",
  "serde",
  "serde_json",
@@ -6812,6 +6812,7 @@ dependencies = [
  "tables",
  "tempfile",
  "tracing",
+ "tracing-subscriber",
  "url",
 ]
 

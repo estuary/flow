@@ -2,8 +2,11 @@
 set -euo pipefail
 
 #MISE description="Run catalog tests over the derivation examples"
-#MISE depends=["ci:musl-dev"]
+#MISE depends=["ci:custom-images"]
 
+# Example derivations run `:local` images of custom connectors (see
+# `ci:custom-images`), selected by their `custom-image-tag` shard flag.
+#
 # `flowctl raw test` runs the catalog's tests locally on the runtime-next stack:
 # no Gazette broker, no etcd, no Go consumer. Image derivations still run as
 # connector containers, so Docker is required.

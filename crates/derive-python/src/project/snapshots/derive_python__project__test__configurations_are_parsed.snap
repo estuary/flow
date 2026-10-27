@@ -1,0 +1,46 @@
+---
+source: crates/derive-python/src/project/mod.rs
+expression: "(&current, parse(br#\"{\"_python\": {\"files\": {\"a.json\": {\"not\": \"text\"}}}}\"#),\nparse(b\"{}\"), parse(b\"\"),)"
+---
+(
+    Project {
+        files: {
+            "orders/__init__.py": Some(
+                "class Derivation: pass\n",
+            ),
+            "orders/geo.py": Some(
+                "def region_for(doc):\n    return doc\n",
+            ),
+            "orders/missing.py": None,
+            "pyproject.toml": Some(
+                "[project]\n",
+            ),
+        },
+        spec: Spec {
+            config_schema: Some(
+                Schema(
+                    RawValue(
+                        {"type": "object"},
+                    ),
+                ),
+            ),
+            resource_config_schema: Some(
+                Schema(
+                    RawValue(
+                        {"properties":{"readOnly":{"default":false,"description":"Does this transform never publish documents?","type":"boolean"}},"type":"object"},
+                    ),
+                ),
+            ),
+            oauth2: None,
+        },
+    },
+    Err(
+        "invalid `_python` configuration: invalid type: map, expected a string at line 1 column 33",
+    ),
+    Err(
+        "invalid `_python` configuration: missing field `_python` at line 1 column 2",
+    ),
+    Err(
+        "invalid `_python` configuration: EOF while parsing a value at line 1 column 0",
+    ),
+)
