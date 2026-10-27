@@ -7,7 +7,7 @@ go = { version = "1.26.10" }
 # `rust` is required, but installation via mise is incompatible with Swatim/rust-cache
 
 "github:wasm-bindgen/wasm-pack" = { version = "0.13.1" }
-"github:etcd-io/etcd" = { version = "3.5.24" }
+"github:etcd-io/etcd" = { version = "3.5.35" }
 "github:getsops/sops" = { version = "3.11.0", bin = "sops" }
 "github:jdx/usage" = { version = "6.4.0" }
 "github:mozilla/sccache" = { version = "0.12.0", platforms = { linux-arm64 = { asset_pattern = "sccache-v*-aarch64-unknown-linux-musl.tar.gz" }, linux-x64 = { asset_pattern = "sccache-v*-x86_64-unknown-linux-musl.tar.gz" }, macos-arm64 = { asset_pattern = "sccache-v*-aarch64-apple-darwin.tar.gz" } } }
