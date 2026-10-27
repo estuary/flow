@@ -1,6 +1,5 @@
 use crate::{local_connector, local_specs};
 use anyhow::Context;
-use proto_flow::{capture, flow, materialize};
 use tables::DraftCatalog;
 
 #[derive(Debug, clap::Args)]
@@ -42,16 +41,7 @@ async fn get_spec_response(
 
         let model = row.model.as_ref().expect("not a capture");
 
-        let request = match &model.endpoint {
-            models::CaptureEndpoint::Connector(config) => capture::request::Spec {
-                connector_type: flow::capture_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(&config).unwrap().into(),
-            },
-            models::CaptureEndpoint::Local(config) => capture::request::Spec {
-                connector_type: flow::capture_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-        };
+        let request = validation::capture_spec_request(&model.endpoint);
         let response =
             local_connector::spec_capture(router, model.shards.log_level.as_deref(), request)
                 .await?;
@@ -85,20 +75,7 @@ async fn get_spec_response(
 
         let model = row.model.as_ref().expect("not a materialization");
 
-        let request = match &model.endpoint {
-            models::MaterializationEndpoint::Connector(config) => materialize::request::Spec {
-                connector_type: flow::materialization_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(&config).unwrap().into(),
-            },
-            models::MaterializationEndpoint::Local(config) => materialize::request::Spec {
-                connector_type: flow::materialization_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            models::MaterializationEndpoint::Dekaf(config) => materialize::request::Spec {
-                connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-        };
+        let request = validation::materialization_spec_request(&model.endpoint);
         let response =
             local_connector::spec_materialize(router, model.shards.log_level.as_deref(), request)
                 .await?;

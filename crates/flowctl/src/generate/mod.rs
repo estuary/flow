@@ -2,7 +2,7 @@ use crate::{local_connector, local_specs};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
-use proto_flow::{capture, derive, flow, materialize};
+use proto_flow::{capture, derive, materialize};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -136,22 +136,12 @@ async fn generate_missing_capture_configs(
         return Ok(Vec::new());
     };
 
-    let (spec, missing_config_url) = match endpoint {
-        models::CaptureEndpoint::Connector(config) => (
-            capture::request::Spec {
-                connector_type: flow::capture_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            missing_url(&config.config),
-        ),
-        models::CaptureEndpoint::Local(config) => (
-            capture::request::Spec {
-                connector_type: flow::capture_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            missing_url(&config.config),
-        ),
+    let config = match endpoint {
+        models::CaptureEndpoint::Connector(config) => &config.config,
+        models::CaptureEndpoint::Local(config) => &config.config,
     };
+    let missing_config_url = missing_url(config);
+    let spec = validation::capture_spec_request(endpoint);
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings
         .iter()
         .filter_map(
@@ -254,29 +244,13 @@ async fn generate_missing_materialization_configs(
         return Ok(Vec::new());
     };
 
-    let (spec, missing_config_url) = match endpoint {
-        models::MaterializationEndpoint::Connector(config) => (
-            materialize::request::Spec {
-                connector_type: flow::materialization_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            missing_url(&config.config),
-        ),
-        models::MaterializationEndpoint::Local(config) => (
-            materialize::request::Spec {
-                connector_type: flow::materialization_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            missing_url(&config.config),
-        ),
-        models::MaterializationEndpoint::Dekaf(config) => (
-            materialize::request::Spec {
-                connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            missing_url(&config.config),
-        ),
+    let config = match endpoint {
+        models::MaterializationEndpoint::Connector(config) => &config.config,
+        models::MaterializationEndpoint::Local(config) => &config.config,
+        models::MaterializationEndpoint::Dekaf(config) => &config.config,
     };
+    let missing_config_url = missing_url(config);
+    let spec = validation::materialization_spec_request(endpoint);
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings
         .iter()
         .filter_map(

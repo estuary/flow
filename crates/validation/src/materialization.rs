@@ -76,6 +76,31 @@ pub async fn walk_all_materializations(
         .collect()
 }
 
+/// Map a materialization's endpoint into the connector Spec request used by
+/// validation and by local flowctl commands.
+pub fn materialization_spec_request(
+    endpoint: &models::MaterializationEndpoint,
+) -> materialize::request::Spec {
+    let (connector_type, config_json) = match endpoint {
+        models::MaterializationEndpoint::Connector(config) => (
+            flow::materialization_spec::ConnectorType::Image as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::MaterializationEndpoint::Local(config) => (
+            flow::materialization_spec::ConnectorType::Local as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::MaterializationEndpoint::Dekaf(config) => (
+            flow::materialization_spec::ConnectorType::Dekaf as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+    };
+    materialize::request::Spec {
+        connector_type,
+        config_json,
+    }
+}
+
 async fn walk_materialization(
     pub_id: models::Id,
     build_id: models::Id,
@@ -153,20 +178,10 @@ async fn walk_materialization(
     }
 
     // Unwrap `endpoint` into a connector type and configuration.
-    let (connector_type, config_json): (i32, bytes::Bytes) = match &endpoint {
-        models::MaterializationEndpoint::Connector(config) => (
-            flow::materialization_spec::ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::MaterializationEndpoint::Local(config) => (
-            flow::materialization_spec::ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::MaterializationEndpoint::Dekaf(config) => (
-            flow::materialization_spec::ConnectorType::Dekaf as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-    };
+    let materialize::request::Spec {
+        connector_type,
+        config_json,
+    } = materialization_spec_request(&endpoint);
     let secrets_spec = assemble::secrets(&secrets);
     let secrets_ctx = crate::secrets::Context::of_materialization(&secrets, &endpoint);
 

@@ -17,8 +17,10 @@ mod secrets;
 mod storage_mapping;
 mod test_step;
 
+pub use capture::capture_spec_request;
 pub use derivation::derive_spec_request;
 pub use errors::Error;
+pub use materialization::materialization_spec_request;
 
 /// Portion of the binding namespace reserved for runtime-internal bindings
 /// (today: the capture connector-state pseudo-binding). Internal additions must
