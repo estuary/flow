@@ -1,0 +1,29 @@
+---
+source: crates/python-connector/src/config.rs
+expression: "(module(br#\"{\"module\": \"MODULE\", \"dependencies\": {}}\"#),\nmodule(br#\"{\"module\": \"MODULE\", \"dependencies\": {\"httpx\": \">=0.27\"}}\"#),\nmodule(br#\"{\"module\": \"MODULE\", \"other\": true}\"#),\nproject(br#\"{\"module\": \"MODULE\"}\"#),\nproject(br#\"{\"_python\": {\"files\": {\"a.json\": {\"not\": \"text\"}}}}\"#),)"
+---
+(
+    Ok(
+        ModuleConfig {
+            module: "MODULE",
+            dependencies: {},
+        },
+    ),
+    Ok(
+        ModuleConfig {
+            module: "MODULE",
+            dependencies: {
+                "httpx": ">=0.27",
+            },
+        },
+    ),
+    Err(
+        "unknown field `other`, expected `module` or `dependencies` at line 1 column 28",
+    ),
+    Err(
+        "missing field `_python` at line 1 column 20",
+    ),
+    Err(
+        "invalid type: map, expected a string at line 1 column 33",
+    ),
+)

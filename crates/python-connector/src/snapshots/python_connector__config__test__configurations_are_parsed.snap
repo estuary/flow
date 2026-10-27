@@ -1,0 +1,41 @@
+---
+source: crates/python-connector/src/config.rs
+expression: "(current.project.missing(), current.project.has_lock(),\nserde_json::to_string(&current).unwrap(), &current,)"
+---
+(
+    [
+        "b.py",
+    ],
+    true,
+    "{\"_python\":{\"files\":{\"a.py\":\"x = 1\\n\",\"b.py\":null,\"uv.lock\":\"lock\"},\"spec\":{\"configSchema\":{\"type\": \"object\"}}},\"credentials\":{\"token\":\"secret\"},\"module\":\"a user property\"}",
+    ProjectConfig {
+        project: Project {
+            files: {
+                "a.py": Some(
+                    "x = 1\n",
+                ),
+                "b.py": None,
+                "uv.lock": Some(
+                    "lock",
+                ),
+            },
+            spec: Spec {
+                config_schema: Some(
+                    Schema(
+                        RawValue(
+                            {"type": "object"},
+                        ),
+                    ),
+                ),
+                resource_config_schema: None,
+                oauth2: None,
+            },
+        },
+        config: {
+            "credentials": Object {
+                "token": String("secret"),
+            },
+            "module": String("a user property"),
+        },
+    },
+)
