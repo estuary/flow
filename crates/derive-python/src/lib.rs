@@ -210,7 +210,7 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
     }
     generated_files.insert(
         types_url.clone(),
-        codegen::types_py(collection, &transforms),
+        codegen::types_py(collection, &transforms)?,
     );
     generated_files.insert(
         format!("{project_root}/pyproject.toml"),
@@ -342,7 +342,7 @@ fn setup_temp_project(
         gen_dir
             .join(module_path_parts.join("/"))
             .join("__init__.py"),
-        codegen::types_py(collection, transforms),
+        codegen::types_py(collection, transforms)?,
     )?;
 
     // Write user module

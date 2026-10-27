@@ -6,38 +6,40 @@ from abc import ABC, abstractmethod
 import typing
 import collections.abc
 import pydantic
+import typing as _typing
+import pydantic as _pydantic
 
 
 # Generated for published documents of derived collection patterns/sums
-class Document(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
+class Document(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
 
-    Count: typing.Optional[int] = None
+    Count: _typing.Optional[int] = None
     Key: str
     Sum: int
 
 
 
 # Generated for read documents of sourced collection patterns/ints
-class SourceFromIntsIntValue(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
+class SourceFromIntsIntValue(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
 
     Int: int
     Key: str
 
-SourceFromInts: typing.TypeAlias = "SourceFromIntsIntValue"
+SourceFromInts: _typing.TypeAlias = "SourceFromIntsIntValue"
 
 
 # Generated for read documents of sourced collection patterns/strings
-class SourceProcessStrings(pydantic.BaseModel):
-    class Metadata(pydantic.BaseModel):
-        model_config = pydantic.ConfigDict(extra='allow')
+class SourceProcessStrings(_pydantic.BaseModel):
+    class Metadata(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
 
 
-    model_config = pydantic.ConfigDict(extra='allow')
+    model_config = _pydantic.ConfigDict(extra='allow')
 
     id: str
-    metadata: typing.Optional["Metadata"] = None
+    metadata: _typing.Optional["Metadata"] = None
     text: str
 
 

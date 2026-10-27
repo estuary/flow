@@ -6748,6 +6748,7 @@ dependencies = [
 name = "python-connector"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "doc",
  "insta",
  "json",

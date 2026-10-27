@@ -1,9 +1,32 @@
 use super::ast::{AST, Class, Field, Mapping};
 use super::to_pascal_case;
-use doc::shape::{ArrayShape, ObjShape, Provenance, Shape};
+use anyhow::Context;
+use doc::shape::{ArrayShape, ObjProperty, ObjShape, Provenance, Shape};
 use json::schema::types;
 use regex::Regex;
 use std::collections::BTreeMap;
+
+/// Annotation of a schema location which names the Python type of its
+/// values, as a dotted path of a module and a type within it. It's the
+/// user's assertion, and replaces the location's mapped type (other than
+/// `null`) unconditionally.
+pub const PYTHON_TYPE: &str = "x-python-type";
+
+/// Default of the generated field of `property`, which is its value when
+/// omitted. It's the literal default of an optional property, if the
+/// property's shape admits it. A required field has no default.
+pub fn field_default(property: &ObjProperty) -> Option<&serde_json::Value> {
+    let shape = &property.shape;
+    let (value, failed) = shape.default.as_deref()?;
+
+    let admitted = shape.type_.overlaps(types::Set::for_node(value))
+        && shape
+            .enum_
+            .as_ref()
+            .is_none_or(|enum_| enum_.contains(value));
+
+    (!property.is_required && failed.is_none() && admitted).then_some(value)
+}
 
 pub struct Mapper {
     top_level: BTreeMap<url::Url, String>,
@@ -11,9 +34,12 @@ pub struct Mapper {
 }
 
 impl Mapper {
-    pub fn new(bundle: &[u8], anchor_prefix: &str) -> Self {
-        let schema = doc::validation::build_bundle(bundle).unwrap();
-        let validator = doc::validation::Validator::new(schema).unwrap();
+    /// Build a Mapper of the schema `bundle`, whose named anchors are mapped
+    /// into top-level classes prefixed by `anchor_prefix` (if not empty).
+    pub fn new(bundle: &[u8], anchor_prefix: &str) -> anyhow::Result<Self> {
+        let schema = doc::validation::build_bundle(bundle).context("invalid JSON schema")?;
+        let validator =
+            doc::validation::Validator::new(schema).context("invalid JSON schema references")?;
 
         let mut top_level = BTreeMap::new();
 
@@ -38,10 +64,10 @@ impl Mapper {
             }
         }
 
-        Mapper {
+        Ok(Mapper {
             validator,
             top_level,
-        }
+        })
     }
 
     /// Access the root schema of this Mapper.
@@ -56,7 +82,16 @@ impl Mapper {
 
     /// Map a schema into a set of classes and a type reference.
     /// The `class_name` is used if the root schema is an object (not an anchor reference).
-    pub fn map(&self, schema: &doc::validation::Schema, type_name: &str) -> Mapping {
+    pub fn map(
+        &self,
+        schema: &doc::validation::Schema,
+        type_name: &str,
+    ) -> anyhow::Result<Mapping> {
+        self.map_shape(Shape::infer(schema, self.index()), type_name)
+    }
+
+    /// Map an inferred Shape into a set of classes and a type reference.
+    pub fn map_shape(&self, shape: Shape, type_name: &str) -> anyhow::Result<Mapping> {
         let mut classes = Vec::new();
         let mut aliases = Vec::new();
 
@@ -64,26 +99,44 @@ impl Mapper {
         for (url, class_name) in &self.top_level {
             let (schema, _is_dynamic) = self.index().fetch(url.as_str()).unwrap();
             let shape = Shape::infer(schema, self.index());
-            let ast = self.to_ast(&shape, class_name, &mut classes);
+            let ast = self.to_ast(&shape, class_name, &mut classes)?;
 
             if !matches!(&ast, AST::Anchor(name) if name == class_name) {
                 aliases.push((class_name.clone(), ast));
             }
         }
 
-        let shape = Shape::infer(schema, self.index());
-        let ast = self.to_ast(&shape, type_name, &mut classes);
+        let ast = self.to_ast(&shape, type_name, &mut classes)?;
 
         if !matches!(&ast, AST::Anchor(name) if name == type_name) {
             aliases.push((type_name.to_string(), ast));
         }
-        Mapping { classes, aliases }
+        Ok(Mapping { classes, aliases })
     }
 
-    fn to_ast(&self, shape: &Shape, type_name: &str, classes: &mut Vec<Class>) -> AST {
+    fn to_ast(
+        &self,
+        shape: &Shape,
+        type_name: &str,
+        classes: &mut Vec<Class>,
+    ) -> anyhow::Result<AST> {
+        if let Some(annotation) = shape.annotations.get(PYTHON_TYPE) {
+            let python = python_type(annotation).with_context(|| {
+                format!(
+                    "invalid `{PYTHON_TYPE}` {annotation}: it must be a dotted path of a module and a type, such as \"datetime.datetime\""
+                )
+            })?;
+            return Ok(if shape.type_.overlaps(types::NULL) {
+                AST::Union {
+                    variants: vec![python, AST::None],
+                }
+            } else {
+                python
+            });
+        }
         if let Provenance::Reference(uri) = &shape.provenance {
             if let Some(class_name) = self.top_level.get(uri) {
-                return AST::Anchor(class_name.clone());
+                return Ok(AST::Anchor(class_name.clone()));
             }
         }
 
@@ -95,7 +148,7 @@ impl Mapper {
             && shape.object.properties.is_empty()
             && shape.object.additional_properties.is_none()
         {
-            return AST::Any;
+            return Ok(AST::Any);
         }
         if let Some(enum_) = &shape.enum_ {
             return self.enum_to_ast(enum_, type_name, classes);
@@ -105,13 +158,13 @@ impl Mapper {
 
         if shape.type_.overlaps(types::OBJECT) {
             if shape.type_ != types::OBJECT {
-                disjunct.push(self.object_to_ast(shape, &format!("{type_name}Object"), classes));
+                disjunct.push(self.object_to_ast(shape, &format!("{type_name}Object"), classes)?);
             } else {
-                disjunct.push(self.object_to_ast(shape, type_name, classes));
+                disjunct.push(self.object_to_ast(shape, type_name, classes)?);
             }
         }
         if shape.type_.overlaps(types::ARRAY) {
-            disjunct.push(self.array_to_ast(&shape.array, type_name, classes));
+            disjunct.push(self.array_to_ast(&shape.array, type_name, classes)?);
         }
         if shape.type_.overlaps(types::BOOLEAN) {
             disjunct.push(AST::Bool);
@@ -129,16 +182,21 @@ impl Mapper {
             disjunct.push(AST::None);
         }
 
-        if disjunct.is_empty() {
+        Ok(if disjunct.is_empty() {
             AST::Never
         } else if disjunct.len() == 1 {
             disjunct.pop().unwrap()
         } else {
             AST::Union { variants: disjunct }
-        }
+        })
     }
 
-    fn object_to_ast(&self, shape: &Shape, type_name: &str, classes: &mut Vec<Class>) -> AST {
+    fn object_to_ast(
+        &self,
+        shape: &Shape,
+        type_name: &str,
+        classes: &mut Vec<Class>,
+    ) -> anyhow::Result<AST> {
         let ObjShape {
             properties,
             pattern_properties,
@@ -149,21 +207,12 @@ impl Mapper {
         let mut nested = Vec::new();
         let mut fields: Vec<Field> = Vec::new();
 
-        for prop in properties {
-            let mut sanitized = sanitize_python_identifier(&prop.name);
+        let names: Vec<(String, Option<String>)> = properties
+            .iter()
+            .map(|prop| field_name(&prop.name))
+            .collect();
 
-            // Pydantic doesn't allow field names starting with single underscore,
-            // and __dunders__ must also map into public fields.
-            if sanitized.starts_with('_') {
-                sanitized = format!("m{sanitized}");
-            }
-
-            let (name, alias) = if sanitized == *prop.name {
-                (prop.name.to_string(), None) // Name is valid as-is.
-            } else {
-                (sanitized, Some(prop.name.to_string()))
-            };
-
+        for (prop, (name, alias)) in properties.iter().zip(names.iter().cloned()) {
             // Extract docstring from the property's shape
             let docstring = match (&prop.shape.title, &prop.shape.description) {
                 (Some(title), Some(description)) => Some(format!("{} {}", title, description)),
@@ -171,7 +220,17 @@ impl Mapper {
                 (None, None) => None,
             };
 
-            let type_ = self.to_ast(&prop.shape, &to_pascal_case(&name), &mut nested);
+            // A field rebinds its name within the class body, so a nested class
+            // which shares the name of a field is unreachable from annotations.
+            let mut nested_name = to_pascal_case(&name);
+            if names.iter().any(|(name, _)| *name == nested_name) {
+                nested_name.push('_');
+            }
+            let type_ = self
+                .to_ast(&prop.shape, &nested_name, &mut nested)
+                .with_context(|| format!("property {:?}", prop.name.as_ref()))?;
+
+            let default = field_default(prop).cloned();
 
             fields.push(Field {
                 name,
@@ -179,6 +238,7 @@ impl Mapper {
                 docstring,
                 type_,
                 is_required: prop.is_required,
+                default,
             });
         }
 
@@ -200,7 +260,7 @@ impl Mapper {
         }
 
         let additional = if merged.type_ != types::INVALID {
-            Some(self.to_ast(&merged, "PydanticExtra", &mut nested))
+            Some(self.to_ast(&merged, "PydanticExtra", &mut nested)?)
         } else {
             None
         };
@@ -214,16 +274,23 @@ impl Mapper {
 
         classes.push(Class {
             name: type_name.to_owned(),
+            base: None,
             docstring,
             nested,
             fields,
             additional,
+            body: Vec::new(),
         });
 
-        AST::Anchor(type_name.to_owned())
+        Ok(AST::Anchor(type_name.to_owned()))
     }
 
-    fn array_to_ast(&self, arr: &ArrayShape, type_name: &str, classes: &mut Vec<Class>) -> AST {
+    fn array_to_ast(
+        &self,
+        arr: &ArrayShape,
+        type_name: &str,
+        classes: &mut Vec<Class>,
+    ) -> anyhow::Result<AST> {
         let ArrayShape {
             tuple,
             additional_items,
@@ -249,9 +316,9 @@ impl Mapper {
                         classes,
                     )
                 })
-                .collect::<Vec<_>>();
+                .collect::<anyhow::Result<Vec<_>>>()?;
 
-            return AST::Tuple { items };
+            return Ok(AST::Tuple { items });
         }
 
         // Determine the type for additional items by merging "prefixItems"
@@ -268,9 +335,9 @@ impl Mapper {
             merged = Shape::union(merged, item.clone());
         }
 
-        AST::List {
-            of: Box::new(self.to_ast(&merged, &format!("{type_name}Item"), classes)),
-        }
+        Ok(AST::List {
+            of: Box::new(self.to_ast(&merged, &format!("{type_name}Item"), classes)?),
+        })
     }
 
     fn enum_to_ast(
@@ -278,7 +345,7 @@ impl Mapper {
         enum_: &[serde_json::Value],
         type_name: &str,
         classes: &mut Vec<Class>,
-    ) -> AST {
+    ) -> anyhow::Result<AST> {
         let mut disjunct = Vec::new();
 
         let (simple, complex): (Vec<_>, Vec<_>) = enum_.iter().partition(|v| match v {
@@ -301,7 +368,7 @@ impl Mapper {
         {
             let mut obj_shape = Shape::anything();
             obj_shape.type_ = types::OBJECT;
-            disjunct.push(self.to_ast(&obj_shape, &format!("{type_name}Object"), classes));
+            disjunct.push(self.to_ast(&obj_shape, &format!("{type_name}Object"), classes)?);
         }
         if complex
             .iter()
@@ -309,7 +376,7 @@ impl Mapper {
         {
             let mut arr_shape = Shape::anything();
             arr_shape.type_ = types::ARRAY;
-            disjunct.push(self.to_ast(&arr_shape, &format!("{type_name}Array"), classes));
+            disjunct.push(self.to_ast(&arr_shape, &format!("{type_name}Array"), classes)?);
         }
         if complex
             .iter()
@@ -319,20 +386,89 @@ impl Mapper {
             disjunct.push(AST::Float);
         }
 
-        return if disjunct.len() == 1 {
+        // An enum which an intersection has emptied admits no value.
+        Ok(if disjunct.is_empty() {
+            AST::Never
+        } else if disjunct.len() == 1 {
             disjunct.pop().unwrap()
         } else {
             AST::Union { variants: disjunct }
-        };
+        })
     }
 }
 
-/// Sanitize a name into a valid Python identifier.
-/// Replaces invalid characters with underscores and ensures it starts with letter or underscore.
-pub fn sanitize_python_identifier(name: &str) -> String {
-    let mut result = String::new();
+/// Map a property into the name of its Pydantic field,
+/// and an alias of the property if the name differs.
+fn field_name(property: &str) -> (String, Option<String>) {
+    let mut sanitized = sanitize_python_identifier(property);
 
-    let is_reserved_keyword = matches!(
+    // Pydantic doesn't allow field names starting with single underscore,
+    // and __dunders__ must also map into public fields.
+    if sanitized.starts_with('_') || is_unusable_field_name(&sanitized) {
+        sanitized = format!(
+            "m{}{sanitized}",
+            if sanitized.starts_with('_') { "" } else { "_" }
+        );
+    }
+
+    if sanitized == property {
+        (property.to_string(), None) // Name is valid as-is.
+    } else {
+        (sanitized, Some(property.to_string()))
+    }
+}
+
+/// Is `name` a public attribute of `pydantic.BaseModel`?
+/// A field of one of these names overrides its method or property. Some fail
+/// to define their class, and the rest fail pyright's
+/// `reportIncompatibleMethodOverride`, so a type check of the project fails.
+fn is_unusable_field_name(name: &str) -> bool {
+    matches!(
+        name,
+        "construct"
+            | "copy"
+            | "dict"
+            | "from_orm"
+            | "json"
+            | "model_computed_fields"
+            | "model_config"
+            | "model_construct"
+            | "model_copy"
+            | "model_dump"
+            | "model_dump_json"
+            | "model_extra"
+            | "model_fields"
+            | "model_fields_set"
+            | "model_json_schema"
+            | "model_parametrized_name"
+            | "model_post_init"
+            | "model_rebuild"
+            | "model_validate"
+            | "model_validate_json"
+            | "model_validate_strings"
+            | "parse_file"
+            | "parse_obj"
+            | "parse_raw"
+            | "schema"
+            | "schema_json"
+            | "update_forward_refs"
+            | "validate"
+    )
+}
+
+/// Parse an `x-python-type` annotation: a dotted path of identifiers, whose
+/// last is a type within the module named by the others.
+fn python_type(annotation: &serde_json::Value) -> Option<AST> {
+    let path = annotation.as_str()?;
+
+    if !PYTHON_TYPE_RE.is_match(path) || path.split('.').any(is_python_keyword) {
+        return None;
+    }
+    Some(AST::Python(path.to_string()))
+}
+
+fn is_python_keyword(name: &str) -> bool {
+    matches!(
         name,
         "False"
             | "None"
@@ -369,8 +505,15 @@ pub fn sanitize_python_identifier(name: &str) -> String {
             | "while"
             | "with"
             | "yield"
-    );
-    if is_reserved_keyword {
+    )
+}
+
+/// Sanitize a name into a valid Python identifier.
+/// Replaces invalid characters with underscores and ensures it starts with letter or underscore.
+pub fn sanitize_python_identifier(name: &str) -> String {
+    let mut result = String::new();
+
+    if is_python_keyword(name) {
         return format!("{name}_");
     }
 
@@ -407,6 +550,9 @@ pub fn sanitize_python_identifier(name: &str) -> String {
 lazy_static::lazy_static! {
     // Named schema anchor regex: PascalCase names starting with capital letter
     static ref NAMED_SCHEMA_RE: Regex = Regex::new(r"^[A-Z][\w_]+$").unwrap();
+    // Dotted path of at least two ASCII identifiers.
+    static ref PYTHON_TYPE_RE: Regex =
+        Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$").unwrap();
 }
 
 #[cfg(test)]
@@ -517,7 +663,7 @@ mod test {
                 .get()
                 .as_bytes();
 
-            let m = Mapper::new(bundle, "Doc");
+            let m = Mapper::new(bundle, "Doc").unwrap();
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi}:",
@@ -525,9 +671,9 @@ mod test {
                 curi = m.schema().curi(),
             )
             .unwrap();
-            m.map(m.schema(), "Document").render(&mut w);
+            m.map(m.schema(), "Document").unwrap().render(&mut w);
 
-            let m = Mapper::new(bundle, "");
+            let m = Mapper::new(bundle, "").unwrap();
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi} without anchors:",
@@ -535,9 +681,111 @@ mod test {
                 curi = m.schema().curi(),
             )
             .unwrap();
-            m.map(m.schema(), "Document").render(&mut w);
+            m.map(m.schema(), "Document").unwrap().render(&mut w);
         }
 
         insta::assert_snapshot!(w);
+    }
+
+    #[test]
+    fn nested_classes_dont_collide_with_fields() {
+        // `Credentials` is a field, and would be the name of its nested class.
+        // `credentials` maps to the same class name, but no field is named so.
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "Credentials": {
+                    "type": "object",
+                    "properties": {"token": {"type": "string"}},
+                    "required": ["token"],
+                },
+                "account": {
+                    "type": "object",
+                    "properties": {"id": {"type": "integer"}},
+                },
+            },
+            "required": ["Credentials"],
+        })
+        .to_string();
+
+        let mut w = String::new();
+        let m = Mapper::new(schema.as_bytes(), "Doc").unwrap();
+        m.map(m.schema(), "Document").unwrap().render(&mut w);
+
+        insta::assert_snapshot!(w);
+    }
+
+    #[test]
+    fn python_types_defaults_and_names() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "$defs": {
+                "money": {
+                    "$anchor": "Money",
+                    "type": "object",
+                    "properties": {"amount": {"type": "string"}},
+                },
+            },
+            "properties": {
+                // A format alone doesn't change a string's type.
+                "plain": {"type": "string", "format": "date-time"},
+                // A field may share the name of the module of its type.
+                "datetime": {"type": "string", "format": "date-time", "x-python-type": "datetime.datetime"},
+                // Null remains a variant, and a default is validated into the type.
+                "ended": {"type": ["string", "null"], "x-python-type": "datetime.datetime"},
+                "interval": {"type": "string", "default": "PT1H", "x-python-type": "datetime.timedelta"},
+                // An annotation replaces a referenced anchor.
+                "price": {"$ref": "#Money", "x-python-type": "decimal.Decimal"},
+                "sku": {"type": "string", "x-python-type": "acme.types.Sku"},
+                "tags": {"type": "array", "items": {"type": "string", "x-python-type": "acme.types.Tag"}},
+                "count": {"type": "integer", "default": 10},
+                // A default which doesn't validate is ignored.
+                "bad_default": {"type": "integer", "default": "ten"},
+                // So is a default which the effective shape doesn't admit, as when
+                // a read schema intersects a write schema's default away.
+                "forbidden": {"allOf": [{"type": "string", "default": "u"}, false]},
+                "narrowed": {"allOf": [{"type": ["string", "integer"], "default": "u"}, {"type": "integer"}]},
+                "not_enumerated": {"allOf": [{"type": "string", "default": "u"}, {"enum": ["c", "d"]}]},
+                "forbidden_enum": {"allOf": [{"type": "string", "enum": ["c", "u", "d"], "default": "u"}, false]},
+                // Attributes of `BaseModel` are renamed, and other names aren't.
+                "model_dump": {"type": "string"},
+                "model_extra": {"type": "string"},
+                "model_id": {"type": "string"},
+                "json": {"type": "string"},
+                "schema": {"type": "string"},
+            },
+        })
+        .to_string();
+
+        let mut w = String::new();
+        let m = Mapper::new(schema.as_bytes(), "Doc").unwrap();
+        m.map(m.schema(), "Document").unwrap().render(&mut w);
+
+        insta::assert_snapshot!(w);
+    }
+
+    #[test]
+    fn invalid_python_types_are_errors() {
+        let errors: Vec<String> = [
+            serde_json::json!(5),
+            serde_json::json!("Decimal"),
+            serde_json::json!("decimal."),
+            serde_json::json!("decimal..Decimal"),
+            serde_json::json!("decimal.Decimal | None"),
+            serde_json::json!("class.Foo"),
+        ]
+        .into_iter()
+        .map(|annotation| {
+            let schema = serde_json::json!({
+                "type": "object",
+                "properties": {"value": {"type": "string", "x-python-type": annotation}},
+            })
+            .to_string();
+            let m = Mapper::new(schema.as_bytes(), "").unwrap();
+            format!("{:#}", m.map(m.schema(), "Document").err().unwrap())
+        })
+        .collect();
+
+        insta::assert_snapshot!(errors.join("\n"));
     }
 }
