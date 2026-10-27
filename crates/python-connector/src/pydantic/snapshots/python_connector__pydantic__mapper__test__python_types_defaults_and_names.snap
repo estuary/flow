@@ -1,0 +1,35 @@
+---
+source: crates/python-connector/src/pydantic/mapper.rs
+expression: w
+---
+import acme.types as _acme__types
+import datetime as _datetime
+import decimal as _decimal
+
+
+class DocMoney(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    amount: _typing.Optional[str] = None
+
+class Document(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    bad_default: _typing.Optional[int] = None
+    count: int = 10
+    datetime: _typing.Optional[_datetime.datetime] = None
+    ended: _typing.Optional[_typing.Union[_datetime.datetime, None]] = None
+    forbidden: _typing.Optional[_typing.Literal["this field is constrained by its schema to never exist"]] = None
+    forbidden_enum: _typing.Optional[_typing.Literal["this field is constrained by its schema to never exist"]] = None
+    interval: _datetime.timedelta = _pydantic.Field(default="PT1H", validate_default=True)
+    m_json: _typing.Optional[str] = _pydantic.Field(default=None, alias="json")
+    m_model_dump: _typing.Optional[str] = _pydantic.Field(default=None, alias="model_dump")
+    m_model_extra: _typing.Optional[str] = _pydantic.Field(default=None, alias="model_extra")
+    model_id: _typing.Optional[str] = None
+    narrowed: _typing.Optional[int] = None
+    not_enumerated: _typing.Optional[_typing.Literal["c", "d"]] = None
+    plain: _typing.Optional[str] = None
+    price: _typing.Optional[_decimal.Decimal] = None
+    m_schema: _typing.Optional[str] = _pydantic.Field(default=None, alias="schema")
+    sku: _typing.Optional[_acme__types.Sku] = None
+    tags: _typing.Optional[list[_acme__types.Tag]] = None

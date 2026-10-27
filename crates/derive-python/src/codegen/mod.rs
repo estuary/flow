@@ -1,3 +1,4 @@
+use anyhow::Context;
 use itertools::Itertools;
 use proto_flow::flow;
 use std::fmt::Write;
@@ -9,7 +10,7 @@ use python_connector::pydantic::{Mapper, to_pascal_case};
 pub fn types_py(
     collection: &flow::CollectionSpec,
     transforms: &[(&str, &flow::CollectionSpec, LambdaConfig)],
-) -> String {
+) -> anyhow::Result<String> {
     let mut w = String::with_capacity(4096);
 
     // Add imports
@@ -19,20 +20,23 @@ pub fn types_py(
 import typing
 import collections.abc
 import pydantic
+import typing as _typing
+import pydantic as _pydantic
 
 
 "#
     )
     .unwrap();
 
-    let mapper = Mapper::new(&collection.write_schema_json, "Document");
+    let mapper = Mapper::new(&collection.write_schema_json, "Document")
+        .with_context(|| format!("invalid schema of collection {}", collection.name))?;
     writeln!(
         w,
         "# Generated for published documents of derived collection {}",
         collection.name
     )
     .unwrap();
-    mapper.map(mapper.schema(), "Document").render(&mut w);
+    mapper.map(mapper.schema(), "Document")?.render(&mut w);
 
     // Generate Source{Transform} collection types for each transform
     for (name, collection, _config) in transforms {
@@ -42,7 +46,8 @@ import pydantic
             Mapper::new(&collection.write_schema_json, &source_name)
         } else {
             Mapper::new(&collection.read_schema_json, &source_name)
-        };
+        }
+        .with_context(|| format!("invalid schema of collection {}", collection.name))?;
 
         writeln!(
             w,
@@ -50,7 +55,10 @@ import pydantic
             collection.name
         )
         .unwrap();
-        mapper.map(mapper.schema(), &source_name).render(&mut w);
+        mapper
+            .map(mapper.schema(), &source_name)
+            .with_context(|| format!("invalid schema of collection {}", collection.name))?
+            .render(&mut w);
     }
 
     // Generate protocol message types
@@ -205,7 +213,7 @@ class Response(pydantic.BaseModel):
     )
     .unwrap();
 
-    w
+    Ok(w)
 }
 
 /// Generate the main.py runtime wrapper from template.
@@ -469,7 +477,7 @@ mod test {
         ];
 
         // Test types_py generation
-        let types_output = types_py(&sums_spec, &transforms);
+        let types_output = types_py(&sums_spec, &transforms).unwrap();
         insta::assert_snapshot!("types_py", types_output);
 
         // Test stub_py generation

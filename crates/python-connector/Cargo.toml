@@ -12,6 +12,7 @@ license.workspace = true
 doc = { path = "../doc" }
 json = { path = "../json" }
 
+anyhow = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }
 serde_json = { workspace = true }
