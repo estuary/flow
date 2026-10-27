@@ -1655,6 +1655,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture-python"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "doc",
+ "insta",
+ "json",
+ "models",
+ "proto-flow",
+ "python-connector",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "caseless"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

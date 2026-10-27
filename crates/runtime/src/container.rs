@@ -305,17 +305,30 @@ pub async fn start(
 
 /// Validates that a connector image is allowed to run in this data-plane.
 fn validate_connector_image(image: &str, plane: crate::Plane) -> anyhow::Result<()> {
-    if matches!(plane, crate::Plane::Public) {
-        if !image.starts_with("ghcr.io/estuary/") {
-            anyhow::bail!(
-                "connector image '{image}' is not allowed in public data planes: only Estuary-managed images are permitted"
-            );
-        }
-        if image.starts_with("ghcr.io/estuary/derive-python:") {
-            anyhow::bail!("Python derivations may only run in private data-planes");
-        }
+    if !matches!(plane, crate::Plane::Public) {
+        return Ok(());
     }
-    Ok(())
+    // Compare the parsed repository, as a reference may also be untagged or
+    // pinned by digest (`repo`, `repo@sha256:...`).
+    let (repository, _) = models::split_image_tag(image);
+
+    if !repository
+        .strip_prefix("ghcr.io/estuary/")
+        .is_some_and(|name| !name.is_empty())
+    {
+        anyhow::bail!(
+            "connector image '{image}' is not allowed in public data planes: only Estuary-managed images are permitted"
+        );
+    }
+    match repository.as_str() {
+        "ghcr.io/estuary/derive-python" => {
+            anyhow::bail!("Python derivations may only run in private data-planes")
+        }
+        "ghcr.io/estuary/capture-python" => {
+            anyhow::bail!("Python captures may only run in private data-planes")
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Performs a basic validation of logs that represent events, to restrict
@@ -922,16 +935,30 @@ mod test {
     fn test_validate_connector_image_public_plane() {
         let validate = |img| super::validate_connector_image(img, crate::Plane::Public);
 
-        // Allowed: estuary connectors (except derive-python)
+        // Allowed: estuary connectors (except Python connectors)
         assert!(validate("ghcr.io/estuary/source-http-ingest:dev").is_ok());
         assert!(validate("ghcr.io/estuary/materialize-postgres:v1").is_ok());
 
-        // Blocked: derive-python
+        // Blocked: Python derivations and captures
         assert!(validate("ghcr.io/estuary/derive-python:latest").is_err());
+        assert!(validate("ghcr.io/estuary/capture-python:stable").is_err());
+
+        // Blocked: Python connectors, untagged or pinned by digest.
+        for image in [
+            "ghcr.io/estuary/derive-python",
+            "ghcr.io/estuary/capture-python",
+            "ghcr.io/estuary/capture-python@sha256:abc",
+            "ghcr.io/estuary/derive-python:v1@sha256:abc",
+        ] {
+            assert!(validate(image).is_err(), "{image}");
+        }
+        // Allowed: other repositories sharing a Python connector's prefix.
+        assert!(validate("ghcr.io/estuary/derive-python-tools:v1").is_ok());
 
         // Blocked: non-estuary images
         assert!(validate("alpine").is_err());
         assert!(validate("docker.io/estuary/source-postgres:v1").is_err());
+        assert!(validate("ghcr.io/estuary/").is_err());
     }
 
     #[test]

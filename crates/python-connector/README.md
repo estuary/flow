@@ -1,7 +1,7 @@
 # python-connector
 
 Shared machinery of the connectors which run user-authored Python projects:
-`derive-python`, and (in time) `capture-python` and `materialize-python`. It
+`capture-python`, `derive-python`, and (in time) `materialize-python`. It
 defines a Python task's built configuration, the layout of its project, and
 how the project is staged and run.
 

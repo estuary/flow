@@ -1,0 +1,55 @@
+---
+source: crates/capture-python/src/lib.rs
+expression: "serde_json::to_value(requests).unwrap()"
+---
+[
+  {
+    "discover": {
+      "config": {
+        "apiKey": "k"
+      }
+    }
+  },
+  {
+    "validate": {
+      "config": {
+        "apiKey": "k"
+      },
+      "lastCapture": {
+        "config": {
+          "apiKey": "k"
+        },
+        "name": "acmeCo/source-acme"
+      }
+    }
+  },
+  {
+    "apply": {
+      "capture": {
+        "config": {
+          "apiKey": "k"
+        },
+        "name": "acmeCo/source-acme"
+      },
+      "lastCapture": {
+        "config": {
+          "apiKey": "k"
+        },
+        "name": "acmeCo/source-acme"
+      }
+    }
+  },
+  {
+    "open": {
+      "capture": {
+        "config": {
+          "apiKey": "k"
+        },
+        "name": "acmeCo/source-acme"
+      },
+      "sealedConfig": {
+        "apiKey": "k"
+      }
+    }
+  }
+]

@@ -127,9 +127,13 @@ async fn generate_missing_capture_configs(
     connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftCapture {
-        model: Some(models::CaptureDef {
-            endpoint, bindings, ..
-        }),
+        model:
+            Some(models::CaptureDef {
+                endpoint,
+                bindings,
+                shards,
+                ..
+            }),
         ..
     } = capture
     else {
@@ -139,9 +143,10 @@ async fn generate_missing_capture_configs(
     let config = match endpoint {
         models::CaptureEndpoint::Connector(config) => &config.config,
         models::CaptureEndpoint::Local(config) => &config.config,
+        models::CaptureEndpoint::Python(python) => &python.config,
     };
     let missing_config_url = missing_url(config);
-    let spec = validation::capture_spec_request(endpoint);
+    let spec = validation::capture_spec_request(endpoint, shards);
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings
         .iter()
         .filter_map(

@@ -95,8 +95,10 @@ pub struct AutoDiscover {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum CaptureEndpoint {
-    /// # A Connector.
+    /// # An image connector.
     Connector(ConnectorConfig),
+    /// # A custom Python connector.
+    Python(super::CapturePython),
     /// # A local command (development only).
     Local(LocalConfig),
 }

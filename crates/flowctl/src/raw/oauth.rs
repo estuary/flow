@@ -51,7 +51,8 @@ pub async fn do_oauth(
         anyhow::bail!("This command can only be run when authenticated");
     };
     let source = build::arg_source_to_url(source, false)?;
-    let draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
+    let mut draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
+    sources::inline_draft_catalog(&mut draft);
 
     // Identify the capture to inspect.
     // TODO (jshearer): materialization support
@@ -81,7 +82,7 @@ pub async fn do_oauth(
         capture.capture.as_str()
     );
 
-    let spec_req = validation::capture_spec_request(&model.endpoint);
+    let spec_req = validation::capture_spec_request(&model.endpoint, &model.shards);
 
     // Get the task spec's oauth field
     let router = ctx.local_connector_router();

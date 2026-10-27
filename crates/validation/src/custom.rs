@@ -22,6 +22,7 @@ use std::collections::BTreeMap;
 /// such as `local` for a locally-built image.
 pub const IMAGE_TAG_FLAG: &str = "custom-image-tag";
 
+pub const CAPTURE_PYTHON_IMAGE: &str = "ghcr.io/estuary/capture-python";
 pub const DERIVE_PYTHON_IMAGE: &str = "ghcr.io/estuary/derive-python";
 pub const DERIVE_TYPESCRIPT_IMAGE: &str = "ghcr.io/estuary/derive-typescript";
 
@@ -37,6 +38,25 @@ pub fn image_tag<'s>(
         _ => "stable",
     };
     super::flag_value(&shards.flags, IMAGE_TAG_FLAG).unwrap_or(default)
+}
+
+/// Resolve a Python capture into its image connector.
+pub fn capture_python_connector(
+    python: &models::CapturePython,
+    shards: &models::ShardTemplate,
+) -> models::ConnectorConfig {
+    let models::CapturePython {
+        files,
+        config,
+        spec,
+    } = python;
+
+    image_connector(
+        CAPTURE_PYTHON_IMAGE,
+        models::CatalogType::Capture,
+        project_config(files, config, spec),
+        shards,
+    )
 }
 
 /// Resolve a Python derivation into its image connector.
@@ -320,14 +340,17 @@ pub fn walk_legacy_fields(scope: Scope, using: &models::DeriveUsing, errors: &mu
     }
 }
 
-/// Retain only the generated files which the platform owns: those under
-/// `flow_generated/`, and starters of files which the task lists but which
-/// don't exist yet. Any other generated file would overwrite a user's file,
-/// and is dropped. Images which predate ProjectConfig generate a manifest and
-/// editor configuration of a legacy model, which a `files` sibling in the
-/// same directory could list as its own.
+/// Retain only the generated files which a custom Python connector is
+/// expected to write: those under `flow_generated/`, and starters of files
+/// which the task lists but which don't exist yet. Any other generated file
+/// would overwrite a user's file, and is dropped. Images which predate
+/// ProjectConfig generate a manifest and editor configuration of a legacy
+/// model, which a `files` sibling in the same directory could list as its own.
+///
+/// This checks the expected behavior of our own connectors. It's not a
+/// security boundary, which is the project root (see `validate_generated_files`).
 pub fn retain_generated_files(
-    collection: &models::Collection,
+    task: &impl std::fmt::Display,
     project_root: &str,
     files: &models::custom_connector::Files,
     generated_files: &mut BTreeMap<String, String>,
@@ -349,7 +372,7 @@ pub fn retain_generated_files(
         let owned = parsed.starts_with(&owned_dir) || starters.contains(&parsed);
         if !owned {
             tracing::debug!(
-                %collection,
+                %task,
                 %url,
                 "dropping a generated file outside of `flow_generated/`, which isn't the starter of a missing listed file"
             );
@@ -383,6 +406,26 @@ mod test {
         if let models::custom_connector::Files::Inline(files) = &mut python.files {
             files.insert("derived/helpers.py".to_string(), None);
         }
+        let mut capture: models::CapturePython = serde_json::from_value(serde_json::json!({
+            "files": {"source-acme/__init__.py": ""},
+            "config": {"credentials": {"client_id": "an-id"}},
+            "spec": {
+                "configSchema": {
+                    "type": "object",
+                    "properties": {"credentials": {"type": "object"}},
+                },
+                "oauth2": {
+                    "provider": "acme",
+                    "authUrlTemplate": "https://acme.example/authorize",
+                    "accessTokenUrlTemplate": "https://acme.example/token",
+                },
+            },
+        }))
+        .unwrap();
+        // A listed file which failed to load is `null`.
+        if let models::custom_connector::Files::Inline(files) = &mut capture.files {
+            files.insert("pyproject.toml".to_string(), None);
+        }
 
         let v2 = shards(&[(models::ENABLE_RUNTIME_V2, "true")]);
         let local = shards(&[
@@ -393,6 +436,9 @@ mod test {
         insta::assert_debug_snapshot!([
             derive_python_connector(&python, &v2),
             derive_python_connector(&python, &local),
+            // capture-python has no `dev` image.
+            capture_python_connector(&capture, &shards(&[(models::ENABLE_RUNTIME_V2, "false")])),
+            capture_python_connector(&capture, &local),
         ]);
     }
 

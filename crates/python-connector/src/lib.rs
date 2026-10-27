@@ -1,5 +1,5 @@
 //! Shared machinery of connectors which run user-authored Python projects:
-//! derive-python, and (in time) capture-python and materialize-python.
+//! capture-python, derive-python, and (in time) materialize-python.
 
 mod config;
 mod config_types;

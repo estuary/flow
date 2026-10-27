@@ -1,0 +1,91 @@
+---
+source: crates/capture-python/src/lib.rs
+expression: "[resource(serde_json::json!({\n    \"schema\": {\"type\": \"string\", \"x-schema-name\": true}, \"_table\":\n    {\"type\": \"string\", \"x-collection-name\": true}, \"interval\":\n    {\"type\": \"string\", \"format\": \"duration\", \"default\": \"PT0S\",\n        \"x-python-type\": \"datetime.timedelta\"},\n}), serde_json::json!([\"schema\", \"_table\"]),),\nresource(serde_json::json!({\n    \"a\": {\"type\": \"string\", \"x-collection-name\": true}, \"b\":\n    {\"type\": \"string\", \"x-collection-name\": true},\n}), serde_json::json!([]),),\nresource(serde_json::json!({\n    \"schema\": {\"type\": \"string\", \"x-schema-name\": true}, \"table\":\n    {\"type\": \"string\", \"x-collection-name\": true},\n}), serde_json::json!([\"table\"]),),\nresource(serde_json::json!({\"table\":\n    {\"type\": [\"string\", \"null\"], \"x-collection-name\": true}}),\nserde_json::json!([\"table\"]),),\nresource(serde_json::json!({\n    \"path\": {\"type\": \"string\", \"x-collection-name\": true}, \"meta_\":\n    {\"type\": \"string\"},\n}), serde_json::json!([\"path\"]),),].join(\"\\n=====\\n\")"
+---
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+import datetime as _datetime
+
+
+class ResourceConfig(common.BaseResourceConfig):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    m_table: str = _pydantic.Field(alias="_table")
+    interval: _datetime.timedelta = _pydantic.Field(default="PT0S", validate_default=True)
+    m_schema: str = _pydantic.Field(alias="schema")
+
+    PATH_POINTERS: _typing.ClassVar[list[str]] = ["/schema", "/_table"]
+
+    def path(self) -> list[str]:
+        """Resource path of this binding: its `x-schema-name` (if any),
+        followed by its `x-collection-name`."""
+        return [self.m_schema, self.m_table]
+
+
+
+# has_path: true
+
+=====
+# The resource schema doesn't have exactly one `x-collection-name` property
+# (and at most one `x-schema-name`), each a required string, so
+# `ResourceConfig` has no `path()`: declare a subclass having
+# `PATH_POINTERS` and a `path()` of its own.
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(common.BaseResourceConfig):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    a: _typing.Optional[str] = None
+    b: _typing.Optional[str] = None
+
+
+
+# has_path: false
+
+=====
+# The resource schema doesn't have exactly one `x-collection-name` property
+# (and at most one `x-schema-name`), each a required string, so
+# `ResourceConfig` has no `path()`: declare a subclass having
+# `PATH_POINTERS` and a `path()` of its own.
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(common.BaseResourceConfig):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    m_schema: _typing.Optional[str] = _pydantic.Field(default=None, alias="schema")
+    table: str
+
+
+
+# has_path: false
+
+=====
+# The resource schema doesn't have exactly one `x-collection-name` property
+# (and at most one `x-schema-name`), each a required string, so
+# `ResourceConfig` has no `path()`: declare a subclass having
+# `PATH_POINTERS` and a `path()` of its own.
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(common.BaseResourceConfig):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    table: _typing.Union[str, None]
+
+
+
+# has_path: false
+
+=====
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(common.BaseResourceConfig):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    m_meta_: _typing.Optional[str] = _pydantic.Field(default=None, alias="meta_")
+    m_path: str = _pydantic.Field(alias="path")
+
+    PATH_POINTERS: _typing.ClassVar[list[str]] = ["/path"]
+
+    def path(self) -> list[str]:
+        """Resource path of this binding: its `x-schema-name` (if any),
+        followed by its `x-collection-name`."""
+        return [self.m_path]
+
+
+
+# has_path: true

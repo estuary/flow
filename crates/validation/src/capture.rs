@@ -75,7 +75,10 @@ pub async fn walk_all_captures(
 
 /// Map a capture's endpoint into the connector Spec request used by
 /// validation and by local flowctl commands.
-pub fn capture_spec_request(endpoint: &models::CaptureEndpoint) -> capture::request::Spec {
+pub fn capture_spec_request(
+    endpoint: &models::CaptureEndpoint,
+    shards: &models::ShardTemplate,
+) -> capture::request::Spec {
     let (connector_type, config_json) = match endpoint {
         models::CaptureEndpoint::Connector(config) => (
             flow::capture_spec::ConnectorType::Image as i32,
@@ -84,6 +87,12 @@ pub fn capture_spec_request(endpoint: &models::CaptureEndpoint) -> capture::requ
         models::CaptureEndpoint::Local(config) => (
             flow::capture_spec::ConnectorType::Local as i32,
             serde_json::to_string(config).unwrap().into(),
+        ),
+        models::CaptureEndpoint::Python(config) => (
+            flow::capture_spec::ConnectorType::Image as i32,
+            serde_json::to_string(&crate::custom::capture_python_connector(config, shards))
+                .unwrap()
+                .into(),
         ),
     };
     capture::request::Spec {
@@ -158,7 +167,30 @@ async fn walk_capture(
     let capture::request::Spec {
         connector_type,
         config_json,
-    } = capture_spec_request(&endpoint);
+    } = capture_spec_request(&endpoint, &shards);
+
+    if let models::CaptureEndpoint::Python(python) = &endpoint {
+        let scope = scope.push_prop("endpoint");
+        let scope = scope.push_prop("python");
+
+        if !shards.uses_runtime_v2(models::CatalogType::Capture) {
+            Error::RequireRuntimeV2 {
+                entity: "capture",
+                name: capture.to_string(),
+                capability: "python",
+                flag: models::ENABLE_RUNTIME_V2,
+            }
+            .push(scope, errors);
+        }
+        crate::custom::walk_python(
+            scope,
+            capture,
+            &python.files,
+            &python.config,
+            &python.spec,
+            errors,
+        );
+    }
 
     let secrets_spec = assemble::secrets(&secrets);
     let secrets_ctx = crate::secrets::Context::of_capture(&secrets, &endpoint);
@@ -313,6 +345,15 @@ async fn walk_capture(
         &mut validated_response.generated_files,
         errors,
     );
+
+    if let models::CaptureEndpoint::Python(python) = &endpoint {
+        crate::custom::retain_generated_files(
+            capture,
+            &project_root,
+            &python.files,
+            &mut validated_response.generated_files,
+        );
+    }
 
     let capture::response::Validated {
         bindings: bindings_validated,

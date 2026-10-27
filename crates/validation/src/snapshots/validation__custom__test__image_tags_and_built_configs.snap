@@ -1,6 +1,6 @@
 ---
 source: crates/validation/src/custom.rs
-expression: "[derive_python_connector(&python, &v2),\nderive_python_connector(&python, &local),]"
+expression: "[derive_python_connector(&python, &v2),\nderive_python_connector(&python, &local),\ncapture_python_connector(&capture,\n&shards(&[(models::ENABLE_RUNTIME_V2, \"false\")])),\ncapture_python_connector(&capture, &local),]"
 ---
 [
     ConnectorConfig {
@@ -13,6 +13,18 @@ expression: "[derive_python_connector(&python, &v2),\nderive_python_connector(&p
         image: "ghcr.io/estuary/derive-python:local",
         config: RawValue(
             {"_python":{"files":{"derived/__init__.py":"class Derivation: pass\n","derived/helpers.py":null,"pyproject.toml":"[project]\n"},"spec":{}},"region":"north"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/capture-python:stable",
+        config: RawValue(
+            {"_python":{"files":{"pyproject.toml":null,"source-acme/__init__.py":""},"spec":{"configSchema":{"properties":{"credentials":{"type":"object"}},"type":"object"},"oauth2":{"provider":"acme","authUrlTemplate":"https://acme.example/authorize","accessTokenUrlTemplate":"https://acme.example/token"}}},"credentials":{"client_id":"an-id"}},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/capture-python:local",
+        config: RawValue(
+            {"_python":{"files":{"pyproject.toml":null,"source-acme/__init__.py":""},"spec":{"configSchema":{"properties":{"credentials":{"type":"object"}},"type":"object"},"oauth2":{"provider":"acme","authUrlTemplate":"https://acme.example/authorize","accessTokenUrlTemplate":"https://acme.example/token"}}},"credentials":{"client_id":"an-id"}},
         ),
     },
 ]

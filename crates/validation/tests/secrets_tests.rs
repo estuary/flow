@@ -412,7 +412,7 @@ test://example/catalog.yaml:
 }
 
 /// The image rule reaches only explicit connector images. An endpoint with no
-/// image of its own -- Local, Dekaf, or a custom derivation -- stays
+/// image of its own -- Local, Dekaf, or a custom connector -- stays
 /// sibling-only, even for a secret named exactly as the rule would have it.
 #[test]
 fn secrets_image_rule_excludes_imageless_endpoints() {
@@ -429,6 +429,14 @@ test://example/catalog.yaml:
           config: { address: db.example.com }
       secrets:
         vendorCo/oauth/connectors/source/image/oauth-client: /credentials/token
+    acmeCo/source-python:
+      endpoint:
+        python:
+          files: { pyproject.toml: "", source-python/__init__.py: "" }
+      secrets:
+        # Named for the image a Python capture actually runs.
+        vendorCo/oauth/connectors/ghcr.io/estuary/capture-python/oauth-client: /credentials
+      bindings: []
   collections:
     acmeCo/rollups:
       derive:
