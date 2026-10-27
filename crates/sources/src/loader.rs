@@ -780,17 +780,27 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
-            models::DeriveUsing::Python(models::DeriveUsingPython { module, .. }) => {
+            models::DeriveUsing::Python(models::DeriveUsingPython {
+                files,
+                config,
+                spec,
+                module,
+                ..
+            }) => {
                 tasks.push(
                     async move {
-                        self.load_config(
-                            scope
-                                .push_prop("using")
-                                .push_prop("python")
-                                .push_prop("module"),
-                            module,
-                        )
-                        .await
+                        let scope = scope.push_prop("using");
+                        let scope = scope.push_prop("python");
+                        futures::join!(
+                            async {
+                                if let Some(module) = module {
+                                    self.load_config(scope.push_prop("module"), module).await;
+                                }
+                            },
+                            self.load_config(scope.push_prop("config"), config),
+                            self.load_files(scope.push_prop("files"), files),
+                            self.load_custom_spec(scope.push_prop("spec"), spec),
+                        );
                     }
                     .boxed(),
                 );
@@ -1066,6 +1076,59 @@ impl<F: Fetcher> Loader<F> {
             flow::ContentType::Config,
         )
         .await;
+    }
+
+    // Load the schemas of a custom connector's `spec`. Like collection
+    // schemas, each is inline or a relative URL, and may `$ref` other schemas.
+    async fn load_custom_spec<'s>(
+        &'s self,
+        scope: Scope<'s>,
+        spec: &'s models::custom_connector::Spec,
+    ) {
+        let models::custom_connector::Spec {
+            config_schema,
+            resource_config_schema,
+            oauth2: _,
+        } = spec;
+
+        let load = |prop: &'static str, schema: &'s Option<models::Schema>| async move {
+            if let Some(schema) = schema {
+                self.load_schema_reference(scope.push_prop(prop), schema)
+                    .await;
+            }
+        };
+        futures::join!(
+            load("configSchema", config_schema),
+            load("resourceConfigSchema", resource_config_schema),
+        );
+    }
+
+    // Load each file of an indirect `files` list as text.
+    // An inline `files` object has nothing to load. A malformed path isn't
+    // fetched, as it may name a location outside of the specification's
+    // directory, and validation reports it.
+    async fn load_files<'s>(
+        &'s self,
+        scope: Scope<'s>,
+        files: &'s models::custom_connector::Files,
+    ) {
+        let models::custom_connector::Files::Indirect(paths) = files else {
+            return;
+        };
+        let tasks = paths
+            .iter()
+            .enumerate()
+            .filter(|(_, path)| models::custom_connector::Files::is_valid_path(path))
+            .map(|(index, path)| {
+                async move {
+                    let scope = scope.push_item(index);
+                    let import = self.fallible(scope, scope.resource().join(path));
+                    self.load_import(scope, import, flow::ContentType::Text)
+                        .await
+                }
+                .boxed()
+            });
+        let _: Vec<()> = futures::future::join_all(tasks).await;
     }
 
     // Rewrite the `command` of a `local:` connector endpoint so that its

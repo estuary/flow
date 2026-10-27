@@ -1,3 +1,4 @@
+use super::{RawValue, custom_connector};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
@@ -6,17 +7,41 @@ use std::collections::BTreeMap;
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DeriveUsingPython {
-    /// # Python module implementing this derivation.
-    /// Module is either a relative URL of a Python module file,
-    /// or is an inline representation of a Python module.
-    /// The module must have an exported Derivation class which
-    /// extends the generated IDerivation base class.
+    /// # Deprecated: list the derivation's module in `files`.
+    /// A relative URL of a Python module, or its inline content.
+    /// It's used as the derivation's `__init__.py`, beside a default
+    /// `pyproject.toml`. It can't be combined with `files`, `config`, or `spec`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "DeriveUsingPython::module_schema")]
-    pub module: super::RawValue,
-    /// # Python package dependencies.
-    /// Map of package name to version specifier (e.g., {"httpx": ">=0.27", "pydantic": ">=2.0"}).
-    /// These dependencies will be included in the generated pyproject.toml.
-    #[serde(default)]
+    pub module: Option<RawValue>,
+    /// # Files of this derivation's Python project.
+    /// The derivation's directory is named for the final component of the
+    /// collection's name: `acmeCo/orders` has directory `orders/`.
+    /// Its `orders/__init__.py` defines a `Derivation` class, which directly
+    /// subclasses the generated `IDerivation`.
+    /// The project's `pyproject.toml` declares its dependencies. If you list a
+    /// `uv.lock`, it pins them exactly. Create or update it with `uv lock`.
+    /// Otherwise, they're resolved anew each time the derivation starts.
+    #[serde(default, skip_serializing_if = "custom_connector::Files::is_empty")]
+    pub files: custom_connector::Files,
+    /// # Configuration of this derivation.
+    /// An object described by `spec.configSchema`, which your `Derivation`
+    /// class receives. Supply sensitive values through the `secrets` stanza.
+    #[serde(
+        default = "custom_connector::empty_config",
+        skip_serializing_if = "custom_connector::is_empty_config"
+    )]
+    pub config: RawValue,
+    /// # Connector specification of this derivation.
+    /// Its `configSchema` describes the derivation's `config`, and its
+    /// `resourceConfigSchema` describes the `lambda` of each transform.
+    #[serde(default, skip_serializing_if = "custom_connector::Spec::is_empty")]
+    pub spec: custom_connector::Spec,
+    // Deprecated: dependencies of a legacy `module`, which are folded into its
+    // default `pyproject.toml`. Validation requires that a model having
+    // `files` instead declares them in its own `pyproject.toml`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(skip)]
     pub dependencies: BTreeMap<String, String>,
     // Removed. It still parses, and validation requires that it's empty.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -35,8 +60,41 @@ impl DeriveUsingPython {
                     "type": "string",
                     "contentMediaType": "text/x.python",
                 }
-            ]
+            ],
+            "deprecated": true,
         }))
         .unwrap()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::DeriveUsingPython;
+
+    #[test]
+    fn legacy_fields_round_trip() {
+        // Models of master always serialized a `module` and `dependencies`,
+        // and an `environment` only if it had one.
+        let legacy: DeriveUsingPython = serde_json::from_value(serde_json::json!({
+            "module": "module.py",
+            "dependencies": {},
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_string(&legacy).unwrap(),
+            r#"{"module":"module.py"}"#
+        );
+
+        // Non-empty removed fields still parse, for validation to reject.
+        let legacy: DeriveUsingPython = serde_json::from_value(serde_json::json!({
+            "module": "module.py",
+            "dependencies": {"httpx": ">=0.27"},
+            "environment": {"KEY": "value"},
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_string(&legacy).unwrap(),
+            r#"{"module":"module.py","dependencies":{"httpx":">=0.27"},"environment":{"KEY":"value"}}"#
+        );
     }
 }

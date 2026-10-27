@@ -195,7 +195,12 @@ async fn generate_missing_collection_configs(
     let missing_config_url = match using {
         models::DeriveUsing::Connector(config) => missing_url(&config.config),
         models::DeriveUsing::Local(config) => missing_url(&config.config),
-        // TypeScript, Python, and SQLite always generate their own configs.
+        models::DeriveUsing::Python(models::DeriveUsingPython {
+            module: None,
+            config,
+            ..
+        }) => missing_url(config),
+        // TypeScript, SQLite, and a legacy Python module generate their own configs.
         // Other connectors may as well, and they'll override those generated here.
         models::DeriveUsing::Sqlite(_)
         | models::DeriveUsing::Typescript(_)

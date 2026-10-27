@@ -3,6 +3,128 @@ mod common;
 const SECRETS_YAML: &str = include_str!("secrets.yaml");
 
 #[test]
+fn secrets_publish_with_custom_configs() {
+    let actual = [
+        ("python", "pyproject.toml", "rollups/__init__.py"),
+    ]
+    .map(|(language, manifest, entry)| {
+        let outcome = common::run(
+            SECRETS_YAML,
+            &format!(
+                r#"
+test://example/catalog.yaml:
+  collections:
+    acmeCo/rollups:
+      derive:
+        using:
+          connector: null
+          {language}:
+            files: {{ {manifest}: "", {entry}: {language} module placeholder }}
+            config: {{ region: us-east-1 }}
+        secrets:
+          acmeCo/api-token: /api_token
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+
+driver:
+  derivations:
+    acmeCo/rollups:
+      config:
+        image: ghcr.io/estuary/derive-{language}:stable
+        config:
+          address: null
+          region: us-east-1
+          _{language}: {{ files: {{ {manifest}: "", {entry}: {language} module placeholder }}, spec: {{}} }}
+"#
+            ),
+        );
+        let derivation = outcome
+            .built_collections
+            .iter()
+            .find(|row| row.collection.as_str() == "acmeCo/rollups")
+            .unwrap()
+            .spec
+            .as_ref()
+            .unwrap()
+            .derivation
+            .as_ref()
+            .unwrap();
+
+        // The mock checks the Validate configuration; also check that the
+        // built spec retains the config and secrets for runtime startup.
+        let config: serde_json::Value = serde_json::from_slice(&derivation.config_json).unwrap();
+        (language, outcome.errors, config, derivation.secrets.clone())
+    });
+    insta::assert_debug_snapshot!(actual);
+}
+
+/// A custom derivation's `config` is subject to the same plaintext check
+/// as a raw connector configuration. It can't be wrapped by `sops`, so it's
+/// checked whether or not it has a stanza.
+#[test]
+fn secrets_reject_plaintext_values_of_custom_configs() {
+    let outcomes = [
+        ("python", "pyproject.toml", "rollups/__init__.py", "{ acmeCo/api-token: /credentials/token }"),
+        ("python", "pyproject.toml", "rollups/__init__.py", "null"),
+    ]
+    .map(|(language, manifest, entry, secrets)| {
+        common::run_errors(
+            SECRETS_YAML,
+            &format!(
+                r#"
+test://example/catalog.yaml:
+  collections:
+    acmeCo/rollups:
+      derive:
+        using:
+          connector: null
+          {language}:
+            files: {{ {manifest}: "", {entry}: {language} module placeholder }}
+            config: {{ api_token: plaintext-token }}
+            spec:
+              configSchema:
+                type: object
+                properties:
+                  api_token: {{ type: string, secret: true }}
+        secrets: {secrets}
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+
+driver:
+  derivations:
+    acmeCo/rollups:
+      config:
+        image: ghcr.io/estuary/derive-{language}:stable
+        config:
+          address: null
+          api_token: plaintext-token
+          _{language}:
+            files: {{ {manifest}: "", {entry}: {language} module placeholder }}
+            spec:
+              configSchema:
+                $id: test://example/catalog.yaml?ptr=/collections/acmeCo~1rollups/derive/using/{language}/spec/configSchema
+                type: object
+                properties:
+                  api_token: {{ type: string, secret: true }}
+      # The connector answers Spec with the model's declared schema.
+      configSchema:
+        type: object
+        properties:
+          api_token: {{ type: string, secret: true }}
+"#,
+            ),
+        )
+    });
+    insta::assert_debug_snapshot!(outcomes);
+}
+
+/// The base fixture publishes cleanly: one task of each type draws a sibling
+/// secret into a plaintext configuration (the capture without naming the V2
+/// runtime flag at all), a disabled capture skips the connector and its
+/// plaintext invariant, and a capture without a stanza is not subject to it.
+#[test]
 fn secrets_publish_across_task_types() {
     let outcome = common::run(SECRETS_YAML, "{}");
     insta::assert_debug_snapshot!(outcome.errors);
@@ -10,7 +132,8 @@ fn secrets_publish_across_task_types() {
 
 /// A stanza requires the V2 runtime, whose default differs by task type: a
 /// capture opts out only by pinning the flag false, while a derivation or
-/// materialization must opt in.
+/// materialization must opt in. A custom derivation's `files` require it in
+/// their own right.
 #[test]
 fn secrets_require_the_v2_runtime() {
     let errors = common::run_errors(
@@ -26,24 +149,12 @@ test://example/catalog.yaml:
         using:
           connector: null
           python:
-            module: rollups.py
+            files: { pyproject.toml: "", rollups/__init__.py: python module placeholder }
+            config: { region: us-east-1 }
         shards: { flags: null }
   materializations:
     acmeCo/dest-widgets:
       shards: { flags: { enable-runtime-v2: "false" } }
-
-test://example/rollups.py: python module placeholder
-
-driver:
-  derivations:
-    acmeCo/rollups:
-      # Absent the V2 runtime, built-in derivations pin the `dev` image tag.
-      config:
-        image: ghcr.io/estuary/derive-python:dev
-        config:
-          address: null
-          module: python module placeholder
-          dependencies: {}
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -301,7 +412,7 @@ test://example/catalog.yaml:
 }
 
 /// The image rule reaches only explicit connector images. An endpoint with no
-/// image of its own -- Local, Dekaf, or a built-in derivation -- stays
+/// image of its own -- Local, Dekaf, or a custom derivation -- stays
 /// sibling-only, even for a secret named exactly as the rule would have it.
 #[test]
 fn secrets_image_rule_excludes_imageless_endpoints() {
@@ -326,8 +437,8 @@ test://example/catalog.yaml:
           python:
             module: rollups.py
         secrets:
-          # Named for the image a built-in derivation actually runs.
-          vendorCo/oauth/connectors/ghcr.io/estuary/derive-python/oauth-client: /environment/TOKEN
+          # Named for the image a custom derivation actually runs.
+          vendorCo/oauth/connectors/ghcr.io/estuary/derive-python/oauth-client: /token
   materializations:
     acmeCo/dest-widgets:
       endpoint:

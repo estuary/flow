@@ -5,7 +5,8 @@ Shared machinery of the connectors which run user-authored Python projects:
 defines a Python task's built configuration, the layout of its project, and
 how the project is staged and run.
 
-The user-facing model of a task (`Spec`, `Files`) is `models::custom_connector`.
+`validation` also depends on it, to build Python tasks. The user-facing model
+of a task (`Spec`, `Files`) is `models::custom_connector`.
 
 ## Key types and entry points
 

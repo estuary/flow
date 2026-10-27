@@ -18,13 +18,16 @@ pub struct Context<'a> {
     // `secrets` stanza of the model.
     secrets: &'a Stanza,
     // Endpoint config for comparison against `secret` annotations. Raw
-    // connector configs are borrowed, while typed built-ins are serialized.
+    // connector configs are borrowed, while SQLite's typed config is serialized.
     config: std::borrow::Cow<'a, models::RawValue>,
     // Image repository of an explicit connector image, tag and digest
     // stripped, under which the image rule may admit a non-sibling secret.
-    // None for every other endpoint: built-in derivations, Dekaf, and Local
+    // None for every other endpoint: custom and SQLite derivations, Dekaf, and Local
     // connectors have no image identity, and get siblings only.
     image: Option<String>,
+    // Python configs can't be wrapped by `sops`, so their `secret: true`
+    // locations are checked for plaintext even without a stanza.
+    always_plaintext: bool,
 }
 
 impl<'a> Context<'a> {
@@ -37,6 +40,7 @@ impl<'a> Context<'a> {
             secrets,
             config: std::borrow::Cow::Borrowed(config),
             image: image.map(|image| models::split_image_tag(image).0),
+            always_plaintext: false,
         }
     }
 
@@ -56,35 +60,43 @@ impl<'a> Context<'a> {
             secrets,
             config: std::borrow::Cow::Borrowed(config),
             image: image.map(|image| models::split_image_tag(image).0),
+            always_plaintext: false,
         }
     }
 
     pub fn of_derivation(secrets: &'a Stanza, using: &'a models::DeriveUsing) -> Self {
-        // Built-in derivations run frozen first-party images which will never
-        // have first-party secrets, so only an explicit image opts in.
-        let image = match using {
-            models::DeriveUsing::Connector(config) => {
-                Some(models::split_image_tag(&config.image).0)
+        // Custom and SQLite derivations run first-party images which will never have
+        // first-party secrets, so only an explicit image opts in. Their
+        // secrets are merged into their `config`.
+        let (config, image) = match using {
+            models::DeriveUsing::Connector(config) => (
+                std::borrow::Cow::Borrowed(&config.config),
+                Some(models::split_image_tag(&config.image).0),
+            ),
+            models::DeriveUsing::Local(config) => {
+                (std::borrow::Cow::Borrowed(&config.config), None)
             }
-            _ => None,
-        };
-        let config = match using {
-            models::DeriveUsing::Connector(config) => std::borrow::Cow::Borrowed(&config.config),
-            models::DeriveUsing::Local(config) => std::borrow::Cow::Borrowed(&config.config),
-            models::DeriveUsing::Typescript(config) => std::borrow::Cow::Owned(
-                models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
+            models::DeriveUsing::Typescript(config) => (
+                std::borrow::Cow::Owned(
+                    models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
+                ),
+                None,
             ),
-            models::DeriveUsing::Python(config) => std::borrow::Cow::Owned(
-                models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
-            ),
-            models::DeriveUsing::Sqlite(config) => std::borrow::Cow::Owned(
-                models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
+            models::DeriveUsing::Python(config) => {
+                (std::borrow::Cow::Borrowed(&config.config), None)
+            }
+            models::DeriveUsing::Sqlite(config) => (
+                std::borrow::Cow::Owned(
+                    models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
+                ),
+                None,
             ),
         };
         Self {
             secrets,
             config,
             image,
+            always_plaintext: matches!(using, models::DeriveUsing::Python(_)),
         }
     }
 }
@@ -193,6 +205,7 @@ pub fn walk_model(
 
 /// Validate that no `secret: true` location of `config` holds a plaintext
 /// value, against `config_schema_json` of the connector's Spec response.
+/// A task is checked if it has a stanza, or if its config is always plaintext.
 ///
 /// This deliberately collects annotations without schema validation:
 /// a raw configuration is legitimately schema-invalid, because required
@@ -205,7 +218,7 @@ pub fn walk_plaintext(
     config_schema_json: &[u8],
     errors: &mut tables::Errors,
 ) {
-    if ctx.secrets.is_empty() {
+    if ctx.secrets.is_empty() && !ctx.always_plaintext {
         return;
     }
     let plaintext = match plaintext::find(config_schema_json, &ctx.config.to_value()) {

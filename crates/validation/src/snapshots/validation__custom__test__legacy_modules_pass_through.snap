@@ -1,0 +1,30 @@
+---
+source: crates/validation/src/custom.rs
+expression: "[derive_python_connector(&python, &v1), derive_python_connector(&python, &v2),\nderive_typescript_connector(&typescript, &v1),\nderive_typescript_connector(&typescript, &v2),]"
+---
+[
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-python:dev",
+        config: RawValue(
+            {"module":"class Derivation(IDerivation):\n    pass\n","dependencies":{"httpx":">=0.27"}},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-python:stable",
+        config: RawValue(
+            {"module":"class Derivation(IDerivation):\n    pass\n","dependencies":{"httpx":">=0.27"}},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-typescript:dev",
+        config: RawValue(
+            {"module":"export class Derivation extends IDerivation {}\n"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-typescript:stable",
+        config: RawValue(
+            {"module":"export class Derivation extends IDerivation {}\n"},
+        ),
+    },
+]
