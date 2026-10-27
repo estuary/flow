@@ -1,0 +1,18 @@
+---
+source: crates/materialize-python/src/lib.rs
+expression: "[check(constrained), check(Vec::new()), check(moved), check(standard),]"
+---
+[
+    Ok(
+        (),
+    ),
+    Err(
+        "Materialization.validate left 0 bindings, but the materialization has 1",
+    ),
+    Err(
+        "Materialization.validate changed the resource path of binding [\"crm\", \"contacts\"] to [\"crm\"]: a binding's resource path is that of its resource configuration",
+    ),
+    Err(
+        "Materialization.validate changed the delta updates of binding [\"crm\", \"contacts\"] to false: a binding's delta updates are those of its resource configuration",
+    ),
+]

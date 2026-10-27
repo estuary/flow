@@ -317,6 +317,19 @@ fn inline_materialization(
                 resources,
             )
         }
+        models::MaterializationEndpoint::Python(models::MaterializePython {
+            files,
+            config,
+            spec,
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("endpoint");
+            let scope = scope.push_prop("python");
+
+            inline_config(scope.push_prop("config"), config, imports, resources);
+            inline_files(scope.push_prop("files"), files, imports, resources);
+            inline_custom_spec(scope.push_prop("spec"), spec, imports, resources);
+        }
     }
 
     for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()

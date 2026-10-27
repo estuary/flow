@@ -149,6 +149,30 @@ test://example/catalog.yaml:
       shards:
         ringBufferSize: 12345
 
+    acmeCo/materialize-acme:
+      endpoint:
+        python:
+          files:
+            - pyproject.toml
+            - materialize-acme/__init__.py
+            - materialize-acme/missing.py
+          config:
+            credentials:
+              client_id: a-client-id
+          # Spec schemas are inline or imported, and are bundled.
+          spec:
+            configSchema: materialize-acme.config.schema.yaml
+            resourceConfigSchema:
+              type: object
+              properties:
+                table: { type: string, x-collection-name: true }
+              required: [table]
+      secrets:
+        acmeCo/materialize-acme/client-secret: /credentials/client_secret
+      bindings:
+        - source: a/collection
+          resource: { table: widgets }
+
 test://example/referenced/config.yaml:
   referenced: config that's fairly long and does not inline
 
@@ -186,4 +210,17 @@ test://example/source-acme/__init__.py: |
 
 test://example/source-acme/models.py: |
   class Greeting:
+      pass
+
+test://example/materialize-acme.config.schema.yaml:
+  type: object
+  properties:
+    credentials:
+      $ref: credentials.schema.yaml
+  required: [credentials]
+
+test://example/materialize-acme/__init__.py: |
+  from .flow_generated.python.acmeCo.materialize_acme import IMaterialization
+
+  class Materialization(IMaterialization):
       pass

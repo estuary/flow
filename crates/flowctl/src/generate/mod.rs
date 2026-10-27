@@ -245,9 +245,13 @@ async fn generate_missing_materialization_configs(
     connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftMaterialization {
-        model: Some(models::MaterializationDef {
-            endpoint, bindings, ..
-        }),
+        model:
+            Some(models::MaterializationDef {
+                endpoint,
+                bindings,
+                shards,
+                ..
+            }),
         ..
     } = materialization
     else {
@@ -258,9 +262,10 @@ async fn generate_missing_materialization_configs(
         models::MaterializationEndpoint::Connector(config) => &config.config,
         models::MaterializationEndpoint::Local(config) => &config.config,
         models::MaterializationEndpoint::Dekaf(config) => &config.config,
+        models::MaterializationEndpoint::Python(python) => &python.config,
     };
     let missing_config_url = missing_url(config);
-    let spec = validation::materialization_spec_request(endpoint);
+    let spec = validation::materialization_spec_request(endpoint, shards);
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings
         .iter()
         .filter_map(

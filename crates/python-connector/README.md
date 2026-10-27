@@ -1,9 +1,9 @@
 # python-connector
 
 Shared machinery of the connectors which run user-authored Python projects:
-`capture-python`, `derive-python`, and (in time) `materialize-python`. It
-defines a Python task's built configuration, the layout of its project, and
-how the project is staged and run.
+`capture-python`, `derive-python`, and `materialize-python`. It defines a
+Python task's built configuration, the layout of its project, and how the
+project is staged and run.
 
 `validation` also depends on it, to build Python tasks. The user-facing model
 of a task (`Spec`, `Files`) is `models::custom_connector`.

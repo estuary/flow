@@ -1155,7 +1155,7 @@ expression: "&schema"
       "description": "An Endpoint connector used for Flow materializations.",
       "oneOf": [
         {
-          "title": "A Connector.",
+          "title": "An image connector.",
           "type": "object",
           "properties": {
             "connector": {
@@ -1165,6 +1165,19 @@ expression: "&schema"
           "additionalProperties": false,
           "required": [
             "connector"
+          ]
+        },
+        {
+          "title": "A custom Python connector.",
+          "type": "object",
+          "properties": {
+            "python": {
+              "$ref": "#/$defs/MaterializePython"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "python"
           ]
         },
         {
@@ -1246,6 +1259,28 @@ expression: "&schema"
       "required": [
         "recommended"
       ]
+    },
+    "MaterializePython": {
+      "description": "A materialization implemented by a user-authored Python connector.",
+      "type": "object",
+      "properties": {
+        "config": {
+          "title": "Configuration of this materialization.",
+          "description": "An object described by `spec.configSchema`, which your `Materialization`\nclass receives. Supply sensitive values through the `secrets` stanza.",
+          "$ref": "#/$defs/Value"
+        },
+        "files": {
+          "title": "Files of this materialization's Python project.",
+          "description": "The materialization's directory is named for the final component of the\nmaterialization's name: `acmeCo/materialize-acme` has directory\n`materialize-acme/`. Its `materialize-acme/__init__.py` defines a\n`Materialization` class, which directly subclasses the generated\n`IMaterialization`.\nThe project's `pyproject.toml` declares its dependencies. If you list a\n`uv.lock`, it pins them exactly. Create or update it with `uv lock`.\nOtherwise, they're resolved anew each time the materialization starts.",
+          "$ref": "#/$defs/CustomConnectorFiles"
+        },
+        "spec": {
+          "title": "Connector specification of this materialization.",
+          "description": "Its `configSchema` describes the materialization's `config`, and its\n`resourceConfigSchema` describes the `resource` of each binding.",
+          "$ref": "#/$defs/CustomConnectorSpec"
+        }
+      },
+      "additionalProperties": false
     },
     "OAuth2": {
       "description": "OAuth2 provider of a connector, which mirrors the OAuth2 of a connector's\nSpec response (and the CDK's `OAuth2Spec`).\n\nHeader and response-map values are strings, as the CDK's `OAuth2Spec`\nrequires. Templates are mustache templates. Every template may use `client_id` and\n`redirect_uri`. The authorization URL may also use `state`, the access\ntoken request may use `code` and `client_secret`, and the refresh token\nrequest may use `refresh_token` and `client_secret`.",

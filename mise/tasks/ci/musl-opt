@@ -12,4 +12,5 @@ cargo build \
     -p connector-init \
     -p derive-python \
     -p derive-typescript \
+    -p materialize-python \
     -p parser

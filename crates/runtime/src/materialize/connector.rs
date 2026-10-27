@@ -111,6 +111,12 @@ pub async fn start<L: LogHandler>(
             // `extract_endpoint` rejected this connector type above.
             unreachable!("Dekaf materializations are served by the connector crate");
         }
+        models::MaterializationEndpoint::Python(_) => {
+            return Err(tonic::Status::invalid_argument(
+                "Python materializations should have been resolved to an image at build time",
+            )
+            .into());
+        }
     };
 
     // Send an initial Spec request which may direct us to perform an IAM token exchange.

@@ -77,7 +77,7 @@ async fn get_spec_response(
 
         let model = row.model.as_ref().expect("not a materialization");
 
-        let request = validation::materialization_spec_request(&model.endpoint);
+        let request = validation::materialization_spec_request(&model.endpoint, &model.shards);
         let response =
             local_connector::spec_materialize(router, model.shards.log_level.as_deref(), request)
                 .await?;

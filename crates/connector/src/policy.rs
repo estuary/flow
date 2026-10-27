@@ -39,6 +39,11 @@ impl Image {
         if matches!(plane, crate::Plane::Public) && repository == "ghcr.io/estuary/capture-python" {
             anyhow::bail!("Python captures may only run in private data-planes");
         }
+        if matches!(plane, crate::Plane::Public)
+            && repository == "ghcr.io/estuary/materialize-python"
+        {
+            anyhow::bail!("Python materializations may only run in private data-planes");
+        }
 
         Ok(Self {
             image: image.to_string(),
@@ -407,6 +412,21 @@ mod test {
             );
             Image::check(crate::Plane::Private, image).unwrap();
         }
+
+        assert_eq!(
+            Image::check(
+                crate::Plane::Public,
+                "ghcr.io/estuary/materialize-python:stable"
+            )
+            .unwrap_err()
+            .to_string(),
+            "Python materializations may only run in private data-planes"
+        );
+        Image::check(
+            crate::Plane::Private,
+            "ghcr.io/estuary/materialize-python:stable",
+        )
+        .unwrap();
     }
 
     #[test]

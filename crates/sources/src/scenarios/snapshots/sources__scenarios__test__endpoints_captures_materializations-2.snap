@@ -211,6 +211,41 @@ DraftCatalog {
             is_touch: 0,
         },
         DraftMaterialization {
+            materialization: acmeCo/materialize-acme,
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materialize-acme,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "endpoint": {
+                "python": {
+                  "files": {
+                    "materialize-acme/__init__.py": "from .flow_generated.python.acmeCo.materialize_acme import IMaterialization\n\nclass Materialization(IMaterialization):\n    pass\n",
+                    "materialize-acme/missing.py": null,
+                    "pyproject.toml": "[project]\nname = \"source-acme\"\ndependencies = [\"estuary-cdk\"]\n"
+                  },
+                  "config": {"credentials":{"client_id":"a-client-id"}},
+                  "spec": {
+                    "configSchema": {"$defs":{"__flowInline1":{"$id":"test://example/credentials.schema.yaml","properties":{"client_id":{"type":"string"},"client_secret":{"secret":true,"type":"string"}},"type":"object"}},"$id":"test://example/materialize-acme.config.schema.yaml","properties":{"credentials":{"$ref":"credentials.schema.yaml"}},"required":["credentials"],"type":"object"},
+                    "resourceConfigSchema": {"$id":"test://example/catalog.yaml?ptr=/materializations/acmeCo~1materialize-acme/endpoint/python/spec/resourceConfigSchema","properties":{"table":{"type":"string","x-collection-name":true}},"required":["table"],"type":"object"}
+                  }
+                }
+              },
+              "secrets": {
+                "acmeCo/materialize-acme/client-secret": "/credentials/client_secret"
+              },
+              "bindings": [
+                {
+                  "resource": {"table":"widgets"},
+                  "source": "a/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftMaterialization {
             materialization: materialization/local,
             scope: test://example/catalog.yaml#/materializations/materialization~1local,
             expect_pub_id: NULL,
@@ -322,6 +357,10 @@ DraftCatalog {
             to_resource: test://example/config/not/found.yaml,
         },
         Import {
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materialize-acme/endpoint/python/files/2,
+            to_resource: test://example/materialize-acme/missing.py,
+        },
+        Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/bindings/0/resource,
             to_resource: test://example/referenced/not/found.yaml,
         },
@@ -332,6 +371,10 @@ DraftCatalog {
         Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
             to_resource: test://example/referenced/config.yaml#/bad/fragment,
+        },
+        Import {
+            scope: test://example/materialize-acme.config.schema.yaml#/properties/credentials/$ref,
+            to_resource: test://example/credentials.schema.yaml,
         },
         Import {
             scope: test://example/source-acme.config.schema.yaml#/properties/credentials/$ref,

@@ -1,0 +1,3 @@
+# Types which `flowctl generate` writes from the materialization's declared `spec` and bindings.
+flow_generated/
+.venv/

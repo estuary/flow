@@ -44,11 +44,16 @@ pub async fn update<C: ControlPlane>(
             let mut updated_model = model.clone();
             match &mut updated_model.endpoint {
                 MaterializationEndpoint::Connector(connector) => {
-                    // Overwrite the connector's config with the updated config.
                     connector.config = updated_config;
                 }
-                _ => {
-                    anyhow::bail!("expected Connector endpoint for config update event");
+                MaterializationEndpoint::Local(local) => {
+                    local.config = updated_config;
+                }
+                MaterializationEndpoint::Python(python) => {
+                    python.config = updated_config;
+                }
+                MaterializationEndpoint::Dekaf(_) => {
+                    anyhow::bail!("dekaf endpoints cannot apply a config update event");
                 }
             }
             updated_model.secrets = updated_secrets;

@@ -1,0 +1,246 @@
+---
+source: crates/materialize-python/src/lib.rs
+expression: "codegen::types_py(&validate.name, &project.spec, &bindings).unwrap()"
+---
+"""Generated types of materialization acmeCo/materialize-acme, from its declared `spec` and bindings."""
+from abc import ABC, abstractmethod
+import collections.abc
+import typing
+import pydantic
+from estuary_cdk.materialize import request as _request, response as _response
+import typing as _typing
+import pydantic as _pydantic
+
+
+# Generated for documents of binding `crm_contacts`, of collection acmeCo/contacts
+class SourceCrmContacts(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    email: str
+    id: int
+
+
+
+class KeyCrmContacts(_typing.NamedTuple):
+    """Key of binding `crm_contacts`: its group-by fields, in order."""
+
+    id: int
+
+
+# Generated for documents of binding `page_views`, of collection acmeCo/page-views
+class SourcePageViews(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    page: _typing.Optional[_typing.Union[str, None]] = None
+    site: str
+    views: int
+
+
+
+class KeyPageViews(_typing.NamedTuple):
+    """Key of binding `page_views`: its group-by fields, in order."""
+
+    site_name: str  # Field "site/name".
+    count_: str | None  # Field "count".
+
+
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    apiKey: str
+
+
+
+# Generated for the resource configuration of `spec.resourceConfigSchema`.
+class ResourceConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    delta_updates: bool = False
+    """Delta Updates Should updates of this resource be delta updates, which are never loaded?"""
+    m_schema: _typing.Optional[str] = _pydantic.Field(default=None, alias="schema")
+    """Alternative Schema Schema or namespace of the endpoint resource (optional)."""
+    table: str
+    """Table Name of the endpoint resource of this binding."""
+
+
+
+class Request:
+    """Request messages of the materialize protocol (`estuary_cdk.materialize.request`)."""
+
+    class Validate[C = EndpointConfig, R: pydantic.BaseModel = ResourceConfig](_request.Validate[C, R]):
+        """Validate with the same configuration defaults as IMaterialization."""
+
+    class Apply[C = EndpointConfig, R: pydantic.BaseModel = ResourceConfig, S = dict[str, typing.Any]](_request.Apply[C, R, S]):
+        """Apply with the same configuration and state defaults as IMaterialization."""
+
+    class Open[C = EndpointConfig, R: pydantic.BaseModel = ResourceConfig, S = dict[str, typing.Any]](_request.Open[C, R, S]):
+        """Open with the same configuration and state defaults as IMaterialization."""
+
+    Load = _request.Load
+    Store = _request.Store
+    Flush = _request.Flush
+    StartCommit = _request.StartCommit
+    Acknowledge = _request.Acknowledge
+
+    class StoreCrmContacts(_request.Store[KeyCrmContacts, SourceCrmContacts]):
+        """A document of binding `crm_contacts` to store."""
+
+    class LoadPageViews(_request.Load[KeyPageViews]):
+        """A key of binding `page_views` to load."""
+
+    class StorePageViews(_request.Store[KeyPageViews, SourcePageViews]):
+        """A document of binding `page_views` to store."""
+
+
+class Response:
+    """Response messages of the materialize protocol (`estuary_cdk.materialize.response`)."""
+
+    Validated = _response.Validated
+    ValidatedBinding = _response.ValidatedBinding
+    ProjectionConstraint = _response.ProjectionConstraint
+    Constraint = _response.Constraint
+    Applied = _response.Applied
+    Opened = _response.Opened
+    Loaded = _response.Loaded
+    Flushed = _response.Flushed
+    StartedCommit = _response.StartedCommit
+    Acknowledged = _response.Acknowledged
+
+
+class IMaterialization[C = EndpointConfig, R: pydantic.BaseModel = ResourceConfig, S = dict[str, typing.Any]](ABC):
+    """Abstract base class of materialization implementations.
+
+    `C` is the type of the materialization's `config`, `R` of the resource
+    configuration of each binding, and `S` of its connector state. `C` and
+    `R` default to the types generated from the materialization's `spec`.
+    A materialization may instead declare types of its own, as
+    `class Materialization(IMaterialization[MyConfig, MyResourceConfig, MyState])`,
+    and is then responsible for keeping them equivalent to its declared `spec`.
+
+    `Materialization` must directly subclass `IMaterialization`, from which its
+    types are resolved: a validation of the materialization fails otherwise.
+
+    The platform constructs a materialization only through `open`, and its
+    `__init__` is the materialization's own.
+
+    Each binding has a `store_{name}` method, and a `load_{name}` method if it
+    uses standard (not delta) updates. Its name is its resource path, in snake
+    case. Each calls the generic `store` or `load` unless it's overridden.
+
+    Loads and stores run as concurrent tasks, at most `concurrent_loads` and
+    `concurrent_stores` at once, which begin in the order of their requests.
+    A task runs without interruption until its first `await`, and yielding a
+    loaded document doesn't interrupt it. So a task may check and swap a buffer
+    which it shares with other tasks before it awaits. When every task is
+    busy, the materialization reads no further requests."""
+
+    concurrent_loads: int = 32
+    """Maximum number of loads which run at once. An instance may set its own."""
+
+    concurrent_stores: int = 32
+    """Maximum number of stores which run at once. An instance may set its own."""
+
+    @classmethod
+    async def open(cls, open: Request.Open[C, R, S]) -> tuple[typing.Self, Response.Opened]:
+        """Construct the materialization from its Open message. Its `config` is
+        `open.materialization.config`, its bindings are
+        `open.materialization.bindings`, and its state is `open.state`.
+
+        The default is `cls()`, for a materialization which needs none of
+        them. Override it to build the materialization's components, which may
+        require awaiting, and pass them to an `__init__` of your own.
+
+        An endpoint which commits the runtime checkpoint of each transaction
+        (see `start_commit`) returns it as `runtimeCheckpoint` of `Opened`."""
+        return cls(), Response.Opened()
+
+    @classmethod
+    async def validate(cls, validate: Request.Validate[C, R], validated: Response.Validated) -> None:
+        """Validate the materialization as it's published, raising to fail.
+
+        `validated` holds a default of each binding, in the order of
+        `validate.bindings`. Its constraints require the root document, allow
+        the fields of its key, and forbid other fields. Modify it in place, such
+        as to mark a field `INCOMPATIBLE` with an existing resource. A binding's
+        `resourcePath` and `deltaUpdates` are those of its resource
+        configuration, and must not change. The default does nothing."""
+        pass
+
+    @classmethod
+    async def apply(cls, apply: Request.Apply[C, R, S], applied: Response.Applied[S]) -> None:
+        """Apply the materialization to its endpoint before it's opened, such as
+        by creating the resources of new bindings.
+
+        Apply may run more than once for a version, so it must be idempotent.
+        `apply.lastMaterialization` is the last-applied materialization, whose
+        configurations aren't modeled. Set `applied.actionDescription` to
+        describe the actions taken. The default does nothing."""
+        pass
+
+    @abstractmethod
+    async def load(self, load: Request.Load[typing.Any]) -> collections.abc.AsyncIterator[Response.Loaded[typing.Any]]:
+        """Load a key of a binding whose `load_{name}` isn't overridden.
+
+        Yield `Response.Loaded(binding=..., doc=...)` of each stored document
+        which is found: of this key, or of others which were buffered,
+        of this binding or any other."""
+        if False:
+            yield  # Mark as a generator.
+
+    @abstractmethod
+    async def store(self, store: Request.Store[typing.Any, typing.Any]) -> None:
+        """Store a document of a binding whose `store_{name}` isn't overridden.
+
+        `store.doc` is the binding's `Source{Name}`, which
+        `store.doc.model_dump(mode="json", by_alias=True, exclude_unset=True)`
+        maps into its JSON document. `store.exists` if its key was loaded or
+        stored before, and `store.delete` if the document is a deletion."""
+        pass
+
+    async def store_crm_contacts(self, store: Request.StoreCrmContacts) -> None:
+        """Store a document of binding `crm_contacts`. The default is the generic `store`."""
+        await self.store(store)
+
+    async def load_page_views(self, load: Request.LoadPageViews) -> collections.abc.AsyncIterator[Response.Loaded[typing.Any]]:
+        """Load a key of binding `page_views`. The default is the generic `load`."""
+        async for loaded in self.load(load):
+            yield loaded
+
+    async def store_page_views(self, store: Request.StorePageViews) -> None:
+        """Store a document of binding `page_views`. The default is the generic `store`."""
+        await self.store(store)
+
+    async def flush(self, flush: Request.Flush, flushed: Response.Flushed[S]) -> collections.abc.AsyncIterator[Response.Loaded[typing.Any]]:
+        """End the loads of the transaction, after every load has finished.
+
+        Yield `Response.Loaded` of each found document of keys which are still
+        buffered. Set `flushed.state` to update connector state before the
+        transaction's stores. The binding of each of `flush.backfillCompletes`
+        may delete its documents which were published before its `timestamp`.
+        The default does nothing."""
+        if False:
+            yield  # Mark as a generator.
+
+    async def start_commit(self, start_commit: Request.StartCommit, started: Response.StartedCommit[S]) -> None:
+        """End the stores of the transaction, after every store has finished,
+        such as by writing a buffered batch.
+
+        Every document must be durable before this returns, unless it's staged
+        and applied by `acknowledge`. Set `started.state` to update connector
+        state with the transaction's checkpoint. An endpoint may instead commit
+        `start_commit.runtimeCheckpoint` with its own transaction (see `open`).
+        The default does nothing."""
+        pass
+
+    async def acknowledge(self, acknowledge: Request.Acknowledge, acknowledged: Response.Acknowledged[S]) -> None:
+        """Acknowledge that the transaction has committed, such as by applying
+        the work which `start_commit` staged.
+
+        It runs concurrently with the loads of the next transaction. A
+        materialization which applies work here must keep those loads from
+        reading the endpoint until it's applied, such as by waiting in `flush`.
+        Set `acknowledged.state` to update connector state, which isn't
+        transactional: a repeated Acknowledge must be tolerated.
+        The default does nothing."""
+        pass

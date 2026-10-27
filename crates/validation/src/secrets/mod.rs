@@ -54,6 +54,7 @@ impl<'a> Context<'a> {
                 (&config.config, Some(&config.image))
             }
             models::MaterializationEndpoint::Local(config) => (&config.config, None),
+            models::MaterializationEndpoint::Python(python) => (&python.config, None),
             // Dekaf runs in-process under an image name no image answers to.
             models::MaterializationEndpoint::Dekaf(config) => (&config.config, None),
         };
@@ -61,7 +62,7 @@ impl<'a> Context<'a> {
             secrets,
             config: std::borrow::Cow::Borrowed(config),
             image: image.map(|image| models::split_image_tag(image).0),
-            always_plaintext: false,
+            always_plaintext: matches!(endpoint, models::MaterializationEndpoint::Python(_)),
         }
     }
 

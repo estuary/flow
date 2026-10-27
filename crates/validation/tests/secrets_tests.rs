@@ -456,6 +456,16 @@ test://example/catalog.yaml:
           config: { token: null }
       secrets:
         vendorCo/oauth/connectors/ghcr.io/estuary/dekaf-kafka/oauth-client: /token
+    acmeCo/dest-python:
+      endpoint:
+        python:
+          files: { pyproject.toml: "", dest-python/__init__.py: "" }
+      secrets:
+        # Named for the image a Python materialization actually runs.
+        vendorCo/oauth/connectors/ghcr.io/estuary/materialize-python/oauth-client: /credentials
+      bindings: []
+      shards:
+        flags: { enable-runtime-v2: "true" }
 
 test://example/rollups.py: python module placeholder
 "#,

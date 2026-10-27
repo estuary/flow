@@ -1,0 +1,77 @@
+# A materialization implemented by a user-authored Python connector: a
+# reverse-ETL materialization into the API of keyed records of `api.py`. It's a
+# multi-file reference: the materialization's directory is named for the final
+# component of its name (`materialize-api/`), and its `__init__.py` exports the
+# `Materialization` which the platform runs. Its modules import one another
+# relatively.
+materializations:
+  examples/materialize-api:
+    endpoint:
+      python:
+        files:
+          - pyproject.toml
+          - materialize-api/__init__.py
+          - materialize-api/client.py
+        # Parsed by the materialization's EndpointConfig, which is generated
+        # from `spec.configSchema`.
+        config:
+          baseUrl: http://example-api:8080
+        # The connector's Spec. Its resource configuration is the default:
+        # a `table`, an optional `schema`, and `delta_updates`.
+        spec:
+          configSchema:
+            type: object
+            properties:
+              baseUrl:
+                type: string
+                title: Base URL
+                description: URL of the API of keyed records
+            required: [baseUrl]
+    bindings:
+      - resource: { table: crm_contacts, delta_updates: true }
+        source: examples/contacts
+      - resource: { table: page_views }
+        source: examples/page-views
+      # Handled by the materialization's generic `store`.
+      - resource: { table: events, delta_updates: true }
+        source: examples/events
+    shards:
+      flags:
+        # Python materializations run only on runtime v2.
+        enable-runtime-v2: "true"
+        # Run this checkout's materialize-python image, which `ci:catalog-test`
+        # builds as `:local`.
+        custom-image-tag: local
+
+collections:
+  examples/contacts:
+    schema:
+      type: object
+      properties:
+        id: { type: integer }
+        email: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+      required: [id, email, firstName, lastName]
+    key: [/id]
+
+  examples/page-views:
+    schema:
+      type: object
+      reduce: { strategy: merge }
+      properties:
+        page: { type: string }
+        views:
+          type: integer
+          reduce: { strategy: sum }
+      required: [page, views]
+    key: [/page]
+
+  examples/events:
+    schema:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { type: string }
+      required: [id, kind]
+    key: [/id]

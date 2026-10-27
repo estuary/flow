@@ -85,6 +85,7 @@ catalog-stats = { path = "../catalog-stats", features = ["test_util"] }
 control-plane-api = { path = "../control-plane-api", features = [
     "test-support",
 ] }
+python-connector = { path = "../python-connector", default-features = false }
 insta = { workspace = true }
 md5 = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

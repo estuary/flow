@@ -137,6 +137,7 @@ dependencies = [
  "proto-flow",
  "proto-gazette",
  "proto-grpc",
+ "python-connector",
  "rand 0.9.2",
  "regex",
  "reqwest",
@@ -5427,6 +5428,23 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "materialize-python"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "doc",
+ "insta",
+ "itertools 0.13.0",
+ "json",
+ "models",
+ "proto-flow",
+ "python-connector",
+ "serde_json",
+ "tables",
+ "tracing",
 ]
 
 [[package]]

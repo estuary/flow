@@ -25,6 +25,7 @@ pub const IMAGE_TAG_FLAG: &str = "custom-image-tag";
 pub const CAPTURE_PYTHON_IMAGE: &str = "ghcr.io/estuary/capture-python";
 pub const DERIVE_PYTHON_IMAGE: &str = "ghcr.io/estuary/derive-python";
 pub const DERIVE_TYPESCRIPT_IMAGE: &str = "ghcr.io/estuary/derive-typescript";
+pub const MATERIALIZE_PYTHON_IMAGE: &str = "ghcr.io/estuary/materialize-python";
 
 /// Image tag of a custom connector: an explicit `custom-image-tag` flag, or
 /// else `stable`. Derivations of the V1 runtime instead use the frozen `dev`
@@ -54,6 +55,25 @@ pub fn capture_python_connector(
     image_connector(
         CAPTURE_PYTHON_IMAGE,
         models::CatalogType::Capture,
+        project_config(files, config, spec),
+        shards,
+    )
+}
+
+/// Resolve a Python materialization into its image connector.
+pub fn materialize_python_connector(
+    python: &models::MaterializePython,
+    shards: &models::ShardTemplate,
+) -> models::ConnectorConfig {
+    let models::MaterializePython {
+        files,
+        config,
+        spec,
+    } = python;
+
+    image_connector(
+        MATERIALIZE_PYTHON_IMAGE,
+        models::CatalogType::Materialization,
         project_config(files, config, spec),
         shards,
     )
@@ -427,6 +447,18 @@ mod test {
             files.insert("pyproject.toml".to_string(), None);
         }
 
+        let materialize: models::MaterializePython = serde_json::from_value(serde_json::json!({
+            "files": {"pyproject.toml": "[project]\n", "materialize-acme/__init__.py": ""},
+            "config": {"endpoint": "https://acme.example"},
+            "spec": {
+                "resourceConfigSchema": {
+                    "type": "object",
+                    "properties": {"table": {"type": "string", "x-collection-name": true}},
+                },
+            },
+        }))
+        .unwrap();
+
         let v2 = shards(&[(models::ENABLE_RUNTIME_V2, "true")]);
         let local = shards(&[
             (models::ENABLE_RUNTIME_V2, "true"),
@@ -439,6 +471,8 @@ mod test {
             // capture-python has no `dev` image.
             capture_python_connector(&capture, &shards(&[(models::ENABLE_RUNTIME_V2, "false")])),
             capture_python_connector(&capture, &local),
+            materialize_python_connector(&materialize, &v2),
+            materialize_python_connector(&materialize, &local),
         ]);
     }
 
