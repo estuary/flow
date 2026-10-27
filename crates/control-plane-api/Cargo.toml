@@ -26,6 +26,7 @@ labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }
 migrate = { path = "../migrate" }
 models = { path = "../models", features = ["async-graphql", "sqlx-support"] }
+oauth-server = { path = "../oauth-server" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }

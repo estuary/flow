@@ -156,30 +156,13 @@ impl RefreshTokensMutation {
             ));
         }
 
-        let row = sqlx::query!(
-            r#"
-            WITH new_token AS (
-                SELECT gen_random_uuid()::text AS secret
-            )
-            INSERT INTO refresh_tokens (user_id, multi_use, valid_for, hash, detail)
-            SELECT
-                $1,
-                $2,
-                v.valid_for,
-                crypt(nt.secret, gen_salt('bf')),
-                $4
-            FROM new_token nt, (SELECT $3::text::interval AS valid_for) v
-            WHERE v.valid_for > interval '0' AND v.valid_for <= interval '366 days'
-            RETURNING
-                id AS "id!: models::Id",
-                (SELECT secret FROM new_token) AS "secret!: String"
-            "#,
+        let row = crate::server::public::token_exchange::create_refresh_token(
+            &env.pg_pool,
             claims.sub,
             multi_use,
-            valid_for,
+            &valid_for,
             detail.as_deref(),
         )
-        .fetch_optional(&env.pg_pool)
         .await
         .map_err(|err| {
             // Postgres raises SQLSTATE 22007 (invalid_datetime_format) for a

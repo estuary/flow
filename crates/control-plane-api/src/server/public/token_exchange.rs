@@ -17,8 +17,7 @@ pub enum TokenRequest {
 #[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct TokenResponse {
     pub access_token: String,
-    // `generate_access_token` omits this for multi-use tokens (no rotation),
-    // so it must default to `None` when absent from the SQL JSON.
+    // Multi-use credentials do not rotate, so their exchange responses omit this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<RefreshTokenResponse>,
 }
@@ -27,6 +26,45 @@ pub struct TokenResponse {
 pub struct RefreshTokenResponse {
     pub id: models::Id,
     pub secret: String,
+}
+
+/// Callers must authorize the user before minting.
+pub(crate) async fn create_refresh_token(
+    pg_pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    multi_use: bool,
+    valid_for: &str,
+    detail: Option<&str>,
+) -> Result<Option<RefreshTokenResponse>, sqlx::Error> {
+    let row = sqlx::query!(
+        r#"
+            WITH new_token AS (
+                SELECT gen_random_uuid()::text AS secret
+            )
+            INSERT INTO refresh_tokens (user_id, multi_use, valid_for, hash, detail)
+            SELECT
+                $1,
+                $2,
+                v.valid_for,
+                crypt(nt.secret, gen_salt('bf')),
+                $4
+            FROM new_token nt, (SELECT $3::text::interval AS valid_for) v
+            WHERE v.valid_for > interval '0' AND v.valid_for <= interval '366 days'
+            RETURNING
+                id AS "id!: models::Id",
+                (SELECT secret FROM new_token) AS "secret!: String"
+            "#,
+        user_id,
+        multi_use,
+        valid_for,
+        detail,
+    )
+    .fetch_optional(pg_pool)
+    .await?;
+    Ok(row.map(|row| RefreshTokenResponse {
+        id: row.id,
+        secret: row.secret,
+    }))
 }
 
 pub async fn handle_post_token(
@@ -58,11 +96,9 @@ pub async fn handle_post_token(
 // Exchange a refresh token for an access token by calling the SQL
 // `generate_access_token` function and returning its parsed response.
 //
-// Shared by the `POST /api/v1/auth/token` endpoint (above) and the
-// bearer-credential authentication path
-// (`crate::server::exchange_refresh_token`), so the credential-error
-// sanitization below lives in exactly one place rather than being duplicated —
-// and kept in sync — across both.
+// Shared by `POST /api/v1/auth/token`, the OAuth backend, and bearer-credential
+// authentication (`crate::server::exchange_refresh_token`) so credential errors
+// are sanitized consistently.
 //
 // The SQL delegation is transitional: existing clients (flowctl via
 // flow-client) still authenticate against the PostgREST
@@ -777,8 +813,7 @@ mod test {
 
         let alice = uuid::Uuid::from_bytes([0x11; 16]);
 
-        // `createRefreshToken` only issues multi-use tokens, which don't
-        // rotate, so insert the single-use row directly.
+        // Insert a rotating credential directly to isolate exchange behavior.
         let secret = "single-use-secret";
         let id: models::Id = sqlx::query_scalar(
             "INSERT INTO refresh_tokens (id, user_id, multi_use, valid_for, hash, detail)
