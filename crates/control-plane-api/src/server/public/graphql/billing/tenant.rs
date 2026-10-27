@@ -13,6 +13,8 @@ use async_graphql::{
     connection::{self, Connection},
     dataloader::DataLoader,
 };
+use chrono::Datelike;
+use futures::{StreamExt, TryStreamExt};
 
 #[ComplexObject]
 impl Tenant {
@@ -119,12 +121,44 @@ impl TenantBilling {
                     (rows, after.is_some(), has_next)
                 };
 
+                // Page selection excludes the lookahead row before fetching usage.
+                let edges = futures::stream::iter(rows)
+                    .then(|mut row| {
+                        let tenant = &tenant;
+                        async move {
+                            if row.invoice_type == billing::InvoiceType::Preview {
+                                let stats =
+                                    ctx.data::<Arc<catalog_stats::Client>>().map_err(|_| {
+                                        async_graphql::Error::new(
+                                            "catalog stats are not configured",
+                                        )
+                                    })?;
+                                let invoice = ::billing::invoices::generate(
+                                    &env.pg_pool,
+                                    stats,
+                                    row.date_start.year(),
+                                    chrono::Month::try_from(row.date_start.month() as u8).unwrap(),
+                                    Some(std::slice::from_ref(tenant)),
+                                )
+                                .await
+                                .map_err(async_graphql::Error::from)?
+                                .pop()
+                                .expect("the selected tenant has an invoice");
+                                row.subtotal = i32::try_from(invoice.subtotal)?;
+                                row.line_items =
+                                    sqlx::types::Json(serde_json::to_value(&invoice.line_items)?);
+                                row.extra = sqlx::types::Json(serde_json::to_value(&invoice)?);
+                            }
+                            let cursor = InvoiceCursor::from_row(&row);
+                            let invoice = Invoice::from_row(row);
+                            Ok::<_, async_graphql::Error>(connection::Edge::new(cursor, invoice))
+                        }
+                    })
+                    .try_collect::<Vec<_>>()
+                    .await?;
+
                 let mut connection = Connection::new(has_prev, has_next);
-                connection.edges.extend(rows.into_iter().map(|row| {
-                    let cursor = InvoiceCursor::from_row(&row);
-                    let invoice = Invoice::from_row(row);
-                    connection::Edge::new(cursor, invoice)
-                }));
+                connection.edges = edges;
                 Ok(connection)
             },
         )

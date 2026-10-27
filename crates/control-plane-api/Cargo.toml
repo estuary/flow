@@ -14,6 +14,7 @@ allocator = { path = "../allocator" }
 assemble = { path = "../assemble" }
 async-process = { path = "../async-process" }
 async-stripe = { workspace = true }
+billing = { path = "../billing" }
 billing-types = { path = "../billing-types", features = ["async-graphql"] }
 build = { path = "../build" }
 catalog-stats = { path = "../catalog-stats" }
