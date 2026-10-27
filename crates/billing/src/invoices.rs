@@ -1,10 +1,45 @@
 use anyhow::Context;
+use futures::TryStreamExt;
 use sqlx::Row;
 use std::collections::{BTreeMap, BTreeSet};
 
 // `catalog_stats::collect_stats` gives each read a fixed timeout, which one
 // read of every tenant can exceed.
 const STATS_READ_TENANTS: usize = 500;
+
+/// Recalculate and freeze one month's invoices for every tenant. Existing frozen
+/// invoices and their Stripe invoice IDs are retained.
+/// Returns the number of newly frozen invoices.
+/// All reads finish before a transaction inserts the new invoices atomically.
+pub async fn freeze(
+    pool: &sqlx::PgPool,
+    stats: &catalog_stats::Client,
+    year: i32,
+    month: chrono::Month,
+) -> anyhow::Result<u64> {
+    let start = crate::calculate::month_range(year, month)?.start;
+    let invoices = generate(pool, stats, year, month, None).await?;
+    let tx = pool.begin().await.context("starting invoice freeze")?;
+    let (tx, inserted) = futures::stream::iter(invoices.into_iter().map(Ok::<_, anyhow::Error>))
+        .try_fold((tx, 0_u64), |(mut tx, inserted), invoice| async move {
+            let count = sqlx::query(
+                "INSERT INTO internal.billing_historicals (tenant, billed_month, report) \
+                 VALUES ($1::public.catalog_tenant, $2, $3) \
+                 ON CONFLICT (tenant, billed_month) DO NOTHING",
+            )
+            .bind(&invoice.billed_prefix)
+            .bind(start.and_hms_opt(0, 0, 0).unwrap().and_utc())
+            .bind(sqlx::types::Json(&invoice))
+            .execute(&mut *tx)
+            .await
+            .with_context(|| format!("freezing invoice for {}", invoice.billed_prefix))?
+            .rows_affected();
+            Ok::<_, anyhow::Error>((tx, inserted + count))
+        })
+        .await?;
+    tx.commit().await.context("committing invoice freeze")?;
+    Ok(inserted)
+}
 
 /// Calculate invoices for the given tenants, or every tenant when
 /// `tenants` is `None`. An empty selection returns no invoices.

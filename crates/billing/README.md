@@ -9,6 +9,12 @@ tenant usage from Bigtable. It returns the calculated invoices without writing
 them to storage. PostgreSQL inputs are read in one snapshot, and the transaction
 is released before reading Bigtable.
 
+`invoices::freeze` recalculates invoices for every tenant and saves them in one
+PostgreSQL transaction. Failed reads or calculations produce no writes; an
+insertion failure rolls back the batch. Reruns retain invoices already frozen
+for that tenant and month, including their Stripe invoice IDs. The PostgreSQL
+and Bigtable reads do not share a snapshot.
+
 Calculation takes a year and `chrono::Month` to select a UTC calendar month.
 Charges use cumulative integer bytes and seconds rounded up to billable GB and
 hours, with amounts calculated in cents.
@@ -17,7 +23,7 @@ usage in the applicable free or trial period. Usage fields also show fractional
 GB and hours for display. Months with no usage still include recurring fees and
 adjustments.
 
-The `billing-integrations generate-invoices` command calls this library. The
+The `billing-integrations` generation and freezing commands call this library. The
 calculation is independent of Stripe and the CLI, so invoice previews and billing
 threshold evaluation can reuse it.
 

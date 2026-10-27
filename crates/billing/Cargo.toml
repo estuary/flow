@@ -12,6 +12,7 @@ license.workspace = true
 anyhow = { workspace = true }
 catalog-stats = { path = "../catalog-stats" }
 chrono = { workspace = true }
+futures = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
 

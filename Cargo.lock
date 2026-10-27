@@ -1361,6 +1361,7 @@ dependencies = [
  "anyhow",
  "catalog-stats",
  "chrono",
+ "futures",
  "serde",
  "serde_json",
  "sqlx",
