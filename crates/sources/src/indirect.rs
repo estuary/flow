@@ -583,6 +583,27 @@ fn indirect_materialization(
         models::MaterializationEndpoint::Dekaf(models::DekafConfig { config, .. }) => {
             ("dekaf", config)
         }
+        models::MaterializationEndpoint::Python(models::MaterializePython {
+            files,
+            config,
+            spec,
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("endpoint");
+            let scope = scope.push_prop("python");
+
+            indirect_files(scope, files, imports, resources);
+            indirect_custom_spec(
+                scope.push_prop("spec"),
+                spec,
+                base,
+                ext,
+                imports,
+                resources,
+                threshold,
+            );
+            ("python", config)
+        }
     };
     indirect(
         Scope::new(scope)

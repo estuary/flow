@@ -677,12 +677,14 @@ pub(super) fn has_task_shards(state: &ControllerState) -> bool {
             .derive
             .as_ref()
             .is_some_and(|derive| !derive.shards.disable),
-        Some(&AnySpec::Materialization(ref mat)) if !mat.shards.disable => {
-            matches!(
-                &mat.endpoint,
-                &models::MaterializationEndpoint::Connector(ref conn) if !conn.image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX)
-            )
-        }
+        Some(&AnySpec::Materialization(ref mat)) if !mat.shards.disable => match &mat.endpoint {
+            models::MaterializationEndpoint::Connector(conn) => {
+                !conn.image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX)
+            }
+            models::MaterializationEndpoint::Local(_) => true,
+            models::MaterializationEndpoint::Python(_) => true,
+            models::MaterializationEndpoint::Dekaf(_) => false,
+        },
         _ => false,
     }
 }

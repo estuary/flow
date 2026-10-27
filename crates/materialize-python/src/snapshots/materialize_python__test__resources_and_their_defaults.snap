@@ -1,0 +1,35 @@
+---
+source: crates/materialize-python/src/lib.rs
+expression: "[resource(serde_json::json!({\"table\": \"t\"})),\nresource(serde_json::json!({\"table\": \"t\", \"options\": {}})),\nresource(serde_json::json!({\"table\": \"t\", \"options\":\n    {\"schema\": \"\", \"delta\": false}})), resource(serde_json::json!({})),]"
+---
+[
+    Ok(
+        (
+            [
+                "crm",
+                "t",
+            ],
+            true,
+        ),
+    ),
+    Ok(
+        (
+            [
+                "crm",
+                "t",
+            ],
+            true,
+        ),
+    ),
+    Ok(
+        (
+            [
+                "t",
+            ],
+            false,
+        ),
+    ),
+    Err(
+        "its resource configuration has no `/table`, which is the name of its resource",
+    ),
+]

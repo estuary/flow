@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Run catalog tests over the derivation examples, and preview the capture-python example"
+#MISE description="Run catalog tests over the derivation examples, and preview the capture-python and materialize-python examples"
 #MISE depends=["ci:custom-images"]
 
 # Example derivations run `:local` images of custom connectors (see
@@ -27,3 +27,34 @@ PATH=${PATH}:${CARGO_TARGET_DIR}/debug:${CARGO_TARGET_DIR}/$(uname -m)-unknown-l
 cargo run --quiet -p flowctl -- preview --source examples/capture-python/flow.yaml --sessions 2 --timeout 60s \
     | diff - examples/capture-python/expected.jsonl
 echo "✔️  examples/capture-python preview"
+
+# Catalog tests don't run materializations either. The materialize-python
+# example writes to the API of `api.py`, which runs in a container on a network
+# of its own, which the preview's connector joins. The preview materializes a
+# fixture of three transactions across two sessions, so that its later
+# transactions load what its earlier ones stored. The API's records must then
+# match the example's expected.jsonl.
+echo "Previewing examples/materialize-python against its expected.jsonl..."
+NETWORK=flow-example-api-$$
+docker network create ${NETWORK} >/dev/null
+# Connector containers leave the network as they're removed, after the preview exits.
+cleanup() {
+    docker rm --force example-api-$$ >/dev/null 2>&1 || true
+    for _ in $(seq 30); do
+        docker network rm ${NETWORK} >/dev/null 2>&1 && return
+        sleep 1
+    done
+    echo "failed to remove docker network ${NETWORK}" >&2
+}
+trap cleanup EXIT
+docker run --detach --rm --name example-api-$$ --network-alias example-api --network ${NETWORK} \
+    --mount type=bind,source=$(pwd)/examples/materialize-python/api.py,target=/api.py,readonly \
+    python:3.14-slim python /api.py >/dev/null
+
+PATH=${PATH}:${CARGO_TARGET_DIR}/debug:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug \
+cargo run --quiet -p flowctl -- preview --network ${NETWORK} \
+    --source examples/materialize-python/flow.yaml \
+    --fixture examples/materialize-python/fixture.jsonl --sessions 2,1 --timeout 300s \
+    >/dev/null
+docker exec example-api-$$ python /api.py dump | diff - examples/materialize-python/expected.jsonl
+echo "✔️  examples/materialize-python preview"

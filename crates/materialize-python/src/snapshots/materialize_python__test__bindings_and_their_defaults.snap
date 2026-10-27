@@ -1,0 +1,99 @@
+---
+source: crates/materialize-python/src/lib.rs
+expression: "(bindings.iter().map(|b|\n(&b.name, &b.pascal, &b.resource_path, b.delta_updates,\nb.keys)).collect::<Vec<_>>(),\nserde_json::to_value(default_validated(&bindings)).unwrap(),)"
+---
+(
+    [
+        (
+            "crm_contacts",
+            "CrmContacts",
+            [
+                "crm",
+                "Contacts",
+            ],
+            true,
+            [
+                "id",
+            ],
+        ),
+        (
+            "page_views",
+            "PageViews",
+            [
+                "page_views",
+            ],
+            false,
+            [
+                "site/name",
+                "count",
+            ],
+        ),
+    ],
+    Array [
+        Object {
+            "deltaUpdates": Bool(true),
+            "projectionConstraints": Array [
+                Object {
+                    "constraint": Object {
+                        "reason": String("The root document is the `doc` of each stored document"),
+                        "type": String("LOCATION_REQUIRED"),
+                    },
+                    "field": String("flow_document"),
+                },
+                Object {
+                    "constraint": Object {
+                        "reason": String("The field is a component of the binding's key"),
+                        "type": String("FIELD_OPTIONAL"),
+                    },
+                    "field": String("id"),
+                },
+                Object {
+                    "constraint": Object {
+                        "reason": String("Only the root document and its key are materialized"),
+                        "type": String("FIELD_FORBIDDEN"),
+                    },
+                    "field": String("email"),
+                },
+            ],
+            "resourcePath": Array [
+                String("crm"),
+                String("Contacts"),
+            ],
+        },
+        Object {
+            "projectionConstraints": Array [
+                Object {
+                    "constraint": Object {
+                        "reason": String("The root document is the `doc` of each stored document"),
+                        "type": String("LOCATION_REQUIRED"),
+                    },
+                    "field": String("flow_document"),
+                },
+                Object {
+                    "constraint": Object {
+                        "reason": String("The field is a component of the binding's key"),
+                        "type": String("FIELD_OPTIONAL"),
+                    },
+                    "field": String("site/name"),
+                },
+                Object {
+                    "constraint": Object {
+                        "reason": String("The field is a component of the binding's key"),
+                        "type": String("FIELD_OPTIONAL"),
+                    },
+                    "field": String("count"),
+                },
+                Object {
+                    "constraint": Object {
+                        "reason": String("Only the root document and its key are materialized"),
+                        "type": String("FIELD_FORBIDDEN"),
+                    },
+                    "field": String("views"),
+                },
+            ],
+            "resourcePath": Array [
+                String("page_views"),
+            ],
+        },
+    ],
+)

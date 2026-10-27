@@ -80,6 +80,7 @@ pub async fn walk_all_materializations(
 /// validation and by local flowctl commands.
 pub fn materialization_spec_request(
     endpoint: &models::MaterializationEndpoint,
+    shards: &models::ShardTemplate,
 ) -> materialize::request::Spec {
     let (connector_type, config_json) = match endpoint {
         models::MaterializationEndpoint::Connector(config) => (
@@ -93,6 +94,12 @@ pub fn materialization_spec_request(
         models::MaterializationEndpoint::Dekaf(config) => (
             flow::materialization_spec::ConnectorType::Dekaf as i32,
             serde_json::to_string(config).unwrap().into(),
+        ),
+        models::MaterializationEndpoint::Python(config) => (
+            flow::materialization_spec::ConnectorType::Image as i32,
+            serde_json::to_string(&crate::custom::materialize_python_connector(config, shards))
+                .unwrap()
+                .into(),
         ),
     };
     materialize::request::Spec {
@@ -181,7 +188,32 @@ async fn walk_materialization(
     let materialize::request::Spec {
         connector_type,
         config_json,
-    } = materialization_spec_request(&endpoint);
+    } = materialization_spec_request(&endpoint, &shards);
+
+    if let models::MaterializationEndpoint::Python(python) = &endpoint {
+        let scope = scope.push_prop("endpoint");
+        let scope = scope.push_prop("python");
+
+        // The V1 runtime sends no JSON keys of Loads and Stores, which user code reads.
+        if !shards.uses_runtime_v2(models::CatalogType::Materialization) {
+            Error::RequireRuntimeV2 {
+                entity: "materialization",
+                name: materialization.to_string(),
+                capability: "python",
+                flag: models::ENABLE_RUNTIME_V2,
+            }
+            .push(scope, errors);
+        }
+        crate::custom::walk_python(
+            scope,
+            materialization,
+            &python.files,
+            &python.config,
+            &python.spec,
+            errors,
+        );
+    }
+
     let secrets_spec = assemble::secrets(&secrets);
     let secrets_ctx = crate::secrets::Context::of_materialization(&secrets, &endpoint);
 
@@ -360,6 +392,15 @@ async fn walk_materialization(
         &mut validated_response.generated_files,
         errors,
     );
+
+    if let models::MaterializationEndpoint::Python(python) = &endpoint {
+        crate::custom::retain_generated_files(
+            materialization,
+            &project_root,
+            &python.files,
+            &mut validated_response.generated_files,
+        );
+    }
 
     let materialize::response::Validated {
         bindings: bindings_validated,

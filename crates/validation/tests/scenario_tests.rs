@@ -1725,6 +1725,123 @@ test://example/int-string-captures:
 }
 
 #[test]
+fn test_python_materialization_builds() {
+    // The built configuration carries the model's files, config, and spec.
+    // An absent `configSchema` is the connector's to default.
+    // Generated files outside `flow_generated/` are dropped, as is
+    // a starter of a listed file which exists.
+    let outcome = common::run(
+        &MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/materialize-acme:
+      endpoint:
+        python:
+          files:
+            pyproject.toml: "[project]\n"
+            materialize-acme/__init__.py: "class Materialization: pass\n"
+          config:
+            greeting: Hello
+          spec:
+            resourceConfigSchema:
+              type: object
+              properties:
+                table: { type: string, x-collection-name: true }
+      bindings:
+        - source: testing/int-string
+          resource: { table: greetings }
+      shards:
+        flags: { enable-runtime-v2: "true" }
+
+driver:
+  materializations:
+    testing/materialize-acme:
+      connectorType: IMAGE
+      config:
+        image: ghcr.io/estuary/materialize-python:stable
+        config:
+          greeting: Hello
+          _python:
+            files:
+              pyproject.toml: "[project]\n"
+              materialize-acme/__init__.py: "class Materialization: pass\n"
+            spec:
+              resourceConfigSchema:
+                $id: test://example/db-views?ptr=/materializations/testing~1materialize-acme/endpoint/python/spec/resourceConfigSchema
+                type: object
+                properties:
+                  table: { type: string, x-collection-name: true }
+      bindings:
+        - constraints:
+            flow_document: { type: 2, reason: "location required" }
+            int: { type: 3, reason: "recommended" }
+          resourcePath: [greetings]
+      generatedFiles:
+        test://example/flow_generated/python/testing/materialize_acme/__init__.py: "generated"
+        test://example/materialize-acme/__init__.py: "overwritten"
+        test://example/.git/hooks/pre-commit: "planted"
+"#,
+    );
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+
+    let built = outcome
+        .built_materializations
+        .iter()
+        .find(|row| row.materialization.as_str() == "testing/materialize-acme")
+        .unwrap();
+    let config: serde_json::Value =
+        serde_json::from_slice(&built.spec.as_ref().unwrap().config_json).unwrap();
+    let generated: Vec<&String> = built
+        .validated
+        .as_ref()
+        .unwrap()
+        .generated_files
+        .keys()
+        .collect();
+
+    insta::assert_json_snapshot!((config, generated));
+}
+
+#[test]
+fn test_python_materialization_errors() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/materialize-acme:
+      endpoint:
+        python:
+          files:
+            pyproject.toml: "[project]\n"
+            # A listed lock is the user's own, and is allowed.
+            uv.lock: "version = 1\n"
+            .venv/lib.py: "x = 1"
+            flow_generated/python/sneaky.py: "x = 1"
+            flow_generated: "x = 1"
+            ../escape.py: "x = 1"
+          config:
+            _python: { materialization: sneaky }
+            sops: { mac: whoops }
+          spec:
+            configSchema: { type: object, properties: { a: { type: string, pattern: '(' } } }
+            resourceConfigSchema: { type: not-a-type }
+      bindings: []
+      shards:
+        flags: { enable-runtime-v2: "true" }
+    # Python materializations run only on the V2 runtime.
+    testing/materialize-other:
+      endpoint:
+        python:
+          config: [not, an, object]
+      bindings: []
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_invalid_generated_file_url() {
     let errors = common::run_errors(
         &MODEL_YAML,

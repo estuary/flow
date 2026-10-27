@@ -149,9 +149,11 @@ pub struct MaterializationDef {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum MaterializationEndpoint {
-    /// # A Connector.
+    /// # An image connector.
     #[serde(alias = "flowSink")]
     Connector(ConnectorConfig),
+    /// # A custom Python connector.
+    Python(super::MaterializePython),
     /// # A local command (development only).
     Local(LocalConfig),
     /// # A Dekaf connection

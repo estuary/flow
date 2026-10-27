@@ -1,0 +1,33 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: "(config, generated)"
+---
+[
+  {
+    "config": {
+      "_python": {
+        "files": {
+          "materialize-acme/__init__.py": "class Materialization: pass\n",
+          "pyproject.toml": "[project]\n"
+        },
+        "spec": {
+          "resourceConfigSchema": {
+            "$id": "test://example/db-views?ptr=/materializations/testing~1materialize-acme/endpoint/python/spec/resourceConfigSchema",
+            "properties": {
+              "table": {
+                "type": "string",
+                "x-collection-name": true
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "greeting": "Hello"
+    },
+    "image": "ghcr.io/estuary/materialize-python:stable"
+  },
+  [
+    "test://example/flow_generated/python/testing/materialize_acme/__init__.py"
+  ]
+]

@@ -1,0 +1,16 @@
+["examples/contacts", {"id": 1, "email": "ada@example.com", "firstName": "Ada", "lastName": "Lovelace"}]
+["examples/contacts", {"id": 2, "email": "grace@example.com", "firstName": "Grace", "lastName": "Hopper"}]
+["examples/page-views", {"page": "/home", "views": 1}]
+["examples/page-views", {"page": "/about", "views": 2}]
+["examples/page-views", {"page": "/home", "views": 3}]
+["examples/events", {"id": "e1", "kind": "signup"}]
+{"commit": true}
+["examples/page-views", {"page": "/home", "views": 10}]
+["examples/page-views", {"page": "/pricing", "views": 1}]
+["examples/page-views", {"page": "/blog", "views": 4}]
+["examples/contacts", {"id": 1, "email": "ada@example.com", "firstName": "Augusta Ada", "lastName": "King"}]
+{"commit": true}
+["examples/page-views", {"page": "/about", "views": 5}]
+["examples/page-views", {"page": "/pricing", "views": 2}]
+["examples/events", {"id": "e2", "kind": "upgrade"}]
+{"commit": true}

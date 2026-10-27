@@ -11,4 +11,5 @@ cargo build \
     -p capture-python \
     -p connector-init \
     -p derive-python \
-    -p derive-typescript
+    -p derive-typescript \
+    -p materialize-python

@@ -211,6 +211,41 @@ DraftCatalog {
             is_touch: 0,
         },
         DraftMaterialization {
+            materialization: acmeCo/materialize-acme,
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materialize-acme,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "endpoint": {
+                "python": {
+                  "files": [
+                    "materialize-acme/__init__.py",
+                    "materialize-acme/missing.py",
+                    "pyproject.toml"
+                  ],
+                  "config": "materialize-acme.config.yaml",
+                  "spec": {
+                    "configSchema": "materialize-acme.config.schema.yaml",
+                    "resourceConfigSchema": "materialize-acme.resource.schema.yaml"
+                  }
+                }
+              },
+              "secrets": {
+                "acmeCo/materialize-acme/client-secret": "/credentials/client_secret"
+              },
+              "bindings": [
+                {
+                  "resource": {"table":"widgets"},
+                  "source": "a/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftMaterialization {
             materialization: materialization/local,
             scope: test://example/catalog.yaml#/materializations/materialization~1local,
             expect_pub_id: NULL,
@@ -350,6 +385,26 @@ DraftCatalog {
             to_resource: test://example/capture.config.yaml,
         },
         Import {
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materialize-acme/endpoint/python/config,
+            to_resource: test://example/materialize-acme.config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materialize-acme/endpoint/python/files/0,
+            to_resource: test://example/materialize-acme/__init__.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materialize-acme/endpoint/python/files/2,
+            to_resource: test://example/pyproject.toml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materialize-acme/endpoint/python/spec/configSchema,
+            to_resource: test://example/materialize-acme.config.schema.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materialize-acme/endpoint/python/spec/resourceConfigSchema,
+            to_resource: test://example/materialize-acme.resource.schema.yaml,
+        },
+        Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config/bindings/0/resource,
             to_resource: test://example/with-config.resource.0.config.yaml,
         },
@@ -369,13 +424,37 @@ DraftCatalog {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"acmeCo/source-acme":{"endpoint":{"python":{"files":["pyproject.toml","source-acme/__init__.py","source-acme/missing.py","source-acme/models.py"],"config":"source-acme.config.yaml","spec":{"configSchema":"source-acme.config.schema.yaml","resourceConfigSchema":"source-acme.resource.schema.yaml","oauth2":{"provider":"acme","authUrlTemplate":"https://acme.example/authorize?client_id={{{ client_id }}}","accessTokenUrlTemplate":"https://acme.example/token","accessTokenResponseMap":{"access_token":"/access_token"}}}}},"secrets":{"acmeCo/source-acme/client-secret":"/credentials/client_secret"},"bindings":[{"resource":{"name":"widgets"},"target":"a/collection"}]},"capture/config-missing":{"endpoint":{"connector":{"image":"another/image","config":"test://example/config/not/found.yaml"}},"bindings":[{"resource":"test://example/resource/not/found.yaml","target":"some/collection","backfill":2}]},"capture/config-raw":{"endpoint":{"connector":{"image":"another/image","config":"config-raw.config.yaml"}},"bindings":[]},"capture/local":{"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}},"bindings":[]},"capture/second":{"endpoint":{"connector":{"image":"another/image","config":"second.config.yaml"}},"bindings":[{"resource":"second.resource.0.config.yaml","target":"third/collection"}],"interval":"3m","shards":{"maxTxnDuration":"30s","logLevel":"debug"},"expectPubId":"0011223344556677"},"first/capture":{"endpoint":{"connector":{"image":"an/image","config":"capture.config.yaml"}},"bindings":[{"resource":{"stream":"contents"},"target":"a/collection"},{"resource":{"extra":"stuff"},"target":"other/collection","backfill":1}]}},"materializations":{"a/materialization":{"source":"a/capture","endpoint":{"connector":{"image":"materialization/image","config":{"its":"config"}}},"bindings":[{"resource":{"table":"table_one"},"source":"source/collection","fields":{"recommended":true}},{"resource":{"table":"table_two"},"source":{"name":"other/source/collection","partitions":{"include":{"a_field":["some-val"]},"exclude":{"other":[42]}}},"fields":{"require":{"add":{}},"exclude":["del"],"recommended":true}}],"expectPubId":"0011223344556677"},"materialization/local":{"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}},"bindings":[{"resource":{"table":"table_three"},"source":"final/source/collection","fields":{"recommended":true}}],"shards":{"ringBufferSize":12345}},"materialization/missing-config":{"endpoint":{"connector":{"image":"materialization/image","config":"test://example/config/not/found.yaml"}},"bindings":[{"resource":"test://example/referenced/not/found.yaml","source":"other/source/collection","fields":{"recommended":true}}]},"materialization/with-config":{"endpoint":{"connector":{"image":"materialization/another:image","config":"with-config.config.yaml"}},"bindings":[{"resource":"with-config.resource.0.config.yaml","source":"some/source/collection","fields":{"recommended":true},"backfill":3}]},"materialization/with-config-fragment":{"endpoint":{"connector":{"image":"materialization/another:image","config":"test://example/referenced/config.yaml#/bad/fragment"}},"bindings":[]}}},
+            content_dom: {"captures":{"acmeCo/source-acme":{"endpoint":{"python":{"files":["pyproject.toml","source-acme/__init__.py","source-acme/missing.py","source-acme/models.py"],"config":"source-acme.config.yaml","spec":{"configSchema":"source-acme.config.schema.yaml","resourceConfigSchema":"source-acme.resource.schema.yaml","oauth2":{"provider":"acme","authUrlTemplate":"https://acme.example/authorize?client_id={{{ client_id }}}","accessTokenUrlTemplate":"https://acme.example/token","accessTokenResponseMap":{"access_token":"/access_token"}}}}},"secrets":{"acmeCo/source-acme/client-secret":"/credentials/client_secret"},"bindings":[{"resource":{"name":"widgets"},"target":"a/collection"}]},"capture/config-missing":{"endpoint":{"connector":{"image":"another/image","config":"test://example/config/not/found.yaml"}},"bindings":[{"resource":"test://example/resource/not/found.yaml","target":"some/collection","backfill":2}]},"capture/config-raw":{"endpoint":{"connector":{"image":"another/image","config":"config-raw.config.yaml"}},"bindings":[]},"capture/local":{"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}},"bindings":[]},"capture/second":{"endpoint":{"connector":{"image":"another/image","config":"second.config.yaml"}},"bindings":[{"resource":"second.resource.0.config.yaml","target":"third/collection"}],"interval":"3m","shards":{"maxTxnDuration":"30s","logLevel":"debug"},"expectPubId":"0011223344556677"},"first/capture":{"endpoint":{"connector":{"image":"an/image","config":"capture.config.yaml"}},"bindings":[{"resource":{"stream":"contents"},"target":"a/collection"},{"resource":{"extra":"stuff"},"target":"other/collection","backfill":1}]}},"materializations":{"a/materialization":{"source":"a/capture","endpoint":{"connector":{"image":"materialization/image","config":{"its":"config"}}},"bindings":[{"resource":{"table":"table_one"},"source":"source/collection","fields":{"recommended":true}},{"resource":{"table":"table_two"},"source":{"name":"other/source/collection","partitions":{"include":{"a_field":["some-val"]},"exclude":{"other":[42]}}},"fields":{"require":{"add":{}},"exclude":["del"],"recommended":true}}],"expectPubId":"0011223344556677"},"acmeCo/materialize-acme":{"endpoint":{"python":{"files":["materialize-acme/__init__.py","materialize-acme/missing.py","pyproject.toml"],"config":"materialize-acme.config.yaml","spec":{"configSchema":"materialize-acme.config.schema.yaml","resourceConfigSchema":"materialize-acme.resource.schema.yaml"}}},"secrets":{"acmeCo/materialize-acme/client-secret":"/credentials/client_secret"},"bindings":[{"resource":{"table":"widgets"},"source":"a/collection","fields":{"recommended":true}}]},"materialization/local":{"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}},"bindings":[{"resource":{"table":"table_three"},"source":"final/source/collection","fields":{"recommended":true}}],"shards":{"ringBufferSize":12345}},"materialization/missing-config":{"endpoint":{"connector":{"image":"materialization/image","config":"test://example/config/not/found.yaml"}},"bindings":[{"resource":"test://example/referenced/not/found.yaml","source":"other/source/collection","fields":{"recommended":true}}]},"materialization/with-config":{"endpoint":{"connector":{"image":"materialization/another:image","config":"with-config.config.yaml"}},"bindings":[{"resource":"with-config.resource.0.config.yaml","source":"some/source/collection","fields":{"recommended":true},"backfill":3}]},"materialization/with-config-fragment":{"endpoint":{"connector":{"image":"materialization/another:image","config":"test://example/referenced/config.yaml#/bad/fragment"}},"bindings":[]}}},
         },
         Resource {
             resource: test://example/config-raw.config.yaml,
             content_type: "CONFIG",
             content: ".. binary ..",
             content_dom: "fn main() {\n  do_the_thing();\n  do_another_really_long_thing_that_does_stuff_boy_this_is_running_on_huh()?;\n}\n",
+        },
+        Resource {
+            resource: test://example/materialize-acme.config.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$defs":{"__flowInline1":{"$id":"test://example/credentials.schema.yaml","properties":{"client_id":{"type":"string"},"client_secret":{"secret":true,"type":"string"}},"type":"object"}},"$id":"test://example/materialize-acme.config.schema.yaml","properties":{"credentials":{"$ref":"credentials.schema.yaml"}},"required":["credentials"],"type":"object"},
+        },
+        Resource {
+            resource: test://example/materialize-acme.config.yaml,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: {"credentials":{"client_id":"a-client-id"}},
+        },
+        Resource {
+            resource: test://example/materialize-acme.resource.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$id":"test://example/catalog.yaml?ptr=/materializations/acmeCo~1materialize-acme/endpoint/python/spec/resourceConfigSchema","properties":{"table":{"type":"string","x-collection-name":true}},"required":["table"],"type":"object"},
+        },
+        Resource {
+            resource: test://example/materialize-acme/__init__.py,
+            content_type: "TEXT",
+            content: ".. binary ..",
+            content_dom: "from .flow_generated.python.acmeCo.materialize_acme import IMaterialization\n\nclass Materialization(IMaterialization):\n    pass\n",
         },
         Resource {
             resource: test://example/pyproject.toml,

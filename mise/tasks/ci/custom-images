@@ -15,7 +15,7 @@ CONTEXT=$(mktemp -d)
 trap "rm -rf ${CONTEXT}" EXIT
 mkdir -p ${CONTEXT}/amd64
 
-for IMAGE in capture-python derive-python derive-typescript; do
+for IMAGE in capture-python derive-python derive-typescript materialize-python; do
     cp ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/debug/${IMAGE} ${CONTEXT}/amd64/
     docker build --quiet \
         --platform linux/amd64 \
