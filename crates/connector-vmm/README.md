@@ -405,13 +405,13 @@ control.
   whoever controls that domain; a wildcard delegates every name beneath its
   base the same way. It is not proof of ownership or of benign intent toward
   the addresses that come back.
-- DNS exfiltration through forwarded queries is accepted. The resolver forwards
-  the query shapes it does not gate, and a connector that wants to leak data
-  through a name it is allowed to resolve can.
+- DNS exfiltration through permitted names is accepted. A permitted name may be
+  queried for any record type, and a connector that wants to leak data through
+  a name it is allowed to resolve can.
 - A remembered CNAME target is whatever an allowed zone pointed at. That is not
   new reach: whoever controls an allowed zone could already answer its own name
-  with any public address, and the baseline check runs on every answer either
-  way.
+  with any public address, and the baseline check runs on every `A` answer
+  either way.
 - Nothing here prevents exfiltration to an allowed destination.
 - Protecting the wider internet from abuse originating in a connector is a
   lower priority than protecting Estuary's infrastructure and other customers,

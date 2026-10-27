@@ -164,6 +164,9 @@ or deny-all. A permitted name is reachable on any port.
   all-numeric label is refused), no wildcard other than a leading `*.`.
   Labels are letters, digits and `-` (case does not matter), not beginning or
   ending with `-`, at most 63 bytes; a name is at most 253 bytes.
+- A service name such as `_mongodb._tcp.db.acmeco.example`, which SRV and
+  similar lookups query, is permitted only by a wildcard over it, such as
+  `*.db.acmeco.example`.
 
 Publication checks each host and reports an invalid one at its index, as
 "declares an invalid egress host". The data plane checks again before a
@@ -172,13 +175,15 @@ launch.
 ### What enforcement is, and is not
 
 A VMM's resolver answers only permitted names, and only the addresses those
-answers return become reachable. Permitting a name trusts whoever controls
-it: its addresses, and the CNAME targets it points to. This makes a
-connector's intended destinations visible and reviewable. It is not an
-exfiltration control: data can leave through a permitted destination, or
-through DNS queries. Name filtering runs inside the VMM, so a connector which
-compromises its VMM can remove it; the platform's exclusions above still
-hold.
+answers return become reachable. A permitted name may be queried for any
+record type. Only its address answers are checked against the exclusions
+above; other answers, such as TXT or SRV, are returned unfiltered.
+Permitting a name trusts whoever controls it: its addresses, and the CNAME
+targets it points to. This makes a connector's intended destinations visible
+and reviewable. It is not an exfiltration control: data can leave through a
+permitted destination, or through DNS queries. Name filtering runs inside the
+VMM, so a connector which compromises its VMM can remove it; the platform's
+exclusions above still hold.
 
 ## Previewing locally
 
