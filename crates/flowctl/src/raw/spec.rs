@@ -43,7 +43,7 @@ async fn get_spec_response(
 
         let model = row.model.as_ref().expect("not a capture");
 
-        let request = validation::capture_spec_request(&model.endpoint);
+        let request = validation::capture_spec_request(&model.endpoint, &model.shards);
         let response =
             local_connector::spec_capture(router, model.shards.log_level.as_deref(), request)
                 .await?;

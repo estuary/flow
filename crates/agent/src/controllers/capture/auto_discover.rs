@@ -175,8 +175,12 @@ async fn get_auto_discover_interval<C: ControlPlane>(
     if let Some(interval) = status.interval {
         return Ok(chrono::Duration::from_std(interval)?);
     }
-    let models::CaptureEndpoint::Connector(cfg) = &model.endpoint else {
-        anyhow::bail!("only connector endpoints are supported for auto-discovery");
+    // Only an image connector has a `connector_tags` row, which may set its interval.
+    let cfg = match &model.endpoint {
+        models::CaptureEndpoint::Connector(cfg) => cfg,
+        models::CaptureEndpoint::Python(_) | models::CaptureEndpoint::Local(_) => {
+            return Ok(DEFAULT_AUTO_DISCOVER_INTERVAL);
+        }
     };
     let connector_spec = control_plane
         .get_connector_spec(cfg.image.clone())

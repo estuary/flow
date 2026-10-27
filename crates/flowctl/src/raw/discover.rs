@@ -69,7 +69,7 @@ pub async fn do_discover(
     let capture::request::Spec {
         connector_type,
         config_json,
-    } = validation::capture_spec_request(&model_clone.endpoint);
+    } = validation::capture_spec_request(&model_clone.endpoint, &model_clone.shards);
 
     let discover = capture::request::Discover {
         name: capture.capture.to_string(),

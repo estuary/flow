@@ -301,7 +301,7 @@ expression: "&schema"
       "description": "An endpoint from which Flow will capture.",
       "oneOf": [
         {
-          "title": "A Connector.",
+          "title": "An image connector.",
           "type": "object",
           "properties": {
             "connector": {
@@ -311,6 +311,19 @@ expression: "&schema"
           "additionalProperties": false,
           "required": [
             "connector"
+          ]
+        },
+        {
+          "title": "A custom Python connector.",
+          "type": "object",
+          "properties": {
+            "python": {
+              "$ref": "#/$defs/CapturePython"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "python"
           ]
         },
         {
@@ -327,6 +340,28 @@ expression: "&schema"
           ]
         }
       ]
+    },
+    "CapturePython": {
+      "description": "A capture implemented by a user-authored Python connector,\nwritten with the Estuary connector development kit (CDK).",
+      "type": "object",
+      "properties": {
+        "config": {
+          "title": "Configuration of this capture.",
+          "description": "An object described by `spec.configSchema`, which your `Connector`\nclass receives. Supply sensitive values through the `secrets` stanza.",
+          "$ref": "#/$defs/Value"
+        },
+        "files": {
+          "title": "Files of this capture's Python project.",
+          "description": "The capture's directory is named for the final component of the\ncapture's name: `acmeCo/source-acme` has directory `source-acme/`.\nIts `source-acme/__init__.py` defines a `Connector` class, which\nsubclasses the CDK's `BaseCaptureConnector`.\nThe project's `pyproject.toml` declares its dependencies. If you list a\n`uv.lock`, it pins them exactly. Create or update it with `uv lock`.\nOtherwise, they're resolved anew each time the capture starts.",
+          "$ref": "#/$defs/CustomConnectorFiles"
+        },
+        "spec": {
+          "title": "Connector specification of this capture.",
+          "description": "Its `configSchema` describes the capture's `config`, and its\n`resourceConfigSchema` describes the `resource` of each binding.",
+          "$ref": "#/$defs/CustomConnectorSpec"
+        }
+      },
+      "additionalProperties": false
     },
     "Collection": {
       "description": "Collection names are paths of Unicode letters, numbers, '-', '_', or '.'.\nEach path component is separated by a slash '/',\nand a name may not begin or end in a '/'.",

@@ -19,6 +19,7 @@ mod storage_mapping;
 mod test_step;
 
 pub use capture::capture_spec_request;
+pub use custom::CAPTURE_PYTHON_IMAGE;
 pub use derivation::derive_spec_request;
 pub use errors::Error;
 pub use materialization::materialization_spec_request;
@@ -541,6 +542,10 @@ fn project_root(scope: &url::Url) -> String {
 /// encoded `/`. flowctl writes the generated files of a build even if it
 /// has errors, and this removal is what keeps those writes within each
 /// task's project.
+///
+/// The project root is the security boundary for generated files. A catalog
+/// trusts each connector it names to write any file within the project,
+/// much as it trusts a `local` connector to run commands on the host.
 fn validate_generated_files(
     scope: Scope,
     project_root: &str,

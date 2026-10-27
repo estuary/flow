@@ -1,0 +1,3 @@
+# Types which `flowctl generate` writes from the capture's declared `spec`.
+flow_generated/
+.venv/

@@ -72,11 +72,13 @@ pub async fn update<C: ControlPlane>(
             let mut updated_model = model.clone();
             match &mut updated_model.endpoint {
                 CaptureEndpoint::Connector(connector) => {
-                    // Overwrite the connector's config with the updated config.
                     connector.config = updated_config;
                 }
-                _ => {
-                    anyhow::bail!("expected Connector endpoint for config update event");
+                CaptureEndpoint::Python(python) => {
+                    python.config = updated_config;
+                }
+                CaptureEndpoint::Local(local) => {
+                    local.config = updated_config;
                 }
             }
             updated_model.secrets = updated_secrets;

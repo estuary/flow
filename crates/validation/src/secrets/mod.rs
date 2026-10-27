@@ -35,12 +35,13 @@ impl<'a> Context<'a> {
         let (config, image) = match endpoint {
             models::CaptureEndpoint::Connector(config) => (&config.config, Some(&config.image)),
             models::CaptureEndpoint::Local(config) => (&config.config, None),
+            models::CaptureEndpoint::Python(python) => (&python.config, None),
         };
         Self {
             secrets,
             config: std::borrow::Cow::Borrowed(config),
             image: image.map(|image| models::split_image_tag(image).0),
-            always_plaintext: false,
+            always_plaintext: matches!(endpoint, models::CaptureEndpoint::Python(_)),
         }
     }
 
