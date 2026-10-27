@@ -73,6 +73,25 @@ pub async fn walk_all_captures(
         .collect()
 }
 
+/// Map a capture's endpoint into the connector Spec request used by
+/// validation and by local flowctl commands.
+pub fn capture_spec_request(endpoint: &models::CaptureEndpoint) -> capture::request::Spec {
+    let (connector_type, config_json) = match endpoint {
+        models::CaptureEndpoint::Connector(config) => (
+            flow::capture_spec::ConnectorType::Image as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::CaptureEndpoint::Local(config) => (
+            flow::capture_spec::ConnectorType::Local as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+    };
+    capture::request::Spec {
+        connector_type,
+        config_json,
+    }
+}
+
 async fn walk_capture(
     pub_id: models::Id,
     build_id: models::Id,
@@ -136,16 +155,10 @@ async fn walk_capture(
     }
 
     // Unwrap `endpoint` into a connector type and configuration.
-    let (connector_type, config_json): (i32, bytes::Bytes) = match &endpoint {
-        models::CaptureEndpoint::Connector(config) => (
-            flow::capture_spec::ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::CaptureEndpoint::Local(config) => (
-            flow::capture_spec::ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-    };
+    let capture::request::Spec {
+        connector_type,
+        config_json,
+    } = capture_spec_request(&endpoint);
 
     let secrets_spec = assemble::secrets(&secrets);
     let secrets_ctx = crate::secrets::Context::of_capture(&secrets, &endpoint);
