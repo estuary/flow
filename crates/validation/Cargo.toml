@@ -16,6 +16,7 @@ json = { path = "../json" }
 labels = { path = "../labels" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
+python-connector = { path = "../python-connector", default-features = false }
 tables = { path = "../tables" }
 
 anyhow = { workspace = true }

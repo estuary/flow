@@ -1,0 +1,18 @@
+---
+source: crates/validation/src/custom.rs
+expression: "[derive_python_connector(&python, &v2),\nderive_python_connector(&python, &local),]"
+---
+[
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-python:stable",
+        config: RawValue(
+            {"_python":{"files":{"derived/__init__.py":"class Derivation: pass\n","derived/helpers.py":null,"pyproject.toml":"[project]\n"},"spec":{}},"region":"north"},
+        ),
+    },
+    ConnectorConfig {
+        image: "ghcr.io/estuary/derive-python:local",
+        config: RawValue(
+            {"_python":{"files":{"derived/__init__.py":"class Derivation: pass\n","derived/helpers.py":null,"pyproject.toml":"[project]\n"},"spec":{}},"region":"north"},
+        ),
+    },
+]

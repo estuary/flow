@@ -1,4 +1,4 @@
-use super::{Connectors, Error, Scope, collection, flag_value, indexed, linked, reference, schema};
+use super::{Connectors, Error, Scope, collection, indexed, linked, reference, schema};
 use proto_flow::{
     connector, derive, flow,
     flow::collection_spec::derivation::{ConnectorType, ShuffleType as ProtoShuffleType},
@@ -107,58 +107,20 @@ pub fn derive_spec_request(
         ),
         models::DeriveUsing::Typescript(config) => (
             ConnectorType::Image as i32,
-            serde_json::to_string(&builtin_derive_connector(
-                "ghcr.io/estuary/derive-typescript",
-                config,
-                shards,
-            ))
-            .unwrap()
-            .into(),
+            serde_json::to_string(&crate::custom::derive_typescript_connector(config, shards))
+                .unwrap()
+                .into(),
         ),
         models::DeriveUsing::Python(config) => (
             ConnectorType::Image as i32,
-            serde_json::to_string(&builtin_derive_connector(
-                "ghcr.io/estuary/derive-python",
-                config,
-                shards,
-            ))
-            .unwrap()
-            .into(),
+            serde_json::to_string(&crate::custom::derive_python_connector(config, shards))
+                .unwrap()
+                .into(),
         ),
     };
     derive::request::Spec {
         connector_type,
         config_json,
-    }
-}
-
-/// Resolve a built-in TypeScript / Python derivation into a concrete image
-/// connector. `repository` is the connector's image repository (without a tag);
-/// the tag is selected from the task's feature `flags`:
-///
-/// - `derive-image-tag`: explicit override (e.g. `local` for a locally-built
-///   image), used regardless of the runtime version.
-/// - otherwise `stable` for V2 tasks (`enable-runtime-v2`), or `dev` for legacy
-///   V1 tasks.
-///
-/// The built-in `config` (a `module`, plus Python `dependencies`) becomes the
-/// connector's nested configuration, mirroring what the runtime previously
-/// wrapped at connector-start time.
-fn builtin_derive_connector<C: serde::Serialize>(
-    repository: &str,
-    config: &C,
-    shards: &models::ShardTemplate,
-) -> models::ConnectorConfig {
-    let tag = flag_value(&shards.flags, "derive-image-tag").unwrap_or(
-        if shards.uses_runtime_v2(models::CatalogType::Collection) {
-            "stable"
-        } else {
-            "dev"
-        },
-    );
-    models::ConnectorConfig {
-        image: format!("{repository}:{tag}"),
-        config: models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
     }
 }
 
@@ -288,10 +250,37 @@ async fn walk_derivation(
         shards,
     } = model;
 
+    crate::custom::walk_legacy_fields(scope.push_prop("using"), &using, errors);
+
+    // A model having a legacy `module` is checked by `walk_legacy_fields`.
+    if let models::DeriveUsing::Python(python @ models::DeriveUsingPython { module: None, .. }) =
+        &using
+    {
+        let scope = scope.push_prop("using");
+        let scope = scope.push_prop("python");
+
+        // The V1 runtime's frozen `dev` image runs only a legacy `module`.
+        if !shards.uses_runtime_v2(models::CatalogType::Collection) {
+            Error::RequireRuntimeV2 {
+                entity: "derivation",
+                name: collection.to_string(),
+                capability: "files",
+                flag: models::ENABLE_RUNTIME_V2,
+            }
+            .push(scope.push_prop("files"), errors);
+        }
+        crate::custom::walk_python(
+            scope,
+            collection,
+            &python.files,
+            &python.config,
+            &python.spec,
+            errors,
+        );
+    }
+
     let project_root = super::project_root(&scope.flatten());
-
     let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
-
     let max_bindings = crate::max_bindings(indirect_specs);
 
     if transforms_model.len() > max_bindings {
@@ -303,25 +292,6 @@ async fn walk_derivation(
         }
         .push(scope, errors);
         return None;
-    }
-
-    // `environment` is removed. It still parses, so that a model having one
-    // is rejected here rather than failing to parse.
-    let environment = match &using {
-        models::DeriveUsing::Python(python) if !python.environment.is_empty() => Some("python"),
-        models::DeriveUsing::Typescript(typescript) if !typescript.environment.is_empty() => {
-            Some("typescript")
-        }
-        _ => None,
-    };
-    if let Some(language) = environment {
-        Error::DerivationEnvironment {}.push(
-            scope
-                .push_prop("using")
-                .push_prop(language)
-                .push_prop("environment"),
-            errors,
-        );
     }
 
     let derive::request::Spec {
@@ -577,6 +547,16 @@ async fn walk_derivation(
         &mut validated_response.generated_files,
         errors,
     );
+
+    // A legacy model lists no `files`, and keeps only `flow_generated/`.
+    if let models::DeriveUsing::Python(models::DeriveUsingPython { files, .. }) = &using {
+        crate::custom::retain_generated_files(
+            collection,
+            &project_root,
+            files,
+            &mut validated_response.generated_files,
+        );
+    }
 
     let derive::response::Validated {
         transforms: transforms_validated,
@@ -974,57 +954,4 @@ fn walk_derive_transform<'a>(
     };
 
     (model, Some(validate))
-}
-
-#[cfg(test)]
-mod test {
-    use super::builtin_derive_connector;
-
-    fn shards(pairs: &[(&str, &str)]) -> models::ShardTemplate {
-        models::ShardTemplate {
-            flags: pairs
-                .iter()
-                .map(|(k, v)| (models::Token::new(*k), models::Token::new(*v)))
-                .collect(),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn derive_image_tag_resolution() {
-        let repo = "ghcr.io/estuary/derive-typescript";
-        let config = models::DeriveUsingTypescript {
-            module: models::RawValue::from_str("\"mod.ts\"").unwrap(),
-            environment: Default::default(),
-        };
-
-        // Legacy V1 (no flags) maps to the frozen `:dev` image.
-        assert_eq!(
-            builtin_derive_connector(repo, &config, &shards(&[])).image,
-            "ghcr.io/estuary/derive-typescript:dev"
-        );
-        // V2 tasks default to `:stable`.
-        assert_eq!(
-            builtin_derive_connector(
-                repo,
-                &config,
-                &shards(&[(models::ENABLE_RUNTIME_V2, "true")])
-            )
-            .image,
-            "ghcr.io/estuary/derive-typescript:stable"
-        );
-        // An explicit `derive-image-tag` overrides either default.
-        assert_eq!(
-            builtin_derive_connector(
-                repo,
-                &config,
-                &shards(&[
-                    (models::ENABLE_RUNTIME_V2, "true"),
-                    ("derive-image-tag", "local")
-                ]),
-            )
-            .image,
-            "ghcr.io/estuary/derive-typescript:local"
-        );
-    }
 }

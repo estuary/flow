@@ -105,12 +105,76 @@ test://example/catalog.yaml:
         using:
           python:
             module: catalog.py
+            # Indirect files are read as text, whatever their extension.
+            files:
+              - lib/shared.py
+              - data/regions.json
+              - data/config.yaml
+            config:
+              region: north
+            spec:
+              configSchema:
+                type: object
+                properties:
+                  region: { type: string, default: south }
         transforms:
           - name: python-transform
             source: src/collection
             lambda: python/transform.py
             shuffle:
               key: ["/shuffle"]
+
+    # Shares `lib/shared.py` with d5/python, and carries inline files.
+    d6/py-shared:
+      schema: a-schema.json
+      key: [/py-key]
+      derive:
+        using:
+          python:
+            module: catalog.py
+            files:
+              lib/__init__.py: ""
+              lib/inline.py: |
+                def inline_helper(doc):
+                    return doc["py-key"]
+              lib/shared.py: |
+                def shared_helper(doc):
+                    return doc["py-key"] + "-shared"
+        transforms:
+          - name: python-transform
+            source: src/collection
+            shuffle: any
+
+    # Malformed paths aren't fetched, and have no load errors.
+    # Reserved paths are fetched, and validation rejects them.
+    d6/py-rejected-paths:
+      schema: a-schema.json
+      key: [/py-key]
+      derive:
+        using:
+          python:
+            files:
+              - lib/shared.py
+              - ../escape.py
+              - flow_generated/reserved.py
+              - .venv/reserved.py
+        transforms: []
+
+    d7/python-config:
+      schema: a-schema.json
+      key: [/py-key]
+      derive:
+        using:
+          python:
+            module: catalog.py
+            config: python.config.yaml
+            spec:
+              configSchema: python.config.schema.yaml
+              resourceConfigSchema:
+                type: object
+                properties:
+                  readOnly: { type: boolean }
+        transforms: []
 
 test://example/catalog.ts: |
   a typescript module placeholder that's fairly "long", at least long enough to not be inline
@@ -128,3 +192,23 @@ test://example/sql/migration_two.sql: |
 
 test://example/sql/shuffle_lambda.sql: |
   select a whole bunch of fields and stuff from source documents to shuffle upon;
+
+test://example/lib/shared.py: |
+  def shared_helper(doc):
+      return doc["py-key"] + "-shared"
+
+test://example/data/regions.json: |
+  {"regions": [{"name": "north", "code": 1}]}
+
+test://example/data/config.yaml: |
+  # A comment which is preserved, as files are text.
+  retries: 3
+
+test://example/python.config.schema.yaml:
+  type: object
+  properties:
+    apiKey: { type: string, secret: true }
+  required: [apiKey]
+
+test://example/python.config.yaml:
+  apiKey: a-fairly-long-api-key-value-which-is-indirected

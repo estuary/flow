@@ -20,6 +20,8 @@ pub async fn do_spec(
 ) -> anyhow::Result<()> {
     let source = build::arg_source_to_url(source, false)?;
     let mut draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
+    sources::inline_draft_catalog(&mut draft);
+
     let task = local_specs::select_task(&mut draft, task.as_deref())?;
 
     let router = ctx.local_connector_router();

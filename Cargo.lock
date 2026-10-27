@@ -9738,6 +9738,7 @@ dependencies = [
  "models",
  "proto-flow",
  "proto-gazette",
+ "python-connector",
  "regex",
  "rusqlite",
  "serde",

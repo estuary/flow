@@ -228,6 +228,15 @@ pub fn strip_sentinel(config_json: &mut bytes::Bytes, sentinel: &str) {
     }
 }
 
+/// Default endpoint configuration of a custom connector: an empty object.
+pub(crate) fn empty_config() -> super::RawValue {
+    super::RawValue::from_str("{}").unwrap()
+}
+
+pub(crate) fn is_empty_config(config: &super::RawValue) -> bool {
+    config.get().trim() == "{}"
+}
+
 #[cfg(test)]
 mod test {
     use super::Files;

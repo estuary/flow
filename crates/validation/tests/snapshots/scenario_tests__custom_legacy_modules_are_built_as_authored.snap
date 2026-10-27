@@ -1,0 +1,48 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: "(&outcome.errors, &legacy.model_fixes,\n&legacy.model.as_ref().unwrap().derive.as_ref().unwrap().using,\nlegacy.validated.as_ref().unwrap().generated_files.keys().collect::<Vec<_>>(),)"
+---
+(
+    [
+        Error {
+            scope: test://example/int-halve#/collections/testing~1int-halve/derive/using/python/files,
+            error: a derivation cannot mix the deprecated `module` with `files`, `config`, or `spec`: list its module in `files` instead,
+        },
+        Error {
+            scope: test://example/int-halve#/collections/testing~1int-halve/derive/using/python/config,
+            error: a derivation cannot mix the deprecated `module` with `files`, `config`, or `spec`: list its module in `files` instead,
+        },
+        Error {
+            scope: test://example/int-halve#/collections/testing~1int-halve/derive/using/python/spec,
+            error: a derivation cannot mix the deprecated `module` with `files`, `config`, or `spec`: list its module in `files` instead,
+        },
+    ],
+    [],
+    Python(
+        DeriveUsingPython {
+            module: Some(
+                RawValue(
+                    "class Derivation: pass\n",
+                ),
+            ),
+            files: Inline(
+                {},
+            ),
+            config: RawValue(
+                {},
+            ),
+            spec: Spec {
+                config_schema: None,
+                resource_config_schema: None,
+                oauth2: None,
+            },
+            dependencies: {
+                "httpx": ">=0.27",
+            },
+            environment: {},
+        },
+    ),
+    [
+        "test://example/flow_generated/python/testing/int_reverse/__init__.py",
+    ],
+)

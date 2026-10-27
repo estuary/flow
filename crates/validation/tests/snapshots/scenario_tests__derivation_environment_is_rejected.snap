@@ -5,6 +5,6 @@ expression: errors
 [
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/typescript/environment,
-        error: `environment` is no longer supported,
+        error: `environment` is no longer supported: use `config`, with a `secrets` stanza for sensitive values,
     },
 ]
