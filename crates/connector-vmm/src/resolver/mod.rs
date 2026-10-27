@@ -6,20 +6,23 @@
 //!
 //! What a query meets, in order:
 //!
-//! 1. More than one question, or a question that is not class-IN `A`/`AAAA`:
-//!    forwarded byte for byte, authorizing nothing. This deliberately permits
-//!    DNS traffic outside the name gate; see the crate README.
-//! 2. `AAAA`: `NOERROR` with no answer, never forwarded. No IPv6 reaches the
+//! 1. Anything but a standard query of exactly one question: dropped
+//!    unanswered.
+//! 2. A class other than IN: `REFUSED`. Only IN is the namespace
+//!    `allowedNames` describes, and CHAOS asks the upstream about itself.
+//! 3. `AAAA`: `NOERROR` with no answer, never forwarded. No IPv6 reaches the
 //!    tap, so an address that resolved would only be something the guest fails
 //!    to connect to, slowly. This precedes the name gate because the guest's
 //!    own resolver needs the empty answer to move on to its `A` query.
-//! 3. `A` for a name that is neither admitted by `allowedNames` nor an
-//!    unexpired remembered CNAME target, with `allowAll` off: `REFUSED`,
-//!    nothing sent upstream, nothing added to the set.
-//! 4. Otherwise forwarded. One answer address inside the baseline condemns the
+//! 4. A name that is neither admitted by `allowedNames` nor an unexpired
+//!    remembered CNAME target, with `allowAll` off: `REFUSED`, nothing sent
+//!    upstream, nothing added to the set.
+//! 5. A type other than `A`: forwarded, and answered as the upstream answered.
+//!    It authorizes no address and remembers no target.
+//! 6. `A`: forwarded. One answer address inside the baseline condemns the
 //!    whole answer: a partial answer would teach the guest which name resolves
 //!    inward.
-//! 5. Otherwise each `A` and `CNAME` TTL is clamped independently and
+//! 7. Otherwise each `A` and `CNAME` TTL is clamped independently and
 //!    rewritten in place, every address is authorized and every target
 //!    remembered until at least its clamped TTL, and the set is updated and
 //!    acknowledged before the answer is sent.
@@ -213,8 +216,10 @@ pub struct Decision {
 }
 
 pub enum Outcome {
-    /// Forwarded without gating: more than one question, or not class-IN A.
-    Ungated,
+    /// Not a class-IN standard query of one question. Nothing went upstream.
+    Unsupported,
+    /// A permitted name asked as a type other than `A`, authorizing nothing.
+    Forwarded,
     EmptyAaaa,
     RefusedName,
     RefusedPrivate(Ipv4Addr),
@@ -231,7 +236,8 @@ pub enum Outcome {
 impl std::fmt::Display for Decision {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let outcome = match &self.outcome {
-            Outcome::Ungated => "ungated".to_string(),
+            Outcome::Unsupported => "unsupported".to_string(),
+            Outcome::Forwarded => "forwarded".to_string(),
             Outcome::EmptyAaaa => "aaaa-empty".to_string(),
             Outcome::RefusedName => "refused-name".to_string(),
             Outcome::RefusedPrivate(address) => format!("refused-private={address}"),
@@ -336,8 +342,11 @@ impl Resolver {
             Ok(header) => header,
             Err(error) => return Ok(dropped(String::new(), 0, &error)),
         };
-        if header.qdcount != 1 {
-            return Ok(self.forwarded(query, header.id, None, String::new(), 0));
+        if header.flags & (dns::FLAG_RESPONSE | dns::FLAGS_OPCODE) != 0 || header.qdcount != 1 {
+            return Ok(Handled {
+                decision: decision(String::new(), 0, Outcome::Unsupported),
+                answer: None,
+            });
         }
         let question = match dns::first_question(query) {
             Ok(question) => question,
@@ -345,10 +354,11 @@ impl Resolver {
         };
         let (name, qtype) = (question.name.clone(), question.qtype);
 
-        if question.qclass != dns::CLASS_IN
-            || !matches!(question.qtype, dns::TYPE_A | dns::TYPE_AAAA)
-        {
-            return Ok(self.forwarded(query, header.id, None, name, qtype));
+        if question.qclass != dns::CLASS_IN {
+            return Ok(Handled {
+                decision: decision(name, qtype, Outcome::Unsupported),
+                answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
+            });
         }
         if question.qtype == dns::TYPE_AAAA {
             return Ok(Handled {
@@ -362,8 +372,11 @@ impl Resolver {
                 answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
             });
         }
+        if question.qtype != dns::TYPE_A {
+            return Ok(self.forwarded(query, header.id, &question, name, qtype));
+        }
 
-        let mut response = match self.forward(query, header.id, Some(&question)) {
+        let mut response = match self.forward(query, header.id, &question) {
             Ok(response) => response,
             Err(reason) => {
                 return Ok(Handled {
@@ -500,18 +513,18 @@ impl Resolver {
         (deletes, adds)
     }
 
-    /// Forward a query the resolver does not gate, authorizing nothing.
+    /// Forward a permitted query whose answer authorizes nothing.
     fn forwarded(
         &mut self,
         query: &[u8],
         id: u16,
-        question: Option<&dns::Question>,
+        question: &dns::Question,
         name: String,
         qtype: u16,
     ) -> Handled {
         match self.forward(query, id, question) {
             Ok(response) => Handled {
-                decision: decision(name, qtype, Outcome::Ungated),
+                decision: decision(name, qtype, Outcome::Forwarded),
                 answer: Some(response),
             },
             Err(reason) => Handled {
@@ -528,7 +541,7 @@ impl Resolver {
         &mut self,
         query: &[u8],
         id: u16,
-        question: Option<&dns::Question>,
+        question: &dns::Question,
     ) -> Result<Vec<u8>, String> {
         let upstream = self.config.upstream;
 
@@ -560,19 +573,17 @@ impl Resolver {
                 header.id
             ));
         }
-        if let Some(question) = question {
-            let answered = dns::first_question(&response)
-                .map_err(|e| format!("upstream answer's question: {e:#}"))?;
+        let answered = dns::first_question(&response)
+            .map_err(|e| format!("upstream answer's question: {e:#}"))?;
 
-            if answered.name != question.name
-                || answered.qtype != question.qtype
-                || answered.qclass != question.qclass
-            {
-                return Err(format!(
-                    "upstream answered {:?}/{}, not {:?}/{}",
-                    answered.name, answered.qtype, question.name, question.qtype
-                ));
-            }
+        if answered.name != question.name
+            || answered.qtype != question.qtype
+            || answered.qclass != question.qclass
+        {
+            return Err(format!(
+                "upstream answered {:?}/{}, not {:?}/{}",
+                answered.name, answered.qtype, question.name, question.qtype
+            ));
         }
         Ok(response)
     }
@@ -659,8 +670,12 @@ mod tests {
         "ttlCapSecs": 3600
     }"#;
 
-    /// A type the resolver does not gate, so the query is forwarded whole.
+    const TYPE_SOA: u16 = 6;
+    const TYPE_PTR: u16 = 12;
     const TYPE_MX: u16 = 15;
+    const TYPE_TXT: u16 = 16;
+
+    const CLASS_CHAOS: u16 = 3;
 
     fn public(last: u8) -> Ipv4Addr {
         Ipv4Addr::new(93, 184, 216, last)
@@ -705,6 +720,18 @@ mod tests {
         let hyphen = name.find('-').expect("a hyphen to replace");
         assert!(hyphen < name.find('.').expect("more than one label"));
         message[12 + 1 + hyphen] = b'.';
+        message
+    }
+
+    fn flagged(mut message: Vec<u8>, flags: u16) -> Vec<u8> {
+        message[2..4].copy_from_slice(&flags.to_be_bytes());
+        message
+    }
+
+    /// A one-question `message`, asked in `class` rather than IN.
+    fn in_class(mut message: Vec<u8>, class: u16) -> Vec<u8> {
+        let end = message.len();
+        message[end - 2..].copy_from_slice(&class.to_be_bytes());
         message
     }
 
@@ -762,14 +789,23 @@ mod tests {
     /// A real UDP nameserver on loopback, answering from a script keyed by
     /// question name and type. An unscripted question gets silence.
     fn upstream(script: Vec<((&'static str, u16), Vec<Rr>)>) -> SocketAddr {
-        upstream_taking(script, Duration::ZERO)
+        recorded_upstream(script, Duration::ZERO).0
     }
 
-    /// The same, but every answer takes `delay` to come back.
-    fn upstream_taking(script: Vec<((&'static str, u16), Vec<Rr>)>, delay: Duration) -> SocketAddr {
+    /// Recorded before parsing or answering, so a completed round trip makes
+    /// the forwarded datagram visible to the test.
+    type Received = Arc<Mutex<Vec<Vec<u8>>>>;
+
+    /// A scripted upstream that records datagrams and delays answers.
+    fn recorded_upstream(
+        script: Vec<((&'static str, u16), Vec<Rr>)>,
+        delay: Duration,
+    ) -> (SocketAddr, Received) {
         let socket =
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("binding a fake upstream");
         let address = socket.local_addr().expect("the fake upstream's address");
+        let received = Received::default();
+        let recorder = received.clone();
 
         std::thread::spawn(move || {
             let mut buffer = [0u8; 4096];
@@ -778,6 +814,7 @@ mod tests {
                     return;
                 };
                 let received = &buffer[..read];
+                recorder.lock().expect("recorder").push(received.to_vec());
                 let Ok(question) = dns::first_question(received) else {
                     continue;
                 };
@@ -791,7 +828,7 @@ mod tests {
                 let _ = socket.send_to(&respond(received, records), peer);
             }
         });
-        address
+        (address, received)
     }
 
     /// What was asked of the set, and when it was acknowledged: no element
@@ -934,6 +971,7 @@ mod tests {
                 ("pypi.org", TYPE_MX),
                 vec![Rr::A("pypi.org", public(10), 300)],
             ),
+            (("assets.acmeco.example", TYPE_TXT), vec![]),
         ]
     }
 
@@ -981,7 +1019,8 @@ mod tests {
     #[test]
     fn decisions() {
         let recorder = Recorder::default();
-        let mut resolver = resolver(upstream(script()), recorder.clone());
+        let (upstream, received) = recorded_upstream(script(), Duration::ZERO);
+        let mut resolver = resolver(upstream, recorder.clone());
 
         let steps: Vec<(&str, u64, Vec<u8>)> = vec![
             (
@@ -1065,14 +1104,50 @@ mod tests {
                 query(16, "evil.example", dns::TYPE_AAAA),
             ),
             (
-                "a type the resolver does not gate",
+                "MX for a permitted name, whose answer holds an A record",
                 16,
                 query(17, "pypi.org", TYPE_MX),
+            ),
+            (
+                "MX for a name nobody listed",
+                16,
+                query(30, "evil.example", TYPE_MX),
+            ),
+            (
+                "PTR for an address nobody listed",
+                16,
+                query(31, "10.216.184.93.in-addr.arpa", TYPE_PTR),
             ),
             (
                 "two questions in one query",
                 17,
                 two_questions(18, "pypi.org", "evil.example"),
+            ),
+            ("a header with no question", 17, {
+                let mut message = query(32, "pypi.org", dns::TYPE_A);
+                message.truncate(12);
+                message[4..6].copy_from_slice(&0u16.to_be_bytes());
+                message
+            }),
+            (
+                "a response, not a query",
+                17,
+                flagged(query(33, "pypi.org", dns::TYPE_A), 0x8100),
+            ),
+            (
+                "an UPDATE of a permitted name's zone",
+                17,
+                flagged(query(34, "pypi.org", TYPE_SOA), 0x2800),
+            ),
+            (
+                "a permitted name in the CHAOS class",
+                17,
+                in_class(query(35, "pypi.org", TYPE_TXT), CLASS_CHAOS),
+            ),
+            (
+                "AAAA in the CHAOS class",
+                17,
+                in_class(query(36, "pypi.org", dns::TYPE_AAAA), CLASS_CHAOS),
             ),
             (
                 "an answer pointing inward",
@@ -1103,6 +1178,11 @@ mod tests {
                 "a CNAME chain",
                 23,
                 query(24, "artifacts.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "TXT for the remembered target",
+                23,
+                query(37, "assets.acmeco.example", TYPE_TXT),
             ),
             (
                 "the remembered target, queried directly",
@@ -1145,6 +1225,17 @@ mod tests {
             log.push_str(&format!("# {label} (t+{offset}s)\n"));
             log.push_str(&format!("{}\n", handled.decision));
             log.push_str(&format!("{}\n", summarize(&handled)));
+
+            let heard: Vec<String> = received
+                .lock()
+                .expect("recorder")
+                .drain(..)
+                .map(|datagram| match dns::first_question(&datagram) {
+                    Ok(question) => format!("{}/{}", question.name, question.qtype),
+                    Err(_) => format!("{} bytes", datagram.len()),
+                })
+                .collect();
+            log.push_str(&format!("upstream: [{}]\n", heard.join(", ")));
 
             let calls = recorder.calls();
             for (deletes, adds, _) in &calls[seen..] {
@@ -1633,7 +1724,8 @@ mod tests {
             ),
         ];
         let recorder = Recorder::default();
-        let mut resolver = resolver_under(POLICY, upstream_taking(script, DELAY), recorder.clone());
+        let mut resolver =
+            resolver_under(POLICY, recorded_upstream(script, DELAY).0, recorder.clone());
 
         let arrived = Instant::now();
         let handled = resolver

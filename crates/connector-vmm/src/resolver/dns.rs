@@ -27,6 +27,8 @@ pub const RCODE_REFUSED: u16 = 5;
 
 const HEADER_LEN: usize = 12;
 pub const FLAG_RESPONSE: u16 = 0x8000;
+/// The opcode's four bits, all clear for a standard QUERY.
+pub const FLAGS_OPCODE: u16 = 0x7800;
 const FLAG_RECURSION_AVAILABLE: u16 = 0x0080;
 /// Opcode and the recursion-desired bit, which a reply echoes back.
 const FLAGS_ECHOED: u16 = 0x7900;
@@ -78,8 +80,7 @@ pub fn header(message: &[u8]) -> anyhow::Result<Header> {
     })
 }
 
-/// The first question, which is the only one the resolver ever acts on: a
-/// query carrying more than one is forwarded and returned untouched.
+/// The first question. The resolver acts only on a query carrying exactly one.
 pub fn first_question(message: &[u8]) -> anyhow::Result<Question> {
     let mut name = String::new();
     let cursor = read_name(message, HEADER_LEN, &mut name)?;

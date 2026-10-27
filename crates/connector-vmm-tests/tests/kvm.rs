@@ -1067,6 +1067,13 @@ fn egress_allowlist() {
         serde_json::json!({"nameserver": VMM_TAP.to_string(), "name": "ok.elsewhere.example", "qtype": 1, "timeout": BLOCKED}),
     );
     assert_eq!(unlisted["status"], "rcode:5", "unlisted-refused");
+    let unlisted_mx = query(
+        &mut guest,
+        "unlisted-mx-refused",
+        "ok.elsewhere.example",
+        15,
+    );
+    assert_eq!(unlisted_mx["status"], "rcode:5", "unlisted-mx-refused");
 
     for (name, qname) in [
         ("exact-subdomain-refused", "below.ok.acmeco.example"),
