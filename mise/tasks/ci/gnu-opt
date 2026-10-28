@@ -11,6 +11,7 @@ cargo build \
     -p config-encryption \
     -p data-plane-controller \
     -p dekaf \
+    -p disk-daemon \
     -p flowctl \
     -p oidc-discovery-server \
     -p runtime-sidecar \

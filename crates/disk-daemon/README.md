@@ -10,7 +10,8 @@ commit with its own durable state. Recording below the filesystem keeps the
 journal independent of the application's storage engine.
 
 The crate provides `flow-disk-daemon` and its Rust client, independently of Flow's
-runtime and connector protocols. Flow integration still needs to place mounts in
+runtime and connector protocols. The binary ships in the reactor image
+(`docker/reactor.Dockerfile`). Flow integration still needs to place mounts in
 connector sandboxes, persist ACK intents with checkpoints, manage journal
 and fragment lifetimes, and define shard splitting.
 
