@@ -41,10 +41,10 @@ plane_base_for() {
     echo "$((lowest - lowest % 100))"
 }
 
-# Echo the TCP port `unit` listens on, or nothing when it has none to probe
-# (`flow-plane-link@` is a oneshot that exits, and unknown units are skipped
-# rather than guessed at).
-port_for_unit() {
+# Echo the TCP port `unit` listens on, or the path of its Unix socket, or nothing
+# when it has none to probe (`flow-plane-link@` is a oneshot that exits, and
+# unknown units are skipped rather than guessed at).
+endpoint_for_unit() {
     local unit="$1" tmpl inst
     tmpl="${unit%@*}"
     inst="${unit#*@}"
@@ -60,7 +60,16 @@ port_for_unit() {
     flow-gazette | flow-reactor) echo "${inst##*-}" ;;
     flow-runtime-sidecar) echo "$(($(plane_base_for "${inst}") + 60))" ;;
     flow-dekaf) echo "$(($(plane_base_for "${inst}") + 50))" ;;
+    flow-disk-daemon) echo "${FLOW_STACK_DIR}/disk-$(plane_base_for "${inst}")/disk.sock" ;;
     *) echo "" ;;
+    esac
+}
+
+# True while something accepts connections at an endpoint of `endpoint_for_unit`.
+accepting() {
+    case "$1" in
+    /*) nc -zU "$1" 2>/dev/null ;;
+    *) nc -z localhost "$1" 2>/dev/null ;;
     esac
 }
 
@@ -77,11 +86,11 @@ if [ -z "${UNITS}" ]; then
     exit 1
 fi
 
-# Pair each probe-able unit with its port once, up front.
+# Pair each probe-able unit with its endpoint once, up front.
 TARGETS=""
 for unit in ${UNITS}; do
-    port="$(port_for_unit "${unit}")"
-    [ -n "${port}" ] && TARGETS="${TARGETS}${TARGETS:+ }${unit}:${port}"
+    endpoint="$(endpoint_for_unit "${unit}")"
+    [ -n "${endpoint}" ] && TARGETS="${TARGETS}${TARGETS:+ }${unit}:${endpoint}"
 done
 
 echo "Waiting up to ${TIMEOUT}s for $(echo "${TARGETS}" | wc -w) service(s) of stack '${FLOW_STACK_NAME}'..."
@@ -92,7 +101,7 @@ while true; do
     PENDING=""
     for target in ${TARGETS}; do
         unit="${target%:*}"
-        port="${target##*:}"
+        endpoint="${target##*:}"
 
         # Fail fast rather than burning the whole timeout on a dead unit.
         if systemctl --user is-failed --quiet "${unit}"; then
@@ -100,13 +109,13 @@ while true; do
             journalctl --user -u "${unit}" --no-pager -n 40 >&2
             exit 1
         fi
-        if ! nc -z localhost "${port}" 2>/dev/null; then
+        if ! accepting "${endpoint}"; then
             # Distinguish "still compiling" from "started but not yet listening":
             # the units build in ExecStartPre, which can dominate a cold start.
             if systemctl --user is-active --quiet "${unit}"; then
-                PENDING="${PENDING}${PENDING:+ }${unit%@*}:${port}"
+                PENDING="${PENDING}${PENDING:+ }${unit%@*}:${endpoint}"
             else
-                PENDING="${PENDING}${PENDING:+ }${unit%@*}:${port}(building)"
+                PENDING="${PENDING}${PENDING:+ }${unit%@*}:${endpoint}(building)"
             fi
         fi
     done
