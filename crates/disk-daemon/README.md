@@ -724,6 +724,10 @@ The daemon needs:
   Docker's default profile blocks them, and `--privileged` disables seccomp.
 - **The host's PID namespace, on Linux 6.17 and 6.18.** See [Kernel](#kernel).
 
+The local stack meets all of these by running the daemon as root, in a privileged
+container that shares the host's PID namespace and joins its mount namespace
+(`local/systemd/flow-disk-daemon@.service`).
+
 ### Image directory
 
 `--image-dir` must be on a filesystem with sparse files and hole punching, such as
@@ -765,6 +769,11 @@ credentials. Rotating the key requires a restart.
 ### Where it runs
 
 - **Reactor image.** `docker/reactor.Dockerfile` ships the binary.
+- **Local stack.** `mise run local:stack` runs one daemon per data plane, as
+  `flow-disk-daemon@<dp>.service`. The unit runs the stack's debug build as root,
+  through a privileged Docker container in the host's PID namespace
+  (`local/systemd/flow-disk-daemon@.service`). `mise run local:stack-info` prints
+  its socket path.
 
 ## Modules
 
