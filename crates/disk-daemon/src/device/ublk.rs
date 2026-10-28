@@ -157,6 +157,18 @@ impl Control {
         format!("/dev/ublkb{}", self.dev_id)
     }
 
+    /// The kernel's diskseq of the started block device. This `Control` holds the
+    /// device's number, so sysfs names this device and no other.
+    pub fn diskseq(&self) -> anyhow::Result<u64> {
+        let path = format!("/sys/block/ublkb{}/diskseq", self.dev_id);
+        let diskseq = std::fs::read_to_string(&path).with_context(|| format!("reading {path}"))?;
+
+        diskseq
+            .trim()
+            .parse()
+            .with_context(|| format!("parsing {path} ({diskseq:?})"))
+    }
+
     /// Create `/dev/ublkbN`. This call blocks until the queue's tag has a fetch
     /// in flight, so call it from a thread other than the queue's owner thread.
     pub fn start(&mut self) -> anyhow::Result<()> {
