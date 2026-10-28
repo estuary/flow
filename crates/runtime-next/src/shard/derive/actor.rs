@@ -151,6 +151,13 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let mut ticker = tokio::time::interval(crate::ACTOR_TICK_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        // The status API reports a task as "waiting on connector status" until
+        // it has one from the current build, so don't make it wait for the
+        // first heartbeat.
+        self.logger.event(crate::LogEvent::DeriveStarted {
+            task_name: &self.task.collection_name,
+        });
+
         loop {
             loop_count += 1;
             self.maybe_heartbeat();
@@ -523,6 +530,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             return;
         }
         self.logger.event(crate::LogEvent::DeriveHeartbeat {
+            task_name: &self.task.collection_name,
             docs_read: std::mem::take(&mut self.heartbeat_docs_read),
             docs_written: std::mem::take(&mut self.heartbeat_docs_written),
             window,
@@ -943,20 +951,37 @@ mod tests {
         assert!(stored.publisher_commit.is_none());
 
         // 4b) With the actor idle, its tick logs a heartbeat carrying the
-        // drained document, then a zero heartbeat for the next window.
+        // drained document, then a zero heartbeat for the next window. Each is
+        // a connector status for the task, following the one sent at startup.
         tokio::time::pause();
-        let mut heartbeats = Vec::new();
+        let mut statuses = Vec::new();
         for _ in 0..2 {
             tokio::time::advance(HEARTBEAT_INTERVAL).await;
             tokio::time::sleep(Duration::from_millis(1)).await; // Let the actor run.
-            heartbeats.extend(logger.logs.lock().unwrap().drain(..).filter_map(|log| {
+            statuses.extend(logger.logs.lock().unwrap().drain(..).filter_map(|log| {
                 let field = |k: &str| String::from_utf8_lossy(&log.fields_json_map[k]).into_owned();
-                log.fields_json_map
-                    .contains_key("docsRead")
-                    .then(|| format!("read {} wrote {}", field("docsRead"), field("docsWritten")))
+                if log.fields_json_map.get("eventType")?.as_ref() != b"\"connectorStatus\"" {
+                    return None;
+                }
+                Some(match log.fields_json_map.get("docsRead") {
+                    Some(_) => format!(
+                        "{} read {} wrote {}",
+                        field("eventTarget"),
+                        field("docsRead"),
+                        field("docsWritten")
+                    ),
+                    None => format!("{} {}", field("eventTarget"), log.message),
+                })
             }));
         }
-        assert_eq!(heartbeats, ["read 0 wrote 1", "read 0 wrote 0"]);
+        assert_eq!(
+            statuses,
+            [
+                r#""test/derived" Derivation started"#,
+                r#""test/derived" read 0 wrote 1"#,
+                r#""test/derived" read 0 wrote 0"#,
+            ]
+        );
 
         // 5) L:StartCommit → C:StartCommit → C:StartedCommit → L:StartedCommit.
         leader_to_actor_tx
