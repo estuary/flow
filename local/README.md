@@ -161,6 +161,7 @@ flow-plane@<dp>.target                     one per data plane (dp = local-<stack
   ├─ flow-gazette@<dp>-<port>             broker(s),  base+0..9
   ├─ flow-reactor@<dp>-<port>             reactor(s), base+99..90
   ├─ flow-runtime-sidecar@<dp>            Rust sidecar, base+60 (gRPC) / +61 (admin)
+  ├─ flow-disk-daemon@<dp>                root via Docker, socket disk-<base>/disk.sock
   ├─ flow-dekaf@<dp>                      Kafka shim,  base+50/51/52 (only with --dekaf)
   └─ flow-plane-link@<dp>                 oneshot: POSTs to agent to register
 ```
@@ -173,7 +174,7 @@ at `FLOW_PLANE_BASE` with 4 brokers, 1 reactor, and link, then publishes
 ### One package set builds every Rust binary
 
 `build:local-rust` builds agent, bindings, config-encryption,
-data-plane-controller, dekaf, flowctl, and runtime-sidecar in a single `cargo
+data-plane-controller, dekaf, disk-daemon, flowctl, and runtime-sidecar in a single `cargo
 build`. Every `cargo build` for a local stack goes through it: the
 `ExecStartPre` of each `flow-*@.service`, and the Dekaf CI job. Cargo resolves
 features over the set of packages you name, and that resolution reaches every
@@ -198,7 +199,8 @@ Two consequences that will mislead you if you script against systemd state:
   first; starting a unit directly on a cold checkout takes *minutes*.
 
 `local:stack-wait` is a readiness check - it enumerates this stack's
-loaded units, maps each to its port, and blocks until all accept connections:
+loaded units, maps each to its port or Unix socket, and blocks until all accept
+connections:
 
 ```bash
 mise run local:stack-wait                 # default 900s budget
@@ -253,7 +255,7 @@ make divergence rare.
 
 `local:stop` is a stack-scoped guillotine — it stops only *this* stack's units,
 removes only this stack's drop-ins, env files, and runtime state
-(`~/flow-local/<name>/{etcd,fragments,builds}` and `test-tenant-*.env`), and
+(`~/flow-local/<name>/{etcd,fragments,builds,disk-*}` and `test-tenant-*.env`), and
 `reset-failed`s only this stack. It **never** `rm -r ~/.config/systemd/user`,
 leaves the shared TLS material and unit template symlinks in place, and
 **retains the registry entry, build artifacts, and supabase docker volumes**.
@@ -350,6 +352,7 @@ Per stack, under `~/flow-local/<name>/` (= `${FLOW_STACK_DIR}`):
 | `etcd/` | Etcd data dir |
 | `fragments/<dp>/` | Gazette journal fragments (file-only mode) |
 | `builds/` | Catalog builds emitted by the agent |
+| `disk-<base>/` | Disk-daemon socket, images, and mounts of the data plane at `<base>` |
 | `test-tenant-<tenant>.env` | flowctl credentials from `local:test-tenant` |
 | `.supabase-started` | Sentinel that triggers `db reset` on next supabase start |
 

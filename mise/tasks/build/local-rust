@@ -40,5 +40,6 @@ cargo build \
     -p config-encryption \
     -p data-plane-controller \
     -p dekaf \
+    -p disk-daemon \
     -p flowctl \
     -p runtime-sidecar

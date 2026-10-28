@@ -29,6 +29,7 @@ printf '  %-22s %s\n' "config-encryption" "${FLOW_PORT_CONFIG_ENC}"
 printf '  %-22s %s\n' "bigtable emulator" "${FLOW_PORT_BIGTABLE}"
 printf '  %-22s %s\n' "dekaf kafka / ctrl" "${FLOW_PORT_KAFKA} / ${FLOW_PORT_KAFKA_CTRL}"
 printf '  %-22s %s\n' "plane 0 base" "${PB} (brokers ${PB}+, reactors ${PB}+99 down, dekaf +50/51/52, sidecar +60/61)"
+printf '  %-22s %s\n' "plane 0 disk socket" "${FLOW_STACK_DIR}/disk-${PB}/disk.sock"
 echo ""
 
 echo "Units for this stack:"

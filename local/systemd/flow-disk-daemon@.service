@@ -1,0 +1,42 @@
+[Unit]
+Description=Flow Disk Daemon (%i)
+Documentation=https://github.com/estuary/flow
+
+[Service]
+Type=simple
+TimeoutStartSec=600
+
+EnvironmentFile=%h/flow-local/env/disk-daemon-%i.env
+
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/local-rust'
+ExecStartPre=-/usr/bin/docker rm -f disk-daemon-%i
+
+# Serving ublk devices and mounting ext4 need root, which Docker grants without
+# sudo. The container is only the way in. It shares the host's PIDs, so nsenter
+# joins the mounts of the host's PID 1, and execs the daemon there. The daemon
+# then runs this stack's binary with the host's libraries and tools, and mounts
+# on the host. The image supplies only nsenter. `docker run` relays the daemon's
+# output as this user, so it reaches this unit's journal.
+ExecStart=/usr/bin/docker run --rm \
+    --name disk-daemon-%i \
+    --privileged \
+    --pid=host \
+    --network host \
+    -e BROKER_ADDRESS \
+    -e DATA_PLANE_AUTH_KEYS \
+    -e DATA_PLANE_FQDN \
+    -e GAZETTE_ZONE \
+    -e IMAGE_DIR \
+    -e MOUNT_DIR \
+    -e RUST_LOG \
+    -e SSL_CERT_FILE \
+    -e UDS_PATH \
+    ubuntu:noble \
+    nsenter --target 1 --mount -- ${CARGO_TARGET_DIR}/debug/flow-disk-daemon
+
+# A drain tears down each disk. This gives it a minute, within systemd's default
+# stop timeout.
+ExecStop=/usr/bin/docker stop -t 60 disk-daemon-%i
+
+Restart=on-failure
+RestartSec=5s
