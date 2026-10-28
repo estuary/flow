@@ -762,6 +762,10 @@ The daemon signs its own broker token with the data plane's HMAC key. The token
 is scoped to disk journals. Clients supply neither broker endpoints nor
 credentials. Rotating the key requires a restart.
 
+### Where it runs
+
+- **Reactor image.** `docker/reactor.Dockerfile` ships the binary.
+
 ## Modules
 
 Paths are relative to `src/`.

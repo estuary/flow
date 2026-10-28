@@ -13,6 +13,7 @@ RUN apt update -y \
 
 ARG TARGETARCH
 COPY ${TARGETARCH}/flow-connector-init /usr/local/bin/
+COPY ${TARGETARCH}/flow-disk-daemon /usr/local/bin/
 COPY ${TARGETARCH}/flowctl-go /usr/local/bin/
 COPY ${TARGETARCH}/runtime-sidecar /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
