@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package disk;
+
+// Disk serves block devices backed by Gazette journals.
+service Disk {
+  // An attachment serves one disk for the life of this stream, first as a
+  // standby and then, once promoted, as its primary. Closing the stream
+  // unmounts the filesystem and destroys the local device.
+  rpc Attach(stream Request) returns (stream Response);
+}
+
+// Open must be the first request and may be sent only once.
+message Request {
+  oneof request {
+    Open open = 1;
+    Promote promote = 2;
+    Prepare prepare = 3;
+    Acknowledge acknowledge = 4;
+  }
+}
+
+// Responses correspond one-to-one with requests and arrive in request order.
+message Response {
+  oneof response {
+    Opened opened = 1;
+    Promoted promoted = 2;
+    Prepared prepared = 3;
+    Acknowledged acknowledged = 4;
+  }
+}
+
+// Open validates the journal and begins replay without fencing or mounting.
+message Open {
+  // Journal the disk's state lives in; its name identifies the disk.
+  string journal = 1;
+  // Logical capacity of the sparse device in bytes: a multiple of 4096 of at
+  // least 8 MiB, and at most 2^32 - 1 blocks. The first prepared delta fixes
+  // this size for all later attachments.
+  uint64 device_size = 2;
+}
+
+// Replay has reached the head observed by Open and begun tailing. Sent once,
+// even if replay later falls behind. The filesystem is available at Promoted.
+message Opened {}
+
+// Promote fences the journal, replays through the fenced head, and mounts the
+// filesystem. Losing the fence fails the attachment.
+//
+// The daemon serves Promote only once it has sent Opened, so a client may queue it
+// behind Open. Requests queued behind Promote are served once it completes.
+message Promote {
+  // The ACK intent of the last Prepared the client stored, or empty if it has
+  // none.
+  bytes ack_intent = 1;
+}
+
+// Sent after replay reaches the fenced head and the filesystem is mounted.
+message Promoted {
+  // Absolute path of the mounted filesystem.
+  string mount_path = 1;
+}
+
+// Prepare syncs the filesystem, then closes the current delta. The delta holds
+// every file write made before Prepare. A write made while Prepare is in flight
+// may land in either delta, so the client pauses writes first. Prepare waits
+// for broker confirmation of the delta's records, which leaves the delta
+// durable but uncommitted.
+//
+// Preparing before the last Prepared is acknowledged fails with
+// FAILED_PRECONDITION.
+message Prepare {}
+
+message Prepared {
+  // ACK intent of the delta: its unappended commit record. The client stores
+  // these bytes atomically with its corresponding state, and returns them in
+  // Promote after attachment failure.
+  //
+  // Empty if the disk did not change. Every Prepared is acknowledged, empty or
+  // not.
+  bytes ack_intent = 1;
+}
+
+// Acknowledge commits the prepared delta by appending its ACK intent to the journal.
+// An empty ACK intent, of a delta which did not change the disk, commits nothing.
+message Acknowledge {}
+
+// The broker has confirmed the acknowledgement.
+message Acknowledged {}
+
+// DiskRecord is the sole record type in a disk journal, encoded with Gazette's
+// fixed protobuf framing. UUID clocks and flags distinguish fences from deltas:
+//
+//   - A fence is its author's OUTSIDE_TXN record at clock zero, with no chunk.
+//   - A delta is one or more CONTINUE_TXN records, each carrying a chunk,
+//     committed by an ACK_TXN record with no chunk.
+//
+// Replay sequences records by producer and clock, ignores duplicate UUIDs,
+// and applies only acknowledged deltas.
+message DiskRecord {
+  // Gazette UUID carrying a producer, clock, and transaction flags.
+  bytes uuid = 1;
+  // Block change of a CONTINUE_TXN record. Records apply in journal order, so
+  // the last change to each block wins.
+  Chunk chunk = 2;
+  // Opens a recovery horizon at this record's offset. It may be set on any
+  // record, and is effective only when that record's delta is acknowledged.
+  //
+  // Recovery may start here once committed chunks at or after this offset cover
+  // every block allocated before this record.
+  bool opens_horizon = 3;
+}
+
+// Chunk changes a range of contiguous 4096-byte device blocks.
+message Chunk {
+  // First block of the range.
+  uint32 block = 1;
+  // Blocks the range covers, at least one.
+  uint32 blocks = 2;
+
+  // Deallocates the range.
+  message Punch {}
+
+  oneof content {
+    // Written from `block`, allocating the range. The rest of the range past the
+    // data is zeroed, so trailing zeroes are omitted, and empty data allocates
+    // zeroed blocks.
+    bytes data = 3;
+    // Deallocates the range, for discard and write-zeroes. Unallocated blocks
+    // read as zeroes.
+    Punch punch = 4;
+  }
+}
