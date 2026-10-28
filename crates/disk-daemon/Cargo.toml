@@ -1,0 +1,51 @@
+[package]
+name = "disk-daemon"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "flow-disk-daemon"
+path = "src/main.rs"
+
+[dependencies]
+coroutines = { path = "../coroutines" }
+gazette = { path = "../gazette" }
+labels = { path = "../labels" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc", features = ["disk_client", "disk_server"] }
+publisher = { path = "../publisher" }
+tokens = { path = "../tokens" }
+
+anyhow = { workspace = true }
+async-process = { path = "../async-process" }
+bitvec = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+io-uring = { workspace = true }
+prost = { workspace = true }
+rand = { workspace = true }
+rustix = { workspace = true }
+rustls = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+zerocopy = { workspace = true }
+
+[dev-dependencies]
+async-process = { path = "../async-process" }
+e2e-support = { path = "../e2e-support" }
+
+insta = { workspace = true }
+quickcheck = { workspace = true }

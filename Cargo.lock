@@ -3169,6 +3169,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "disk-daemon"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-process",
+ "bitvec",
+ "bytes",
+ "clap",
+ "coroutines",
+ "e2e-support",
+ "futures",
+ "gazette",
+ "insta",
+ "io-uring",
+ "labels",
+ "prost",
+ "proto-flow",
+ "proto-gazette",
+ "proto-grpc",
+ "publisher",
+ "quickcheck",
+ "rand 0.9.2",
+ "rustix 1.1.2",
+ "rustls",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokens",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "zerocopy",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4908,6 +4945,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "276ec31bcb4a9ee45f58bec6f9ec700ae4cf4f4f8f2fa7e06cb406bd5ffdd770"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "io-uring"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed3bd0ecfbb87805f538bb7b32e5239ca0763890c623e349860ecba69469f2bb"
+dependencies = [
+ "bitflags 2.9.4",
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
