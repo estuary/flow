@@ -10,11 +10,17 @@ capped-shard-reconfiguration = { max-threads = 3 }
 
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
-# Exclude e2e tests from Dekaf by default because they require special setup.
-# See mise/tasks/ci/dekaf-e2e-run for details. The materialization consistency
-# scenarios are excluded for the same reason: each one publishes tasks to a
-# running local stack. See mise/tasks/ci/consistency.
-default-filter = 'not binary_id(/dekaf::e2e/) and not binary_id(/materialize-consistency::scenarios/)'
+# Exclude tests which need setup that nextest doesn't provide. Each runs under its
+# own profile below, through a mise task:
+#  * Dekaf's e2e tests need a local stack running Dekaf (ci:dekaf-e2e-run).
+#  * The materialization consistency scenarios publish tasks to a running local
+#    stack (ci:consistency).
+#  * disk-daemon's integration tests serve real ublk devices through sudo
+#    (ci:disk-daemon-e2e-run).
+default-filter = '''
+    not binary_id(/dekaf::e2e/) and not binary_id(/materialize-consistency::scenarios/)
+    and not (package(disk-daemon) and kind(test))
+'''
 
 [profile.dekaf-e2e]
 # Migration tests excluded due to 8-minute timeout; run them with the
@@ -39,6 +45,12 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 [profile.dekaf-e2e-migration]
 default-filter = 'binary_id(/dekaf::e2e/) and test(/migration/)'
 slow-timeout = { period = "120s", terminate-after = 10 }
+
+[profile.disk-daemon-e2e]
+default-filter = 'package(disk-daemon) and kind(test)'
+# After each teardown, a test asserts that no ublk device or mount remains anywhere
+# on the host. A concurrent test's disks would fail that, so tests run one at a time.
+test-threads = 1
 
 [profile.consistency]
 default-filter = 'binary_id(/materialize-consistency::scenarios/)'

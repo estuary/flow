@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Run the disk-daemon unit tests, then its integration tests, which serve real ublk devices"
+#MISE depends=["bootstrap:ublk-drv", "build:gazette"]
+
+# Prerequisites beyond those declared above. crates/e2e-support needs gazette to
+# spawn a real broker. See crates/disk-daemon/README.md for the rest:
+#  * passwordless sudo -- the daemon runs as root, through `sudo -n`
+#  * e2fsprogs with `assume_storage_prezeroed`
+#  * etcd on PATH, which mise provides
+#
+
+# ublk's behavior varies by kernel, so the log records the kernel its tests ran on.
+uname -r
+cargo nextest run --locked -p disk-daemon
+cargo nextest run --locked --profile disk-daemon-e2e -p disk-daemon --no-fail-fast
