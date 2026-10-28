@@ -1,4 +1,5 @@
 mod device;
+mod journal;
 mod replay;
 
 /// Attach RPC and journal-record protocol messages.
@@ -37,4 +38,10 @@ pub(crate) enum Floor {
     /// A record replay found at this journal offset, which an earlier primary
     /// appended.
     Replayed(i64),
+}
+
+/// A failure of something the attachment asked for, which fails the attachment with
+/// `INVALID_ARGUMENT`: no retry of the same request can succeed.
+pub(crate) fn invalid_argument(message: String) -> anyhow::Error {
+    proto_grpc::status_to_anyhow(tonic::Status::invalid_argument(message))
 }
