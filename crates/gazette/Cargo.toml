@@ -43,5 +43,6 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 
-tracing-subscriber = { workspace = true }
 hexdump = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = { workspace = true }

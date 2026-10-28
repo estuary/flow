@@ -48,15 +48,7 @@ impl Client {
             // with high throughput / stuffed flow control windows that we expect
             // to read in specific orders (leading to live-lock).
             .http1_only()
-            // Bound connection establishment (TCP + TLS). Without this a storage
-            // endpoint that accepts the socket but never completes the handshake
-            // wedges a fragment fetch forever — TCP keepalive can't help while the
-            // peer is still ACKing. reqwest sets no connect timeout by default.
-            .connect_timeout(std::time::Duration::from_secs(30))
-            // We don't use `read_timeout` because it's a little heavy (a boxed
-            // future with every read), and because we may poll infrequently,
-            // but reqwest biases toward `read_timeout` rather than completion
-            // of a ready read.
+            // `read::FRAGMENT_IDLE_TIMEOUT` bounds connection and read timeout.
             .build()
             .unwrap()
     }
