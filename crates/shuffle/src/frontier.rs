@@ -1,25 +1,7 @@
 use crate::log;
 use proto_flow::shuffle;
-use proto_gazette::uuid::{Clock, Producer};
+use proto_gazette::uuid::{Clock, OBSERVED_COMMIT_FLOOR, Producer};
 use std::collections::BTreeMap;
-
-/// Lower-bound synthetic `last_commit` for a producer observed through journal
-/// reads, distinguishing it from a hint-only producer. All actual Clock values
-/// are required to be larger. The distinction matters when evaluating whether
-/// a producer hinted at Clock H is "gapped" on recovery:
-///
-/// Case 1 - {offset: 0, last_commit: 1, hinted_commit: H}
-/// This producer wrote a literal CONTINUE_TXN at offset zero which still has an
-/// open span (no committing close or rollback yet). If we start reading from
-/// offset M > 0, this producer is considered gapped and must replay from zero.
-///
-/// Case 2 - {offset: 0, last_commit: 0, hinted_commit: H}
-/// This hint-only producer has never been observed via journal read. If we start
-/// reading from the maximum offset M of any journal producer, then by construction
-/// no span of this producer can live in [0, M), as `last_commit` would otherwise
-/// be this sentinel value.
-///
-pub(crate) const OBSERVED_COMMIT_FLOOR: u64 = 1;
 
 /// Frontier state of a single producer within a journal.
 #[derive(Debug, Clone)]
@@ -255,7 +237,7 @@ impl JournalFrontier {
             Ok(index) if self.producers[index].last_commit >= clock => {
                 return Some(Accounted::Commit);
             }
-            Err(_) if clock <= self.prune_floor && clock.as_u64() > OBSERVED_COMMIT_FLOOR => {
+            Err(_) if clock <= self.prune_floor && clock > OBSERVED_COMMIT_FLOOR => {
                 return Some(Accounted::PruneFloor);
             }
             _ => {}
@@ -1526,13 +1508,12 @@ mod test {
         // `max(1, 0) = 1`, and the equal-magnitude offset tie keeps 0. Regressing
         // to 0 here would reclassify the span as hint-only on the next recovery,
         // silently dropping it.
-        let floored = || pf_raw(0x01, OBSERVED_COMMIT_FLOOR, 0, 0);
+        let floored = || pf_raw(0x01, OBSERVED_COMMIT_FLOOR.as_u64(), 0, 0);
         let hint = || pf_raw(0x01, 0, hint_clock, 0);
         for (a, b) in [(floored(), hint()), (hint(), floored())] {
             let r = a.reduce(b);
             assert_eq!(
-                r.last_commit.as_u64(),
-                OBSERVED_COMMIT_FLOOR,
+                r.last_commit, OBSERVED_COMMIT_FLOOR,
                 "the floor survives a hint merge",
             );
             assert_eq!(r.hinted_commit.as_u64(), hint_clock);
@@ -1560,7 +1541,12 @@ mod test {
             journals: vec![jf(
                 "journal/A",
                 0,
-                vec![pf_raw(0x01, OBSERVED_COMMIT_FLOOR, hint_clock.as_u64(), 0)],
+                vec![pf_raw(
+                    0x01,
+                    OBSERVED_COMMIT_FLOOR.as_u64(),
+                    hint_clock.as_u64(),
+                    0,
+                )],
             )],
             flushed_lsn: vec![],
             unresolved_hints: 1,
@@ -1595,7 +1581,7 @@ mod test {
                 "journal/A",
                 0,
                 vec![
-                    pf_raw(0x01, OBSERVED_COMMIT_FLOOR, hint_clock.as_u64(), 0),
+                    pf_raw(0x01, OBSERVED_COMMIT_FLOOR.as_u64(), hint_clock.as_u64(), 0),
                     pf(0x03, 100, 0, -800),
                 ],
             )],
@@ -2635,7 +2621,7 @@ mod test {
             judge(vec![jf(
                 "journal/Z",
                 0,
-                vec![pf_raw(0x09, OBSERVED_COMMIT_FLOOR, 0, 700)]
+                vec![pf_raw(0x09, OBSERVED_COMMIT_FLOOR.as_u64(), 0, 700)]
             )]),
             Some(("commit", _, 0)),
         ));

@@ -273,13 +273,13 @@ pub fn extract_committed_close(checkpoint: &consumer::Checkpoint) -> Option<uuid
 
 /// Committed-close Clock seeded when reconciliation adopts an authoritative
 /// checkpoint carrying no embedded close Clock (one last written by the V1
-/// runtime). It's shuffle's `OBSERVED_COMMIT_FLOOR`: greater than zero (a
+/// runtime). It's [`uuid::OBSERVED_COMMIT_FLOOR`]: greater than zero (a
 /// never-reconciled RocksDB) yet strictly below every real Clock, so a
 /// committed-close equal to this floor durably means "a consistent V2
 /// baseline was adopted, and no V2 transaction has committed atop it yet".
 /// Because each `Persist` applies as one atomic WriteBatch, the committed
 /// close doubles as the marker proving all of an adoption's effects landed.
-pub const COMMITTED_CLOSE_FLOOR: uuid::Clock = uuid::Clock::from_u64(1);
+pub const COMMITTED_CLOSE_FLOOR: uuid::Clock = uuid::OBSERVED_COMMIT_FLOOR;
 
 /// Build the `Persist` that adopts an authoritative `checkpoint` wholesale:
 /// its mapped sources replace the committed Frontier, its ACK intents replace
