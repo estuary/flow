@@ -1,0 +1,57 @@
+name: Disk Daemon Test
+permissions:
+    contents: read
+
+on:
+    # GitHub scopes a cache to the ref that wrote it, readable by that ref, its
+    # descendants, and the default branch. This job runs on master so pull
+    # requests have a master-scoped entry to restore; without it they all start
+    # cold. rust-cache keys on ${GITHUB_JOB}, so no other workflow warms it.
+    push:
+        branches: [master]
+    pull_request:
+        branches: [master]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    # A cancelled run saves no cache, and master runs exist to save one.
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+    SCCACHE_VERSION: v0.12.0
+
+jobs:
+    disk-daemon-test:
+        name: Disk Daemon Test
+        runs-on: ubuntu-2404-large
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Install build tools
+              uses: jdx/mise-action@9dc7d5dd454262207dea3ab5a06a3df6afc8ff26 # v3.4.1
+            - run: rustup upgrade
+
+            - name: Cache Rust workspace
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+              with:
+                  # CI's single checkout registers as index 0 / `flow`, so the
+                  # per-stack target dir is ../../../cargo-target/flow.
+                  workspaces: ". -> ../../../cargo-target/flow"
+                  # Restore on every run, save only from master, as dekaf-test.yaml
+                  # explains.
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+                  cache-on-failure: true
+
+            - name: Cache/Restore Go workspace.
+              uses: actions/cache@v4
+              with:
+                  path: ~/go/pkg/mod
+                  key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+            - uses: mozilla-actions/sccache-action@v0.0.9
+              with:
+                  version: ${{ env.SCCACHE_VERSION }}
+            - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
+            - run: echo "RUSTC_WRAPPER=$SCCACHE_PATH" >> $GITHUB_ENV
+
+            - run: mise run ci:disk-daemon-e2e-run
