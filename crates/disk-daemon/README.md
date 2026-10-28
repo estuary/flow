@@ -730,7 +730,7 @@ mise exec -- cargo nextest run -p disk-daemon
 `tests/` drives the real binary through the client, against a real data plane
 from `e2e-support`. Cases use real ublk devices, raw device I/O, ext4 on a disk,
 and an independent Gazette client. Most compare a recovered device byte for byte
-with what the case wrote.
+with what the case wrote. Cases with random writes use a fixed seed.
 
 | File | Covers |
 | --- | --- |
@@ -739,7 +739,7 @@ with what the case wrote.
 | `durability.rs` | Recovery of raw writes and ext4 trees, interrupted transactions, the write pause, runaway deltas. |
 | `failover.rs` | Repeated failover, and promotion across fences a standby never saw. |
 | `pruning.rs` | Floors that replay finds, and deleting fragments below the floor. |
-| `resilience.rs` | Broker outages, drains, killed daemons, and a many-disk soak. |
+| `resilience.rs` | Broker outages, including a prepare behind a stalled attachment, drains, killed daemons, a many-disk soak of random writes, and commits racing random writes. |
 
 ```console
 mise run ci:disk-daemon-e2e  # unit tests, then integration tests
