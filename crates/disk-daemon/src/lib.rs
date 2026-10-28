@@ -1,3 +1,6 @@
+pub mod daemon;
+
+mod attachment;
 mod device;
 mod filesystem;
 mod journal;
@@ -8,6 +11,10 @@ pub use proto_flow::disk as proto;
 
 /// Fixed granularity of chunks, hole punching, bitmaps, and ext4.
 pub const BLOCK_SIZE: u32 = 4096;
+
+/// Smallest device size. mkfs.ext4 refuses a smaller device, or formats it
+/// without a journal.
+pub const MIN_DEVICE_SIZE: u64 = 8 << 20;
 
 /// Required journal content type.
 pub const CONTENT_TYPE_DISK: &str = "application/x-journal-backed-disk";
@@ -45,4 +52,16 @@ pub(crate) enum Floor {
 /// `INVALID_ARGUMENT`: no retry of the same request can succeed.
 pub(crate) fn invalid_argument(message: String) -> anyhow::Error {
     proto_grpc::status_to_anyhow(tonic::Status::invalid_argument(message))
+}
+
+/// A request which the attachment's state does not allow, which fails the attachment
+/// with `FAILED_PRECONDITION`.
+pub(crate) fn failed_precondition(message: &str) -> anyhow::Error {
+    proto_grpc::status_to_anyhow(tonic::Status::failed_precondition(message))
+}
+
+/// Work given up because its attachment was cancelled, which fails the attachment
+/// with `UNAVAILABLE`.
+pub(crate) fn cancelled() -> anyhow::Error {
+    proto_grpc::status_to_anyhow(tonic::Status::unavailable("the attachment was cancelled"))
 }
