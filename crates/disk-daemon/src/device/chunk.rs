@@ -62,10 +62,26 @@ pub(super) fn apply(image: &std::fs::File, chunk: &proto::Chunk) -> std::io::Res
 
 #[cfg(test)]
 mod test {
-    use super::{apply, encode_punch, encode_write};
+    use super::{apply, encode_punch, encode_write, ublk};
     use crate::proto;
 
     const BLOCK: usize = crate::BLOCK_SIZE as usize;
+
+    /// The largest record a writer appends: the data of the largest device request,
+    /// at the highest block, in a record which opens a horizon.
+    #[test]
+    fn test_largest_record() {
+        let data = vec![0xff; ublk::MAX_IO_BUF_BYTES as usize];
+        let record = proto::DiskRecord {
+            uuid: vec![0xff; 16].into(),
+            chunk: Some(encode_write(u32::MAX, data.into())),
+            opens_horizon: true,
+        };
+        assert_eq!(
+            prost::Message::encoded_len(&record),
+            crate::replay::MAX_RECORD_BYTES
+        );
+    }
 
     #[test]
     fn test_encode_write_trims_only_trailing_zeroes() {
