@@ -54,7 +54,9 @@ pub async fn open(
     let floor = floor::parse(journal, &listing)?;
     // A fully suspended journal has no fragments to read, so its head is
     // set to the floor.
-    let head = confirm_head(client, journal).await?.unwrap_or(floor);
+    let head = super::confirm_head(client, journal, broker::append_request::Suspend::Keep)
+        .await?
+        .map_or(floor, |(head, _registers)| head);
 
     let request = broker::ReadRequest {
         journal: journal.to_string(),
@@ -106,42 +108,6 @@ fn read(
             }
         }
     })
-}
-
-async fn confirm_head(
-    client: &gazette::journal::Client,
-    journal: &str,
-) -> anyhow::Result<Option<i64>> {
-    let request = broker::AppendRequest {
-        journal: journal.to_string(),
-        suspend: broker::append_request::Suspend::Keep as i32,
-        ..Default::default()
-    };
-    let mut stream = std::pin::pin!(client.append(request, futures::stream::empty));
-
-    loop {
-        match futures::StreamExt::next(&mut stream).await {
-            Some(Ok(response)) => {
-                let commit = response
-                    .commit
-                    .expect("an append which succeeded reports its commit");
-                return Ok(Some(commit.end));
-            }
-            Some(Err(gazette::RetryError {
-                inner: gazette::Error::BrokerStatus(broker::Status::Suspended),
-                ..
-            })) => return Ok(None),
-            Some(Err(gazette::RetryError { attempt, inner })) if inner.is_transient() => {
-                tracing::warn!(journal, attempt, %inner, "confirming the head failed (will retry)");
-            }
-            Some(Err(gazette::RetryError { inner, .. })) => {
-                return Err(
-                    anyhow::Error::new(inner).context(format!("confirming the head of {journal}"))
-                );
-            }
-            None => unreachable!("an append stream does not end without a response"),
-        }
-    }
 }
 
 #[cfg(test)]
