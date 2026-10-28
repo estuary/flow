@@ -86,7 +86,7 @@ impl Clock {
     }
 
     #[inline]
-    pub fn as_u64(&self) -> u64 {
+    pub const fn as_u64(&self) -> u64 {
         self.0
     }
 
@@ -327,8 +327,15 @@ pub enum SequenceError {
     AckPartialCommit,
 }
 
+/// Synthetic `last_commit` of a producer whose open span was observed, but whose
+/// last commit is unknown. Zero is the default of an unseen producer. Neither is
+/// a real Clock: every real Clock is larger.
+pub const OBSERVED_COMMIT_FLOOR: Clock = Clock::from_u64(1);
+
 /// Sequence a Producer message having `flags` and `clock` against the producer's
-/// `last_commit` and `max_continue` Clocks.
+/// `last_commit` and `max_continue` Clocks. A `last_commit` at-or-below
+/// [`OBSERVED_COMMIT_FLOOR`] means "no known commit": the producer's prior
+/// commits were not read, or were forgotten.
 ///
 /// On success returns (SequenceOutcome, next `last_commit`, next `max_continue`).
 /// On failure returns a SequenceError.
@@ -386,6 +393,10 @@ pub fn sequence(
             *last_commit = clock;
             *max_continue = Clock::zero();
             Ok(SequenceOutcome::AckCommit)
+        } else if *last_commit <= OBSERVED_COMMIT_FLOOR {
+            *last_commit = clock;
+            *max_continue = Clock::zero();
+            Ok(SequenceOutcome::AckCleanRollback)
         } else {
             Err(SequenceError::AckPartialCommit)
         }
@@ -517,6 +528,12 @@ mod test {
             (A, 10, 10, 20, AckCleanRollback, (10, 0)),
             (A, 3, 10, 0, AckDuplicate, (10, 0)), // No pending CONTINUEs: stale ACK, not rollback.
             (A, 3, 10, 20, AckDeepRollback, (10, 0)), // Pending CONTINUEs: genuine deep rollback.
+            // No known commit (unseen or forgotten producer, or the observed floor):
+            // an ACK below the open span rolls it back and re-establishes last_commit.
+            (A, 15, 0, 20, AckCleanRollback, (15, 0)),
+            (A, 15, 1, 20, AckCleanRollback, (15, 0)),
+            // The gapped sentinel (max_continue == last_commit == floor) still commits.
+            (A, 15, 1, 1, AckCommit, (15, 0)),
         ];
         for (flags, clock, lc_in, mc_in, expected, (lc_out, mc_out)) in ok_cases {
             let (mut lc, mut mc) = (clk(*lc_in), clk(*mc_in));
@@ -545,6 +562,7 @@ mod test {
         let err_cases: &[(Flags, u64, u64, u64, SequenceError)] = &[
             (O, 20, 5, 15, OutsideWithPrecedingContinue),
             (A, 15, 5, 20, AckPartialCommit),
+            (A, 15, 2, 20, AckPartialCommit), // The smallest known commit.
         ];
         for (flags, clock, lc_in, mc_in, expected) in err_cases {
             let (mut lc, mut mc) = (clk(*lc_in), clk(*mc_in));
@@ -598,6 +616,21 @@ mod test {
                 (A, 10, AckCleanRollback),
                 (C, 40, ContinueBeginSpan),
                 (A, 40, AckCommit),
+            ],
+        );
+
+        // A forgotten producer (issue #3672): its CONTINUE opens a span, and its
+        // rollback ACK re-writes its last commit at 10. Then a re-sent ACK is a
+        // duplicate, and its next transaction commits.
+        run(
+            0,
+            0,
+            &[
+                (C, 20, ContinueBeginSpan),
+                (A, 10, AckCleanRollback),
+                (A, 10, AckDuplicate),
+                (C, 30, ContinueBeginSpan),
+                (A, 30, AckCommit),
             ],
         );
 

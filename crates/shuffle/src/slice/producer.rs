@@ -34,10 +34,10 @@ pub struct ProducerState {
     ///
     /// The sentinel can never arise organically: `uuid::sequence` sets
     /// `max_continue` only to a CONTINUE's Clock, which is strictly greater than
-    /// `last_commit`, and advances `last_commit` only while `max_continue` is
-    /// zero — so a live `max_continue` is always either zero or strictly above
-    /// `last_commit`, never equal. A gapped producer always has a non-negative
-    /// offset (the `+begin` of its open span).
+    /// `last_commit`, and every branch that advances `last_commit` leaves
+    /// `max_continue` at zero — so a live `max_continue` is always either zero
+    /// or strictly above `last_commit`, never equal. A gapped producer always
+    /// has a non-negative offset (the `+begin` of its open span).
     ///
     /// This field is in-memory only. It doesn't contribute to a
     /// `ProducerFrontier` checkpoint and a recovered session rebuilds it.
@@ -111,7 +111,9 @@ pub fn build_flush_frontier(
                 // `last_commit == 0` means hint-only. This lets recovery
                 // distinguish a real span begun at journal offset zero (the floor,
                 // gapped when `M > 0`) from a hint-only placeholder `{0, 0}`.
-                last_commit: Clock::from_u64(ps.last_commit.as_u64().max(1)),
+                last_commit: ps
+                    .last_commit
+                    .max(proto_gazette::uuid::OBSERVED_COMMIT_FLOOR),
                 hinted_commit: Clock::zero(),
                 offset: ps.offset,
             })

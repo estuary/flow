@@ -309,11 +309,12 @@ pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> Resolve
         // entry is read-derived, so re-establish the writer's floor here;
         // otherwise the second pass installs a zero (non-)sentinel and the
         // gap is silently missed.
-        let last_commit = uuid::Clock::from_u64(if offset > 0 {
-            last_commit.max(crate::frontier::OBSERVED_COMMIT_FLOOR)
+        let last_commit = uuid::Clock::from_u64(last_commit);
+        let last_commit = if offset > 0 {
+            last_commit.max(uuid::OBSERVED_COMMIT_FLOOR)
         } else {
             last_commit
-        });
+        };
 
         let hinted_commit = uuid::Clock::from_u64(hinted_commit);
         if hinted_commit > last_commit {
@@ -342,8 +343,7 @@ pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> Resolve
     // to see any of its documents via journal read through `max_offset`), and
     // the distinction matters as it'd otherwise force a replay from offset zero.
     for (_producer, ps) in producers.iter_mut() {
-        let is_span_at_head =
-            ps.offset == 0 && ps.last_commit.as_u64() == crate::frontier::OBSERVED_COMMIT_FLOOR;
+        let is_span_at_head = ps.offset == 0 && ps.last_commit == uuid::OBSERVED_COMMIT_FLOOR;
 
         if (ps.offset > 0 && ps.offset < max_offset) || (is_span_at_head && max_offset > 0) {
             ps.max_continue = ps.last_commit;
@@ -1129,6 +1129,62 @@ mod test {
             !r.producers.get(&p).unwrap().is_gapped(),
             "rolled-back producer stays committed across restart",
         );
+    }
+
+    #[test]
+    fn test_forgotten_producer_rollback() {
+        // Issue #3672: a producer pruned from the checkpoint has no known last
+        // commit. It opens a span at clock 150, then its recovery re-writes its
+        // ACK at its prior commit, clock 100. That ACK is below the span, and
+        // must roll it back cleanly.
+        let binding = test_binding(0, true, None, "/suffix");
+        let p = producer(0x01);
+        let p3 = producer(0x03);
+
+        let seq = |state: ProducerState, flags: Flags, clock: u64, begin: i64, end: i64| {
+            sequence_producer(
+                state,
+                "test/journal",
+                Clock::zero(),
+                &binding,
+                &meta(p, Clock::from_u64(clock), flags, begin, end),
+            )
+            .unwrap()
+        };
+        let assert_rolled_back = |s: &SequencedDoc| {
+            assert!(s.is_commit && !s.is_append && !s.replay);
+            assert_eq!(
+                s.producer_state.last_commit,
+                Clock::from_u64(100),
+                "the ACK re-establishes last_commit",
+            );
+            assert_eq!(s.producer_state.offset, -650);
+            assert!(!s.producer_state.is_gapped());
+        };
+
+        // Live: the forgotten producer sequences from the default state.
+        let s = seq(ProducerState::default(), CONTINUE, 150, 300, 350);
+        assert_eq!(s.producer_state.offset, 300);
+        assert_rolled_back(&seq(s.producer_state, ACK, 100, 600, 650));
+
+        // Recovered: the checkpoint carries the open span at the floor, and
+        // p3's commit through 500 gaps it.
+        let r = resolve_checkpoint(vec![cp_lc(&p, 1, 300), cp(&p3, -500)]);
+        let gapped = *r.producers.get(&p).unwrap();
+        assert!(gapped.is_gapped());
+
+        // The ACK is above the floor sentinel, so it triggers a replay.
+        assert!(seq(gapped, ACK, 100, 600, 650).replay);
+
+        // `SliceActor::start_replay` clears the sentinel, the replay re-sequences
+        // the span, and then the re-presented ACK rolls it back.
+        let replaying = ProducerState {
+            max_continue: Clock::zero(),
+            ..gapped
+        };
+        let s = seq(replaying, CONTINUE, 150, 300, 350);
+        assert_eq!(s.producer_state.last_commit, uuid::OBSERVED_COMMIT_FLOOR);
+        assert_rolled_back(&seq(s.producer_state, ACK, 100, 600, 650));
     }
 
     #[test]
