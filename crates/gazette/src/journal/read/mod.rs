@@ -6,6 +6,10 @@ use proto_gazette::broker;
 mod lines;
 pub use lines::{LinesBatch, ReadLines};
 
+/// Bounds how long a fragment store may serve nothing: first while connecting
+/// and awaiting response headers, and then while reading the response body.
+const FRAGMENT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 // TODO(johnny): Replace usages of ReadJsonLines with ReadLines.
 mod json_lines;
 pub use json_lines::{ReadJsonLine, ReadJsonLines};
@@ -253,9 +257,9 @@ async fn read_fragment_url(
         _ => {}
     }
 
-    let response = get
-        .send()
+    let response = tokio::time::timeout(FRAGMENT_IDLE_TIMEOUT, get.send())
         .await
+        .map_err(|_| Error::FragmentTimeout(FRAGMENT_IDLE_TIMEOUT))?
         .and_then(reqwest::Response::error_for_status)
         .map_err(Error::FetchFragment)?;
 
@@ -320,7 +324,27 @@ async fn read_fragment_url_body(
         i64::MAX
     };
 
-    while let Some(mut content) = r.try_next().await.map_err(Error::ReadFragment)? {
+    let mut idle = std::pin::pin!(tokio::time::sleep(FRAGMENT_IDLE_TIMEOUT));
+    let mut progressed = false;
+
+    loop {
+        let next = tokio::select! {
+            biased; // Prefer ready content over timeout.
+            next = r.try_next() => next.map_err(Error::ReadFragment)?,
+            () = &mut idle => {
+                if !progressed {
+                    return Err(Error::FragmentTimeout(FRAGMENT_IDLE_TIMEOUT));
+                }
+                progressed = false;
+                idle.as_mut().reset(tokio::time::Instant::now() + FRAGMENT_IDLE_TIMEOUT);
+                continue;
+            }
+        };
+        let Some(mut content) = next else {
+            break;
+        };
+        progressed = true;
+
         let mut content_len = content.len() as i64;
 
         if discard >= content_len {
@@ -401,5 +425,57 @@ impl Metrics {
     fn tick(&self, offset: i64, write_head: i64) {
         self.offset.set(offset as f64);
         self.remainder.set((write_head - offset) as f64);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use futures::{FutureExt, StreamExt};
+
+    #[tokio::test(start_paused = true)]
+    async fn test_fragment_idle_timeout() {
+        let (tx, rx) = futures::channel::mpsc::unbounded();
+        let send = |b: &'static [u8]| tx.unbounded_send(Ok(bytes::Bytes::from_static(b))).unwrap();
+
+        let stream = coroutines::coroutine(move |mut co| async move {
+            let (fragment, mut req) = Default::default();
+            let metrics = Metrics::new("a/journal");
+            let body = rx.into_async_read();
+
+            if let Err(err) =
+                read_fragment_url_body(&mut co, metrics, fragment, body, &mut req, 0).await
+            {
+                () = co.yield_(Err(err.with_attempt(0))).await;
+            }
+        });
+        let mut stream = std::pin::pin!(stream);
+        let content = |item: Option<crate::RetryResult<broker::ReadResponse>>| {
+            let resp = item.unwrap().unwrap();
+            (resp.offset, resp.content)
+        };
+
+        // The consumer polls and finds nothing ready, which starts a wait.
+        // A chunk then arrives, but the consumer takes longer than the timeout
+        // to poll again. The ready chunk is taken, though no content
+        // preceded it.
+        assert!(stream.next().now_or_never().is_none());
+        send(b"hello");
+        tokio::time::sleep(FRAGMENT_IDLE_TIMEOUT * 2).await;
+        assert_eq!(content(stream.next().await), (0, "hello".into()));
+
+        // Content arriving mid-period re-arms the timer when it fires.
+        let (next, ()) = tokio::join!(stream.next(), async {
+            tokio::time::sleep(FRAGMENT_IDLE_TIMEOUT / 2).await;
+            send(b"!");
+        });
+        assert_eq!(content(next), (5, "!".into()));
+
+        // The store then holds the body open without serving it, and times out
+        // one to two periods after its last content.
+        let last_content = tokio::time::Instant::now();
+        let err = stream.next().await.unwrap().unwrap_err().inner;
+        assert!(matches!(err, Error::FragmentTimeout(_)) && err.is_transient());
+        assert_eq!(last_content.elapsed(), FRAGMENT_IDLE_TIMEOUT * 3 / 2);
     }
 }
