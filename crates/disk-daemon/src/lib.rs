@@ -1,3 +1,6 @@
+pub mod daemon;
+
+mod attachment;
 mod device;
 mod journal;
 mod replay;
@@ -44,4 +47,16 @@ pub(crate) enum Floor {
 /// `INVALID_ARGUMENT`: no retry of the same request can succeed.
 pub(crate) fn invalid_argument(message: String) -> anyhow::Error {
     proto_grpc::status_to_anyhow(tonic::Status::invalid_argument(message))
+}
+
+/// A request which the attachment's state does not allow, which fails the attachment
+/// with `FAILED_PRECONDITION`.
+pub(crate) fn failed_precondition(message: &str) -> anyhow::Error {
+    proto_grpc::status_to_anyhow(tonic::Status::failed_precondition(message))
+}
+
+/// Work given up because its attachment was cancelled, which fails the attachment
+/// with `UNAVAILABLE`.
+pub(crate) fn cancelled() -> anyhow::Error {
+    proto_grpc::status_to_anyhow(tonic::Status::unavailable("the attachment was cancelled"))
 }
