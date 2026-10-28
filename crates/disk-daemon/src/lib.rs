@@ -1,4 +1,5 @@
 mod device;
+mod filesystem;
 mod journal;
 mod replay;
 
