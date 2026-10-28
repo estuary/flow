@@ -1,4 +1,5 @@
 mod device;
+mod replay;
 
 /// Attach RPC and journal-record protocol messages.
 pub use proto_flow::disk as proto;
