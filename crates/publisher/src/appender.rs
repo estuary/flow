@@ -74,6 +74,12 @@ impl Appender {
         &self.journal
     }
 
+    /// Require `selector` to match the journal's registers for each Append to succeed.
+    pub fn with_check_registers(mut self, selector: broker::LabelSelector) -> Self {
+        self.check_registers = Some(Box::new(selector));
+        self
+    }
+
     /// Checkpoint is called after one or more complete messages have been encoded
     /// into `buffer`. It may start a background append, or it may block until a
     /// currently-running append completes if `buffer` is large.
@@ -208,6 +214,11 @@ impl Appender {
                                 gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
                                     tonic::Status::not_found(format!("journal {journal} not found"))
                                 }
+                                gazette::Error::BrokerStatus(broker::Status::RegisterMismatch) => {
+                                    tonic::Status::aborted(format!(
+                                        "journal {journal} registers do not match"
+                                    ))
+                                }
                                 other => tonic::Status::internal(other.to_string()),
                             };
                             update(Err(err));
@@ -225,7 +236,7 @@ impl Appender {
 
     /// Start and await the completion of all required Append RPCs to fully drain the Appender.
     /// On return, all background appends have completed and `self.buffer` is empty.
-    pub async fn flush(&mut self) -> tonic::Result<()> {
+    pub async fn flush(&mut self) -> tonic::Result<broker::AppendResponse> {
         // If there's an un-started remainder, start a flush for it.
         if !self.buffer.is_empty() {
             () = self.start_flush().await?;
@@ -233,7 +244,11 @@ impl Appender {
         assert!(self.buffer.is_empty());
 
         // Await the completion of an in-flight append, if there is one.
-        self.start_flush().await
+        () = self.start_flush().await?;
+
+        let token = self.watch.token();
+        let (response, _barrier) = token.result()?;
+        Ok(response.clone())
     }
 
     /// Buffer size after which checkpoint() will block to await the completion
