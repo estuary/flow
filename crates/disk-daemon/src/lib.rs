@@ -8,3 +8,32 @@ pub const BLOCK_SIZE: u32 = 4096;
 
 /// Required journal content type.
 pub const CONTENT_TYPE_DISK: &str = "application/x-journal-backed-disk";
+
+/// A chunk the live device applied, which the promoted attachment appends to its
+/// journal: a device write or punch, or a horizon copy.
+///
+/// Installing a floor takes two chunks, because the device never learns where a
+/// served chunk's record lands. A candidate's record lands at an offset the writer
+/// confirms and remembers. A later chunk names it as the floor once recovery from
+/// it would be complete, and the writer stores that floor when the naming chunk's
+/// delta commits. A chunk may be both, and then it names itself.
+pub(crate) struct LiveChunk {
+    /// The blocks it writes or punches.
+    pub chunk: proto::Chunk,
+    /// This chunk's own record may become the floor later, but isn't one yet.
+    pub floor_candidate: bool,
+    /// The floor this chunk's delta installs once it commits: an earlier
+    /// candidate's record, a record replay found, or this chunk's own if it's
+    /// also a candidate.
+    pub floor: Option<Floor>,
+}
+
+/// A recovery floor which a live chunk names.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Floor {
+    /// The record of the last floor candidate the writer appended.
+    LastCandidate,
+    /// A record replay found at this journal offset, which an earlier primary
+    /// appended.
+    Replayed(i64),
+}
