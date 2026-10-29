@@ -244,7 +244,7 @@ quickcheck_macros = "1"
 wasm-bindgen = "0"
 xxhash-rust = { version = "0", features = ["xxh3"] }
 yaml-merge-keys = { version = "0", features = ["serde_yaml"] }
-zip = "4"
+zip = "9"
 zstd = "0"
 derivative = "2"
 
