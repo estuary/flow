@@ -40,7 +40,8 @@ rm -f "${FLOW_ENV_DIR}"/*"-${NAME}.env" \
       "${FLOW_ENV_DIR}"/*"-${FLOW_CLUSTER}-"*.env 2>/dev/null || true
 
 # Remove this stack's private runtime state (etcd data, fragments, builds,
-# test-tenant credentials). TLS material and the registry are shared/retained.
+# disk-daemon directories, test-tenant credentials). TLS material and the
+# registry are shared/retained.
 #
 # Deliberately KEEP ${FLOW_STACK_DIR}/.supabase-started: the supabase postgres
 # volume survives `supabase stop`, so the sentinel is what makes the next
@@ -49,7 +50,8 @@ rm -f "${FLOW_ENV_DIR}"/*"-${NAME}.env" \
 # silently resurrecting this stack's stale catalog state.
 rm -rf "${FLOW_STACK_DIR}/etcd" \
        "${FLOW_STACK_DIR}/fragments" \
-       "${FLOW_STACK_DIR}/builds" 2>/dev/null || true
+       "${FLOW_STACK_DIR}/builds" \
+       "${FLOW_STACK_DIR}"/disk-* 2>/dev/null || true
 rm -f "${FLOW_STACK_DIR}"/test-tenant-*.env 2>/dev/null || true
 
 # Reload to drop the removed drop-ins, and clear failed state for this stack.

@@ -2400,6 +2400,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
 
 [[package]]
+name = "crc-fast"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e75b2483e97a5a7da73ac68a05b629f9c53cff58d8ed1c77866079e18b00dba5"
+dependencies = [
+ "digest 0.10.7",
+ "spin 0.10.1",
+]
+
+[[package]]
 name = "crc32c"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3159,6 +3169,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "disk-daemon"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-process",
+ "bitvec",
+ "bytes",
+ "clap",
+ "coroutines",
+ "e2e-support",
+ "futures",
+ "gazette",
+ "insta",
+ "io-uring",
+ "labels",
+ "prost",
+ "proto-flow",
+ "proto-gazette",
+ "proto-grpc",
+ "publisher",
+ "quickcheck",
+ "rand 0.9.2",
+ "rustix 1.1.2",
+ "rustls",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokens",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "zerocopy",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3682,7 +3729,7 @@ checksum = "5e139bc46ca777eb5efaf62df0ab8cc5fd400866427e56c68b22e414e53bd3be"
 dependencies = [
  "futures-core",
  "futures-sink",
- "spin",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -3891,6 +3938,7 @@ dependencies = [
  "async-compression",
  "bytes",
  "coroutines",
+ "crc-fast",
  "doc",
  "flate2",
  "futures",
@@ -3907,6 +3955,7 @@ dependencies = [
  "reqwest",
  "serde_json",
  "simd-doc",
+ "snap",
  "thiserror 2.0.20",
  "tokens",
  "tokio",
@@ -4899,6 +4948,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-uring"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed3bd0ecfbb87805f538bb7b32e5239ca0763890c623e349860ecba69469f2bb"
+dependencies = [
+ "bitflags 2.9.4",
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5635,7 +5695,7 @@ dependencies = [
  "httparse",
  "memchr",
  "mime",
- "spin",
+ "spin 0.9.8",
  "version_check",
 ]
 
@@ -8480,6 +8540,12 @@ checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 dependencies = [
  "lock_api",
 ]
+
+[[package]]
+name = "spin"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "023a211cb3138dbc438680b32560ad89f699977624c9f8dbb95a47d5b4c07dd3"
 
 [[package]]
 name = "spinning_top"

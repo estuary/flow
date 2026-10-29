@@ -26,6 +26,7 @@ HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
 SIDECAR_PORT=$((BROKER_PORT + 60))
 
 mise run local:runtime-sidecar "${DATA_PLANE}" "${BROKER_PORT}"
+mise run local:disk-daemon "${DATA_PLANE}" "${BROKER_PORT}"
 
 # Configure all reactor instances
 for i in $(seq 0 $((COUNT - 1))); do
@@ -94,6 +95,7 @@ After=flow-plane@${DATA_PLANE}.target
 After=flow-etcd@${NAME}.service
 Requires=flow-etcd@${NAME}.service
 After=flow-runtime-sidecar@${DATA_PLANE}.service
+After=flow-disk-daemon@${DATA_PLANE}.service
 EOF
 
     DROPIN_DIR="${HOME}/.config/systemd/user/flow-plane@${DATA_PLANE}.target.d"

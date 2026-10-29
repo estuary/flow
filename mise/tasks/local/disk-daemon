@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Start the disk-daemon for a local data plane via systemd (for this stack)"
+#MISE depends=["bootstrap:ublk-drv", "local:tls-cert"]
+#USAGE arg "<data_plane>" help="Name of the data plane"
+#USAGE arg "<base_port>" help="Base port block for the data plane"
+
+source "$(dirname "$0")/lib.sh"
+ensure_stack_env
+prepare_dirs
+
+DATA_PLANE="${usage_data_plane}"
+BASE_PORT="${usage_base_port}"
+
+if [ $((BASE_PORT % 100)) -ne 0 ]; then
+    echo "Error: Port block ${BASE_PORT} must be divisible by 100 (e.g., ${FLOW_PLANE_BASE})" >&2
+    exit 1
+fi
+
+HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
+
+# Named for the plane's port block, not its name. A Unix socket address holds 107
+# bytes, which a long stack name would push the socket path past. Its socket is
+# open to anyone who can reach it, so only this user may traverse the directory.
+DISK_DAEMON_DIR="${FLOW_STACK_DIR}/disk-${BASE_PORT}"
+mkdir -p -m 0700 "${DISK_DAEMON_DIR}"
+mkdir -p "${DISK_DAEMON_DIR}/images" "${DISK_DAEMON_DIR}/mounts"
+
+{
+    emit_common_vars
+    cat <<EOF
+
+# Disk-daemon environment for ${DATA_PLANE}
+BROKER_ADDRESS=https://broker-${DATA_PLANE}.flow.localhost:${BASE_PORT}
+DATA_PLANE_AUTH_KEYS=${HMAC_KEY}
+DATA_PLANE_FQDN=${DATA_PLANE}.dp.estuary-data.com
+GAZETTE_ZONE=local
+IMAGE_DIR=${DISK_DAEMON_DIR}/images
+MOUNT_DIR=${DISK_DAEMON_DIR}/mounts
+RUST_LOG=info
+SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
+UDS_PATH=${DISK_DAEMON_DIR}/disk.sock
+EOF
+} > "${FLOW_ENV_DIR}/disk-daemon-${DATA_PLANE}.env"
+
+# Bind this daemon to the data-plane target.
+DROPIN_DIR="${HOME}/.config/systemd/user/flow-disk-daemon@${DATA_PLANE}.service.d"
+mkdir -p "$DROPIN_DIR"
+cat > "${DROPIN_DIR}/plane.conf" <<EOF
+[Unit]
+PartOf=flow-plane@${DATA_PLANE}.target
+After=flow-plane@${DATA_PLANE}.target
+EOF
+
+DROPIN_DIR="${HOME}/.config/systemd/user/flow-plane@${DATA_PLANE}.target.d"
+mkdir -p "$DROPIN_DIR"
+cat > "${DROPIN_DIR}/wants-disk-daemon.conf" <<EOF
+[Unit]
+Wants=flow-disk-daemon@${DATA_PLANE}.service
+EOF
+
+link_unit flow-plane@.target
+link_unit flow-disk-daemon@.service
+
+systemctl --user daemon-reload
+systemctl --user restart "flow-disk-daemon@${DATA_PLANE}.service"
+
+echo "Created flow-disk-daemon@${DATA_PLANE} serving ${DISK_DAEMON_DIR}/disk.sock"
