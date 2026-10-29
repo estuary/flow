@@ -1375,6 +1375,7 @@ dependencies = [
  "async-stripe",
  "catalog-stats",
  "chrono",
+ "futures",
  "serde",
  "serde_json",
  "sqlx",
