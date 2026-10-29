@@ -1363,6 +1363,7 @@ dependencies = [
  "async-stripe",
  "axum",
  "billing-types",
+ "catalog-stats",
  "chrono",
  "clap",
  "comfy-table",
