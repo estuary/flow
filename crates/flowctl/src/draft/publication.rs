@@ -17,11 +17,6 @@ struct CreatePublicationMutation;
 )]
 struct PollPublicationQuery;
 
-// Keep the log target, which prefixes log lines, the same as it was before
-// the publish function was moved out of mod.rs. Otherwise the log target
-// would be "flowctl::draft::publication", causing the log lines to change.
-const LOG_TARGET: &str = "flowctl::draft";
-
 pub async fn publish(
     ctx: &mut crate::CliContext,
     init_data_plane: Option<&str>,
@@ -45,7 +40,7 @@ pub async fn publish(
             .create_publication
             .id;
 
-    tracing::info!(target: LOG_TARGET, %id, %dry_run, "created publication");
+    tracing::info!(%id, %dry_run, "created publication");
 
     let (status, errors) = poll::poll_job(
         |after| poll_publication(ctx, id, after),
@@ -57,14 +52,14 @@ pub async fn publish(
     // TODO: respect the output format when printing errors
     for error in errors {
         let scope = error.scope.unwrap_or_default();
-        tracing::error!(target: LOG_TARGET, %scope, detail = %error.detail);
+        tracing::error!(%scope, detail = %error.detail);
     }
 
     if status != poll_publication_query::StatusType::success {
         anyhow::bail!("failed with status: {status:?}");
     }
 
-    tracing::info!(target: LOG_TARGET, %id, %dry_run, "publication successful");
+    tracing::info!(%id, %dry_run, "publication successful");
     Ok(())
 }
 
