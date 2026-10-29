@@ -23,7 +23,6 @@ mod version;
 
 use models::authorizations::ControlClaims;
 use output::{Output, OutputType};
-use poll::poll_while_queued;
 
 /// A command-line tool for working with Estuary.
 #[derive(Debug, Parser)]
