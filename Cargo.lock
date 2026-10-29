@@ -1355,6 +1355,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "billing"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "catalog-stats",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "billing-integrations"
 version = "0.0.0"
 dependencies = [
