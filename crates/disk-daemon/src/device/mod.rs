@@ -4,9 +4,11 @@ mod chunk;
 mod compactor;
 mod image;
 mod owner;
+mod reap;
 mod ublk;
 
 pub use compactor::Policy;
+pub use reap::reap;
 
 /// A disk's image while it is rebuilt by replaying the journal, before any kernel
 /// device exists.

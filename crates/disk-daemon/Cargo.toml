@@ -28,6 +28,7 @@ bytes = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 io-uring = { workspace = true }
+libc = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 rustix = { workspace = true }

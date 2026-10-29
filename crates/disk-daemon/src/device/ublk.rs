@@ -70,6 +70,10 @@ fn params(blocks: u32) -> UblkParams {
 
 const CONTROL_PATH: &str = "/dev/ublk-control";
 
+/// Marks each device that this crate adds, so that a later daemon can find its
+/// orphans. The kernel keeps `ublksrv_flags` as `ADD_DEV` gives it.
+const MARKER: u64 = u64::from_be_bytes(*b"flowdisk");
+
 /// One ublk device, through its own handle on `/dev/ublk-control`, which sends
 /// the commands that add, configure, start, stop, and delete the device.
 ///
@@ -82,14 +86,47 @@ pub(super) struct Control {
 }
 
 impl Control {
-    /// Add a device of `blocks` × `crate::BLOCK_SIZE` bytes, and set its
-    /// parameters.
-    pub fn add(blocks: u32) -> anyhow::Result<Self> {
+    /// The control of device `dev_id`, which may not exist, or `None` if
+    /// another `Control` holds its number.
+    ///
+    /// Every daemon on a host draws from one space of device numbers. A `Control`
+    /// holds its number with an open file description lock on that byte of its own
+    /// handle on `/dev/ublk-control`. The lock belongs to the handle, not the
+    /// process, so two `Control`s in one process exclude each other. Dropping the
+    /// handle releases it, so a daemon's death releases all its numbers. The locks
+    /// are on one inode, so every daemon must open the host's `/dev/ublk-control`.
+    pub fn lock(dev_id: u32) -> anyhow::Result<Option<Self>> {
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(CONTROL_PATH)
             .with_context(|| format!("opening {CONTROL_PATH}"))?;
+
+        let lock = libc::flock {
+            l_type: libc::F_WRLCK as libc::c_short,
+            l_whence: libc::SEEK_SET as libc::c_short,
+            l_start: dev_id as libc::off_t,
+            l_len: 1,
+            // An open file description lock requires a zero PID.
+            l_pid: 0,
+        };
+        // SAFETY: `F_OFD_SETLK` reads the `flock` that it's given, only during the call.
+        let locked = unsafe {
+            libc::fcntl(
+                std::os::fd::AsRawFd::as_raw_fd(&file),
+                libc::F_OFD_SETLK,
+                std::ptr::from_ref(&lock),
+            )
+        };
+        if locked != 0 {
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::EAGAIN) {
+                return Ok(None);
+            }
+            return Err(
+                anyhow::Error::new(err).context(format!("locking ublk device number {dev_id}"))
+            );
+        }
 
         // A ring entry carries a command's bytes in its tail. A standard
         // 64-byte entry has room for 16 bytes, and a `ublksrv_ctrl_cmd` is 32,
@@ -98,34 +135,43 @@ impl Control {
             io_uring::IoUring::<io_uring::squeue::Entry128, io_uring::cqueue::Entry>::builder()
                 .build(1)?;
 
-        // A `dev_id` of `u32::MAX`, which the kernel reads as -1, tells it to
-        // choose the device number. The command and its `info` payload must
-        // give the same `dev_id`, and the kernel writes the number it chose back
-        // into `info`.
-        let mut control = Self {
-            file,
-            ring,
-            dev_id: u32::MAX,
+        Ok(Some(Self { file, ring, dev_id }))
+    }
+
+    /// Add a device of `blocks` × `crate::BLOCK_SIZE` bytes, under the lowest
+    /// number which no `Control` holds and no device has, and set its parameters.
+    pub fn add(blocks: u32) -> anyhow::Result<Self> {
+        let mut dev_id = 0;
+        let mut control = loop {
+            if let Some(mut control) = Self::lock(dev_id)? {
+                // The command and its `info` payload must give the same `dev_id`.
+                let mut info = UblksrvCtrlDevInfo {
+                    nr_hw_queues: 1,
+                    queue_depth: 1,
+                    max_io_buf_bytes: MAX_IO_BUF_BYTES,
+                    dev_id: control.dev_id,
+                    flags: UBLK_F_USER_COPY | UBLK_F_NO_AUTO_PART_SCAN,
+                    ublksrv_flags: MARKER,
+                    ..Default::default()
+                };
+                match control.issue(
+                    UBLK_U_CMD_ADD_DEV,
+                    &UblksrvCtrlCmd {
+                        len: std::mem::size_of_val(&info) as u16,
+                        addr: std::ptr::from_mut(&mut info) as u64,
+                        ..command(control.dev_id)
+                    },
+                ) {
+                    Ok(()) => break control,
+                    // An orphan, or another server's device, has the number.
+                    Err(err) if err.raw_os_error() == Some(EEXIST) => (),
+                    Err(err) => {
+                        return Err(anyhow::Error::new(err).context("adding a ublk device"));
+                    }
+                }
+            }
+            dev_id += 1;
         };
-        let mut info = UblksrvCtrlDevInfo {
-            nr_hw_queues: 1,
-            queue_depth: 1,
-            max_io_buf_bytes: MAX_IO_BUF_BYTES,
-            dev_id: u32::MAX,
-            flags: UBLK_F_USER_COPY | UBLK_F_NO_AUTO_PART_SCAN,
-            ..Default::default()
-        };
-        () = control
-            .issue(
-                UBLK_U_CMD_ADD_DEV,
-                &UblksrvCtrlCmd {
-                    len: std::mem::size_of_val(&info) as u16,
-                    addr: std::ptr::from_mut(&mut info) as u64,
-                    ..command(u32::MAX)
-                },
-            )
-            .context("adding a ublk device")?;
-        control.dev_id = info.dev_id;
         tracing::debug!(dev_id = control.dev_id, "added a ublk device");
 
         let params = params(blocks);
@@ -167,6 +213,24 @@ impl Control {
             .trim()
             .parse()
             .with_context(|| format!("parsing {path} ({diskseq:?})"))
+    }
+
+    /// Whether the device is an orphan.
+    pub fn orphaned(&mut self) -> std::io::Result<bool> {
+        let mut info = UblksrvCtrlDevInfo::default();
+
+        match self.issue(
+            UBLK_U_CMD_GET_DEV_INFO,
+            &UblksrvCtrlCmd {
+                len: std::mem::size_of_val(&info) as u16,
+                addr: std::ptr::from_mut(&mut info) as u64,
+                ..command(self.dev_id)
+            },
+        ) {
+            Ok(()) => Ok(info.is_orphan()),
+            Err(err) if err.raw_os_error() == Some(ENODEV) => Ok(false),
+            Err(err) => Err(err),
+        }
     }
 
     /// Create `/dev/ublkbN`. This call blocks until the queue's tag has a fetch
@@ -378,6 +442,8 @@ fn io_command(cdev: &std::fs::File, cmd_op: u32, result: i32) -> io_uring::squeu
 // field dropped or mistyped in transcription, though not two fields of one type
 // swapped.
 
+const UBLK_U_CMD_GET_DEV_INFO: u32 =
+    rustix::ioctl::opcode::read::<UblksrvCtrlCmd>(b'u', 0x02) as u32;
 const UBLK_U_CMD_ADD_DEV: u32 =
     rustix::ioctl::opcode::read_write::<UblksrvCtrlCmd>(b'u', 0x04) as u32;
 const UBLK_U_CMD_START_DEV: u32 =
@@ -404,11 +470,17 @@ const UBLK_F_USER_COPY: u64 = 1 << 7;
 /// kernel (fixed by 1133b93fc7f6). A kernel that does not know this flag clears it.
 const UBLK_F_NO_AUTO_PART_SCAN: u64 = 1 << 18;
 
+/// The state of a device that is added but not started, or that is stopped.
+const UBLK_S_DEV_DEAD: u16 = 0;
+
+const ENODEV: i32 = rustix::io::Errno::NODEV.raw_os_error();
+const EEXIST: i32 = rustix::io::Errno::EXIST.raw_os_error();
+
 /// The result of a fetch that gives a request to its tag.
 pub(super) const UBLK_IO_RES_OK: i32 = 0;
 /// The result of a fetch that the kernel aborts. The kernel aborts all fetches
 /// after the device stops.
-pub(super) const UBLK_IO_RES_ABORT: i32 = -rustix::io::Errno::NODEV.raw_os_error();
+pub(super) const UBLK_IO_RES_ABORT: i32 = -ENODEV;
 
 const UBLK_IO_OP_READ: u32 = 0;
 const UBLK_IO_OP_WRITE: u32 = 1;
@@ -454,6 +526,14 @@ struct UblksrvCtrlDevInfo {
     owner_gid: u32,
     reserved1: u64,
     reserved2: u64,
+}
+
+impl UblksrvCtrlDevInfo {
+    /// Whether a device, whose number the caller holds, is an orphan: a device
+    /// of this crate, as its `MARKER` shows, which is stopped.
+    fn is_orphan(&self) -> bool {
+        self.ublksrv_flags == MARKER && self.state == UBLK_S_DEV_DEAD
+    }
 }
 
 /// `nr_sectors` shares a union with `nr_zones`, which serves only zoned devices.
@@ -521,9 +601,33 @@ const _: () = assert!(std::mem::size_of::<UblkParamDiscard>() == 20);
 #[cfg(test)]
 mod test {
     use super::{
-        Op, UBLK_IO_OP_DISCARD, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE, UBLK_IO_OP_WRITE_ZEROES,
-        UblksrvIoDesc,
+        MARKER, Op, UBLK_IO_OP_DISCARD, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE, UBLK_IO_OP_WRITE_ZEROES,
+        UBLK_S_DEV_DEAD, UblksrvCtrlDevInfo, UblksrvIoDesc,
     };
+
+    #[test]
+    fn test_only_a_stopped_device_of_this_crate_is_an_orphan() {
+        const LIVE: u16 = 1;
+
+        // (name, state, server PID, ublksrv_flags, is an orphan)
+        let cases = [
+            ("stopped", UBLK_S_DEV_DEAD, -1, MARKER, true),
+            // Its daemon died between adding and starting it.
+            ("added, not started", UBLK_S_DEV_DEAD, 0, MARKER, true),
+            // Or its server died, and the kernel is still stopping it.
+            ("serving", LIVE, 4242, MARKER, false),
+            ("another server's", UBLK_S_DEV_DEAD, -1, 0, false),
+        ];
+        for (name, state, ublksrv_pid, ublksrv_flags, expect) in cases {
+            let info = UblksrvCtrlDevInfo {
+                state,
+                ublksrv_pid,
+                ublksrv_flags,
+                ..Default::default()
+            };
+            assert_eq!(info.is_orphan(), expect, "{name}");
+        }
+    }
 
     #[test]
     fn test_params_advertise_block_discards_and_no_cache() {
