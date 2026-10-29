@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 pub struct Subject {
     pub user_id: uuid::Uuid,
     pub capability_mask: Option<CapabilitySet>,
-    /// Intersects user's reachable nodes with this prefix and its reachable nodes.
-    /// None is unrestricted.
-    pub prefix_scope: Option<String>,
+    /// Limits the user's reachable authority to the union of these literal prefixes.
+    /// None is unrestricted; an empty list denies all access.
+    pub prefix_scope: Option<Vec<String>>,
 }
 
 impl Subject {

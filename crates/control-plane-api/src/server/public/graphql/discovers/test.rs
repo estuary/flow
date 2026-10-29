@@ -665,11 +665,14 @@ async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
 async fn submission_requires_reading_binding_targets(pool: sqlx::PgPool) {
     let _guard = test_server::init();
     let (server, draft_id, alice, _) = setup(&pool).await;
-    // Scoped to `aliceCo/in/`, a token can edit captures there and read the
-    // `aliceCo/data/` collections they write, but not the rest of `aliceCo/`,
-    // which Alice's own grant covers.
-    let scoped =
-        server.make_restricted_access_token(ALICE, None, None, Some("aliceCo/in/".to_owned()));
+    // Explicitly cover both captures and their target collections, while
+    // excluding the rest of Alice's authority under `aliceCo/`.
+    let scoped = server.make_restricted_access_token(
+        ALICE,
+        None,
+        None,
+        Some(vec!["aliceCo/in/".to_owned(), "aliceCo/data/".to_owned()]),
+    );
 
     let mut outcomes = Vec::new();
     for (name, target) in [
@@ -794,7 +797,7 @@ async fn submission_redirects_stale_binding_and_data_plane_failures(pool: sqlx::
     let before = draft_state(&pool, draft_id).await;
 
     for (case, data, scope) in [
-        ("binding target", data, Some("aliceCo/in/".to_owned())),
+        ("binding target", data, Some(vec!["aliceCo/in/".to_owned()])),
         ("data plane permission", no_access, None),
         ("missing data plane", unlisted, None),
         ("invalid signing key", unsigned, None),
