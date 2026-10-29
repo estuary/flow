@@ -41,7 +41,6 @@ pub struct DbInvoiceRow {
 }
 
 // Preview payloads are placeholders; callers calculate them after pagination.
-// Final and manual projections match internal.invoices_ext.
 const INVOICE_SOURCES: &str = r#"
     ), invoices AS (
         SELECT
