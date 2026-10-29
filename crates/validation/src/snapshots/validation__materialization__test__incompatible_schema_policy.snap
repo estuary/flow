@@ -1,0 +1,90 @@
+---
+source: crates/validation/src/materialization.rs
+expression: results
+---
+[
+    (
+        "no stores",
+        (
+            Backfill,
+            "",
+        ),
+    ),
+    (
+        "trial primary",
+        (
+            DisableBinding,
+            "\n\nThis binding was disabled because its source collection uses Estuary trial storage as its primary store. Automatically backfilling could rebuild the destination from incomplete history.",
+        ),
+    ),
+    (
+        "regional trial",
+        (
+            DisableBinding,
+            "\n\nThis binding was disabled because its source collection uses Estuary trial storage as its primary store. Automatically backfilling could rebuild the destination from incomplete history.",
+        ),
+    ),
+    (
+        "durable primary",
+        (
+            Backfill,
+            "",
+        ),
+    ),
+    (
+        "custom endpoint",
+        (
+            Backfill,
+            "",
+        ),
+    ),
+    (
+        "different bucket",
+        (
+            Backfill,
+            "",
+        ),
+    ),
+    (
+        "different provider",
+        (
+            Backfill,
+            "",
+        ),
+    ),
+    (
+        "task backfill",
+        (
+            Backfill,
+            "",
+        ),
+    ),
+    (
+        "task disable",
+        (
+            DisableBinding,
+            "",
+        ),
+    ),
+    (
+        "binding backfill",
+        (
+            Backfill,
+            "",
+        ),
+    ),
+    (
+        "binding abort",
+        (
+            Abort,
+            "",
+        ),
+    ),
+    (
+        "binding disable task",
+        (
+            DisableTask,
+            "",
+        ),
+    ),
+]

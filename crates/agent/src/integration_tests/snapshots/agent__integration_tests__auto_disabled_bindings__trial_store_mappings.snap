@@ -1,0 +1,32 @@
+---
+source: crates/agent/src/integration_tests/auto_disabled_bindings.rs
+expression: initial_mappings
+---
+{
+  "storageMappings": {
+    "edges": [
+      {
+        "node": {
+          "catalogPrefix": "ravens/",
+          "fragmentStores": [
+            {
+              "bucket": "estuary-trial",
+              "isTrial": true
+            }
+          ]
+        }
+      },
+      {
+        "node": {
+          "catalogPrefix": "ravens/durable/",
+          "fragmentStores": [
+            {
+              "bucket": "durable-input",
+              "isTrial": false
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -703,7 +703,8 @@ impl StorageMapping {
             .collect())
     }
 
-    /// Stores for journal fragments under this mapping.
+    /// Stores for journal fragments under this mapping. The first receives new
+    /// writes; later stores remain available for historical reads.
     async fn fragment_stores(&self) -> Vec<FragmentStore> {
         self.spec.stores.iter().map(FragmentStore::from).collect()
     }
@@ -728,6 +729,8 @@ pub struct FragmentStore {
     pub prefix: Option<String>,
     /// Bucket into which data is stored. Null for Azure stores.
     pub bucket: Option<String>,
+    /// Whether this store uses an Estuary trial bucket.
+    pub is_trial: bool,
     /// AWS region of the bucket. Null for GCS, Azure, and Custom stores.
     pub region: Option<String>,
     /// Azure storage account name. Null for non-Azure stores.
@@ -746,6 +749,7 @@ impl From<&models::Store> for FragmentStore {
 
         match store {
             models::Store::S3(cfg) => Self {
+                is_trial: store.is_trial(),
                 provider: FragmentStoreProvider::S3,
                 prefix: prefix(&cfg.prefix),
                 bucket: Some(cfg.bucket.clone()),
@@ -756,6 +760,7 @@ impl From<&models::Store> for FragmentStore {
                 endpoint: None,
             },
             models::Store::Gcs(cfg) => Self {
+                is_trial: store.is_trial(),
                 provider: FragmentStoreProvider::Gcs,
                 prefix: prefix(&cfg.prefix),
                 bucket: Some(cfg.bucket.clone()),
@@ -766,6 +771,7 @@ impl From<&models::Store> for FragmentStore {
                 endpoint: None,
             },
             models::Store::Azure(cfg) => Self {
+                is_trial: store.is_trial(),
                 provider: FragmentStoreProvider::Azure,
                 prefix: prefix(&cfg.prefix),
                 bucket: None,
@@ -776,6 +782,7 @@ impl From<&models::Store> for FragmentStore {
                 endpoint: None,
             },
             models::Store::Custom(cfg) => Self {
+                is_trial: store.is_trial(),
                 provider: FragmentStoreProvider::Custom,
                 prefix: prefix(&cfg.prefix),
                 bucket: Some(cfg.bucket.clone()),
@@ -1072,6 +1079,10 @@ mod test {
         let fragment_stores = [
             s3,
             models::Store::Gcs(models::GcsBucketAndPrefix::example()),
+            models::Store::Gcs(models::GcsBucketAndPrefix {
+                bucket: "estuary-trial".to_string(),
+                prefix: None,
+            }),
             models::Store::Azure(models::AzureStorageConfig::example()),
             models::Store::Custom(models::CustomStore::example()),
         ]

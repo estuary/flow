@@ -20,7 +20,7 @@ expression: "(selections, errors)"
                 MaterializationDef {
                     source: None,
                     target_naming: None,
-                    on_incompatible_schema_change: Backfill,
+                    on_incompatible_schema_change: None,
                     endpoint: Connector(
                         ConnectorConfig {
                             image: "an/image:test",

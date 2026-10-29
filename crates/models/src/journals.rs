@@ -243,6 +243,16 @@ impl Store {
             Store::Custom(c) => c.prefix = None,
         }
     }
+
+    /// Whether this is an Estuary trial store, which retains only recent data.
+    pub fn is_trial(&self) -> bool {
+        let bucket = match self {
+            Store::S3(c) => &c.bucket,
+            Store::Gcs(c) => &c.bucket,
+            Store::Azure(_) | Store::Custom(_) => return false,
+        };
+        bucket == "estuary-trial" || bucket.starts_with("estuary-trial-")
+    }
 }
 
 macro_rules! impl_prefix_mut {
@@ -495,6 +505,35 @@ mod test {
         };
         assert_eq!("test-bucket", &b_and_p.bucket);
         assert_eq!(Some("flow/"), b_and_p.prefix.as_deref());
+    }
+
+    #[test]
+    fn trial_stores() {
+        for (store, expect) in [
+            (r#"{"provider":"GCS","bucket":"estuary-trial"}"#, true),
+            (
+                r#"{"provider":"GCS","bucket":"estuary-trial","prefix":"collection-data/"}"#,
+                true,
+            ),
+            (
+                r#"{"provider":"S3","bucket":"estuary-trial-us-east-1-ccc98e22","region":"us-east-1"}"#,
+                true,
+            ),
+            (r#"{"provider":"GCS","bucket":"estuary-trials"}"#, false),
+            (r#"{"provider":"GCS","bucket":"acme-estuary-trial"}"#, false),
+            (r#"{"provider":"S3","bucket":"estuary-flow-poc"}"#, false),
+            (
+                r#"{"provider":"AZURE","account_tenant_id":"a-tenant","storage_account_name":"estuarytrial","container_name":"estuary-trial"}"#,
+                false,
+            ),
+            (
+                r#"{"provider":"CUSTOM","bucket":"estuary-trial","endpoint":"http://canary.test:1234"}"#,
+                false,
+            ),
+        ] {
+            let store: Store = serde_json::from_str(store).unwrap();
+            assert_eq!(store.is_trial(), expect, "{store:?}");
+        }
     }
 
     #[test]
