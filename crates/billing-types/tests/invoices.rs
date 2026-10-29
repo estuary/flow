@@ -85,16 +85,27 @@ async fn generates_invoices_from_exact_daily_rollups(pool: sqlx::PgPool) {
     )
     .await
     .unwrap();
-    // Independently seed PostgreSQL with the same daily usage, then compare
-    // the complete invoice JSON for this fixture.
-    sqlx::query("INSERT INTO catalog_stats (catalog_name, grain, ts, flow_document, bytes_read_by_me, bytes_written_by_me, usage_seconds) VALUES ('billingio/', 'daily', '2026-08-01T00:00:00Z', '{}', 400000000, 600000000, 1800), ('billingio/', 'daily', '2026-08-02T00:00:00Z', '{}', 100000000, 0, 3600)")
-        .execute(&pool).await.unwrap();
-    let rust_invoice = serde_json::to_value(&got[1]).unwrap();
-    let matches_sql: bool = sqlx::query_scalar("SELECT internal.billing_report_202308('billingio/'::public.catalog_prefix, '2026-08-01T00:00:00Z'::timestamptz) = $1::jsonb")
-        .bind(sqlx::types::Json(&rust_invoice)).fetch_one(&pool).await.unwrap();
-    assert!(
-        matches_sql,
-        "Rust invoice calculation differs from SQL: {rust_invoice}"
+    assert_eq!(
+        serde_json::to_value(&got[1]).unwrap(),
+        serde_json::json!({
+            "billed_month": "2026-08-01T00:00:00+00:00",
+            "billed_prefix": "billingio/",
+            "daily_usage": [
+                { "ts": "2026-08-01T00:00:00+00:00", "data_gb": 1.0, "data_subtotal": 50, "task_hours": 0.5, "task_subtotal": 14 },
+                { "ts": "2026-08-02T00:00:00+00:00", "data_gb": 0.1, "data_subtotal": 50, "task_hours": 1.0, "task_subtotal": 14 }
+            ],
+            "line_items": [
+                { "description": "Recurring service charge", "count": 1, "rate": 1000, "subtotal": 1000 },
+                { "description": "Data processing (at $0.50/GB)", "count": 2, "rate": 50, "subtotal": 100 },
+                { "description": "Task usage (at $0.14/hour)", "count": 2, "rate": 14, "subtotal": 28 },
+                { "description": "adjustment", "count": 1, "rate": 123, "subtotal": 123 },
+                { "description": "Free trial credit (2026-08-02 - 2026-09-01)", "count": 1, "rate": -64, "subtotal": -64 },
+                { "description": "Free tier credit ending 2026-08-01", "count": 1, "rate": -64, "subtotal": -64 }
+            ],
+            "processed_data_gb": 1.1, "recurring_fee": 1000, "subtotal": 1123,
+            "task_usage_hours": 1.5, "trial_credit": 64, "free_tier_credit": 64,
+            "trial_start": "2026-08-02"
+        })
     );
     assert_eq!(got[0].billed_prefix, "billingempty/");
     assert_eq!(got[0].recurring_fee, 500);

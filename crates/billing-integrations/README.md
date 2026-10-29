@@ -11,7 +11,6 @@ approving collection.
   `freeze-invoices` saves the month's calculated invoices in one PostgreSQL
   transaction, reading usage, calculating invoices, and inserting them in serial
   batches. It retains invoices already frozen and their Stripe invoice IDs.
-  It replaces the operator's `internal.freeze_billing_month(...)` call.
 - `publish.rs` classifies bills and creates or refreshes draft invoices. `--dry-run`
   performs read-only classification against Stripe. Manual bills always use
   `send_invoice`. `--recreate-existing` (alias `--recreate-finalized`) replaces

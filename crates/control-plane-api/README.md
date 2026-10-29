@@ -40,8 +40,7 @@ calculator with Bigtable usage. `billing/db.rs` selects the requested page,
 including frozen and manual invoices, before `server/public/graphql/billing/tenant.rs`
 calculates the selected previews. Frozen and manual payloads come from PostgreSQL.
 Only pages containing previews require the catalog-stats client; failed usage
-reads return a GraphQL error. The invoice resolver tests exercise this boundary with
-the legacy SQL calculator disabled.
+reads return a GraphQL error.
 
 ## Development
 

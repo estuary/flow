@@ -174,8 +174,8 @@ pub(crate) fn calculate(
         .chain(free_tier_item)
         .collect();
     let subtotal: i64 = line_items.iter().map(|item| item.subtotal).sum();
-    // The invoice view exposes subtotal as a PostgreSQL integer.
-    i32::try_from(subtotal).context("invoice subtotal exceeds PostgreSQL integer")?;
+    // GraphQL serves invoice subtotals as a 32-bit `Int`.
+    i32::try_from(subtotal).context("invoice subtotal exceeds i32")?;
     Ok(Invoice {
         billed_month: timestamp(period.start),
         billed_prefix: terms.tenant.clone(),
@@ -249,9 +249,10 @@ fn timestamp(date: chrono::NaiveDate) -> String {
     format!("{date}T00:00:00+00:00")
 }
 
+// Units and tier subtotals are limited to i32, so the products and sums built
+// from them stay within i64.
 fn rounded_units(value: u128, unit: u128) -> anyhow::Result<i64> {
-    let rounded =
-        i32::try_from(value.div_ceil(unit)).context("billable units exceed PostgreSQL integer")?;
+    let rounded = i32::try_from(value.div_ceil(unit)).context("billable units exceed i32")?;
     Ok(i64::from(rounded))
 }
 
@@ -303,7 +304,7 @@ fn allocate_tiers(
             count
                 .checked_mul(tier.rate)
                 .filter(|subtotal| i32::try_from(*subtotal).is_ok())
-                .context("tier subtotal exceeds PostgreSQL integer")
+                .context("tier subtotal exceeds i32")
                 .map(|subtotal| TierAllocation {
                     rate: tier.rate,
                     width: tier.width,
@@ -549,11 +550,7 @@ mod tests {
             &[],
         )
         .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("billable units exceed PostgreSQL integer")
-        );
+        assert!(error.to_string().contains("billable units exceed i32"));
 
         terms.data_tiers = vec![i32::MAX];
         let error = calculate(
@@ -564,11 +561,7 @@ mod tests {
             &[],
         )
         .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("tier subtotal exceeds PostgreSQL integer")
-        );
+        assert!(error.to_string().contains("tier subtotal exceeds i32"));
 
         terms.data_tiers = vec![0];
         terms.recurring_usd_cents = i32::MAX;
@@ -577,17 +570,13 @@ mod tests {
             usd_cents: 1,
         };
         let error = calculate(2022, chrono::Month::August, &terms, &[], &[adjustment]).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("invoice subtotal exceeds PostgreSQL integer")
-        );
+        assert!(error.to_string().contains("invoice subtotal exceeds i32"));
     }
 
     #[test]
     fn later_tier_errors_propagate_through_totals_and_line_items() {
         let tiers = decode_tiers(&[50, 1, i32::MAX], "Data processing").unwrap();
-        let expected = "tier subtotal exceeds PostgreSQL integer";
+        let expected = "tier subtotal exceeds i32";
 
         let error = allocate_tiers(3, &tiers)
             .map(|tier| tier.map(|tier| tier.subtotal))
