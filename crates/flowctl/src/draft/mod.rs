@@ -3,15 +3,17 @@ use std::collections::BTreeSet;
 use crate::graphql::*;
 use crate::output::{CliOutput, JsonCell, to_table_row};
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 mod author;
 mod develop;
 mod encrypt;
+mod publication;
 
 pub use author::{author, upsert_draft_specs};
 pub use develop::develop;
 pub use encrypt::encrypt_configs;
+pub use publication::publish;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
@@ -549,48 +551,6 @@ async fn do_publish(
     if !dry_run {
         ctx.config.draft.take();
     }
-    Ok(())
-}
-
-pub async fn publish(
-    ctx: &mut crate::CliContext,
-    init_data_plane: Option<&str>,
-    draft_id: models::Id,
-    dry_run: bool,
-) -> Result<(), anyhow::Error> {
-    #[derive(Deserialize)]
-    struct Row {
-        id: models::Id,
-        logs_token: String,
-    }
-    // Add the flowctl version to the detail, so we can tell when a publication
-    // was created by an old version.
-    let detail = format!("Published via flowctl ({})", env!("CARGO_PKG_VERSION"));
-    let Row { id, logs_token } = flow_client_next::postgrest::exec(
-        ctx.pg
-            .from("publications")
-            .select("id,logs_token")
-            .insert(
-                serde_json::json!({
-                    "data_plane_name": init_data_plane.unwrap_or_default(),
-                    "detail": detail,
-                    "draft_id": draft_id,
-                    "dry_run": dry_run,
-                })
-                .to_string(),
-            )
-            .single(),
-        ctx.access_token().as_deref(),
-    )
-    .await?;
-    tracing::info!(%id, %logs_token, %dry_run, "created publication");
-    let outcome = crate::poll_while_queued(ctx, "publications", id, &logs_token).await?;
-
-    print_draft_errors(ctx, draft_id).await?;
-    if outcome != "success" {
-        anyhow::bail!("failed with status: {outcome}");
-    }
-    tracing::info!(%id, %dry_run, "publication successful");
     Ok(())
 }
 
