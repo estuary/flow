@@ -8,6 +8,10 @@ approving collection.
   credits, and subtotals from Bigtable usage and PostgreSQL billing terms.
   `generate-invoices` prints the calculations as JSON for inspection without
   saving them.
+  `freeze-invoices` saves the month's calculated invoices in one PostgreSQL
+  transaction, reading usage, calculating invoices, and inserting them in serial
+  batches. It retains invoices already frozen and their Stripe invoice IDs.
+  It replaces the operator's `internal.freeze_billing_month(...)` call.
 - `publish.rs` classifies bills and creates or refreshes draft invoices. `--dry-run`
   performs read-only classification against Stripe. Manual bills always use
   `send_invoice`. `--recreate-existing` (alias `--recreate-finalized`) replaces
@@ -29,5 +33,11 @@ Provide `--bigtable-project` and `--bigtable-instance`, or `BIGTABLE_PROJECT` an
 `BIGTABLE_INSTANCE`, with Google application default credentials that can read
 the statistics. Application profile and emulator options match the catalog
 stats API. Invoice JSON goes to stdout; diagnostics go to stderr.
+
+Freeze a month with `freeze-invoices --month 2026-08` and the same database and
+Bigtable settings. This recalculates invoices from current inputs, so amounts
+can differ from an earlier `generate-invoices` run if usage or billing terms
+changed. The command selects all tenants and prints how many invoices were newly
+frozen.
 
 Run the focused checks with `mise exec -- cargo nextest run -p billing-integrations`.

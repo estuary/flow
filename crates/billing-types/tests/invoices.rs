@@ -99,14 +99,26 @@ async fn generates_invoices_from_exact_daily_rollups(pool: sqlx::PgPool) {
     assert_eq!(got[0].billed_prefix, "billingempty/");
     assert_eq!(got[0].recurring_fee, 500);
     assert!(got[0].daily_usage.is_empty());
+    sqlx::query(
+        "INSERT INTO tenants (tenant)
+         SELECT ('billinggap' || n || '/')::public.catalog_tenant
+         FROM generate_series(1, 499) AS n",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let all = billing_types::invoices::generate(&pool, &client, 2026, chrono::Month::August, None)
         .await
         .unwrap();
+    assert_eq!(all.len(), 501);
     assert!(
         all.windows(2)
             .all(|pair| pair[0].billed_prefix < pair[1].billed_prefix)
     );
-    assert!(all.iter().any(|invoice| invoice.billed_prefix == prefix));
+    assert_eq!(
+        serde_json::to_value(all.last().unwrap()).unwrap(),
+        serde_json::to_value(&got[1]).unwrap()
+    );
     assert!(
         billing_types::invoices::generate(
             &pool,
