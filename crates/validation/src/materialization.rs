@@ -5,7 +5,7 @@ use super::{
 use itertools::Itertools;
 use json::schema::types;
 use proto_flow::{connector, flow, materialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tables::EitherOrBoth as EOB;
 
 /// Live bindings of a materialization, indexed on resource path and paired
@@ -30,6 +30,7 @@ pub async fn walk_all_materializations(
     dependencies: &tables::Dependencies<'_>,
     noop_materializations: bool,
     storage_mappings: &tables::StorageMappings,
+    trial_stores: &BTreeSet<String>,
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
     // Outer join of live and draft materializations.
@@ -57,6 +58,7 @@ pub async fn walk_all_materializations(
                 dependencies,
                 noop_materializations,
                 storage_mappings,
+                trial_stores,
                 &mut local_errors,
             )
             .await;
@@ -118,6 +120,7 @@ async fn walk_materialization(
     dependencies: &tables::Dependencies<'_>,
     noop_materializations: bool,
     storage_mappings: &tables::StorageMappings,
+    trial_stores: &BTreeSet<String>,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltMaterialization> {
     let (
@@ -274,6 +277,7 @@ async fn walk_materialization(
                 on_incompatible_schema_change,
                 model,
                 built_collections,
+                trial_stores,
                 materialization,
                 shards.disable,
                 &live_bindings_model,
@@ -557,12 +561,16 @@ async fn walk_materialization(
                 )
             });
 
+        let (policy, trial_detail) = resolve_on_incompatible_schema_change(
+            model.on_incompatible_schema_change,
+            on_incompatible_schema_change,
+            &collection,
+            trial_stores,
+        );
         match (
             !conflicts_other.is_empty(),
             !conflicts_incompatible.is_empty(),
-            model
-                .on_incompatible_schema_change
-                .unwrap_or(on_incompatible_schema_change),
+            policy,
         ) {
             (false, false, _) => {
                 // No conflicts.
@@ -597,7 +605,7 @@ async fn walk_materialization(
                     resource_path: path.clone(),
                     collection: model.source.collection().clone(),
                     reason: models::status::AutoDisabledReason::IncompatibleSchemaChange,
-                    detail: conflicts_incompatible.iter().join("; "),
+                    detail: conflicts_incompatible.iter().join("; ") + trial_detail,
                     pub_id,
                 });
                 model.disable = true;
@@ -822,9 +830,10 @@ async fn walk_materialization(
 fn walk_materialization_binding<'a>(
     scope: Scope<'a>,
     pub_id: models::Id,
-    default_on_incompatible_schema_change: models::OnIncompatibleSchemaChange,
+    default_on_incompatible_schema_change: Option<models::OnIncompatibleSchemaChange>,
     mut model: models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
+    trial_stores: &BTreeSet<String>,
     catalog_name: &models::Materialization,
     disable: bool,
     live_bindings_model: &BTreeMap<Vec<String>, &models::MaterializationBinding>,
@@ -913,9 +922,12 @@ fn walk_materialization_binding<'a>(
         errors,
     );
 
-    let on_incompatible_schema_change = model
-        .on_incompatible_schema_change
-        .unwrap_or(default_on_incompatible_schema_change);
+    let (on_incompatible_schema_change, trial_detail) = resolve_on_incompatible_schema_change(
+        model.on_incompatible_schema_change,
+        default_on_incompatible_schema_change,
+        &source_spec,
+        trial_stores,
+    );
 
     // Was this binding's source collection reset under its current backfill count?
     let was_reset = live_spec.is_some_and(|live_spec| {
@@ -981,7 +993,7 @@ fn walk_materialization_binding<'a>(
                 collection: source.clone(),
                 reason: models::status::AutoDisabledReason::IncompatibleSchemaChange,
                 detail: format!(
-                    "group-by key changed from {live_group_by:?} to {group_by_fields:?}"
+                    "group-by key changed from {live_group_by:?} to {group_by_fields:?}{trial_detail}"
                 ),
                 pub_id,
             });
@@ -1024,6 +1036,32 @@ fn walk_materialization_binding<'a>(
     };
 
     (model_path, model, None, Some(validate))
+}
+
+fn resolve_on_incompatible_schema_change(
+    binding: Option<models::OnIncompatibleSchemaChange>,
+    task: Option<models::OnIncompatibleSchemaChange>,
+    source: &flow::CollectionSpec,
+    trial_stores: &BTreeSet<String>,
+) -> (models::OnIncompatibleSchemaChange, &'static str) {
+    if let Some(policy) = binding.or(task) {
+        return (policy, "");
+    }
+
+    let is_trial = source
+        .partition_template
+        .as_ref()
+        .and_then(|journal| journal.fragment.as_ref())
+        .and_then(|fragment| fragment.stores.first())
+        .is_some_and(|store| trial_stores.contains(store));
+    if is_trial {
+        (
+            models::OnIncompatibleSchemaChange::DisableBinding,
+            "\n\nThis binding was disabled because its source collection uses Estuary trial storage as its primary store. Automatically backfilling could rebuild the destination from incomplete history.",
+        )
+    } else {
+        (models::OnIncompatibleSchemaChange::Backfill, "")
+    }
 }
 
 /// Verifies that the connector's resource config schema has the annotated
@@ -1345,5 +1383,79 @@ fn validate_triggers(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn incompatible_schema_policy() {
+        use models::OnIncompatibleSchemaChange as Policy;
+
+        const GCS: &str = "gs://estuary-trial/collection-data/";
+        const S3: &str = "s3://estuary-trial-us-east-1-ccc98e22/collection-data/?region=us-east-1";
+        let trial_stores = [GCS, S3].map(str::to_string).into();
+
+        let mut source = proto_flow::flow::CollectionSpec::default();
+        let mut results = Vec::new();
+        for (label, stores, binding, task) in [
+            ("no stores", vec![], None, None),
+            ("trial primary", vec![GCS], None, None),
+            ("regional trial", vec![S3], None, None),
+            ("durable primary", vec!["gs://durable/", GCS], None, None),
+            (
+                "custom endpoint",
+                vec![
+                    "s3://estuary-trial-us-east-1-ccc98e22/collection-data/?profile=acmeCo&endpoint=https%3A%2F%2Fexample.test",
+                ],
+                None,
+                None,
+            ),
+            (
+                "resembling bucket",
+                vec!["gs://estuary-trial-archive-example/collection-data/"],
+                None,
+                None,
+            ),
+            ("different prefix", vec!["gs://estuary-trial/"], None, None),
+            ("task backfill", vec![GCS], None, Some(Policy::Backfill)),
+            (
+                "task disable",
+                vec![GCS],
+                None,
+                Some(Policy::DisableBinding),
+            ),
+            (
+                "binding backfill",
+                vec![GCS],
+                Some(Policy::Backfill),
+                Some(Policy::Abort),
+            ),
+            (
+                "binding abort",
+                vec![GCS],
+                Some(Policy::Abort),
+                Some(Policy::DisableBinding),
+            ),
+            (
+                "binding disable task",
+                vec![GCS],
+                Some(Policy::DisableTask),
+                Some(Policy::Backfill),
+            ),
+        ] {
+            source.partition_template = Some(proto_gazette::broker::JournalSpec {
+                fragment: Some(proto_gazette::broker::journal_spec::Fragment {
+                    stores: stores.into_iter().map(str::to_string).collect(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+            results.push((
+                label,
+                super::resolve_on_incompatible_schema_change(binding, task, &source, &trial_stores),
+            ));
+        }
+        insta::assert_debug_snapshot!(results);
     }
 }

@@ -73,6 +73,8 @@ pub async fn validate(
     noop_derivations: bool,
     noop_materializations: bool,
     init_vector: &[u8],
+    // Fragment store URLs of Estuary trial storage.
+    trial_stores: &std::collections::BTreeSet<String>,
 ) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
@@ -180,6 +182,7 @@ pub async fn validate(
         &dependencies,
         noop_materializations,
         &live.storage_mappings,
+        trial_stores,
         &mut materialize_errors,
     );
 

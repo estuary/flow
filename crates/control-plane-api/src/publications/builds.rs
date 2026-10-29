@@ -49,6 +49,13 @@ impl Builder for BuilderImpl {
         let connectors = self
             .connector_factory
             .make_connectors(snapshot, "build", logs_token);
+        // A collection may be placed in any data plane and still write to its
+        // tenant's trial store, so resolve trial stores of all data planes.
+        let trial_stores = crate::server::public::graphql::tenant::storage::trial_stores(
+            snapshot
+                .data_planes()
+                .map(|plane| plane.data_plane_name.as_str()),
+        );
 
         build_catalog(
             builds_root,
@@ -60,6 +67,7 @@ impl Builder for BuilderImpl {
             logs_tx,
             logs_token,
             connectors.as_ref(),
+            &trial_stores,
         )
         .await
     }
@@ -80,6 +88,7 @@ async fn build_catalog(
     logs_tx: logs::Tx,
     logs_token: sqlx::types::Uuid,
     connectors: &validation::Connectors<'_>,
+    trial_stores: &std::collections::BTreeSet<String>,
 ) -> anyhow::Result<build::Output> {
     // Stage the build database under a ./builds/ subdirectory of the working
     // temporary directory; it is uploaded to `builds_root` further below.
@@ -107,6 +116,7 @@ async fn build_catalog(
         false, // Don't no-op derivation validation.
         false, // Don't no-op materialization validation.
         &init_vector,
+        trial_stores,
     )
     .await;
     let output = build::Output { draft, live, built };

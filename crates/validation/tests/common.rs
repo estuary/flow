@@ -494,6 +494,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         false, // Don't no-op derivations.
         false, // Don't no-op materializations.
         TEST_INIT_VECTOR,
+        &["gs://estuary-trial/collection-data/".to_string()].into(),
     ));
 
     let tables::DraftCatalog {

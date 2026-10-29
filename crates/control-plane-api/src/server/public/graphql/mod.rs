@@ -52,7 +52,7 @@ mod secrets;
 mod service_accounts;
 pub mod status;
 mod storage_mappings;
-mod tenant;
+pub(crate) mod tenant;
 
 pub(crate) use scalars::{Sensitive, UInt64};
 
