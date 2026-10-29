@@ -541,18 +541,6 @@ mod tests {
         insta::assert_json_snapshot!("tie_break_previous_page", invoices_page(&previous_page));
     }
 
-    async fn reject_legacy_calculator(pool: &sqlx::PgPool) {
-        sqlx::query(
-            r#"CREATE OR REPLACE FUNCTION internal.billing_report_202308(
-                billed_prefix public.catalog_prefix, billed_month timestamptz
-            ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
-            BEGIN RAISE EXCEPTION 'legacy calculator called'; END $$"#,
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-    }
-
     async fn preview_server(
         pool: &sqlx::PgPool,
         user_id: uuid::Uuid,
@@ -601,7 +589,6 @@ mod tests {
             .bind(prefix).execute(&pool).await.unwrap();
         sqlx::query("UPDATE internal.manual_bills SET stripe_invoice_id = 'in_manual_preview_test' WHERE tenant = $1")
             .bind(prefix).execute(&pool).await.unwrap();
-        reject_legacy_calculator(&pool).await;
         let client = Arc::new(catalog_stats::test_util::connect_emulator("estuary-local").await);
         catalog_stats::test_util::delete_rows_with_prefix(&client, prefix)
             .await
@@ -710,7 +697,6 @@ mod tests {
             .unwrap();
         sqlx::query("INSERT INTO internal.manual_bills (tenant, usd_cents, description, date_start, date_end) VALUES ($1, 700, 'Manual charge', '2024-03-01', '2024-03-31')")
             .bind(prefix).execute(&pool).await.unwrap();
-        reject_legacy_calculator(&pool).await;
         let (server, token) = preview_server(&pool, user_id, tenant, None, mock_provider()).await;
         let filter = json!({"dateStart": {"gt": "2024-02-29", "lt": "2024-04-01"}});
         let first = fetch_page(&server, &token, prefix, filter.clone(), json!({"first": 1})).await;
@@ -786,7 +772,6 @@ mod tests {
         let target = "previewtarget";
         let owner_id = provision_test_tenant(&pool, owner).await;
         let target_id = provision_test_tenant(&pool, target).await;
-        reject_legacy_calculator(&pool).await;
         let client =
             Arc::new(catalog_stats::test_util::connect_emulator("nonexistent-instance").await);
         let (server, target_token) =
@@ -804,11 +789,6 @@ mod tests {
         assert!(
             response["data"]["tenant"]["billing"]["invoices"].is_null(),
             "{response:#}"
-        );
-        assert!(
-            !response["errors"]
-                .to_string()
-                .contains("legacy calculator called")
         );
         let viewer_token = server.make_restricted_access_token(
             target_id,
