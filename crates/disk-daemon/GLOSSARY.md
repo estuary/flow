@@ -179,8 +179,13 @@ listed to _avoid_.
 
 ## Daemon internals
 
+- **Orphan** — a device of a daemon which died without draining. The kernel
+  stopped it but did not delete it, and its mounts remain. _Avoid_: leaked
+  device.
 - **Owner thread** — the thread which serves a started device's ublk queue
   from its image. It sends each chunk it applies as a live chunk.
+- **Reap** — a daemon's deletion of the host's orphans, after it detaches their
+  mounts. A daemon reaps at start and every five minutes.
 - **Rebuilder thread** — the thread which replays a standby's journal content
   into its image.
 - **Step** — work which a promoted attachment waits on the device for: its

@@ -5,9 +5,11 @@ mod chunk;
 mod compactor;
 mod image;
 mod owner;
+mod reap;
 mod ublk;
 
 pub use compactor::Policy;
+pub use reap::reap;
 
 /// The capacity, in chunks, of the channel of live chunks from the device to the
 /// journal. It's set to the ublk queue depth, which is how many simultaneous
@@ -185,9 +187,24 @@ impl Device {
             Ok(served) => served.with_context(|| format!("serving device {dev_id}")),
             Err(_panic) => Err(anyhow::anyhow!("the owner of device {dev_id} panicked")),
         };
+        if mounted(&control.block_path()).unwrap_or(true) {
+            tracing::warn!(
+                dev_id,
+                "leaving a device which is still mounted for the reaper"
+            );
+            return served;
+        }
         match served {
             Ok(()) => control.delete(),
             Err(err) => Err(control.abandon(err)),
         }
     }
+}
+
+/// Whether `block_path` is the source of a mount in this mount namespace.
+fn mounted(block_path: &std::path::Path) -> std::io::Result<bool> {
+    let mounts = std::fs::read_to_string("/proc/self/mounts")?;
+    Ok(mounts
+        .lines()
+        .any(|line| line.split(' ').next() == block_path.to_str()))
 }

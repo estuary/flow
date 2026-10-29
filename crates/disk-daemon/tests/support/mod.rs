@@ -451,8 +451,8 @@ impl Daemon {
         assert!(status.success(), "the daemon drained with {status}");
     }
 
-    /// `SIGKILL` the daemon. Kill only a daemon which serves no disk: killing one with
-    /// ublk requests in flight can wedge later ublk control commands.
+    /// `SIGKILL` the daemon. Kill only a daemon with no ublk request in flight: a kill
+    /// with requests in flight can wedge later ublk control commands.
     pub async fn kill(mut self) {
         () = self.signal("KILL");
         _ = self.child.wait().await.expect("waiting for the daemon");

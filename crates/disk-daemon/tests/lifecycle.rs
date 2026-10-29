@@ -10,6 +10,7 @@ async fn disk_lifecycle() {
     a_disk_which_is_never_written_recovers_its_format(&fixture, &daemon).await;
     a_standby_leaves_a_suspended_journal_asleep(&fixture, &daemon).await;
     an_absent_journal_is_refused_at_open(&fixture, &daemon).await;
+    the_next_daemon_reaps_an_orphan(&fixture).await;
 
     daemon.drain().await;
     fixture.stop().await;
@@ -177,6 +178,54 @@ async fn a_standby_leaves_a_suspended_journal_asleep(
         }
         () = disk.close().await.unwrap();
     }
+}
+
+/// A daemon killed while it serves a disk leaves an orphan. The kernel stops its
+/// device but does not delete it, and its mount stays. The next daemon reaps the
+/// orphan: it detaches the mount, removes the mount point, and deletes the device.
+async fn the_next_daemon_reaps_an_orphan(fixture: &support::Fixture) {
+    let killed = support::Daemon::start(fixture, "reaped").await;
+    let client = killed.client().await;
+    let (disk, mount) = fixture
+        .open_disk(&client, "acmeCo/disk/orphaned", Default::default())
+        .await;
+
+    // A mount point names its device.
+    let block = mount.file_name().unwrap().to_str().unwrap().to_string();
+    let dev_id = block.trim_start_matches("ublkb");
+    let block_device = std::path::PathBuf::from(format!("/sys/block/{block}"));
+    let char_device = std::path::PathBuf::from(format!("/sys/class/ublk-char/ublkc{dev_id}"));
+
+    let gone = async |path: &std::path::Path| {
+        let deadline = std::time::Instant::now() + support::TEARDOWN;
+        while path.exists() {
+            assert!(std::time::Instant::now() < deadline, "{path:?} remains");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    };
+
+    // Nothing is in flight, so the kill can't wedge the device.
+    () = killed.kill().await;
+    drop((disk, client));
+
+    () = gone(&block_device).await;
+    assert!(
+        char_device.exists(),
+        "the kernel deleted the device of a dead server"
+    );
+    assert!(
+        support::is_mounted(&mount),
+        "the mount of {block} left with its server"
+    );
+
+    let daemon = support::Daemon::start(fixture, "reaped").await;
+
+    () = support::wait_unmounted(&mount).await;
+    () = gone(&char_device).await;
+    assert!(!mount.exists(), "the reaper left the mount point {mount:?}");
+    () = fixture.assert_no_leaks();
+
+    daemon.drain().await;
 }
 
 /// `Open` of a nonexistent journal fails as invalid, before any device exists. The

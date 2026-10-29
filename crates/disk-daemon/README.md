@@ -107,10 +107,11 @@ Paths below are relative to `src/`.
 | `journal/reader.rs` | `open`, which lists the journal, resolves its floor, confirms its head with `confirm_head`, leaving a suspended journal suspended, and begins one blocking read from the floor; and `read`, the coroutine which yields that read's responses as a `Read`, each with the offset the read has reached, retrying transient failures and waiting out a suspension, and refusing a gap: only a read still at its floor may skip ahead. |
 | `journal/writer.rs` | `Writer`, which owns the producer, clock, and last floor candidate of the records this attachment writes, and the appender they go through, each append checking the journal's author registers. `fence`, which creates it by appending a fence record which installs a new author, followed in the same append by any recovered ACK intent, and returns the head that append confirmed. Its `fence_check` derives what that append requires from a `confirm_head` just before it: the author it read, or with none, its head; `append`, which appends a live chunk, confirming the delta's earlier records before a candidate, and takes any floor it names; `prepare`, which prepares the delta, clocking its acknowledgement after its records, confirms them, and returns its ACK intent and the floor its commit installs; and `acknowledge`, which appends that ACK intent and stores the floor. Beside it, the writer's random producer. |
 | `journal/floor.rs` | The replay-from label: `parse`, with which `journal::open` resolves the floor, refusing a label which is not an offset; `change`, the spec change at the listed revision which advances the label, or none where it is already at or past the floor; and `store`, with which `Writer::acknowledge` stores a floor, listing the journal through a watch, retrying a change which lost to another edit of its spec on the listing which follows, and retrying a transient failure with the publisher's backoff for its truncated-at labels, eight attempts in all. |
-| `device/mod.rs` | `Standby`: open; the rebuilder thread, which replays the journal content sent to it; start, which also reports whether replay applied nothing; and discard. `Device`: stop. |
+| `device/mod.rs` | `Standby`: open; the rebuilder thread, which replays the journal content sent to it; start, which also reports whether replay applied nothing; and discard. `Device`: stop, which leaves a device still mounted to the reaper. |
+| `device/reap.rs` | `reap`, the thread which reaps the host's orphans at start and every five minutes: it detaches their mounts, and deletes them in turn. Before Linux 6.11, a delete waits on a mount it cannot see. |
 | `device/owner.rs` | The owner thread, which arms and serves the ublk queue: tags, the ring, and character-device data copies. It sends each write's live chunks before answering it, and exits on a failure of the image or of a data copy, which it sends after them so the attachment fails with it. |
 | `device/image.rs` | `Image`, the sparse image file and its compactor: `replay` of a committed chunk, `serve` of a write or punch and the copies it earns into the live chunks to send, and reads. Each chunk is applied through `chunk::apply`, served and recovered alike, testable without a real device. |
-| `device/ublk.rs` | `Control`, which adds, starts, stops, and deletes one device; queue parameters; the request descriptor mapping, which decodes each request into an `Op`; the queue's fetch and commit commands; and the kernel ABI, hand-transcribed from Linux's `include/uapi/linux/ublk_cmd.h`. |
+| `device/ublk.rs` | `Control`, which adds one device under a random number, starts, stops, and deletes it, and reads whether it is an orphan; queue parameters; the request descriptor mapping, which decodes each request into an `Op`; the queue's fetch and commit commands; and the kernel ABI, hand-transcribed from Linux's `include/uapi/linux/ublk_cmd.h`. |
 | `device/compactor.rs` | `Compactor`: allocation, bytes since the floor, and the open recovery horizon, as pure state over the chunks applied. Where a horizon opens, which ranges to copy, and which chunk completes it. Each opener is a floor candidate, and the chunk which completes its horizon names it as the floor: the last candidate, or a replayed opener's offset. The first chunk served also names the floor of the last horizon replay completed. `Policy`, re-exported as `device::Policy`, of when a horizon opens and how fast copies complete it, and `Policy::DEFAULT`, which the daemon's flags start from. |
 | `device/chunk.rs` | The durable write/punch codec: one chunk per device write, punch, or copy. `encode_write` trims a write's trailing zeroes, and `apply`, which serving and replay share, writes a chunk to the image with `pwrite`, zeroing the rest of its range, or punches it with `fallocate`. |
 | `filesystem.rs` | ext4 format, mount, ownership, and `syncfs`, which fails once ext4 has found an error. |
@@ -223,10 +224,14 @@ label only if no fragments below it were deleted.
 The host needs Linux 6.5 or later with `ublk` support, for `UBLK_F_USER_COPY`. On
 Ubuntu, `ublk_drv` ships in `linux-modules-extra-$(uname -r)`. Before
 Linux 6.11, deleting a device waits for every reference to it, so a teardown waits on a
-filesystem that a lazy unmount left open, or that a sandbox still re-exports. It also
+filesystem that a lazy unmount left open, or that a sandbox still re-exports. On
+Linux 6.17 and 6.18, a daemon in its own PID namespace cannot start a device. The
+kernel compares the PID that the daemon gives with its PID in the host's namespace.
+Linux 6.19 translates between the two. It also
 needs e2fsprogs with `assume_storage_prezeroed`, sysfs at `/sys`, where it reads each
 disk's ext4 error count, and an image filesystem supporting
-hole punching. Images and spilled deltas are unnamed files, made with `O_TMPFILE`
+hole punching. To detach the mounts of an orphan, `umount --all-targets` needs
+`/etc/mtab` to link to `/proc/mounts`. Images and spilled deltas are unnamed files, made with `O_TMPFILE`
 where the filesystem supports it. Each delta which spills gets its own, released as
 replay drains it. Required privileges are `CAP_SYS_ADMIN` for devices and
 mounts, `CAP_SYS_RESOURCE` for owner-thread I/O flusher status, and `CAP_CHOWN` for
@@ -246,17 +251,28 @@ loop, which abandons its appends and drops its receiver of live chunks, so the
 device applies later writes unsent. It then finishes a device start or mount still in
 flight, unmounts, and stops and deletes the device. This order is required because
 unmount writes, and a device stop waits for every request in flight. A failed unmount
-still deletes the device, since its writes no longer reach the journal, and fails the
-attachment, so the client's `close` reports it. A standby which fails is discarded,
-joining its rebuilder thread, whose failure, if any, is the attachment's. A
-standby which is cancelled, or which its client leaves, is dropped: its rebuilder
-thread applies what it holds and exits on its own. See `attachment/` and `device/mod.rs`.
+fails the attachment, so the client's `close` reports it. A device still mounted is
+stopped but not deleted: a delete would hide it from the reaper while the mount holds
+it. It is left as an orphan, whose mounts the reaper detaches before deleting it. A
+standby which fails is discarded, joining its rebuilder thread, whose failure, if
+any, is the attachment's. A standby which is cancelled, or which its client leaves,
+is dropped: its rebuilder thread applies what it holds and exits on its own. See
+`attachment/` and `device/mod.rs`.
 The daemon waits for every teardown, so the supervisor's stop timeout bounds a
 drain.
 
-A daemon killed without draining leaves its disks behind. The kernel stops their devices,
-so their I/O fails, but the devices and their mounts remain until the host reboots. The
-next daemon on the same `--uds-path` replaces the socket the killed one left. A daemon
+A daemon killed without draining leaves its devices as orphans. The kernel stops
+them, so their I/O fails, but it does not delete them, and their mounts remain. Each
+daemon reaps the orphans of the host at start and every five minutes. A marker in
+`ublksrv_flags` identifies its devices, and the kernel's stopped state and server PID
+of -1 identify a dead server. So a daemon reaps the orphans of any daemon on the host,
+in any PID namespace. It detaches the mounts it can see, then deletes the device.
+A teardown and a reaper, or two reapers, can both delete one device. Devices take
+random numbers, so the later delete rarely finds a new device under that number.
+Before Linux 6.11, that delete waits while a mount in another namespace holds the
+device, and the next orphans wait with it. A kill with I/O in flight can leave a device which the kernel cannot
+stop. That device stays until the host reboots. See `device/reap.rs`. The next daemon
+on the same `--uds-path` replaces the socket the killed one left. A daemon
 started on a path that another still serves takes the path over, and the other keeps
 only the attachments it already holds.
 
