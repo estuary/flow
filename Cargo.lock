@@ -3226,6 +3226,7 @@ dependencies = [
  "insta",
  "io-uring",
  "labels",
+ "libc",
  "prost",
  "proto-flow",
  "proto-gazette",

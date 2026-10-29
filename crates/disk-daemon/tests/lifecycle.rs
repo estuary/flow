@@ -10,6 +10,8 @@ async fn disk_lifecycle() {
     a_disk_which_is_never_written_commits_nothing(&fixture, &daemon).await;
     a_standby_leaves_a_suspended_journal_asleep(&fixture, &daemon).await;
     an_absent_journal_is_refused_at_open(&fixture, &daemon).await;
+    the_next_daemon_reaps_an_orphan(&fixture).await;
+    an_open_disk_keeps_its_device_number(&fixture).await;
 
     daemon.drain().await;
     fixture.stop().await;
@@ -124,6 +126,105 @@ async fn a_standby_leaves_a_suspended_journal_asleep(
 
         () = holds.assert_matches(&device);
         () = disk.close().await.unwrap();
+    }
+}
+
+/// A daemon killed while it serves a disk leaves an orphan. The kernel stops its
+/// device but does not delete it. The next daemon reaps the orphan: it deletes the
+/// device, though a filesystem stays mounted on it. That filesystem has shut down, so
+/// it fails every request until the client unmounts it.
+async fn the_next_daemon_reaps_an_orphan(fixture: &support::Fixture) {
+    let killed = support::Daemon::start(fixture, "reaped").await;
+    let client = killed.client().await;
+    let (disk, device) = fixture
+        .open_disk(&client, "acmeCo/disk/orphaned", Default::default())
+        .await;
+
+    let mounted = support::Mounted::format(fixture.dir.path(), &device);
+    () = std::fs::write(mounted.path().join("before"), b"written before the kill").unwrap();
+
+    // Flushed, so nothing is in flight and the kill can't wedge the device.
+    () = mounted.sync();
+
+    let block = device.file_name().unwrap().to_str().unwrap().to_string();
+    let dev_id = block.trim_start_matches("ublkb");
+    let block_device = std::path::PathBuf::from(format!("/sys/block/{block}"));
+    let char_device = std::path::PathBuf::from(format!("/sys/class/ublk-char/ublkc{dev_id}"));
+
+    () = killed.kill().await;
+    drop((disk, client));
+
+    () = wait_until_gone(&block_device).await;
+    assert!(
+        char_device.exists(),
+        "the kernel deleted the device of a dead server"
+    );
+
+    let daemon = support::Daemon::start(fixture, "reaped").await;
+
+    () = wait_until_gone(&char_device).await;
+    assert!(
+        support::is_mounted(mounted.path()),
+        "the filesystem on {block} left with its device"
+    );
+    let err = std::fs::read(mounted.path().join("before"))
+        .expect_err("a shut down filesystem serves reads");
+    assert_eq!(
+        err.raw_os_error(),
+        Some(rustix::io::Errno::IO.raw_os_error()),
+        "{err}"
+    );
+
+    () = mounted.unmount();
+    () = fixture.assert_no_leaks();
+
+    daemon.drain().await;
+}
+
+/// A disk holds its block device open, so the kernel keeps the device's number until
+/// the disk is closed or dropped, even once the device is deleted. No other disk then
+/// takes the number, and so the path, while the client may still use it.
+async fn an_open_disk_keeps_its_device_number(fixture: &support::Fixture) {
+    let killed = support::Daemon::start(fixture, "held").await;
+    let killed_client = killed.client().await;
+    let (held, held_device) = fixture
+        .open_disk(&killed_client, "acmeCo/disk/held", Default::default())
+        .await;
+
+    let block = held_device.file_name().unwrap().to_str().unwrap();
+    let dev_id = block.trim_start_matches("ublkb");
+    let char_device = std::path::PathBuf::from(format!("/sys/class/ublk-char/ublkc{dev_id}"));
+
+    // Nothing is in flight, so the kill can't wedge the device.
+    () = killed.kill().await;
+    () = support::wait_for_device_removal(&held_device).await;
+
+    // The next daemon reaps the orphan, which deletes it.
+    let daemon = support::Daemon::start(fixture, "held").await;
+    () = wait_until_gone(&char_device).await;
+
+    let client = daemon.client().await;
+    let (other, other_device) = fixture
+        .open_disk(&client, "acmeCo/disk/held-other", Default::default())
+        .await;
+    assert_ne!(
+        other_device, held_device,
+        "another disk took the number of a device which a disk holds"
+    );
+
+    drop((held, killed_client));
+    () = other.close().await.unwrap();
+    daemon.drain().await;
+    () = fixture.assert_no_leaks();
+}
+
+/// Wait until `path` no longer exists, and fail after `support::TEARDOWN`.
+async fn wait_until_gone(path: &std::path::Path) {
+    let deadline = std::time::Instant::now() + support::TEARDOWN;
+
+    while path.exists() {
+        assert!(std::time::Instant::now() < deadline, "{path:?} remains");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }
 

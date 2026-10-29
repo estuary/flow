@@ -101,6 +101,9 @@ Promotion ends the rebuild and hands the rebuilt image to the owner thread. Both
 threads apply chunks with `device::chunk::apply`, so a replayed chunk changes
 the image exactly as the served chunk did.
 
+Each daemon also runs a **reaper** thread, which deletes stopped devices left
+behind by daemons that died without cleanup.
+
 The wire protocol and journal record schema are in
 [`disk.proto`](../../go/protocols/disk/disk.proto).
 
@@ -424,6 +427,8 @@ Each device is configured as follows (`device/ublk.rs`):
 - 4096-byte logical and physical blocks. Requests of up to 128 KiB, and discards
   and write-zeroes of up to 16 MiB.
 - No volatile cache, so the kernel sends no flush or FUA requests.
+- A marker in `ublksrv_flags` (`MARKER`), by which the reaper finds this crate's
+  devices.
 
 The owner thread turns discards and write-zeroes into punches. Teardown sends
 `UBLK_U_CMD_STOP_DEV`, then `UBLK_U_CMD_DEL_DEV_ASYNC`, which doesn't wait for
@@ -431,58 +436,11 @@ holders of the device to release it.
 
 ### io_uring
 
-ublk has no other interface. Each of its commands is an `IORING_OP_URING_CMD`,
-which io_uring passes through to the driver. The daemon uses io_uring only to
-carry these commands.
-
-A ring isn't tied to a device. Each entry names a file descriptor, and io_uring
-hands the command to that file's driver. So a ring talks to `/dev/ublk-control`
-or to `/dev/ublkcN` according to the descriptor in its entries.
-
-The daemon has two kinds of ring. Each holds a single entry, and the thread that
-uses it blocks in `submit_and_wait` until its command completes.
-
-- **Control rings.** There's one control device, but no shared control ring.
-  Each `Control` opens its own handle on `/dev/ublk-control`, and creates a
-  private ring.
-  `Control::issue` encodes a command into an entry that names that handle,
-  submits it, and waits on whichever blocking thread called it. The command is
-  still in flight after submission, since the kernel runs control commands on a
-  worker thread. A device's `Control` lives as long as the device. Control
-  rings use 128-byte entries (`Entry128`), because a standard entry has room
-  for a 16-byte command and a `ublksrv_ctrl_cmd` is 32 bytes.
-- **I/O rings.** Each owner thread creates one, whose entries name its handle on
-  `/dev/ublkcN`. It pushes `UBLK_U_IO_FETCH_REQ` to arm the queue's one tag, then
-  loops:
-  1. Wait for a completion. A result of 0 means a request is ready, and
-     `-ENODEV` means the device stopped.
-  2. Read the request's descriptor and serve it.
-  3. Push `UBLK_U_IO_COMMIT_AND_FETCH_REQ`, which answers the request and re-arms
-     the tag in one command.
-
-The daemon doesn't currently use these parts of io_uring:
-
-- Async completion. Every wait blocks its thread, and no ring is polled from an
-  async runtime.
-- File or network operations. Request data moves by `pread` and `pwrite` on
-  `/dev/ublkcN`, and image I/O is plain `pwrite` and `fallocate`.
-- Batching. A ring holds one entry, so each submission carries one command.
-- Kernel-side polling: `IORING_SETUP_SQPOLL` or `IORING_SETUP_IOPOLL`.
-- Registered files or buffers.
-- Linked, multishot, or provided-buffer operations.
-- Setup flags beyond `IORING_SETUP_SQE128`, which control rings need for their
-  128-byte entries. For example, `IORING_SETUP_SINGLE_ISSUER` and
-  `IORING_SETUP_DEFER_TASKRUN` are unset.
-
-Nor does it use ublk zero-copy (yet), or more than one tag or queue.
-
-### I/O flusher threads
-
-The owner thread marks itself with `PR_SET_IO_FLUSHER` (`device/owner.rs`). Its
-memory allocations then never wait on I/O, and only the image's backing device
-throttles its writes. Without the mark, the owner thread could block on
-writeback of dirty pages that only it can clean: those of a filesystem on its own
-device. `PR_SET_IO_FLUSHER` requires `CAP_SYS_RESOURCE`.
+The daemon uses io_uring only to carry ublk commands. Each ring holds one entry,
+and the thread that uses it blocks in `submit_and_wait` until its command
+completes. Each `Control` has a private control ring on its own handle on
+`/dev/ublk-control` (`device/ublk.rs`). Each owner thread has an I/O ring on its
+`/dev/ublkcN` (`device/owner.rs`).
 
 ### Threads
 
@@ -530,7 +488,7 @@ single tag:
 4. The device has a single tag, so it then serves no request, reads included,
    until the acknowledgement lands.
 
-## Teardown
+## Teardown and orphan cleanup
 
 ### How an attachment ends
 
@@ -564,8 +522,19 @@ the image until it stops, but records none of them.
 
 ### Orphaned devices
 
-A daemon killed without draining leaves its devices behind. The kernel stops
-them, so their I/O fails, but the devices remain until the host reboots.
+A daemon killed without draining leaves its devices behind as **orphans**. The
+kernel stops them, so their I/O fails, but doesn't delete them.
+
+Every daemon on a host draws from one space of ublk device numbers, and holds
+its numbers with open file description locks (`Control::lock`). `Control::add`
+takes the lowest number it can lock that no device has. The reaper
+(`device::reap`) runs at startup and every five minutes after. It locks each
+number before it examines the device, so it never deletes a device a live daemon
+owns.
+
+A filesystem mounted on an orphan stays mounted, failing with I/O errors, until
+whoever mounted it unmounts it. A kill with I/O in flight can leave a device the
+kernel can't stop, which stays until the host reboots.
 
 ## Caller responsibilities
 
@@ -611,7 +580,7 @@ host lacks.
 
 ### Kernel
 
-- Linux 6.11 or later, with `ublk_drv` loaded. Teardown uses
+- Linux 6.11 or later, with `ublk_drv` loaded. Teardown and the reaper use
   `UBLK_U_CMD_DEL_DEV_ASYNC`, which 6.11 added. On older kernels every delete
   fails, and every device is left behind.
 - On Ubuntu, `ublk_drv` ships in `linux-modules-extra-$(uname -r)`.
@@ -628,18 +597,20 @@ host lacks.
 The daemon needs:
 
 - **`CAP_SYS_ADMIN`**, for ublk control commands: adding, configuring, starting,
-  stopping, and deleting devices. ublk requires it for any device not
-  created with `UBLK_F_UNPRIVILEGED_DEV`, which the daemon doesn't use. It also
-  lets the daemon create io_uring rings when `kernel.io_uring_disabled` is 1.
+  stopping, deleting, and inspecting devices. ublk requires it for any device
+  not created with `UBLK_F_UNPRIVILEGED_DEV`, which the daemon doesn't use. It
+  also lets the daemon create io_uring rings when `kernel.io_uring_disabled` is
+  1.
 - **`CAP_SYS_RESOURCE`**, for `PR_SET_IO_FLUSHER` on each owner thread. Without
   it the owner thread exits as it starts, and promotion fails.
-- **Read and write access to `/dev/ublk-control` and `/dev/ublkcN`**: the control
-  device, and the server side of each device the daemon adds. These nodes belong
-  to root by default.
-- **The host's devtmpfs at `/dev`.** The daemon opens `/dev/ublkcN` as soon as it
-  adds device N, and the client opens `/dev/ublkbN` after `Promoted`. Only the
-  host's devtmpfs gains these nodes. A container with its own `/dev` sees only
-  the nodes present when it started.
+- **Read and write access to `/dev/ublk-control` and `/dev/ublkcN`**: the
+  control device, and the server side of each device the daemon adds. These
+  nodes belong to root by default.
+- **The host's devtmpfs at `/dev`.** The daemon opens `/dev/ublkcN` as soon as
+  it adds device N, and the client opens `/dev/ublkbN` after `Promoted`. Only
+  the host's devtmpfs gains these nodes. A container with its own `/dev` sees
+  only the nodes present when it started. Every daemon must also open the same
+  `/dev/ublk-control` inode for the device-number locks to apply.
 - **A seccomp profile that allows `io_uring_setup` and `io_uring_enter`.**
   Docker's default profile blocks them, and `--privileged` disables seccomp.
 - **The host's PID namespace, on Linux 6.17 and 6.18.** See [Kernel](#kernel).
@@ -712,6 +683,7 @@ Paths are relative to `src/`.
   - `chunk.rs`: Chunk encoding and `apply`.
   - `compactor.rs`: `Compactor` and `Policy`: allocation, horizons, copies, and
     floors.
+  - `reap.rs`: The orphan reaper thread.
 
 ## Testing
 
@@ -735,7 +707,7 @@ with what the case wrote. Cases with random writes use a fixed seed.
 | File | Covers |
 | --- | --- |
 | `protocol.rs` | Request order and refusals. |
-| `lifecycle.rs` | Open and close, and suspended and absent journals. |
+| `lifecycle.rs` | Open and close, suspended and absent journals, orphan reaping. |
 | `durability.rs` | Recovery of raw writes and ext4 trees, interrupted transactions, the write pause, runaway deltas. |
 | `failover.rs` | Repeated failover, and promotion across fences a standby never saw. |
 | `pruning.rs` | Floors that replay finds, and deleting fragments below the floor. |
