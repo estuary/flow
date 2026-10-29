@@ -207,7 +207,7 @@ fn validate_derivation(
     let defaults = default_validated(&validate, &project.spec)?;
     let mut generated_files = python_connector::project_urls(
         project_root,
-        generated_module(collection, &project.spec, &transforms)?,
+        [generated_module(collection, &project.spec, &transforms)?],
     );
 
     // A project having listed files which don't exist yet can't be run.
@@ -324,25 +324,26 @@ fn stage(
     install: Install,
 ) -> anyhow::Result<Staged> {
     let task = &collection.name;
-    let mut generated = generated_module(collection, &project.spec, transforms)?;
-    generated.push((
-        ENTRY.to_string(),
-        codegen::main_py(task, transforms, custom_connector::task_dir(task)),
-    ));
-
+    let generated = [
+        generated_module(collection, &project.spec, transforms)?,
+        (
+            ENTRY.to_string(),
+            codegen::main_py(task, transforms, custom_connector::task_dir(task)),
+        ),
+    ];
     Staged::of_project(project, &generated, install)
 }
 
-/// Files of the module generated for a derivation of `collection`, relative
+/// File of the module generated for a derivation of `collection`, relative
 /// to the project.
 fn generated_module(
     collection: &flow::CollectionSpec,
     spec: &custom_connector::Spec,
     transforms: &[codegen::Transform],
-) -> anyhow::Result<Vec<(String, String)>> {
+) -> anyhow::Result<(String, String)> {
     let content = codegen::types_py(collection, spec, transforms)
         .context("failed to generate the derivation's types")?;
-    Ok(python_connector::module_files(&collection.name, content))
+    Ok((python_connector::module_path(&collection.name), content))
 }
 
 #[cfg(test)]

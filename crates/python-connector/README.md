@@ -29,7 +29,7 @@ of a task (`Spec`, `Files`) is `models::custom_connector`.
   `starter_files` of a project's missing files.
 - [`ENTRY`](src/generated.rs) — the generated entry point
   (`flow_generated/main.py`), which each connector renders and runs.
-- [`module_files`](src/generated.rs) — the generated Python module of a
+- [`module_path`](src/generated.rs) — path of the module generated for a
   catalog name, under `GENERATED_PREFIX`, which is on the `PYTHONPATH`.
 - [`endpoint_config_py`](src/config_types.rs) — the generated `EndpointConfig`
   of a `Spec`. A `ResourceConfig` differs by connector, so each maps its own

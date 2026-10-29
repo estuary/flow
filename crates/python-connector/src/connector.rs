@@ -48,7 +48,10 @@ pub fn oauth2(oauth2: &models::custom_connector::OAuth2) -> proto_flow::flow::OA
 
 /// Key `files`, whose paths are relative to a project, on their URLs under
 /// Validate's `project_root`.
-pub fn project_urls(project_root: &str, files: Vec<(String, String)>) -> BTreeMap<String, String> {
+pub fn project_urls(
+    project_root: &str,
+    files: impl IntoIterator<Item = (String, String)>,
+) -> BTreeMap<String, String> {
     files
         .into_iter()
         .map(|(path, content)| (format!("{project_root}/{path}"), content))

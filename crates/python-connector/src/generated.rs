@@ -69,35 +69,25 @@ pub fn module_parts(name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Files of the module generated for a catalog `name`, as paths relative
-/// to the project root: an empty `__init__.py` of each parent package,
-/// and the module's own `__init__.py` having `content`.
-///
-/// For example, `acmeCo/sources/source-acme` has module
+/// Path of the module generated for a catalog `name`, relative to the
+/// project root. For example, `acmeCo/sources/source-acme` has module
 /// `acmeCo.sources.source_acme`, importable through the PYTHONPATH.
-pub fn module_files(name: &str, content: String) -> Vec<(String, String)> {
-    let parts = module_parts(name);
-
-    let mut files: Vec<(String, String)> = (1..parts.len())
-        .map(|i| {
-            (
-                format!("{GENERATED_PREFIX}/{}/__init__.py", parts[..i].join("/")),
-                String::new(),
-            )
-        })
-        .collect();
-
-    files.push((
-        format!("{GENERATED_PREFIX}/{}/__init__.py", parts.join("/")),
-        content,
-    ));
-    files
+///
+/// Tasks of a project share its generated directory, and one task's parent
+/// may be another task's module (`acmeCo/orders` of `acmeCo/orders/stats`).
+/// So each task writes only its own module's file. A parent which isn't
+/// another task's module has no `__init__.py`, and is a namespace package.
+pub fn module_path(name: &str) -> String {
+    format!(
+        "{GENERATED_PREFIX}/{}/__init__.py",
+        module_parts(name).join("/")
+    )
 }
 
 #[cfg(test)]
 mod test {
     #[test]
-    fn module_files_of_names() {
+    fn module_paths_of_names() {
         let cases: Vec<_> = [
             "patterns/sums",
             "a/b/c/d",
@@ -109,7 +99,7 @@ mod test {
             (
                 name,
                 super::module_parts(name).join("."),
-                super::module_files(name, "content".to_string()),
+                super::module_path(name),
             )
         })
         .collect();
