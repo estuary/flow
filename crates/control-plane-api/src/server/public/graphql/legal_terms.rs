@@ -6,6 +6,7 @@ pub struct LegalTermsQuery;
 pub enum LegalTermsType {
     /// Master Services Agreement.
     Msa,
+    SandboxConsent,
 }
 
 #[derive(async_graphql::SimpleObject)]
@@ -16,6 +17,36 @@ pub struct LegalTerms {
 
 #[async_graphql::Object]
 impl LegalTermsQuery {
+    /// Returns the highest version of the given terms type accepted by the tenant, or null.
+    async fn tenant_legal_terms(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+        r#type: LegalTermsType,
+        tenant: String,
+    ) -> async_graphql::Result<Option<LegalTerms>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let tenant = super::tenant::validate_tenant_name(&tenant)?;
+        super::verify_authorization(env, tenant.as_str(), models::authz::Capability::CatalogRead)
+            .await?;
+
+        // Audit records survive tenant deletion; only the current tenant ID grants consent.
+        let row = sqlx::query_as::<_, (models::Id, String)>(
+            "SELECT l.id, l.text FROM internal.legal_terms l
+             WHERE l.type = $1 AND EXISTS (
+                 SELECT 1 FROM internal.tenant_consent c
+                 JOIN public.tenants t ON t.id = c.tenant_id
+                 WHERE t.tenant = $2 AND c.terms_id = l.id
+             )
+             ORDER BY l.version DESC LIMIT 1",
+        )
+        .bind(r#type)
+        .bind(tenant.as_str())
+        .fetch_optional(&env.pg_pool)
+        .await?;
+
+        Ok(row.map(|(id, text)| LegalTerms { id, text }))
+    }
+
     /// Returns the latest legal terms of the given type.
     async fn legal_terms(
         &self,
