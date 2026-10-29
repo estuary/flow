@@ -100,12 +100,12 @@ pub struct MaterializationDef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_naming: Option<TargetNamingStrategy>,
     /// # Default handling of schema changes that are incompatible with the target resource.
-    /// This can be overridden on a per-binding basis.
-    #[serde(
-        default,
-        skip_serializing_if = "OnIncompatibleSchemaChange::is_default"
-    )]
-    pub on_incompatible_schema_change: OnIncompatibleSchemaChange,
+    /// A binding's setting takes precedence. If neither is set, bindings whose
+    /// source collection's primary store is Estuary trial storage are disabled.
+    /// Other bindings are backfilled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "OnIncompatibleSchemaChange")]
+    pub on_incompatible_schema_change: Option<OnIncompatibleSchemaChange>,
     /// # Endpoint to materialize into.
     pub endpoint: MaterializationEndpoint,
     /// # Secrets which are merged into the endpoint configuration.
@@ -199,10 +199,10 @@ pub struct MaterializationBinding {
     pub backfill: u32,
 
     /// # Action to take when a schema change is rejected due to incompatibility.
-    /// This setting is used to determine the action to take when a schema change
-    /// is rejected due to incompatibility with the target resource. By default,
-    /// the binding will have its `backfill` counter incremented, causing it to
-    /// be re-materialized from the source collection.
+    /// Overrides the materialization's `onIncompatibleSchemaChange`. If neither
+    /// is set, the binding is disabled when its source collection's primary store
+    /// is Estuary trial storage, which retains only recent data. Otherwise the
+    /// binding is backfilled from its source collection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "OnIncompatibleSchemaChange")]
     pub on_incompatible_schema_change: Option<OnIncompatibleSchemaChange>,
@@ -276,7 +276,7 @@ impl MaterializationDef {
             sync_schedule: None,
             delete: false,
             reset: false,
-            on_incompatible_schema_change: OnIncompatibleSchemaChange::default(),
+            on_incompatible_schema_change: None,
         }
     }
 }
@@ -362,6 +362,24 @@ impl super::ModelDef for MaterializationDef {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn incompatible_schema_policy_round_trips() {
+        for policy in [None, Some(OnIncompatibleSchemaChange::Backfill)] {
+            let mut fixture = json!({
+                "endpoint": {"connector": {"image": "an/image", "config": {}}},
+                "bindings": [],
+            });
+            if let Some(policy) = policy {
+                fixture["onIncompatibleSchemaChange"] = serde_json::to_value(policy).unwrap();
+            }
+            let model: MaterializationDef = serde_json::from_value(fixture.clone()).unwrap();
+            let serialized = serde_json::to_value(&model).unwrap();
+            assert_eq!(serialized, fixture);
+            let reparsed: MaterializationDef = serde_json::from_value(serialized).unwrap();
+            assert_eq!(reparsed.on_incompatible_schema_change, policy);
+        }
+    }
 
     #[test]
     fn secrets_stanza_round_trips() {
