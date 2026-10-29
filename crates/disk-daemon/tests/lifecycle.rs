@@ -10,6 +10,7 @@ async fn disk_lifecycle() {
     a_disk_which_is_never_written_commits_nothing(&fixture, &daemon).await;
     a_standby_leaves_a_suspended_journal_asleep(&fixture, &daemon).await;
     an_absent_journal_is_refused_at_open(&fixture, &daemon).await;
+    the_next_daemon_reaps_an_orphan(&fixture).await;
 
     daemon.drain().await;
     fixture.stop().await;
@@ -125,6 +126,66 @@ async fn a_standby_leaves_a_suspended_journal_asleep(
         () = holds.assert_matches(&device);
         () = disk.close().await.unwrap();
     }
+}
+
+/// A daemon killed while it serves a disk leaves an orphan. The kernel stops its
+/// device but does not delete it. The next daemon reaps the orphan: it deletes the
+/// device, though a filesystem stays mounted on it. That filesystem has shut down, so
+/// it fails every request until the client unmounts it.
+async fn the_next_daemon_reaps_an_orphan(fixture: &support::Fixture) {
+    let killed = support::Daemon::start(fixture, "reaped").await;
+    let client = killed.client().await;
+    let (disk, device) = fixture
+        .open_disk(&client, "acmeCo/disk/orphaned", Default::default())
+        .await;
+
+    let mounted = support::Mounted::format(fixture.dir.path(), &device);
+    () = std::fs::write(mounted.path().join("before"), b"written before the kill").unwrap();
+
+    // Flushed, so nothing is in flight and the kill can't wedge the device.
+    () = mounted.sync();
+
+    let block = device.file_name().unwrap().to_str().unwrap().to_string();
+    let dev_id = block.trim_start_matches("ublkb");
+    let block_device = std::path::PathBuf::from(format!("/sys/block/{block}"));
+    let char_device = std::path::PathBuf::from(format!("/sys/class/ublk-char/ublkc{dev_id}"));
+
+    let gone = async |path: &std::path::Path| {
+        let deadline = std::time::Instant::now() + support::TEARDOWN;
+        while path.exists() {
+            assert!(std::time::Instant::now() < deadline, "{path:?} remains");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    };
+
+    () = killed.kill().await;
+    drop((disk, client));
+
+    () = gone(&block_device).await;
+    assert!(
+        char_device.exists(),
+        "the kernel deleted the device of a dead server"
+    );
+
+    let daemon = support::Daemon::start(fixture, "reaped").await;
+
+    () = gone(&char_device).await;
+    assert!(
+        support::is_mounted(mounted.path()),
+        "the filesystem on {block} left with its device"
+    );
+    let err = std::fs::read(mounted.path().join("before"))
+        .expect_err("a shut down filesystem serves reads");
+    assert_eq!(
+        err.raw_os_error(),
+        Some(rustix::io::Errno::IO.raw_os_error()),
+        "{err}"
+    );
+
+    () = mounted.unmount();
+    () = fixture.assert_no_leaks();
+
+    daemon.drain().await;
 }
 
 /// `Open` of a nonexistent journal fails as invalid, before any device exists. The

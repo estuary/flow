@@ -104,6 +104,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         zone = args.gazette_zone,
         "disk-daemon starting",
     );
+    () = crate::device::reap().context("starting the reaper")?;
 
     let draining = tokio_util::sync::CancellationToken::new();
     {

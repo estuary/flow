@@ -100,6 +100,9 @@ Promotion ends the rebuild and hands the rebuilt image to the owner thread. Both
 threads apply chunks with `device::chunk::apply`, so a replayed chunk changes the
 image exactly as the served chunk did.
 
+Each daemon also runs a **reaper** thread, which deletes stopped devices left
+behind by daemons that died without cleanup.
+
 The wire protocol and journal record schema are in
 [`disk.proto`](../../go/protocols/disk/disk.proto).
 
@@ -460,6 +463,8 @@ Each device is configured as follows (`device/ublk.rs`):
 - 4096-byte logical and physical blocks. Requests of up to 128 KiB, and discards
   and write-zeroes of up to 16 MiB.
 - No volatile cache, so the kernel sends no flush or FUA requests.
+- A marker in `ublksrv_flags` (`MARKER`), by which the reaper finds this crate's
+  devices.
 
 The owner thread reads each request's descriptor from a read-only `mmap` of
 `/dev/ublkcN` (`IoDescs`). It serves reads, writes, discards, and write-zeroes,
@@ -483,14 +488,16 @@ The daemon has two kinds of ring. Each holds a single entry, and the thread that
 uses it blocks in `submit_and_wait` until its command completes.
 
 - **Control rings.** There's one control device, but no shared control ring.
-  Each `Control` opens its own handle on `/dev/ublk-control`, and creates a
-  private ring.
+  Each `Control` opens its own handle on `/dev/ublk-control`, which also holds
+  its device-number lock (see [Open file description
+  locks](#open-file-description-locks)), and creates a private ring.
   `Control::issue` encodes a command into an entry that names that handle,
   submits it, and waits on whichever blocking thread called it. The command is
   still in flight after submission, since the kernel runs control commands on a
-  worker thread. A device's `Control` lives as long as the device. Control
-  rings use 128-byte entries (`Entry128`), because a standard entry has room
-  for a 16-byte command and a `ublksrv_ctrl_cmd` is 32 bytes.
+  worker thread. A device's `Control` lives as long as the device, and the
+  reaper makes a short-lived one for each number it inspects. Control rings use
+  128-byte entries (`Entry128`), because a standard entry has room for a 16-byte
+  command and a `ublksrv_ctrl_cmd` is 32 bytes.
 - **I/O rings.** Each owner thread creates one, whose entries name its handle on
   `/dev/ublkcN`. It pushes `UBLK_U_IO_FETCH_REQ` to arm the queue's one tag, then
   loops:
@@ -570,7 +577,7 @@ single tag:
 4. The device has a single tag, so it then serves no request, reads included,
    until the acknowledgement lands.
 
-## Teardown
+## Teardown and orphan cleanup
 
 ### How an attachment ends
 
@@ -606,8 +613,37 @@ image until it stops, but records none of them.
 
 ### Orphaned devices
 
-A daemon killed without draining leaves its devices behind. The kernel stops
-them, so their I/O fails, but the devices remain until the host reboots.
+A daemon killed without draining leaves its devices behind as **orphans**. The
+kernel stops them, so their I/O fails, but doesn't delete them.
+
+The reaper (`device::reap`) runs at startup and every five minutes after.
+
+A filesystem mounted on an orphan stays mounted, failing with I/O errors, until
+whoever mounted it unmounts it. A kill with I/O in flight can leave a device the
+kernel can't stop, which stays until the host reboots.
+
+### Open file description locks
+
+Every daemon on a host draws from one space of ublk device numbers. They agree
+who owns a number with open file description (OFD) locks (`Control::lock`). Each
+`Control` opens its own handle on `/dev/ublk-control`, and takes an `F_OFD_SETLK`
+lock on the byte at its device number. It holds the lock until it deletes the
+device.
+
+An OFD lock belongs to its open file description, not its process, so two
+handles in the same process conflict too. The kernel releases a lock when its
+handle closes, so a daemon's death releases all its numbers.
+
+`Control::add` takes the lowest number it can lock that no device has. The reaper
+locks a number before it examines the device, so it never deletes a device a live
+daemon owns.
+
+The locks are on one inode, so every daemon on a host must open the same
+`/dev/ublk-control`: the one on the host's devtmpfs.
+
+On each pass, the reaper lists `/sys/class/ublk-char`, and locks each device
+number in turn, skipping any another `Control` holds. It deletes a device whose
+info shows this crate's marker and a stopped state.
 
 ## Caller responsibilities
 
@@ -655,7 +691,7 @@ host lacks.
 
 ### Kernel
 
-- Linux 6.11 or later, with `ublk_drv` loaded. Teardown uses
+- Linux 6.11 or later, with `ublk_drv` loaded. Teardown and the reaper use
   `UBLK_U_CMD_DEL_DEV_ASYNC`, which 6.11 added. On older kernels every delete
   fails, and every device is left behind.
 - On Ubuntu, `ublk_drv` ships in `linux-modules-extra-$(uname -r)`.
@@ -671,7 +707,7 @@ host lacks.
 The daemon needs:
 
 - **`CAP_SYS_ADMIN`**, for ublk control commands: adding, configuring, starting,
-  stopping, and deleting devices. ublk requires it for any device not
+  stopping, deleting, and inspecting devices. ublk requires it for any device not
   created with `UBLK_F_UNPRIVILEGED_DEV`, which the daemon doesn't use. It also
   lets the daemon create io_uring rings when `kernel.io_uring_disabled` is 1.
 - **`CAP_SYS_RESOURCE`**, for `PR_SET_IO_FLUSHER` on each owner thread. Without
@@ -682,7 +718,8 @@ The daemon needs:
 - **The host's devtmpfs at `/dev`.** The daemon opens `/dev/ublkcN` as soon as it
   adds device N, and the client opens `/dev/ublkbN` after `Promoted`. Only the
   host's devtmpfs gains these nodes. A container with its own `/dev` sees only
-  the nodes present when it started.
+  the nodes present when it started. Every daemon must also open the same
+  `/dev/ublk-control` inode for the device-number locks to apply.
 - **A seccomp profile that allows `io_uring_setup` and `io_uring_enter`.**
   Docker's default profile blocks them, and `--privileged` disables seccomp.
 - **The host's PID namespace, on Linux 6.17 and 6.18.** See [Kernel](#kernel).
@@ -753,6 +790,7 @@ Paths are relative to `src/`.
   - `chunk.rs`: Chunk encoding and `apply`.
   - `compactor.rs`: `Compactor` and `Policy`: allocation, horizons, copies, and
     floors.
+  - `reap.rs`: The orphan reaper thread.
 
 ## Testing
 
@@ -776,7 +814,7 @@ with what the case wrote.
 | File | Covers |
 | --- | --- |
 | `protocol.rs` | Request order and refusals. |
-| `lifecycle.rs` | Open and close, and suspended and absent journals. |
+| `lifecycle.rs` | Open and close, suspended and absent journals, orphan reaping. |
 | `durability.rs` | Recovery of raw writes and ext4 trees, interrupted transactions, the write pause, runaway deltas. |
 | `failover.rs` | Repeated failover, and promotion across fences a standby never saw. |
 | `pruning.rs` | Floors that replay finds, and deleting fragments below the floor. |
