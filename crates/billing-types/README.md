@@ -13,6 +13,13 @@ tenant usage from Bigtable. It returns the calculated invoices without writing
 them to storage. PostgreSQL inputs are read in one snapshot, and the transaction
 is released before reading Bigtable.
 
+`invoices::freeze` reads usage, calculates invoices, and inserts them in serial
+batches of 500 tenants. One PostgreSQL transaction commits all new invoices;
+a read, calculation, or insertion failure rolls back earlier batches. The write
+transaction stays open during subsequent Bigtable reads. Reruns retain invoices
+already frozen for that tenant and month, including their Stripe invoice IDs.
+The PostgreSQL and Bigtable reads do not share a snapshot.
+
 Calculation takes a year and `chrono::Month` to select a UTC calendar month.
 Charges use cumulative integer bytes and seconds rounded up to billable GB and
 hours, with amounts calculated in cents.
