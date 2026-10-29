@@ -782,6 +782,53 @@ mod test {
     }
 }
 
+/// Reject VMM execution on V1, and declared egress which no execution of the
+/// task could enforce or which names invalid hosts, while preserving both for
+/// the connector service.
+fn walk_execution(
+    scope: Scope,
+    entity: &'static str,
+    name: &str,
+    task_type: models::CatalogType,
+    vmm: bool,
+    egress: Option<&models::Egress>,
+    shards: &models::ShardTemplate,
+    errors: &mut tables::Errors,
+) -> Option<proto_flow::flow::ConnectorExecution> {
+    if vmm && !shards.uses_runtime_v2(task_type) {
+        Error::VmmRequiresRuntimeV2 {
+            entity,
+            name: name.to_string(),
+            flag: models::ENABLE_RUNTIME_V2,
+        }
+        .push(scope.push_prop("vmm"), errors);
+    }
+    if let Some(models::Egress { hosts }) = egress {
+        let scope = scope.push_prop("egress");
+
+        if !vmm {
+            Error::EgressRequiresEnforcement {
+                entity,
+                name: name.to_string(),
+            }
+            .push(scope, errors);
+        }
+        // Each host on its own, so that every invalid one is reported.
+        let scope = scope.push_prop("hosts");
+        for (index, host) in hosts.iter().enumerate() {
+            if let Err(detail) = egress::hosts("egress.hosts", std::slice::from_ref(host)) {
+                Error::InvalidEgressHost {
+                    entity,
+                    name: name.to_string(),
+                    detail,
+                }
+                .push(scope.push_item(index), errors);
+            }
+        }
+    }
+    assemble::connector_execution(vmm, egress)
+}
+
 /// Issue a unary Validate `kind` to the task's connector (or to the permissive
 /// no-op connector when `no_op`). Errors are pushed to `errors` under `scope`.
 /// Returns the Validated response, network ports, and the ConnectorSpec.
@@ -791,6 +838,7 @@ async fn validate_connector<V>(
     no_op: bool,
     data_plane_id: models::Id,
     log_level: Option<&str>,
+    execution: Option<proto_flow::flow::ConnectorExecution>,
     kind: proto_flow::connector::request::Kind,
     unwrap_validated: fn(proto_flow::connector::response::Kind) -> Option<V>,
     errors: &mut tables::Errors,
@@ -811,6 +859,7 @@ async fn validate_connector<V>(
             log_level: log_level
                 .and_then(proto_flow::ops::log::Level::from_str_name)
                 .unwrap_or_default() as i32,
+            execution,
             ..Default::default()
         }),
         kind: Some(kind),

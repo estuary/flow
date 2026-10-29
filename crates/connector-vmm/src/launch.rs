@@ -1,0 +1,881 @@
+//! The ordered sequence `run` executes, from a policy on disk to a running VM.
+//!
+//! `check` is the prefix `run` shares with `check-launch`. `run` resolves
+//! paths, descriptors and image config into a `Machine`. `enter` issues
+//! libkrun calls that tests can record without a VM.
+
+use crate::image;
+use crate::krun::{self, Krun};
+use crate::net;
+use std::convert::Infallible;
+use std::net::SocketAddr;
+use std::os::fd::{AsRawFd, RawFd};
+use std::path::{Path, PathBuf};
+
+/// The guest init, carried in the VMM's own image and injected into the guest
+/// root as an overlay file. The leading slash is the guest path; the overlay
+/// entry below has none, because overlay paths are entries in the root
+/// virtiofs, which is how libkrun serves its own `/init.krun`.
+pub const GUEST_INIT: &str = "/flow-guest-init";
+const GUEST_INIT_OVERLAY: &str = "flow-guest-init";
+const KRUN_CONFIG_OVERLAY: &str = ".krun_config.json";
+
+/// Where the guest mounts the connector mount, whatever its host path: the
+/// guest cannot make a host path's directories in a read-only root.
+pub const GUEST_CONNECTOR_MOUNT: &str = "/connector-mount";
+
+/// Mount points, as virtual directories in the root virtiofs. The scratch
+/// disk's must match flow-guest-init's `root::SCRATCH`.
+const CONNECTOR_MOUNT_POINT: &str = "connector-mount";
+const SCRATCH_MOUNT_POINT: &str = "scratch";
+
+/// Every entry the VMM adds to the guest's root, none of which a persistent
+/// disk's guest path may begin with.
+const ROOT_ENTRIES: [&str; 4] = [
+    GUEST_INIT_OVERLAY,
+    KRUN_CONFIG_OVERLAY,
+    CONNECTOR_MOUNT_POINT,
+    SCRATCH_MOUNT_POINT,
+];
+
+/// The connector image's private storage volume, mounted and served read-only.
+const ROOTFS: &str = "/rootfs";
+const SCRATCH_BACKING: &str = "/scratch-backing";
+const PERSISTENT_DISK_SOURCE: &str = "/persistent-disk";
+const INIT_SOCK: &str = "/sock/init.sock";
+
+const CONNECTOR_MOUNT_TAG: &str = "connector-mount";
+const PERSISTENT_DISK_TAG: &str = "persistent-disk";
+const SCRATCH_ID: &str = "scratch";
+
+const VSOCK_PORT: u32 = 49092;
+
+const KVM: &str = "/dev/kvm";
+/// `KVM_GET_API_VERSION`, `_IO(KVMIO, 0x00)`, and the one version KVM has.
+const KVM_GET_API_VERSION: libc::Ioctl = 0xAE00;
+const KVM_API_VERSION: libc::c_int = 12;
+
+/// Where the scratch descriptor lands, so that everything above it can be
+/// closed in one call and the name libkrun is given is a constant.
+const SCRATCH_FD: RawFd = 3;
+
+#[derive(clap::Args, Debug)]
+pub struct Args {
+    /// The egress policy JSON, as the launcher writes it into /init/policy.json.
+    #[arg(long, value_name = "PATH")]
+    pub policy: PathBuf,
+
+    /// The connector mount, at the absolute path it has on the host. Shared
+    /// into the guest read-only at /connector-mount, which CONNECTOR_MOUNT in
+    /// the workload's environment names.
+    #[arg(long, value_name = "PATH", value_parser = guest_path)]
+    pub connector_mount: String,
+
+    /// Guest RAM. The caller sizes the container's own limit above it.
+    #[arg(long, value_name = "N")]
+    pub memory_mib: u32,
+
+    #[arg(long, value_name = "N")]
+    pub vcpus: u8,
+
+    /// The size of the guest's scratch disk, which lives and dies with this VM.
+    #[arg(long, value_name = "N")]
+    pub disk_mib: u64,
+
+    /// Declared TCP ports forwarded from the uplink into the guest.
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
+    pub ingress_port: Vec<u16>,
+
+    /// Mount the task's persistent disk share at this absolute guest path,
+    /// whose first component must not exist in the connector image.
+    #[arg(long, value_name = "GUEST_PATH", value_parser = guest_path)]
+    pub persistent_disk: Option<String>,
+
+    /// Test only: run the workload as guest root.
+    #[arg(long)]
+    pub run_as_root: bool,
+
+    /// Test only: run CMD under /bin/sh as guest root before privileges drop.
+    #[arg(long, value_name = "CMD")]
+    pub as_root_exec: Option<String>,
+
+    /// Test only: libkrun debug logging, VMM stage lines, the console tee and
+    /// the resolver's per-query decision log.
+    #[arg(long)]
+    pub debug: bool,
+
+    /// Test only: the upstream the resolver forwards to, in place of the
+    /// nameserver in the VMM's own /etc/resolv.conf.
+    #[arg(long, value_name = "IP:PORT")]
+    pub resolver_upstream: Option<SocketAddr>,
+
+    /// Test only: replace the default workload argv. Takes every remaining
+    /// argument, so it must come last.
+    #[arg(long, value_name = "ARGV", num_args = 1.., allow_hyphen_values = true)]
+    pub exec: Option<Vec<String>>,
+}
+
+/// Everything `enter` needs, with nothing left to look up.
+pub struct Machine {
+    pub vcpus: u8,
+    pub memory_mib: u32,
+    pub debug: bool,
+    pub connector_mount: String,
+    pub persistent_disk: bool,
+    /// Virtual directories for the root virtiofs, parents first.
+    pub mount_points: Vec<String>,
+    pub overlays: Vec<Overlay>,
+    pub scratch_path: String,
+    pub console: Console,
+}
+
+pub struct Overlay {
+    pub path: &'static str,
+    /// `'static` because libkrun serves overlay files out of this memory for
+    /// the VM's whole life and never copies it, so the mapping is leaked.
+    pub data: &'static [u8],
+    pub mode: u32,
+}
+
+pub struct Console {
+    pub input: RawFd,
+    pub output: RawFd,
+    pub error: RawFd,
+}
+
+pub struct Checked {
+    pub policy: egress::Policy,
+    pub inspect: image::InspectConfig,
+    pub mount_points: Vec<String>,
+}
+
+/// Shared read-only prerequisites for `run` and `check-launch`.
+/// VM-specific checks remain in `run`.
+pub fn check(args: &Args) -> anyhow::Result<Checked> {
+    check_read_only(&args.connector_mount)?;
+    net::check_ipv6_disabled("default")?;
+    let policy = egress::load(&args.policy)?;
+    let inspect =
+        image::read_inspect(&Path::new(&args.connector_mount).join("image-inspect.json"))?;
+
+    let mut mount_points = vec![
+        SCRATCH_MOUNT_POINT.to_string(),
+        CONNECTOR_MOUNT_POINT.to_string(),
+    ];
+    if let Some(guest_path) = &args.persistent_disk {
+        let dirs = persistent_disk_dirs(guest_path)
+            .and_then(|dirs| check_absent_from_image(Path::new(ROOTFS), &dirs[0]).map(|()| dirs))
+            .map_err(|e| e.context(format!("persistent disk guest path {guest_path:?}")))?;
+        mount_points.extend(dirs);
+    }
+
+    Ok(Checked {
+        policy,
+        inspect,
+        mount_points,
+    })
+}
+
+pub fn run(args: &Args) -> anyhow::Result<Infallible> {
+    let Checked {
+        policy,
+        inspect,
+        mount_points,
+    } = check(args)?;
+    check_kvm(KVM)?;
+
+    // The first side-effecting step, so a missing or wrong library is the
+    // first line on stderr with nothing half-built behind it.
+    let krun = krun::Dynamic::load()?;
+    stage(args.debug, "libkrun-loaded");
+
+    // The guest's first packet has to meet a finished ruleset, so the whole
+    // network is up before anything else happens.
+    let vmm_subnets = net::vmm_subnets()?;
+    let ruleset = crate::ruleset::render(&policy, &vmm_subnets, &args.ingress_port)?;
+    net::create_tap()?;
+    net::check_ipv6_disabled(net::TAP)?;
+    net::apply_ruleset(&ruleset)?;
+    stage(args.debug, "network-ready");
+
+    let scratch = crate::disk::create(Path::new(SCRATCH_BACKING), args.disk_mib)?;
+    stage(args.debug, "scratch-ready");
+
+    let image = image::load(inspect, Path::new(ROOTFS))?;
+    let guest_argv = image::guest_argv(&image::Guest {
+        connector_mount: GUEST_CONNECTOR_MOUNT,
+        persistent_disk: args.persistent_disk.as_deref(),
+        run_as_root: args.run_as_root,
+        as_root_exec: args.as_root_exec.as_deref(),
+        exec: args.exec.as_deref(),
+        uid: image.uid,
+        gid: image.gid,
+        groups: &image.groups,
+        vsock_port: VSOCK_PORT,
+    });
+    let krun_config = image::krun_config(&image, &guest_argv, &contract_env(GUEST_CONNECTOR_MOUNT));
+
+    let overlays = vec![
+        Overlay {
+            path: GUEST_INIT_OVERLAY,
+            data: mmap(Path::new(GUEST_INIT))?,
+            mode: 0o100755,
+        },
+        Overlay {
+            path: KRUN_CONFIG_OVERLAY,
+            data: Box::leak(krun_config.into_boxed_slice()),
+            mode: 0o100644,
+        },
+    ];
+    stage(args.debug, "image-config-ready");
+
+    // Sweep before starting workers, which share this descriptor table.
+    let scratch = sweep(scratch)?;
+    stage(args.debug, "descriptors-swept");
+
+    let console = Console {
+        input: crate::console::input()?,
+        output: crate::console::output(args.debug)?,
+        error: libc::STDERR_FILENO,
+    };
+
+    if policy.egress == egress::Mode::Public {
+        let upstream = match args.resolver_upstream {
+            Some(upstream) => upstream,
+            None => net::upstream_nameserver()?,
+        };
+        // Returns once the resolver is listening, so a failure here is still a
+        // pre-VM failure. After it, the resolver ends the process itself.
+        crate::resolver::start(crate::resolver::Config::new(
+            &policy,
+            &vmm_subnets,
+            SocketAddr::new(net::VMM_IP.into(), 53),
+            upstream,
+            args.debug,
+        ))?;
+        stage(args.debug, "resolver-listening");
+    }
+
+    // The socket libkrun binds inherits this, so `init.sock` is mode 0777 and
+    // an unprivileged process can dial it. The `sock/` directory's mode is the
+    // access control, and it belongs to the launcher.
+    // SAFETY: umask takes no pointers and cannot fail.
+    unsafe { libc::umask(0) };
+
+    let machine = Machine {
+        vcpus: args.vcpus,
+        memory_mib: args.memory_mib,
+        debug: args.debug,
+        connector_mount: args.connector_mount.clone(),
+        persistent_disk: args.persistent_disk.is_some(),
+        mount_points,
+        overlays,
+        scratch_path: crate::disk::proc_path(scratch),
+        console,
+    };
+    stage(args.debug, "krun-start-enter");
+
+    enter(&krun, &machine)
+}
+
+pub fn enter(krun: &dyn Krun, machine: &Machine) -> anyhow::Result<Infallible> {
+    krun.init_log(libc::STDERR_FILENO, machine.debug)?;
+    let ctx = krun.create_ctx()?;
+    krun.set_vm_config(ctx, machine.vcpus, machine.memory_mib)?;
+
+    // Enforce read-only access outside the guest, even if its kernel is compromised.
+    krun.add_virtiofs3(ctx, krun::ROOT_TAG, ROOTFS, true)?;
+    krun.add_virtiofs3(ctx, CONNECTOR_MOUNT_TAG, &machine.connector_mount, true)?;
+
+    if machine.persistent_disk {
+        krun.add_virtiofs3(ctx, PERSISTENT_DISK_TAG, PERSISTENT_DISK_SOURCE, false)?;
+    }
+    for path in &machine.mount_points {
+        krun.add_overlay_dir(ctx, path, 0o040755)?;
+    }
+    for overlay in &machine.overlays {
+        krun.add_overlay_file(ctx, overlay.path, overlay.data, overlay.mode)?;
+    }
+    krun.add_scratch_disk(ctx, SCRATCH_ID, &machine.scratch_path)?;
+    krun.add_net_tap(ctx, net::TAP, &net::GUEST_MAC)?;
+
+    // The explicit zero is load-bearing. The implicit vsock device enables TSI
+    // INET hijacking, which would leave host-side socket proxies live even
+    // with a tap in place.
+    krun.disable_implicit_vsock(ctx)?;
+    krun.add_vsock(ctx, 0)?;
+    // libkrun listens, the guest connects, and neither side half-closes: a
+    // shutdown of one direction would be read as end of stream by connector-init.
+    krun.add_vsock_port2(ctx, VSOCK_PORT, INIT_SOCK, true)?;
+
+    krun.disable_implicit_console(ctx)?;
+    krun.add_console(
+        ctx,
+        machine.console.input,
+        machine.console.output,
+        machine.console.error,
+    )?;
+
+    krun.start_enter(ctx)
+}
+
+/// Move the scratch disk to a known descriptor and close everything above it.
+///
+/// The descriptors this process still owns afterwards are exactly stdio and
+/// the scratch disk. The overlay mappings survive their files being closed,
+/// nothing holds a tap descriptor - `ip` creates the device and libkrun opens
+/// `/dev/net/tun` itself - and the resolver's sockets do not exist yet.
+fn sweep(scratch: RawFd) -> anyhow::Result<RawFd> {
+    if scratch != SCRATCH_FD {
+        // SAFETY: both are descriptor numbers; dup2 closes whatever was at the
+        // destination, and the source stays open until the range close below.
+        if unsafe { libc::dup2(scratch, SCRATCH_FD) } < 0 {
+            return Err(anyhow::anyhow!(std::io::Error::last_os_error())
+                .context(format!("moving the scratch disk to fd {SCRATCH_FD}")));
+        }
+    }
+    // SAFETY: closes descriptors this process has no further use for.
+    if unsafe { libc::close_range(SCRATCH_FD as libc::c_uint + 1, libc::c_uint::MAX, 0) } < 0 {
+        return Err(anyhow::anyhow!(std::io::Error::last_os_error())
+            .context("closing inherited descriptors"));
+    }
+    Ok(SCRATCH_FD)
+}
+
+/// `/init` is excluded because its policy is read once before VM setup.
+fn read_only_mounts(connector_mount: &str) -> [(&str, &str); 3] {
+    [
+        ("/", "--read-only"),
+        (
+            ROOTFS,
+            "--mount type=volume,source=V,destination=/rootfs,readonly",
+        ),
+        (
+            connector_mount,
+            "--mount type=bind,source=M,target=M,readonly",
+        ),
+    ]
+}
+
+/// Container mounts also enforce read-only access: the connector mount may
+/// carry host credentials, and a writable `/rootfs` would grow podman's storage.
+fn check_read_only(connector_mount: &str) -> anyhow::Result<()> {
+    for (path, flag) in read_only_mounts(connector_mount) {
+        let c_path = std::ffi::CString::new(path)
+            .map_err(|e| anyhow::anyhow!("{path} cannot be a C string: {e}"))?;
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+
+        // SAFETY: a NUL-terminated path and a `statvfs` the call fills in,
+        // both alive across it.
+        if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } < 0 {
+            return Err(
+                anyhow::anyhow!(std::io::Error::last_os_error()).context(format!("statvfs {path}"))
+            );
+        }
+        if stat.f_flag & libc::ST_RDONLY == 0 {
+            anyhow::bail!("{}", writable_mount(path, flag));
+        }
+    }
+    Ok(())
+}
+
+/// libkrun panics across its C boundary when it can't create a VM, with a
+/// backtrace which says nothing of KVM. So a VMM without KVM says so, and
+/// exits, before libkrun is called.
+fn check_kvm(path: &str) -> anyhow::Result<()> {
+    let kvm = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|err| {
+            anyhow::anyhow!(err).context(format!("KVM is unavailable to this VMM: opening {path}"))
+        })?;
+    // SAFETY: an ioctl which takes no argument, on a descriptor open across it.
+    let version = unsafe { libc::ioctl(kvm.as_raw_fd(), KVM_GET_API_VERSION) };
+    if version < 0 {
+        return Err(anyhow::anyhow!(std::io::Error::last_os_error())
+            .context(format!("KVM is unavailable to this VMM: {path} is not KVM")));
+    }
+    if version != KVM_API_VERSION {
+        anyhow::bail!(
+            "KVM is unavailable to this VMM: {path} has API version {version}, not {KVM_API_VERSION}"
+        );
+    }
+    Ok(())
+}
+
+fn writable_mount(path: &str, flag: &str) -> String {
+    format!("{path} is writable; the VMM container must be launched with `{flag}`")
+}
+
+/// Forward the runtime's log settings: defaults depend on the data plane.
+fn contract_env(mount: &str) -> Vec<(&'static str, String)> {
+    let mut env = vec![("CONNECTOR_MOUNT", mount.to_string())];
+
+    for name in ["LOG_FORMAT", "LOG_LEVEL"] {
+        if let Ok(value) = std::env::var(name) {
+            env.push((name, value));
+        }
+    }
+    env
+}
+
+fn stage(debug: bool, name: &str) {
+    if debug {
+        eprint!("{}", crate::framed(&format!("stage={name}")));
+    }
+}
+
+/// Leak the overlay mapping for libkrun; the backing file can close on return.
+fn mmap(path: &Path) -> anyhow::Result<&'static [u8]> {
+    let file = std::fs::File::open(path)
+        .map_err(|e| anyhow::anyhow!("opening {}: {e}", path.display()))?;
+    let len = file
+        .metadata()
+        .map_err(|e| anyhow::anyhow!("sizing {}: {e}", path.display()))?
+        .len() as usize;
+    if len == 0 {
+        anyhow::bail!("{} is empty", path.display());
+    }
+
+    // SAFETY: `len` is the file's size and the mapping is never unmapped.
+    let address = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            len,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            file.as_raw_fd(),
+            0,
+        )
+    };
+    if address == libc::MAP_FAILED {
+        return Err(anyhow::anyhow!(std::io::Error::last_os_error())
+            .context(format!("mmap {}", path.display())));
+    }
+    // SAFETY: mmap returned a readable mapping of `len` bytes that outlives
+    // the process.
+    Ok(unsafe { std::slice::from_raw_parts(address.cast::<u8>(), len) })
+}
+
+/// Virtual directories, parents first. Their top component must be new to
+/// the root because a virtual directory hides any image entry of its name.
+fn persistent_disk_dirs(guest_path: &str) -> anyhow::Result<Vec<String>> {
+    let components: Vec<&str> = guest_path
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .collect();
+    if components.iter().any(|c| *c == "." || *c == "..") {
+        anyhow::bail!("dot components cannot name a mount point");
+    }
+    let top = components[0];
+    if ROOT_ENTRIES.contains(&top) {
+        anyhow::bail!("/{top} is the VMM's own");
+    }
+    Ok((1..=components.len())
+        .map(|n| components[..n].join("/"))
+        .collect())
+}
+
+/// Not following a link: an image's `/top -> /usr` is still an image entry
+/// that a virtual directory would hide.
+fn check_absent_from_image(rootfs: &Path, top: &str) -> anyhow::Result<()> {
+    match std::fs::symlink_metadata(rootfs.join(top)) {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(_) => {
+            anyhow::bail!("/{top} exists in the connector image, and the mount point would hide it")
+        }
+        Err(err) => Err(anyhow::anyhow!(err).context(format!("inspecting /{top} in the image"))),
+    }
+}
+
+/// A relative path would be resolved against the image's working directory,
+/// and mounting over `/` would replace the root of the guest's mount
+/// namespace, which silently costs the workload's exit code.
+fn guest_path(raw: &str) -> Result<String, String> {
+    if !raw.starts_with('/') {
+        return Err("expected an absolute path".to_string());
+    }
+    if raw.trim_end_matches('/').is_empty() {
+        return Err("the guest root is not a mount point for this share".to_string());
+    }
+    Ok(raw.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn kvm_must_open_and_be_kvm() {
+        let missing = super::check_kvm("/nonexistent/kvm").unwrap_err();
+        assert_eq!(
+            format!("{missing:#}"),
+            "KVM is unavailable to this VMM: opening /nonexistent/kvm: \
+             No such file or directory (os error 2)"
+        );
+        let other = super::check_kvm("/dev/null").unwrap_err();
+        assert_eq!(
+            format!("{other:#}"),
+            "KVM is unavailable to this VMM: /dev/null is not KVM: \
+             Inappropriate ioctl for device (os error 25)"
+        );
+    }
+
+    use super::{Console, Machine, Overlay};
+    use std::convert::Infallible;
+    use std::os::fd::{AsRawFd, RawFd};
+    use std::sync::Mutex;
+
+    const CHILD_MARKER: &str = "CONNECTOR_VMM_DESCRIPTOR_CHILD";
+    const CHILD_TEST: &str = "launch::tests::descriptor_ownership_child";
+    const REPORT_BEGIN: &str = "-- descriptor report --";
+    const REPORT_END: &str = "-- end --";
+
+    #[test]
+    fn libkrun_call_sequence() {
+        let mut table = String::new();
+
+        for (name, machine) in [
+            ("base", base()),
+            (
+                "with a persistent disk",
+                Machine {
+                    persistent_disk: true,
+                    mount_points: ["scratch", "connector-mount", "acmeCo", "acmeCo/state"]
+                        .map(String::from)
+                        .to_vec(),
+                    ..base()
+                },
+            ),
+            (
+                "--debug",
+                Machine {
+                    debug: true,
+                    console: Console {
+                        input: 4,
+                        // The tee's pipe, not stdout.
+                        output: 6,
+                        error: 2,
+                    },
+                    ..base()
+                },
+            ),
+        ] {
+            let recorder = Recording::default();
+            let error = super::enter(&recorder, &machine)
+                .expect_err("the recording implementation never starts a VM");
+
+            table.push_str(&format!("## {name}\n"));
+            table.push_str(&recorder.calls());
+            table.push_str(&format!("-> {error}\n\n"));
+        }
+        insta::assert_snapshot!(table);
+    }
+
+    #[test]
+    fn persistent_disk_mount_points() {
+        let rootfs = tempfile::tempdir().expect("a temporary directory");
+        std::fs::create_dir(rootfs.path().join("var")).unwrap();
+        std::os::unix::fs::symlink("/nowhere", rootfs.path().join("data")).unwrap();
+        let mut table = String::new();
+
+        for guest_path in [
+            "/acmeCo/state",
+            "/acmeCo//state/",
+            "/acmeCo",
+            "/var/lib/state",
+            "/data/state",
+            "/scratch/state",
+            "/connector-mount/state",
+            "/acmeCo/../var",
+        ] {
+            let result = super::persistent_disk_dirs(guest_path).and_then(|dirs| {
+                super::check_absent_from_image(rootfs.path(), &dirs[0]).map(|()| dirs)
+            });
+            match result {
+                Ok(dirs) => table.push_str(&format!("{guest_path}: {dirs:?}\n")),
+                Err(err) => table.push_str(&format!("{guest_path}: {err:#}\n")),
+            }
+        }
+        insta::assert_snapshot!(table, @r#"
+        /acmeCo/state: ["acmeCo", "acmeCo/state"]
+        /acmeCo//state/: ["acmeCo", "acmeCo/state"]
+        /acmeCo: ["acmeCo"]
+        /var/lib/state: /var exists in the connector image, and the mount point would hide it
+        /data/state: /data exists in the connector image, and the mount point would hide it
+        /scratch/state: /scratch is the VMM's own
+        /connector-mount/state: /connector-mount is the VMM's own
+        /acmeCo/../var: dot components cannot name a mount point
+        "#);
+    }
+
+    #[test]
+    fn the_read_only_mounts_the_launcher_owns() {
+        let mut table = String::new();
+
+        for (path, flag) in super::read_only_mounts("/tmp/connector-mounts-0/mount-acme") {
+            table.push_str(&format!("{}\n", super::writable_mount(path, flag)));
+        }
+        for line in crate::framed(&table).lines() {
+            assert!(
+                !line.starts_with(' '),
+                "framed a line beginning with a space: {line:?}"
+            );
+        }
+        insta::assert_snapshot!(table);
+    }
+
+    /// Runs the real sweep in a child process and reports on it, because a
+    /// sweep inside the test harness would close the harness's own
+    /// descriptors.
+    #[test]
+    fn descriptor_ownership() {
+        let output =
+            std::process::Command::new(std::env::current_exe().expect("a test binary has a path"))
+                .args(["--exact", CHILD_TEST, "--nocapture", "--test-threads=1"])
+                .env(CHILD_MARKER, "1")
+                .output()
+                .expect("spawning the child");
+
+        let stdout = String::from_utf8(output.stdout).expect("the child prints UTF-8");
+        let stderr = String::from_utf8(output.stderr).expect("the child prints UTF-8");
+
+        assert!(
+            output.status.success(),
+            "child failed: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+            output.status,
+        );
+        assert!(
+            stderr.contains("the child still reaches stderr"),
+            "stderr was not usable after the sweep: {stderr:?}",
+        );
+
+        let report = stdout
+            .split_once(REPORT_BEGIN)
+            .and_then(|(_, rest)| rest.split_once(REPORT_END))
+            .map(|(report, _)| report.trim().to_string())
+            .unwrap_or_else(|| panic!("no report in the child's output:\n{stdout}"));
+
+        insta::assert_snapshot!(report);
+    }
+
+    #[test]
+    fn descriptor_ownership_child() {
+        if std::env::var_os(CHILD_MARKER).is_none() {
+            return;
+        }
+        let directory = tempfile::tempdir().expect("a temporary directory");
+
+        // Opened first so it takes the lower number: the sweep must close it
+        // even though the descriptor it keeps is opened afterwards.
+        let unrelated = open(&directory.path().join("unrelated"), b"unrelated");
+        let needed = open(&directory.path().join("needed"), b"needed");
+
+        let scratch = super::sweep(needed.as_raw_fd()).expect("the sweep succeeds");
+        let (unrelated, needed) = (unrelated.as_raw_fd(), needed.as_raw_fd());
+
+        println!("{REPORT_BEGIN}");
+        println!(
+            "the retained descriptor is at fd {scratch}: {}",
+            scratch == 3
+        );
+        println!(
+            "it still reads what it held: {}",
+            read(scratch) == b"needed",
+        );
+        println!(
+            "the unrelated descriptor is closed: {}",
+            unrelated == scratch || is_closed(unrelated),
+        );
+        println!(
+            "the original descriptor number is closed: {}",
+            needed == scratch || is_closed(needed),
+        );
+        println!("{REPORT_END}");
+
+        eprintln!("the child still reaches stderr");
+
+        // libtest would otherwise tear down through descriptors that are gone.
+        std::io::Write::flush(&mut std::io::stdout()).expect("flushing stdout");
+        std::process::exit(0);
+    }
+
+    fn open(path: &std::path::Path, content: &[u8]) -> std::fs::File {
+        std::fs::write(path, content).expect("writing the fixture");
+        std::fs::File::open(path).expect("opening the fixture")
+    }
+
+    fn read(fd: RawFd) -> Vec<u8> {
+        let mut buffer = [0u8; 64];
+        // SAFETY: `buffer` outlives the call and its length is its own.
+        let read = unsafe { libc::pread(fd, buffer.as_mut_ptr().cast(), buffer.len(), 0) };
+        assert!(
+            read >= 0,
+            "reading fd {fd}: {}",
+            std::io::Error::last_os_error()
+        );
+        buffer[..read as usize].to_vec()
+    }
+
+    fn is_closed(fd: RawFd) -> bool {
+        // SAFETY: a query of one descriptor number, which is safe whether or
+        // not it names anything.
+        let queried = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        queried < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EBADF)
+    }
+
+    /// Records what the launch sequence asked of libkrun, without a VM.
+    #[derive(Default)]
+    struct Recording {
+        calls: Mutex<Vec<String>>,
+    }
+
+    impl Recording {
+        fn record(&self, call: String) -> anyhow::Result<()> {
+            self.calls.lock().unwrap().push(call);
+            Ok(())
+        }
+
+        fn calls(&self) -> String {
+            self.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|call| format!("{call}\n"))
+                .collect()
+        }
+    }
+
+    impl crate::krun::Krun for Recording {
+        fn init_log(&self, target: RawFd, debug: bool) -> anyhow::Result<()> {
+            self.record(format!("init_log(target={target}, debug={debug})"))
+        }
+
+        fn create_ctx(&self) -> anyhow::Result<u32> {
+            self.record("create_ctx()".to_string())?;
+            Ok(7)
+        }
+
+        fn set_vm_config(&self, ctx: u32, vcpus: u8, memory_mib: u32) -> anyhow::Result<()> {
+            self.record(format!(
+                "set_vm_config(ctx={ctx}, vcpus={vcpus}, memory_mib={memory_mib})"
+            ))
+        }
+
+        fn add_virtiofs3(
+            &self,
+            ctx: u32,
+            tag: &str,
+            path: &str,
+            read_only: bool,
+        ) -> anyhow::Result<()> {
+            self.record(format!(
+                "add_virtiofs3(ctx={ctx}, tag={tag:?}, path={path:?}, read_only={read_only})"
+            ))
+        }
+
+        fn add_overlay_file(
+            &self,
+            ctx: u32,
+            path: &str,
+            data: &'static [u8],
+            mode: u32,
+        ) -> anyhow::Result<()> {
+            self.record(format!(
+                "add_overlay_file(ctx={ctx}, path={path:?}, len={}, mode={mode:o})",
+                data.len()
+            ))
+        }
+
+        fn add_overlay_dir(&self, ctx: u32, path: &str, mode: u32) -> anyhow::Result<()> {
+            self.record(format!(
+                "add_overlay_dir(ctx={ctx}, path={path:?}, mode={mode:o})"
+            ))
+        }
+
+        fn add_scratch_disk(&self, ctx: u32, id: &str, path: &str) -> anyhow::Result<()> {
+            self.record(format!(
+                "add_scratch_disk(ctx={ctx}, id={id:?}, path={path:?})"
+            ))
+        }
+
+        fn add_net_tap(&self, ctx: u32, tap: &str, mac: &[u8; 6]) -> anyhow::Result<()> {
+            let mac: Vec<String> = mac.iter().map(|byte| format!("{byte:02x}")).collect();
+            self.record(format!(
+                "add_net_tap(ctx={ctx}, tap={tap:?}, mac={})",
+                mac.join(":")
+            ))
+        }
+
+        fn disable_implicit_vsock(&self, ctx: u32) -> anyhow::Result<()> {
+            self.record(format!("disable_implicit_vsock(ctx={ctx})"))
+        }
+
+        fn add_vsock(&self, ctx: u32, tsi_features: u32) -> anyhow::Result<()> {
+            self.record(format!("add_vsock(ctx={ctx}, tsi_features={tsi_features})"))
+        }
+
+        fn add_vsock_port2(
+            &self,
+            ctx: u32,
+            port: u32,
+            path: &str,
+            listen: bool,
+        ) -> anyhow::Result<()> {
+            self.record(format!(
+                "add_vsock_port2(ctx={ctx}, port={port}, path={path:?}, listen={listen})"
+            ))
+        }
+
+        fn disable_implicit_console(&self, ctx: u32) -> anyhow::Result<()> {
+            self.record(format!("disable_implicit_console(ctx={ctx})"))
+        }
+
+        fn add_console(
+            &self,
+            ctx: u32,
+            input: RawFd,
+            output: RawFd,
+            error: RawFd,
+        ) -> anyhow::Result<()> {
+            self.record(format!(
+                "add_console(ctx={ctx}, input={input}, output={output}, error={error})"
+            ))
+        }
+
+        fn start_enter(&self, ctx: u32) -> anyhow::Result<Infallible> {
+            self.record(format!("start_enter(ctx={ctx})"))?;
+            anyhow::bail!("the recording implementation does not start a VM")
+        }
+    }
+
+    /// Fixed descriptors, so the sequence is the only thing the snapshot can
+    /// move on.
+    fn base() -> Machine {
+        Machine {
+            vcpus: 2,
+            memory_mib: 1024,
+            debug: false,
+            connector_mount: "/tmp/connector-mounts-0/mount-acme".to_string(),
+            persistent_disk: false,
+            mount_points: vec!["scratch".to_string(), "connector-mount".to_string()],
+            overlays: vec![
+                Overlay {
+                    path: "flow-guest-init",
+                    data: b"<the guest init ELF>",
+                    mode: 0o100755,
+                },
+                Overlay {
+                    path: ".krun_config.json",
+                    data: b"{\"Cmd\":[],\"WorkingDir\":\"/\",\"Env\":[]}",
+                    mode: 0o100644,
+                },
+            ],
+            scratch_path: "/proc/self/fd/3".to_string(),
+            console: Console {
+                input: 4,
+                output: 1,
+                error: 2,
+            },
+        }
+    }
+}

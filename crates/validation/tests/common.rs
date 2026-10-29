@@ -155,6 +155,8 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             expect_pub_id: None,
             interval: std::time::Duration::from_secs(32),
             secrets: Default::default(),
+            vmm: false,
+            egress: None,
             shards: models::ShardTemplate::default(),
             delete: false,
             reset: false,
@@ -204,6 +206,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             linked_collections: Vec::new(),
             secrets: Default::default(),
             connector_spec: None,
+            execution: None,
         };
         if mock.indirect_specs {
             indirect_capture(&mut built_spec);
@@ -291,6 +294,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                         ..Default::default()
                     })
                 }),
+                execution: None,
             }))
         } else {
             None
@@ -326,6 +330,8 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             endpoint: models::MaterializationEndpoint::Connector(live_connector_fixture.clone()),
             expect_pub_id: None,
             secrets: Default::default(),
+            vmm: false,
+            egress: None,
             shards: models::ShardTemplate::default(),
             source: None,
             target_naming: None,
@@ -385,6 +391,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             linked_collections: Vec::new(),
             secrets: Default::default(),
             connector_spec: None,
+            execution: None,
         };
         if mock.indirect_specs {
             indirect_materialization(&mut built_spec);
@@ -696,6 +703,8 @@ struct MockStorageMapping {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct MockCaptureValidateCall {
+    #[serde(default)]
+    execution: Option<flow::ConnectorExecution>,
     connector_type: flow::capture_spec::ConnectorType,
     config: serde_json::Value,
     bindings: Vec<MockDriverBinding>,
@@ -712,6 +721,8 @@ struct MockCaptureValidateCall {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct MockDeriveValidateCall {
+    #[serde(default)]
+    execution: Option<flow::ConnectorExecution>,
     connector_type: flow::collection_spec::derivation::ConnectorType,
     config: serde_json::Value,
     shuffle_key_types: Vec<flow::collection_spec::derivation::ShuffleType>,
@@ -737,6 +748,8 @@ struct MockDeriveTransform {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct MockMaterializationValidateCall {
+    #[serde(default)]
+    execution: Option<flow::ConnectorExecution>,
     connector_type: flow::materialization_spec::ConnectorType,
     config: serde_json::Value,
     bindings: Vec<MockDriverBinding>,
@@ -787,19 +800,21 @@ impl MockDriverCalls {
         anyhow::Result<(connector::response::Started, connector::response::Kind)>,
     > {
         async move {
+            let execution = request.start.and_then(|start| start.execution);
+
             match request.kind {
                 Some(connector::request::Kind::Capture(capture::Request {
                     kind: Some(capture::request::Kind::Validate(validate)),
                     ..
-                })) => self.validate_capture(*validate),
+                })) => self.validate_capture(*validate, execution),
                 Some(connector::request::Kind::Derive(derive::Request {
                     kind: Some(derive::request::Kind::Validate(validate)),
                     ..
-                })) => self.validate_derivation(*validate),
+                })) => self.validate_derivation(*validate, execution),
                 Some(connector::request::Kind::Materialize(materialize::Request {
                     kind: Some(materialize::request::Kind::Validate(validate)),
                     ..
-                })) => self.validate_materialization(*validate),
+                })) => self.validate_materialization(*validate, execution),
                 _ => anyhow::bail!("expected a connector Validate request"),
             }
         }
@@ -809,6 +824,7 @@ impl MockDriverCalls {
     fn validate_capture(
         &self,
         validate: capture::request::Validate,
+        execution: Option<flow::ConnectorExecution>,
     ) -> anyhow::Result<(connector::response::Started, connector::response::Kind)> {
         let call = self
             .captures
@@ -825,6 +841,13 @@ impl MockDriverCalls {
         }
         if call.config != config {
             anyhow::bail!("connector config mismatch: {} vs {}", call.config, config,);
+        }
+        if call.execution != execution {
+            anyhow::bail!(
+                "connector execution mismatch: {:?} vs {:?}",
+                call.execution,
+                execution
+            );
         }
         if let Some(err) = &call.error {
             anyhow::bail!("{err}");
@@ -869,6 +892,7 @@ impl MockDriverCalls {
     fn validate_derivation(
         &self,
         validate: derive::request::Validate,
+        execution: Option<flow::ConnectorExecution>,
     ) -> anyhow::Result<(connector::response::Started, connector::response::Kind)> {
         let name = &validate.collection.as_ref().unwrap().name;
         let call = self
@@ -886,6 +910,13 @@ impl MockDriverCalls {
         }
         if call.config != config {
             anyhow::bail!("connector config mismatch: {} vs {}", call.config, config,);
+        }
+        if call.execution != execution {
+            anyhow::bail!(
+                "connector execution mismatch: {:?} vs {:?}",
+                call.execution,
+                execution
+            );
         }
         // Mirror the frozen `:dev` images, which reject `connector_spec`.
         if config
@@ -949,6 +980,7 @@ impl MockDriverCalls {
     fn validate_materialization(
         &self,
         validate: materialize::request::Validate,
+        execution: Option<flow::ConnectorExecution>,
     ) -> anyhow::Result<(connector::response::Started, connector::response::Kind)> {
         let call = self
             .materializations
@@ -965,6 +997,13 @@ impl MockDriverCalls {
         }
         if call.config != config {
             anyhow::bail!("connector config mismatch: {} vs {}", call.config, config,);
+        }
+        if call.execution != execution {
+            anyhow::bail!(
+                "connector execution mismatch: {:?} vs {:?}",
+                call.execution,
+                execution
+            );
         }
         if let Some(err) = &call.error {
             anyhow::bail!("{err}");

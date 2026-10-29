@@ -1,0 +1,52 @@
+---
+source: crates/connector-vmm/src/image.rs
+expression: table
+---
+## both files, working dir /acmework
+"" -> uid 0 HOME="/acmeroot"
+"0" -> uid 0 HOME="/acmeroot"
+"root" -> uid 0 HOME="/acmeroot"
+"0:0" -> uid 0 HOME="/acmeroot"
+":" -> uid 0 HOME="/acmeroot"
+":1002" -> uid 0 HOME="/acmeroot"
+"acmesvc" -> uid 1000 HOME="/home/acmesvc"
+"1000" -> uid 1000 HOME="/home/acmesvc"
+"acmealias" -> uid 1000 HOME="/home/acmealias"
+"acmealias:1002" -> uid 1000 HOME="/home/acmealias"
+"acmeempty" -> uid 1006 HOME=""
+"1006" -> uid 1006 HOME=""
+"1008" -> uid 1008 HOME=""
+"acmefirst" -> uid 1008 HOME=""
+"acmesecond" -> uid 1008 HOME="/home/acmesecond"
+"1009" -> uid 1009 HOME=""
+"acmesvc:acmedata" -> uid 1000 HOME="/home/acmesvc"
+"1000:1002" -> uid 1000 HOME="/home/acmesvc"
+"acmesvc:" -> uid 1000 HOME="/home/acmesvc"
+"1000:" -> uid 1000 HOME="/home/acmesvc"
+"4242" -> uid 4242 HOME="/acmework"
+"4242:1002" -> uid 4242 HOME="/acmework"
+
+## both files, no working dir
+"4242" -> uid 4242 HOME="/"
+"4242:" -> uid 4242 HOME="/"
+"4242:1002" -> uid 4242 HOME="/"
+
+## no entry for uid 0, working dir /acmework
+"" -> uid 0 HOME="/"
+"0" -> uid 0 HOME="/acmework"
+":1002" -> uid 0 HOME="/"
+"root" -> refused: user "root" is not in the image's /etc/passwd
+
+## no /etc/passwd, working dir /acmework
+"" -> uid 0 HOME="/"
+"0" -> uid 0 HOME="/acmework"
+"1000" -> uid 1000 HOME="/acmework"
+":" -> uid 0 HOME="/"
+":1002" -> uid 0 HOME="/"
+
+## no /etc/passwd, no working dir
+"" -> uid 0 HOME="/"
+"0" -> uid 0 HOME="/"
+"1000" -> uid 1000 HOME="/"
+"1000:1002" -> uid 1000 HOME="/"
+":1002" -> uid 0 HOME="/"

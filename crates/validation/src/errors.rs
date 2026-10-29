@@ -243,6 +243,25 @@ pub enum Error {
     },
     #[error("connector returned wrong number of bindings (expected {expect}, got {got})")]
     WrongConnectorBindings { expect: usize, got: usize },
+    #[error(
+        "{entity} {name} requests VMM execution, which requires the V2 runtime, but its shards select the V1 runtime (see shard flag {flag:?})"
+    )]
+    VmmRequiresRuntimeV2 {
+        entity: &'static str,
+        name: String,
+        flag: &'static str,
+    },
+    #[error(
+        "{entity} {name} declares egress, which its connector's execution cannot enforce; egress is enforced only by VMM execution (`vmm: true`)"
+    )]
+    EgressRequiresEnforcement { entity: &'static str, name: String },
+    #[error("{entity} {name} declares an invalid egress host")]
+    InvalidEgressHost {
+        entity: &'static str,
+        name: String,
+        #[source]
+        detail: anyhow::Error,
+    },
     #[error("error while communicating with the Flow control-plane API")]
     ControlPlane {
         #[source]

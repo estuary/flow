@@ -1,0 +1,15 @@
+---
+source: crates/connector-vmm-tests/tests/wrapper.rs
+expression: report(&setup)
+---
+--- calls
+network create --driver=bridge --interface-name=fvm000000000001 --label=dev.estuary.vmm-owner=00000000000000000000000000000001 fv_0000000000000001
+network create --driver=bridge --interface-name=fvm000000000001 --label=dev.estuary.vmm-owner=00000000000000000000000000000001 fv_0000000000000002
+--- resources
+network fv_0000000000000001
+network fv_0000000000000002
+--- ran
+sudo -n bash -c <script> root-hold <tmp>/launcher-0/held-network-create <tmp>/launcher-0/root-hold-network-create podman network create --driver=bridge --interface-name=fvm000000000001 --label=dev.estuary.vmm-owner=00000000000000000000000000000001 fv_0000000000000001
+sudo -n podman network create --driver=bridge --interface-name=fvm000000000001 --label=dev.estuary.vmm-owner=00000000000000000000000000000001 fv_0000000000000002
+podman network create --driver=bridge --interface-name=fvm000000000001 --label=dev.estuary.vmm-owner=00000000000000000000000000000001 fv_0000000000000002 (stdin <tmp>/fence)
+podman network create --driver=bridge --interface-name=fvm000000000001 --label=dev.estuary.vmm-owner=00000000000000000000000000000001 fv_0000000000000001 (stdin <tmp>/fence)

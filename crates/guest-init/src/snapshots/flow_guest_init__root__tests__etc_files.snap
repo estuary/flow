@@ -1,0 +1,22 @@
+---
+source: crates/guest-init/src/root.rs
+expression: rendered
+---
+# hostname "acmeCo-capture-1"
+## /etc/resolv.conf
+nameserver 192.0.2.1
+## /etc/hosts
+127.0.0.1 localhost
+192.0.2.2 acmeCo-capture-1
+
+# hostname ""
+## /etc/resolv.conf
+nameserver 192.0.2.1
+## /etc/hosts
+127.0.0.1 localhost
+
+# hostname "localhost"
+## /etc/resolv.conf
+nameserver 192.0.2.1
+## /etc/hosts
+127.0.0.1 localhost

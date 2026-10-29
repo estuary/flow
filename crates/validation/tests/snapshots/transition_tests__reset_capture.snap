@@ -535,6 +535,7 @@ expression: outcome.built_captures
                     resource_path_pointers: [],
                 },
             ),
+            execution: None,
         },
         previous_spec: CaptureSpec {
             name: "the/capture",
@@ -612,6 +613,7 @@ expression: outcome.built_captures
             linked_collections: [],
             secrets: {},
             connector_spec: None,
+            execution: None,
         },
         is_touch: 0,
         dependency_hash: 5b38dc32c776e2b2,

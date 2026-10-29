@@ -298,6 +298,7 @@ impl Cli {
         // Locally-run connectors decrypt secrets under the user's authority.
         let connector_router = runtime_local::local_router(
             self.connector_network.clone(),
+            runtime_local::Vmm::from_env()?,
             registry.clone(),
             std::sync::Arc::new(flow_client_next::secret_resolver::User::new(
                 flow_client_next::rest::Client {

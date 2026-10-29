@@ -1,9 +1,30 @@
-use clap::Parser;
 use tracing_subscriber::prelude::*;
 
 fn main() {
-    let args = connector_init::Args::parse();
+    let args = match <connector_init::Args as clap::Parser>::try_parse() {
+        Ok(args) => args,
+        // `--help` and `--version` are clap's other "errors", and go to stdout.
+        Err(error) if !error.use_stderr() => {
+            let _ = error.print();
+            std::process::exit(error.exit_code());
+        }
+        Err(error) => {
+            // The launcher treats a leading space on stderr as readiness;
+            // prefix clap's indented argument lists to avoid signaling on failure.
+            for line in error.render().to_string().trim_end().lines() {
+                match line.is_empty() {
+                    true => eprintln!("flow-connector-init:"),
+                    false => eprintln!("flow-connector-init: {line}"),
+                }
+            }
+            std::process::exit(error.exit_code());
+        }
+    };
 
+    run(args);
+}
+
+fn run(args: connector_init::Args) {
     // Map the LOG_LEVEL variable to an equivalent tracing EnvFilter.
     // Restrict logged modules to the current crate, as debug logging
     // for tonic can be quite verbose.
@@ -50,6 +71,34 @@ fn main() {
             error = format!("{error:#}"),
             "connector-init crashed with error"
         );
+        std::process::exit(1);
     }
     tracing::debug!("connector-init exiting");
+}
+
+#[test]
+fn a_listener_bind_failure_exits_nonzero() {
+    const PORT: &str = "CONNECTOR_INIT_TEST_OCCUPIED_PORT";
+    if let Ok(port) = std::env::var(PORT) {
+        run(connector_init::Args {
+            image_inspect_json_path: "unused.json".to_string(),
+            port: Some(port.parse().unwrap()),
+            vsock_port: None,
+        });
+        return;
+    }
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "a_listener_bind_failure_exits_nonzero",
+            "--nocapture",
+        ])
+        .env(PORT, listener.local_addr().unwrap().port().to_string())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("tcp incoming error"), "{stderr}");
 }

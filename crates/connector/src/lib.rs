@@ -31,17 +31,25 @@ mod protocol;
 mod router;
 mod serve;
 mod service;
+mod vmm;
+
+#[cfg(test)]
+#[path = "../tests/fixtures/execution.rs"]
+mod execution_fixture;
 
 pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify, verify_connector};
 pub use router::{LOCAL_ISSUER, ServiceRouter};
 pub use service::{Service, TaskUpdate};
+pub use vmm::Vmm;
 
 /// Build a connector router for tests and other offline callers which need no
-/// shared registry and never attach containers to a Docker network.
+/// shared registry, never attach containers to a Docker network, and have no
+/// VMM capability.
 pub fn local_test_router() -> std::sync::Arc<dyn proto_grpc::connector::Router> {
     let (_service, router) = Service::new_local(
         String::new(),
+        None,
         service_kit::Registry::new(),
         std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
     );
@@ -128,6 +136,7 @@ struct Transport<P: protocol::Protocol> {
     codec: connector_init::Codec,
     /// `docker run` of an image connector, which its [`Guard`] SIGKILLs.
     process: Option<async_process::Child>,
+    vmm: Option<vmm::launch::Guard>,
     /// Sealed endpoint configuration of the dispatched endpoint.
     sealed_config: models::RawValue,
     /// Spec already exchanged on an RPC of its own, only when required.
@@ -144,6 +153,8 @@ struct Started<P: protocol::Protocol> {
     /// Keeps an image or local connector's host resources alive until stream
     /// teardown. In-process connectors have none.
     guard: Guard,
+    /// Execution admitted at start, fixed for this session.
+    execution: proto_flow::flow::ConnectorExecution,
 }
 
 /// Host resources of an image or local connector, released when the served
@@ -154,8 +165,9 @@ struct Started<P: protocol::Protocol> {
 /// Killing the container also closes its stderr, so its log pump can finish.
 pub(crate) struct Guard {
     _process: Option<async_process::Child>,
+    _vmm: Option<vmm::launch::Guard>,
     _refresh: Option<tokio::sync::oneshot::Sender<()>>,
-    _mount: tempfile::TempDir,
+    _mount: Option<tempfile::TempDir>,
 }
 
 /// Render one `ops::Log` of this crate's own reporting.

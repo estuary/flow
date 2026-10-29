@@ -304,6 +304,10 @@ expression: json_test(msg)
           "access": "here"
         }
       }
+    },
+    "execution": {
+      "vmm": true,
+      "egress": {}
     }
   }
 }
