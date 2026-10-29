@@ -7,7 +7,7 @@ expression: "(&outcome.built_materializations[0].model,\n&outcome.built_material
         MaterializationDef {
             source: None,
             target_naming: None,
-            on_incompatible_schema_change: Backfill,
+            on_incompatible_schema_change: None,
             endpoint: Connector(
                 ConnectorConfig {
                     image: "other/image",

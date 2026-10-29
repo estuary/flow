@@ -1433,6 +1433,10 @@ type FragmentStore {
 	"""
 	bucket: String
 	"""
+	Whether this store uses an Estuary trial bucket.
+	"""
+	isTrial: Boolean!
+	"""
 	AWS region of the bucket. Null for GCS, Azure, and Custom stores.
 	"""
 	region: String
@@ -3328,7 +3332,8 @@ type StorageMapping {
 	"""
 	dataPlanes: [DataPlane!]!
 	"""
-	Stores for journal fragments under this mapping.
+	Stores for journal fragments under this mapping. The first receives new
+	writes; later stores remain available for historical reads.
 	"""
 	fragmentStores: [FragmentStore!]!
 }
