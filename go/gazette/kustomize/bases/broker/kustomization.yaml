@@ -1,0 +1,4 @@
+# Broker is a Gazette broker cluster Deployment and Service.
+resources:
+  - service.yaml
+  - deployment.yaml

@@ -1,0 +1,33 @@
+# Set app name of consumer Deployment.
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: consumer
+  labels:
+    app.kubernetes.io/name: counter
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: counter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: counter
+    spec:
+      containers:
+        - name: consumer
+          env:
+            - name: CONSUMER_APP_ARGS
+              value: "--wordcount.N=2"
+---
+# Set app name of consumer Service.
+apiVersion: v1
+kind:       Service
+metadata:
+  name: consumer
+  labels:
+    app.kubernetes.io/name: counter
+spec:
+  selector:
+    app.kubernetes.io/name: counter

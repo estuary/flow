@@ -1,0 +1,25 @@
+# example-word-count deploys the Gazette word-count example, consisting of:
+# * A "word-count" Deployment and Service.
+# * A Job to create ShardSpecs for journals of the test environment.
+# * A Job to load a small set of documents to the service.
+bases:
+  - ../consumer
+patchesStrategicMerge:
+  - patches.yaml
+resources:
+  - apply-shard-specs.yaml
+  - publish-docs.yaml
+
+nameSuffix: -word-count
+
+images:
+  - name:    consumer/image
+    newName: gazette/examples
+
+configMapGenerator:
+  - name: shard-specs
+    files:
+      - shard_specs.yaml
+  - name: publish-docs
+    files:
+      - publish_docs.sh

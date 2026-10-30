@@ -1,0 +1,4 @@
+# Note that ~/.aws/config uses "[profile my-name]",
+# where ~/.aws/credentials uses just "[my-name]".
+[profile minio]
+region=us-east-1

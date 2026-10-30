@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind:       Job
+metadata:
+  name: apply-shard-specs
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: apply-specs
+          image: gazette/broker
+          imagePullPolicy: IfNotPresent
+          command:
+            - gazctl
+            - shards
+            - apply
+            - "--specs=/config/shard_specs.yaml"
+          env:
+            - name:  BROKER_ADDRESS
+              value: "http://gazette:8080"
+            - name:  CONSUMER_ADDRESS
+              value: "http://consumer-word-count:8080"
+          volumeMounts:
+            - name:      shard-specs
+              mountPath: /config
+      volumes:
+        - name: shard-specs
+          configMap:
+            name: shard-specs

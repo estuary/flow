@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind:       Job
+metadata:
+  name: publish-docs
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: publish-docs
+          image: gazette/examples
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - "-ex"
+            - /config/publish_docs.sh
+          env:
+            - name:  CONSUMER_ADDRESS
+              value: "http://consumer-word-count:8080"
+          volumeMounts:
+            - name:      publish-docs
+              mountPath: /config
+      volumes:
+        - name: publish-docs
+          configMap:
+            name: publish-docs
+

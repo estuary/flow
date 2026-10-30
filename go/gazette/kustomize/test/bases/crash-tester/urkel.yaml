@@ -1,0 +1,52 @@
+# Urkel is a fault-injection service which offers a gRPC API for enacting
+# various kinds of faults, such as network partitions, latency, disk stress,
+# etc. It runs on every Kubernetes node which runs Pods under test.
+apiVersion: apps/v1
+kind:       DaemonSet
+metadata:
+  name: urkel
+  labels:
+    app.kubernetes.io/name: urkel
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: urkel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: urkel
+    spec:
+      containers:
+        - name:            urkel
+          image:           dademurphy/urkel:v0.1.2
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            # Urkel functions by entering the network namespace of the
+            # target container and configuring iptables, etc to impact
+            # traffic flows. It require capabilities to setns() and mount().
+            privileged: true
+            capabilities:
+              add:
+                - SYS_ADMIN
+          ports:
+            - name:          http
+              containerPort: 1666
+              hostPort:      1666
+              protocol:      TCP
+          volumeMounts:
+            - name:             netns
+              mountPath:        /var/run/netns
+              readOnly:         true
+              mountPropagation: HostToContainer
+
+      # Urkel inspects the process and network namespaces of the
+      # host to map to specific network namespace into which faults
+      # are injected.
+      hostNetwork: true
+      hostPID:     true
+
+      volumes:
+        - name: netns
+          hostPath:
+            path: /var/run/netns
+            type: Directory
