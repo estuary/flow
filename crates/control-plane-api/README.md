@@ -35,6 +35,13 @@ of the expanded draft. The executor verifies it after expansion on every attempt
 before applying runtime defaults. A null hash preserves PostgREST publication
 behavior.
 
+GraphQL invoice previews use the [`billing-types`](../billing-types/README.md)
+calculator with Bigtable usage. `billing/db.rs` selects the requested page,
+including frozen and manual invoices, before `server/public/graphql/billing/tenant.rs`
+calculates the selected previews. Frozen and manual payloads come from PostgreSQL.
+Only pages containing previews require the catalog-stats client; failed usage
+reads return a GraphQL error.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.
