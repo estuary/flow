@@ -85,7 +85,7 @@ fn validate_materialization(
     let defaults = default_validated(&bindings);
     let mut generated_files = python_connector::project_urls(
         &project_root,
-        generated_module(&validate.name, &project.spec, &bindings)?,
+        [generated_module(&validate.name, &project.spec, &bindings)?],
     );
 
     // A project having listed files which don't exist yet can't be run.
@@ -454,24 +454,25 @@ fn stage(
     bindings: &[Binding],
     install: Install,
 ) -> anyhow::Result<Staged> {
-    let mut generated = generated_module(task, &project.spec, bindings)?;
-    generated.push((
-        ENTRY.to_string(),
-        codegen::main_py(task, bindings, task_dir(task)),
-    ));
-
+    let generated = [
+        generated_module(task, &project.spec, bindings)?,
+        (
+            ENTRY.to_string(),
+            codegen::main_py(task, bindings, task_dir(task)),
+        ),
+    ];
     Staged::of_project(project, &generated, install)
 }
 
-/// Files of the module generated for materialization `task`, relative to the project.
+/// File of the module generated for materialization `task`, relative to the project.
 fn generated_module(
     task: &str,
     spec: &Spec,
     bindings: &[Binding],
-) -> anyhow::Result<Vec<(String, String)>> {
+) -> anyhow::Result<(String, String)> {
     let content = codegen::types_py(task, spec, bindings)
         .context("failed to generate the materialization's types")?;
-    Ok(python_connector::module_files(task, content))
+    Ok((python_connector::module_path(task), content))
 }
 
 #[cfg(test)]
