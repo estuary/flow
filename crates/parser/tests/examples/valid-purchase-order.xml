@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PurchaseOrder xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Header>
+    <SchemaVersion>2.3</SchemaVersion>
+    <SenderCode>ACME-STORE</SenderCode>
+    <ReceiverCode>EXAMPLE-WAREHOUSE</ReceiverCode>
+    <MessageId>00000000-0000-4000-8000-000000000042</MessageId>
+    <CreatedAt>2025-03-04T10:15:30</CreatedAt>
+    <ResendCount>2</ResendCount>
+  </Header>
+  <Order>
+    <OrderNumber>PO-0042</OrderNumber>
+    <PlacedAt>2025-03-04T10:15:36</PlacedAt>
+    <IsGift>false</IsGift>
+    <IsFragile>true</IsFragile>
+    <Summary>Assorted office supplies</Summary>
+    <Priority>
+      <Code>STD</Code>
+      <Label>Standard delivery</Label>
+    </Priority>
+    <PlacedBy>
+      <UserId>U-7</UserId>
+      <UserName>Jordan Example</UserName>
+    </PlacedBy>
+    <Vendor>
+      <AccountId>V-100</AccountId>
+      <Name>Acme Paper Co</Name>
+      <Address>
+        <Line1>12 Example Lane</Line1>
+        <PostalCode>01234</PostalCode>
+        <City>Sampletown</City>
+        <CountryCode>ZZ</CountryCode>
+      </Address>
+      <Contact>
+        <Name>Orders desk</Name>
+      </Contact>
+    </Vendor>
+    <Notes>
+      <Note>
+        <Title>Gift message</Title>
+        <Text>Line one of the note
+Line two: the customer''s request
+
+Line four after a blank line
+
+</Text>
+      </Note>
+    </Notes>
+    <Tags>
+      <Tag>
+        <Kind>CH</Kind>
+        <Value>web</Value>
+      </Tag>
+    </Tags>
+  </Order>
+  <Deliveries>
+    <Delivery>
+      <Sequence>1</Sequence>
+      <Kind>
+        <Code>OUT</Code>
+        <Label>Outbound</Label>
+      </Kind>
+      <Destination>
+        <AccountId>C-200</AccountId>
+        <Name>Example Office Ltd</Name>
+        <Address>
+          <Line1>99 Sample Road</Line1>
+          <PostalCode>00042</PostalCode>
+          <City>Sampletown</City>
+          <CountryCode>ZZ</CountryCode>
+        </Address>
+        <Contact>
+          <Phone>+00000000002</Phone>
+          <Email>receiving@example.com</Email>
+        </Contact>
+        <TaxIds>
+          <TaxId type="VAT" country="ZZ">ZZ000000001</TaxId>
+        </TaxIds>
+      </Destination>
+      <Instructions>Ring the bell at the side door
+Leave with reception if closed
+•	Keep the boxes upright
+</Instructions>
+      <Packages>
+        <Package>
+          <Count>1</Count>
+          <Weight uom="kg">2.500</Weight>
+          <Volume uom="l">18.0</Volume>
+          <Size uom="cm">
+            <Length>40.0</Length>
+            <Width>30.0</Width>
+            <Height>15.0</Height>
+          </Size>
+          <Steps>
+            <Step>
+              <StepType>PACK</StepType>
+              <PlannedAt>2025-03-05T09:00:00</PlannedAt>
+            </Step>
+          </Steps>
+        </Package>
+      </Packages>
+    </Delivery>
+    <Delivery>
+      <Sequence>2</Sequence>
+      <Kind>
+        <Code>RET</Code>
+        <Label>Return</Label>
+      </Kind>
+      <Destination>
+        <AccountId>W-300</AccountId>
+        <Name>Example Warehouse</Name>
+        <Address>
+          <Line1>1 Depot Street</Line1>
+          <PostalCode>00007</PostalCode>
+          <City>Sampletown</City>
+          <CountryCode>ZZ</CountryCode>
+        </Address>
+        <TaxIds>
+          <TaxId type="VAT" country="ZZ">ZZ000000002</TaxId>
+          <TaxId type="EORI" country="YY">YY000000003</TaxId>
+          <TaxId type="REG" country="XX">0000000000</TaxId>
+        </TaxIds>
+        <LocalNames>
+          <LocalName>
+            <Language>ar</Language>
+            <Name>مستودع المثال / Example Warehouse</Name>
+          </LocalName>
+        </LocalNames>
+      </Destination>
+      <Packages>
+        <Package>
+          <Count>1</Count>
+          <Weight uom="kg">2.500</Weight>
+          <Steps>
+            <Step>
+              <StepType>RECEIVE</StepType>
+            </Step>
+          </Steps>
+        </Package>
+      </Packages>
+    </Delivery>
+  </Deliveries>
+  <Invoice>
+    <InvoiceNumber>INV-0042</InvoiceNumber>
+    <TotalItems>2</TotalItems>
+    <TotalWeight uom="kg">3.250</TotalWeight>
+    <Lines>
+      <Line>
+        <Sku>PAPER-A4</Sku>
+        <Weight uom="kg">2.500</Weight>
+      </Line>
+      <Line>
+        <Sku>PEN-BLUE</Sku>
+        <Weight uom="kg">0.750</Weight>
+      </Line>
+    </Lines>
+    <Tags>
+      <Tag>
+        <Kind>PROMO</Kind>
+        <Value>SPRING</Value>
+      </Tag>
+      <Tag>
+        <Kind>REF</Kind>
+        <Value>0000000001</Value>
+      </Tag>
+      <Tag>
+        <Kind>NOTE</Kind>
+        <Value>Customer''s own reference</Value>
+      </Tag>
+    </Tags>
+    <Notes>
+      <Note>
+        <Title>Billing</Title>
+        <Text>Invoice by email</Text>
+      </Note>
+      <Note>
+        <Title>Terms</Title>
+        <Text>Payment within 30 days:
+
+--- Details ---
+Method:
+Currency: ZZD</Text>
+      </Note>
+    </Notes>
+  </Invoice>
+</PurchaseOrder>
