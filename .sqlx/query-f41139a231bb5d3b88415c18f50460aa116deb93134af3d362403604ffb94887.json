@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT tenant::text AS \"tenant!\", data_tiers, usage_tiers, recurring_usd_cents, trial_start\n           FROM public.tenants WHERE $1::text[] IS NULL OR tenant::text = ANY($1) ORDER BY tenant::text",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "data_tiers",
+        "type_info": "Int4Array",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "data_tiers"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "usage_tiers",
+        "type_info": "Int4Array",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "usage_tiers"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "recurring_usd_cents",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "recurring_usd_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "trial_start",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "trial_start"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "f41139a231bb5d3b88415c18f50460aa116deb93134af3d362403604ffb94887"
+}

@@ -1363,6 +1363,7 @@ dependencies = [
  "async-stripe",
  "axum",
  "billing-types",
+ "catalog-stats",
  "chrono",
  "clap",
  "comfy-table",
@@ -1386,10 +1387,14 @@ dependencies = [
  "anyhow",
  "async-graphql",
  "async-stripe",
+ "catalog-stats",
+ "chrono",
+ "futures",
  "serde",
  "serde_json",
  "sqlx",
  "strum 0.27.2",
+ "tokio",
 ]
 
 [[package]]

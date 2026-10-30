@@ -1,5 +1,6 @@
 use clap::Parser;
 
+mod generate;
 mod publish;
 mod send;
 mod stripe_utils;
@@ -14,6 +15,8 @@ pub struct Cli {
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
+    GenerateInvoices(generate::GenerateInvoices),
+    FreezeInvoices(generate::FreezeInvoices),
     PublishInvoices(publish::PublishInvoice),
     SendInvoices(send::SendInvoices),
 }
@@ -21,6 +24,8 @@ pub enum Command {
 impl Cli {
     pub async fn run(&self) -> anyhow::Result<()> {
         match &self.cmd {
+            Command::GenerateInvoices(command) => generate::run(command).await,
+            Command::FreezeInvoices(command) => generate::freeze(command).await,
             Command::PublishInvoices(publish_invoice) => {
                 publish::do_publish_invoices(publish_invoice).await
             }
@@ -46,6 +51,63 @@ fn parse_month(arg: &str) -> anyhow::Result<chrono::NaiveDate> {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+
+    #[test]
+    fn freeze_requires_a_month_and_always_selects_all_tenants() {
+        let base = [
+            "billing-integrations",
+            "freeze-invoices",
+            "--connection-string",
+            "test",
+            "--bigtable-project",
+            "test",
+            "--bigtable-instance",
+            "test",
+        ];
+        assert!(super::Cli::try_parse_from(base).is_err());
+        for month in ["2026-08", "2026-08-01", "2026-08-15"] {
+            assert_eq!(
+                super::Cli::try_parse_from(base.into_iter().chain(["--month", month])).is_ok(),
+                month != "2026-08-15",
+            );
+        }
+        assert!(
+            super::Cli::try_parse_from(base.into_iter().chain([
+                "--month",
+                "2026-08",
+                "--tenants",
+                "acmeCo/",
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn invoice_selection() {
+        let base = [
+            "billing-integrations",
+            "generate-invoices",
+            "--connection-string",
+            "test",
+            "--bigtable-project",
+            "test",
+            "--bigtable-instance",
+            "test",
+        ];
+        for (selection, valid) in [
+            (vec![], false),
+            (vec!["--all-tenants"], true),
+            (vec!["--tenants", "acmeCo/,otherCo/"], true),
+            (vec!["--all-tenants", "--tenants", "acmeCo/"], false),
+        ] {
+            let args: Vec<_> = base
+                .into_iter()
+                .chain(["--month", "2026-08"])
+                .chain(selection)
+                .collect();
+            assert_eq!(super::Cli::try_parse_from(args).is_ok(), valid);
+        }
+    }
 
     #[test]
     fn billing_month_and_recreate_alias() {
