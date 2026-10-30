@@ -1479,6 +1479,14 @@ type InferredSchemaStatus {
 	nextUpdateAfter: DateTime
 }
 
+input IntFilter {
+	eq: Int
+	gt: Int
+	gte: Int
+	lt: Int
+	lte: Int
+}
+
 """
 An invite link that grants access to a catalog prefix.
 """
@@ -1538,14 +1546,6 @@ type InviteLinkEdge {
 	A cursor for use in pagination
 	"""
 	cursor: String!
-}
-
-input IntFilter {
-	eq: Int
-	gt: Int
-	gte: Int
-	lt: Int
-	lte: Int
 }
 
 """
