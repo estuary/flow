@@ -215,7 +215,7 @@ pub struct LegalTermsMutation;
 
 #[async_graphql::Object]
 impl LegalTermsMutation {
-    /// Accept specific legal terms for a tenant. Requires ManageLegal on the tenant.
+    /// Accept the latest legal terms of their type. Requires ManageLegal and an unrestricted user token.
     async fn legal_terms_accept(
         &self,
         ctx: &async_graphql::Context<'_>,
@@ -224,6 +224,11 @@ impl LegalTermsMutation {
     ) -> async_graphql::Result<LegalTerms> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
+        if claims.capability_mask.is_some() || claims.prefix_scope.is_some() {
+            return Err(async_graphql::Error::new(
+                "Restricted tokens cannot accept legal terms",
+            ));
+        }
         let tenant = super::tenant::validate_tenant_name(&tenant)?;
         super::verify_authorization(env, tenant.as_str(), models::authz::Capability::ManageLegal)
             .await?;
@@ -241,6 +246,10 @@ impl LegalTermsMutation {
                  SELECT u.id, u.email, l.id, t.tenant, t.id
                  FROM auth.users u CROSS JOIN public.tenants t CROSS JOIN internal.legal_terms l
                  WHERE u.id = $1 AND t.tenant = $2 AND l.id = $3
+                   AND NOT EXISTS (
+                       SELECT 1 FROM internal.legal_terms newer
+                       WHERE newer.type = l.type AND newer.version > l.version
+                   )
                  RETURNING terms_id
              )
              SELECT l.id, l.text, l.type, l.version FROM internal.legal_terms l
@@ -256,7 +265,11 @@ impl LegalTermsMutation {
                 anyhow::Error::new(error).context("recording acceptance of legal terms"),
             )
         })?;
-        terms.ok_or_else(|| async_graphql::Error::new("User, tenant, or legal terms not found"))
+        terms.ok_or_else(|| {
+            async_graphql::Error::new(
+                "User or tenant not found, or legal terms are not the latest version",
+            )
+        })
     }
 }
 
@@ -334,7 +347,7 @@ mod test {
         let user = uuid::Uuid::from_bytes([0x11; 16]);
         let token = server.make_access_token(user, Some("untrusted@example.test"));
         let terms_id = "00:00:00:00:00:00:00:0f";
-        sqlx::query("INSERT INTO internal.legal_terms (id, type, version, text) VALUES ($1::flowid, 'sandbox_consent', 99, 'Test agreement')")
+        sqlx::query("INSERT INTO internal.legal_terms (id, type, version, text) VALUES ($1::flowid, 'sandbox_consent', 99, 'Test agreement'), (DEFAULT, 'msa', 100, 'Test MSA agreement')")
             .bind(terms_id).execute(&pool).await.unwrap();
         let query = serde_json::json!({
             "query": "mutation($id: Id!) { legalTermsAccept(tenant: \"acmeCo\", termsId: $id) { type version text } }",
@@ -424,10 +437,28 @@ mod test {
                 server.graphql(&query, token.map(String::as_str)).await;
             assert!(response.get("errors").is_some(), "{response}");
         }
+        let admin_mask =
+            server.make_restricted_access_token(user, None, Some(vec!["admin".to_string()]), None);
+        let tenant_scope =
+            server.make_restricted_access_token(user, None, None, Some("acmeCo/".to_string()));
+        for restricted in [admin_mask, tenant_scope] {
+            let response: serde_json::Value = server.graphql(&query, Some(&restricted)).await;
+            insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""Restricted tokens cannot accept legal terms""#);
+        }
+        let old_terms_id: models::Id = sqlx::query_scalar(
+            "SELECT id FROM internal.legal_terms WHERE type = 'msa' AND version = 3",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let mut outdated = query.clone();
+        outdated["variables"]["id"] = serde_json::json!(old_terms_id.to_string());
+        let outdated: serde_json::Value = server.graphql(&outdated, Some(&token)).await;
+        insta::assert_json_snapshot!(outdated["errors"][0]["message"], @r#""User or tenant not found, or legal terms are not the latest version""#);
         let mut missing = query.clone();
         missing["variables"]["id"] = serde_json::json!("00:00:00:00:00:00:00:0f");
         let missing: serde_json::Value = server.graphql(&missing, Some(&token)).await;
-        insta::assert_json_snapshot!(missing["errors"][0]["message"], @r#""User, tenant, or legal terms not found""#);
+        insta::assert_json_snapshot!(missing["errors"][0]["message"], @r#""User or tenant not found, or legal terms are not the latest version""#);
         let mut invalid = query.clone();
         invalid["variables"]["tenant"] = serde_json::json!("acmeCo/nested/");
         let invalid: serde_json::Value = server.graphql(&invalid, Some(&token)).await;

@@ -1937,7 +1937,7 @@ type MutationRoot {
 		dataPlane: String!
 	): Boolean!
 	"""
-	Accept specific legal terms for a tenant. Requires ManageLegal on the tenant.
+	Accept the latest legal terms of their type. Requires ManageLegal and an unrestricted user token.
 	"""
 	legalTermsAccept(tenant: String!, termsId: Id!): LegalTerms!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
