@@ -165,8 +165,7 @@ impl super::UserGrant {
         };
 
         // Walk the user's full grant graph before clipping: a path may pass
-        // through an out-of-scope role to reach an allowed prefix. Scope entries
-        // restrict names only and never seed additional grant traversals.
+        // through an out-of-scope role to reach an allowed prefix.
         itertools::Either::Right(user_nodes.flat_map(move |user| {
             scopes.iter().filter_map(move |scope| {
                 let mut node = user.clone();
@@ -1834,7 +1833,6 @@ mod test {
     #[test]
     fn test_prefix_scope_intersects_reachable_authority() {
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
-        // Scope prefixes clip both direct and indirectly reachable authority.
         for (scope, expected) in [
             ("acmeCo/team/", vec!["acmeCo/team/"]),
             ("bobCo/", vec!["bobCo/shared/"]),
@@ -1909,7 +1907,6 @@ mod test {
             &subject,
             vec![("acmeCo/b/", Capability::CatalogRead | Capability::Delegate)],
         );
-        // A listed prefix does not confer its outgoing grants on the user.
         subject.capability_mask = None;
         subject.prefix_scope = Some(vec!["acmeCo/scope/".to_string()]);
         assert_reachable(&role_grants, &user_grants, &subject, vec![]);
@@ -1966,7 +1963,6 @@ mod test {
                     expected
                 );
             }
-            // Scope clipping preserves the user's capabilities, including masks.
             subject.capability_mask = Some(Capability::CatalogRead.into());
             for node in UserGrant::reachable_nodes(&role_grants, &user_grants, &subject) {
                 assert!(node.capabilities.is_subset(Capability::CatalogRead));
