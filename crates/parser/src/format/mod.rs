@@ -57,6 +57,9 @@ pub enum ParseError {
     #[error("failed to parse parquet: {0}")]
     Parquet(#[from] ParquetError),
 
+    #[error("failed to decode parquet via arrow: {0}")]
+    Arrow(#[from] ::arrow_schema::ArrowError),
+
     #[error("parquet file contains row group(s) larger than the 1GB maximum")]
     RowGroupTooLarge,
 }
