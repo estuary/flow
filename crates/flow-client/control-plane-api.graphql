@@ -2763,9 +2763,13 @@ type QueryRoot {
 	"""
 	tenantLegalTerms(type: LegalTermsType!, tenant: String!): LegalTerms
 	"""
+	Returns the latest legal terms of the given type.
+	"""
+	legalTerms(type: LegalTermsType!): LegalTerms
+	"""
 	Lists legal terms accepted by tenants the caller can read, with optional filters and pagination.
 	"""
-	legalTerms(filter: LegalTermsFilter, after: String, before: String, first: Int, last: Int): LegalTermsConnection!
+	acceptedLegalTerms(filter: LegalTermsFilter, after: String, before: String, first: Int, last: Int): LegalTermsConnection!
 	"""
 	List refresh tokens owned by the authenticated user.
 	"""
