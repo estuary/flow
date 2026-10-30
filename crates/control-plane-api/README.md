@@ -22,10 +22,6 @@ permissions before opening a plane for signup.
 callers supply tenant metadata and collection and recovery storage mappings.
 The GraphQL layer owns signup validation and MSA consent.
 
-`server/public/graphql/invite_links.rs` redeems invitations by upserting the
-invited user grant. Private data-plane access follows tenant-level role grants
-through snapshot authorization.
-
 GraphQL terminal authorization failures carry an
 `authorization::AuthorizationDenied` source with the required capability bit.
 Authorization denial messages omit the internal capability bit.
