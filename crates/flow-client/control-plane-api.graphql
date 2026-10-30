@@ -2769,7 +2769,7 @@ type QueryRoot {
 	"""
 	Lists legal terms accepted by tenants the caller can read, with optional filters and pagination.
 	"""
-	acceptedLegalTerms(filter: LegalTermsFilter, after: String, before: String, first: Int, last: Int): LegalTermsConnection!
+	legalTermsAccepted(filter: LegalTermsFilter, after: String, before: String, first: Int, last: Int): LegalTermsConnection!
 	"""
 	List refresh tokens owned by the authenticated user.
 	"""

@@ -107,7 +107,7 @@ impl LegalTermsQuery {
     }
 
     /// Lists legal terms accepted by tenants the caller can read, with optional filters and pagination.
-    async fn accepted_legal_terms(
+    async fn legal_terms_accepted(
         &self,
         ctx: &async_graphql::Context<'_>,
         filter: Option<LegalTermsFilter>,
@@ -371,12 +371,12 @@ mod test {
           "userMatches": true
         }
         "#);
-        let query = serde_json::json!({"query": "{ acceptedLegalTerms(filter: { type: { eq: SANDBOX_CONSENT } }, first: 1) { edges { node { version text } } } }"});
+        let query = serde_json::json!({"query": "{ legalTermsAccepted(filter: { type: { eq: SANDBOX_CONSENT } }, first: 1) { edges { node { version text } } } }"});
         let accepted: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(accepted, @r#"
         {
           "data": {
-            "acceptedLegalTerms": {
+            "legalTermsAccepted": {
               "edges": [
                 {
                   "node": {
@@ -451,7 +451,7 @@ mod test {
             let mut cursor = serde_json::Value::Null;
             for _ in 0..4 {
                 let query = serde_json::json!({
-                    "query": "query($after: String, $before: String, $first: Int, $last: Int) { acceptedLegalTerms(after: $after, before: $before, first: $first, last: $last) { edges { node { type version } } pageInfo { startCursor endCursor hasPreviousPage hasNextPage } } }",
+                    "query": "query($after: String, $before: String, $first: Int, $last: Int) { legalTermsAccepted(after: $after, before: $before, first: $first, last: $last) { edges { node { type version } } pageInfo { startCursor endCursor hasPreviousPage hasNextPage } } }",
                     "variables": if reverse {
                         serde_json::json!({"before": cursor, "last": 1})
                     } else {
@@ -460,7 +460,7 @@ mod test {
                 });
                 let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
                 assert!(response.get("errors").is_none(), "{response}");
-                let mut page = response["data"]["acceptedLegalTerms"].clone();
+                let mut page = response["data"]["legalTermsAccepted"].clone();
                 cursor =
                     page["pageInfo"][if reverse { "startCursor" } else { "endCursor" }].clone();
                 let info = page["pageInfo"].as_object_mut().unwrap();
@@ -571,7 +571,7 @@ mod test {
           }
         ]
         "#);
-        let query = serde_json::json!({"query": "{ filtered: acceptedLegalTerms(filter: { type: { eq: MSA }, version: { gte: 3 } }, first: 1) { edges { node { version } } pageInfo { hasNextPage } } zero: acceptedLegalTerms(first: 0) { edges { cursor } pageInfo { hasNextPage hasPreviousPage } } }"});
+        let query = serde_json::json!({"query": "{ filtered: legalTermsAccepted(filter: { type: { eq: MSA }, version: { gte: 3 } }, first: 1) { edges { node { version } } pageInfo { hasNextPage } } zero: legalTermsAccepted(first: 0) { edges { cursor } pageInfo { hasNextPage hasPreviousPage } } }"});
         let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(response, @r#"
         {
@@ -599,7 +599,7 @@ mod test {
         }
         "#);
         for args in ["first: -1", "first: 1, last: 1", "after: \"invalid\""] {
-            let query = serde_json::json!({"query": format!("{{ acceptedLegalTerms({args}) {{ edges {{ cursor }} }} }}")});
+            let query = serde_json::json!({"query": format!("{{ legalTermsAccepted({args}) {{ edges {{ cursor }} }} }}")});
             let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
             assert!(response.get("errors").is_some(), "{response}");
         }
@@ -607,7 +607,7 @@ mod test {
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn legal_terms_filters(pool: sqlx::PgPool) {
         let (server, token) = accepted_terms_server(&pool).await;
-        let query = serde_json::json!({ "query": "{ all: acceptedLegalTerms { edges { node { type version } } } msa: acceptedLegalTerms(filter: { type: { eq: MSA } }) { edges { node { type version } } } version: acceptedLegalTerms(filter: { version: { eq: 3 } }) { edges { node { type version } } } exact: acceptedLegalTerms(filter: { type: { eq: MSA }, version: { eq: 4 } }) { edges { node { type version } } } missing: acceptedLegalTerms(filter: { version: { eq: 999 } }) { edges { node { type version } } } }" });
+        let query = serde_json::json!({ "query": "{ all: legalTermsAccepted { edges { node { type version } } } msa: legalTermsAccepted(filter: { type: { eq: MSA } }) { edges { node { type version } } } version: legalTermsAccepted(filter: { version: { eq: 3 } }) { edges { node { type version } } } exact: legalTermsAccepted(filter: { type: { eq: MSA }, version: { eq: 4 } }) { edges { node { type version } } } missing: legalTermsAccepted(filter: { version: { eq: 999 } }) { edges { node { type version } } } }" });
         let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(response, @r#"
         {
@@ -681,14 +681,14 @@ mod test {
     async fn legal_terms_version_operators(pool: sqlx::PgPool) {
         let (server, token) = accepted_terms_server(&pool).await;
         let query = serde_json::json!({ "query": r#"{
-  gt: acceptedLegalTerms(filter: { version: { gt: 3 } }) { edges { node { type version } } }
-  lt: acceptedLegalTerms(filter: { version: { lt: 3 } }) { edges { node { type version } } }
-  gte: acceptedLegalTerms(filter: { version: { gte: 3 } }) { edges { node { type version } } }
-  lte: acceptedLegalTerms(filter: { version: { lte: 3 } }) { edges { node { type version } } }
-  inclusive: acceptedLegalTerms(filter: { version: { gte: 3, lte: 3 } }) { edges { node { type version } } }
-  range: acceptedLegalTerms(filter: { version: { gt: 1, lt: 4 } }) { edges { node { type version } } }
-  combined: acceptedLegalTerms(filter: { version: { eq: 3, gt: 3 } }) { edges { node { type version } } }
-  empty: acceptedLegalTerms(filter: { tenant: {}, type: {}, version: {} }) { edges { node { type version } } }
+  gt: legalTermsAccepted(filter: { version: { gt: 3 } }) { edges { node { type version } } }
+  lt: legalTermsAccepted(filter: { version: { lt: 3 } }) { edges { node { type version } } }
+  gte: legalTermsAccepted(filter: { version: { gte: 3 } }) { edges { node { type version } } }
+  lte: legalTermsAccepted(filter: { version: { lte: 3 } }) { edges { node { type version } } }
+  inclusive: legalTermsAccepted(filter: { version: { gte: 3, lte: 3 } }) { edges { node { type version } } }
+  range: legalTermsAccepted(filter: { version: { gt: 1, lt: 4 } }) { edges { node { type version } } }
+  combined: legalTermsAccepted(filter: { version: { eq: 3, gt: 3 } }) { edges { node { type version } } }
+  empty: legalTermsAccepted(filter: { tenant: {}, type: {}, version: {} }) { edges { node { type version } } }
 }"# });
         let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(response, @r#"
@@ -836,7 +836,7 @@ mod test {
         )
         .await;
         let token = server.make_access_token(user, None);
-        let query = serde_json::json!({ "query": "{ terms: acceptedLegalTerms(filter: { tenant: { eq: \"acmeCo\" } }) { edges { node { type version } } } exact: acceptedLegalTerms(filter: { tenant: { eq: \"acmeCo/\" }, type: { eq: MSA }, version: { eq: 3 } }) { edges { node { type version } } } missing: acceptedLegalTerms(filter: { tenant: { eq: \"acmeCo\" }, version: { eq: 4 } }) { edges { node { type version } } } }" });
+        let query = serde_json::json!({ "query": "{ terms: legalTermsAccepted(filter: { tenant: { eq: \"acmeCo\" } }) { edges { node { type version } } } exact: legalTermsAccepted(filter: { tenant: { eq: \"acmeCo/\" }, type: { eq: MSA }, version: { eq: 3 } }) { edges { node { type version } } } missing: legalTermsAccepted(filter: { tenant: { eq: \"acmeCo\" }, version: { eq: 4 } }) { edges { node { type version } } } }" });
         let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(response, @r#"
         {
@@ -867,23 +867,23 @@ mod test {
           }
         }
         "#);
-        let query = serde_json::json!({ "query": "{ acceptedLegalTerms(filter: { tenant: { eq: \"hiddenCo\" } }) { edges { node { id } } } }" });
+        let query = serde_json::json!({ "query": "{ legalTermsAccepted(filter: { tenant: { eq: \"hiddenCo\" } }) { edges { node { id } } } }" });
         let denied: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(denied, @r#"
         {
           "data": {
-            "acceptedLegalTerms": {
+            "legalTermsAccepted": {
               "edges": []
             }
           }
         }
         "#);
-        let query = serde_json::json!({"query": "{ acceptedLegalTerms { edges { node { type version } } } }"});
+        let query = serde_json::json!({"query": "{ legalTermsAccepted { edges { node { type version } } } }"});
         let all: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(all, @r#"
         {
           "data": {
-            "acceptedLegalTerms": {
+            "legalTermsAccepted": {
               "edges": [
                 {
                   "node": {
@@ -908,7 +908,7 @@ mod test {
         insta::assert_json_snapshot!(scoped, @r#"
         {
           "data": {
-            "acceptedLegalTerms": {
+            "legalTermsAccepted": {
               "edges": [
                 {
                   "node": {
@@ -930,7 +930,7 @@ mod test {
             insta::assert_json_snapshot!(empty, @r#"
         {
           "data": {
-            "acceptedLegalTerms": {
+            "legalTermsAccepted": {
               "edges": []
             }
           }
