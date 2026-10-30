@@ -52,9 +52,7 @@ impl ControlClaims {
                         scope
                     })
                     .collect();
-                // Sorted prefixes place covered entries contiguously immediately
-                // after their ancestor, so dedup_by compares each with that ancestor.
-                // Prune once so graph walks cannot emit redundant synthetic nodes.
+                // Remove duplicates and child prefixes if their ancestor is in the list
                 scopes.sort_unstable();
                 scopes.dedup_by(|scope, previous| scope.starts_with(previous.as_str()));
                 scopes
