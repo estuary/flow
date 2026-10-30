@@ -3,8 +3,8 @@ package allocator
 import (
 	"sort"
 
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/keyspace"
 )
 
 // itemState is an extracted representation of an Item and a collection of

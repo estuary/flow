@@ -1,9 +1,9 @@
 package ext
 
 import (
+	"github.com/estuary/flow/go/gazette/allocator"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	epb "go.etcd.io/etcd/api/v3/etcdserverpb"
-	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // FromEtcdResponseHeader converts an etcd ResponseHeader to an equivalent Header_Etcd.

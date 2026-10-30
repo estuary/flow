@@ -1,6 +1,6 @@
 // Package consumer is a framework for distributed, stateful consumption of Gazette journals.
 //
-// Most users will want to use package go.gazette.dev/core/mainboilerplate/runconsumer
+// Most users will want to use package github.com/estuary/flow/go/gazette/mainboilerplate/runconsumer
 // to build complete, configured framework applications. This package focuses on
 // interface definitions and implementation of the consumer runtime.
 //
@@ -17,14 +17,14 @@ package consumer
 import (
 	"context"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	"github.com/estuary/flow/go/gazette/keyspace"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/keyspace"
-	"go.gazette.dev/core/message"
 )
 
 // Shard is the processing context of a ShardSpec which is assigned to the

@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/fragment"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/stores"
+	"github.com/estuary/flow/go/gazette/etcdtest"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/broker/fragment"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/stores"
-	"go.gazette.dev/core/etcdtest"
 )
 
 func TestFSMResolve(t *testing.T) {

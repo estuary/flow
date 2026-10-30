@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/allocator/sparse_push_relabel"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator/sparse_push_relabel"
-	"go.gazette.dev/core/keyspace"
 )
 
 type AllocateArgs struct {

@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/estuary/flow/go/gazette/broker/stores"
+	"github.com/estuary/flow/go/gazette/broker/stores/common"
 	"github.com/gorilla/schema"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/stores"
-	"go.gazette.dev/core/broker/stores/common"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"

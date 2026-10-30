@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/hashicorp/golang-lru"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // RouteCache caches observed Routes for items (eg, Journals, or Shards).

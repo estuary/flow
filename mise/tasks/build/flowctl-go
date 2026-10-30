@@ -39,5 +39,5 @@ go build \
     -o ${GOBIN}/flowctl-go \
     -v \
     -tags libsqlite3 \
-	-ldflags "-X go.gazette.dev/core/mainboilerplate.Version=${VERSION} -X go.gazette.dev/core/mainboilerplate.BuildDate=${DATE}" \
+	-ldflags "-X github.com/estuary/flow/go/gazette/mainboilerplate.Version=${VERSION} -X github.com/estuary/flow/go/gazette/mainboilerplate.BuildDate=${DATE}" \
     ./go/flowctl-go

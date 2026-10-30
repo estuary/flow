@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"go.gazette.dev/core/labels"
+	"github.com/estuary/flow/go/gazette/labels"
 )
 
 // Validate returns an error if the Label is not well-formed.

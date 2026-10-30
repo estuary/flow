@@ -11,8 +11,8 @@ import (
 
 	"github.com/Azure/azure-pipeline-go/pipeline"
 	"github.com/Azure/azure-storage-blob-go/azblob"
+	"github.com/estuary/flow/go/gazette/broker/stores/common"
 	"github.com/gorilla/schema"
-	"go.gazette.dev/core/broker/stores/common"
 )
 
 // StoreQueryArgs contains fields that are parsed from the query arguments

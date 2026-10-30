@@ -42,7 +42,7 @@ fragment:
   path_postfix_template: date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}
 children:
 
-  # Journals used by go.gazette.dev/core/examples/bike-share
+  # Journals used by github.com/estuary/flow/go/gazette/examples/bike-share
   - name: examples/bike-share/
     labels:
       - name:  example-name
@@ -83,7 +83,7 @@ children:
   # Journal for basic "hello world" testing and curl-based examples.
   - name: examples/foobar
 
-  # Journals used by go.gazette.dev/core/examples/stream-sum
+  # Journals used by github.com/estuary/flow/go/gazette/examples/stream-sum
   - name: examples/stream-sum/
     labels:
       - name:  example-name

@@ -5,9 +5,9 @@ import (
 	"bytes"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/pkg/errors"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // Publisher maps, sequences, and asynchronously appends messages to Journals.

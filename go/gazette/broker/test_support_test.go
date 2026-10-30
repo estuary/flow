@@ -4,16 +4,16 @@ import (
 	"context"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	"github.com/estuary/flow/go/gazette/auth"
+	"github.com/estuary/flow/go/gazette/broker/fragment"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/teststub"
+	"github.com/estuary/flow/go/gazette/keyspace"
+	"github.com/estuary/flow/go/gazette/server"
+	"github.com/estuary/flow/go/gazette/task"
 	"github.com/stretchr/testify/require"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/auth"
-	"go.gazette.dev/core/broker/fragment"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/teststub"
-	"go.gazette.dev/core/keyspace"
-	"go.gazette.dev/core/server"
-	"go.gazette.dev/core/task"
 )
 
 // testBroker runs most of a complete broker:

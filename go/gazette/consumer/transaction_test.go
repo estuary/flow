@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/message"
 )
 
 func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
@@ -62,7 +62,7 @@ func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
 	timer.timepoint = faketime(2 * time.Second)
 	_, _ = tf.pub.PublishCommitted(toSourceA, &testMessage{Key: "key", Value: "1"})
 	require.False(t, mustTxnStep(t, shard, &txn, &prior))
-	require.Equal(t, minDur, timer.reset)                                         // Was Reset to |minDur|.
+	require.Equal(t, minDur, timer.reset)                                           // Was Reset to |minDur|.
 	require.Equal(t, message.NewClock(txn.beganAt.Add(time.Hour))+160, shard.clock) // Shard clock was updated.
 
 	// Expect it continues to block.

@@ -9,7 +9,7 @@ import (
 	"text/template"
 	"time"
 
-	"go.gazette.dev/core/labels"
+	"github.com/estuary/flow/go/gazette/labels"
 )
 
 // Journal uniquely identifies a journal brokered by Gazette.

@@ -4,7 +4,7 @@ import (
 	context "context"
 	time "time"
 
-	pb "go.gazette.dev/core/broker/protocol"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	grpc "google.golang.org/grpc"
 )
 

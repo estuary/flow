@@ -5,10 +5,10 @@ import (
 	"io"
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/etcdtest"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/etcdtest"
 )
 
 func TestReplicateStreamAndCommit(t *testing.T) {

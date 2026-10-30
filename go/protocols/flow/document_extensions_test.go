@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/message"
 )
 
 func TestArena(t *testing.T) {

@@ -33,7 +33,7 @@ The protocol is designed for both machine-to-machine communication (broker repli
 
 ### Import Convention
 ```go
-import pb "go.gazette.dev/core/broker/protocol"
+import pb "github.com/estuary/flow/go/gazette/broker/protocol"
 ```
 
 ## Architecture

@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/codecs"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/prometheus/client_golang/prometheus"
-	"go.gazette.dev/core/broker/codecs"
-	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // AppendService batches, dispatches, and (if needed) retries asynchronous

@@ -5,14 +5,14 @@ import (
 	"context"
 	"io"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/cmd/gazctl/gazctlcmd/editor"
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/shardspace"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/cmd/gazctl/gazctlcmd/editor"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/shardspace"
-	mbp "go.gazette.dev/core/mainboilerplate"
 	"gopkg.in/yaml.v2"
 )
 

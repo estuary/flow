@@ -6,8 +6,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/jessevdk/go-flags"
-	"go.gazette.dev/core/message"
 )
 
 type cmdAttachUUIDs struct {

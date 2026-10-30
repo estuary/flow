@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 func TestAppendFlowCallbackCases(t *testing.T) {

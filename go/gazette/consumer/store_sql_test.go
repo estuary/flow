@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	"github.com/stretchr/testify/require"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 func TestSQLCheckpointPersistAndRestore(t *testing.T) {

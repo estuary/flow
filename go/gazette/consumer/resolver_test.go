@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pbx "github.com/estuary/flow/go/gazette/broker/protocol/ext"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	pbx "go.gazette.dev/core/broker/protocol/ext"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 func TestResolverCases(t *testing.T) {

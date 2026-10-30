@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/keyspace"
 )
 
 const (

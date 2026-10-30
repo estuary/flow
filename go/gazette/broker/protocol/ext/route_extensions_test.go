@@ -1,10 +1,10 @@
 package ext
 
 import (
+	"github.com/estuary/flow/go/gazette/allocator"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"go.etcd.io/etcd/api/v3/mvccpb"
-	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/keyspace"
 	gc "gopkg.in/check.v1"
 )
 

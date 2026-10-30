@@ -4,12 +4,12 @@ import (
 	"context"
 	"os"
 
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/shardspace"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/shardspace"
-	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
 type cmdShardsApply struct {

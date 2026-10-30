@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/auth"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/auth"
-	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/metadata"
 )
 

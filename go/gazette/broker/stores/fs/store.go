@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/stores"
+	"github.com/estuary/flow/go/gazette/broker/stores/common"
 	"github.com/gorilla/schema"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/stores"
-	"go.gazette.dev/core/broker/stores/common"
 )
 
 // FileSystemStoreRoot is the filesystem path which roots fragment ContentPaths

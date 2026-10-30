@@ -101,9 +101,9 @@ import (
 	"fmt"
 	"io"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // Message is an arbitrary user-defined type which may be serialized to and

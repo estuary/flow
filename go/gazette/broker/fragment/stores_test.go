@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"testing"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/stores"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/stores"
 )
 
 func TestPersistAuthErrorFallback(t *testing.T) {

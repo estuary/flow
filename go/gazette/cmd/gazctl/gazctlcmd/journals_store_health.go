@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 )
 
 type cmdJournalStoreHealth struct {

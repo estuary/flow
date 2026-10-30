@@ -4,7 +4,7 @@ import (
 	bytes "bytes"
 	"encoding/json"
 
-	pb "go.gazette.dev/core/broker/protocol"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 )
 
 // Task is a common interface of specifications which are also Flow runtime

@@ -6,10 +6,10 @@ import (
 	"io"
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/broker/fragment"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/teststub"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/broker/fragment"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/teststub"
 )
 
 func TestPipelineBasicLifeCycle(t *testing.T) {

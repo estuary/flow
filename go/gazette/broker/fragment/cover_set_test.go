@@ -3,8 +3,8 @@ package fragment
 import (
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/broker/protocol"
 )
 
 func TestSetAddInsertAtEnd(t *testing.T) {

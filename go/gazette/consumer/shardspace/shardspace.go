@@ -10,7 +10,7 @@ package shardspace
 import (
 	"sort"
 
-	pc "go.gazette.dev/core/consumer/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 )
 
 // Set is a collection of Shards, which may share common configuration.

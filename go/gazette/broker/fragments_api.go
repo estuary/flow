@@ -5,9 +5,9 @@ import (
 	"net"
 	"sort"
 
+	"github.com/estuary/flow/go/gazette/broker/fragment"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/fragment"
-	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/peer"
 )
 

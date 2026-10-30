@@ -6,10 +6,10 @@ import (
 	"io"
 	"net/http"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/gogo/gateway"
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
-	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"

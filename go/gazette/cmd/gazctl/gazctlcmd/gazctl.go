@@ -5,15 +5,15 @@ import (
 	"io"
 	"os"
 
-	"go.gazette.dev/core/broker/protocol"
-	mbp "go.gazette.dev/core/mainboilerplate"
+	"github.com/estuary/flow/go/gazette/broker/protocol"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 	"gopkg.in/yaml.v2"
 
-	"go.gazette.dev/core/broker/stores"
-	"go.gazette.dev/core/broker/stores/azure"
-	"go.gazette.dev/core/broker/stores/fs"
-	"go.gazette.dev/core/broker/stores/gcs"
-	"go.gazette.dev/core/broker/stores/s3"
+	"github.com/estuary/flow/go/gazette/broker/stores"
+	"github.com/estuary/flow/go/gazette/broker/stores/azure"
+	"github.com/estuary/flow/go/gazette/broker/stores/fs"
+	"github.com/estuary/flow/go/gazette/broker/stores/gcs"
+	"github.com/estuary/flow/go/gazette/broker/stores/s3"
 )
 
 const (

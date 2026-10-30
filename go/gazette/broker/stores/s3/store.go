@@ -13,10 +13,10 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/estuary/flow/go/gazette/broker/stores"
+	"github.com/estuary/flow/go/gazette/broker/stores/common"
 	"github.com/gorilla/schema"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/stores"
-	"go.gazette.dev/core/broker/stores/common"
 )
 
 // StoreQueryArgs contains fields that are parsed from the query arguments

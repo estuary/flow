@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/etcdtest"
 	epb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/etcdtest"
 	gc "gopkg.in/check.v1"
 )
 

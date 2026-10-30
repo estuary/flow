@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sync"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 var (

@@ -8,16 +8,16 @@ import (
 	"testing"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/brokertest"
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/message"
 	flowLabels "github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/brokertest"
-	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/message"
 )
 
 func TestPartitionPicking(t *testing.T) {

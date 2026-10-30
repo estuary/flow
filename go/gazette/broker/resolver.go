@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pbx "github.com/estuary/flow/go/gazette/broker/protocol/ext"
+	"github.com/estuary/flow/go/gazette/broker/stores"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/broker/protocol"
-	pbx "go.gazette.dev/core/broker/protocol/ext"
-	"go.gazette.dev/core/broker/stores"
-	"go.gazette.dev/core/keyspace"
 )
 
 // resolver maps journals to responsible broker instances and, potentially, a local replica.

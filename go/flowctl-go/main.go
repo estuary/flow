@@ -1,10 +1,10 @@
 package main
 
 import (
+	"github.com/estuary/flow/go/gazette/cmd/gazctl/gazctlcmd"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 	"github.com/estuary/flow/go/runtime"
 	"github.com/jessevdk/go-flags"
-	"go.gazette.dev/core/cmd/gazctl/gazctlcmd"
-	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
 const iniFilename = "flow.ini"

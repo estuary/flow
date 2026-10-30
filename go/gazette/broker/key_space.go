@@ -1,11 +1,11 @@
 package broker
 
 import (
+	"github.com/estuary/flow/go/gazette/allocator"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pbx "github.com/estuary/flow/go/gazette/broker/protocol/ext"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"go.etcd.io/etcd/api/v3/mvccpb"
-	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/broker/protocol"
-	pbx "go.gazette.dev/core/broker/protocol/ext"
-	"go.gazette.dev/core/keyspace"
 )
 
 // NewKeySpace returns a KeySpace suitable for use with an Allocator.

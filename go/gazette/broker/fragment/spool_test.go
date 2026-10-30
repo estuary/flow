@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/codecs"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/broker/codecs"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 func TestNextCases(t *testing.T) {

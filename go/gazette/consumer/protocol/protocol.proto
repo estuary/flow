@@ -7,7 +7,7 @@ import "consumer/recoverylog/recorded_op.proto";
 import "gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
 
-option go_package = "go.gazette.dev/core/consumer/protocol";
+option go_package = "github.com/estuary/flow/go/gazette/consumer/protocol";
 
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;
@@ -81,7 +81,7 @@ message ShardSpec {
 
     // Journal which this shard is consuming.
     string journal = 1 [ (gogoproto.casttype) =
-                             "go.gazette.dev/core/broker/protocol.Journal" ];
+                             "github.com/estuary/flow/go/gazette/broker/protocol.Journal" ];
     // Minimum journal byte offset the shard should begin reading from.
     // Typically this should be zero, as read offsets are check-pointed and
     // restored from the shard's Store as it processes. |min_offset| can be
@@ -89,7 +89,7 @@ message ShardSpec {
     // portions of the journal not needed for the application's use case.
     int64 min_offset = 3 [
       (gogoproto.moretags) = "yaml:\"min_offset,omitempty\"",
-      (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset"
+      (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset"
     ];
   }
   // Sources of the shard, uniquely ordered on Source journal.
@@ -280,7 +280,7 @@ message Checkpoint {
   message Source {
     // Offset of the journal which has been read-through.
     int64 read_through = 1
-        [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+        [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
     // States of journal producers. Producer keys are 6-byte,
     // RFC 4122 v1 node identifiers (see message.ProducerID).
     message ProducerEntry {
@@ -294,17 +294,17 @@ message Checkpoint {
   message ProducerState {
     // LastAck is the last acknowledged Clock of this producer.
     fixed64 last_ack = 1
-        [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
+        [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/message.Clock" ];
     // Begin is the offset of the first message byte having CONTINUE_TXN that's
     // larger than LastAck. Eg, it's the offset which opens the next
     // transaction. If there is no such message, Begin is -1.
     int64 begin = 2
-        [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+        [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   }
 
   // Sources is metadata of journals consumed by the shard.
   map<string, Source> sources = 1 [
-    (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal",
+    (gogoproto.castkey) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal",
     (gogoproto.nullable) = false
   ];
 
@@ -312,7 +312,7 @@ message Checkpoint {
   // uncommitted messages were published during the transaction which produced
   // this Checkpoint.
   map<string, bytes> ack_intents = 2
-      [ (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal" ];
+      [ (gogoproto.castkey) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal" ];
 }
 
 message ListRequest {
@@ -389,8 +389,8 @@ message StatRequest {
   // transaction before Stat returns, blocking if required. Offsets of journals
   // not read by this shard are ignored.
   map<string, int64> read_through = 3 [
-    (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal",
-    (gogoproto.castvalue) = "go.gazette.dev/core/broker/protocol.Offset"
+    (gogoproto.castkey) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal",
+    (gogoproto.castvalue) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset"
   ];
   // Optional extension of the StatRequest.
   bytes extension = 100;
@@ -404,8 +404,8 @@ message StatResponse {
   // Journals and offsets read through by the most recent completed consumer
   // transaction.
   map<string, int64> read_through = 3 [
-    (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal",
-    (gogoproto.castvalue) = "go.gazette.dev/core/broker/protocol.Offset"
+    (gogoproto.castkey) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal",
+    (gogoproto.castvalue) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset"
   ];
   // Journals and offsets this shard has published through, including
   // acknowledgements, as-of the most recent completed consumer transaction.
@@ -419,8 +419,8 @@ message StatResponse {
   // through multiple intermediate consumers and arbitrary transformations
   // before arriving at the materialized view which is ultimately queried.
   map<string, int64> publish_at = 4 [
-    (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal",
-    (gogoproto.castvalue) = "go.gazette.dev/core/broker/protocol.Offset"
+    (gogoproto.castkey) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal",
+    (gogoproto.castvalue) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset"
   ];
   // Optional extension of the StatResponse.
   bytes extension = 100;

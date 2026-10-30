@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/estuary/flow/go/gazette/broker/fragment"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/fragment"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // pipeline is an in-flight write replication pipeline of a journal.

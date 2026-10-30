@@ -10,8 +10,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service"
 	"github.com/Azure/azure-storage-blob-go/azblob"
+	"github.com/estuary/flow/go/gazette/broker/stores"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/stores"
 )
 
 // accountStore implements the Store interface for Azure Blob Storage

@@ -6,9 +6,9 @@ import (
 	"io"
 	"testing"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/etcdtest"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/etcdtest"
 	"google.golang.org/grpc"
 )
 

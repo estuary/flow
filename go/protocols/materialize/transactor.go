@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/client"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // Transactor is a store-agnostic interface for a materialization connector

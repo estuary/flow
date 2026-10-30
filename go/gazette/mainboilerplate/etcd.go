@@ -5,10 +5,10 @@ import (
 	"crypto/tls"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/server"
 	log "github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/server"
 	"google.golang.org/grpc"
 )
 
