@@ -65,7 +65,7 @@ TARGETS = {
             "docker/control-plane-agent.Dockerfile",
             "mise/tasks/ci/package",
             "mise/tasks/ci/docker-images",
-            "mise/tasks/ci/gnu-opt",  # the `cargo build --release` that produces `agent`
+            "mise/tasks/ci/gnu-opt",  # the release `cargo auditable build` that produces `agent`
             "mise/tasks/build/",
             "go/",  # flowctl-go and gazette are copied into the image
             "ops-catalog/data-plane-template.bundle.json",

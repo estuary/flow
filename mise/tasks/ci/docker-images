@@ -26,7 +26,8 @@ if [[ "${PUSH}" == "true" ]]; then
     PLATFORMS='["linux/amd64", "linux/arm64"]'
     OUTPUT='["type=registry"]'
     # BuildKit scans each built image and pushes the SBOM beside it. The
-    # provenance is buildx's default, made explicit so it can't be dropped.
+    # provenance matches buildx's default. Listing it explicitly keeps it
+    # when BUILDX_NO_DEFAULT_ATTESTATIONS is set.
     ATTEST='["type=provenance,mode=min", "type=sbom"]'
 else
     # For local builds, detect current architecture
@@ -40,8 +41,8 @@ else
         exit 1
     fi
     OUTPUT='["type=docker"]'
-    # The docker exporter can't load an image with attestations into a
-    # daemon using the classic image store.
+    # No SBOM: with any attestation requested, buildx refuses to load the
+    # image into a daemon using the classic image store.
     ATTEST='[]'
 fi
 

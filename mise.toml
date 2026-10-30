@@ -12,6 +12,7 @@ go = { version = "1.26.10" }
 "github:jdx/usage" = { version = "6.4.0" }
 "github:mozilla/sccache" = { version = "0.12.0", platforms = { linux-arm64 = { asset_pattern = "sccache-v*-aarch64-unknown-linux-musl.tar.gz" }, linux-x64 = { asset_pattern = "sccache-v*-x86_64-unknown-linux-musl.tar.gz" }, macos-arm64 = { asset_pattern = "sccache-v*-aarch64-apple-darwin.tar.gz" } } }
 "github:nextest-rs/nextest" = { version = "cargo-nextest-0.9.114" }
+"github:CycloneDX/cyclonedx-rust-cargo" = { version = "cargo-cyclonedx-0.5.9", platforms = { linux-arm64 = { asset_pattern = "cargo-cyclonedx-aarch64-unknown-linux-gnu.tar.xz" }, linux-x64 = { asset_pattern = "cargo-cyclonedx-x86_64-unknown-linux-musl.tar.xz" }, macos-arm64 = { asset_pattern = "cargo-cyclonedx-aarch64-apple-darwin.tar.xz" } } }
 "github:rust-secure-code/cargo-auditable" = { version = "0.7.7", platforms = { linux-arm64 = { asset_pattern = "cargo-auditable-aarch64-unknown-linux-musl.tar.xz" }, linux-x64 = { asset_pattern = "cargo-auditable-x86_64-unknown-linux-musl.tar.xz" }, macos-arm64 = { asset_pattern = "cargo-auditable-aarch64-apple-darwin.tar.xz" } } }
 "github:rui314/mold" = { version = "2.40.4" }
 "github:supabase/cli" = { version = "2.54.11" }
