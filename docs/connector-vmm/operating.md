@@ -105,10 +105,7 @@ VMM is checked at each launch, not here.
 `CONNECTOR_VMM_PODMAN` is run with the launcher's environment, less
 `CONSUMER_AUTH_KEYS`, `BROKER_AUTH_KEYS`, `SOPS_AGE_KEY` and `FLOW_AUTH_TOKEN`.
 Everything else is inherited, so engine selection, registry authentication,
-proxies and a wrapper's own settings still reach it. A wrapper (such as one
-running `sudo -n podman`) must keep its stdin open until its command finishes,
-as `exec`, sudo and podman do: the commands which create a VMM's network and
-container are handed the launch's locked ownership record as stdin.
+proxies and a wrapper's own settings still reach it.
 
 ## Paths, filesystems and permissions
 
@@ -135,9 +132,6 @@ container are handed the launch's locked ownership record as stdin.
   `image-inspect.json` (0444). The VMM makes `init.sock` mode 0777 inside the
   0711 `sock/`, which the launcher's UID dials. A launch under another UID
   cannot remove these, so recovery across users fails and is reported.
-- **A local engine.** Creation fencing relies on podman's client running the
-  create itself. A remote podman service may finish a create after its client
-  died. The next launch's recovery removes what it made.
 - **The engine in the host's PID namespace.** podman records container PIDs as
   it sees them; launchers sharing a store must see the same PID numbering.
 
@@ -220,9 +214,11 @@ In operating terms:
   label, and its `STATE_DIR` in the `dev.estuary.vmm-state-dir` label. A live
   owner's record is never taken, so live launches, including other stacks'
   and other reactors' sharing a host, are never touched.
-- **Creation is fenced.** podman's network, volume and container creates hold the
-  record's lock, so a create which outlives its launcher (a root podman
-  client survives its parent) keeps the record locked until it has finished.
+- **A create can finish after its launch is released.** A root podman client
+  survives its parent, and the podman service finishes a create whose client
+  has died. Either way, a network, volume or container can appear after
+  recovery has released its launch and removed the record. The next launch
+  removes it (below).
 - **A launch which ends normally is torn down by its owner**: Validate, Spec,
   Discover, and a session whose client goes away. Failures to release are
   logged to the task's logs, naming the record kept.
@@ -264,9 +260,10 @@ without waiting. The VMM, its conmon and container keep running under podman,
 outside the unit's cgroup, until connector-init's idle exit or recovery. The
 restarted
 reactor's own next VMM launch (in practice, the relaunch of its shard)
-recovered everything the dead one owned. Production's arrangement (a
+recovered everything the dead one owned. A create still running when that
+launch recovers is removed by the launch after it. Production's arrangement (a
 reactor container driving the host's podman) has not been tested for kill
-semantics, restart ordering or remote-engine fencing.
+semantics or restart ordering.
 
 ## Connector mount contract
 

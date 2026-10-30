@@ -10,6 +10,6 @@ container fv_0000000000000001
 container fv_0000000000000002
 --- ran
 sudo -n podman create --rm --name=fv_0000000000000002 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
-podman create --rm --name=fv_0000000000000002 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json (stdin <tmp>/fence)
+podman create --rm --name=fv_0000000000000002 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
 sudo -n podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
-podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json (stdin <tmp>/fence)
+podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json

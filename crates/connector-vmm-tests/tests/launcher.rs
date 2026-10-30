@@ -1549,11 +1549,13 @@ fn a_vmm_which_fails_refuses_the_launch() {
 }
 
 /// An owner killed while its podman, held at `step`, is about to create its
-/// `kind` (a network or container, as `exists` finds it): the command goes on
-/// without its owner, and holds the record's lock until it's done. A launch
-/// meanwhile passes the record over; the next, once the command is done,
-/// releases what it made.
-fn an_orphaned_command(step: &str, kind: &str, exists: fn(&str) -> bool) {
+/// `kind`, as `exists` finds it. The command goes on without its owner, whose
+/// record is then free. A launch meanwhile takes the record, finds nothing
+/// made yet, and releases it. Let go, the command makes a network or volume
+/// that no record names, and the next launch removes it by its state
+/// directory's label. A container's create fails instead, because the
+/// release removed its network and volume.
+fn an_orphaned_command(step: &str, kind: &str, exists: fn(&str) -> bool, makes: bool) {
     let (run, root, runtime) = setup();
     let other = launcher::root();
     let successor = router(vmm_at(&other.podman, &root.state_dir, &run.fake_image));
@@ -1565,39 +1567,42 @@ fn an_orphaned_command(step: &str, kind: &str, exists: fn(&str) -> bool) {
     let record = launcher::record(&root.state_dir, &name);
     owner.kill();
 
-    assert!(launcher::locked(&record), "the orphaned command holds it");
     launch(&runtime, &successor, &run.derive_python_image);
-    assert!(launcher::locked(&record), "passed over");
+    assert!(!launcher::path_exists(&record), "released meanwhile");
     assert!(!exists(&name), "nothing was made yet");
 
     std::mem::drop(hold);
-    run::eventually(
-        &format!("the orphaned command to create the {kind} and end"),
-        STARTED,
-        || (exists(&name) && !launcher::locked(&record)).then_some(()),
-    );
+    run::eventually("the orphaned command to end", STARTED, || {
+        wrappers(&root).is_empty().then_some(())
+    });
+    assert_eq!(exists(&name), makes, "the {kind}, once the command ended");
 
     launch(&runtime, &successor, &run.derive_python_image);
     assert_eq!(
         launcher::left(&root.state_dir, &root.tmp_dir, &name),
         Vec::<String>::new(),
-        "released by the launch, before any cleanup of the test's"
+        "removed by the launch, before any cleanup of the test's"
     );
 }
 
 #[test]
 fn a_kill_while_the_network_is_created() {
-    an_orphaned_command("network-create", "network", launcher::network_exists);
+    an_orphaned_command("network-create", "network", launcher::network_exists, true);
 }
 
 #[test]
 fn a_kill_while_the_container_is_created() {
-    an_orphaned_command("create", "container", launcher::container_exists);
+    an_orphaned_command("create", "container", launcher::container_exists, false);
 }
 
 #[test]
 fn a_kill_while_the_rootfs_volume_is_created() {
-    an_orphaned_command("volume-create", "rootfs volume", launcher::volume_exists);
+    an_orphaned_command(
+        "volume-create",
+        "rootfs volume",
+        launcher::volume_exists,
+        true,
+    );
 }
 
 /// podman made the container, and its command ended, but its owner died
@@ -2929,322 +2934,6 @@ fn eight_launches_recover_shared_orphans() {
     ));
     sentinels.remove();
     evidence.note("sentinels removed and listed gone");
-}
-
-/// Root process `pid` as it runs: start time, user IDs and command line.
-fn identity(pid: u32) -> String {
-    let started = launcher::start_time(pid).unwrap_or_else(|| panic!("{pid} runs"));
-    let status = std::fs::read_to_string(format!("/proc/{pid}/status"))
-        .unwrap_or_else(|e| panic!("reading {pid}'s status: {e}"));
-    let uid = status
-        .lines()
-        .find_map(|line| line.strip_prefix("Uid:"))
-        .unwrap_or_else(|| panic!("{pid}'s status names no Uid"))
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline"))
-        .unwrap_or_else(|e| panic!("reading {pid}'s cmdline: {e}"));
-    format!(
-        "pid {pid} started {started} uid {uid} cmdline {}",
-        String::from_utf8_lossy(&cmdline).replace('\0', " ")
-    )
-}
-
-/// That `pid` keeps `record` locked: its stdin is the record's file, and
-/// carries the record's exclusive flock. The lock, as the kernel shows it.
-fn fence(pid: u32, record: &str) -> String {
-    use std::os::unix::fs::MetadataExt;
-
-    let held = std::fs::metadata(record).unwrap_or_else(|e| panic!("stat {record}: {e}"));
-    let stdin = format!("/proc/{pid}/fd/0");
-    assert_eq!(
-        run::sudo(&["stat", "-L", "-c", "%d %i", &stdin]).trim(),
-        format!("{} {}", held.dev(), held.ino()),
-        "{pid}'s stdin is {record}"
-    );
-    let fdinfo = run::sudo(&["cat", &format!("/proc/{pid}/fdinfo/0")]);
-    fdinfo
-        .lines()
-        .find(|line| {
-            line.starts_with("lock:")
-                && line.contains("FLOCK")
-                && line.contains("WRITE")
-                && line.contains(&format!(":{} ", held.ino()))
-        })
-        .unwrap_or_else(|| panic!("{pid}'s stdin carries no flock of {record}: {fdinfo}"))
-        .to_string()
-}
-
-/// A create held as root beneath sudo outlives the SIGKILL of its owner,
-/// then of a launch which recovers beside it: it keeps the record locked
-/// throughout, so neither touches the record or anything it names. Let go,
-/// it makes what it was making and ends, and the next launch releases that
-/// and the killed launch's own claim. The owner and launches run the fake
-/// image; the peer sharing the state directory is a real VMM.
-fn a_root_held_create(step: &str) {
-    use std::os::unix::process::ExitStatusExt;
-
-    let (run, root, runtime) = setup();
-    let state_dir = root.state_dir.clone();
-    let evidence = Evidence(
-        run.run_dir
-            .join(format!("root-held-create-{step}.evidence")),
-    );
-
-    let peer_root = launcher::root();
-    let peer = Owner::spawn(&run, &peer_root, &state_dir, &run.vmm_image, false);
-    peer.started();
-    let peer_name = launcher::vmm_name(&peer_root).expect("the launch named its network");
-    let peer_footprint = launcher::footprint(&state_dir, &peer_root.tmp_dir, &peer_name);
-    let _peer_rpc = hold_rpc(&runtime, &state_dir, &peer_name);
-    evidence.note(format_args!(
-        "peer: {}",
-        served(&runtime, &state_dir, &peer_name)
-    ));
-
-    let before = records(&state_dir);
-    let hold = launcher::root_hold(&root, step);
-    let owner = Owner::spawn(&run, &root, &state_dir, &run.fake_image, false);
-    launcher::wait_held(&root, step, GATE);
-    let [creator] = launcher::held_by(&root, step)[..] else {
-        panic!("the root hold names one process");
-    };
-    let made: Vec<String> = records(&state_dir).difference(&before).cloned().collect();
-    let [name] = &made[..] else {
-        panic!("expected one new record, not {made:?}");
-    };
-    let record = launcher::record(&state_dir, name);
-    let token = launcher::token(&record);
-    let content = std::fs::read(&record).expect("reading the record");
-    let started = launcher::start_time(creator).expect("the held command runs");
-    let who = identity(creator);
-    assert!(who.contains(" uid 0 0 0 0 "), "held as root: {who}");
-    let made = |name: &str| match step {
-        "create" => launcher::container_exists(name),
-        _ => launcher::network_exists(name),
-    };
-    assert!(!made(name), "nothing made yet");
-    assert_eq!(launcher::network_exists(name), step == "create");
-    let at_hold = launcher::left(&state_dir, &root.tmp_dir, name);
-    // Unchanged, and still held by the same root process, whatever dies.
-    let unchanged = |when: &str| {
-        assert_eq!(identity(creator), who, "{when}: the same process");
-        assert!(launcher::locked(&record), "{when}: the record is locked");
-        let lock = fence(creator, &record);
-        assert_eq!(
-            std::fs::read(&record).expect("reading the record"),
-            content,
-            "{when}: the record"
-        );
-        assert_eq!(
-            launcher::left(&state_dir, &root.tmp_dir, name),
-            at_hold,
-            "{when}: what it names"
-        );
-        assert!(!made(name), "{when}: nothing made yet");
-        evidence.note(format_args!(
-            "{when}: {who}; beneath {}; {lock}; left {at_hold:?}",
-            parent(creator)
-        ));
-    };
-    unchanged("held");
-
-    let killed = owner.kill();
-    assert_eq!(killed.signal(), Some(libc::SIGKILL));
-    unchanged("owner killed");
-
-    // A launch recovering beside it passes it over, and is killed before it
-    // makes anything but its own claim.
-    let recoverer = launcher::root();
-    let verify = launcher::hold(&recoverer, "verify");
-    let before = records(&state_dir);
-    let recovering = Owner::spawn(&run, &recoverer, &state_dir, &run.fake_image, false);
-    launcher::wait_held(&recoverer, "verify", GATE);
-    let calls = launcher::calls(&recoverer);
-    assert!(
-        !calls
-            .iter()
-            .any(|call| call.contains(&token) || call.contains(name.as_str())),
-        "the recovering launch passed it over: {calls:?}"
-    );
-    let claims: Vec<String> = records(&state_dir).difference(&before).cloned().collect();
-    let [claim] = &claims[..] else {
-        panic!("expected the recovering launch's record, not {claims:?}");
-    };
-    unchanged("recovery passed it over");
-    let claim_token = launcher::token(&launcher::record(&state_dir, claim));
-    let [verifier] = launcher::held_by(&recoverer, "verify")[..] else {
-        panic!("the verify hold names one process");
-    };
-    let verifier_started = launcher::start_time(verifier).expect("the held verify runs");
-    let killed = recovering.kill();
-    assert_eq!(killed.signal(), Some(libc::SIGKILL));
-    // Its held verify, which changes nothing, runs on and ends: as podman,
-    // by the same PID, once the wrapper has exec'd it.
-    std::mem::drop(verify);
-    run::eventually("the recovering launch's verify to end", ORPHAN, || {
-        (launcher::start_time(verifier).as_ref() != Some(&verifier_started)).then_some(())
-    });
-    unchanged("recovering launch killed");
-    evidence.note(format_args!(
-        "recovering launch {claim} {killed}, its calls {calls:?}; peer: {}",
-        served(&runtime, &state_dir, &peer_name)
-    ));
-
-    // Let go, the command makes what it was making, and ends.
-    std::mem::drop(hold);
-    run::eventually(
-        "the held command to make its resource and end",
-        ORPHAN,
-        || (made(name) && launcher::start_time(creator).as_ref() != Some(&started)).then_some(()),
-    );
-    assert!(!launcher::locked(&record), "its lock went with it");
-    let labeled = match step {
-        "create" => run::podman(&[
-            "container",
-            "inspect",
-            "--format",
-            "{{index .Config.Labels \"dev.estuary.vmm-owner\"}}",
-            name,
-        ]),
-        _ => run::podman(&[
-            "network",
-            "inspect",
-            "--format",
-            "{{index .Labels \"dev.estuary.vmm-owner\"}}",
-            name,
-        ]),
-    };
-    assert_eq!(labeled.trim(), token, "made under the record's token");
-    let late = launcher::left(&state_dir, &root.tmp_dir, name);
-    evidence.note(format_args!(
-        "released: {creator} ended; {name} made, labeled {token}; record unlocked; left {late:?}"
-    ));
-
-    let other = launcher::root();
-    let successor = router(vmm_at(&other.podman, &state_dir, &run.fake_image));
-    launch(&runtime, &successor, &run.derive_python_image);
-    let calls = launcher::calls(&other);
-    let released = |token: &str, name: &str, id: &str| -> Vec<String> {
-        calls
-            .iter()
-            .filter(|call| {
-                call.contains(token) || call.contains(name) || (!id.is_empty() && call.contains(id))
-            })
-            .cloned()
-            .collect()
-    };
-    let label = |token: &str| format!("label=dev.estuary.vmm-owner={token}");
-    let mut expected = vec![format!(
-        "ps --all --no-trunc --filter {} --format {{{{.ID}}}}",
-        label(&token)
-    )];
-    let id = match step {
-        "create" => {
-            let id = calls
-                .iter()
-                .find_map(|call| call.strip_prefix("rm --force --time=0 --ignore "))
-                .expect("the late container is removed")
-                .to_string();
-            expected.push(format!("rm --force --time=0 --ignore {id}"));
-            id
-        }
-        _ => String::new(),
-    };
-    expected.push(format!(
-        "network ls --filter {} --format {{{{.Name}}}}",
-        label(&token)
-    ));
-    expected.push(format!("network rm {name}"));
-    expected.push(format!(
-        "volume ls --filter {} --format {{{{.Name}}}}",
-        label(&token)
-    ));
-    if step == "create" {
-        expected.push(format!("volume rm {name}"));
-    }
-    assert_eq!(
-        released(&token, name, &id),
-        expected,
-        "the late resource's release"
-    );
-    assert!(
-        !launcher::calls(&recoverer)
-            .iter()
-            .any(|call| call.starts_with("network create ") || call.starts_with("create ")),
-        "the killed launch made no network or container"
-    );
-    let claimed = released(&claim_token, claim, "");
-    assert_eq!(
-        claimed,
-        [
-            format!(
-                "ps --all --no-trunc --filter {} --format {{{{.ID}}}}",
-                label(&claim_token)
-            ),
-            format!(
-                "network ls --filter {} --format {{{{.Name}}}}",
-                label(&claim_token)
-            ),
-            format!(
-                "volume ls --filter {} --format {{{{.Name}}}}",
-                label(&claim_token)
-            ),
-        ],
-        "the killed launch's claim was released"
-    );
-    assert_eq!(
-        launcher::left(&state_dir, &root.tmp_dir, name),
-        Vec::<String>::new()
-    );
-    assert_eq!(
-        launcher::left(&state_dir, &recoverer.tmp_dir, claim),
-        Vec::<String>::new()
-    );
-    let replacement = launcher::vmm_name(&other).expect("the launch named its network");
-    assert_eq!(
-        launcher::left(&state_dir, &other.tmp_dir, &replacement),
-        Vec::<String>::new()
-    );
-    launcher::assert_whole(&peer_footprint);
-    evidence.note(format_args!(
-        "next launch released {name} with {expected:?} and the killed launch's {claim} with \
-         {claimed:?}; peer: {}",
-        served(&runtime, &state_dir, &peer_name)
-    ));
-
-    peer.end();
-    assert_eq!(launcher::remaining(&peer_footprint), Vec::<String>::new());
-    assert_eq!(
-        records(&state_dir),
-        std::collections::BTreeSet::new(),
-        "no records remain"
-    );
-    for root in [&root, &peer_root, &recoverer, &other] {
-        assert_eq!(
-            wrappers(root),
-            Vec::<u32>::new(),
-            "{}'s podman ended",
-            root.dir
-        );
-    }
-    assert_eq!(
-        running_with(&format!("{}/root-hold-{step}", root.dir)),
-        Vec::<u32>::new(),
-        "no root hold remains"
-    );
-    evidence.note("peer ended and gone; no records, podman or root holds remain");
-}
-
-#[test]
-fn a_root_held_network_create_outlives_two_launcher_deaths() {
-    a_root_held_create("network-create");
-}
-
-#[test]
-fn a_root_held_container_create_outlives_two_launcher_deaths() {
-    a_root_held_create("create");
 }
 
 /// A process's state and start time, by its `stat`, or None if it has gone.
