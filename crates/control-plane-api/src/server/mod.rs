@@ -281,7 +281,7 @@ impl axum::response::IntoResponse for Rejection {
 ///
 /// Service-account credentials are administered through createApiKey /
 /// revokeApiKey. The self-service refresh-token mutations and the
-/// capability-token mint reject a service-account caller: a valid key could
+/// restricted-token mint reject a service-account caller: a valid key could
 /// otherwise mint replacement or derived credentials for its own account —
 /// sidestepping the CreateApiKey gate and the admin-chosen expiry — or revoke
 /// keys outside the admin-facing flow.
