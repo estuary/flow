@@ -806,6 +806,7 @@ async fn controller_update<C: ControlPlane>(
     state: &ControllerState,
     events: &Inbox,
     control_plane: &C,
+    alert_events: &mut models::status::Alerts,
 ) -> anyhow::Result<Option<NextRun>> {
     let Some(live_spec) = &state.live_spec else {
         // There's no need to delete tests and nothing depends on them.
@@ -847,7 +848,16 @@ async fn controller_update<C: ControlPlane>(
     let next_run = match live_spec {
         AnySpec::Capture(c) => {
             let capture_status = status.as_capture_mut()?;
-            capture::update(capture_status, state, events, control_plane, c, alert_cfg).await?
+            capture::update(
+                capture_status,
+                state,
+                events,
+                control_plane,
+                c,
+                alert_cfg,
+                alert_events,
+            )
+            .await?
         }
         AnySpec::Collection(c) => {
             let collection_status = status.as_collection_mut()?;
@@ -858,6 +868,7 @@ async fn controller_update<C: ControlPlane>(
                 control_plane,
                 c,
                 alert_cfg,
+                alert_events,
             )
             .await?
         }
@@ -871,6 +882,7 @@ async fn controller_update<C: ControlPlane>(
                 control_plane,
                 m,
                 alert_cfg,
+                alert_events,
             )
             .await?
         }

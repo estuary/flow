@@ -62,6 +62,7 @@ pub async fn evaluate_abandoned<C: ControlPlane>(
     state: &ControllerState,
     control_plane: &C,
     alert_cfg: &ResolvedAlertConfig,
+    alert_events: &mut Alerts,
 ) -> anyhow::Result<Option<NextRun>> {
     // Tasks without shards (disabled, Dekaf, etc.) don't need abandon monitoring.
     if !has_task_shards(state) {
@@ -91,6 +92,7 @@ pub async fn evaluate_abandoned<C: ControlPlane>(
 
     if let Some(reason) = disable_reason.filter(|reason| auto_disable_enabled(alert_cfg, *reason)) {
         if maybe_disable_task(reason, state, publications, control_plane).await? {
+            fire_auto_disabled_event(reason, alerts_status, alert_events, now, state);
             return Ok(Some(NextRun::immediately()));
         }
     }
@@ -205,54 +207,24 @@ fn evaluate_alerts(
                 .insert(EXTRA_FAILING_SINCE.to_string(), failing_since.into());
         }
 
-        let alert = alerts_status
+        let disable_at = alerts_status
             .get(&AlertType::TaskChronicallyFailing)
-            .expect("TaskChronicallyFailing alert was just set");
-        let disable_at = alert
+            .expect("TaskChronicallyFailing alert was just set")
             .extra
             .get(EXTRA_DISABLE_AT)
             .expect("disable_at was just inserted")
             .as_str()
-            .expect("disable_at must be a string")
-            .to_string();
-        let failing_since = alert
-            .extra
-            .get(EXTRA_FAILING_SINCE)
-            .expect("failing_since was just inserted")
-            .as_str()
-            .expect("failing_since must be a string")
-            .to_string();
-        let disable_at = chrono::NaiveDate::parse_from_str(&disable_at, "%Y-%m-%d")
+            .expect("disable_at must be a string");
+        let disable_at = chrono::NaiveDate::parse_from_str(disable_at, "%Y-%m-%d")
             .expect("disable_at was set from a valid date");
 
         if now.date_naive() >= disable_at
             && auto_disable_enabled(alert_config, DisableReason::ChronicallyFailing)
         {
-            if !alerts_status.contains_key(&AlertType::TaskAutoDisabledFailing) {
-                alerts::set_alert_firing(
-                    alerts_status,
-                    AlertType::TaskAutoDisabledFailing,
-                    now,
-                    format!("task auto-disabled after shards failing since {failing_since}"),
-                    1,
-                    catalog_type,
-                );
-                alerts_status
-                    .get_mut(&AlertType::TaskAutoDisabledFailing)
-                    .expect("just inserted")
-                    .extra
-                    .insert(
-                        EXTRA_FAILING_SINCE.to_string(),
-                        failing_since.clone().into(),
-                    );
-            }
             disable_reason = Some(DisableReason::ChronicallyFailing);
-        } else {
-            alerts::resolve_alert(alerts_status, AlertType::TaskAutoDisabledFailing);
         }
     } else {
         alerts::resolve_alert(alerts_status, AlertType::TaskChronicallyFailing);
-        alerts::resolve_alert(alerts_status, AlertType::TaskAutoDisabledFailing);
     }
 
     // Sequence 2: Idle Task
@@ -312,26 +284,62 @@ fn evaluate_alerts(
 
         if now.date_naive() >= disable_at && auto_disable_enabled(alert_config, DisableReason::Idle)
         {
-            if !alerts_status.contains_key(&AlertType::TaskAutoDisabledIdle) {
-                alerts::set_alert_firing(
-                    alerts_status,
-                    AlertType::TaskAutoDisabledIdle,
-                    now,
-                    "task auto-disabled due to inactivity".to_string(),
-                    1,
-                    catalog_type,
-                );
-            }
             disable_reason = Some(DisableReason::Idle);
-        } else {
-            alerts::resolve_alert(alerts_status, AlertType::TaskAutoDisabledIdle);
         }
     } else {
         alerts::resolve_alert(alerts_status, AlertType::TaskIdle);
-        alerts::resolve_alert(alerts_status, AlertType::TaskAutoDisabledIdle);
     }
 
     disable_reason
+}
+
+/// Fires the event alert for a task which was just disabled for `reason`.
+fn fire_auto_disabled_event(
+    reason: DisableReason,
+    alerts_status: &Alerts,
+    alert_events: &mut Alerts,
+    now: DateTime<Utc>,
+    state: &ControllerState,
+) {
+    let catalog_type = state
+        .live_spec
+        .as_ref()
+        .expect("disabled task has a live spec")
+        .catalog_type();
+
+    match reason {
+        DisableReason::ChronicallyFailing => {
+            let failing_since = alerts_status[&AlertType::TaskChronicallyFailing].extra
+                [EXTRA_FAILING_SINCE]
+                .clone();
+            alerts::set_alert_firing(
+                alert_events,
+                AlertType::TaskAutoDisabledFailing,
+                now,
+                format!(
+                    "task auto-disabled after shards failing since {}",
+                    failing_since
+                        .as_str()
+                        .expect("failing_since must be a string")
+                ),
+                1,
+                catalog_type,
+            );
+            alert_events
+                .get_mut(&AlertType::TaskAutoDisabledFailing)
+                .expect("just inserted")
+                .extra
+                .insert(EXTRA_FAILING_SINCE.to_string(), failing_since);
+        }
+        DisableReason::Idle => alerts::set_alert_firing(
+            alert_events,
+            AlertType::TaskAutoDisabledIdle,
+            now,
+            "task auto-disabled due to inactivity".to_string(),
+            1,
+            catalog_type,
+        ),
+    }
 }
 
 /// Publishes the spec with `shards.disable = true`. Returns `true` if the
@@ -384,8 +392,10 @@ fn set_spec_disabled(spec: &mut models::AnySpec) {
 
 fn resolve_all_abandon_alerts(alerts_status: &mut Alerts) {
     alerts::resolve_alert(alerts_status, AlertType::TaskChronicallyFailing);
-    alerts::resolve_alert(alerts_status, AlertType::TaskAutoDisabledFailing);
     alerts::resolve_alert(alerts_status, AlertType::TaskIdle);
+    // Events aren't kept in status. This clears entries written before
+    // `TaskAutoDisabled*` were events.
+    alerts::resolve_alert(alerts_status, AlertType::TaskAutoDisabledFailing);
     alerts::resolve_alert(alerts_status, AlertType::TaskAutoDisabledIdle);
 }
 
@@ -765,16 +775,6 @@ mod test {
             "spec_type": "capture",
             "state": "firing"
           },
-          "task_auto_disabled_failing": {
-            "count": 1,
-            "error": "task auto-disabled after shards failing since 2025-06-01",
-            "failing_since": "2025-06-01",
-            "first_ts": "2025-07-09T12:00:00Z",
-            "last_ts": null,
-            "resolved_at": null,
-            "spec_type": "capture",
-            "state": "firing"
-          },
           "task_chronically_failing": {
             "count": 1,
             "disable_at": "2025-07-09",
@@ -1117,7 +1117,7 @@ mod test {
         }
         "#);
 
-        // Tick 3: Grace period expired. TaskAutoDisabledIdle fires.
+        // Tick 3: Grace period expired. The task should be disabled.
         let now = now + config.abandon_idle_disable_after;
         let reason = evaluate_alerts(
             &mut alerts,
@@ -1130,15 +1130,6 @@ mod test {
         assert_eq!(reason, Some(DisableReason::Idle));
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
-          "task_auto_disabled_idle": {
-            "count": 1,
-            "error": "task auto-disabled due to inactivity",
-            "first_ts": "2025-07-08T12:00:00Z",
-            "last_ts": null,
-            "resolved_at": null,
-            "spec_type": "materialization",
-            "state": "firing"
-          },
           "task_idle": {
             "count": 1,
             "disable_at": "2025-07-08",
@@ -1373,7 +1364,7 @@ mod test {
     }
 
     #[test]
-    fn alert_config_auto_disable_false_resolves_existing_failing_auto_disabled_alert() {
+    fn alert_config_auto_disable_false_cancels_failing_disable() {
         let config = ControllerConfig::default();
         let mut on_cfg = config.alert_config_defaults();
         on_cfg
@@ -1417,11 +1408,10 @@ mod test {
             &auto_disable_on,
         );
         assert_eq!(reason, Some(DisableReason::ChronicallyFailing));
-        assert!(alerts.contains_key(&AlertType::TaskAutoDisabledFailing));
 
         // Flip per-task auto_disable to false while the task is still
-        // chronically failing. The warning should remain, but the
-        // auto-disabled alert should resolve.
+        // chronically failing. The warning should remain, but the task
+        // should no longer be disabled.
         let mut off_cfg = config.alert_config_defaults();
         off_cfg
             .task_chronically_failing
@@ -1439,14 +1429,10 @@ mod test {
         );
         assert!(reason.is_none());
         assert!(alerts.contains_key(&AlertType::TaskChronicallyFailing));
-        assert!(
-            !alerts.contains_key(&AlertType::TaskAutoDisabledFailing),
-            "auto_disable: false should resolve TaskAutoDisabledFailing"
-        );
     }
 
     #[test]
-    fn alert_config_auto_disable_false_resolves_existing_idle_auto_disabled_alert() {
+    fn alert_config_auto_disable_false_cancels_idle_disable() {
         let config = ControllerConfig::default();
         let mut on_cfg = config.alert_config_defaults();
         on_cfg.task_idle.as_mut().unwrap().auto_disable = Some(true);
@@ -1480,7 +1466,6 @@ mod test {
             &auto_disable_on,
         );
         assert_eq!(reason, Some(DisableReason::Idle));
-        assert!(alerts.contains_key(&AlertType::TaskAutoDisabledIdle));
 
         // Flip per-task auto_disable to false while the task remains idle.
         let mut off_cfg = config.alert_config_defaults();
@@ -1496,10 +1481,6 @@ mod test {
         );
         assert!(reason.is_none());
         assert!(alerts.contains_key(&AlertType::TaskIdle));
-        assert!(
-            !alerts.contains_key(&AlertType::TaskAutoDisabledIdle),
-            "auto_disable: false should resolve TaskAutoDisabledIdle"
-        );
     }
 
     #[test]

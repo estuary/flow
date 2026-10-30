@@ -44,6 +44,14 @@ impl std::fmt::Display for AlertType {
 }
 
 impl AlertType {
+    /// Events complete when recorded and send only their firing notification.
+    pub fn is_event(&self) -> bool {
+        matches!(
+            self,
+            Self::TaskAutoDisabledFailing | Self::TaskAutoDisabledIdle
+        )
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             AlertType::AutoDiscoverFailed => "auto_discover_failed",
@@ -276,3 +284,22 @@ pub struct ControllerAlert {
 }
 
 pub type Alerts = BTreeMap<AlertType, ControllerAlert>;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_event_alert_types() {
+        use super::AlertType;
+        assert_eq!(
+            AlertType::all()
+                .iter()
+                .copied()
+                .filter(AlertType::is_event)
+                .collect::<Vec<_>>(),
+            [
+                AlertType::TaskAutoDisabledFailing,
+                AlertType::TaskAutoDisabledIdle
+            ]
+        );
+    }
+}
