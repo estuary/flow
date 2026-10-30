@@ -39,6 +39,7 @@ expression: outcome.built_materializations
           "removed dropped exclude projection does/not/exist of source collection the/collection",
           "reset materialization to new generation 2020202020202020"
         ],
+        auto_disabled_bindings: [],
         validated: Validated {
             bindings: [
                 Binding {
