@@ -18,7 +18,7 @@ const CONNECTOR_PLATFORM: &str = "linux/amd64";
 // `flow-connector-init` is extracted from this image when a locally-built copy
 // isn't found by `locate_bin` (dev/CI builds place one alongside the executable).
 // TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
-const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/reactor:v0.6.12-69-gb7eb6426711";
+const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/reactor:v0.6.15-15-g6954c5551";
 const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
 /// Options which have already been selected for a container execution.
