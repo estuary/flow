@@ -6,9 +6,13 @@
 //! `AlertNotifications` task in `internal.tasks`, which is responsible for
 //! sending all notifications related to the alert. The `task_id` of the
 //! notification task will be the same as the `alert_history.id`. The task gets
-//! created when the alert is fired, and sticks around until all resolution
-//! notifications have been successfully sent. Alerts may be fired via a few
-//! different means:
+//! created when the alert is fired. Condition alerts keep it until resolution
+//! delivery completes. Event alert types (`AlertType::is_event`) are recorded
+//! with `resolved_at = fired_at`; their tasks deliver the original firing
+//! arguments and finish without a resolution notification. Partial recipient
+//! progress is retained across delivery failures.
+//!
+//! Alerts may be fired via a few different means:
 //!
 //! - Tenant controllers: Are responsible for tenant alerts, such as `free_trial`.
 //! - Controllers: Are responsible for any new alerts for live_specs.
