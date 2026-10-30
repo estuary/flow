@@ -411,6 +411,7 @@ enum CapabilityBit {
 	Assume
 	CreateSandbox
 	ManageAlerts
+	ManageLegal
 }
 
 """
@@ -1935,6 +1936,10 @@ type MutationRoot {
 		"""
 		dataPlane: String!
 	): Boolean!
+	"""
+	Accept specific legal terms for a tenant. Requires ManageLegal on the tenant.
+	"""
+	legalTermsAccept(tenant: String!, termsId: Id!): LegalTerms!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	setBillingContact(		tenant: String!,
@@ -2758,7 +2763,7 @@ type QueryRoot {
 	"""
 	tenantLegalTerms(type: LegalTermsType!, tenant: String!): LegalTerms
 	"""
-	Lists paginated legal terms, optionally restricted to terms accepted by an authorized tenant.
+	Lists legal terms accepted by tenants the caller can read, with optional filters and pagination.
 	"""
 	legalTerms(filter: LegalTermsFilter, after: String, before: String, first: Int, last: Int): LegalTermsConnection!
 	"""

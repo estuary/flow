@@ -124,6 +124,7 @@ pub struct QueryRoot(
 #[derive(Debug, Default, async_graphql::MergedObject)]
 pub struct MutationRoot(
     tenant::TenantMutation,
+    legal_terms::LegalTermsMutation,
     billing::BillingMutation,
     storage_mappings::StorageMappingsMutation,
     alert_configs::AlertConfigsMutation,

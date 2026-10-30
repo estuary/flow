@@ -88,7 +88,7 @@ impl LegalTermsQuery {
         Ok(row)
     }
 
-    /// Lists paginated legal terms, optionally restricted to terms accepted by an authorized tenant.
+    /// Lists legal terms accepted by tenants the caller can read, with optional filters and pagination.
     async fn legal_terms(
         &self,
         ctx: &async_graphql::Context<'_>,
@@ -110,20 +110,20 @@ impl LegalTermsQuery {
             .as_deref()
             .map(super::tenant::validate_tenant_name)
             .transpose()?;
-        if let Some(tenant) = &tenant {
-            super::verify_authorization(
-                env,
-                tenant.as_str(),
-                models::authz::Capability::CatalogRead,
-            )
-            .await?;
-        }
+        let snapshot = env.snapshot();
+        let prefixes = super::authorized_prefixes::authorized_prefixes(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            &env.claims()?.subject(),
+            models::authz::Capability::CatalogRead,
+            tenant.as_ref().map(|tenant| tenant.as_str()),
+        );
 
         connection::query_with::<LegalTermsCursor, _, _, _, async_graphql::Error>(
             after, before, first, last,
             |after, before, first, last| async move {
                 let limit = first.or(last).unwrap_or(DEFAULT_PAGE_SIZE);
-                if limit == 0 {
+                if limit == 0 || prefixes.is_empty() {
                     return Ok(PaginatedLegalTerms::new(false, false));
                 }
                 let reverse = last.is_some();
@@ -135,11 +135,13 @@ impl LegalTermsQuery {
                 // Audit records survive tenant deletion; consent must match the current tenant ID.
                 let mut rows = sqlx::query_as::<_, LegalTerms>(
                     "SELECT l.id, l.text, l.type, l.version FROM internal.legal_terms l
-                     WHERE ($1::text IS NULL OR EXISTS (
+                     WHERE EXISTS (
                          SELECT 1 FROM internal.tenant_consent c
                          JOIN public.tenants t ON t.id = c.tenant_id
-                         WHERE t.tenant = $1 AND c.terms_id = l.id
-                     ))
+                         WHERE c.terms_id = l.id
+                           AND t.tenant::text ^@ ANY($14::text[])
+                           AND ($1::text IS NULL OR t.tenant = $1)
+                     )
                      AND ($2::internal.legal_terms_type IS NULL OR l.type = $2)
                      AND ($3::integer IS NULL OR l.version = $3)
                      AND ($4::integer IS NULL OR l.version > $4)
@@ -168,6 +170,7 @@ impl LegalTermsQuery {
                 .bind(before.map(|cursor| cursor.1))
                 .bind(reverse)
                 .bind(limit as i64 + 1)
+                .bind(&prefixes)
                 .fetch_all(&env.pg_pool)
                 .await?;
 
@@ -189,15 +192,205 @@ impl LegalTermsQuery {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct LegalTermsMutation;
+
+#[async_graphql::Object]
+impl LegalTermsMutation {
+    /// Accept specific legal terms for a tenant. Requires ManageLegal on the tenant.
+    async fn legal_terms_accept(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+        tenant: String,
+        terms_id: models::Id,
+    ) -> async_graphql::Result<LegalTerms> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let claims = env.claims()?;
+        let tenant = super::tenant::validate_tenant_name(&tenant)?;
+        super::verify_authorization(env, tenant.as_str(), models::authz::Capability::ManageLegal)
+            .await?;
+        if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
+            return Err(async_graphql::Error::new(
+                "Service accounts cannot accept legal terms",
+            ));
+        }
+
+        // Capture the stored identity and current tenant ID in the immutable audit record.
+        let terms = sqlx::query_as::<_, LegalTerms>(
+            "WITH consent AS (
+                 INSERT INTO internal.tenant_consent
+                     (user_id, user_email, terms_id, tenant_name, tenant_id)
+                 SELECT u.id, u.email, l.id, t.tenant, t.id
+                 FROM auth.users u CROSS JOIN public.tenants t CROSS JOIN internal.legal_terms l
+                 WHERE u.id = $1 AND t.tenant = $2 AND l.id = $3
+                 RETURNING terms_id
+             )
+             SELECT l.id, l.text, l.type, l.version FROM internal.legal_terms l
+             JOIN consent c ON c.terms_id = l.id",
+        )
+        .bind(claims.sub)
+        .bind(tenant.as_str())
+        .bind(terms_id)
+        .fetch_optional(&env.pg_pool)
+        .await
+        .map_err(|error| {
+            async_graphql::Error::new_with_source(
+                anyhow::Error::new(error).context("recording acceptance of legal terms"),
+            )
+        })?;
+        terms.ok_or_else(|| async_graphql::Error::new("User, tenant, or legal terms not found"))
+    }
+}
+
 #[cfg(test)]
 mod test {
-    #[sqlx::test(migrations = "../../supabase/migrations")]
-    async fn legal_terms_pagination(pool: sqlx::PgPool) {
+    async fn accepted_terms_server(
+        pool: &sqlx::PgPool,
+    ) -> (crate::test_server::TestServer, String) {
+        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'alice@example.test')")
+            .bind(user)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO tenants (tenant) VALUES ('acmeCo/')")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO user_grants (user_id, object_role, capability) VALUES ($1, 'acmeCo/', 'admin')")
+            .bind(user).execute(pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO internal.tenant_consent (user_id, user_email, terms_id, tenant_name, tenant_id)
+             SELECT $1, 'alice@example.test', l.id, t.tenant, t.id
+             FROM internal.legal_terms l CROSS JOIN tenants t WHERE t.tenant = 'acmeCo/'",
+        ).bind(user).execute(pool).await.unwrap();
         let server = crate::test_server::TestServer::start(
             pool.clone(),
             crate::test_server::snapshot(pool.clone(), false).await,
         )
         .await;
+        let token = server.make_access_token(user, None);
+        (server, token)
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn accept_legal_terms(pool: sqlx::PgPool) {
+        let (server, _) = accepted_terms_server(&pool).await;
+        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        let token = server.make_access_token(user, Some("untrusted@example.test"));
+        let terms_id = "00:00:00:00:00:00:00:0f";
+        sqlx::query("INSERT INTO internal.legal_terms (id, type, version, text) VALUES ($1::flowid, 'sandbox_consent', 99, 'Test agreement')")
+            .bind(terms_id).execute(&pool).await.unwrap();
+        let query = serde_json::json!({
+            "query": "mutation($id: Id!) { legalTermsAccept(tenant: \"acmeCo\", termsId: $id) { type version text } }",
+            "variables": {"id": terms_id}
+        });
+        let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "legalTermsAccept": {
+              "type": "SANDBOX_CONSENT",
+              "version": 99,
+              "text": "Test agreement"
+            }
+          }
+        }
+        "#);
+        let audit: serde_json::Value = sqlx::query_scalar(
+            "SELECT json_build_object('userMatches', c.user_id = $1, 'email', c.user_email,
+                                      'tenant', c.tenant_name, 'currentTenant', c.tenant_id = t.id)
+             FROM internal.tenant_consent c JOIN tenants t ON t.tenant = c.tenant_name
+             WHERE c.terms_id = $2::flowid",
+        )
+        .bind(user)
+        .bind(terms_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        insta::assert_json_snapshot!(audit, @r#"
+        {
+          "currentTenant": true,
+          "email": "alice@example.test",
+          "tenant": "acmeCo/",
+          "userMatches": true
+        }
+        "#);
+        let query = serde_json::json!({"query": "{ legalTerms(filter: { type: { eq: SANDBOX_CONSENT } }, first: 1) { edges { node { version text } } } }"});
+        let accepted: serde_json::Value = server.graphql(&query, Some(&token)).await;
+        insta::assert_json_snapshot!(accepted, @r#"
+        {
+          "data": {
+            "legalTerms": {
+              "edges": [
+                {
+                  "node": {
+                    "version": 99,
+                    "text": "Test agreement"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn accept_legal_terms_rejections(pool: sqlx::PgPool) {
+        let (server, token) = accepted_terms_server(&pool).await;
+        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        let terms_id: models::Id = sqlx::query_scalar(
+            "SELECT id FROM internal.legal_terms WHERE type = 'msa' AND version = 4",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let query = serde_json::json!({
+            "query": "mutation($tenant: String!, $id: Id!) { legalTermsAccept(tenant: $tenant, termsId: $id) { id } }",
+            "variables": {"tenant": "acmeCo", "id": terms_id.to_string()}
+        });
+        let before: i64 = sqlx::query_scalar("SELECT count(*) FROM internal.tenant_consent")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let reader =
+            server.make_restricted_access_token(user, None, Some(vec!["viewer".to_string()]), None);
+        let billing = server.make_restricted_access_token(
+            user,
+            None,
+            Some(vec!["billing".to_string()]),
+            None,
+        );
+        let scoped =
+            server.make_restricted_access_token(user, None, None, Some("acmeCo/data/".to_string()));
+        for token in [None, Some(&reader), Some(&billing), Some(&scoped)] {
+            let response: serde_json::Value =
+                server.graphql(&query, token.map(String::as_str)).await;
+            assert!(response.get("errors").is_some(), "{response}");
+        }
+        let mut missing = query.clone();
+        missing["variables"]["id"] = serde_json::json!("00:00:00:00:00:00:00:0f");
+        let missing: serde_json::Value = server.graphql(&missing, Some(&token)).await;
+        insta::assert_json_snapshot!(missing["errors"][0]["message"], @r#""User, tenant, or legal terms not found""#);
+        let mut invalid = query.clone();
+        invalid["variables"]["tenant"] = serde_json::json!("acmeCo/nested/");
+        let invalid: serde_json::Value = server.graphql(&invalid, Some(&token)).await;
+        assert!(invalid.get("errors").is_some(), "{invalid}");
+        sqlx::query("INSERT INTO internal.service_accounts (user_id, catalog_name, created_by) VALUES ($1, 'acmeCo/bot', $1)")
+            .bind(user).execute(&pool).await.unwrap();
+        let bot: serde_json::Value = server.graphql(&query, Some(&token)).await;
+        insta::assert_json_snapshot!(bot["errors"][0]["message"], @r#""Service accounts cannot accept legal terms""#);
+        let after: i64 = sqlx::query_scalar("SELECT count(*) FROM internal.tenant_consent")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(before, after);
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn legal_terms_pagination(pool: sqlx::PgPool) {
+        let (server, token) = accepted_terms_server(&pool).await;
         let mut pages = Vec::new();
         for reverse in [false, true] {
             let mut cursor = serde_json::Value::Null;
@@ -210,7 +403,7 @@ mod test {
                         serde_json::json!({"after": cursor, "first": 1})
                     }
                 });
-                let response: serde_json::Value = server.graphql(&query, None).await;
+                let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
                 assert!(response.get("errors").is_none(), "{response}");
                 let mut page = response["data"]["legalTerms"].clone();
                 cursor =
@@ -324,7 +517,7 @@ mod test {
         ]
         "#);
         let query = serde_json::json!({"query": "{ filtered: legalTerms(filter: { type: { eq: MSA }, version: { gte: 3 } }, first: 1) { edges { node { version } } pageInfo { hasNextPage } } zero: legalTerms(first: 0) { edges { cursor } pageInfo { hasNextPage hasPreviousPage } } }"});
-        let response: serde_json::Value = server.graphql(&query, None).await;
+        let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(response, @r#"
         {
           "data": {
@@ -352,19 +545,15 @@ mod test {
         "#);
         for args in ["first: -1", "first: 1, last: 1", "after: \"invalid\""] {
             let query = serde_json::json!({"query": format!("{{ legalTerms({args}) {{ edges {{ cursor }} }} }}")});
-            let response: serde_json::Value = server.graphql(&query, None).await;
+            let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
             assert!(response.get("errors").is_some(), "{response}");
         }
     }
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn legal_terms_filters(pool: sqlx::PgPool) {
-        let server = crate::test_server::TestServer::start(
-            pool.clone(),
-            crate::test_server::snapshot(pool.clone(), false).await,
-        )
-        .await;
+        let (server, token) = accepted_terms_server(&pool).await;
         let query = serde_json::json!({ "query": "{ all: legalTerms { edges { node { type version } } } msa: legalTerms(filter: { type: { eq: MSA } }) { edges { node { type version } } } version: legalTerms(filter: { version: { eq: 3 } }) { edges { node { type version } } } exact: legalTerms(filter: { type: { eq: MSA }, version: { eq: 4 } }) { edges { node { type version } } } missing: legalTerms(filter: { version: { eq: 999 } }) { edges { node { type version } } } }" });
-        let response: serde_json::Value = server.graphql(&query, None).await;
+        let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(response, @r#"
         {
           "data": {
@@ -435,11 +624,7 @@ mod test {
     }
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn legal_terms_version_operators(pool: sqlx::PgPool) {
-        let server = crate::test_server::TestServer::start(
-            pool.clone(),
-            crate::test_server::snapshot(pool.clone(), false).await,
-        )
-        .await;
+        let (server, token) = accepted_terms_server(&pool).await;
         let query = serde_json::json!({ "query": r#"{
   gt: legalTerms(filter: { version: { gt: 3 } }) { edges { node { type version } } }
   lt: legalTerms(filter: { version: { lt: 3 } }) { edges { node { type version } } }
@@ -450,7 +635,7 @@ mod test {
   combined: legalTerms(filter: { version: { eq: 3, gt: 3 } }) { edges { node { type version } } }
   empty: legalTerms(filter: { tenant: {}, type: {}, version: {} }) { edges { node { type version } } }
 }"# });
-        let response: serde_json::Value = server.graphql(&query, None).await;
+        let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(response, @r#"
         {
           "data": {
@@ -563,12 +748,21 @@ mod test {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO tenants (tenant) VALUES ('acmeCo/'), ('otherCo/')")
+        sqlx::query("INSERT INTO tenants (tenant) VALUES ('acmeCo/'), ('otherCo/'), ('hiddenCo/'), ('nestedCo/')")
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO user_grants (user_id, object_role, capability) VALUES ($1, 'acmeCo/', 'read')")
+        sqlx::query("INSERT INTO user_grants (user_id, object_role, capability) VALUES ($1, 'acmeCo/', 'admin'), ($1, 'nestedCo/data/', 'read')")
             .bind(user).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO role_grants (subject_role, object_role, capability) VALUES ('acmeCo/', 'otherCo/', 'read')")
+            .execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO internal.tenant_consent (user_id, user_email, terms_id, tenant_name, tenant_id)
+             SELECT $1, 'alice@example.test', l.id, t.tenant, t.id
+             FROM internal.legal_terms l CROSS JOIN tenants t
+             WHERE (t.tenant = 'otherCo/' AND (l.version = 3 OR l.type = 'sandbox_consent'))
+                OR (t.tenant IN ('hiddenCo/', 'nestedCo/') AND l.type = 'msa' AND l.version = 4)",
+        ).bind(user).execute(&pool).await.unwrap();
         // Duplicate acceptances must not duplicate terms. Deleted tenant IDs must not match.
         sqlx::query(
             "INSERT INTO internal.tenant_consent (user_id, user_email, terms_id, tenant_name, tenant_id)
@@ -618,9 +812,77 @@ mod test {
           }
         }
         "#);
-        let query = serde_json::json!({ "query": "{ legalTerms(filter: { tenant: { eq: \"otherCo\" } }) { edges { node { id } } } }" });
+        let query = serde_json::json!({ "query": "{ legalTerms(filter: { tenant: { eq: \"hiddenCo\" } }) { edges { node { id } } } }" });
         let denied: serde_json::Value = server.graphql(&query, Some(&token)).await;
-        assert!(denied.get("errors").is_some(), "{denied}");
+        insta::assert_json_snapshot!(denied, @r#"
+        {
+          "data": {
+            "legalTerms": {
+              "edges": []
+            }
+          }
+        }
+        "#);
+        let query =
+            serde_json::json!({"query": "{ legalTerms { edges { node { type version } } } }"});
+        let all: serde_json::Value = server.graphql(&query, Some(&token)).await;
+        insta::assert_json_snapshot!(all, @r#"
+        {
+          "data": {
+            "legalTerms": {
+              "edges": [
+                {
+                  "node": {
+                    "type": "MSA",
+                    "version": 3
+                  }
+                },
+                {
+                  "node": {
+                    "type": "SANDBOX_CONSENT",
+                    "version": 1
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+        let scoped =
+            server.make_restricted_access_token(user, None, None, Some("acmeCo/".to_string()));
+        let scoped: serde_json::Value = server.graphql(&query, Some(&scoped)).await;
+        insta::assert_json_snapshot!(scoped, @r#"
+        {
+          "data": {
+            "legalTerms": {
+              "edges": [
+                {
+                  "node": {
+                    "type": "MSA",
+                    "version": 3
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+        let nested =
+            server.make_restricted_access_token(user, None, None, Some("acmeCo/data/".to_string()));
+        let masked = server.make_restricted_access_token(user, None, Some(Vec::new()), None);
+        let ungranted = server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), None);
+        for token in [nested, masked, ungranted] {
+            let empty: serde_json::Value = server.graphql(&query, Some(&token)).await;
+            insta::assert_json_snapshot!(empty, @r#"
+        {
+          "data": {
+            "legalTerms": {
+              "edges": []
+            }
+          }
+        }
+        "#);
+        }
         let anonymous: serde_json::Value = server.graphql(&query, None).await;
         assert!(anonymous.get("errors").is_some(), "{anonymous}");
     }
