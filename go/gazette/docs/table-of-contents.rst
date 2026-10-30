@@ -23,7 +23,6 @@ Gazette Documentation
 
    Concepts   <consumers-concepts>
    ShardSpecs <consumers-shardspecs>
-   Examples   <examples>
 
 .. toctree::
    :maxdepth: 2
