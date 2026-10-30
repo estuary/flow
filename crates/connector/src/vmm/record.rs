@@ -17,6 +17,11 @@
 //! as its `OWNER_LABEL`, which podman stores as it's created, so none needs a
 //! line of its own. Nothing a record doesn't prove the launch made is
 //! ever removed on its say-so.
+//!
+//! Each also carries `STATE_DIR_LABEL`, naming the state directory of its
+//! record, and is named for its launch. A podman service may create one after
+//! its launch's release has removed the record. `release::recover` finds it by
+//! that label and removes it, because no record of its name remains.
 
 use anyhow::Context;
 use std::io::{Read, Write};
@@ -24,6 +29,11 @@ use std::io::{Read, Write};
 /// The label podman's records of a launch's network, volume and container carry,
 /// whose value is the launch's owner token.
 pub(crate) const OWNER_LABEL: &str = "dev.estuary.vmm-owner";
+/// The label each of those carries alongside `OWNER_LABEL`, whose value is the
+/// `STATE_DIR` holding the launch's record.
+pub(crate) const STATE_DIR_LABEL: &str = "dev.estuary.vmm-state-dir";
+/// Follows a launch's name in the name of its ingress grant's container.
+pub(crate) const INGRESS_SUFFIX: &str = "-ingress";
 
 const VERSION: u32 = 1;
 const SUFFIX: &str = ".owner";
@@ -100,6 +110,14 @@ fn line(value: &impl serde::Serialize) -> Vec<u8> {
 
 pub(crate) fn launch_name(file_name: &str) -> Option<&str> {
     file_name.strip_suffix(SUFFIX).filter(|name| is_name(name))
+}
+
+/// The launch which names a resource `resource`: `fv_<id>` is its network,
+/// rootfs volume or container, and `fv_<id>-ingress` its ingress grant's
+/// container.
+pub(crate) fn resource_launch(resource: &str) -> Option<&str> {
+    let name = resource.strip_suffix(INGRESS_SUFFIX).unwrap_or(resource);
+    is_name(name).then_some(name)
 }
 
 fn is_name(name: &str) -> bool {

@@ -128,7 +128,7 @@ It exists only under the V2 runtime; the V1 `runtime` crate is untouched.
 | `vmm::vmm_for` | Admission decision for requested execution |
 | `vmm::plan::plan` | Pure plan of a VMM launch |
 | `vmm::launch::start` | VMM lifecycle, image admission, credential mount, and recovery |
-| `vmm::release::recover` | Releases resources whose durable owner is dead |
+| `vmm::release::recover` | Releases resources whose durable owner is dead, and labeled resources whose record is gone |
 | `vmm::check_spec_execution` | Keeps execution and egress fixed through every session request |
 | `TaskUpdate`                    | Signer and URLs by which a connector updates its config and secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
@@ -320,7 +320,9 @@ EOF or status. A client which does not drain responses may park the handler.
   made by exclusive `mkdir`, written before anything is put in it. The network
   rootfs volume and container carry the token as their `dev.estuary.vmm-owner` label, which
   podman stores as it creates them, and are found by it and nothing else: a
-  name never proves ownership. A directory that already exists is not marked,
+  name never proves ownership. Each also carries its `STATE_DIR` as its
+  `dev.estuary.vmm-state-dir` label, and is named for the launch, as `fv_<id>`
+  or the ingress grant's `fv_<id>-ingress`. A directory that already exists is not marked,
   and so never removed. A record which reads as anything other than what a
   launch writes (another version, an id or mount of the wrong shape, a
   repeated or unknown line) directs no removal at all, and is kept and
@@ -334,9 +336,9 @@ EOF or status. A client which does not drain responses may park the handler.
   them runs: a podman client survives its launcher's death, sudo's too, and
   may still create. Whoever takes the lock therefore finds what is final. This
   assumes `CONNECTOR_VMM_PODMAN` keeps its stdin open until its command is done
-  (as `exec`, `sudo` and podman do) and a local engine: a remote podman service
-  may finish a request after its client has gone, which can leak, but never
-  misattribute, a resource. `STATE_DIR` must be a local filesystem with
+  (as `exec`, `sudo` and podman do) and a local engine. A remote podman service
+  may finish a request after its client has gone, and the next launch's
+  recovery removes what it made. `STATE_DIR` must be a local filesystem with
   `flock` and `O_TMPFILE`, and persistent if records are to survive a reboot.
 
 - **Release is one state machine, for teardown and recovery alike.**
@@ -373,15 +375,22 @@ EOF or status. A client which does not drain responses may park the handler.
 - **Every VMM launch first recovers its state directory.** Before its own
   claim, a launch tries the lock of every `fv_<16 hex>.owner` beneath
   `STATE_DIR`, skipping those held, by a live owner or another releaser, and
-  releases the rest. Their failures go to tracing alone, not to the session,
+  releases the rest. It then lists the containers, networks and volumes
+  labeled with its `STATE_DIR`, and removes each whose launch's record is gone:
+  a podman service may create one after the release that removed its record.
+  Each kind is listed before its records are looked for. A launch claims its
+  record before its first create, so a live launch's resource always has its
+  record. A record of any content keeps its resources, and is not read.
+  Their failures go to tracing alone, not to the session,
   whose task they are not. There is no other trigger: what a dead launch left
   waits for the next VMM launch sharing its `STATE_DIR`. connector-init ends an
   idle VMM within seconds of its last RPC, and `--rm` then removes its
   container, so what usually waits is a network, mount, state and record.
 
-- **Nothing without a record is touched.** `fv_*` containers, networks and
-  state directories left by a launcher that wrote no records, and mounts not
-  named `mount-fv_<id>`, are not this crate's to judge. With every launcher
+- **Nothing without a record or the `STATE_DIR` label is touched.** `fv_*`
+  containers, networks and state directories left by a launcher that wrote no
+  records, or no `dev.estuary.vmm-state-dir` label, and mounts not named
+  `mount-fv_<id>`, are not this crate's to judge. With every launcher
   stopped, an operator may remove `fv_*` containers and networks lacking a
   `dev.estuary.vmm-owner` label, `STATE_DIR/fv_*` directories lacking a
   matching `.owner`, and `connector-mounts-*/mount-*` directories not named

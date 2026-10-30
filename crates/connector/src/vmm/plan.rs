@@ -216,6 +216,11 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     let socket = format!("{state}/sock/init.sock");
     let token = format!("{token:032x}");
     let owner = format!("--label={}={token}", super::record::OWNER_LABEL);
+    let state_dir_label = format!(
+        "--label={}={}",
+        super::record::STATE_DIR_LABEL,
+        vmm.state_dir
+    );
     assert!(
         socket.len() <= SOCKET_PATH_MAX,
         "check_state_dir bounds every socket path"
@@ -265,6 +270,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         format!("--label=task-name={task_name}"),
         format!("--label=task-type={}", eligible.task_type.as_str_name()),
         owner.clone(),
+        state_dir_label.clone(),
     ]);
     if let Some(cgroup_parent) = &vmm.cgroup_parent {
         create.push(format!("--cgroup-parent={cgroup_parent}"));
@@ -299,7 +305,15 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     }
     let mut ingress = Vec::new();
     if !ports.is_empty() {
-        ingress = host_boundary(&vmm.image, "grant");
+        ingress = host_boundary(
+            &vmm.image,
+            "grant",
+            &[
+                format!("--name={name}{}", super::record::INGRESS_SUFFIX),
+                owner.clone(),
+                state_dir_label.clone(),
+            ],
+        );
         ingress.extend([format!("--owner={token}"), format!("--bridge={interface}")]);
         for port in ports {
             ingress.push(format!("--port={port}"));
@@ -333,13 +347,14 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             (format!("{mount}/image-inspect.json"), 0o444),
         ],
         ingress,
-        verify: host_boundary(&vmm.image, "verify"),
+        verify: host_boundary(&vmm.image, "verify", &[]),
         network: vec![
             "network".to_string(),
             "create".to_string(),
             "--driver=bridge".to_string(),
             format!("--interface-name={interface}"),
             owner.clone(),
+            state_dir_label.clone(),
             name.clone(),
         ],
         // type=image shares a mounted image across launches. Podman 4.9
@@ -353,6 +368,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             // A concurrent pull must not replace the inspected code.
             format!("--opt=image={}", image_inspection.id),
             owner,
+            state_dir_label,
             name.clone(),
         ],
         create,
@@ -461,9 +477,10 @@ fn check_mount_value(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run a host-side boundary operation from the same image as the VMM.
-pub(super) fn host_boundary(image: &str, action: &str) -> Vec<String> {
-    vec![
+/// Run a host-side boundary operation from the same image as the VMM, with
+/// `options` for podman's `run`.
+pub(super) fn host_boundary(image: &str, action: &str, options: &[String]) -> Vec<String> {
+    let mut args: Vec<String> = vec![
         "run".into(),
         "--rm".into(),
         "--network=host".into(),
@@ -471,10 +488,10 @@ pub(super) fn host_boundary(image: &str, action: &str) -> Vec<String> {
         "--read-only".into(),
         "--cap-drop=all".into(),
         "--cap-add=CAP_NET_ADMIN".into(),
-        image.into(),
-        "boundary".into(),
-        action.into(),
-    ]
+    ];
+    args.extend_from_slice(options);
+    args.extend([image.into(), "boundary".into(), action.into()]);
+    args
 }
 
 #[cfg(test)]
@@ -616,6 +633,7 @@ mod test {
                     .any(|prefix| arg.starts_with(prefix))
             };
             let owner = "--label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff";
+            let state_dir = "--label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm";
 
             let (added, create): (Vec<String>, Vec<String>) =
                 plan.create.iter().cloned().partition(launcher_only);
@@ -632,6 +650,7 @@ mod test {
                     "--label=task-name=acmeCo/anvils/derivation",
                     "--label=task-type=derivation",
                     owner,
+                    state_dir,
                     "--cgroup-parent=estuary-connectors.slice",
                 ]
             );
@@ -639,11 +658,11 @@ mod test {
             let (added, network): (Vec<String>, Vec<String>) =
                 plan.network.iter().cloned().partition(launcher_only);
             assert_eq!(network, reference::network(&plan.name, &plan.interface));
-            assert_eq!(added, [owner]);
+            assert_eq!(added, [owner, state_dir]);
             let (added, rootfs): (Vec<String>, Vec<String>) =
                 plan.rootfs.iter().cloned().partition(launcher_only);
             assert_eq!(rootfs, reference::rootfs(&plan.name, IMAGE_ID));
-            assert_eq!(added, [owner]);
+            assert_eq!(added, [owner, state_dir]);
             assert_eq!(
                 plan.verify,
                 reference::boundary(&vmm.image, "host", "verify")

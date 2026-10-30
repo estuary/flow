@@ -31,13 +31,13 @@ VMM egress permits only these host names: pypi.org, files.pythonhosted.org (conn
 podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN ghcr.io/estuary/connector-vmm:dev boundary verify
 
 ## ingress
-run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN ghcr.io/estuary/connector-vmm:dev boundary grant --owner=00112233445566778899aabbccddeeff --bridge=fvm0123456789ab --port=8080 --port=9090
+run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN --name=fv_0123456789abcdef-ingress --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm ghcr.io/estuary/connector-vmm:dev boundary grant --owner=00112233445566778899aabbccddeeff --bridge=fvm0123456789ab --port=8080 --port=9090
 
 ## network
-podman network create --driver=bridge --interface-name=fvm0123456789ab --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff fv_0123456789abcdef
+podman network create --driver=bridge --interface-name=fvm0123456789ab --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm fv_0123456789abcdef
 
 ## rootfs
-podman volume create --driver=image --opt=image=sha256:0123abcd --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff fv_0123456789abcdef
+podman volume create --driver=image --opt=image=sha256:0123abcd --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm fv_0123456789abcdef
 
 ## create
 podman create \
@@ -68,6 +68,7 @@ podman create \
   --label=task-name=acmeCo/anvils/derivation \
   --label=task-type=derivation \
   --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff \
+  --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm \
   ghcr.io/estuary/connector-vmm:dev \
   run \
   --policy \

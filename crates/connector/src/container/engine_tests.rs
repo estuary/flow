@@ -85,7 +85,7 @@ case "$step" in
         [ -r "$mount/task-update.json" ] || exit 46
         echo 0000000000000000000000000000000000000000000000000000000000000001
         ;;
-    "network ls") cat "$ENGINE_TEST_DIR/network" ;;
+    "network ls") if [ -e "$ENGINE_TEST_DIR/network" ]; then cat "$ENGINE_TEST_DIR/network"; fi ;;
     "network rm") rm "$ENGINE_TEST_DIR/network" ;;
     "volume create")
         for arg; do volume=$arg; done
