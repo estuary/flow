@@ -383,10 +383,8 @@ async fn remove_unrecorded(podman: &str, state_dir: &str) {
     }
 }
 
-/// Of `listed`, which carry `state_dir`'s label, those whose launch has no
-/// record there, and those kept with why: any not named for a launch, and any
-/// whose record can't be looked for. A record proves the launch is not
-/// released, whatever it holds, so it isn't read.
+/// Return labeled resources with no record, plus name or record lookup failures.
+/// Any existing record keeps its resources, regardless of its content or version.
 fn unrecorded(state_dir: &str, listed: Vec<String>) -> (Vec<String>, Vec<(String, String)>) {
     let (mut unrecorded, mut kept) = (Vec::new(), Vec::new());
     for resource in listed {
@@ -630,10 +628,6 @@ mod test {
         insta::assert_snapshot!(table);
     }
 
-    /// Of what carries a state directory's label, only what has no record
-    /// there is removed. A record of any content keeps its launch's resources.
-    /// A name not of a launch, or a record which can't be looked for, keeps
-    /// the resource and says why.
     #[test]
     fn unrecorded_resources() {
         let dir = tempfile::tempdir().unwrap();

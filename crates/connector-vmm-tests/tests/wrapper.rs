@@ -69,7 +69,6 @@ impl Drop for Setup {
     }
 }
 
-/// Run the wrapper with `args`.
 fn spawn(setup: &Setup, args: &[&str]) -> std::process::Child {
     std::process::Command::new(setup.test.join("podman"))
         .args(args)

@@ -189,7 +189,6 @@ if claim hold-after; then
 fi
 
 if [[ "${step}" == create && -e "${TEST}/hold-created" ]] && mkdir "${TEST}/taken-hold-created-1" 2>/dev/null; then
-    # Made, but not yet reported.
     status=0
     "${podman[@]}" "$@" || status=$?
     : >"${TEST}/held-created"
