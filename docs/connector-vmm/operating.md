@@ -118,8 +118,9 @@ container are handed the launch's locked ownership record as stdin.
 - **A local filesystem with `flock` and `O_TMPFILE`.** Each launch proves the
   latter by opening and sizing an `O_TMPFILE` scratch disk in its own
   `scratch/` before going further. Make it persistent if records are to
-  survive a reboot: a lost record leaves its network, and whatever else it
-  named, for manual cleanup.
+  survive a reboot. After a record is lost, the next launch removes its
+  network, rootfs volume and container, which carry the `STATE_DIR` label.
+  Its directories are left for manual cleanup.
 - **Socket length.** `<STATE_DIR>/fv_<16 hex>/sock/init.sock` must fit a
   Unix socket address, so `STATE_DIR` is at most 72 bytes.
 - **Connector mounts** are made at `$TMPDIR/connector-mounts-<euid>/mount-fv_<id>`.
@@ -136,7 +137,7 @@ container are handed the launch's locked ownership record as stdin.
   cannot remove these, so recovery across users fails and is reported.
 - **A local engine.** Creation fencing relies on podman's client running the
   create itself. A remote podman service may finish a create after its client
-  died: that can leak a labeled resource, never misattribute one.
+  died. The next launch's recovery removes what it made.
 - **The engine in the host's PID namespace.** podman records container PIDs as
   it sees them; launchers sharing a store must see the same PID numbering.
 
@@ -216,8 +217,9 @@ In operating terms:
 - **A launch owns only what it proves it made.** Its record
   `<STATE_DIR>/fv_<id>.owner` is held under `flock` for the launch's life, and
   its network, rootfs volume and container carry its token in the `dev.estuary.vmm-owner`
-  label. A live owner's record is never taken, so live launches, including
-  other stacks' and other reactors' sharing a host, are never touched.
+  label, and its `STATE_DIR` in the `dev.estuary.vmm-state-dir` label. A live
+  owner's record is never taken, so live launches, including other stacks'
+  and other reactors' sharing a host, are never touched.
 - **Creation is fenced.** podman's network, volume and container creates hold the
   record's lock, so a create which outlives its launcher (a root podman
   client survives its parent) keeps the record locked until it has finished.
@@ -231,7 +233,10 @@ In operating terms:
   record and connector mount remain.
 - **Recovery is triggered only by the next VMM launch using the same
   `STATE_DIR`.** Before its own claim, each launch tries the lock of every
-  record there and releases those whose owner is gone. Nothing else triggers
+  record there and releases those whose owner is gone. It then removes each
+  container, network and rootfs volume labeled with its `STATE_DIR` whose
+  `fv_<id>.owner` is gone. A podman service can create one of these after
+  the release that removed its record. Nothing else triggers
   it: not a reactor start, not a timer. A restart alone cleans up nothing
   until a VMM launch follows it, and leftovers are bounded by the VMMs alive
   at the host's last VMM launch. Records beneath a `STATE_DIR` that no longer
@@ -242,9 +247,12 @@ In operating terms:
   every record unlocked (`flock -n <record> true` succeeds), remove the
   containers, then the networks and rootfs volumes, labeled `dev.estuary.vmm-owner=<token>` with
   each record's token, then its `fv_<id>` directory, its mount and the record.
-- **Unrecorded `fv_*` resources** (from a launcher which predates records)
-  are never touched; [`crates/connector`](../../crates/connector/README.md)
-  lists how an operator removes them with launchers stopped.
+  Last, remove those labeled `dev.estuary.vmm-state-dir=<STATE_DIR>` whose
+  `fv_<id>.owner` is gone (a grant container is `fv_<id>-ingress`).
+- **Unrecorded `fv_*` resources without the `dev.estuary.vmm-state-dir`
+  label** (from a launcher which predates it) are never touched;
+  [`crates/connector`](../../crates/connector/README.md) lists how an operator
+  removes them with launchers stopped.
 
 ### Crash and restart behavior
 
@@ -310,6 +318,14 @@ Recovery reports go to the reactor's own logs (tracing), not the task's:
   another container on the VMM's network.
 - "a VMM ownership record is malformed, so nothing it names is released":
   reported at every launch until an operator inspects and removes it.
+- "removed a VMM resource whose record is gone": a podman service finished a
+  create after its launch was released, and recovery removed what it made.
+- "failed to list VMM resources by their state directory" or "failed to
+  remove a VMM resource whose record is gone": retried by the next launch.
+- "a VMM resource has no record that can be looked for, so it is kept": it
+  carries this `STATE_DIR`'s label, but either its name is not a launch's or
+  the state directory could not be read. Reported at every launch until an
+  operator inspects it.
 - "creating a VMM network failed; retrying under a new id": a name or bridge
   collision; at most three attempts.
 

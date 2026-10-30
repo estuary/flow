@@ -832,6 +832,9 @@ fn spec_through_the_vmm() {
     assert_eq!(
         commands,
         [
+            "ps --all",
+            "network ls",
+            "volume ls",
             format!("pull {}", run.derive_python_image).as_str(),
             "image inspect",
             "run --rm",
@@ -1869,6 +1872,55 @@ fn records_which_prove_nothing() {
     run::podman(&["network", "rm", &named]);
 }
 
+/// A podman service may create a launch's network or volume after its
+/// release removed the record. A launch removes what carries its state
+/// directory's label with no record there. A held record keeps its pair,
+/// whatever it holds, and another state directory's pair is not looked at.
+#[test]
+fn labeled_resources_without_a_record() {
+    let (run, root, runtime) = setup();
+    let router = router(vmm(&root, &run.fake_image));
+    let other = launcher::root();
+    let new_name = || format!("fv_{}", run::random_hex());
+    let make = |name: &str, state_dir: &str| {
+        let label = format!("--label=dev.estuary.vmm-state-dir={state_dir}");
+        run::record("network", name);
+        run::podman(&["network", "create", &label, name]);
+        run::record("volume", name);
+        run::podman(&["volume", "create", &label, name]);
+    };
+    let exists = |name: &str| {
+        (
+            launcher::network_exists(name),
+            launcher::volume_exists(name),
+        )
+    };
+
+    let unrecorded = new_name();
+    make(&unrecorded, &root.state_dir);
+    let held = new_name();
+    make(&held, &root.state_dir);
+    let record = launcher::record(&root.state_dir, &held);
+    std::fs::write(&record, "").unwrap();
+    let lock = std::fs::File::open(&record).unwrap();
+    lock.lock().unwrap();
+    let foreign = new_name();
+    make(&foreign, &other.state_dir);
+
+    launch(&runtime, &router, &run.derive_python_image);
+
+    assert_eq!(exists(&unrecorded), (false, false), "its record is gone");
+    assert_eq!(exists(&held), (true, true), "its record is held");
+    assert_eq!(exists(&foreign), (true, true), "another state directory's");
+
+    for name in [&held, &foreign] {
+        run::podman(&["network", "rm", name]);
+        run::podman(&["volume", "rm", name]);
+    }
+    std::mem::drop(lock);
+    std::fs::remove_file(&record).unwrap();
+}
+
 /// Bounds reaching a gate, and must leave the held command well within the
 /// release's 60-second command timeout once there.
 const GATE: Duration = Duration::from_secs(60);
@@ -2770,9 +2822,20 @@ fn eight_launches_recover_shared_orphans() {
             "launch {i} released {}",
             orphan.stage
         );
-        assert!(
-            calls[n].starts_with("pull "),
-            "launch {i} then launched: {calls:?}"
+        // Its recovery then lists what carries the state directory's label.
+        // A concurrent release may leave it a resource to remove meanwhile.
+        let pull = calls
+            .iter()
+            .position(|call| call.starts_with("pull "))
+            .unwrap_or_else(|| panic!("launch {i} then launched: {calls:?}"));
+        let labeled = format!("--filter label=dev.estuary.vmm-state-dir={state_dir} ");
+        assert_eq!(
+            calls[n..pull]
+                .iter()
+                .filter(|call| call.contains(&labeled))
+                .count(),
+            3,
+            "launch {i} listed by its state directory, then launched: {calls:?}"
         );
         for (j, root) in launchers.iter().enumerate() {
             assert!(

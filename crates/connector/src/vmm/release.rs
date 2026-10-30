@@ -9,8 +9,13 @@
 //! network and record for retry. Then the network, rootfs volume, mount and state
 //! are each attempted whatever became of the others. The record goes last, once
 //! everything it names is gone; otherwise a later release can finish the job.
+//!
+//! A podman service may still create a resource after its release has removed
+//! the record. So `recover` also lists what carries its state directory's
+//! label, and removes each resource whose record is gone.
 
 use super::record::{self, Record};
+use anyhow::Context;
 use std::time::Duration;
 
 /// Bounds each command, so that a wedged engine can't hold a release forever.
@@ -179,7 +184,7 @@ pub(crate) async fn release(
                     .ingress_image
                     .as_deref()
                     .expect("ingress has a VMM image");
-                let mut args = super::plan::host_boundary(image, "revoke");
+                let mut args = super::plan::host_boundary(image, "revoke", &[]);
                 args.push(format!("--owner={}", record.token));
                 release.ingress = removed(
                     command(podman, &args.iter().map(String::as_str).collect::<Vec<_>>())
@@ -234,9 +239,10 @@ pub(crate) async fn release(
     }
 }
 
-/// Release every record in `state_dir` whose owner is dead. What this fails
-/// to release is reported to this process's log alone: it isn't the launching
-/// session's, and may not be its task's.
+/// Release every record in `state_dir` whose owner is dead, then remove what
+/// carries `state_dir`'s label but has no record. What this fails to release
+/// is reported to this process's log alone: it isn't the launching session's,
+/// and may not be its task's. If `state_dir` can't be read, nothing is removed.
 pub(crate) async fn recover(podman: &str, state_dir: &str) {
     let entries = match std::fs::read_dir(state_dir) {
         Ok(entries) => entries,
@@ -293,17 +299,139 @@ pub(crate) async fn recover(podman: &str, state_dir: &str) {
             }
         }
     }
+
+    remove_unrecorded(podman, state_dir).await;
+}
+
+/// Remove each container, network and volume carrying `state_dir`'s label
+/// whose record is gone. A launch claims its record before its first create.
+/// So each kind is listed before its records are looked for, and a live
+/// launch's resource is then always found with its record. Containers go
+/// first, because their network and volume can't be removed while they exist.
+/// A failure is logged, and the next launch's recovery retries it.
+async fn remove_unrecorded(podman: &str, state_dir: &str) {
+    let label = format!("label={}={state_dir}", record::STATE_DIR_LABEL);
+    let kinds: [(&str, &[&str], &str, &[&str]); 3] = [
+        (
+            "container",
+            &["ps", "--all"],
+            "{{.Names}}",
+            &["rm", "--force", "--time=0", "--ignore"],
+        ),
+        (
+            "network",
+            &["network", "ls"],
+            "{{.Name}}",
+            &["network", "rm"],
+        ),
+        ("volume", &["volume", "ls"], "{{.Name}}", &["volume", "rm"]),
+    ];
+
+    for (kind, list, format, remove) in kinds {
+        let mut args = list.to_vec();
+        args.extend(["--filter", &label, "--format", format]);
+        let listed = match command(podman, &args).await {
+            Ok(stdout) => lines(&stdout),
+            Err(err) => {
+                tracing::error!(
+                    %state_dir,
+                    kind,
+                    error = format!("{err:#}"),
+                    "failed to list VMM resources by their state directory",
+                );
+                continue;
+            }
+        };
+
+        let (unrecorded, kept) = unrecorded(state_dir, listed);
+        for (resource, why) in kept {
+            tracing::error!(
+                %state_dir,
+                kind,
+                %resource,
+                %why,
+                "a VMM resource has no record that can be looked for, so it is kept",
+            );
+        }
+        for resource in unrecorded {
+            let mut args = remove.to_vec();
+            args.push(&resource);
+            let removed = match command(podman, &args).await {
+                Ok(_stdout) => Ok(()),
+                // A concurrent release may have removed it first.
+                Err(err) => match exists(podman, kind, &resource).await {
+                    Ok(false) => Ok(()),
+                    Ok(true) | Err(_) => Err(err),
+                },
+            };
+            match removed {
+                Ok(()) => tracing::info!(
+                    %state_dir,
+                    kind,
+                    %resource,
+                    "removed a VMM resource whose record is gone",
+                ),
+                Err(err) => tracing::error!(
+                    %state_dir,
+                    kind,
+                    %resource,
+                    error = format!("{err:#}"),
+                    "failed to remove a VMM resource whose record is gone",
+                ),
+            }
+        }
+    }
+}
+
+/// Of `listed`, which carry `state_dir`'s label, those whose launch has no
+/// record there, and those kept with why: any not named for a launch, and any
+/// whose record can't be looked for. A record proves the launch is not
+/// released, whatever it holds, so it isn't read.
+fn unrecorded(state_dir: &str, listed: Vec<String>) -> (Vec<String>, Vec<(String, String)>) {
+    let (mut unrecorded, mut kept) = (Vec::new(), Vec::new());
+    for resource in listed {
+        let Some(name) = record::resource_launch(&resource) else {
+            kept.push((resource, "is not named for a VMM launch".to_string()));
+            continue;
+        };
+        let path = record::path(state_dir, name);
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => (),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => unrecorded.push(resource),
+            Err(err) => kept.push((resource, format!("looking for {path}: {err}"))),
+        }
+    }
+    (unrecorded, kept)
+}
+
+/// Whether podman's `<kind> exists` finds `name`, where `kind` is container,
+/// network or volume: its status is 0 if so, and 1 if not.
+async fn exists(podman: &str, kind: &str, name: &str) -> anyhow::Result<bool> {
+    let args = [kind, "exists", name];
+    let output = tokio::time::timeout(
+        COMMAND_TIMEOUT,
+        async_process::output(crate::container::engine_command(podman).args(args)),
+    )
+    .await
+    .map_err(|_elapsed| {
+        anyhow::anyhow!("{podman} command {args:?} did not finish within {COMMAND_TIMEOUT:?}")
+    })?
+    .with_context(|| format!("failed to run {podman} command {args:?}"))?;
+
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => anyhow::bail!(
+            "{podman} command {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    }
 }
 
 fn found(result: anyhow::Result<Vec<u8>>) -> Progress {
     match result {
         Ok(stdout) => {
-            let found: Vec<String> = String::from_utf8_lossy(&stdout)
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .map(ToString::to_string)
-                .collect();
+            let found = lines(&stdout);
             if found.is_empty() {
                 Progress::Done
             } else {
@@ -312,6 +440,15 @@ fn found(result: anyhow::Result<Vec<u8>>) -> Progress {
         }
         Err(err) => Progress::Failed(format!("{err:#}")),
     }
+}
+
+fn lines(stdout: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn removed(result: anyhow::Result<()>) -> Progress {
@@ -491,6 +628,52 @@ mod test {
             table.push('\n');
         }
         insta::assert_snapshot!(table);
+    }
+
+    /// Of what carries a state directory's label, only what has no record
+    /// there is removed. A record of any content keeps its launch's resources.
+    /// A name not of a launch, or a record which can't be looked for, keeps
+    /// the resource and says why.
+    #[test]
+    fn unrecorded_resources() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_dir = dir.path().to_str().unwrap();
+        let record = super::record::path(state_dir, "fv_0123456789abcdef");
+        std::fs::write(&record, "").unwrap();
+
+        let listed: Vec<String> = [
+            "fv_0123456789abcdef",
+            "fv_0123456789abcdef-ingress",
+            "fv_fedcba9876543210",
+            "fv_fedcba9876543210-ingress",
+            "fv_fedcba9876543210-grant",
+            "fv_0123456789ABCDEF",
+            "fv_0123456789abcde",
+            "quirky_turing",
+        ]
+        .map(String::from)
+        .to_vec();
+
+        let mut table = String::new();
+        for (label, at) in [
+            ("a state directory", state_dir),
+            ("a file in place of one", record.as_str()),
+        ] {
+            let (unrecorded, kept) = super::unrecorded(at, listed.clone());
+            table.push_str(&format!("# {label}\n"));
+            for resource in &listed {
+                let outcome = if unrecorded.contains(resource) {
+                    "remove".to_string()
+                } else if let Some((_, why)) = kept.iter().find(|(kept, _)| kept == resource) {
+                    format!("keep: {why}")
+                } else {
+                    "keep: its record exists".to_string()
+                };
+                table.push_str(&format!("{resource} => {outcome}\n"));
+            }
+            table.push('\n');
+        }
+        insta::assert_snapshot!(table.replace(state_dir, "<state>"));
     }
 
     /// Advance Tokio's clock explicitly so each command's deadline is checked

@@ -1,0 +1,23 @@
+---
+source: crates/connector/src/vmm/release.rs
+expression: "table.replace(state_dir, \"<state>\")"
+---
+# a state directory
+fv_0123456789abcdef => keep: its record exists
+fv_0123456789abcdef-ingress => keep: its record exists
+fv_fedcba9876543210 => remove
+fv_fedcba9876543210-ingress => remove
+fv_fedcba9876543210-grant => keep: is not named for a VMM launch
+fv_0123456789ABCDEF => keep: is not named for a VMM launch
+fv_0123456789abcde => keep: is not named for a VMM launch
+quirky_turing => keep: is not named for a VMM launch
+
+# a file in place of one
+fv_0123456789abcdef => keep: looking for <state>/fv_0123456789abcdef.owner/fv_0123456789abcdef.owner: Not a directory (os error 20)
+fv_0123456789abcdef-ingress => keep: looking for <state>/fv_0123456789abcdef.owner/fv_0123456789abcdef.owner: Not a directory (os error 20)
+fv_fedcba9876543210 => keep: looking for <state>/fv_0123456789abcdef.owner/fv_fedcba9876543210.owner: Not a directory (os error 20)
+fv_fedcba9876543210-ingress => keep: looking for <state>/fv_0123456789abcdef.owner/fv_fedcba9876543210.owner: Not a directory (os error 20)
+fv_fedcba9876543210-grant => keep: is not named for a VMM launch
+fv_0123456789ABCDEF => keep: is not named for a VMM launch
+fv_0123456789abcde => keep: is not named for a VMM launch
+quirky_turing => keep: is not named for a VMM launch
