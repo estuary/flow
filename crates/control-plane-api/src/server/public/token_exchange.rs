@@ -5,8 +5,8 @@ use std::sync::Arc;
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(tag = "grant_type", deny_unknown_fields)]
 pub enum TokenRequest {
-    #[serde(rename = "capability_token")]
-    CapabilityToken { capability_mask: Vec<String> },
+    #[serde(rename = "token_exchange")]
+    TokenExchange { capability_mask: Vec<String> },
     #[serde(rename = "refresh_token")]
     RefreshToken {
         refresh_token_id: models::Id,
@@ -69,7 +69,7 @@ pub(crate) async fn create_refresh_token(
 
 pub async fn handle_post_token(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
-    // Only the capability_token grant authenticates via the Authorization
+    // Only the token_exchange grant authenticates via the Authorization
     // header. The refresh_token grant carries its credential in the body and
     // must neither act on nor fail because of a header, so the Envelope is
     // extracted from these (cloned) parts only once the body selects that grant.
@@ -84,10 +84,10 @@ pub async fn handle_post_token(
             let response = generate_access_token(&app.pg_pool, refresh_token_id, &secret).await?;
             Ok(axum::Json(response))
         }
-        TokenRequest::CapabilityToken { capability_mask } => {
+        TokenRequest::TokenExchange { capability_mask } => {
             use axum::extract::FromRequestParts;
             let env = crate::Envelope::from_request_parts(&mut parts, &app).await?;
-            let response = mint_capability_token(env.claims()?, capability_mask, &app).await?;
+            let response = mint_restricted_token(env.claims()?, capability_mask, &app).await?;
             Ok(axum::Json(response))
         }
     }
@@ -144,13 +144,13 @@ pub(crate) async fn generate_access_token(
 }
 
 /// Lifetime of a token minted with a `capability_mask`.
-const CAPABILITY_TOKEN_DURATION: std::time::Duration = std::time::Duration::from_secs(3600);
+const RESTRICTED_TOKEN_DURATION: std::time::Duration = std::time::Duration::from_secs(3600);
 
-/// Mint a capability-masked access token for the authenticated caller.
+/// Mint a restricted access token for the authenticated caller.
 ///
 /// Note that the requested bundles aren't checked against the caller's grants: a mask
 /// can only narrow what the user's grants allow, enforced when the token is used.
-async fn mint_capability_token(
+async fn mint_restricted_token(
     claims: &crate::ControlClaims,
     capability_mask: Vec<String>,
     app: &Arc<crate::App>,
@@ -166,13 +166,13 @@ async fn mint_capability_token(
     // carry `aud: authenticated`, but they don't act for a user with grants.
     if claims.role != "authenticated" {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
-            "Capability tokens can only be minted from a user session",
+            "Restricted tokens can only be minted from a user session",
         )));
     }
 
     if crate::server::is_service_account(&app.pg_pool, claims.sub).await? {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
-            "Service account tokens cannot be used to mint capability masked tokens",
+            "Service account tokens cannot be used to mint restricted tokens",
         )));
     }
 
@@ -195,7 +195,7 @@ async fn mint_capability_token(
     }
 
     let iat = tokens::now().timestamp() as u64;
-    let exp = iat + CAPABILITY_TOKEN_DURATION.as_secs();
+    let exp = iat + RESTRICTED_TOKEN_DURATION.as_secs();
 
     let claims = models::authorizations::ControlClaims {
         aud: claims.aud.clone(),
@@ -218,7 +218,7 @@ async fn mint_capability_token(
         %claims.sub,
         capability_mask = ?claims.capability_mask,
         exp = claims.exp,
-        "minted capability-masked token"
+        "minted restricted token"
     );
 
     Ok(TokenResponse {
@@ -231,7 +231,7 @@ async fn mint_capability_token(
 mod test {
     use crate::test_server;
 
-    /// Covers the `capability_token` grant of `POST /api/v1/auth/token`: the
+    /// Covers the `token_exchange` grant of `POST /api/v1/auth/token`: the
     /// rejections (unknown bundle names, unknown request fields, no bearer, a
     /// non-user `role`, a service-account caller) and, for accepted masks, that
     /// the minted JWT verifies under the server's keys, carries the caller's
@@ -241,7 +241,7 @@ mod test {
         migrations = "../../supabase/migrations",
         fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
     )]
-    async fn test_mint_capability_token(pool: sqlx::PgPool) {
+    async fn test_mint_restricted_token(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
         let server = test_server::TestServer::start(
@@ -261,7 +261,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["bogus", "Admin", "viewer"],
                 }),
                 Some(&alice_token),
@@ -283,7 +283,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["viewer", "admin"],
                 }),
                 Some(&alice_token),
@@ -295,14 +295,14 @@ mod test {
         let body: serde_json::Value = minted.json().await.unwrap();
         assert!(
             body.get("refresh_token").is_none(),
-            "a capability token must not come with a refresh token: {body}"
+            "a restricted token must not come with a refresh token: {body}"
         );
 
         let claims = server.verify_access_token(body["access_token"].as_str().unwrap());
         assert_eq!(
             claims.exp - claims.iat,
-            super::CAPABILITY_TOKEN_DURATION.as_secs(),
-            "the minted token expires after CAPABILITY_TOKEN_DURATION"
+            super::RESTRICTED_TOKEN_DURATION.as_secs(),
+            "the minted token expires after RESTRICTED_TOKEN_DURATION"
         );
         insta::assert_json_snapshot!(claims, {
             ".iat" => "[iat]",
@@ -330,7 +330,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["viewer"],
                     "prefixes": ["aliceCo/"],
                 }),
@@ -353,7 +353,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": [],
                 }),
                 Some(&alice_token),
@@ -394,7 +394,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["viewer"],
                 }),
                 Some(&scoped_bearer),
@@ -437,7 +437,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["viewer"],
                 }),
                 Some(&life_extending_token),
@@ -451,7 +451,7 @@ mod test {
         let claims = server.verify_access_token(body["access_token"].as_str().unwrap());
         assert_eq!(
             claims.exp - claims.iat,
-            super::CAPABILITY_TOKEN_DURATION.as_secs(),
+            super::RESTRICTED_TOKEN_DURATION.as_secs(),
             "the lifetime is the constant even when the bearer expires sooner"
         );
         assert!(
@@ -468,7 +468,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["viewer"],
                 }),
                 None,
@@ -506,7 +506,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["viewer"],
                 }),
                 Some(&dekaf_token),
@@ -517,7 +517,7 @@ mod test {
         assert_eq!(refused.status(), reqwest::StatusCode::FORBIDDEN);
         insta::assert_snapshot!(
             refused.text().await.unwrap(),
-            @"Capability tokens can only be minted from a user session"
+            @"Restricted tokens can only be minted from a user session"
         );
 
         // === Service accounts cannot mint ===
@@ -554,7 +554,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["viewer"],
                 }),
                 Some(&sa_token),
@@ -565,7 +565,7 @@ mod test {
         assert_eq!(refused.status(), reqwest::StatusCode::FORBIDDEN);
         insta::assert_snapshot!(
             refused.text().await.unwrap(),
-            @"Service account tokens cannot be used to mint capability masked tokens"
+            @"Service account tokens cannot be used to mint restricted tokens"
         );
     }
 
@@ -602,7 +602,7 @@ mod test {
                 .post(
                     "/api/v1/auth/token",
                     &serde_json::json!({
-                        "grant_type": "capability_token",
+                        "grant_type": "token_exchange",
                         "capability_mask": mask,
                     }),
                     Some(&alice_token),
@@ -644,7 +644,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["admin"],
                 }),
                 Some(&alice_token),
@@ -660,7 +660,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["admin", "viewer"],
                 }),
                 Some(masked_token),
@@ -722,7 +722,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["admin"],
                 }),
                 Some(&carol_token),
@@ -949,7 +949,7 @@ mod test {
         }
         assert_eq!(uses().await, 5);
 
-        // === Contrast: the capability_token grant does read the header ===
+        // === Contrast: the token_exchange grant does read the header ===
         // The same expired bearer is rejected there, so the refresh grant's
         // indifference above is a property of the grant, not of the route.
         let refused = server
@@ -957,7 +957,7 @@ mod test {
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
-                    "grant_type": "capability_token",
+                    "grant_type": "token_exchange",
                     "capability_mask": ["viewer"],
                 }),
                 Some(&expired_bearer),
