@@ -226,11 +226,10 @@ async fn evaluate_controller_alerts(
     id_gen: &mut models::IdGenerator,
 ) -> anyhow::Result<Vec<alerts::AlertAction>> {
     // Start by fetching all of the _controller-managed_ open alerts for this
-    // task. Alert types with an associated view name are managed outside of
-    // controllers.
+    // task. Tenant alerts are managed by tenant controllers.
     let controller_alert_types = models::status::AlertType::all()
         .into_iter()
-        .filter(|ty| ty.view_name().is_none())
+        .filter(|ty| !ty.is_tenant_alert())
         .map(|ty| *ty)
         .collect::<std::collections::HashSet<AlertType>>();
     let open_alerts = alerts::fetch_open_alerts_by_catalog_name(&[catalog_name], pool)

@@ -42,11 +42,12 @@ impl Usage {
 }
 
 /// Starts a self-serve tenant's free trial if its recent usage exceeds the free
-/// tier, checking once a day at a time of day fixed for the tenant.
+/// tier, checking once a day at a time of day fixed for the tenant. A started
+/// trial is recorded in `tenant`.
 pub async fn check(
     status: &mut FreeTrialStatus,
     pool: &sqlx::PgPool,
-    tenant: &Tenant,
+    tenant: &mut Tenant,
     client: &catalog_stats::Client,
     now: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<Outcome> {
@@ -70,11 +71,14 @@ pub async fn check(
     let checked = if tenant.plan_kind == PlanKind::SelfServe {
         do_check(pool, &tenant.tenant, client, now).await
     } else {
-        Ok(())
+        Ok(false)
     };
 
     match checked {
-        Ok(()) => {
+        Ok(started) => {
+            if started {
+                tenant.trial_start = Some(now.date_naive());
+            }
             let next_check = next_check_after(&tenant.tenant, now);
             status.next_check = Some(next_check);
             status.task_status = TaskStatus::default();
@@ -98,17 +102,18 @@ pub async fn check(
     }
 }
 
+/// Returns whether the check started the tenant's trial.
 async fn do_check(
     pool: &sqlx::PgPool,
     tenant: &str,
     client: &catalog_stats::Client,
     now: chrono::DateTime<chrono::Utc>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     let (daily, monthly) = fetch_usage(client, tenant, now).await?;
 
     let usage = usage(&daily, monthly.as_ref());
     if !usage.exceeds_free_tier() {
-        return Ok(());
+        return Ok(false);
     }
 
     let started = sqlx::query!(
@@ -129,7 +134,7 @@ async fn do_check(
     if started {
         tracing::info!(tenant, ?usage, "started free trial");
     }
-    Ok(())
+    Ok(started)
 }
 
 /// Reads the daily buckets examined by a check, and the current month's
@@ -197,7 +202,7 @@ fn usage(
 /// time. Each tenant's time of day comes from a hash of its name, which spreads
 /// checks evenly across the day and keeps a tenant's time stable across agent
 /// restarts and wake messages.
-fn next_check_after(
+pub(super) fn next_check_after(
     tenant: &str,
     after: chrono::DateTime<chrono::Utc>,
 ) -> chrono::DateTime<chrono::Utc> {
@@ -340,13 +345,15 @@ mod tests {
                     .fetch_one(&pool)
                     .await
                     .unwrap();
-            let row = super::super::fetch_tenant_by_controller_task(&pool, task_id)
+            let mut row = super::super::fetch_tenant_by_controller_task(&pool, task_id)
                 .await
                 .unwrap()
                 .unwrap();
 
             let mut status = FreeTrialStatus::default();
-            check(&mut status, &pool, &row, &client, now).await.unwrap();
+            check(&mut status, &pool, &mut row, &client, now)
+                .await
+                .unwrap();
 
             let trial_start: Option<chrono::NaiveDate> =
                 sqlx::query_scalar("SELECT trial_start FROM tenants WHERE tenant = $1")
@@ -357,6 +364,7 @@ mod tests {
 
             assert_eq!(status.task_status.failures, 0, "{tenant}: {status:?}");
             assert!(status.next_check.is_some(), "{tenant}: {status:?}");
+            assert_eq!(row.trial_start, trial_start, "{tenant}");
             results.push(serde_json::json!({
                 "tenant": tenant,
                 "trialStart": trial_start,

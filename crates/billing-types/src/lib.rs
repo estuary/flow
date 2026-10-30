@@ -8,9 +8,7 @@ pub use stripe_helpers::{SearchParams, stripe_search};
 
 pub const TENANT_METADATA_KEY: &str = "estuary.dev/tenant_name";
 // The human billing-contact name is stored under this customer-metadata key
-// rather than Stripe's `Customer.name`, because `Customer.name` is the
-// tenant-slug join key used by the `internal.tenant_alerts` and
-// `internal.free_trial_alerts` views.
+// rather than Stripe's `Customer.name`, which holds the tenant slug.
 pub const CUSTOMER_NAME_METADATA_KEY: &str = "estuary.dev/customer_name";
 const INVOICE_TYPE_KEY: &str = "estuary.dev/invoice_type";
 const BILLING_PERIOD_START_KEY: &str = "estuary.dev/period_start";
