@@ -1049,7 +1049,7 @@ expression: "&schema"
         },
         "onIncompatibleSchemaChange": {
           "title": "Action to take when a schema change is rejected due to incompatibility.",
-          "description": "This setting is used to determine the action to take when a schema change\nis rejected due to incompatibility with the target resource. By default,\nthe binding will have its `backfill` counter incremented, causing it to\nbe re-materialized from the source collection.",
+          "description": "Overrides the materialization's `onIncompatibleSchemaChange`. If neither\nis set, the binding is disabled when its source collection's primary store\nis Estuary trial storage, which retains only recent data. Otherwise the\nbinding is backfilled from its source collection.",
           "$ref": "#/$defs/OnIncompatibleSchemaChange"
         },
         "priority": {
@@ -1111,7 +1111,7 @@ expression: "&schema"
         },
         "onIncompatibleSchemaChange": {
           "title": "Default handling of schema changes that are incompatible with the target resource.",
-          "description": "This can be overridden on a per-binding basis.",
+          "description": "A binding's setting takes precedence. If neither is set, bindings whose\nsource collection's primary store is Estuary trial storage are disabled.\nOther bindings are backfilled.",
           "$ref": "#/$defs/OnIncompatibleSchemaChange"
         },
         "reset": {

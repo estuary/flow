@@ -18,6 +18,10 @@ Public AWS planes always use their derived colocated trial bucket; local and
 non-AWS planes use the GCS trial bucket. Provision the matching AWS bucket and
 permissions before opening a plane for signup.
 
+Storage mapping GraphQL types are in
+`server/public/graphql/storage_mappings.rs`. `FragmentStore.isTrial` classifies each store's bucket.
+The first entry of `StorageMapping.fragmentStores` is the primary store.
+
 `tenants.rs` provides shared provisioning for GraphQL onboarding and test fixtures;
 callers supply tenant metadata and collection and recovery storage mappings.
 The GraphQL layer owns signup validation and MSA consent.
