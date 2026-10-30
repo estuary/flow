@@ -594,7 +594,7 @@ async fn expansion_is_authorized_against_the_token(pool: sqlx::PgPool) {
     .await;
     let (server, draft_id, alice) = setup(&pool).await;
     let scoped =
-        server.make_restricted_access_token(ALICE, None, None, Some("aliceCo/".to_owned()));
+        server.make_restricted_access_token(ALICE, None, None, Some(vec!["aliceCo/".to_owned()]));
     stage(
         &pool,
         draft_id,
@@ -655,7 +655,7 @@ async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
             ALICE,
             None,
             mask.map(|bundles| bundles.into_iter().map(str::to_owned).collect()),
-            scope.map(str::to_owned),
+            scope.map(|scope| vec![scope.to_owned()]),
         );
         let response = submit(
             &server,
@@ -670,22 +670,23 @@ async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
         }));
     }
 
-    // A prefix scope bounds reads as well as edits. Scoped to `aliceCo/out/`,
-    // the token may edit `aliceCo/out/mat` and read `aliceCo/data/` through
-    // the role grant that `aliceCo/out/` holds, but not `aliceCo/other/`,
-    // which only Alice's `admin` grant on `aliceCo/` covers. No grant covers
-    // the ops collection, which is exempt. The materialization's own grants
-    // are the executor's to check, so the unrestricted token is queued.
-    let scoped =
-        server.make_restricted_access_token(ALICE, None, None, Some("aliceCo/out/".to_owned()));
+    // Both edited tasks and read collections must be explicitly covered by
+    // the scope. Ops collections are exempt from the read check. Task grants
+    // remain the executor's to check, so the unrestricted token is queued.
+    let scoped = server.make_restricted_access_token(
+        ALICE,
+        None,
+        None,
+        Some(vec!["aliceCo/out/".to_owned(), "aliceCo/data/".to_owned()]),
+    );
     for (case, token, sources) in [
         (
-            "scoped to aliceCo/out/, reads aliceCo/data/ and ops",
+            "scoped to aliceCo/out/ and aliceCo/data/, reads aliceCo/data/ and ops",
             &scoped,
             &["aliceCo/data/foo", "ops.us-central1.v1/logs"][..],
         ),
         (
-            "scoped to aliceCo/out/, reads aliceCo/other/",
+            "scoped to aliceCo/out/ and aliceCo/data/, reads aliceCo/other/",
             &scoped,
             &["aliceCo/other/foo"],
         ),

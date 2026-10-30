@@ -98,8 +98,8 @@ mod tests {
             (None, None, false, true),
             (Some(vec![]), None, false, false),
             (Some(vec!["admin".into()]), None, false, false),
-            (None, Some("acmeCo/".into()), false, false),
-            (None, Some(String::new()), false, false),
+            (None, Some(vec!["acmeCo/".into()]), false, false),
+            (None, Some(vec![]), false, false),
             (None, None, true, false),
         ] {
             if service_account {

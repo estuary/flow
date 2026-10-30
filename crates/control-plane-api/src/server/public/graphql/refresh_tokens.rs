@@ -276,12 +276,12 @@ mod test {
             ),
             (
                 None,
-                Some("acmeCo/team/".to_string()),
+                Some(vec!["acmeCo/team/".to_string()]),
                 "tokens with a prefix scope set cannot create refresh tokens.",
             ),
             (
                 None,
-                Some(String::new()),
+                Some(vec![]),
                 "tokens with a prefix scope set cannot create refresh tokens.",
             ),
         ] {

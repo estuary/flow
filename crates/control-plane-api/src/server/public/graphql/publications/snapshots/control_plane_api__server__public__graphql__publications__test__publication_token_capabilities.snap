@@ -24,12 +24,12 @@ expression: outcomes
     "status": "queued"
   },
   {
-    "case": "scoped to aliceCo/out/, reads aliceCo/data/ and ops",
+    "case": "scoped to aliceCo/out/ and aliceCo/data/, reads aliceCo/data/ and ops",
     "error": null,
     "status": "queued"
   },
   {
-    "case": "scoped to aliceCo/out/, reads aliceCo/other/",
+    "case": "scoped to aliceCo/out/ and aliceCo/data/, reads aliceCo/other/",
     "error": "PermissionDenied: User is not authorized to read 'aliceCo/other/foo'",
     "status": null
   },
