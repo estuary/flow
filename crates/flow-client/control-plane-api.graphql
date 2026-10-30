@@ -1649,7 +1649,15 @@ type LegalTerms {
 	version: Int!
 }
 
-type LegalTermsConnection {
+type LegalTermsAccepted {
+	id: Id!
+	text: String!
+	type: LegalTermsType!
+	version: Int!
+	tenant: String!
+}
+
+type LegalTermsAcceptedConnection {
 	"""
 	Information to aid in pagination.
 	"""
@@ -1657,17 +1665,17 @@ type LegalTermsConnection {
 	"""
 	A list of edges.
 	"""
-	edges: [LegalTermsEdge!]!
+	edges: [LegalTermsAcceptedEdge!]!
 }
 
 """
 An edge in a connection.
 """
-type LegalTermsEdge {
+type LegalTermsAcceptedEdge {
 	"""
 	The item at the end of the edge
 	"""
-	node: LegalTerms!
+	node: LegalTermsAccepted!
 	"""
 	A cursor for use in pagination
 	"""
@@ -2769,7 +2777,7 @@ type QueryRoot {
 	"""
 	Lists legal terms accepted by tenants the caller can read, with optional filters and pagination.
 	"""
-	legalTermsAccepted(filter: LegalTermsFilter, after: String, before: String, first: Int, last: Int): LegalTermsConnection!
+	legalTermsAccepted(filter: LegalTermsFilter, after: String, before: String, first: Int, last: Int): LegalTermsAcceptedConnection!
 	"""
 	List refresh tokens owned by the authenticated user.
 	"""

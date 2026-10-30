@@ -29,11 +29,20 @@ pub struct LegalTerms {
     pub version: i32,
 }
 
-type LegalTermsCursor = connection::OpaqueCursor<(LegalTermsType, i32)>;
+#[derive(async_graphql::SimpleObject, sqlx::FromRow)]
+pub struct LegalTermsAccepted {
+    pub id: models::Id,
+    pub text: String,
+    pub r#type: LegalTermsType,
+    pub version: i32,
+    pub tenant: String,
+}
+
+type LegalTermsCursor = connection::OpaqueCursor<(LegalTermsType, i32, String)>;
 
 type PaginatedLegalTerms = connection::Connection<
     LegalTermsCursor,
-    LegalTerms,
+    LegalTermsAccepted,
     connection::EmptyFields,
     connection::EmptyFields,
     connection::DefaultConnectionName,
@@ -147,18 +156,18 @@ impl LegalTermsQuery {
                 let reverse = last.is_some();
                 let after = after.map(|cursor| cursor.0);
                 let before = before.map(|cursor| cursor.0);
-                if after.iter().chain(before.iter()).any(|(_, version)| *version <= 0) {
+                if after.iter().chain(before.iter()).any(|(_, version, _)| *version <= 0) {
                     return Err(async_graphql::Error::new("Invalid legal terms cursor version"));
                 }
                 // Audit records survive tenant deletion; consent must match the current tenant ID.
-                let mut rows = sqlx::query_as::<_, LegalTerms>(
-                    "SELECT l.id, l.text, l.type, l.version FROM internal.legal_terms l
-                     WHERE EXISTS (
+                let mut rows = sqlx::query_as::<_, LegalTermsAccepted>(
+                    "SELECT l.id, l.text, l.type, l.version, t.tenant::text AS tenant
+                     FROM internal.legal_terms l CROSS JOIN public.tenants t
+                     WHERE t.tenant::text ^@ ANY($14::text[])
+                     AND ($1::text IS NULL OR t.tenant = $1)
+                     AND EXISTS (
                          SELECT 1 FROM internal.tenant_consent c
-                         JOIN public.tenants t ON t.id = c.tenant_id
-                         WHERE c.terms_id = l.id
-                           AND t.tenant::text ^@ ANY($14::text[])
-                           AND ($1::text IS NULL OR t.tenant = $1)
+                         WHERE c.terms_id = l.id AND c.tenant_id = t.id
                      )
                      AND ($2::internal.legal_terms_type IS NULL OR l.type = $2)
                      AND ($3::integer IS NULL OR l.version = $3)
@@ -166,13 +175,15 @@ impl LegalTermsQuery {
                      AND ($5::integer IS NULL OR l.version < $5)
                      AND ($6::integer IS NULL OR l.version >= $6)
                      AND ($7::integer IS NULL OR l.version <= $7)
-                     AND ($8::internal.legal_terms_type IS NULL OR (l.type, -l.version) > ($8, -$9::integer))
-                     AND ($10::internal.legal_terms_type IS NULL OR (l.type, -l.version) < ($10, -$11::integer))
+                     AND ($8::internal.legal_terms_type IS NULL OR (l.type, -l.version, t.tenant::text) > ($8, -$9::integer, $15::text))
+                     AND ($10::internal.legal_terms_type IS NULL OR (l.type, -l.version, t.tenant::text) < ($10, -$11::integer, $16::text))
                      ORDER BY
                          CASE WHEN NOT $12 THEN l.type END ASC,
                          CASE WHEN NOT $12 THEN l.version END DESC,
+                         CASE WHEN NOT $12 THEN t.tenant END ASC,
                          CASE WHEN $12 THEN l.type END DESC,
-                         CASE WHEN $12 THEN l.version END ASC
+                         CASE WHEN $12 THEN l.version END ASC,
+                         CASE WHEN $12 THEN t.tenant END DESC
                      LIMIT $13",
                 )
                 .bind(tenant.as_ref().map(|tenant| tenant.as_str()))
@@ -182,13 +193,15 @@ impl LegalTermsQuery {
                 .bind(version.lt)
                 .bind(version.gte)
                 .bind(version.lte)
-                .bind(after.map(|cursor| cursor.0))
-                .bind(after.map(|cursor| cursor.1))
-                .bind(before.map(|cursor| cursor.0))
-                .bind(before.map(|cursor| cursor.1))
+                .bind(after.as_ref().map(|cursor| cursor.0))
+                .bind(after.as_ref().map(|cursor| cursor.1))
+                .bind(before.as_ref().map(|cursor| cursor.0))
+                .bind(before.as_ref().map(|cursor| cursor.1))
                 .bind(reverse)
                 .bind(limit as i64 + 1)
                 .bind(&prefixes)
+                .bind(after.as_ref().map(|cursor| cursor.2.as_str()))
+                .bind(before.as_ref().map(|cursor| cursor.2.as_str()))
                 .fetch_all(&env.pg_pool)
                 .await?;
 
@@ -202,7 +215,7 @@ impl LegalTermsQuery {
                 };
                 let mut connection = PaginatedLegalTerms::new(has_previous, has_next);
                 connection.edges.extend(rows.into_iter().map(|row| {
-                    connection::Edge::new(connection::OpaqueCursor((row.r#type, row.version)), row)
+                    connection::Edge::new(connection::OpaqueCursor((row.r#type, row.version, row.tenant.clone())), row)
                 }));
                 Ok(connection)
             },
@@ -909,7 +922,7 @@ mod test {
           }
         }
         "#);
-        let query = serde_json::json!({"query": "{ legalTermsAccepted { edges { node { type version } } } }"});
+        let query = serde_json::json!({"query": "{ legalTermsAccepted { edges { node { type version tenant } } } }"});
         let all: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(all, @r#"
         {
@@ -919,19 +932,66 @@ mod test {
                 {
                   "node": {
                     "type": "MSA",
-                    "version": 3
+                    "version": 3,
+                    "tenant": "acmeCo/"
+                  }
+                },
+                {
+                  "node": {
+                    "type": "MSA",
+                    "version": 3,
+                    "tenant": "otherCo/"
                   }
                 },
                 {
                   "node": {
                     "type": "SANDBOX_CONSENT",
-                    "version": 1
+                    "version": 1,
+                    "tenant": "otherCo/"
                   }
                 }
               ]
             }
           }
         }
+        "#);
+        let mut traversals = Vec::new();
+        for reverse in [false, true] {
+            let mut cursor = serde_json::Value::Null;
+            let mut tenants = Vec::new();
+            for _ in 0..3 {
+                let page_query = serde_json::json!({
+                    "query": "query($after: String, $before: String, $first: Int, $last: Int) { legalTermsAccepted(filter: { type: { eq: MSA }, version: { eq: 3 } }, after: $after, before: $before, first: $first, last: $last) { edges { cursor node { tenant } } } }",
+                    "variables": if reverse {
+                        serde_json::json!({"before": cursor, "last": 1})
+                    } else {
+                        serde_json::json!({"after": cursor, "first": 1})
+                    }
+                });
+                let page: serde_json::Value = server.graphql(&page_query, Some(&token)).await;
+                assert!(page.get("errors").is_none(), "{page}");
+                let edges = page["data"]["legalTermsAccepted"]["edges"]
+                    .as_array()
+                    .unwrap();
+                if edges.is_empty() {
+                    break;
+                }
+                cursor = edges[0]["cursor"].clone();
+                tenants.push(edges[0]["node"]["tenant"].clone());
+            }
+            traversals.push(tenants);
+        }
+        insta::assert_json_snapshot!(traversals, @r#"
+        [
+          [
+            "acmeCo/",
+            "otherCo/"
+          ],
+          [
+            "otherCo/",
+            "acmeCo/"
+          ]
+        ]
         "#);
         let scoped =
             server.make_restricted_access_token(user, None, None, Some("acmeCo/".to_string()));
@@ -944,7 +1004,8 @@ mod test {
                 {
                   "node": {
                     "type": "MSA",
-                    "version": 3
+                    "version": 3,
+                    "tenant": "acmeCo/"
                   }
                 }
               ]
