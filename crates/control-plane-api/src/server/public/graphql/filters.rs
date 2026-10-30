@@ -11,6 +11,15 @@ pub struct StringFilter {
 }
 
 #[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct IntFilter {
+    pub eq: Option<i32>,
+    pub gt: Option<i32>,
+    pub gte: Option<i32>,
+    pub lt: Option<i32>,
+    pub lte: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct DateFilter {
     pub gt: Option<NaiveDate>,
     pub lt: Option<NaiveDate>,

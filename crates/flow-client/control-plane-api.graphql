@@ -1539,6 +1539,14 @@ type InviteLinkEdge {
 	cursor: String!
 }
 
+input IntFilter {
+	eq: Int
+	gt: Int
+	gte: Int
+	lt: Int
+	lte: Int
+}
+
 """
 Composable filter for the `inviteLinks` query. Every field is optional and
 only narrows the result set; the caller's admin scope is enforced
@@ -1636,6 +1644,42 @@ type JobStatus {
 type LegalTerms {
 	id: Id!
 	text: String!
+	type: LegalTermsType!
+	version: Int!
+}
+
+type LegalTermsConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [LegalTermsEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type LegalTermsEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: LegalTerms!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+input LegalTermsFilter {
+	"""
+	Only terms accepted by this tenant. Requires CatalogRead on the tenant.
+	"""
+	tenant: StringFilter
+	type: LegalTermsTypeFilter
+	version: IntFilter
 }
 
 enum LegalTermsType {
@@ -1644,6 +1688,10 @@ enum LegalTermsType {
 	"""
 	MSA
 	SANDBOX_CONSENT
+}
+
+input LegalTermsTypeFilter {
+	eq: LegalTermsType
 }
 
 type LiveSpec {
@@ -2706,9 +2754,13 @@ type QueryRoot {
 	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
 	tenant(name: String!): Tenant
 	"""
-	Returns the latest legal terms of the given type.
+	Returns the highest version of the given terms type accepted by the tenant, or null.
 	"""
-	legalTerms(type: LegalTermsType!): LegalTerms
+	tenantLegalTerms(type: LegalTermsType!, tenant: String!): LegalTerms
+	"""
+	Lists paginated legal terms, optionally restricted to terms accepted by an authorized tenant.
+	"""
+	legalTerms(filter: LegalTermsFilter, after: String, before: String, first: Int, last: Int): LegalTermsConnection!
 	"""
 	List refresh tokens owned by the authenticated user.
 	"""
