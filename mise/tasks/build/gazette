@@ -7,9 +7,16 @@ set -euo pipefail
 GOBIN="${GOBIN:?GOBIN is unset — run via 'mise run'; direct execution is unsupported}"
 mkdir -p "${GOBIN}"
 
-go build -o "${GOBIN}/gazette" ./go/gazette/cmd/gazette
+# Variables which are injected into binaries via -ldflags.
+# --always falls back to the commit hash: test workflows check out shallowly, without tags.
+VERSION=$(git describe --dirty --tags --always)
+DATE=$(date +%F-%T-%Z)
+MBP=github.com/estuary/flow/go/gazette/mainboilerplate
+LDFLAGS="-X ${MBP}.Version=${VERSION} -X ${MBP}.BuildDate=${DATE}"
+
+go build -o "${GOBIN}/gazette" -ldflags "${LDFLAGS}" ./go/gazette/cmd/gazette
 
 # `gazctl` too, because the materialize-consistency suite recovers a crashed shard by
 # unassigning it and joins a task's shards through `gazctl`, and nothing else provisioned it —
 # so on a fresh checkout every crash scenario died at its first recovery.
-go build -o "${GOBIN}/gazctl" ./go/gazette/cmd/gazctl
+go build -o "${GOBIN}/gazctl" -ldflags "${LDFLAGS}" ./go/gazette/cmd/gazctl
