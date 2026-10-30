@@ -2767,10 +2767,6 @@ type QueryRoot {
 	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
 	tenant(name: String!): Tenant
 	"""
-	Returns the highest version of the given terms type accepted by the tenant, or null.
-	"""
-	tenantLegalTerms(type: LegalTermsType!, tenant: String!): LegalTerms
-	"""
 	Returns the latest legal terms of the given type.
 	"""
 	legalTerms(type: LegalTermsType!): LegalTerms
