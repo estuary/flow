@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 
-	"go.gazette.dev/core/labels"
+	"github.com/estuary/flow/go/gazette/labels"
 )
 
 type jsonFraming struct{}

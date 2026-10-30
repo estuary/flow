@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 	"github.com/gogo/protobuf/proto"
 	"github.com/olekukonko/tablewriter"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
 type cmdJournalsFragments struct {

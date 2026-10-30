@@ -4,7 +4,7 @@ package recoverylog;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "go.gazette.dev/core/consumer/recoverylog";
+option go_package = "github.com/estuary/flow/go/gazette/consumer/recoverylog";
 
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;
@@ -40,7 +40,7 @@ message RecordedOp {
   //   attach exact byte offsets as they deserialized RecordedOps.
   int64 first_offset = 9;
   int64 last_offset = 10;
-  string log = 11 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
+  string log = 11 [(gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal"];
 
   // RecordedOp is a union-type over the remaining fields.
 
@@ -150,7 +150,7 @@ message Segment {
   // (eg, because the Segment was produced by a Recorder).
   int64 last_offset = 6;
   // Log is the Journal holding this Segment's data, and to which offsets are relative.
-  string log = 7 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
+  string log = 7 [(gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal"];
 };
 
 // FnodeSegments captures log Segments containing all RecordedOps of the Fnode.
@@ -187,7 +187,7 @@ message FSMHints {
   // compatibility (Segments didn't always have a |log| field) and also for
   // compacting the representation in the common case of Segments mostly or
   // entirely addressing a single log.
-  string log = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
+  string log = 1 [(gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal"];
   // Live Fnodes and their Segments as-of the generation of these FSMHints.
   repeated FnodeSegments live_nodes = 2 [(gogoproto.nullable) = false];
   // Property files and contents as-of the generation of these FSMHints.

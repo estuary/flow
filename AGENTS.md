@@ -11,6 +11,8 @@ Estuary is built with:
 - **Rust** (primary language)
   - Third-party sources under `~/.cargo/registry/src/`
 - **Go** - integration glue with the Gazette consumer framework
+  - Gazette itself is under `go/gazette/` (see its CLAUDE.md), within the
+    repository's single Go module
   - Third-party sources under `~/go/pkg/mod/`
 - **Protobuf** - communication between control plane, data planes, and connectors
 - **Supabase** - migrations are under `supabase/migrations/`
@@ -115,7 +117,7 @@ is called a "tenant".
 - **Data-plane controller**: provisions data planes
 
 ### Data-plane components
-- **Gazette**: brokers serve the journals that back collections
+- **Gazette** (`go/gazette/`): brokers serve the journals that back collections
 - **Reactors**: runtime written to Gazette consumer framework;
   executes tasks and runs connectors as sidecars over gRPC
 - **Etcd**: config for gazette and reactors

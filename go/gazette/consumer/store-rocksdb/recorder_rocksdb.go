@@ -3,7 +3,7 @@ package store_rocksdb
 import (
 	"fmt"
 
-	"go.gazette.dev/core/consumer/recoverylog"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
 )
 
 // NewRecorder adapts a recoverylog.Recorder to an EnvObserver.

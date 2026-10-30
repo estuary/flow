@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"go.gazette.dev/core/etcdtest"
+	"github.com/estuary/flow/go/gazette/etcdtest"
 	gc "gopkg.in/check.v1"
 )
 

@@ -3,7 +3,7 @@ package flow
 import (
 	"encoding/json"
 
-	pb "go.gazette.dev/core/broker/protocol"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 )
 
 // Capture is a type wrapper for Capture catalog task names.

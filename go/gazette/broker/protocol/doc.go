@@ -20,7 +20,7 @@
 //
 // By convention, this package is usually imported as `pb`, short for
 // "Protocol of Broker", due to it's ubiquity and to distinguish it from
-// package go.gazette.dev/core/consumer/protocol (imported as `pc`). Eg,
+// package github.com/estuary/flow/go/gazette/consumer/protocol (imported as `pc`). Eg,
 //
-// import pb "go.gazette.dev/core/broker/protocol"
+// import pb "github.com/estuary/flow/go/gazette/broker/protocol"
 package protocol

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // checkLoop checks the health of a store and schedules the next check.

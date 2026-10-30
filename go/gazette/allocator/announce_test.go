@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/task"
 	"go.etcd.io/etcd/client/v3/concurrency"
-	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/task"
 	gc "gopkg.in/check.v1"
 )
 

@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/stores"
 	"github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/stores"
 	"golang.org/x/net/trace"
 )
 

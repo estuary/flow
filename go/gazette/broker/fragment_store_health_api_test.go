@@ -6,10 +6,10 @@ import (
 	"net/url"
 	"testing"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/stores"
+	"github.com/estuary/flow/go/gazette/etcdtest"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/stores"
-	"go.gazette.dev/core/etcdtest"
 )
 
 func TestFragmentStoreHealthCases(t *testing.T) {

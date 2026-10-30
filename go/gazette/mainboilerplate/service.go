@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	petname "github.com/dustinkirkland/golang-petname"
-	"go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/server"
+	"github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/server"
 )
 
 // ZoneConfig configures the zone of the application.

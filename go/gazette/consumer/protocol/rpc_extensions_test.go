@@ -1,8 +1,8 @@
 package protocol
 
 import (
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
 	gc "gopkg.in/check.v1"
 )
 

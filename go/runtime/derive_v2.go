@@ -7,16 +7,16 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	store_sqlite "github.com/estuary/flow/go/gazette/consumer/store-sqlite"
+	"github.com/estuary/flow/go/gazette/message"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
-	store_sqlite "go.gazette.dev/core/consumer/store-sqlite"
-	"go.gazette.dev/core/message"
 )
 
 // deriveAppV2 is the runtime-next backed derivation Application. Like the

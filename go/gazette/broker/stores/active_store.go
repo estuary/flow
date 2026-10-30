@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "go.gazette.dev/core/broker/protocol"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 )
 
 // ActiveStore wraps a Store implementation with mark-and-sweep GC support and instrumentation.

@@ -7,12 +7,12 @@ import (
 	"math/rand/v2"
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/keyspace"
 	gc "gopkg.in/check.v1"
 )
 

@@ -3,7 +3,7 @@ package fragment
 import (
 	"io"
 
-	"go.gazette.dev/core/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/protocol"
 )
 
 // Fragment wraps the protocol.Fragment type with a nil-able backing local File.

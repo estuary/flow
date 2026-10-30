@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	"github.com/pkg/errors"
-	"go.gazette.dev/core/broker/client"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // SQLStore is a Store implementation which utilizes a remote database having a

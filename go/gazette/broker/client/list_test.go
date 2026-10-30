@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/teststub"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/teststub"
 	gc "gopkg.in/check.v1"
 )
 

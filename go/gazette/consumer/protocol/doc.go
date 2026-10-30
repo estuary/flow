@@ -10,7 +10,7 @@
 //
 // By convention, this package is usually imported as `pc`, short for
 // "Protocol of Consumer", due to it's ubiquity and to distinguish it from
-// package go.gazette.dev/core/broker/protocol (imported as `pb`). Eg,
+// package github.com/estuary/flow/go/gazette/broker/protocol (imported as `pb`). Eg,
 //
-// import pc "go.gazette.dev/core/consumer/protocol"
+// import pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 package protocol

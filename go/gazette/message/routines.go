@@ -8,8 +8,8 @@ import (
 	"math/rand"
 	"sync"
 
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/labels"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/labels"
 )
 
 // RegisterFraming registers the Framing by its ContentType. A previously

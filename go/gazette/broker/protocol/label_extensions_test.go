@@ -3,7 +3,7 @@ package protocol
 import (
 	"strings"
 
-	"go.gazette.dev/core/labels"
+	"github.com/estuary/flow/go/gazette/labels"
 	gc "gopkg.in/check.v1"
 )
 

@@ -5,8 +5,8 @@ import (
 	"io"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // Sequencer observes read-uncommitted messages from journals and sequences them

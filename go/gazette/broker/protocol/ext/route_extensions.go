@@ -1,9 +1,9 @@
 package ext
 
 import (
-	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/keyspace"
+	"github.com/estuary/flow/go/gazette/allocator"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/keyspace"
 )
 
 // Init Initializes Route with the provided allocator Assignments.

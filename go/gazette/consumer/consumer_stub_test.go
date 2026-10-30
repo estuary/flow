@@ -3,11 +3,11 @@ package consumer
 import (
 	"context"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/server"
+	"github.com/estuary/flow/go/gazette/task"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/server"
-	"go.gazette.dev/core/task"
 )
 
 // shardServerStub stubs the read and write loops of ShardServer RPCs.

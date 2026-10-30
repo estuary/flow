@@ -8,7 +8,7 @@ import (
 
 	"go.etcd.io/etcd/api/v3/mvccpb"
 
-	"go.gazette.dev/core/keyspace"
+	"github.com/estuary/flow/go/gazette/keyspace"
 )
 
 const (

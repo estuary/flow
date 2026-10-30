@@ -3,9 +3,9 @@ package allocator
 import (
 	"context"
 
-	pr "go.gazette.dev/core/allocator/sparse_push_relabel"
-	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/keyspace"
+	pr "github.com/estuary/flow/go/gazette/allocator/sparse_push_relabel"
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	gc "gopkg.in/check.v1"
 )
 

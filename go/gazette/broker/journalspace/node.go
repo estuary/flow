@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	pb "go.gazette.dev/core/broker/protocol"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 )
 
 // Node represents a collection of JournalSpecs which are related by

@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	"github.com/estuary/flow/go/gazette/consumer"
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/consumer"
-	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/keyspace"
 )
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

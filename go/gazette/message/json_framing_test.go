@@ -9,8 +9,8 @@ import (
 	"io/ioutil"
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/labels"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/labels"
 )
 
 func TestJSONFramingMarshalWithFixtures(t *testing.T) {

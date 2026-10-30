@@ -6,9 +6,9 @@ import (
 	"io"
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/labels"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/labels"
 )
 
 func TestCSVFramingMarshalWithFixtures(t *testing.T) {

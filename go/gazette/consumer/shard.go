@@ -6,16 +6,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	"github.com/estuary/flow/go/gazette/keyspace"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/keyspace"
-	"go.gazette.dev/core/message"
 )
 
 const (

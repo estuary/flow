@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/estuary/flow/go/gazette/keyspace"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/keyspace"
 )
 
 // IsConsistentFn is a free function which determines whether the Item is to

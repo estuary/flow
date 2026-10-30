@@ -3,10 +3,10 @@ package consumer
 import (
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/allocator"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/keyspace"
 )
 
 func TestShardConsistencyCases(t *testing.T) {

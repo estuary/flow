@@ -2,8 +2,21 @@
 #MISE description="Generate Go protobuf bindings"
 set -euo pipefail
 
-# Proto files to generate
-PROTO_FILES=(
+# Gazette protos are rooted at go/gazette, which is their include path.
+# This keeps their registered names (`broker/protocol/protocol.proto`) stable
+# for Flow protos and Rust crates which import them.
+GAZETTE_PROTO_FILES=(
+  "broker/protocol/protocol.proto"
+  "consumer/protocol/protocol.proto"
+  "consumer/recoverylog/recorded_op.proto"
+)
+# Gazette protos which also have a gRPC gateway (`<name>_gateway.yaml`).
+GAZETTE_GATEWAY_FILES=(
+  "broker/protocol/protocol.proto"
+  "consumer/protocol/protocol.proto"
+)
+
+FLOW_PROTO_FILES=(
   "./go/protocols/capture/capture.proto"
   "./go/protocols/connector/connector.proto"
   "./go/protocols/derive/derive.proto"
@@ -14,24 +27,29 @@ PROTO_FILES=(
   "./go/protocols/shuffle/shuffle.proto"
 )
 
-# Modules needed for protoc include paths
-PROTOC_MODULES=(
-  "google.golang.org/protobuf"
-  "github.com/gogo/protobuf"
-  "go.gazette.dev/core"
+# gogoproto/gogo.proto is the only non-local import. google/protobuf/*.proto
+# resolve from protoc's system include, installed by libprotobuf-dev.
+GOGO_DIR=$(go list -f '{{ .Dir }}' -m github.com/gogo/protobuf)
+
+(
+  cd go/gazette
+  for proto_file in "${GAZETTE_PROTO_FILES[@]}"; do
+    echo "Generating ${proto_file%.proto}.pb.go..."
+    protoc -I . -I "$GOGO_DIR" \
+      --gogo_out=paths=source_relative,plugins=grpc:. \
+      "$proto_file"
+  done
+  for proto_file in "${GAZETTE_GATEWAY_FILES[@]}"; do
+    echo "Generating ${proto_file%.proto}.pb.gw.go..."
+    protoc -I . -I "$GOGO_DIR" \
+      --grpc-gateway_out=logtostderr=true,paths=source_relative,generate_unbound_methods=false,grpc_api_configuration="${proto_file%.proto}_gateway.yaml":. \
+      "$proto_file"
+  done
 )
 
-# Build protoc include flags by resolving each module path
-INCLUDE_FLAGS="-I ."
-for module in "${PROTOC_MODULES[@]}"; do
-  MODULE_PATH=$(go list -f '{{ .Dir }}' -m "$module")
-  INCLUDE_FLAGS="$INCLUDE_FLAGS -I$MODULE_PATH"
-done
-
-# Generate each .pb.go file
-for proto_file in "${PROTO_FILES[@]}"; do
+for proto_file in "${FLOW_PROTO_FILES[@]}"; do
   echo "Generating $(basename "$proto_file" .proto).pb.go..."
-  protoc $INCLUDE_FLAGS \
+  protoc -I . -I go/gazette -I "$GOGO_DIR" \
     --gogo_out=paths=source_relative,Mgoogle/protobuf/any.proto=github.com/gogo/protobuf/types,Mgoogle/protobuf/timestamp.proto=github.com/gogo/protobuf/types,plugins=grpc:. \
     "$proto_file"
 done

@@ -312,7 +312,7 @@ fn set_optimal_journal_mode(conn: &Connection) -> anyhow::Result<()> {
 }
 
 const BOOTSTRAP: &str = r#"
-    -- See: https://pkg.go.dev/go.gazette.dev/core/consumer/store-sqlite#hdr-Buffering_and_the_Synchronous_Pragma
+    -- See "Buffering and the Synchronous Pragma" of go/gazette/consumer/store-sqlite/doc.go
     PRAGMA synchronous=FULL;
 
     -- Enable FAST secure delete, which writes zero pages on deleted data only opportunistically
@@ -325,7 +325,7 @@ const BOOTSTRAP: &str = r#"
 
     -- Prepare a table for gazette checkpoints.
     -- This exactly matches that of Gazette's store-sqlite implementation:
-    -- https://github.com/gazette/core/blob/master/consumer/store-sqlite/store.go
+    -- go/gazette/consumer/store-sqlite/store.go
     CREATE TABLE IF NOT EXISTS gazette_checkpoint (
         rowid INTEGER PRIMARY KEY DEFAULT 0 CHECK (rowid = 0), -- Permit just one row.
         checkpoint BLOB

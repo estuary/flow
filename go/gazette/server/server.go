@@ -12,12 +12,12 @@ import (
 	"strconv"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/task"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 )

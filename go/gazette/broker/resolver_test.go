@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	"github.com/estuary/flow/go/gazette/broker/fragment"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pbx "github.com/estuary/flow/go/gazette/broker/protocol/ext"
+	"github.com/estuary/flow/go/gazette/broker/stores"
+	"github.com/estuary/flow/go/gazette/etcdtest"
 	"github.com/stretchr/testify/require"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/broker/fragment"
-	pb "go.gazette.dev/core/broker/protocol"
-	pbx "go.gazette.dev/core/broker/protocol/ext"
-	"go.gazette.dev/core/broker/stores"
-	"go.gazette.dev/core/etcdtest"
 )
 
 func TestResolveCases(t *testing.T) {

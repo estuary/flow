@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	pb "go.gazette.dev/core/broker/protocol"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	gc "gopkg.in/check.v1"
 	"gopkg.in/yaml.v2"
 )

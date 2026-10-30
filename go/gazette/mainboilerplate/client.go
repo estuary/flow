@@ -6,12 +6,12 @@ import (
 	"math"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/auth"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/server"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"go.gazette.dev/core/auth"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 )

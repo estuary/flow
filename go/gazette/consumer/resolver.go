@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pbx "github.com/estuary/flow/go/gazette/broker/protocol/ext"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/broker/protocol"
-	pbx "go.gazette.dev/core/broker/protocol/ext"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/keyspace"
 )
 
 // Resolver applies the current allocator.State to map journals to shards,

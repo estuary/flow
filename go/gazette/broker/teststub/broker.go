@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/server"
+	"github.com/estuary/flow/go/gazette/task"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/server"
-	"go.gazette.dev/core/task"
 )
 
 // Broker stubs the read and write loops of broker RPCs, routing them onto

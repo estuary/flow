@@ -11,11 +11,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/message"
 )
 
 // Player reads from a log to rebuild encoded file operations onto the local filesystem.

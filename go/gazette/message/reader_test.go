@@ -5,13 +5,13 @@ import (
 	"io"
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/teststub"
+	"github.com/estuary/flow/go/gazette/brokertest"
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/labels"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/teststub"
-	"go.gazette.dev/core/brokertest"
-	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/labels"
 )
 
 func TestReadIterators(t *testing.T) {

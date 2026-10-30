@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/brokertest"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/brokertest"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
 )
 
 func TestAPIStatCases(t *testing.T) {

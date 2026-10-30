@@ -3,8 +3,8 @@ package client
 import (
 	"context"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/pkg/errors"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // FragmentStoreHealth queries for the latest health status on the specified fragment store.

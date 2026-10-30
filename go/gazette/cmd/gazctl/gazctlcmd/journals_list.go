@@ -7,13 +7,13 @@ import (
 	"os"
 	"strings"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	"github.com/estuary/flow/go/gazette/broker/journalspace"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/proto"
 	"github.com/olekukonko/tablewriter"
-	"go.gazette.dev/core/broker/client"
-	"go.gazette.dev/core/broker/journalspace"
-	pb "go.gazette.dev/core/broker/protocol"
-	mbp "go.gazette.dev/core/mainboilerplate"
 	"gopkg.in/yaml.v2"
 )
 

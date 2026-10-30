@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/brokertest"
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/pkg/errors"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/brokertest"
-	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/message"
 	gc "gopkg.in/check.v1"
 )
 

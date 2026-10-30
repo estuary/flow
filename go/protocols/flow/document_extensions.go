@@ -3,7 +3,7 @@ package flow
 import (
 	"encoding/binary"
 
-	"go.gazette.dev/core/message"
+	"github.com/estuary/flow/go/gazette/message"
 )
 
 // Arena is a packed memory region into which byte content and strings are written.

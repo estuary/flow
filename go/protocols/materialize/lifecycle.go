@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/proto"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // Protocol routines for sending Request follow:

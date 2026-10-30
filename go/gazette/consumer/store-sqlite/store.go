@@ -21,15 +21,15 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	store_rocksdb "github.com/estuary/flow/go/gazette/consumer/store-rocksdb"
 	"github.com/jgraettinger/gorocksdb"
 	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/client"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
-	store_rocksdb "go.gazette.dev/core/consumer/store-rocksdb"
 )
 
 // Store is a consumer.Store implementation which wraps a primary SQLite database,

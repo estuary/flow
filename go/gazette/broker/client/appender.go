@@ -6,10 +6,10 @@ import (
 	"math"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

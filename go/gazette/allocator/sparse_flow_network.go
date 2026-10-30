@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	pr "go.gazette.dev/core/allocator/sparse_push_relabel"
-	"go.gazette.dev/core/keyspace"
+	pr "github.com/estuary/flow/go/gazette/allocator/sparse_push_relabel"
+	"github.com/estuary/flow/go/gazette/keyspace"
 )
 
 // sparseFlowNetwork models an allocator.State as a flow network, representing

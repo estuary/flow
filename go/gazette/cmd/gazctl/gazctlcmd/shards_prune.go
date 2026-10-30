@@ -6,14 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	"github.com/estuary/flow/go/gazette/broker/fragment"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/client"
-	"go.gazette.dev/core/broker/fragment"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
-	mbp "go.gazette.dev/core/mainboilerplate"
 	"golang.org/x/sync/errgroup"
 )
 

@@ -3,8 +3,8 @@ package main
 import (
 	"github.com/jessevdk/go-flags"
 
-	"go.gazette.dev/core/cmd/gazctl/gazctlcmd"
-	mbp "go.gazette.dev/core/mainboilerplate"
+	"github.com/estuary/flow/go/gazette/cmd/gazctl/gazctlcmd"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 )
 
 const iniFilename = "gazctl.ini"

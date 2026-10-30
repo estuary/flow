@@ -1,8 +1,8 @@
 package runtime
 
 import (
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/message"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/message"
 )
 
 // IndexedShuffleResponse is an implementation of message.Message which

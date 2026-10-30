@@ -5,14 +5,14 @@ import (
 	"io"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	"github.com/estuary/flow/go/gazette/broker/fragment"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pbx "github.com/estuary/flow/go/gazette/broker/protocol/ext"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/broker/fragment"
-	pb "go.gazette.dev/core/broker/protocol"
-	pbx "go.gazette.dev/core/broker/protocol/ext"
-	"go.gazette.dev/core/keyspace"
 )
 
 // AutoSuspend journals which have no local fragments.

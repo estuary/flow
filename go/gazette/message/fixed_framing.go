@@ -8,8 +8,8 @@ import (
 	"io"
 	"sync"
 
+	"github.com/estuary/flow/go/gazette/labels"
 	"github.com/pkg/errors"
-	"go.gazette.dev/core/labels"
 )
 
 // FixedFrameHeaderLength is the number of leading header bytes of a fixed

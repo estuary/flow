@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/golang-jwt/jwt/v5"
-	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"

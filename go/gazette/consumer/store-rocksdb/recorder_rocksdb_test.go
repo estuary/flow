@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/brokertest"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	"github.com/estuary/flow/go/gazette/etcdtest"
 	rocks "github.com/jgraettinger/gorocksdb"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/brokertest"
-	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/etcdtest"
 )
 
 func TestSimpleStopAndStart(t *testing.T) {

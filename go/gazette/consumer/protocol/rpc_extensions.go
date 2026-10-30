@@ -3,7 +3,7 @@ package protocol
 import (
 	"fmt"
 
-	pb "go.gazette.dev/core/broker/protocol"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 )
 
 // Validate returns an error if the StatRequest is not well-formed.

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	"github.com/estuary/flow/go/protocols/flow"
@@ -17,7 +18,6 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/message"
 )
 
 func TestExtractorBasic(t *testing.T) {

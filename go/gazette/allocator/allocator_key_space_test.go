@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/keyspace"
 	gc "gopkg.in/check.v1"
 )
 
@@ -359,10 +359,10 @@ type testMember struct {
 	E bool // Exiting
 }
 
-func (m testMember) ItemLimit() int   { return m.R }
-func (m testMember) Validate() error  { return nil }
-func (m *testMember) SetExiting()     { m.E = true }
-func (m testMember) IsExiting() bool  { return m.E }
+func (m testMember) ItemLimit() int  { return m.R }
+func (m testMember) Validate() error { return nil }
+func (m *testMember) SetExiting()    { m.E = true }
+func (m testMember) IsExiting() bool { return m.E }
 
 func (m *testMember) MarshalString() string {
 	if b, err := json.Marshal(m); err != nil {

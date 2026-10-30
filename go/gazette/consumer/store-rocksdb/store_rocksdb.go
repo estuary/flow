@@ -21,15 +21,15 @@ package store_rocksdb
 import (
 	"os"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
 	"github.com/jgraettinger/cockroach-encoding/encoding"
 	rocks "github.com/jgraettinger/gorocksdb"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
 )
 
 // Store implements the consumer.Store interface.

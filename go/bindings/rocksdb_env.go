@@ -9,10 +9,10 @@ import "C"
 import (
 	"unsafe"
 
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	store_rocksdb "github.com/estuary/flow/go/gazette/consumer/store-rocksdb"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/jgraettinger/gorocksdb"
-	"go.gazette.dev/core/consumer/recoverylog"
-	store_rocksdb "go.gazette.dev/core/consumer/store-rocksdb"
 )
 
 func NewRocksDBDescriptor(recorder *recoverylog.Recorder) *pr.RocksDBDescriptor {

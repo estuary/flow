@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/codecs"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/codecs"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // Minimum size of accumulated uncompressed data before performing incremental

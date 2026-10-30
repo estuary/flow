@@ -5,10 +5,10 @@ import (
 	"net"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pbx "github.com/estuary/flow/go/gazette/broker/protocol/ext"
+	"github.com/estuary/flow/go/gazette/broker/stores"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
-	pbx "go.gazette.dev/core/broker/protocol/ext"
-	"go.gazette.dev/core/broker/stores"
 	"google.golang.org/grpc/peer"
 )
 

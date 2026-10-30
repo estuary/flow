@@ -7,9 +7,9 @@ import (
 	"text/template"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/stores"
 	pkgerrors "github.com/pkg/errors"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/stores"
 )
 
 // SignGetURL returns a URL authenticating the bearer to perform a GET operation

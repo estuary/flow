@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/allocator"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/keyspace"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/api/v3/mvccpb"
-	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/keyspace"
 )
 
 func TestSpoolCompleteNonPrimary(t *testing.T) {

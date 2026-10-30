@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/labels"
 	"github.com/google/uuid"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/labels"
 )
 
 // CSVFramable is the interface of a Frameable required by a CSV Framing.

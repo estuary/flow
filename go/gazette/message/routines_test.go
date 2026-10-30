@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/labels"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/labels"
 )
 
 func TestFramingDetermination(t *testing.T) {

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"go.gazette.dev/core/broker/codecs"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/teststub"
+	"github.com/estuary/flow/go/gazette/broker/codecs"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/broker/teststub"
 	gc "gopkg.in/check.v1"
 )
 

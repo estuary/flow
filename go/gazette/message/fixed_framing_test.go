@@ -8,9 +8,9 @@ import (
 	"os"
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/labels"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/labels"
 )
 
 func TestFixedFramingMarshalWithFixtures(t *testing.T) {
