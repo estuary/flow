@@ -1824,6 +1824,7 @@ Outcome {
               ]
             },
             model_fixes: [],
+            auto_disabled_bindings: [],
             validated: Validated {
                 bindings: [],
                 generated_files: {},
@@ -2010,6 +2011,7 @@ Outcome {
             model_fixes: [
               "updated resource /_meta of 1 bindings"
             ],
+            auto_disabled_bindings: [],
             validated: Validated {
                 bindings: [
                     Binding {

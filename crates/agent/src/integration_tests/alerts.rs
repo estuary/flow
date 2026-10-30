@@ -204,12 +204,13 @@ async fn test_alert_notifications() {
         update alert_subscriptions set include_alert_types = array['shard_failed']::alert_type[]
         where catalog_prefix = 'robins/';
         insert into alert_subscriptions (id, catalog_prefix, email, include_alert_types) values
-          ('1818181818181818', 'robins/', 'first@robins.test', array['task_auto_disabled_failing', 'task_auto_disabled_idle']::alert_type[]),
-          ('1919191919191919', 'robins/', 'second@robins.test', array['task_auto_disabled_failing', 'task_auto_disabled_idle']::alert_type[]);
+          ('1818181818181818', 'robins/', 'first@robins.test', array['bindings_auto_disabled', 'task_auto_disabled_failing', 'task_auto_disabled_idle']::alert_type[]),
+          ('1919191919191919', 'robins/', 'second@robins.test', array['bindings_auto_disabled', 'task_auto_disabled_failing', 'task_auto_disabled_idle']::alert_type[]);
     "#).execute(&pool).await.unwrap();
 
     // Event completion must not select resolution payloads or discard recipient progress.
     for (index, alert_type) in [
+        AlertType::BindingsAutoDisabled,
         AlertType::TaskAutoDisabledFailing,
         AlertType::TaskAutoDisabledIdle,
     ]
@@ -220,6 +221,8 @@ async fn test_alert_notifications() {
         let arguments = serde_json::json!({
             "spec_type": "materialization",
             "failing_since": "2025-08-01",
+            "bindings": [{"collection": "robins/nests", "resource_path": ["nests"],
+                "reason": "incompatible_schema_change", "detail": "original firing detail"}]
         });
         let mut txn = pool.begin().await.unwrap();
         apply_alert_actions(
@@ -247,7 +250,11 @@ async fn test_alert_notifications() {
             let partial = harness.assert_alert_resolved(id).await;
             assert_eq!(Some(partial.alert.fired_at), partial.alert.resolved_at);
             partial.assert_emails_sent(&["first@robins.test"]);
-            assert!(partial.notifications[0].body.contains("2025-08-01"));
+            assert!(
+                partial.notifications[0]
+                    .body
+                    .contains("original firing detail")
+            );
             assert_eq!(
                 partial.expect_notification_state().max_idempotency_key,
                 Some(format!("{id}-fired-0"))
