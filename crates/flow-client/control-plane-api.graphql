@@ -371,6 +371,11 @@ type BillingPaymentMethodPayload {
 	primaryPaymentMethod: PaymentMethod
 }
 
+"""
+The billing arrangement of a tenant.
+"""
+union BillingPlan = SelfServePlan | ContractPlan | InternalPlan
+
 input BoolFilter {
 	eq: Boolean
 }
@@ -621,6 +626,14 @@ enum ChargeStatus {
 scalar Collection
 
 """
+How usage-based invoices are collected.
+"""
+enum CollectionMethod {
+	CHARGE_DEFAULT_PAYMENT_METHOD
+	SEND_INVOICE
+}
+
+"""
 A command run in a sandbox.
 """
 type Command {
@@ -834,6 +847,19 @@ input ConnectorsFilter {
 	Filter by whether the connector is recommended.
 	"""
 	recommended: Boolean
+}
+
+type ContractPlan {
+	collectionMethod: CollectionMethod!
+	paymentProvider: PaymentProvider!
+	"""
+	Data processing prices, per GB.
+	"""
+	dataTiers: [PricingTier!]!
+	"""
+	Task usage prices, per task hour.
+	"""
+	usageTiers: [PricingTier!]!
 }
 
 """
@@ -1476,6 +1502,10 @@ type InferredSchemaStatus {
 	approximate time of the next update.
 	"""
 	nextUpdateAfter: DateTime
+}
+
+type InternalPlan {
+	detail: String
 }
 
 """
@@ -2264,6 +2294,13 @@ type PaymentMethodBillingDetails {
 	name: String
 }
 
+enum PaymentProvider {
+	STRIPE
+	AWS_MARKETPLACE
+	GCP_MARKETPLACE
+	SNOWFLAKE_MARKETPLACE
+}
+
 """
 Information on the config updates performed by the controller.
 This does not include any information on user-initiated config updates.
@@ -2365,6 +2402,20 @@ input PrefixesFilter {
 	Filter on the returned prefix.
 	"""
 	prefix: PrefixFilter
+}
+
+"""
+A price for the next `quantity` units of usage after the previous tiers.
+"""
+type PricingTier {
+	"""
+	Price per unit, in cents.
+	"""
+	rateCents: Int!
+	"""
+	Units priced at this rate. Null for the final tier, which covers all further usage.
+	"""
+	quantity: Int
 }
 
 """
@@ -2897,6 +2948,35 @@ input SecretsFilter {
 	catalogName: PrefixFilter
 }
 
+enum SelfServePhase {
+	"""
+	Before the trial starts, or when there is no trial.
+	"""
+	FREE
+	"""
+	During the trial.
+	"""
+	TRIAL
+	"""
+	After the trial ends.
+	"""
+	PAID
+}
+
+type SelfServePlan {
+	phase: SelfServePhase!
+	trial: TrialPeriod
+	collectionMethod: CollectionMethod!
+	"""
+	Data processing prices, per GB.
+	"""
+	dataTiers: [PricingTier!]!
+	"""
+	Task usage prices, per task hour.
+	"""
+	usageTiers: [PricingTier!]!
+}
+
 """
 A secret returned by the API, such as a bearer credential. The value is serialized as a string, but clients must treat it as sensitive: redact it from logs and UIs, and never pass it to a language model.
 """
@@ -3362,9 +3442,18 @@ type Tenant {
 
 type TenantBilling {
 	contact: BillingContact!
+	plan: BillingPlan!
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
 	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!
+}
+
+type TrialPeriod {
+	start: NaiveDate!
+	"""
+	Exclusive end of the trial.
+	"""
+	end: NaiveDate!
 }
 
 """

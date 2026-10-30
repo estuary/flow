@@ -12,6 +12,23 @@ begin
   ;
   insert into tenants (tenant) values ('aliceCo/'), ('bobCo/');
 
+  return query select lives_ok(
+    $i$ update tenants set plan_kind = 'internal', payment_provider = null where tenant = 'aliceCo/' $i$,
+    'internal tenants need no payment provider'
+  );
+  return query select throws_ok(
+    $i$ update tenants set plan_kind = 'contract', payment_provider = 'external' where tenant = 'bobCo/' $i$,
+    '23514', null, 'contracts cannot use the external payment provider'
+  );
+  return query select throws_ok(
+    $i$ update tenants set plan_kind = 'contract', payment_provider = null where tenant = 'bobCo/' $i$,
+    '23514', null, 'contracts require a payment provider'
+  );
+  return query select lives_ok(
+    format($i$ update tenants set plan_kind = 'contract', payment_provider = %L where tenant = 'bobCo/' $i$, provider),
+    format('contracts accept %s', provider)
+  ) from unnest(array['aws_marketplace', 'gcp_marketplace', 'snowflake_marketplace']) as provider;
+
   -- Drop priviledge to `authenticated` and authorize as Alice.
   perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
 
