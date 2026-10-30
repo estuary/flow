@@ -35,7 +35,7 @@ journals owned by applications under the team's purview. For example the
 Gazette repository versions YAML for journals used by example applications
 of the repository:
 
-.. literalinclude:: ../kustomize/test/bases/environment/examples.journalspace.yaml
+.. literalinclude:: _static/example-journalspace.yaml
    :language: yaml
 
 Etcd Revisions

@@ -24,7 +24,7 @@ processing behaviors.
 Example YAML
 --------------
 
-.. literalinclude:: ../kustomize/bases/example-word-count/shard_specs.yaml
+.. literalinclude:: _static/example-shard-specs.yaml
    :language: yaml
 
 Etcd Revisions

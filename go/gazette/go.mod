@@ -29,7 +29,6 @@ require (
 	github.com/jgraettinger/cockroach-encoding v1.1.0
 	github.com/jgraettinger/gorocksdb v0.0.0-20250815051509-2d5c1f160b80
 	github.com/klauspost/compress v1.18.7
-	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/olekukonko/tablewriter v1.1.0
 	github.com/pkg/errors v0.9.1
@@ -89,6 +88,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
+	github.com/lib/pq v1.10.9 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-ieproxy v0.0.12 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
