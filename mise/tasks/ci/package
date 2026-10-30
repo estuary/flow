@@ -36,6 +36,7 @@ ln ${CARGO_TARGET_DIR}/release/flowctl ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/release/oidc-discovery-server ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/release/runtime-sidecar ${PACKAGE_DIR}/
 ln ${GOBIN}/gazette ${PACKAGE_DIR}/
+ln ${GOBIN}/gazctl ${PACKAGE_DIR}/
 ln ${GOBIN}/flowctl-go ${PACKAGE_DIR}/
 ln $(which etcd) ${PACKAGE_DIR}/
 
