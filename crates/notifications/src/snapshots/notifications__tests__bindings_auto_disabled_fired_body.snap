@@ -1,0 +1,80 @@
+---
+source: crates/notifications/src/lib.rs
+expression: email.body
+---
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { margin: 0; padding: 0; font-family: Ubuntu, Helvetica, Arial, sans-serif; }
+        .email-container { max-width: 600px; margin: 0 auto; }
+        .email-content { padding: 20px; }
+        .logo { text-align: center; padding: 20px 0; }
+        .divider { border-top: 1px dashed grey; margin: 20px 0; }
+        .dear-line { font-size: 20px; color: #512d0b; font-weight: bold; margin-bottom: 10px; }
+        .body-text { font-size: 17px; line-height: 1.4; margin-bottom: 10px; }
+        .signature { font-size: 14px; color: #000000; margin-top: 15px; }
+        .identifier { background-color: #dadada; padding: 2px 3px; border-radius: 2px; font-family: monospace; font-weight: bold; }
+        a { color: #5072EB; text-decoration: none; }
+        .button {
+            display: inline-block;
+            background-color: #5072EB;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 4px;
+            text-decoration: none;
+            margin: 25px 0 0 0;
+            font-weight: 400;
+            font-size: 17px;
+        }
+        ul { margin: 10px 0; padding-left: 20px; }
+        li { margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="logo">
+            <img src="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//estuary_logo_comfy_14513ca434/estuary_logo_comfy_14513ca434.jpg" alt="Estuary Logo" style="max-width: 200px;">
+        </div>
+        <div class="divider"></div>
+        <div class="email-content">
+            <p class="body-text">
+                Bindings of your Estuary materialization <span class="identifier">acmeCo/test/materialization</span> have been automatically disabled. Disabled bindings don't update their destination resources.
+            </p>
+            <ul>
+                <li>
+                    Collection <span class="identifier">acmeCo/test/orders</span>, resource <span class="identifier">public.orders</span>:
+                    <div style="background-color: #f4f4f4; color: #000000; border-left: 3px solid #dadada; margin: 8px 0 16px; padding: 12px;">
+                        <strong>Disabled because of an incompatible schema change</strong>
+                        <pre style="font-family: monospace; font-size: 14px; line-height: 1.5; margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;">group-by key changed from [&quot;id&quot;] to [&quot;order_id&quot;]</pre>
+                    </div>
+                </li>
+                <li>
+                    Collection <span class="identifier">acmeCo/test/customers</span>, resource <span class="identifier">customers</span>:
+                    <div style="background-color: #f4f4f4; color: #000000; border-left: 3px solid #dadada; margin: 8px 0 16px; padding: 12px;">
+                        <strong>Disabled because of an incompatible schema change</strong>
+                        <pre style="font-family: monospace; font-size: 14px; line-height: 1.5; margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;">conflict for field &quot;amount&quot;: field is within the desired depth but connector cannot support this field without a backfill (field type changed)</pre>
+                    </div>
+                </li>
+            </ul>
+            <p class="body-text">
+                We try our best to handle schema changes for you, but we weren't able to this time. In order to restore a disabled binding while keeping the incompatible change, you must backfill it.
+            </p>
+            <p class="body-text">
+                Estuary's free trial storage <a href="https://docs.estuary.dev/getting-started/installation/#migrating-existing-data">expires after 20 days</a>, so beware that if you haven't set up your own cloud storage, backfilling just the disabled bindings will only materialize data captured within the past 20 days. You can also perform a <a href="https://docs.estuary.dev/reference/backfilling-data/#dataflow-reset">dataflow reset</a> which will re-capture from the source.
+            </p>
+            <p class="body-text">
+                For more information about handling schema changes, see our <a href="https://docs.estuary.dev/guides/schema-evolution/">schema evolution guide</a>.
+            </p>
+            <p class="body-text">
+                If you need help, you can <a href="http://dashboard.estuary.test/materializations/details/overview?catalogName=acmeCo/test/materialization" target="_blank" rel="noopener">view the task status and bindings</a>, reach out to our team via <a href="https://go.estuary.dev/slack">Slack</a> (#support), or reply to this email.
+            </p>            <div class="signature">
+                Thanks,<br>
+                Estuary Team
+            </div>
+        </div>
+    </div>
+</body>
+</html>

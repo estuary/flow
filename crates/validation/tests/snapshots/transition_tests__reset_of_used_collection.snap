@@ -1964,6 +1964,7 @@ Outcome {
               "removed dropped exclude projection does/not/exist of source collection the/collection",
               "backfilled binding of reset collection the/collection"
             ],
+            auto_disabled_bindings: [],
             validated: Validated {
                 bindings: [
                     Binding {

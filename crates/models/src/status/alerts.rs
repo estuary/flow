@@ -35,6 +35,7 @@ pub enum AlertType {
     TaskIdle,
     TaskAutoDisabledIdle,
     BackgroundPublicationFailed,
+    BindingsAutoDisabled,
 }
 
 impl std::fmt::Display for AlertType {
@@ -48,7 +49,7 @@ impl AlertType {
     pub fn is_event(&self) -> bool {
         matches!(
             self,
-            Self::TaskAutoDisabledFailing | Self::TaskAutoDisabledIdle
+            Self::BindingsAutoDisabled | Self::TaskAutoDisabledFailing | Self::TaskAutoDisabledIdle
         )
     }
 
@@ -66,6 +67,7 @@ impl AlertType {
             AlertType::TaskIdle => "task_idle",
             AlertType::TaskAutoDisabledIdle => "task_auto_disabled_idle",
             AlertType::BackgroundPublicationFailed => "background_publication_failed",
+            AlertType::BindingsAutoDisabled => "bindings_auto_disabled",
         }
     }
 
@@ -83,6 +85,7 @@ impl AlertType {
             AlertType::FreeTrialStalled,
             AlertType::MissingPaymentMethod,
             AlertType::BackgroundPublicationFailed,
+            AlertType::BindingsAutoDisabled,
         ]
     }
 
@@ -102,6 +105,7 @@ impl AlertType {
             AlertType::TaskIdle => None,
             AlertType::TaskAutoDisabledIdle => None,
             AlertType::BackgroundPublicationFailed => None,
+            AlertType::BindingsAutoDisabled => None,
         }
     }
 
@@ -120,6 +124,7 @@ impl AlertType {
             AlertType::TaskIdle => "Task Idle",
             AlertType::TaskAutoDisabledIdle => "Task Auto-Disabled (Idle)",
             AlertType::BackgroundPublicationFailed => "Background Publication Failed",
+            AlertType::BindingsAutoDisabled => "Bindings Auto-Disabled",
         }
     }
 
@@ -162,6 +167,9 @@ impl AlertType {
             AlertType::BackgroundPublicationFailed => {
                 "Triggers when an automated background publication fails. Affected tasks are unlikely to function until the issue is addressed."
             }
+            AlertType::BindingsAutoDisabled => {
+                "Reports each batch of materialization bindings automatically disabled because of an incompatible schema change."
+            }
         }
     }
 
@@ -179,6 +187,8 @@ impl AlertType {
         match self {
             AlertType::AutoDiscoverFailed => false,
             AlertType::BackgroundPublicationFailed => false,
+            // The alert is the only notification that a binding was disabled.
+            AlertType::BindingsAutoDisabled => true,
             AlertType::DataMovementStalled => true,
             AlertType::FreeTrial => true,
             AlertType::FreeTrialEnding => true,
@@ -197,6 +207,7 @@ impl AlertType {
         match self {
             AlertType::AutoDiscoverFailed => false,
             AlertType::BackgroundPublicationFailed => false,
+            AlertType::BindingsAutoDisabled => false,
             AlertType::DataMovementStalled => false,
             AlertType::FreeTrial => true,
             AlertType::FreeTrialEnding => true,
@@ -298,7 +309,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 AlertType::TaskAutoDisabledFailing,
-                AlertType::TaskAutoDisabledIdle
+                AlertType::TaskAutoDisabledIdle,
+                AlertType::BindingsAutoDisabled
             ]
         );
     }
