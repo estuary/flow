@@ -4,10 +4,8 @@
 //! `flock` on it for as long as it lives. The kernel drops the lock with the
 //! last descriptor of the record's open file, however its process ends, so a
 //! record whose lock can be taken is one whose owner is dead: no PID is
-//! involved, and PID namespaces don't matter. The owner's death does not stop
-//! a create it asked podman for. A podman client can outlive its launcher, and
-//! the podman service can finish a create after its client has gone. So what
-//! the taker of a lock finds may still grow.
+//! involved, and PID namespaces don't matter. Podman creates can outlive the
+//! owner, so taking the lock does not mean all its resources exist yet.
 //!
 //! The record is append-only JSON lines. The first claims the id, and names
 //! the owner token and the connector mount. Each later line marks a directory
@@ -17,10 +15,8 @@
 //! line of its own. Nothing a record doesn't prove the launch made is
 //! ever removed on its say-so.
 //!
-//! Each also carries `STATE_DIR_LABEL`, naming the state directory of its
-//! record, and is named for its launch. When one is created after its
-//! launch's release has removed the record, `release::recover` finds it by
-//! that label and removes it, because no record of its name remains.
+//! Each also carries `STATE_DIR_LABEL` and is named for its launch, so
+//! `release::recover` can remove resources created after their record is gone.
 
 use anyhow::Context;
 use std::io::{Read, Write};

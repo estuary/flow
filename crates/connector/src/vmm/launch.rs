@@ -9,8 +9,7 @@
 //! release, and holds the record's lock throughout (see `record`). The
 //! commands which create the network, volume and container are never
 //! interrupted, so each client has exited before teardown looks for what it
-//! made. The podman service may still finish a create after that, and
-//! `release::recover` removes what it makes.
+//! made. `release::recover` handles creates that finish later in the podman service.
 //! The task holds a clone of the session's log sink, so the session
 //! ends only once its teardown has.
 

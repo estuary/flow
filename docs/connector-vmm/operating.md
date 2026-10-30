@@ -231,8 +231,7 @@ In operating terms:
   `STATE_DIR`.** Before its own claim, each launch tries the lock of every
   record there and releases those whose owner is gone. It then removes each
   container, network and rootfs volume labeled with its `STATE_DIR` whose
-  `fv_<id>.owner` is gone. A podman service can create one of these after
-  the release that removed its record. Nothing else triggers
+  `fv_<id>.owner` is gone. Nothing else triggers
   it: not a reactor start, not a timer. A restart alone cleans up nothing
   until a VMM launch follows it, and leftovers are bounded by the VMMs alive
   at the host's last VMM launch. Records beneath a `STATE_DIR` that no longer

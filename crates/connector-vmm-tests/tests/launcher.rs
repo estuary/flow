@@ -1548,13 +1548,9 @@ fn a_vmm_which_fails_refuses_the_launch() {
     );
 }
 
-/// An owner killed while its podman, held at `step`, is about to create its
-/// `kind`, as `exists` finds it. The command goes on without its owner, whose
-/// record is then free. A launch meanwhile takes the record, finds nothing
-/// made yet, and releases it. Let go, the command makes a network or volume
-/// that no record names, and the next launch removes it by its state
-/// directory's label. A container's create fails instead, because the
-/// release removed its network and volume.
+/// Hold a create past its owner's death and recovery. The next launch removes
+/// the late network or volume by its state directory's label. A late container
+/// create fails because recovery removed its network and volume.
 fn an_orphaned_command(step: &str, kind: &str, exists: fn(&str) -> bool, makes: bool) {
     let (run, root, runtime) = setup();
     let other = launcher::root();
@@ -1877,10 +1873,6 @@ fn records_which_prove_nothing() {
     run::podman(&["network", "rm", &named]);
 }
 
-/// A podman service may create a launch's network or volume after its
-/// release removed the record. A launch removes what carries its state
-/// directory's label with no record there. A held record keeps its pair,
-/// whatever it holds, and another state directory's pair is not looked at.
 #[test]
 fn labeled_resources_without_a_record() {
     let (run, root, runtime) = setup();
