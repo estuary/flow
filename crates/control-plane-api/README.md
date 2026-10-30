@@ -35,6 +35,19 @@ of the expanded draft. The executor verifies it after expansion on every attempt
 before applying runtime defaults. A null hash preserves PostgREST publication
 behavior.
 
+`server/public/token_exchange.rs` mints one-hour access tokens through
+`POST /api/v1/auth/token` with `grant_type: "token_exchange"`. Supply
+`prefix_scope` (an array of catalog prefixes), `capability_mask` (an array of
+bundle names), or both. Omitted or null fields add no restriction; empty arrays
+deny all catalog access. Prefixes intersect the user's grants without following
+outgoing grants from those prefixes. Trailing slashes are normalized during
+authorization. For example, `{"grant_type":"token_exchange",
+"prefix_scope":["acmeCo/production/","acmeCo/analytics/"]}` mints a token limited
+to those two prefixes with the user's existing capabilities. Requests require a
+user-session bearer and cannot replace an existing prefix scope. Capability-only
+requests preserve the bearer's prefix scope. Minted tokens cannot mint further
+tokens or refresh credentials, and are rejected by PostgREST.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.
