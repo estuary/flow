@@ -24,7 +24,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	go.etcd.io/etcd/api/v3 v3.6.14
 	go.etcd.io/etcd/client/v3 v3.6.14
-	go.gazette.dev/core v0.103.1-0.20261021182939-b8ff0a385a99
+	go.gazette.dev/core v0.103.1-0.20261028195719-a6d58096bfce
 	golang.org/x/net v0.60.0
 	google.golang.org/api v0.264.0
 	google.golang.org/grpc v1.83.2
