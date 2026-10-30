@@ -59,6 +59,7 @@ pub struct Alert {
     /// Time at which the alert became active.
     pub fired_at: DateTime<Utc>,
     /// The time at which the alert was resolved, or null if it is still active.
+    /// Event alerts complete when recorded, with `resolved_at` equal to `fired_at`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<DateTime<Utc>>,
     /// The alert arguments contain additional details about the alert, which
@@ -207,8 +208,8 @@ async fn fire_alert(
     sqlx::query!(
         r#"with add_history as (
             insert into alert_history
-            (id, catalog_name, alert_type, fired_at, arguments)
-            values ($1, $2::catalog_name, $3, $4, $5)
+            (id, catalog_name, alert_type, fired_at, arguments, resolved_at)
+            values ($1, $2::catalog_name, $3, $4, $5, $6)
             returning id
         )
         insert into internal.tasks (task_id, task_type, parent_id, wake_at, inbox)
@@ -225,6 +226,7 @@ async fn fire_alert(
         alert_type as AlertType,
         fired_at,
         Json(arguments) as Json<ArgsObject>,
+        alert_type.is_event().then_some(fired_at),
     )
     .execute(txn)
     .await?;
