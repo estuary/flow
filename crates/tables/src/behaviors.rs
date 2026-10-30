@@ -1918,8 +1918,13 @@ mod test {
             vec!["acmeCo/team/", "acmeCo/", "acmeCo/team/"],
             vec!["bobCo/", "daveCo/team/"],
         ] {
-            let mut subject = Subject::unrestricted(user_id);
-            subject.prefix_scope = Some(scopes.iter().map(|s| s.to_string()).collect());
+            let claims: models::authorizations::ControlClaims =
+                serde_json::from_value(serde_json::json!({
+                    "aud": "authenticated", "iat": 0, "exp": 0,
+                    "sub": user_id, "role": "authenticated", "prefix_scope": scopes,
+                }))
+                .unwrap();
+            let mut subject = claims.subject();
             let reachable = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
             results.push(
                 reachable
@@ -1968,8 +1973,7 @@ mod test {
             "carolCo/upstream/"
           ],
           [
-            "acmeCo/",
-            "acmeCo/team/"
+            "acmeCo/"
           ],
           [
             "bobCo/shared/",

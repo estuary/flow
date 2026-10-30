@@ -42,7 +42,7 @@ impl ControlClaims {
         crate::authz::Subject {
             user_id: self.sub,
             prefix_scope: self.prefix_scope.as_ref().map(|scopes| {
-                scopes
+                let mut scopes: Vec<String> = scopes
                     .iter()
                     .map(|scope| {
                         let mut scope = scope.clone();
@@ -51,7 +51,12 @@ impl ControlClaims {
                         }
                         scope
                     })
-                    .collect()
+                    .collect();
+                // Sorted prefixes place every covered entry after its ancestor.
+                // Prune once so graph walks cannot emit redundant synthetic nodes.
+                scopes.sort_unstable();
+                scopes.dedup_by(|scope, previous| scope.starts_with(previous.as_str()));
+                scopes
             }),
             capability_mask: self.capability_mask.as_ref().map(|mask| {
                 mask.iter()
@@ -460,6 +465,13 @@ mod test {
             serde_json::json!([]),
             serde_json::json!([""]),
             serde_json::json!(["acmeCo/team", "otherCo/", "acmeCo/team/"]),
+            serde_json::json!(["acmeCo/team/", "acmeCo/", "acmeCo/team/"]),
+            serde_json::json!([
+                "acmeCo/teammate/",
+                "acmeCo/team/nested/",
+                "acmeCo/team",
+                "acmeCo/team/"
+            ]),
         ] {
             payload["prefix_scope"] = scope;
             let claims: ControlClaims = serde_json::from_value(payload.clone()).unwrap();
@@ -477,8 +489,14 @@ mod test {
           ],
           [
             "acmeCo/team/",
-            "otherCo/",
-            "acmeCo/team/"
+            "otherCo/"
+          ],
+          [
+            "acmeCo/"
+          ],
+          [
+            "acmeCo/team/",
+            "acmeCo/teammate/"
           ]
         ]
         "#);
