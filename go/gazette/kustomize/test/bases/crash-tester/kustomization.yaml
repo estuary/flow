@@ -1,0 +1,10 @@
+# Crash-tester is deployed alongside the stream-sum example, turning
+# it into a soak test. It repeatedly runs a Go test-suite which crashes,
+# partitions, and otherwise faults components of the deployment and then
+# verifies correct recovery and processing SLAs.
+resources:
+  - rbac.yaml
+  - runner.yaml
+  - urkel.yaml
+
+namespace: stream-sum

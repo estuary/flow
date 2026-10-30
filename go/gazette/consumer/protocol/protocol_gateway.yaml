@@ -1,0 +1,11 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: consumer.Shard.List
+      post: /v1/shards/list
+      body: "*"
+    - selector: consumer.Shard.Stat
+      post: /v1/shards/stat
+      body: "*"

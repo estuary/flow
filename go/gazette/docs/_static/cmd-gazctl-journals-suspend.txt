@@ -1,0 +1,45 @@
+Usage:
+  gazctl [OPTIONS] journals [journals-OPTIONS] suspend [suspend-OPTIONS]
+
+Suspend idle journals to use fewer or zero broker replicas.
+
+Suspension updates the 'suspend' field of the JournalSpec with its suspended
+status and its resumption offset. When applying other updates to JournalSpecs,
+operators utilizing journal suspension must take care to not overwrite the
+journal's suspension configuration.
+
+Typically this means reading the current JournalSpec and its ModRevision,
+copying the current 'suspend' field alongside other changes being made,
+and then applying the updated JournalSpec with ExpectModRevision.
+
+The 'journals edit' subcommand uses this workflow and is safe to use with suspension.
+
+
+Help Options:
+  -h, --help                                              Show this help message
+
+[journals command options]
+
+    Interact with broker journals:
+          --zone=                                         Availability zone within which this process is running (default: local) [$ZONE]
+
+    Logging:
+          --log.level=[trace|debug|info|warn|error|fatal] Logging level (default: warn) [$LOG_LEVEL]
+          --log.format=[json|text|color]                  Logging output format (default: text) [$LOG_FORMAT]
+
+    Broker:
+          --broker.address=                               Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cert-file=                             Path to the client TLS certificate [$BROKER_CERT_FILE]
+          --broker.cert-key-file=                         Path to the client TLS private key [$BROKER_CERT_KEY_FILE]
+          --broker.trusted-ca-file=                       Path to the trusted CA for client verification of server certificates
+                                                          [$BROKER_TRUSTED_CA_FILE]
+          --broker.auth-keys=                             Whitespace or comma separated, base64-encoded keys. The first key is used to sign
+                                                          Authorization tokens. [$BROKER_AUTH_KEYS]
+          --broker.cache.size=                            Size of client route cache. If <= zero, no cache is used (server always proxies)
+                                                          (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=                             Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+
+[suspend command options]
+      -l, --selector=                                     Label Selector query to filter on
+      -f, --force                                         Suspend journals even if they have local fragments
+

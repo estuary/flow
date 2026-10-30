@@ -1,0 +1,34 @@
+# Set app name of consumer Deployment.
+# Add --postgres connection argument.
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: consumer
+  labels:
+    app.kubernetes.io/name: bike-share
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bike-share
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bike-share
+    spec:
+      containers:
+        - name: consumer
+          env:
+            - name: CONSUMER_APP_ARGS
+              value: "--postgres=postgres://test:test@postgres?sslmode=disable"
+---
+# Set app name of consumer Service.
+apiVersion: v1
+kind:       Service
+metadata:
+  name: consumer
+  labels:
+    app.kubernetes.io/name: bike-share
+spec:
+  selector:
+    app.kubernetes.io/name: bike-share

@@ -1,0 +1,15 @@
+# Deploy-word-count deploys the word-count Gazette example and its
+# dependencies to the "word-count" namespace.
+bases:
+  - ../../bases/broker
+  - ../../bases/etcd
+  - ../../bases/example-word-count
+  - ../../bases/minio
+  - ../bases/environment
+resources:
+  - namespace.yaml
+
+namespace: word-count
+
+commonLabels:
+  app.kubernetes.io/instance: word-count

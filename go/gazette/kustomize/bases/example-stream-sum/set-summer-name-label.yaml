@@ -1,0 +1,27 @@
+# Set app name of consumer Deployment.
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: consumer
+  labels:
+    app.kubernetes.io/name: summer
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: summer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: summer
+---
+# Set app name of consumer Service.
+apiVersion: v1
+kind:       Service
+metadata:
+  name: consumer
+  labels:
+    app.kubernetes.io/name: summer
+spec:
+  selector:
+    app.kubernetes.io/name: summer

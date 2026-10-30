@@ -1,0 +1,18 @@
+# run-with-local-registry is a kustomize helper which patches a base,
+# which must be set below in "bases:", to use a local registry for the
+# gazette and example images and to always pull from that registry.
+bases:
+  - ../deploy-stream-sum-with-crash-tests
+
+patchesStrategicMerge:
+  - always-pull.yaml
+
+images:
+  - name:    gazette/broker
+    newName: localhost:32000/broker
+    newTag:  latest
+
+  - name:    gazette/examples
+    newName: localhost:32000/examples
+    newTag:  latest
+

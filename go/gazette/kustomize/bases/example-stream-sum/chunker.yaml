@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind:       Job
+metadata:
+  name: chunker
+  labels:
+    app.kubernetes.io/name: chunker
+spec:
+  parallelism: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chunker
+    spec:
+      containers:
+        - name:            chunker
+          image:           gazette/examples
+          imagePullPolicy: IfNotPresent
+          command:
+            # Run within a shell to allow for interpretation of values.
+            - "/bin/sh"
+            - "-ec"
+            - |
+              exec chunker run \
+                --chunker.zone=$(/home/gazette/.config/zonemap/node-zone.sh $NODE_NAME) \
+                --chunker.streams=${CHUNKER_STREAMS} \
+                --chunker.chunks=${CHUNKER_CHUNKS} \
+                --log.format=json
+          env:
+            # Broker service endpoint to use.
+            # By default, assume a "gazette" service running in our same namespace.
+            - name:  BROKER_ADDRESS
+              value: "http://gazette:8080"
+            # Size of the journal route cache to use. This reduces network hops by
+            # directing RPCs directly to a responsible broker for a given journal.
+            - name:  BROKER_CACHE_SIZE
+              value: "256"
+            - name:  CHUNKER_STREAMS
+              value: "100"
+            - name:  CHUNKER_CHUNKS
+              value: "1000"
+            # Node hostname, used to map to a failure zone.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          volumeMounts:
+            - name:      zonemap
+              readOnly:  true
+              mountPath: /home/gazette/.config/zonemap
+
+      volumes:
+        - name: zonemap
+          configMap:
+            name: gazette-zonemap
+            items:
+              - key:  node-zone.sh
+                path: node-zone.sh
+                mode: 511 # Equivalent to 0777.
+
+      restartPolicy: Never
+

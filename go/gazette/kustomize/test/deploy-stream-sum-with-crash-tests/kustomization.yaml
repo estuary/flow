@@ -1,0 +1,8 @@
+# deploy-stream-sum-with-crash-tests runs deploy-stream-sum with the
+# crash-tester mixin.
+bases:
+  - ../deploy-stream-sum
+  - ../bases/crash-tester
+
+patchesStrategicMerge:
+  - patches.yaml

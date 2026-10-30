@@ -1,0 +1,10 @@
+Usage:
+  gazctl [OPTIONS] print-config
+
+print-config parses the combined configuration from gazctl.ini, flags,
+and environment variables, and then writes the configuration to stdout in INI format.
+
+
+Help Options:
+  -h, --help      Show this help message
+

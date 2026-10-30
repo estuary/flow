@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apply-journal-specs
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: apply-specs
+        image: gazette/broker
+        imagePullPolicy: IfNotPresent
+        command:
+          - gazctl
+          - journals
+          - apply
+          - "--specs=/config/examples.journalspace.yaml"
+        env:
+          # Broker service endpoint to use. By default, assume a "gazette"
+          # service running in our same namespace.
+          - name: BROKER_ADDRESS
+            value: "http://gazette:8080"
+        volumeMounts:
+          - name: example-journal-specs
+            mountPath: /config
+      volumes:
+        - name: example-journal-specs
+          configMap:
+            name: example-journal-specs

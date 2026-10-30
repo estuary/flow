@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: gazette
+spec:
+  # The test expects that four brokers are running, and each journal has a
+  # replication factor of three. This allows us to:
+  # * Partition one broker from Etcd without losing liveness.
+  # * Crash any two brokers without losing liveness or durability.
+  replicas: 4
+  template:
+    spec:
+      containers:
+        - name: gazette
+          # Shorten the readiness check of the broker to 1s, from the default of 10s.
+          # This more tightly bounds the amount of time that the gazette Service is
+          # unavailable.
+          readinessProbe:
+            periodSeconds: 1
+---
+apiVersion: batch/v1
+kind:       Job
+metadata:
+  name: chunker
+spec:
+  template:
+    spec:
+      containers:
+        - name: chunker
+          env:
+            # Configure chunker jobs to run forever,
+            # but reduce the volume of chunks per stream.
+            - name:  CHUNKER_STREAMS
+              value: "-1"
+            - name:  CHUNKER_CHUNKS
+              value: "3"
