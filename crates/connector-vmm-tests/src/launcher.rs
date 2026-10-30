@@ -111,13 +111,6 @@ pub fn hold_naming(root: &Root, step: &str, naming: &[&str]) -> Hold {
     hold
 }
 
-/// A hold whose waiting runs as root, beneath sudo: it, and the fence it
-/// keeps as its stdin, outlive the kill of everything its launcher's user
-/// can signal, as a rootful podman command does.
-pub fn root_hold(root: &Root, step: &str) -> Hold {
-    hold_as(root, "root-hold", step, 1)
-}
-
 /// Holds the `nth` call of `step` once its command has finished, before the
 /// launcher hears of it, as `after-<step>`: a launcher killed there has
 /// nothing left for the command to change.
@@ -125,9 +118,8 @@ pub fn hold_after(root: &Root, step: &str, nth: u32) -> Hold {
     hold_as(root, "hold-after", step, nth)
 }
 
-/// What the podman holding `what` wrote of itself: its PID (for a root
-/// hold, of the root shell which becomes podman), then for an `after-` hold
-/// its command's exit status.
+/// What the podman holding `what` wrote of itself: its PID, then for an
+/// `after-` hold its command's exit status.
 pub fn held_by(root: &Root, what: &str) -> Vec<u32> {
     let path = format!("{}/held-{what}", root.dir);
     let content = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
@@ -472,8 +464,8 @@ pub fn record(state_dir: &str, name: &str) -> String {
     format!("{state_dir}/{name}.owner")
 }
 
-/// Whether anyone holds the lock of the record at `path`, as its owner, a
-/// command it fenced, or a releaser does.
+/// Whether anyone holds the lock of the record at `path`, as its owner or a
+/// releaser does.
 pub fn locked(path: &str) -> bool {
     let file = std::fs::File::open(path).unwrap_or_else(|e| panic!("opening {path}: {e}"));
     match file.try_lock() {

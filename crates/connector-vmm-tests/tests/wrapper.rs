@@ -7,16 +7,11 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-/// Stands in for sudo, dropping its `-n`: a command it runs keeps this
-/// process's stdin, as sudo's does.
+/// Stands in for sudo, dropping its `-n`.
 const SUDO: &str = r#"#!/usr/bin/env bash
 set -euo pipefail
 stubs=$(dirname "$(readlink -f "$0")")
-if [[ "${2:-} ${3:-}" == "bash -c" ]]; then
-    printf 'sudo %s %s <script> %s\n' "$1" "$2 $3" "${*:5}" >>"${stubs}/log"
-else
-    printf 'sudo %s\n' "$*" >>"${stubs}/log"
-fi
+printf 'sudo %s\n' "$*" >>"${stubs}/log"
 shift
 exec "$@"
 "#;
@@ -24,7 +19,7 @@ exec "$@"
 const PODMAN: &str = r#"#!/usr/bin/env bash
 set -euo pipefail
 stubs=$(dirname "$(readlink -f "$0")")
-printf 'podman %s (stdin %s)\n' "$*" "$(readlink /proc/self/fd/0)" >>"${stubs}/log"
+printf 'podman %s\n' "$*" >>"${stubs}/log"
 if [[ "$1" == create ]]; then
     echo 0000000000000000000000000000000000000000000000000000000000000001
 fi
@@ -50,7 +45,6 @@ fn setup() -> Setup {
         std::fs::create_dir_all(path).unwrap();
     }
     std::fs::write(dir.join("resources"), "").unwrap();
-    std::fs::write(dir.join("fence"), "").unwrap();
 
     let executable = |path: PathBuf, content: &[u8]| {
         std::fs::write(&path, content).unwrap();
@@ -75,8 +69,7 @@ impl Drop for Setup {
     }
 }
 
-/// Run the wrapper with `args`, its stdin the `fence` file, as a launcher's
-/// fenced command has its record.
+/// Run the wrapper with `args`.
 fn spawn(setup: &Setup, args: &[&str]) -> std::process::Child {
     std::process::Command::new(setup.test.join("podman"))
         .args(args)
@@ -88,7 +81,6 @@ fn spawn(setup: &Setup, args: &[&str]) -> std::process::Child {
                 std::env::var("PATH").unwrap()
             ),
         )
-        .stdin(std::fs::File::open(setup.dir.join("fence")).unwrap())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -315,36 +307,6 @@ fn the_readiness_gate_keeps_only_its_checkpoint() {
             (format!("{resembling}after\npartial"), true),
         ]
     );
-}
-
-/// A root hold waits beneath sudo, holding its stdin, then runs podman with
-/// it, so that the fence goes on past whatever kills its launcher's user.
-#[test]
-fn a_root_hold_waits_beneath_sudo() {
-    let setup = setup();
-    control(&setup, "root-hold-network-create", "");
-    let held = spawn(&setup, NETWORK);
-    wait_for(setup.test.join("held-network-create"));
-    let ran = std::fs::read_to_string(setup.stubs.join("log")).unwrap();
-    assert!(
-        ran.starts_with("sudo -n bash -c <script> root-hold ")
-            && !ran.lines().any(|line| line.starts_with("podman ")),
-        "held beneath sudo, before podman runs: {ran}"
-    );
-
-    let second: Vec<&str> = NETWORK
-        .iter()
-        .map(|arg| match *arg {
-            "fv_0000000000000001" => "fv_0000000000000002",
-            arg => arg,
-        })
-        .collect();
-    call(&setup, &second);
-
-    std::fs::remove_file(setup.test.join("root-hold-network-create")).unwrap();
-    let output = held.wait_with_output().unwrap();
-    assert!(output.status.success());
-    insta::assert_snapshot!(report(&setup));
 }
 
 #[test]

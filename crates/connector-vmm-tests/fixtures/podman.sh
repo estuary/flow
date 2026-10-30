@@ -164,19 +164,6 @@ claim() {
     [[ "${ordinal}" -eq "${nth:-1}" ]]
 }
 
-# Held as root, after sudo, so that what kills this script and its sudo, but
-# can't signal root's processes, leaves the command to run once released,
-# holding its stdin, a launch's fence, all the while. The mark names the
-# root shell, which becomes podman, and appears whole.
-if claim root-hold; then
-    exec sudo -n bash -c '
-        printf "%s\n" "$$" >"$1.tmp"
-        mv "$1.tmp" "$1"
-        while [[ -e "$2" ]]; do sleep 0.05; done
-        shift 2
-        exec "$@"' root-hold "${TEST}/held-${step}" "${TEST}/root-hold-${step}" "${podman[@]:2}" "$@"
-fi
-
 # The mark names this script, and appears whole.
 if claim hold; then
     printf '%s\n' "$$" >"${TEST}/.held-${step}"
@@ -193,7 +180,6 @@ fi
 if claim hold-after; then
     status=0
     "${podman[@]}" "$@" || status=$?
-    exec 0<&-
     printf '%s %s\n' "$$" "${status}" >"${TEST}/.held-after-${step}"
     mv "${TEST}/.held-after-${step}" "${TEST}/held-after-${step}"
     while [[ -e "${TEST}/hold-after-${step}" ]]; do
@@ -203,10 +189,9 @@ if claim hold-after; then
 fi
 
 if [[ "${step}" == create && -e "${TEST}/hold-created" ]] && mkdir "${TEST}/taken-hold-created-1" 2>/dev/null; then
-    # Made, and its fence let go with the command, but not yet reported.
+    # Made, but not yet reported.
     status=0
     "${podman[@]}" "$@" || status=$?
-    exec 0<&-
     : >"${TEST}/held-created"
     while [[ -e "${TEST}/hold-created" ]]; do
         sleep 0.05

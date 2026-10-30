@@ -248,7 +248,7 @@ EOF or status. A client which does not drain responses may park the handler.
   registry authentication, remote connections and wrapper configuration.
   This reduces secret copies in subprocesses; it does not restrict rootful
   engine authority or change VMM isolation. `container/engine_tests.rs` covers
-  invocation paths and creation fences.
+  invocation paths.
 
 - **A VMM container gets an ordinary connector's limits.** `--memory` is
   `CONNECTOR_MEMORY_LIMIT`, parsed once into bytes and passed as that decimal
@@ -310,7 +310,8 @@ EOF or status. A client which does not drain responses may park the handler.
   starts it. Pulls,
   inspection, verification and the readiness dial race the start's
   abandonment; the commands which create the network, volume and container are never
-  interrupted, so each has finished before teardown looks for what it made.
+  interrupted, so each client has exited before teardown looks for what it
+  made.
 
 - **A launch owns only what it proves it made, and its record says so.** The
   record is written, `flock`ed and synced as an unnamed `O_TMPFILE`, then
@@ -331,15 +332,13 @@ EOF or status. A client which does not drain responses may park the handler.
 - **The record's lock is the owner's liveness, PIDs aside.** The kernel drops
   a `flock` with the last descriptor of its open file, however its process
   ends, across PID namespaces and containers sharing the host filesystem. The
-  commands which create the network, volume and container (`fenced` in `vmm::launch`)
-  are given that open file as stdin, so the lock is held as long as any of
-  them runs: a podman client survives its launcher's death, sudo's too, and
-  may still create. Whoever takes the lock therefore finds what is final. This
-  assumes `CONNECTOR_VMM_PODMAN` keeps its stdin open until its command is done
-  (as `exec`, `sudo` and podman do) and a local engine. A remote podman service
-  may finish a request after its client has gone, and the next launch's
-  recovery removes what it made. `STATE_DIR` must be a local filesystem with
-  `flock` and `O_TMPFILE`, and persistent if records are to survive a reboot.
+  lock says nothing of the creates the owner asked for. A podman client
+  survives its launcher's death, sudo's too, and the podman service finishes
+  a request after its client has gone. So whoever takes the lock may release
+  a launch before its last create lands, and the next launch's recovery
+  removes what that create made (below). `STATE_DIR` must be a local
+  filesystem with `flock` and `O_TMPFILE`, and persistent if records are to
+  survive a reboot.
 
 - **Release is one state machine, for teardown and recovery alike.**
   `vmm::release` finds the containers labeled with the record's token and

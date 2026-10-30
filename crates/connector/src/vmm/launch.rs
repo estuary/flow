@@ -8,7 +8,9 @@
 //! One spawned task owns everything a launch creates, from its claim to its
 //! release, and holds the record's lock throughout (see `record`). The
 //! commands which create the network, volume and container are never
-//! interrupted, so each has finished before teardown looks for what it made.
+//! interrupted, so each client has exited before teardown looks for what it
+//! made. The podman service may still finish a create after that, and
+//! `release::recover` removes what it makes.
 //! The task holds a clone of the session's log sink, so the session
 //! ends only once its teardown has.
 
@@ -330,7 +332,7 @@ async fn launch(
         })
         .await?;
 
-        if let Err(err) = fenced(podman, &plan.network, &owner.file).await {
+        if let Err(err) = crate::container::engine_cmd(podman, &plan.network).await {
             // Another owner's network or bridge may hold the name.
             if attempt < ATTEMPTS {
                 tracing::warn!(
@@ -372,12 +374,12 @@ async fn run_vmm(
     } = input;
 
     if !plan.ingress.is_empty() {
-        fenced(&vmm.podman, &plan.ingress, &owner.file)
+        crate::container::engine_cmd(&vmm.podman, &plan.ingress)
             .await
             .context("installing the VMM host ingress permissions")?;
     }
 
-    fenced(&vmm.podman, &plan.rootfs, &owner.file)
+    crate::container::engine_cmd(&vmm.podman, &plan.rootfs)
         .await
         .context("creating the VMM's private rootfs volume")?;
     if launched_tx.is_closed() {
@@ -386,7 +388,7 @@ async fn run_vmm(
 
     tracing::debug!(argv = ?plan.create, "creating a VMM's container");
 
-    let created = fenced(&vmm.podman, &plan.create, &owner.file)
+    let created = crate::container::engine_cmd(&vmm.podman, &plan.create)
         .await
         .context("creating the VMM's container")?;
     let created = String::from_utf8_lossy(&created).trim().to_string();
@@ -569,49 +571,6 @@ async fn serving(channel: tonic::transport::Channel) -> anyhow::Result<()> {
 
 fn precondition(err: anyhow::Error) -> anyhow::Error {
     proto_grpc::status_to_anyhow(tonic::Status::failed_precondition(format!("{err:#}")))
-}
-
-/// Run a podman command which creates a resource of the launch, with the
-/// launch's record as its stdin. The record then stays locked for as long as
-/// the command runs, even if this process dies first, so that no one releases
-/// the launch while the command may yet create something.
-async fn fenced(podman: &str, args: &[String], record: &std::fs::File) -> anyhow::Result<Vec<u8>> {
-    use tokio::io::AsyncReadExt;
-
-    let fence = record
-        .try_clone()
-        .context("duplicating the launch's record")?;
-    let mut child: async_process::Child = crate::container::engine_command(podman)
-        .args(args)
-        .stdin(fence)
-        .stdout(async_process::Stdio::piped())
-        .stderr(async_process::Stdio::piped())
-        .spawn()
-        .with_context(|| format!("failed to run {podman} command {args:?}"))?
-        .into();
-
-    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-    let (mut stdout_pipe, mut stderr_pipe) = (
-        child.stdout.take().expect("stdout is piped"),
-        child.stderr.take().expect("stderr is piped"),
-    );
-    let (read_stdout, read_stderr, status) = tokio::join!(
-        stdout_pipe.read_to_end(&mut stdout),
-        stderr_pipe.read_to_end(&mut stderr),
-        child.wait(),
-    );
-    let status = status.with_context(|| format!("waiting for {podman} command {args:?}"))?;
-    read_stdout
-        .and(read_stderr)
-        .with_context(|| format!("reading the output of {podman} command {args:?}"))?;
-
-    if !status.success() {
-        anyhow::bail!(
-            "{podman} command {args:?} failed: {}",
-            String::from_utf8_lossy(&stderr),
-        );
-    }
-    Ok(stdout)
 }
 
 /// The directory of connector mounts of the shared contract, under TMPDIR.
