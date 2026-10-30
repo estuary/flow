@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct Subject {
     pub user_id: uuid::Uuid,
     pub capability_mask: Option<CapabilitySet>,
-    /// Limits the user's reachable authority to the union of these literal prefixes.
+    /// Limits the user's reachable authority to the union of these prefixes.
     /// None is unrestricted; an empty list denies all access.
     pub prefix_scope: Option<Vec<String>>,
 }

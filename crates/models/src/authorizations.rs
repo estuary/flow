@@ -29,7 +29,7 @@ pub struct ControlClaims {
     // grant's legacy `capability` value is not attenuated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capability_mask: Option<Vec<String>>,
-    /// Limits the user's reachable authority to the union of these literal prefixes.
+    /// Limits the user's reachable authority to the union of these prefixes.
     /// Omitted or null is unrestricted; an empty list denies all access.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefix_scope: Option<Vec<String>>,
