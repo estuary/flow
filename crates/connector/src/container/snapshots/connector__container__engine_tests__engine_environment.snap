@@ -8,7 +8,9 @@ image inspect | secrets=absent configuration=preserved stdin=unfenced
 image inspect | secrets=absent configuration=preserved stdin=unfenced
 network create | secrets=absent configuration=preserved stdin=locked-record
 network ls | secrets=absent configuration=preserved stdin=unfenced
+network ls | secrets=absent configuration=preserved stdin=unfenced
 network rm | secrets=absent configuration=preserved stdin=unfenced
+ps --all | secrets=absent configuration=preserved stdin=unfenced
 ps --all | secrets=absent configuration=preserved stdin=unfenced
 pull ghcr.io/estuary/derive-python:synthetic | secrets=absent configuration=preserved stdin=unfenced
 pull ghcr.io/estuary/derive-python:synthetic | secrets=absent configuration=preserved stdin=unfenced
@@ -17,5 +19,6 @@ run --rm | secrets=absent configuration=preserved stdin=unfenced
 run --rm | secrets=absent configuration=preserved stdin=unfenced
 start --attach | secrets=absent configuration=preserved stdin=unfenced
 volume create | secrets=absent configuration=preserved stdin=locked-record
+volume ls | secrets=absent configuration=preserved stdin=unfenced
 volume ls | secrets=absent configuration=preserved stdin=unfenced
 volume rm | secrets=absent configuration=preserved stdin=unfenced
