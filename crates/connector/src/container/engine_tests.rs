@@ -60,13 +60,7 @@ if [ "$PATH" != "$ENGINE_EXPECTED_PATH" ]; then configuration=PATH; fi
 if [ "$TMPDIR" != "$ENGINE_TEST_DIR" ]; then configuration=TMPDIR; fi
 if [ "$DOCKER_CLI" != "$ENGINE_TEST_DIR/engine" ]; then configuration=DOCKER_CLI; fi
 step="$1 ${2:-}"
-stdin=unfenced
-if [ -f /proc/self/fd/0 ]; then
-    stdin=locked-record
-    flock -n -E 75 /proc/self/fd/0 true && exit 99 || status=$?
-    [ "$status" = 75 ] || exit 98
-fi
-printf '%s | secrets=%s configuration=%s stdin=%s\n' "$step" "$secrets" "$configuration" "$stdin" >>"$ENGINE_TEST_DIR/calls"
+printf '%s | secrets=%s configuration=%s\n' "$step" "$secrets" "$configuration" >>"$ENGINE_TEST_DIR/calls"
 case "$step" in
     "pull "*) ;;
     "image inspect")

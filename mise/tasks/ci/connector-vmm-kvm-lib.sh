@@ -56,8 +56,7 @@ stop_stack() {
 }
 
 # Whether no launch beneath a listed platform or launcher directory has an
-# owner. A live launcher holds its record's lock, and so does a podman command
-# it fenced, which outlives it and may still create a network or container.
+# owner. A live launcher holds its record's lock.
 launches_unowned() {
     local kind value records record status unowned=true
     while read -r kind value; do

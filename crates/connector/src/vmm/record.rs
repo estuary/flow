@@ -4,11 +4,10 @@
 //! `flock` on it for as long as it lives. The kernel drops the lock with the
 //! last descriptor of the record's open file, however its process ends, so a
 //! record whose lock can be taken is one whose owner is dead: no PID is
-//! involved, and PID namespaces don't matter. The commands which create a
-//! launch's network, volume and container are given that same open file as
-//! their stdin, so the lock is held for as long as any of them runs, even past
-//! the owner's death. Whoever takes the lock may therefore treat what it then
-//! finds as final.
+//! involved, and PID namespaces don't matter. The owner's death does not stop
+//! a create it asked podman for. A podman client can outlive its launcher, and
+//! the podman service can finish a create after its client has gone. So what
+//! the taker of a lock finds may still grow.
 //!
 //! The record is append-only JSON lines. The first claims the id, and names
 //! the owner token and the connector mount. Each later line marks a directory
@@ -19,8 +18,8 @@
 //! ever removed on its say-so.
 //!
 //! Each also carries `STATE_DIR_LABEL`, naming the state directory of its
-//! record, and is named for its launch. A podman service may create one after
-//! its launch's release has removed the record. `release::recover` finds it by
+//! record, and is named for its launch. When one is created after its
+//! launch's release has removed the record, `release::recover` finds it by
 //! that label and removes it, because no record of its name remains.
 
 use anyhow::Context;
@@ -222,8 +221,6 @@ pub(crate) fn claim(state_dir: &str, name: &str, claim: &[u8]) -> std::io::Resul
 
     let mut file = std::fs::OpenOptions::new()
         .read(true)
-        // Its offset is shared with each fenced command, which has it as
-        // stdin, so only appending can be relied on to write at the end.
         .append(true)
         .custom_flags(libc::O_TMPFILE)
         // Readable by any launcher sharing the state directory, which needs
