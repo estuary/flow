@@ -665,13 +665,17 @@ async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
 async fn submission_requires_reading_binding_targets(pool: sqlx::PgPool) {
     let _guard = test_server::init();
     let (server, draft_id, alice, _) = setup(&pool).await;
-    // Explicitly cover both captures and their target collections, while
-    // excluding the rest of Alice's authority under `aliceCo/`.
+    // Discover also requires data-plane access. Cover it alongside captures
+    // and their targets, excluding the rest of Alice's `aliceCo/` authority.
     let scoped = server.make_restricted_access_token(
         ALICE,
         None,
         None,
-        Some(vec!["aliceCo/in/".to_owned(), "aliceCo/data/".to_owned()]),
+        Some(vec![
+            "aliceCo/in/".to_owned(),
+            "aliceCo/data/".to_owned(),
+            "ops/dp/public/".to_owned(),
+        ]),
     );
 
     let mut outcomes = Vec::new();
