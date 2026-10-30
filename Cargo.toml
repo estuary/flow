@@ -46,6 +46,7 @@ async-stripe = { version = "0", default-features = false, features = [
     "connect",
     "products",
     "runtime-tokio-hyper",
+    "uuid",
     "webhook-events",
 ] }
 async-stream = "0.3"
