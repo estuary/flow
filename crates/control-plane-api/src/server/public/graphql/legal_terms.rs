@@ -295,9 +295,20 @@ mod test {
         assert!(text.starts_with("# MASTER SERVICES AGREEMENT\n"));
     }
 
+    async fn seed_sandbox_terms(pool: &sqlx::PgPool) {
+        // Commit the enum extension before inserting test-only agreement text.
+        sqlx::query("ALTER TYPE internal.legal_terms_type ADD VALUE 'sandbox_consent'")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO internal.legal_terms (type, version, text) VALUES ('sandbox_consent', 1, 'Test sandbox agreement')")
+            .execute(pool).await.unwrap();
+    }
+
     async fn accepted_terms_server(
         pool: &sqlx::PgPool,
     ) -> (crate::test_server::TestServer, String) {
+        seed_sandbox_terms(pool).await;
         let user = uuid::Uuid::from_bytes([0x11; 16]);
         sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'alice@example.test')")
             .bind(user)
@@ -811,6 +822,7 @@ mod test {
     }
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn legal_terms_tenant_filter(pool: sqlx::PgPool) {
+        seed_sandbox_terms(&pool).await;
         let user = uuid::Uuid::from_bytes([0x11; 16]);
         sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'alice@example.test')")
             .bind(user)
