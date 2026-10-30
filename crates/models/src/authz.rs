@@ -70,6 +70,7 @@ pub enum Capability {
     Assume,
     CreateSandbox,
     ManageAlerts,
+    ManageLegal,
 }
 
 impl std::fmt::Display for Capability {
@@ -179,6 +180,7 @@ impl CapabilityBundle {
                     | Self::TeamAdmin.capabilities()
                     | Self::Billing.capabilities()
                     | Self::ManageDataPlane.capabilities()
+                    | ManageLegal
             }
             Self::Billing => ViewBilling | EditBilling,
             Self::ManageServiceAccounts => {
@@ -213,5 +215,25 @@ pub fn bits_for_legacy(capability: super::Capability) -> CapabilitySet {
 impl From<super::Capability> for CapabilitySet {
     fn from(capability: super::Capability) -> Self {
         bits_for_legacy(capability)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn manage_legal_bundles() {
+        let bundles: Vec<_> = <super::CapabilityBundle as strum::VariantArray>::VARIANTS
+            .iter()
+            .filter(|bundle| {
+                bundle
+                    .capabilities()
+                    .contains(super::Capability::ManageLegal)
+            })
+            .collect();
+        insta::assert_json_snapshot!(bundles, @r#"
+        [
+          "admin"
+        ]
+        "#);
     }
 }
