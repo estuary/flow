@@ -338,13 +338,6 @@ impl InviteLinksMutation {
         )
         .await?;
 
-        // When the invite grants Admin, ensure the prefix has explicit read
-        // grants to its tenant's private data plane and ops-tasks prefixes.
-        // See `ensure_private_data_plane_grants` for why this workaround exists.
-        if invite.capability == models::Capability::Admin {
-            ensure_private_data_plane_grants(&mut *txn, &invite.catalog_prefix).await?;
-        }
-
         txn.commit().await?;
 
         tracing::info!(
@@ -413,99 +406,6 @@ impl InviteLinksMutation {
 
         Ok(true)
     }
-}
-
-/// Ensure that `catalog_prefix` has read role_grants to its tenant's
-/// private-data-plane and private-ops-tasks prefixes. Workaround for #2848.
-///
-/// # Why this is needed
-///
-/// The intended behavior of role_grants is that a grant on subject `acmeCo/`
-/// propogates to *every* child of `acmeCo/`. Snapshot-based authorization
-/// (`tables::RoleGrant::is_authorized`) implements this faithfully — it
-/// walks both descendants and ancestors of the subject role.
-///
-/// `internal.user_roles()` (used by RLS, and therefore by every PostgREST
-/// caller) only implements half: it walks *downward* from roles the user
-/// holds, picking up grants whose `subject_role` is at-or-below one of those
-/// roles. It does NOT walk upward to ancestor subjects.
-///
-/// So an admin of `acmeCo/qa/staffing-solutions/` cannot reach the grant
-/// created with the private data plane `(acmeCo/, ops/dp/private/acmeCo/, read)`
-/// via `user_roles()`, even though the snapshot would correctly resolve it. Every
-/// RLS check against `ops/dp/private/acmeCo/...` or
-/// `ops/tasks/private/acmeCo/...` therefore rejects the admin of the sub-prefix.
-///
-/// The workaround is to insert technically redundant grants whose
-/// `subject_role` IS the sub-prefix, so `user_roles()`'s downward walk finds
-/// them. We insert both the data plane prefix (direct cause of #2848) and
-/// the ops-tasks prefix — the same gap applies to any RLS-gated
-/// access to the data plane's logs/stats collections.
-///
-/// TODO(#2848): Remove this entire function and its call site once those
-/// remaining `user_roles()`-based checks are migrated to snapshot-based
-/// authorization. At that point sub-prefix admins will be authorized
-/// correctly without the duplicate grants.
-async fn ensure_private_data_plane_grants(
-    txn: &mut sqlx::PgConnection,
-    catalog_prefix: &str,
-) -> Result<(), sqlx::Error> {
-    let Some((tenant, _)) = catalog_prefix.split_once('/') else {
-        return Ok(());
-    };
-    if tenant.is_empty() {
-        return Ok(());
-    }
-
-    // Only install these grants for tenants that actually own a private data
-    // plane. Provisioning gates the identical grants on `if let Some(private)`;
-    // without the same gate here, redeeming an admin invite for a tenant that
-    // never had a private data plane fabricates grants to `ops/dp/private/` and
-    // `ops/tasks/private/` prefixes that don't exist. Because the insert runs on
-    // every admin redeem with `ON CONFLICT DO NOTHING`, those zombie grants also
-    // reappear after being deleted. A private data plane is a `data_planes` row
-    // named `ops/dp/private/<tenant>/<region>`; match it with the `^@` prefix
-    // operator (not `LIKE`, since tenant names may contain `_`).
-    let private_dp_prefix = format!("ops/dp/private/{tenant}/");
-    let has_private_data_plane = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS (
-            SELECT 1 FROM data_planes WHERE data_plane_name ^@ $1
-        ) AS "exists!"
-        "#,
-        private_dp_prefix,
-    )
-    .fetch_one(&mut *txn)
-    .await?;
-
-    if !has_private_data_plane {
-        return Ok(());
-    }
-
-    let grant_objects = vec![
-        format!("ops/dp/private/{tenant}/"),
-        format!("ops/tasks/private/{tenant}/"),
-    ];
-
-    // The object_roles here are the same two prefixes that
-    // create_data_plane.rs installs at provisioning time with the tenant as
-    // subject; here we install them with the (possibly sub-prefix) invite
-    // prefix as subject. ON CONFLICT makes this a no-op when catalog_prefix
-    // is the tenant itself (grants already exist) or when re-running.
-    sqlx::query!(
-        r#"
-        INSERT INTO role_grants (subject_role, object_role, capability, detail)
-        SELECT $1::text, object, 'read', 'sub-prefix access to private data plane'
-        FROM UNNEST($2::text[]) AS t(object)
-        ON CONFLICT DO NOTHING
-        "#,
-        catalog_prefix,
-        &grant_objects,
-    )
-    .execute(&mut *txn)
-    .await?;
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -731,13 +631,8 @@ mod test {
         );
     }
 
-    // Regression test for #2848. When the tenant owns a private data plane,
-    // redeeming an admin invite for a sub-prefix must install explicit read
-    // grants with the sub-prefix as the subject — both to the tenant's private
-    // data plane prefix (for the publish-time filter in publications/specs.rs)
-    // and to the ops-tasks prefix (for any RLS-gated log/stats reads). Non-admin
-    // invites must not install grants. The `private_links` fixture is what gives
-    // `aliceCo` its private data plane.
+    // Private data-plane access is inherited from tenant-level role grants.
+    // Invite redemption must not duplicate those grants onto the sub-prefix.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(
@@ -745,7 +640,7 @@ mod test {
             scripts("data_planes", "alice", "private_links")
         )
     )]
-    async fn test_redeem_admin_invite_inserts_private_dp_grants(pool: sqlx::PgPool) {
+    async fn test_redeem_invite_does_not_insert_private_dp_grants(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
         let server = test_server::TestServer::start(
@@ -792,7 +687,7 @@ mod test {
             .as_str()
             .unwrap();
 
-        let _: serde_json::Value = server
+        let redeemed: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
                     "query": r#"
@@ -804,6 +699,13 @@ mod test {
                 Some(&bob_token),
             )
             .await;
+
+        assert_eq!(
+            redeemed["data"]["redeemInviteLink"],
+            serde_json::json!({
+                "catalogPrefix": "aliceCo/sub/", "capability": "write"
+            })
+        );
 
         let count_after_write: i64 = sqlx::query_scalar(
             r#"
@@ -819,7 +721,7 @@ mod test {
             "non-admin invite must not install private DP grants"
         );
 
-        // An admin invite for aliceCo/sub/ SHOULD install both grants.
+        // Upgrading to admin must also leave role grants unchanged.
         let admin_invite: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
@@ -844,7 +746,7 @@ mod test {
             .as_str()
             .unwrap();
 
-        let _: serde_json::Value = server
+        let redeemed: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
                     "query": r#"
@@ -856,6 +758,13 @@ mod test {
                 Some(&bob_token),
             )
             .await;
+
+        assert_eq!(
+            redeemed["data"]["redeemInviteLink"],
+            serde_json::json!({
+                "catalogPrefix": "aliceCo/sub/", "capability": "admin"
+            })
+        );
 
         let granted: Vec<String> = sqlx::query_scalar(
             r#"
@@ -867,16 +776,13 @@ mod test {
         .fetch_all(&pool)
         .await
         .unwrap();
-        assert_eq!(
-            granted,
-            vec![
-                "ops/dp/private/aliceCo/".to_string(),
-                "ops/tasks/private/aliceCo/".to_string(),
-            ],
+        assert!(
+            granted.is_empty(),
+            "admin invite must not install role grants"
         );
 
-        // Redeeming the admin invite again is idempotent: no duplicates.
-        let _: serde_json::Value = server
+        // Repeated redemption must also leave role grants unchanged.
+        let redeemed: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
                     "query": r#"
@@ -889,6 +795,13 @@ mod test {
             )
             .await;
 
+        assert_eq!(
+            redeemed["data"]["redeemInviteLink"],
+            serde_json::json!({
+                "catalogPrefix": "aliceCo/sub/", "capability": "admin"
+            })
+        );
+
         let count_after_second: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) FROM role_grants
@@ -898,15 +811,9 @@ mod test {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(count_after_second, 2);
+        assert_eq!(count_after_second, 0);
     }
 
-    // Zombie-grant regression. When the tenant does NOT own a private data
-    // plane, redeeming an admin invite must install no grants at all —
-    // otherwise every redeem fabricates read grants to `ops/dp/private/` and
-    // `ops/tasks/private/` prefixes that don't exist, and `ON CONFLICT DO
-    // NOTHING` re-creates them after they're deleted. This fixture omits
-    // `private_links`, so `aliceCo` has no private data plane.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
