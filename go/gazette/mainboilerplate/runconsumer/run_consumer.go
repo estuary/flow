@@ -29,10 +29,6 @@ import (
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
-
-	// This import isn't required, but it convinces `go mod tidy` to not remove
-	// packages which are required for building the protoc-gen-grpc-gateway plugin.
-	_ "github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway/descriptor"
 )
 
 // Application is the user-defined consumer Application which is executed
