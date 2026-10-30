@@ -6,7 +6,13 @@ use std::sync::Arc;
 #[serde(tag = "grant_type", deny_unknown_fields)]
 pub enum TokenRequest {
     #[serde(rename = "token_exchange")]
-    TokenExchange { capability_mask: Vec<String> },
+    TokenExchange {
+        /// Capability bundles to allow. Omitted or null adds no capability restriction.
+        capability_mask: Option<Vec<String>>,
+        /// Limit access to the union of these prefixes. An empty list denies all access.
+        /// At least one of capability_mask or prefix_scope must be provided.
+        prefix_scope: Option<Vec<String>>,
+    },
     #[serde(rename = "refresh_token")]
     RefreshToken {
         refresh_token_id: models::Id,
@@ -84,10 +90,14 @@ pub async fn handle_post_token(
             let response = generate_access_token(&app.pg_pool, refresh_token_id, &secret).await?;
             Ok(axum::Json(response))
         }
-        TokenRequest::TokenExchange { capability_mask } => {
+        TokenRequest::TokenExchange {
+            capability_mask,
+            prefix_scope,
+        } => {
             use axum::extract::FromRequestParts;
             let env = crate::Envelope::from_request_parts(&mut parts, &app).await?;
-            let response = mint_restricted_token(env.claims()?, capability_mask, &app).await?;
+            let response =
+                mint_restricted_token(env.claims()?, capability_mask, prefix_scope, &app).await?;
             Ok(axum::Json(response))
         }
     }
@@ -143,16 +153,17 @@ pub(crate) async fn generate_access_token(
     })
 }
 
-/// Lifetime of a token minted with a `capability_mask`.
+/// Lifetime of a token minted with a capability mask or prefix scope.
 const RESTRICTED_TOKEN_DURATION: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Mint a restricted access token for the authenticated caller.
 ///
-/// Note that the requested bundles aren't checked against the caller's grants: a mask
-/// can only narrow what the user's grants allow, enforced when the token is used.
+/// Requested bundles and prefixes only narrow the user's grants, enforced when
+/// the token is used. They do not confer grants of their own.
 async fn mint_restricted_token(
     claims: &crate::ControlClaims,
-    capability_mask: Vec<String>,
+    capability_mask: Option<Vec<String>>,
+    prefix_scope: Option<Vec<String>>,
     app: &Arc<crate::App>,
 ) -> Result<TokenResponse, crate::ApiError> {
     // The requested mask replaces the bearer's, so a masked bearer could
@@ -160,6 +171,16 @@ async fn mint_restricted_token(
     if claims.capability_mask.is_some() {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
             "Unable to mint a new token from a token with a capability mask",
+        )));
+    }
+    if prefix_scope.is_some() && claims.prefix_scope.is_some() {
+        return Err(crate::ApiError::Status(tonic::Status::permission_denied(
+            "Unable to replace the prefix scope of an already scoped token",
+        )));
+    }
+    if capability_mask.is_none() && prefix_scope.is_none() {
+        return Err(crate::ApiError::Status(tonic::Status::invalid_argument(
+            "At least one of capability_mask or prefix_scope is required",
         )));
     }
     // Only user sessions mint. Machine bearers (dekaf, scoped CI roles) also
@@ -178,6 +199,7 @@ async fn mint_restricted_token(
 
     let invalid_capabilities = capability_mask
         .iter()
+        .flatten()
         .filter(|mask| {
             models::authz::CapabilityBundle::deserialize(serde::de::value::StrDeserializer::<
                 serde::de::value::Error,
@@ -207,10 +229,9 @@ async fn mint_restricted_token(
         // user's unmasked RLS grants. Never create a role with this name.
         role: "postgrest_cant_use_this_token".to_string(),
         email: claims.email.clone(),
-        capability_mask: Some(capability_mask),
-        // A prefix-scoped bearer mints a token that keeps its scope: the mask
-        // only ever narrows, so the result must not widen the bearer either.
-        prefix_scope: claims.prefix_scope.clone(),
+        capability_mask,
+        // Preserve the bearer scope when only a capability mask is requested.
+        prefix_scope: prefix_scope.or_else(|| claims.prefix_scope.clone()),
     };
 
     let access_token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)?;
@@ -218,6 +239,7 @@ async fn mint_restricted_token(
         %claims.sub,
         capability_mask = ?claims.capability_mask,
         exp = claims.exp,
+        prefix_scope = ?claims.prefix_scope,
         "minted restricted token"
     );
 
@@ -230,6 +252,163 @@ async fn mint_restricted_token(
 #[cfg(test)]
 mod test {
     use crate::test_server;
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_mint_prefix_scoped_token(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+
+        for (scope, mask, allowed) in [
+            (
+                serde_json::json!(["aliceCo/in", "aliceCo/out/"]),
+                serde_json::Value::Null,
+                true,
+            ),
+            (
+                serde_json::json!(["aliceCo/in", "aliceCo/out/"]),
+                serde_json::json!(["admin"]),
+                true,
+            ),
+            (
+                serde_json::json!(["aliceCo/in", "aliceCo/out/"]),
+                serde_json::json!(["viewer"]),
+                false,
+            ),
+            (serde_json::json!([]), serde_json::Value::Null, false),
+            (
+                serde_json::json!(["otherCo/"]),
+                serde_json::Value::Null,
+                false,
+            ),
+        ] {
+            let mut request = serde_json::json!({
+                "grant_type": "token_exchange",
+                "prefix_scope": scope,
+            });
+            if !mask.is_null() {
+                request["capability_mask"] = mask.clone();
+            }
+            let minted = server
+                .rest_client()
+                .post("/api/v1/auth/token", &request, Some(&alice_token))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(minted.status(), reqwest::StatusCode::OK);
+            let body: serde_json::Value = minted.json().await.unwrap();
+            assert!(body.get("refresh_token").is_none());
+            let token = body["access_token"].as_str().unwrap();
+            let claims = server.verify_access_token(token);
+            assert_eq!(serde_json::to_value(&claims.prefix_scope).unwrap(), scope);
+            assert_eq!(serde_json::to_value(&claims.capability_mask).unwrap(), mask);
+            assert_eq!(claims.sub, alice);
+            assert_eq!(claims.role, "postgrest_cant_use_this_token");
+            assert_eq!(
+                claims.exp - claims.iat,
+                super::RESTRICTED_TOKEN_DURATION.as_secs()
+            );
+
+            // Both requested prefixes are usable. Neither their parent nor a
+            // destination of the in/ role's write grant enters the scope.
+            for prefix in [
+                "aliceCo/in/",
+                "aliceCo/out/",
+                "aliceCo/",
+                "aliceCo/data/",
+                "otherCo/",
+            ] {
+                let response: serde_json::Value = server
+                    .graphql(
+                        &serde_json::json!({
+                            "query": r#"mutation($prefix: String!) {
+                        updateAlertConfig(catalogPrefixOrName: $prefix, config: {}) {
+                            catalogPrefixOrName
+                        }
+                    }"#,
+                            "variables": {"prefix": prefix},
+                        }),
+                        Some(token),
+                    )
+                    .await;
+                assert_eq!(
+                    response.get("errors").is_none(),
+                    allowed && matches!(prefix, "aliceCo/in/" | "aliceCo/out/"),
+                    "scope {scope}, mask {mask}, prefix {prefix}: {response}"
+                );
+            }
+
+            let reminted = server.rest_client().post(
+                "/api/v1/auth/token",
+                &serde_json::json!({"grant_type": "token_exchange", "prefix_scope": ["aliceCo/"]}),
+                Some(token),
+            ).send().await.unwrap();
+            assert_eq!(reminted.status(), reqwest::StatusCode::FORBIDDEN);
+        }
+
+        // A restricted authenticated bearer cannot replace its scope, even
+        // with a scope that would be available to the underlying user.
+        let scoped_bearer = server.make_restricted_access_token(
+            alice,
+            None,
+            None,
+            Some(vec!["aliceCo/in/".to_string()]),
+        );
+        let rejected = server
+            .rest_client()
+            .post(
+                "/api/v1/auth/token",
+                &serde_json::json!({"grant_type": "token_exchange", "prefix_scope": ["aliceCo/"]}),
+                Some(&scoped_bearer),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), reqwest::StatusCode::FORBIDDEN);
+        insta::assert_snapshot!(rejected.text().await.unwrap(),
+            @"Unable to replace the prefix scope of an already scoped token");
+
+        for request in [
+            serde_json::json!({"grant_type": "token_exchange"}),
+            serde_json::json!({"grant_type": "token_exchange", "prefix_scope": null, "capability_mask": null}),
+        ] {
+            let rejected = server
+                .rest_client()
+                .post("/api/v1/auth/token", &request, Some(&alice_token))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(rejected.status(), reqwest::StatusCode::BAD_REQUEST);
+            insta::assert_snapshot!(rejected.text().await.unwrap(),
+                @"At least one of capability_mask or prefix_scope is required");
+        }
+
+        for scope in [
+            serde_json::json!("aliceCo/"),
+            serde_json::json!([null]),
+            serde_json::json!([123]),
+        ] {
+            let rejected = server
+                .rest_client()
+                .post(
+                    "/api/v1/auth/token",
+                    &serde_json::json!({"grant_type": "token_exchange", "prefix_scope": scope}),
+                    Some(&alice_token),
+                )
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(rejected.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+        }
+    }
 
     /// Covers the `token_exchange` grant of `POST /api/v1/auth/token`: the
     /// rejections (unknown bundle names, unknown request fields, no bearer, a
@@ -323,7 +502,7 @@ mod test {
         "#);
 
         // === Unknown request fields are rejected ===
-        // A field this server doesn't know (say, a future `prefixes`) must fail
+        // A field this server does not know (such as `prefixes`) must fail
         // the request rather than mint a token that silently ignores it.
         let rejected = server
             .rest_client()
@@ -342,7 +521,7 @@ mod test {
         assert_eq!(rejected.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
         insta::assert_snapshot!(
             rejected.text().await.unwrap(),
-            @"Failed to deserialize the JSON body into the target type: unknown field `prefixes`, expected `capability_mask`"
+            @"Failed to deserialize the JSON body into the target type: unknown field `prefixes`, expected `capability_mask` or `prefix_scope`"
         );
 
         // === An empty mask mints an identity-only token ===
