@@ -1876,7 +1876,7 @@ mod test {
     }
 
     #[test]
-    fn test_prefix_scope_intersects_capabilities_and_excludes_unreachable_roles() {
+    fn test_prefix_scope_preserves_user_capabilities_and_excludes_unreachable_roles() {
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![
                 ("acmeCo/a/", vec![CapabilityBundle::Editor]),
@@ -1901,11 +1901,18 @@ mod test {
             &subject,
             vec![("acmeCo/b/", CapabilityBundle::Editor.capabilities())],
         );
+        // Retain delegation so the mask still reaches B, but strips edit authority.
+        subject.capability_mask = Some(Capability::CatalogRead | Capability::Delegate);
+        assert_reachable(
+            &role_grants,
+            &user_grants,
+            &subject,
+            vec![("acmeCo/b/", Capability::CatalogRead | Capability::Delegate)],
+        );
         // A listed prefix does not confer its outgoing grants on the user.
+        subject.capability_mask = None;
         subject.prefix_scope = Some(vec!["acmeCo/scope/".to_string()]);
         assert_reachable(&role_grants, &user_grants, &subject, vec![]);
-        subject.capability_mask = Some(Capability::CatalogRead.into());
-        assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject).is_empty());
     }
 
     #[test]
