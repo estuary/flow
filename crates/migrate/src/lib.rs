@@ -8,8 +8,8 @@ pub mod automation;
 
 pub async fn migrate_data_planes(
     pg_pool: &sqlx::PgPool,
-    src_data_plane: &str,
-    tgt_data_plane: &str,
+    src_data_plane: &control_plane_api::snapshot::DataPlane,
+    tgt_data_plane: &control_plane_api::snapshot::DataPlane,
     catalog_prefix: &str,
 ) -> anyhow::Result<()> {
     let src_data_plane = fetch_data_plane(pg_pool, src_data_plane).await?;
@@ -18,7 +18,7 @@ pub async fn migrate_data_planes(
     // Phase one: identify covered specs in the source data-plane, cordon them,
     // and migrate them to the target data-plane in a cordoned state.
     let spec_migrations: Vec<SpecMigration> =
-        fetch_spec_migrations(pg_pool, catalog_prefix, src_data_plane.row.control_id)
+        fetch_spec_migrations(pg_pool, catalog_prefix, src_data_plane.plane.control_id)
             .try_collect()
             .await?;
 
@@ -37,7 +37,7 @@ pub async fn migrate_data_planes(
     sqlx::query!(
         r#"UPDATE live_specs SET data_plane_id = $2 WHERE id=ANY($1)"#,
         live_spec_ids as Vec<models::Id>,
-        tgt_data_plane.row.control_id as models::Id,
+        tgt_data_plane.plane.control_id as models::Id,
     )
     .execute(pg_pool)
     .await?;
@@ -46,7 +46,7 @@ pub async fn migrate_data_planes(
     // data-plane, and un-cordon them. We re-query to pick up any specs which
     // had previously completed phase one and two, but not three.
     let spec_migrations: Vec<SpecMigration> =
-        fetch_spec_migrations(pg_pool, catalog_prefix, tgt_data_plane.row.control_id)
+        fetch_spec_migrations(pg_pool, catalog_prefix, tgt_data_plane.plane.control_id)
             .try_collect()
             .await?;
 
@@ -77,7 +77,7 @@ async fn phase_one(
         journal_client: src_journal_client,
         ops_logs_template: src_ops_logs_template,
         ops_stats_template: src_ops_stats_template,
-        row: src_data_plane,
+        plane: src_data_plane,
         shard_client: src_shard_client,
     } = src_data_plane;
 
@@ -85,7 +85,7 @@ async fn phase_one(
         journal_client: tgt_journal_client,
         ops_logs_template: tgt_ops_logs_template,
         ops_stats_template: tgt_ops_stats_template,
-        row: tgt_data_plane,
+        plane: tgt_data_plane,
         shard_client: tgt_shard_client,
     } = tgt_data_plane;
 
@@ -238,7 +238,7 @@ async fn phase_three(
         journal_client: tgt_journal_client,
         ops_logs_template: tgt_ops_logs_template,
         ops_stats_template: tgt_ops_stats_template,
-        row: tgt_data_plane,
+        plane: tgt_data_plane,
         shard_client: tgt_shard_client,
     } = tgt_data_plane;
 
@@ -466,49 +466,18 @@ fn merge_splits<S>(
 }
 
 struct DataPlane {
-    row: DataPlaneRow,
+    plane: control_plane_api::snapshot::DataPlane,
     shard_client: gazette::shard::Client,
     journal_client: gazette::journal::Client,
     ops_logs_template: broker::JournalSpec,
     ops_stats_template: broker::JournalSpec,
 }
 
-// TODO(johnny): Migrate this to use Snapshot, which requires extracting it out
-// of control-plane-api and into a common crate shared with `migrate`.
-struct DataPlaneRow {
-    control_id: models::Id,
-    data_plane_name: String,
-    data_plane_fqdn: String,
-    hmac_keys: Vec<String>,
-    broker_address: String,
-    reactor_address: String,
-    ops_logs_name: models::Collection,
-    ops_stats_name: models::Collection,
-}
-
-async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<DataPlane> {
-    // `query_as!` and not a runtime `query_as`: drift between this SELECT and
-    // the `data_planes` schema must fail the build, not an operator's migration.
-    let row = sqlx::query_as!(
-        DataPlaneRow,
-        r#"
-        SELECT
-            id AS "control_id: models::Id",
-            data_plane_name,
-            data_plane_fqdn,
-            hmac_keys,
-            broker_address,
-            reactor_address,
-            ops_logs_name AS "ops_logs_name: models::Collection",
-            ops_stats_name AS "ops_stats_name: models::Collection"
-        FROM data_planes
-        WHERE data_plane_name = $1
-        "#,
-        name,
-    )
-    .fetch_one(pg_pool)
-    .await
-    .with_context(|| format!("failed to fetch data-plane {name}"))?;
+async fn fetch_data_plane(
+    pg_pool: &sqlx::PgPool,
+    data_plane: &control_plane_api::snapshot::DataPlane,
+) -> anyhow::Result<DataPlane> {
+    let name = &data_plane.data_plane_name;
 
     // Resolve ops collection templates for this data-plane.
     let r = sqlx::query!(
@@ -520,17 +489,13 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
         WHERE l.catalog_name = $1 AND l.spec_type = 'collection'
         AND   s.catalog_name = $2 AND s.spec_type = 'collection'
         "#,
-        &row.ops_logs_name,
-        &row.ops_stats_name,
+        &data_plane.ops_logs_name,
+        &data_plane.ops_stats_name,
     )
     .fetch_one(pg_pool)
     .await
-    .context("failed to fetch data-plane ops collections")?;
+    .with_context(|| format!("failed to fetch ops collections of data-plane {name}"))?;
     let (ops_logs_template, ops_stats_template) = (r.logs.0, r.stats.0);
-
-    // Parse first data-plane HMAC key (used for signing tokens).
-    let (encode_key, _decode) = tokens::jwt::parse_base64_hmac_keys(row.hmac_keys.iter().take(1))
-        .context("invalid data-plane HMAC key")?;
 
     let iat = tokens::now();
     let claims = proto_gazette::Claims {
@@ -538,33 +503,34 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
             | proto_gazette::capability::APPLY
             | proto_gazette::capability::LIST
             | proto_gazette::capability::READ,
-        iss: row.data_plane_fqdn.clone(),
+        iss: String::new(), // Set by `sign_claims`.
         exp: (iat + tokens::TimeDelta::minutes(5)).timestamp() as u64,
         iat: iat.timestamp() as u64,
         sub: "migrate-tool".to_string(),
         sel: broker::LabelSelector::default(),
     };
-    let token = tokens::jwt::sign(&claims, &encode_key)
-        .context("failed to sign claims for connector proxy")?;
+    let token = data_plane
+        .sign_claims(claims)
+        .with_context(|| format!("failed to sign claims for data-plane {name}"))?;
 
     let metadata = proto_grpc::Metadata::new()
         .with_bearer_token(&token)
         .expect("token is valid");
 
     let journal_client = gazette::journal::Client::new(
-        row.broker_address.clone(),
+        data_plane.broker_address.clone(),
         gazette::journal::Client::new_fragment_client(),
         metadata.clone(),
         gazette::Router::new("local"),
     );
     let shard_client = gazette::shard::Client::new(
-        row.reactor_address.clone(),
+        data_plane.reactor_address.clone(),
         metadata,
         gazette::Router::new("local"),
     );
 
     Ok(DataPlane {
-        row,
+        plane: data_plane.clone(),
         shard_client,
         journal_client,
         ops_logs_template,

@@ -24,7 +24,6 @@ gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }
-migrate = { path = "../migrate" }
 models = { path = "../models", features = ["async-graphql", "sqlx-support"] }
 oauth-server = { path = "../oauth-server" }
 ops = { path = "../ops" }

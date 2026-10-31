@@ -440,10 +440,10 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             })
             .register(agent::DiscoverExecutor {
                 handler: discover_handler,
-                snapshot_watch,
+                snapshot_watch: snapshot_watch.clone(),
             })
             .register(connector_tags_executor)
-            .register(migrate::automation::MigrationExecutor)
+            .register(migrate::automation::MigrationExecutor { snapshot_watch })
             .register(agent::alerts::new_tenant_alerts_executor(
                 args.tenant_alert_interval,
             ))
