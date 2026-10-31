@@ -321,6 +321,10 @@ preserve state, delete the sentinel beforehand or don't restart.
 - **`AGE-SECRET-KEY-15HVSX9…`** — the second SOPS age key, which wraps
   first-class secrets. Only config-encryption holds it (as `SOPS_AGE_KEY` in
   its own env file); its public counterpart `age1x4kj9xj…` is `SECRETS_KMS_KEY`.
+- **`AGE-SECRET-KEY-1M3S7XA…`** — the third SOPS age key, which wraps
+  data-plane HMAC keys. Only the agent holds it. `local:data-plane` encrypts
+  each plane's keys to its public counterpart `age13uwnwn9…` and registers the
+  plane with the encrypted document.
 - **`key-<data-plane-name>`**, base64 — the HMAC auth key shared by brokers,
   reactors, sidecar, and the agent (e.g. for `local-flow-cluster`, the base64 of
   `key-local-flow-cluster`).
