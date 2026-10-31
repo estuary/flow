@@ -50,7 +50,7 @@ pub const SECRET_NAME: &str = "estuary.dev/secret-name";
 // connectors, which have no image and may use sibling secrets only.
 pub const IMAGE_REPO: &str = "estuary.dev/image-repo";
 
-// A used subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.
+// A used subset of Gazette labels, defined in github.com/estuary/flow/go/gazette/labels/labels.go.
 pub const CONTENT_TYPE: &str = "content-type";
 pub const CONTENT_TYPE_JSON_LINES: &str = "application/x-ndjson";
 pub const CONTENT_TYPE_RECOVERY_LOG: &str = "application/x-gazette-recoverylog";
@@ -271,7 +271,7 @@ pub fn maybe_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
 }
 
 /// Returns whether `set` is matched by `selector`, faithfully porting gazette's
-/// `LabelSelector.Matches` (`go.gazette.dev/core/broker/protocol`):
+/// `LabelSelector.Matches` (`github.com/estuary/flow/go/gazette/broker/protocol`):
 /// an excluded label matching any of `set` is a non-match; otherwise every
 /// included label must match. A name present in `set` but not the selector is
 /// ignored, and a selector value matches when it is empty (wildcard), exactly

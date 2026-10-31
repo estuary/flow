@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sort"
 
-	pb "go.gazette.dev/core/broker/protocol"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 )
 
 // Materialization is a type wrapper for Materialization catalog task names.

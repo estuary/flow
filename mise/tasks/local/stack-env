@@ -227,7 +227,9 @@ export FLOW_SUPABASE_PROJECT_ID="${_se_name}"
 export FLOW_NETWORK="supabase_network_${_se_name}"
 export CARGO_TARGET_DIR="${HOME}/cargo-target/${_se_name}"
 export GOBIN="${HOME}/cargo-target/${_se_name}/go-bin"
-export CGO_LDFLAGS="-fuse-ld=mold -L ${HOME}/cargo-target/${_se_name}/debug -L ${_se_rocksdb_lib}"
+# Our librocksdb.a is static and doesn't carry its snappy dependency.
+# gazette's store-rocksdb links it via gorocksdb's bare -lrocksdb.
+export CGO_LDFLAGS="-fuse-ld=mold -L ${HOME}/cargo-target/${_se_name}/debug -L ${_se_rocksdb_lib} -lsnappy"
 # Docs and the stack card advertise bare \`flowctl\` / \`flowctl-go\` — make this
 # stack's built binaries resolvable. This line serves direct-eval shells only:
 # mise does NOT propagate PATH changes from a sourced script, so mise.toml has

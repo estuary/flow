@@ -3,7 +3,7 @@ package labels
 import (
 	"strings"
 
-	gazLabels "go.gazette.dev/core/labels"
+	gazLabels "github.com/estuary/flow/go/gazette/labels"
 )
 
 // Heads up! Constants in this file must be mirrored to
@@ -98,7 +98,7 @@ const (
 	SecretName = "estuary.dev/secret-name"
 )
 
-// A re-exported subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.
+// A re-exported subset of Gazette labels, defined in github.com/estuary/flow/go/gazette/labels/labels.go.
 const (
 	ContentType             = gazLabels.ContentType
 	ContentType_JSONLines   = gazLabels.ContentType_JSONLines

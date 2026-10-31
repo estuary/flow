@@ -1,0 +1,66 @@
+Usage:
+  gazctl [OPTIONS] journals [journals-OPTIONS] reset-head [reset-head-OPTIONS]
+
+Reset the append offset of journals.
+
+Gazette appends are transactional: all brokers must agree on the exact offsets
+at which an append operation will be written into a journal. The offset is an
+explicit participate in the broker's transaction protocol. New participants are
+"caught up" on the current offset by participating in broker transactions, and
+brokers will delay releasing responsibility for a journal until all peers have
+participated in a synchronizing transaction. This makes Gazette tolerant to up
+to R-1 independent broker process failures, where R is the replication factor
+of the journal.
+
+However, disasters and human errors do happen, and if R or more independent
+failures occur, Gazette employs a fail-safe to minimize the potential for a
+journal offset to be written more than once: brokers require that the remote
+fragment index not include a fragment offset larger than the append offset known
+to replicating broker peers, and will refuse the append if this constraint is
+violated.
+
+I.e. if N >= R prior failures occur, then none of the present broker topology
+for a journal may have participated in an append transaction. Their synchronized
+offset will be zero, which is less than the maximum offset contained in the
+fragment store. The brokers will refuse all appends to preclude double-writing
+of an offset.
+
+This condition must be explicitly cleared by the Gazette operator using the
+reset-head command. The operator should delay running reset-head until absolutely
+confident that all journal fragments have been persisted to cloud storage (eg,
+because all previous broker processes have exited).
+
+Then, the effect of reset-head is to jump the append offset forward to the
+maximum indexed offset, allowing new append operations to proceed.
+
+reset-head is safe to run against journals which are already consistent and
+and are being actively appended to.
+
+
+Help Options:
+  -h, --help                                              Show this help message
+
+[journals command options]
+
+    Interact with broker journals:
+          --zone=                                         Availability zone within which this process is running (default: local) [$ZONE]
+
+    Logging:
+          --log.level=[trace|debug|info|warn|error|fatal] Logging level (default: warn) [$LOG_LEVEL]
+          --log.format=[json|text|color]                  Logging output format (default: text) [$LOG_FORMAT]
+
+    Broker:
+          --broker.address=                               Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cert-file=                             Path to the client TLS certificate [$BROKER_CERT_FILE]
+          --broker.cert-key-file=                         Path to the client TLS private key [$BROKER_CERT_KEY_FILE]
+          --broker.trusted-ca-file=                       Path to the trusted CA for client verification of server certificates
+                                                          [$BROKER_TRUSTED_CA_FILE]
+          --broker.auth-keys=                             Whitespace or comma separated, base64-encoded keys. The first key is used to sign
+                                                          Authorization tokens. [$BROKER_AUTH_KEYS]
+          --broker.cache.size=                            Size of client route cache. If <= zero, no cache is used (server always proxies)
+                                                          (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=                             Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+
+[reset-head command options]
+      -l, --selector=                                     Label Selector query to filter on
+

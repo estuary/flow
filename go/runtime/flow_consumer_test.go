@@ -3,19 +3,19 @@ package runtime
 import (
 	"testing"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
-	pb "go.gazette.dev/core/broker/protocol"
 	"github.com/stretchr/testify/require"
 )
 
 func TestFlowConsumerConfig_Plane(t *testing.T) {
 	tests := []struct {
-		name            string
-		allowLocal      bool
-		dataplaneFQDN   string
-		expectedPlane   pr.Plane
+		name          string
+		allowLocal    bool
+		dataplaneFQDN string
+		expectedPlane pr.Plane
 	}{
 		{
 			name:          "AllowLocal returns LOCAL",

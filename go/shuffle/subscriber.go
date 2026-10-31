@@ -8,10 +8,10 @@ import (
 	"sort"
 
 	"github.com/estuary/flow/go/flow/keyhash"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/message"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/message"
 )
 
 // subscriber is an active gRPC stream to which shuffled Documents are dispatched.

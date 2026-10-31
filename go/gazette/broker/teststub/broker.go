@@ -1,0 +1,230 @@
+package teststub
+
+import (
+	"context"
+	"log"
+	"sync"
+	"time"
+
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/server"
+	"github.com/estuary/flow/go/gazette/task"
+	"github.com/stretchr/testify/require"
+)
+
+// Broker stubs the read and write loops of broker RPCs, routing them onto
+// channels which can be synchronously read and written within test bodies.
+type Broker struct {
+	t     require.TestingT
+	tasks *task.Group
+	srv   *server.Server
+	wg    sync.WaitGroup
+
+	ReadLoopErrCh  chan error                // Chan from which tests read final read-loop errors.
+	WriteLoopErrCh chan error                // Chan to which tests write final write-loop error (or nil).
+	ReplReqCh      chan pb.ReplicateRequest  // Chan from which tests read ReplicateRequest.
+	ReplRespCh     chan pb.ReplicateResponse // Chan to which tests write ReplicateResponse.
+	ReadReqCh      chan pb.ReadRequest       // Chan from which tests read ReadRequest.
+	ReadRespCh     chan pb.ReadResponse      // Chan to which tests write ReadResponse.
+	AppendReqCh    chan pb.AppendRequest     // Chan from which tests read AppendRequest.
+	AppendRespCh   chan pb.AppendResponse    // Chan to which tests write AppendResponse.
+
+	ListFunc                func(context.Context, *pb.ListRequest) (*pb.ListResponse, error)                               // List implementation.
+	ApplyFunc               func(context.Context, *pb.ApplyRequest) (*pb.ApplyResponse, error)                             // Apply implementation.
+	ListFragmentsFunc       func(context.Context, *pb.FragmentsRequest) (*pb.FragmentsResponse, error)                     // ListFragments implementation.
+	FragmentStoreHealthFunc func(context.Context, *pb.FragmentStoreHealthRequest) (*pb.FragmentStoreHealthResponse, error) // FragmentStoreHealth implementation.
+}
+
+// NewBroker returns a Broker instance served by a local gRPC server.
+func NewBroker(t require.TestingT) *Broker {
+	var p = &Broker{
+		t:              t,
+		srv:            server.MustLoopback(),
+		tasks:          task.NewGroup(context.Background()),
+		ReplReqCh:      make(chan pb.ReplicateRequest),
+		ReplRespCh:     make(chan pb.ReplicateResponse),
+		ReadReqCh:      make(chan pb.ReadRequest),
+		ReadRespCh:     make(chan pb.ReadResponse),
+		AppendReqCh:    make(chan pb.AppendRequest),
+		AppendRespCh:   make(chan pb.AppendResponse),
+		ReadLoopErrCh:  make(chan error),
+		WriteLoopErrCh: make(chan error),
+	}
+	pb.RegisterJournalServer(p.srv.GRPCServer, p)
+	p.srv.QueueTasks(p.tasks)
+	p.tasks.GoRun()
+	return p
+}
+
+// Client returns a RoutedJournalClient wrapping the GRPCLoopback.
+func (b *Broker) Client() pb.RoutedJournalClient {
+	return pb.NewRoutedJournalClient(pb.NewJournalClient(b.srv.GRPCLoopback), pb.NoopDispatchRouter{})
+}
+
+// Endpoint returns the server Endpoint.
+func (b *Broker) Endpoint() pb.Endpoint { return b.srv.Endpoint() }
+
+// Cleanup cancels the Broker tasks.Group and asserts that it exits cleanly.
+func (b *Broker) Cleanup() {
+	b.tasks.Cancel()
+	b.srv.BoundedGracefulStop()
+	b.wg.Wait() // Ensure all read loops have exited.
+	require.NoError(b.t, b.srv.GRPCLoopback.Close())
+	require.NoError(b.t, b.tasks.Wait())
+}
+
+// Replicate implements the JournalServer interface by proxying requests &
+// responses through channels ReplReqCh & ReplRespCh.
+func (b *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
+	// Start a read loop of requests from |srv|.
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		for {
+			if msg, err := srv.Recv(); err == nil {
+				select {
+				case b.ReplReqCh <- *msg:
+				case <-time.After(timeout):
+					log.Panic("test didn't recv from ReplReqCh", "msg", msg)
+				}
+			} else {
+				if srv.Context().Err() != nil {
+					err = srv.Context().Err()
+				}
+				select {
+				case b.ReadLoopErrCh <- err:
+				case <-time.After(timeout):
+					log.Panic("test didn't recv from ReadLoopErrCh", "err", err)
+				}
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case resp := <-b.ReplRespCh:
+			require.NoError(b.t, srv.Send(&resp))
+		case err := <-b.WriteLoopErrCh:
+			return err
+		case <-time.After(timeout):
+			log.Panic("test didn't send to ReplRespCh or WriteLoopErrCh")
+		}
+	}
+}
+
+// Read implements the JournalServer interface by proxying requests & responses
+// through channels ReadReqCh & ReadResponseCh.
+func (b *Broker) Read(req *pb.ReadRequest, srv pb.Journal_ReadServer) error {
+	select {
+	case b.ReadReqCh <- *req:
+		// |req| passed to test.
+	case <-time.After(timeout):
+		log.Panic("test didn't read from ReadReqCh")
+	}
+
+	for {
+		select {
+		case resp := <-b.ReadRespCh:
+			// We may be sending into a cancelled context (c.f. TestReaderRetries).
+			// Otherwise, we expect to be able to send without error.
+			if err := srv.Send(&resp); srv.Context().Err() == nil {
+				require.NoError(b.t, err)
+			}
+		case err := <-b.WriteLoopErrCh:
+			return err
+		case <-time.After(timeout):
+			log.Panic("test didn't send to ReadRespCh or WriteLoopErrCh")
+		}
+	}
+}
+
+// Append implements the JournalServer interface by proxying requests &
+// responses through channels AppendReqCh & AppendRespCh.
+func (b *Broker) Append(srv pb.Journal_AppendServer) error {
+	// Start a read loop of requests from |srv|.
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		for {
+			if msg, err := srv.Recv(); err == nil {
+				select {
+				case b.AppendReqCh <- *msg:
+				case <-time.After(timeout):
+					log.Panic("test didn't recv from AppendReqCh", "msg", msg)
+				}
+			} else {
+				if srv.Context().Err() != nil {
+					err = srv.Context().Err()
+				}
+				select {
+				case b.ReadLoopErrCh <- err:
+				case <-time.After(timeout):
+					log.Panic("test didn't recv from ReadLoopErrCh", "err", err)
+				}
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case resp := <-b.AppendRespCh:
+			require.NoError(b.t, srv.SendAndClose(&resp))
+			return nil
+		case err := <-b.WriteLoopErrCh:
+			return err
+		case <-time.After(timeout):
+			log.Panic("test didn't send to AppendRespCh or WriteLoopErrCh")
+		}
+	}
+}
+
+// List implements the JournalServer interface by proxy-ing through ListFunc.
+func (b *Broker) List(req *pb.ListRequest, stream pb.Journal_ListServer) error {
+	var resp, err = b.ListFunc(stream.Context(), req)
+	if err != nil {
+		return err
+	}
+	// Don't directly mutate ListFunc's returned `resp`.
+	resp = &pb.ListResponse{
+		Status:   resp.Status,
+		Header:   resp.Header,
+		Journals: resp.Journals,
+	}
+
+	for len(resp.Journals) > 2 {
+		var tail = resp.Journals[2:]
+		resp.Journals = resp.Journals[:2]
+
+		_ = stream.Send(resp)
+		*resp = pb.ListResponse{Journals: tail}
+	}
+	_ = stream.Send(resp)
+
+	if !req.Watch {
+		return nil
+	}
+	_ = stream.Send(&pb.ListResponse{})
+
+	// Simulate server cancellation of watch after single response snapshot.
+	return context.Canceled
+}
+
+// Apply implements the JournalServer interface by proxying through ApplyFunc.
+func (b *Broker) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
+	return b.ApplyFunc(ctx, req)
+}
+
+// ListFragments implements the JournalServer interface by proxying through FragmentsFunc.
+func (b *Broker) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+	return b.ListFragmentsFunc(ctx, req)
+}
+
+func (b *Broker) FragmentStoreHealth(ctx context.Context, req *pb.FragmentStoreHealthRequest) (*pb.FragmentStoreHealthResponse, error) {
+	return b.FragmentStoreHealthFunc(ctx, req)
+}
+
+func init() { pb.RegisterGRPCDispatcher("local") }
+
+const timeout = time.Minute

@@ -6,17 +6,17 @@ import (
 	"fmt"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/cmd/gazctl/gazctlcmd"
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/cmd/gazctl/gazctlcmd"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
 // This command will be under the shards command which leverages the gazctlcmd.ShardsCfg config.

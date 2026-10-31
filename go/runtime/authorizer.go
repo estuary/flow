@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/golang-jwt/jwt/v5"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/metadata"
 )
 
