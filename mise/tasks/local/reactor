@@ -64,7 +64,10 @@ CONSUMER_SERVER_CERT_FILE=${FLOW_LOCAL}/server.crt
 CONSUMER_SERVER_CERT_KEY_FILE=${FLOW_LOCAL}/server.key
 CONSUMER_ZONE=local
 ETCD_ADDRESS=http://etcd.flow.localhost:${FLOW_PORT_ETCD}
-ETCD_PREFIX=/flow/${DATA_PLANE}
+# Data planes of a stack share its etcd, and gazette watches its root as a
+# raw string prefix. The trailing segment keeps one plane's root from being
+# a prefix of another's, such as local-x-cluster and local-x-cluster-b.
+ETCD_PREFIX=/flow/${DATA_PLANE}/reactors
 FLOW_ALLOW_LOCAL=true
 FLOW_BUILDS_ROOT=file://${FLOW_STACK_DIR}/builds/
 FLOW_CONTROL_API=http://agent.flow.localhost:${FLOW_PORT_AGENT}
