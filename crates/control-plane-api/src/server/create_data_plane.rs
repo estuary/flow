@@ -12,7 +12,6 @@ pub enum Category {
     Manual(Manual),
 }
 
-// No `Debug`: Manual (though used only in local stacks) carries HMAC keys.
 #[derive(serde::Deserialize, schemars::JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct Manual {
@@ -22,8 +21,9 @@ pub struct Manual {
     /// Address of reactors in this data-plane.
     #[validate(url)]
     reactor_address: String,
-    /// HMAC keys of the data-plane.
-    hmac_keys: Vec<String>,
+    /// sops document `{"hmac_keys": [...]}` of the data-plane's base64 HMAC
+    /// keys, which the control-plane must be able to decrypt.
+    encrypted_hmac_keys: models::RawValue,
     /// Kafka-protocol address of Dekaf in this data-plane (tls:// URL).
     #[serde(default)]
     dekaf_address: Option<String>,
@@ -115,31 +115,49 @@ pub async fn create_data_plane(
     let ops_logs_name = format!("ops/tasks/{base_name}/logs");
     let ops_stats_name = format!("ops/tasks/{base_name}/stats");
 
-    let (broker_address, reactor_address, dekaf_address, dekaf_registry_address, hmac_keys) =
-        match category {
-            Category::Managed => (
-                format!("https://gazette.{data_plane_fqdn}"),
-                format!("https://reactor.{data_plane_fqdn}"),
-                // dekaf_address and dekaf_registry_address are set by the
-                // data-plane-controller when Dekaf is actually deployed.
-                None,
-                None,
-                Vec::new(),
-            ),
-            Category::Manual(Manual {
+    let (
+        broker_address,
+        reactor_address,
+        dekaf_address,
+        dekaf_registry_address,
+        encrypted_hmac_keys,
+    ) = match category {
+        Category::Managed => (
+            format!("https://gazette.{data_plane_fqdn}"),
+            format!("https://reactor.{data_plane_fqdn}"),
+            // dekaf_address and dekaf_registry_address are set by the
+            // data-plane-controller when Dekaf is actually deployed.
+            None,
+            None,
+            None,
+        ),
+        Category::Manual(Manual {
+            broker_address,
+            reactor_address,
+            encrypted_hmac_keys,
+            dekaf_address,
+            dekaf_registry_address,
+        }) => {
+            // Every Snapshot refresh decrypts these keys, and a refresh fails
+            // if any data-plane's keys fail to decrypt. Reject them here instead.
+            let hmac_keys = super::snapshot::decrypt_hmac_keys(&encrypted_hmac_keys)
+                .await
+                .map_err(|err| {
+                    tonic::Status::invalid_argument(format!(
+                        "failed to decrypt encryptedHmacKeys: {err:#}"
+                    ))
+                })?;
+            tokens::jwt::parse_base64_hmac_keys(hmac_keys.iter())?;
+
+            (
                 broker_address,
                 reactor_address,
-                hmac_keys,
                 dekaf_address,
                 dekaf_registry_address,
-            }) => (
-                broker_address,
-                reactor_address,
-                dekaf_address,
-                dekaf_registry_address,
-                hmac_keys,
-            ),
-        };
+                Some(encrypted_hmac_keys),
+            )
+        }
+    };
 
     // Grant a private tenant access to their data-plane and task logs & stats.
     // These grants are always safe to create for every tenant, but we only
@@ -183,19 +201,20 @@ pub async fn create_data_plane(
             dekaf_address,
             dekaf_registry_address,
             hmac_keys,
+            encrypted_hmac_keys,
             enable_l2,
             pulumi_stack
         ) values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+            '{}', coalesce($15, '{}'::json), $16, $17
         )
         on conflict (data_plane_name) do update set
             broker_address = $11,
             reactor_address = $12,
             dekaf_address = coalesce($13, data_planes.dekaf_address),
             dekaf_registry_address = coalesce($14, data_planes.dekaf_registry_address),
-            -- Don't replace non-empty hmac_keys with empty ones.
-            hmac_keys = case when array_length($15, 1) > 0 then $15
-                        else data_planes.hmac_keys end
+            -- A Managed plane passes no keys: keep those already present.
+            encrypted_hmac_keys = coalesce($15, data_planes.encrypted_hmac_keys)
         returning logs_token
         ;
         "#,
@@ -213,8 +232,8 @@ pub async fn create_data_plane(
         reactor_address,
         &dekaf_address as &Option<String>,
         &dekaf_registry_address as &Option<String>,
-        &hmac_keys,
-        !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
+        &encrypted_hmac_keys as &Option<models::RawValue>,
+        encrypted_hmac_keys.is_some(), // Enable L2 if HMAC keys are defined at creation.
         pulumi_stack,
     )
     .fetch_one(&env.pg_pool)
@@ -244,7 +263,7 @@ pub async fn create_data_plane(
     // issues a Validate RPC to its connector, routed *through this very plane*.
     // The plane must therefore already sign claims and answer on the wire:
     //
-    //  * A Manual plane passes its HMAC keys in the request and is registered
+    //  * A Manual plane passes its encrypted HMAC keys in the request and is registered
     //    only once it serves (the local stack's plane-link unit), so this
     //    publication and its subsequent activations succeed.
     //
@@ -402,5 +421,54 @@ mod test {
             text.contains("alice@example.com is not authorized to access prefix or name 'ops/'"),
             "unexpected denial body: {text}"
         );
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_manual_rejects_undecryptable_hmac_keys(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        sqlx::query("INSERT INTO user_grants (user_id, object_role, capability) VALUES ($1, 'ops/', 'admin')")
+            .bind(alice)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), snapshot).await;
+        let token = server.make_access_token(alice, Some("alice@example.com"));
+
+        let body = serde_json::json!({
+            "name": "local-test-plane",
+            "category": {"manual": {
+                "brokerAddress": "https://broker.example",
+                "reactorAddress": "https://reactor.example",
+                "encryptedHmacKeys": {"hmac_keys": ["c2VjcmV0"]},
+            }},
+        });
+        let response = server
+            .rest_client()
+            .post("/admin/create-data-plane", &body, Some(&token))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+
+        let text = response.text().await.unwrap();
+        assert!(
+            text.contains("failed to decrypt encryptedHmacKeys"),
+            "unexpected body: {text}"
+        );
+
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM data_planes WHERE data_plane_name = 'ops/dp/public/local-test-plane'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0);
     }
 }

@@ -36,8 +36,8 @@ rm -rf "${HOME}/.config/systemd/user/flow-"*"@${NAME}.service.d" \
        "${HOME}/.config/systemd/user/flow-"*"@${FLOW_CLUSTER}-"*.target.d 2>/dev/null || true
 # The globs are left unquoted so the shell expands them.
 rm -f "${FLOW_ENV_DIR}"/*"-${NAME}.env" \
-      "${FLOW_ENV_DIR}"/*"-${FLOW_CLUSTER}.env" \
-      "${FLOW_ENV_DIR}"/*"-${FLOW_CLUSTER}-"*.env 2>/dev/null || true
+      "${FLOW_ENV_DIR}"/*"-${FLOW_CLUSTER}".{env,json} \
+      "${FLOW_ENV_DIR}"/*"-${FLOW_CLUSTER}-"*.{env,json} 2>/dev/null || true
 
 # Remove this stack's private runtime state (etcd data, fragments, builds,
 # test-tenant credentials). TLS material and the registry are shared/retained.

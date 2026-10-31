@@ -801,7 +801,9 @@ pub async fn try_fetch(
     })
 }
 
-async fn decrypt_hmac_keys(encrypted_hmac_keys: &models::RawValue) -> anyhow::Result<Vec<String>> {
+pub(crate) async fn decrypt_hmac_keys(
+    encrypted_hmac_keys: &models::RawValue,
+) -> anyhow::Result<Vec<String>> {
     let sops = locate_bin::locate("sops").context("failed to locate sops")?;
 
     #[derive(serde::Deserialize)]
