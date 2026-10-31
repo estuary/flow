@@ -736,7 +736,12 @@ pub async fn try_fetch(
         "fetched authorization snapshot",
     );
 
-    // For each data-plane, if we have a decrypted HMAC key that matches the unchanged encryption, then use it.
+    // Prefer encrypted keys, falling back to plaintext `hmac_keys` only as needed.
+    // A decryption is accepted if `hmac_keys` is empty or equal to it.
+    // An accepted decryption is retained in `decrypted_hmac_keys`, and is
+    // re-used without re-checking `hmac_keys` while its document is unchanged.
+    // Plaintext `hmac_keys` are served when a plane has no encrypted keys,
+    // or its decryption fails or isn't accepted.
     let mut decrypt_jobs = Vec::new();
     for dp in data_planes.iter_mut() {
         // A plane without keys must not reach `decrypt_hmac_keys` (sops fails).
@@ -746,8 +751,8 @@ pub async fn try_fetch(
         >(dp.encrypted_hmac_keys.get())
         .is_ok_and(|obj| obj.is_empty());
 
-        if !dp.hmac_keys.is_empty() || encrypted_is_empty {
-            continue; // Nothing to decrypt: keys are plaintext, or absent.
+        if encrypted_is_empty {
+            continue;
         }
         if let Some((enc, dec)) = decrypted_hmac_keys.get(&dp.data_plane_name)
             && enc.get() == dp.encrypted_hmac_keys.get()
@@ -758,19 +763,54 @@ pub async fn try_fetch(
 
         // Start a decryption of this data-plane's encrypted keys.
         decrypt_jobs.push(async {
-            let decrypted = decrypt_hmac_keys(&dp.encrypted_hmac_keys).await?;
-            Result::Ok::<(&mut FetchedDataPlane, Vec<String>), anyhow::Error>((dp, decrypted))
+            let decrypted = decrypt_hmac_keys(&dp.encrypted_hmac_keys).await;
+            (dp, decrypted)
         });
     }
-    let decrypt_jobs: Vec<(&mut FetchedDataPlane, Vec<String>)> =
-        futures::future::try_join_all(decrypt_jobs).await?;
+    let decrypt_jobs: Vec<(&mut FetchedDataPlane, anyhow::Result<Vec<String>>)> =
+        futures::future::join_all(decrypt_jobs).await;
 
-    for (dp, hmac_keys) in decrypt_jobs {
-        decrypted_hmac_keys.insert(
-            dp.data_plane_name.clone(),
-            (dp.encrypted_hmac_keys.clone(), hmac_keys.clone()),
-        );
-        dp.hmac_keys = hmac_keys;
+    for (dp, decrypted) in decrypt_jobs {
+        match (&mut dp.hmac_keys, decrypted) {
+            (hmac_keys, Ok(decrypted_keys)) => {
+                if hmac_keys.is_empty() {
+                    tracing::info!(
+                        data_plane_name = dp.data_plane_name,
+                        "decrypted data-plane HMAC keys with empty `hmac_keys`",
+                    );
+                } else if hmac_keys == &decrypted_keys {
+                    tracing::info!(
+                        data_plane_name = dp.data_plane_name,
+                        "decrypted data-plane HMAC keys match `hmac_keys`",
+                    );
+                } else {
+                    tracing::error!(
+                        data_plane_name = dp.data_plane_name,
+                        "decrypted data-plane HMAC keys differ from `hmac_keys`",
+                    );
+                    continue;
+                }
+                decrypted_hmac_keys.insert(
+                    dp.data_plane_name.clone(),
+                    (dp.encrypted_hmac_keys.clone(), decrypted_keys.clone()),
+                );
+                *hmac_keys = decrypted_keys;
+            }
+            (hmac_keys, Err(err)) => {
+                if hmac_keys.is_empty() {
+                    return Err(err.context(format!(
+                        "decrypting HMAC keys of data-plane {}",
+                        dp.data_plane_name
+                    )));
+                } else {
+                    tracing::error!(
+                        ?err,
+                        data_plane_name = dp.data_plane_name,
+                        "failed to decrypt data-plane HMAC keys",
+                    );
+                }
+            }
+        }
     }
 
     let data_planes = data_planes
@@ -889,7 +929,25 @@ mod tests {
         fixtures(path = "../fixtures", scripts("data_planes", "alice"))
     )]
     async fn test_snapshot_fetch(pool: sqlx::PgPool) {
-        // Exercise both sides of the in-progress HMAC representation migration.
+        // Served keys of each plane, and the decryptions retained for re-use.
+        fn outcome(
+            data: &SnapshotData,
+            decrypted_keys: &HashMap<String, (models::RawValue, Vec<String>)>,
+        ) -> (BTreeMap<String, Vec<String>>, BTreeMap<String, Vec<String>>) {
+            let served = data
+                .data_planes
+                .iter()
+                .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.0.clone()))
+                .collect();
+            let decrypted = decrypted_keys
+                .iter()
+                .map(|(name, (_enc, dec))| (name.clone(), dec.clone()))
+                .collect();
+            (served, decrypted)
+        }
+
+        // Planes have only encrypted keys (aws-us-west-2-c1),
+        // only plaintext keys (gcp-us-central1-c2), or no keys (az-westeurope-c3).
         sqlx::query(
             r#"
             UPDATE data_planes
@@ -905,38 +963,80 @@ mod tests {
         let result = try_fetch(&pool, &mut decrypted_keys)
             .await
             .expect("snapshot refresh should succeed");
-        assert_eq!(3, result.data_planes.len());
-        assert!(
-            !result
-                .data_planes
-                .iter()
-                .find(|dp| dp.data_plane_fqdn == "dp.keyless")
-                .expect("the keyless data plane is carried")
-                .can_sign(),
-            "a keyless data plane cannot sign"
-        );
-        assert_eq!(
-            vec!["c2VjcmV0", "b3RoZXI="],
-            result
-                .data_planes
-                .iter()
-                .find(|dp| dp.data_plane_name == "ops/dp/public/aws-us-west-2-c1")
-                .unwrap()
-                .hmac_keys
-                .0,
-            "encrypted keys are resolved into the snapshot"
-        );
-        assert_eq!(
-            vec!["cGxhaW4="],
-            result
-                .data_planes
-                .iter()
-                .find(|dp| dp.data_plane_name == "ops/dp/public/gcp-us-central1-c2")
-                .unwrap()
-                .hmac_keys
-                .0,
-            "plaintext keys are carried into the snapshot"
-        );
+
+        insta::assert_debug_snapshot!(outcome(&result, &decrypted_keys), @r#"
+        (
+            {
+                "ops/dp/public/aws-us-west-2-c1": [
+                    "c2VjcmV0",
+                    "b3RoZXI=",
+                ],
+                "ops/dp/public/az-westeurope-c3": [],
+                "ops/dp/public/gcp-us-central1-c2": [
+                    "cGxhaW4=",
+                ],
+            },
+            {
+                "ops/dp/public/aws-us-west-2-c1": [
+                    "c2VjcmV0",
+                    "b3RoZXI=",
+                ],
+            },
+        )
+        "#);
+
+        // Each plane has plaintext keys, plus encrypted keys which:
+        // match (aws-us-west-2-c1), differ (gcp-us-central1-c2),
+        // or fail to decrypt (az-westeurope-c3).
+        sqlx::raw_sql(
+            r#"
+            UPDATE data_planes SET hmac_keys = CASE data_plane_name
+                WHEN 'ops/dp/public/aws-us-west-2-c1' THEN ARRAY['c2VjcmV0', 'b3RoZXI=']
+                ELSE ARRAY['cGxhaW4=']
+            END;
+            UPDATE data_planes
+            SET encrypted_hmac_keys = (
+                SELECT encrypted_hmac_keys FROM data_planes
+                WHERE data_plane_name = 'ops/dp/public/aws-us-west-2-c1'
+            )
+            WHERE data_plane_name = 'ops/dp/public/gcp-us-central1-c2';
+            UPDATE data_planes
+            SET encrypted_hmac_keys = '{"hmac_keys": ["ENC[invalid]"], "sops": {}}'::json
+            WHERE data_plane_name = 'ops/dp/public/az-westeurope-c3';
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Start without prior decryptions, so that each plane is decrypted.
+        let mut decrypted_keys = HashMap::new();
+        let result = try_fetch(&pool, &mut decrypted_keys)
+            .await
+            .expect("a failed decryption falls back to plaintext keys");
+
+        insta::assert_debug_snapshot!(outcome(&result, &decrypted_keys), @r#"
+        (
+            {
+                "ops/dp/public/aws-us-west-2-c1": [
+                    "c2VjcmV0",
+                    "b3RoZXI=",
+                ],
+                "ops/dp/public/az-westeurope-c3": [
+                    "cGxhaW4=",
+                ],
+                "ops/dp/public/gcp-us-central1-c2": [
+                    "cGxhaW4=",
+                ],
+            },
+            {
+                "ops/dp/public/aws-us-west-2-c1": [
+                    "c2VjcmV0",
+                    "b3RoZXI=",
+                ],
+            },
+        )
+        "#);
     }
 
     #[sqlx::test(
