@@ -1479,11 +1479,6 @@ type InferredSchemaStatus {
 	nextUpdateAfter: DateTime
 }
 
-input IntFilter {
-	eq: Int
-	gte: Int
-}
-
 """
 An invite link that grants access to a catalog prefix.
 """
@@ -1637,6 +1632,11 @@ The status of a publication.
 type JobStatus {
 	type: StatusType!
 	lockFailures: [LockFailure!]!
+}
+
+input LegalConsentVersion {
+	eq: Int
+	gte: Int
 }
 
 type LegalTerms {
@@ -2723,7 +2723,7 @@ type QueryRoot {
 	"""
 	Whether the tenant has accepted matching legal terms. Requires CatalogRead on the tenant.
 	"""
-	legalConsentCheck(tenant: String!, type: LegalTermsType!, version: IntFilter!): Boolean!
+	legalConsentCheck(tenant: String!, type: LegalTermsType!, version: LegalConsentVersion!): Boolean!
 	"""
 	List refresh tokens owned by the authenticated user.
 	"""

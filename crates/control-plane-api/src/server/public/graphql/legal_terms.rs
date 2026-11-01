@@ -26,6 +26,12 @@ pub struct LegalTerms {
     pub version: i32,
 }
 
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct LegalConsentVersion {
+    pub eq: Option<i32>,
+    pub gte: Option<i32>,
+}
+
 #[async_graphql::Object]
 impl LegalTermsQuery {
     /// Returns the latest legal terms of the given type.
@@ -52,7 +58,7 @@ impl LegalTermsQuery {
         ctx: &async_graphql::Context<'_>,
         #[graphql(validator(regex = "^[^/]+/$"))] tenant: String,
         r#type: LegalTermsType,
-        version: super::filters::IntFilter,
+        version: LegalConsentVersion,
     ) -> async_graphql::Result<bool> {
         if version.eq.is_some() == version.gte.is_some() {
             return Err(async_graphql::Error::new(
@@ -440,7 +446,7 @@ mod test {
         "#);
 
         let query = serde_json::json!({
-            "query": "query($tenant: String!, $version: IntFilter!) { legalConsentCheck(tenant: $tenant, type: MSA, version: $version) }",
+            "query": "query($tenant: String!, $version: LegalConsentVersion!) { legalConsentCheck(tenant: $tenant, type: MSA, version: $version) }",
             "variables": {"tenant": "acmeCo/", "version": {"eq": 4}},
         });
         let mut errors = Vec::new();
