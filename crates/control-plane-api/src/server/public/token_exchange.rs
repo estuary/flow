@@ -208,8 +208,7 @@ async fn mint_restricted_token(
         role: "postgrest_cant_use_this_token".to_string(),
         email: claims.email.clone(),
         capability_mask: Some(capability_mask),
-        // A prefix-scoped bearer mints a token that keeps its scope: the mask
-        // only ever narrows, so the result must not widen the bearer either.
+        // Preserve the bearer's prefix mask so the minted token cannot widen its authority.
         prefix_mask: claims.prefix_mask.clone(),
     };
 
@@ -380,7 +379,7 @@ mod test {
         }
         "#);
 
-        // === A prefix-scoped bearer's scope carries into the minted token ===
+        // === The bearer's prefix mask carries into the minted token ===
         // Dropping it would widen the bearer. The scope is copied as-is; the
         // trailing-slash normalization happens when the claims become a Subject.
         let scoped_bearer = server.make_restricted_access_token(

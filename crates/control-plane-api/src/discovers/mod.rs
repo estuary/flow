@@ -83,7 +83,7 @@ pub async fn create(
 
     // The executor copies the live definitions of binding targets into the
     // draft, filtered by the user's CatalogRead. It runs without the request's
-    // capability mask and prefix scope, so a restricted token could otherwise
+    // capability mask and prefix mask, so a restricted token could otherwise
     // read definitions through the draft.
     if let Some(target) = model
         .bindings

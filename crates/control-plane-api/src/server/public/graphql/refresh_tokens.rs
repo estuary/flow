@@ -139,7 +139,7 @@ impl RefreshTokensMutation {
         }
         if claims.prefix_mask.is_some() {
             return Err(async_graphql::Error::new(
-                "tokens with a prefix scope set cannot create refresh tokens.",
+                "tokens with a prefix mask set cannot create refresh tokens.",
             ));
         }
         if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
@@ -277,12 +277,12 @@ mod test {
             (
                 None,
                 Some(vec!["acmeCo/team/".to_string()]),
-                "tokens with a prefix scope set cannot create refresh tokens.",
+                "tokens with a prefix mask set cannot create refresh tokens.",
             ),
             (
                 None,
                 Some(vec![]),
-                "tokens with a prefix scope set cannot create refresh tokens.",
+                "tokens with a prefix mask set cannot create refresh tokens.",
             ),
         ] {
             let scoped_token =

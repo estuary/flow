@@ -555,7 +555,7 @@ impl ServiceAccountsMutation {
         }
         if claims.prefix_mask.is_some() {
             return Err(async_graphql::Error::new(
-                "tokens with a prefix scope set cannot create API keys.",
+                "tokens with a prefix mask set cannot create API keys.",
             ));
         }
 
@@ -1277,12 +1277,12 @@ mod test {
             (
                 None,
                 Some(vec!["aliceCo/".to_string()]),
-                "tokens with a prefix scope set cannot create API keys.",
+                "tokens with a prefix mask set cannot create API keys.",
             ),
             (
                 None,
                 Some(vec![]),
-                "tokens with a prefix scope set cannot create API keys.",
+                "tokens with a prefix mask set cannot create API keys.",
             ),
             (
                 Some(vec!["admin".to_string()]),

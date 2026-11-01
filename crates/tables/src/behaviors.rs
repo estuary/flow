@@ -196,9 +196,7 @@ impl super::UserGrant {
 
         for node in Self::reachable_nodes(role_grants, user_grants, subject) {
             // Keep empty nodes in the walk for legacy capability reporting.
-            // Omit them from prefix listings only for masked subjects, so a
-            // masked token does not learn of grants it cannot use, while
-            // existing unmasked listings are preserved.
+            // Omit them from prefix listings when a capability mask is present.
             if node.capabilities.is_empty() && subject.capability_mask.is_some() {
                 continue;
             }
@@ -1867,7 +1865,7 @@ mod test {
             subject.capability_mask = Some(authz::CapabilitySet::empty());
             assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject).is_empty());
         }
-        // An empty token scope normalizes to `/`, not unrestricted authority.
+        // An empty prefix in the mask normalizes to `/`, not unrestricted authority.
         let mut empty = Subject::unrestricted(user_id);
         empty.prefix_mask = Some(vec!["/".to_string()]);
         assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &empty).is_empty());

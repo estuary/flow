@@ -643,7 +643,7 @@ async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
     .await;
 
     // Alice's `admin` grant conveys `SpecEdit` only through a mask which
-    // includes it, and only within a prefix scope which covers the name.
+    // includes it, and only within a prefix mask which covers the name.
     let mut outcomes = Vec::new();
     for (case, mask, scope) in [
         ("viewer mask", Some(vec!["viewer"]), None),
