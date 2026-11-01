@@ -126,7 +126,7 @@ impl TenantMutation {
             .map_err(|_| async_graphql::Error::new("Authentication is required"))?;
 
         // Agents using restricted tokens cannot create tenants (for now)
-        if claims.capability_mask.is_some() || claims.prefix_mask.is_some() {
+        if claims.is_restricted() {
             return Err(async_graphql::Error::new(
                 "Restricted tokens cannot create tenants",
             ));

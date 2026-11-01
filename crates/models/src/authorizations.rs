@@ -36,6 +36,11 @@ pub struct ControlClaims {
 }
 
 impl ControlClaims {
+    /// Empty masks still restrict access; only absent masks are unrestricted.
+    pub fn is_restricted(&self) -> bool {
+        self.capability_mask.is_some() || self.prefix_mask.is_some()
+    }
+
     /// Converts these claims into the authorization subject used by grant evaluation.
     pub fn subject(&self) -> crate::authz::Subject {
         use serde::{Deserialize, de::value};
@@ -444,6 +449,35 @@ const fn capability_read() -> crate::Capability {
 mod test {
     use super::*;
     use crate::authz::{Capability, CapabilityBundle, CapabilitySet, Subject};
+
+    #[test]
+    fn restricted_token_masks() {
+        let mut results = Vec::new();
+        for capability_mask in [None, Some(vec![]), Some(vec!["viewer"])] {
+            for prefix_mask in [None, Some(vec![]), Some(vec!["acmeCo/"])] {
+                let claims: ControlClaims = serde_json::from_value(serde_json::json!({
+                    "aud": "authenticated", "iat": 0, "exp": 0,
+                    "sub": uuid::Uuid::nil(), "role": "authenticated",
+                    "capability_mask": capability_mask, "prefix_mask": prefix_mask,
+                }))
+                .unwrap();
+                results.push(claims.is_restricted());
+            }
+        }
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+        ]
+        "#);
+    }
 
     #[test]
     fn prefix_mask_from_token_payload() {

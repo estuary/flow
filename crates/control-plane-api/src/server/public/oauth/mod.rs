@@ -25,8 +25,7 @@ impl oauth_server::Backend for crate::App {
             )
         })?;
         if claims.role != "authenticated"
-            || claims.capability_mask.is_some()
-            || claims.prefix_mask.is_some()
+            || claims.is_restricted()
             || crate::server::is_service_account(&self.pg_pool, claims.sub)
                 .await
                 .map_err(oauth_server::internal)?

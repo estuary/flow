@@ -132,14 +132,9 @@ impl RefreshTokensMutation {
     ) -> async_graphql::Result<RefreshTokenResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
-        if claims.capability_mask.is_some() {
+        if claims.is_restricted() {
             return Err(async_graphql::Error::new(
-                "tokens with a capability mask set cannot create refresh tokens.",
-            ));
-        }
-        if claims.prefix_mask.is_some() {
-            return Err(async_graphql::Error::new(
-                "tokens with a prefix mask set cannot create refresh tokens.",
+                "restricted tokens cannot create refresh tokens.",
             ));
         }
         if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
@@ -268,22 +263,9 @@ mod test {
         .await;
 
         let alice = uuid::Uuid::from_bytes([0x11; 16]);
-        for (capability_mask, prefix_mask, expected_error) in [
-            (
-                Some(vec!["admin".to_string()]),
-                None,
-                "tokens with a capability mask set cannot create refresh tokens.",
-            ),
-            (
-                None,
-                Some(vec!["acmeCo/team/".to_string()]),
-                "tokens with a prefix mask set cannot create refresh tokens.",
-            ),
-            (
-                None,
-                Some(vec![]),
-                "tokens with a prefix mask set cannot create refresh tokens.",
-            ),
+        for (capability_mask, prefix_mask) in [
+            (Some(vec!["admin".to_string()]), None),
+            (None, Some(vec!["acmeCo/team/".to_string()])),
         ] {
             let scoped_token = server.make_restricted_access_token(
                 alice,
@@ -303,7 +285,7 @@ mod test {
                 )
                 .await;
             assert_eq!(
-                create["errors"][0]["message"], expected_error,
+                create["errors"][0]["message"], "restricted tokens cannot create refresh tokens.",
                 "a scoped token must be refused: {create}"
             );
         }
