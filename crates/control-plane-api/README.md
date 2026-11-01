@@ -35,6 +35,13 @@ of the expanded draft. The executor verifies it after expansion on every attempt
 before applying runtime defaults. A null hash preserves PostgREST publication
 behavior.
 
+`server/public/token_exchange.rs` handles refresh-token exchange and restricted
+access-token minting. `mint_restricted_token` requires an unrestricted token.
+Authorization applies the minted capability and prefix masks through
+`ControlClaims::subject` and `tables::UserGrant`. Postgres doesn't respect the
+access restrictions, so restricted tokens use a nonexistent Postgres role to
+prevent PostgREST from accepting the token at all.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.
