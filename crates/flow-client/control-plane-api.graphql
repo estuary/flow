@@ -411,6 +411,7 @@ enum CapabilityBit {
 	Assume
 	CreateSandbox
 	ManageAlerts
+	ManageLegal
 }
 
 """
@@ -1478,6 +1479,11 @@ type InferredSchemaStatus {
 	nextUpdateAfter: DateTime
 }
 
+input IntFilter {
+	eq: Int
+	gte: Int
+}
+
 """
 An invite link that grants access to a catalog prefix.
 """
@@ -1636,6 +1642,8 @@ type JobStatus {
 type LegalTerms {
 	id: Id!
 	text: String!
+	type: LegalTermsType!
+	version: Int!
 }
 
 enum LegalTermsType {
@@ -1886,6 +1894,10 @@ type MutationRoot {
 		"""
 		dataPlane: String!
 	): Boolean!
+	"""
+	Accept the latest legal terms of their type. Requires a direct ManageLegal grant and an unrestricted user token.
+	"""
+	legalTermsAccept(tenant: String!, termsId: Id!): LegalTerms!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	setBillingContact(		tenant: String!,
@@ -2708,6 +2720,10 @@ type QueryRoot {
 	Returns the latest legal terms of the given type.
 	"""
 	legalTerms(type: LegalTermsType!): LegalTerms
+	"""
+	Whether the tenant has accepted matching legal terms. Requires CatalogRead on the tenant.
+	"""
+	legalConsentCheck(tenant: String!, type: LegalTermsType!, version: IntFilter!): Boolean!
 	"""
 	List refresh tokens owned by the authenticated user.
 	"""
