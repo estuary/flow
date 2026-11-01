@@ -553,7 +553,7 @@ impl ServiceAccountsMutation {
                 "tokens with a capability mask set cannot create API keys.",
             ));
         }
-        if claims.prefix_scope.is_some() {
+        if claims.prefix_mask.is_some() {
             return Err(async_graphql::Error::new(
                 "tokens with a prefix scope set cannot create API keys.",
             ));

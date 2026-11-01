@@ -6,7 +6,7 @@ storage.
 
 Service-account API keys are minted by `server/public/graphql/service_accounts.rs`.
 Like refresh-token creation, API-key creation rejects access tokens carrying a
-capability mask or prefix scope, because the new credential would not preserve
+capability mask or prefix mask, because the new credential would not preserve
 those restrictions. Tenant creation in `server/public/graphql/tenant.rs` also
 rejects either restriction before provisioning a tenant. Its `tenant/storage.rs`
 helper derives collection and recovery storage mappings. Tenant provisioning,

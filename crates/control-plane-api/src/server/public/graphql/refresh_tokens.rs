@@ -137,7 +137,7 @@ impl RefreshTokensMutation {
                 "tokens with a capability mask set cannot create refresh tokens.",
             ));
         }
-        if claims.prefix_scope.is_some() {
+        if claims.prefix_mask.is_some() {
             return Err(async_graphql::Error::new(
                 "tokens with a prefix scope set cannot create refresh tokens.",
             ));
@@ -250,7 +250,7 @@ mod test {
             .encode(serde_json::json!({ "id": id, "secret": secret }).to_string())
     }
 
-    /// A token carrying a `capability_mask` or `prefix_scope` is scoped down from the user's
+    /// A token carrying a `capability_mask` or `prefix_mask` is scoped down from the user's
     /// full authority. Letting it mint a refresh token would let the holder
     /// exchange that for an unmasked access token, escaping the mask, so the
     /// mutation is refused before any row is written.
