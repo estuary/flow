@@ -268,7 +268,7 @@ mod test {
         .await;
 
         let alice = uuid::Uuid::from_bytes([0x11; 16]);
-        for (mask, scope, expected_error) in [
+        for (capability_mask, prefix_mask, expected_error) in [
             (
                 Some(vec!["admin".to_string()]),
                 None,
@@ -285,8 +285,12 @@ mod test {
                 "tokens with a prefix mask set cannot create refresh tokens.",
             ),
         ] {
-            let scoped_token =
-                server.make_restricted_access_token(alice, Some("alice@example.test"), mask, scope);
+            let scoped_token = server.make_restricted_access_token(
+                alice,
+                Some("alice@example.test"),
+                capability_mask,
+                prefix_mask,
+            );
             let create: serde_json::Value = server
                 .graphql(
                     &serde_json::json!({

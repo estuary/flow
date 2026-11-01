@@ -41,21 +41,21 @@ impl ControlClaims {
         use serde::{Deserialize, de::value};
         crate::authz::Subject {
             user_id: self.sub,
-            prefix_mask: self.prefix_mask.as_ref().map(|scopes| {
-                let mut scopes: Vec<String> = scopes
+            prefix_mask: self.prefix_mask.as_ref().map(|prefixes| {
+                let mut prefixes: Vec<String> = prefixes
                     .iter()
-                    .map(|scope| {
-                        let mut scope = scope.clone();
-                        if !scope.ends_with('/') {
-                            scope.push('/');
+                    .map(|prefix| {
+                        let mut prefix = prefix.clone();
+                        if !prefix.ends_with('/') {
+                            prefix.push('/');
                         }
-                        scope
+                        prefix
                     })
                     .collect();
                 // Remove duplicates and child prefixes if their ancestor is in the list
-                scopes.sort_unstable();
-                scopes.dedup_by(|scope, previous| scope.starts_with(previous.as_str()));
-                scopes
+                prefixes.sort_unstable();
+                prefixes.dedup_by(|prefix, previous| prefix.starts_with(previous.as_str()));
+                prefixes
             }),
             capability_mask: self.capability_mask.as_ref().map(|mask| {
                 mask.iter()
@@ -459,7 +459,7 @@ mod test {
                 .is_none()
         );
         let mut results = Vec::new();
-        for scope in [
+        for prefix_mask in [
             serde_json::Value::Null,
             serde_json::json!([]),
             serde_json::json!([""]),
@@ -472,7 +472,7 @@ mod test {
                 "acmeCo/team/"
             ]),
         ] {
-            payload["prefix_mask"] = scope;
+            payload["prefix_mask"] = prefix_mask;
             let claims: ControlClaims = serde_json::from_value(payload.clone()).unwrap();
             results.push(claims.subject().prefix_mask.clone());
             let round_trip: ControlClaims =

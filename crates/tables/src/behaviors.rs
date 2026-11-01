@@ -160,16 +160,16 @@ impl super::UserGrant {
         })
         .skip(1);
 
-        let Some(scopes) = subject.prefix_mask.as_ref() else {
+        let Some(prefixes) = subject.prefix_mask.as_ref() else {
             return itertools::Either::Left(user_nodes);
         };
 
         // Walk the user's full grant graph before clipping: a path may pass
         // through an out-of-scope role to reach an allowed prefix.
         itertools::Either::Right(user_nodes.flat_map(move |user| {
-            scopes.iter().filter_map(move |scope| {
+            prefixes.iter().filter_map(move |prefix| {
                 let mut node = user.clone();
-                node.object_role = intersect_prefixes(node.object_role, scope)?;
+                node.object_role = intersect_prefixes(node.object_role, prefix)?;
                 Some(node)
             })
         }))
@@ -196,7 +196,7 @@ impl super::UserGrant {
 
         for node in Self::reachable_nodes(role_grants, user_grants, subject) {
             // Keep empty nodes in the walk for legacy capability reporting.
-            // Omit them from prefix listings when a capability mask is present.
+            // Hide them from capability-masked listings to avoid revealing unusable grants.
             if node.capabilities.is_empty() && subject.capability_mask.is_some() {
                 continue;
             }
@@ -1831,7 +1831,7 @@ mod test {
     #[test]
     fn test_prefix_mask_intersects_reachable_authority() {
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
-        for (scope, expected) in [
+        for (prefix, expected) in [
             ("acmeCo/team/", vec!["acmeCo/team/"]),
             ("bobCo/", vec!["bobCo/shared/"]),
             ("carolCo/upstream/team/", vec!["carolCo/upstream/team/"]),
@@ -1839,7 +1839,7 @@ mod test {
             ("unknownCo/", vec![]),
         ] {
             let mut subject = Subject::unrestricted(user_id);
-            subject.prefix_mask = Some(vec![scope.to_string()]);
+            subject.prefix_mask = Some(vec![prefix.to_string()]);
             let reachable = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
             assert_eq!(reachable.keys().copied().collect::<Vec<_>>(), expected);
             for name in [
@@ -1859,7 +1859,7 @@ mod test {
                         Capability::CatalogRead
                     ),
                     expected.iter().any(|prefix| name.starts_with(*prefix)),
-                    "scope {scope}, name {name}"
+                    "prefix {prefix}, name {name}"
                 );
             }
             subject.capability_mask = Some(authz::CapabilitySet::empty());
@@ -1914,7 +1914,7 @@ mod test {
     fn test_prefix_mask_union() {
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
         let mut results = Vec::new();
-        for scopes in [
+        for prefixes in [
             vec![],
             vec!["acmeCo/team/", "carolCo/upstream/", "unknownCo/"],
             vec!["acmeCo/team/", "acmeCo/", "acmeCo/team/"],
@@ -1923,7 +1923,7 @@ mod test {
             let claims: models::authorizations::ControlClaims =
                 serde_json::from_value(serde_json::json!({
                     "aud": "authenticated", "iat": 0, "exp": 0,
-                    "sub": user_id, "role": "authenticated", "prefix_mask": scopes,
+                    "sub": user_id, "role": "authenticated", "prefix_mask": prefixes,
                 }))
                 .unwrap();
             let mut subject = claims.subject();
@@ -1942,7 +1942,7 @@ mod test {
                 "daveCo/team/task",
                 "unknownCo/task",
             ] {
-                let expected = scopes.iter().any(|scope| name.starts_with(scope))
+                let expected = prefixes.iter().any(|prefix| name.starts_with(prefix))
                     && UserGrant::is_authorized(
                         &role_grants,
                         &user_grants,
@@ -2169,8 +2169,8 @@ mod test {
         use Capability::*;
 
         // The `is_some()` half of the skip in `reachable_prefixes`: an empty
-        // node is omitted only for masked subjects. The shared fixture has no
-        // node that is empty when unmasked, so add one here rather than in
+        // node is omitted only for capability-masked subjects. The shared fixture
+        // has no node that is empty when unmasked, so add one here rather than in
         // the fixture, keeping its other tests' expectations intact. A direct
         // grant with legacy `None` and no bundles conveys zero bits regardless
         // of masking, and touches no role edge, so the rest of the walk is

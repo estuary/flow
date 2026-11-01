@@ -645,7 +645,7 @@ async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
     // Alice's `admin` grant conveys `SpecEdit` only through a mask which
     // includes it, and only within a prefix mask which covers the name.
     let mut outcomes = Vec::new();
-    for (case, mask, scope) in [
+    for (case, capability_mask, prefix) in [
         ("viewer mask", Some(vec!["viewer"]), None),
         ("editor mask", Some(vec!["editor"]), None),
         ("scoped to aliceCo/in/", None, Some("aliceCo/in/")),
@@ -654,8 +654,8 @@ async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
         let token = server.make_restricted_access_token(
             ALICE,
             None,
-            mask.map(|bundles| bundles.into_iter().map(str::to_owned).collect()),
-            scope.map(|scope| vec![scope.to_owned()]),
+            capability_mask.map(|bundles| bundles.into_iter().map(str::to_owned).collect()),
+            prefix.map(|prefix| vec![prefix.to_owned()]),
         );
         let response = submit(
             &server,

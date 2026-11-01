@@ -380,7 +380,7 @@ mod test {
         "#);
 
         // === The bearer's prefix mask carries into the minted token ===
-        // Dropping it would widen the bearer. The scope is copied as-is; the
+        // Dropping it would widen the bearer. The prefix mask is copied as-is; the
         // trailing-slash normalization happens when the claims become a Subject.
         let scoped_bearer = server.make_restricted_access_token(
             alice,

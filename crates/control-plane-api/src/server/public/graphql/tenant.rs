@@ -659,7 +659,7 @@ mod test {
         let req = request("acmeCo");
         let unauth: serde_json::Value = server.graphql(&req, None).await;
         assert_eq!(unauth["errors"][0]["message"], "Authentication is required");
-        for (mask, scope) in [
+        for (capability_mask, prefix_mask) in [
             (Some(vec![]), None),
             (Some(vec!["admin".to_string()]), None),
             (None, Some(vec!["acmeCo/".to_string()])),
@@ -669,7 +669,8 @@ mod test {
                 Some(vec!["acmeCo/".to_string()]),
             ),
         ] {
-            let restricted = server.make_restricted_access_token(ALICE, None, mask, scope);
+            let restricted =
+                server.make_restricted_access_token(ALICE, None, capability_mask, prefix_mask);
             let denied: serde_json::Value = server.graphql(&req, Some(&restricted)).await;
             assert_eq!(
                 denied["errors"][0]["message"], "Restricted tokens cannot create tenants",

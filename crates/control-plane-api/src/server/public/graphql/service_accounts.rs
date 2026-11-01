@@ -1263,7 +1263,7 @@ mod test {
 
         // Even scopes that retain CreateApiKey and cover the account cannot
         // mint an unrestricted credential. Empty scopes must also fail closed.
-        for (mask, scope, expected_error) in [
+        for (capability_mask, prefix_mask, expected_error) in [
             (
                 Some(vec!["admin".to_string()]),
                 None,
@@ -1293,8 +1293,8 @@ mod test {
             let scoped_token = server.make_restricted_access_token(
                 uuid::Uuid::from_bytes([0x11; 16]),
                 Some("alice@example.test"),
-                mask,
-                scope,
+                capability_mask,
+                prefix_mask,
             );
             let create: serde_json::Value = server
                 .graphql(
