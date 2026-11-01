@@ -36,6 +36,11 @@ pub struct ControlClaims {
 }
 
 impl ControlClaims {
+    /// Empty masks still restrict access; only absent masks are unrestricted.
+    pub fn is_restricted(&self) -> bool {
+        self.capability_mask.is_some() || self.prefix_mask.is_some()
+    }
+
     /// Converts these claims into the authorization subject used by grant evaluation.
     pub fn subject(&self) -> crate::authz::Subject {
         use serde::{Deserialize, de::value};

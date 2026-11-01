@@ -38,7 +38,7 @@ behavior.
 `server/public/token_exchange.rs` handles refresh-token exchange and restricted
 access-token minting. `mint_restricted_token` requires an unrestricted token.
 Authorization applies the minted capability and prefix masks through
-`ControlClaims::subject` and `tables::UserGrant`. Postgres doesn't respect the
+`ControlClaims::subject` and `tables::UserGrant`. PostgREST doesn't respect the
 access restrictions, so restricted tokens use a nonexistent Postgres role to
 prevent PostgREST from accepting the token at all.
 

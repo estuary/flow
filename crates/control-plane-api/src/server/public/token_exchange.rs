@@ -164,7 +164,7 @@ async fn mint_restricted_token(
     prefix_mask: Option<Vec<String>>,
     app: &Arc<crate::App>,
 ) -> Result<TokenResponse, crate::ApiError> {
-    if claims.capability_mask.is_some() || claims.prefix_mask.is_some() {
+    if claims.is_restricted() {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
             "Restricted tokens cannot mint new tokens",
         )));
