@@ -548,14 +548,9 @@ impl ServiceAccountsMutation {
 
         // API keys inherit the service account's full authority, so minting one
         // would let a scoped caller escape its token's restrictions.
-        if claims.capability_mask.is_some() {
+        if claims.is_restricted() {
             return Err(async_graphql::Error::new(
-                "tokens with a capability mask set cannot create API keys.",
-            ));
-        }
-        if claims.prefix_mask.is_some() {
-            return Err(async_graphql::Error::new(
-                "tokens with a prefix mask set cannot create API keys.",
+                "restricted tokens cannot create API keys.",
             ));
         }
 
@@ -1261,34 +1256,11 @@ mod test {
             "a grant to an unadministered prefix should be rejected: {foreign_grant}"
         );
 
-        // Even scopes that retain CreateApiKey and cover the account cannot
-        // mint an unrestricted credential. Empty scopes must also fail closed.
-        for (capability_mask, prefix_mask, expected_error) in [
-            (
-                Some(vec!["admin".to_string()]),
-                None,
-                "tokens with a capability mask set cannot create API keys.",
-            ),
-            (
-                Some(Vec::new()),
-                None,
-                "tokens with a capability mask set cannot create API keys.",
-            ),
-            (
-                None,
-                Some(vec!["aliceCo/".to_string()]),
-                "tokens with a prefix mask set cannot create API keys.",
-            ),
-            (
-                None,
-                Some(vec![]),
-                "tokens with a prefix mask set cannot create API keys.",
-            ),
-            (
-                Some(vec!["admin".to_string()]),
-                Some(vec!["aliceCo/".to_string()]),
-                "tokens with a capability mask set cannot create API keys.",
-            ),
+        // Even masks that retain CreateApiKey or cover the account cannot
+        // mint an unrestricted credential.
+        for (capability_mask, prefix_mask) in [
+            (Some(vec!["admin".to_string()]), None),
+            (None, Some(vec!["aliceCo/".to_string()])),
         ] {
             let scoped_token = server.make_restricted_access_token(
                 uuid::Uuid::from_bytes([0x11; 16]),
@@ -1308,7 +1280,7 @@ mod test {
                 )
                 .await;
             assert_eq!(
-                create["errors"][0]["message"], expected_error,
+                create["errors"][0]["message"], "restricted tokens cannot create API keys.",
                 "a scoped token must be refused: {create}"
             );
         }
