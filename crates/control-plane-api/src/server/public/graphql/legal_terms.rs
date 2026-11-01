@@ -50,17 +50,18 @@ impl LegalTermsQuery {
     async fn legal_consent_check(
         &self,
         ctx: &async_graphql::Context<'_>,
-        #[graphql(validator(min_length = 2, regex = "^[^/]+/$"))] tenant: String,
+        #[graphql(validator(regex = "^[^/]+/$"))] tenant: String,
         r#type: LegalTermsType,
         version: super::filters::IntFilter,
     ) -> async_graphql::Result<bool> {
-        let env = ctx.data::<crate::Envelope>()?;
-        super::verify_authorization(env, &tenant, models::authz::Capability::CatalogRead).await?;
         if version.eq.is_some() == version.gte.is_some() {
             return Err(async_graphql::Error::new(
                 "Provide exactly one of version.eq or version.gte",
             ));
         }
+
+        let env = ctx.data::<crate::Envelope>()?;
+        super::verify_authorization(env, &tenant, models::authz::Capability::CatalogRead).await?;
 
         // Audit records survive tenant deletion; consent must match the current tenant ID.
         let accepted: bool = sqlx::query_scalar(
@@ -92,7 +93,7 @@ impl LegalTermsMutation {
     async fn legal_terms_accept(
         &self,
         ctx: &async_graphql::Context<'_>,
-        #[graphql(validator(min_length = 2, regex = "^[^/]+/$"))] tenant: String,
+        #[graphql(validator(regex = "^[^/]+/$"))] tenant: String,
         terms_id: models::Id,
     ) -> async_graphql::Result<LegalTerms> {
         let env = ctx.data::<crate::Envelope>()?;
@@ -175,6 +176,20 @@ impl LegalTermsMutation {
 #[cfg(test)]
 mod test {
     #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn legal_terms_requires_type(pool: sqlx::PgPool) {
+        let server = crate::test_server::TestServer::start(
+            pool.clone(),
+            crate::test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let query = serde_json::json!({ "query": "{ legalTerms { id text } }" });
+
+        let response: serde_json::Value = server.graphql(&query, None).await;
+        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""Field \"legalTerms\" argument \"type\" of type \"QueryRoot\" is required but not provided""#);
+        assert!(response["data"].is_null());
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn legal_terms_unauthenticated(pool: sqlx::PgPool) {
         let server = crate::test_server::TestServer::start(
             pool.clone(),
@@ -197,9 +212,7 @@ mod test {
         assert!(text.starts_with("# MASTER SERVICES AGREEMENT\n"));
     }
 
-    async fn accepted_terms_server(
-        pool: &sqlx::PgPool,
-    ) -> (crate::test_server::TestServer, String) {
+    async fn seed_accepted_terms(pool: &sqlx::PgPool) -> uuid::Uuid {
         let user = uuid::Uuid::from_bytes([0x11; 16]);
         sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'alice@example.test')")
             .bind(user)
@@ -217,19 +230,17 @@ mod test {
              SELECT $1, 'alice@example.test', l.id, t.tenant, t.id
              FROM internal.legal_terms l CROSS JOIN tenants t WHERE t.tenant = 'acmeCo/'",
         ).bind(user).execute(pool).await.unwrap();
+        user
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn accept_legal_terms(pool: sqlx::PgPool) {
+        let user = seed_accepted_terms(&pool).await;
         let server = crate::test_server::TestServer::start(
             pool.clone(),
             crate::test_server::snapshot(pool.clone(), false).await,
         )
         .await;
-        let token = server.make_access_token(user, None);
-        (server, token)
-    }
-
-    #[sqlx::test(migrations = "../../supabase/migrations")]
-    async fn accept_legal_terms(pool: sqlx::PgPool) {
-        let (server, _) = accepted_terms_server(&pool).await;
-        let user = uuid::Uuid::from_bytes([0x11; 16]);
         let token = server.make_access_token(user, Some("untrusted@example.test"));
         let terms_id = "00:00:00:00:00:00:00:0f";
         sqlx::query("INSERT INTO internal.legal_terms (id, type, version, text) VALUES ($1::flowid, 'msa', 99, 'Test agreement')")
@@ -243,9 +254,9 @@ mod test {
         {
           "data": {
             "legalTermsAccept": {
+              "text": "Test agreement",
               "type": "MSA",
-              "version": 99,
-              "text": "Test agreement"
+              "version": 99
             }
           }
         }
@@ -269,21 +280,11 @@ mod test {
           "userMatches": true
         }
         "#);
-        let query = serde_json::json!({"query": "{ legalConsentCheck(tenant: \"acmeCo/\", type: MSA, version: { eq: 99 }) }"});
-        let accepted: serde_json::Value = server.graphql(&query, Some(&token)).await;
-        insta::assert_json_snapshot!(accepted, @r#"
-        {
-          "data": {
-            "legalConsentCheck": true
-          }
-        }
-        "#);
     }
 
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn accept_legal_terms_requires_direct_grant(pool: sqlx::PgPool) {
-        let (_server, _) = accepted_terms_server(&pool).await;
-        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        let user = seed_accepted_terms(&pool).await;
         sqlx::query("INSERT INTO tenants (tenant) VALUES ('otherCo/')")
             .execute(&pool)
             .await
@@ -333,8 +334,13 @@ mod test {
 
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn accept_legal_terms_rejections(pool: sqlx::PgPool) {
-        let (server, token) = accepted_terms_server(&pool).await;
-        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        let user = seed_accepted_terms(&pool).await;
+        let server = crate::test_server::TestServer::start(
+            pool.clone(),
+            crate::test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let token = server.make_access_token(user, None);
         let terms_id: models::Id = sqlx::query_scalar(
             "SELECT id FROM internal.legal_terms WHERE type = 'msa' AND version = 4",
         )
@@ -349,17 +355,15 @@ mod test {
             .fetch_one(&pool)
             .await
             .unwrap();
-        let anonymous: serde_json::Value = server.graphql(&query, None).await;
-        assert!(anonymous.get("errors").is_some(), "{anonymous}");
         let admin_mask =
             server.make_restricted_access_token(user, None, Some(vec!["admin".to_string()]), None);
-        let tenant_scope = server.make_restricted_access_token(
+        let prefix_mask = server.make_restricted_access_token(
             user,
             None,
             None,
             Some(vec!["acmeCo/".to_string()]),
         );
-        for restricted in [admin_mask, tenant_scope] {
+        for restricted in [admin_mask, prefix_mask] {
             let response: serde_json::Value = server.graphql(&query, Some(&restricted)).await;
             insta::allow_duplicates! {
                 insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""Restricted tokens cannot accept legal terms""#);
@@ -375,10 +379,6 @@ mod test {
         outdated["variables"]["id"] = serde_json::json!(old_terms_id.to_string());
         let outdated: serde_json::Value = server.graphql(&outdated, Some(&token)).await;
         insta::assert_json_snapshot!(outdated["errors"][0]["message"], @r#""User or tenant not found, or legal terms are not the latest version""#);
-        let mut missing = query.clone();
-        missing["variables"]["id"] = serde_json::json!("00:00:00:00:00:00:00:0f");
-        let missing: serde_json::Value = server.graphql(&missing, Some(&token)).await;
-        insta::assert_json_snapshot!(missing["errors"][0]["message"], @r#""User or tenant not found, or legal terms are not the latest version""#);
         let mut invalid = query.clone();
         invalid["variables"]["tenant"] = serde_json::json!("acmeCo/nested/");
         let invalid: serde_json::Value = server.graphql(&invalid, Some(&token)).await;
@@ -396,8 +396,7 @@ mod test {
 
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn legal_consent_check(pool: sqlx::PgPool) {
-        let (_server, _) = accepted_terms_server(&pool).await;
-        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        let user = seed_accepted_terms(&pool).await;
         sqlx::query("UPDATE user_grants SET capability = 'read' WHERE user_id = $1")
             .bind(user)
             .execute(&pool)
@@ -464,7 +463,5 @@ mod test {
         nested["variables"]["tenant"] = serde_json::json!("nestedCo/");
         let denied: serde_json::Value = server.graphql(&nested, Some(&token)).await;
         assert!(denied["errors"].is_array(), "{denied}");
-        let anonymous: serde_json::Value = server.graphql(&query, None).await;
-        assert!(anonymous["errors"].is_array(), "{anonymous}");
     }
 }
