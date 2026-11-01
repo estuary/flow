@@ -32,7 +32,7 @@ pub struct ControlClaims {
     /// Limits the user's reachable authority to the union of these prefixes.
     /// Omitted or null is unrestricted; an empty list denies all access.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prefix_scope: Option<Vec<String>>,
+    pub prefix_mask: Option<Vec<String>>,
 }
 
 impl ControlClaims {
@@ -41,21 +41,21 @@ impl ControlClaims {
         use serde::{Deserialize, de::value};
         crate::authz::Subject {
             user_id: self.sub,
-            prefix_scope: self.prefix_scope.as_ref().map(|scopes| {
-                let mut scopes: Vec<String> = scopes
+            prefix_mask: self.prefix_mask.as_ref().map(|prefixes| {
+                let mut prefixes: Vec<String> = prefixes
                     .iter()
-                    .map(|scope| {
-                        let mut scope = scope.clone();
-                        if !scope.ends_with('/') {
-                            scope.push('/');
+                    .map(|prefix| {
+                        let mut prefix = prefix.clone();
+                        if !prefix.ends_with('/') {
+                            prefix.push('/');
                         }
-                        scope
+                        prefix
                     })
                     .collect();
                 // Remove duplicates and child prefixes if their ancestor is in the list
-                scopes.sort_unstable();
-                scopes.dedup_by(|scope, previous| scope.starts_with(previous.as_str()));
-                scopes
+                prefixes.sort_unstable();
+                prefixes.dedup_by(|prefix, previous| prefix.starts_with(previous.as_str()));
+                prefixes
             }),
             capability_mask: self.capability_mask.as_ref().map(|mask| {
                 mask.iter()
@@ -446,7 +446,7 @@ mod test {
     use crate::authz::{Capability, CapabilityBundle, CapabilitySet, Subject};
 
     #[test]
-    fn prefix_scope_from_token_payload() {
+    fn prefix_mask_from_token_payload() {
         let mut payload = serde_json::json!({
             "aud": "authenticated", "iat": 1700000000, "exp": 1700003600,
             "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a", "role": "authenticated",
@@ -455,11 +455,11 @@ mod test {
             serde_json::from_value::<ControlClaims>(payload.clone())
                 .unwrap()
                 .subject()
-                .prefix_scope
+                .prefix_mask
                 .is_none()
         );
         let mut results = Vec::new();
-        for scope in [
+        for prefix_mask in [
             serde_json::Value::Null,
             serde_json::json!([]),
             serde_json::json!([""]),
@@ -472,9 +472,9 @@ mod test {
                 "acmeCo/team/"
             ]),
         ] {
-            payload["prefix_scope"] = scope;
+            payload["prefix_mask"] = prefix_mask;
             let claims: ControlClaims = serde_json::from_value(payload.clone()).unwrap();
-            results.push(claims.subject().prefix_scope.clone());
+            results.push(claims.subject().prefix_mask.clone());
             let round_trip: ControlClaims =
                 serde_json::from_value(serde_json::to_value(&claims).unwrap()).unwrap();
             assert_eq!(round_trip.subject(), claims.subject());
@@ -505,7 +505,7 @@ mod test {
             serde_json::json!([null]),
             serde_json::json!([42]),
         ] {
-            payload["prefix_scope"] = malformed;
+            payload["prefix_mask"] = malformed;
             assert!(serde_json::from_value::<ControlClaims>(payload.clone()).is_err());
         }
     }
@@ -613,7 +613,7 @@ mod test {
                 Subject {
                     user_id,
                     capability_mask: *expected_mask,
-                    prefix_scope: None,
+                    prefix_mask: None,
                 },
                 "{payload}"
             );

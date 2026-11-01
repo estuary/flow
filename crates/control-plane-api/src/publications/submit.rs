@@ -1,7 +1,7 @@
 use super::Initialize;
 
 /// Queues a publication of `draft_id` for the publications executor, after
-/// authorizing `subject`, with its capability mask and prefix scope, against
+/// authorizing `subject`, with its capability mask and prefix mask, against
 /// the user rules the executor applies. Returns the id and logs token of the
 /// queued publication. Permission denials are a `tonic::Status` in the error
 /// chain, which callers pass to `Envelope::authorization_outcome`.

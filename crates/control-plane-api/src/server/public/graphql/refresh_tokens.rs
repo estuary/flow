@@ -137,9 +137,9 @@ impl RefreshTokensMutation {
                 "tokens with a capability mask set cannot create refresh tokens.",
             ));
         }
-        if claims.prefix_scope.is_some() {
+        if claims.prefix_mask.is_some() {
             return Err(async_graphql::Error::new(
-                "tokens with a prefix scope set cannot create refresh tokens.",
+                "tokens with a prefix mask set cannot create refresh tokens.",
             ));
         }
         if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
@@ -250,7 +250,7 @@ mod test {
             .encode(serde_json::json!({ "id": id, "secret": secret }).to_string())
     }
 
-    /// A token carrying a `capability_mask` or `prefix_scope` is scoped down from the user's
+    /// A token carrying a `capability_mask` or `prefix_mask` is scoped down from the user's
     /// full authority. Letting it mint a refresh token would let the holder
     /// exchange that for an unmasked access token, escaping the mask, so the
     /// mutation is refused before any row is written.
@@ -268,7 +268,7 @@ mod test {
         .await;
 
         let alice = uuid::Uuid::from_bytes([0x11; 16]);
-        for (mask, scope, expected_error) in [
+        for (capability_mask, prefix_mask, expected_error) in [
             (
                 Some(vec!["admin".to_string()]),
                 None,
@@ -277,16 +277,20 @@ mod test {
             (
                 None,
                 Some(vec!["acmeCo/team/".to_string()]),
-                "tokens with a prefix scope set cannot create refresh tokens.",
+                "tokens with a prefix mask set cannot create refresh tokens.",
             ),
             (
                 None,
                 Some(vec![]),
-                "tokens with a prefix scope set cannot create refresh tokens.",
+                "tokens with a prefix mask set cannot create refresh tokens.",
             ),
         ] {
-            let scoped_token =
-                server.make_restricted_access_token(alice, Some("alice@example.test"), mask, scope);
+            let scoped_token = server.make_restricted_access_token(
+                alice,
+                Some("alice@example.test"),
+                capability_mask,
+                prefix_mask,
+            );
             let create: serde_json::Value = server
                 .graphql(
                     &serde_json::json!({

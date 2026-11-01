@@ -26,7 +26,7 @@ impl oauth_server::Backend for crate::App {
         })?;
         if claims.role != "authenticated"
             || claims.capability_mask.is_some()
-            || claims.prefix_scope.is_some()
+            || claims.prefix_mask.is_some()
             || crate::server::is_service_account(&self.pg_pool, claims.sub)
                 .await
                 .map_err(oauth_server::internal)?
@@ -94,7 +94,7 @@ mod tests {
         )
         .await;
         let alice = uuid::Uuid::from_bytes([0x11; 16]);
-        for (mask, scope, service_account, allowed) in [
+        for (capability_mask, prefix_mask, service_account, allowed) in [
             (None, None, false, true),
             (Some(vec![]), None, false, false),
             (Some(vec!["admin".into()]), None, false, false),
@@ -106,7 +106,8 @@ mod tests {
                 sqlx::query("INSERT INTO internal.service_accounts (user_id, catalog_name, created_by) VALUES ($1, 'acmeCo/bot', $1)")
                     .bind(alice).execute(&pool).await.unwrap();
             }
-            let bearer = server.make_restricted_access_token(alice, None, mask, scope);
+            let bearer =
+                server.make_restricted_access_token(alice, None, capability_mask, prefix_mask);
             let (mut parts, _) = axum::http::Request::builder()
                 .uri("/oauth/authorize")
                 .header("authorization", format!("Bearer {bearer}"))

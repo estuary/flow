@@ -9,7 +9,7 @@ pub struct Subject {
     pub capability_mask: Option<CapabilitySet>,
     /// Limits the user's reachable authority to the union of these prefixes.
     /// None is unrestricted; an empty list denies all access.
-    pub prefix_scope: Option<Vec<String>>,
+    pub prefix_mask: Option<Vec<String>>,
 }
 
 impl Subject {
@@ -18,7 +18,7 @@ impl Subject {
         Self {
             user_id,
             capability_mask: None,
-            prefix_scope: None,
+            prefix_mask: None,
         }
     }
 }

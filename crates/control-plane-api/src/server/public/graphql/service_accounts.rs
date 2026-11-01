@@ -553,9 +553,9 @@ impl ServiceAccountsMutation {
                 "tokens with a capability mask set cannot create API keys.",
             ));
         }
-        if claims.prefix_scope.is_some() {
+        if claims.prefix_mask.is_some() {
             return Err(async_graphql::Error::new(
-                "tokens with a prefix scope set cannot create API keys.",
+                "tokens with a prefix mask set cannot create API keys.",
             ));
         }
 
@@ -1263,7 +1263,7 @@ mod test {
 
         // Even scopes that retain CreateApiKey and cover the account cannot
         // mint an unrestricted credential. Empty scopes must also fail closed.
-        for (mask, scope, expected_error) in [
+        for (capability_mask, prefix_mask, expected_error) in [
             (
                 Some(vec!["admin".to_string()]),
                 None,
@@ -1277,12 +1277,12 @@ mod test {
             (
                 None,
                 Some(vec!["aliceCo/".to_string()]),
-                "tokens with a prefix scope set cannot create API keys.",
+                "tokens with a prefix mask set cannot create API keys.",
             ),
             (
                 None,
                 Some(vec![]),
-                "tokens with a prefix scope set cannot create API keys.",
+                "tokens with a prefix mask set cannot create API keys.",
             ),
             (
                 Some(vec!["admin".to_string()]),
@@ -1293,8 +1293,8 @@ mod test {
             let scoped_token = server.make_restricted_access_token(
                 uuid::Uuid::from_bytes([0x11; 16]),
                 Some("alice@example.test"),
-                mask,
-                scope,
+                capability_mask,
+                prefix_mask,
             );
             let create: serde_json::Value = server
                 .graphql(

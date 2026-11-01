@@ -1769,7 +1769,7 @@ impl TestHarness {
             role: "authenticated".to_string(),
             email: Some("user@example.com".to_string()),
             capability_mask: None,
-            prefix_scope: None,
+            prefix_mask: None,
         };
 
         let token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)

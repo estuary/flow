@@ -208,9 +208,8 @@ async fn mint_restricted_token(
         role: "postgrest_cant_use_this_token".to_string(),
         email: claims.email.clone(),
         capability_mask: Some(capability_mask),
-        // A prefix-scoped bearer mints a token that keeps its scope: the mask
-        // only ever narrows, so the result must not widen the bearer either.
-        prefix_scope: claims.prefix_scope.clone(),
+        // Preserve the bearer's prefix mask so the minted token cannot widen its authority.
+        prefix_mask: claims.prefix_mask.clone(),
     };
 
     let access_token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)?;
@@ -235,7 +234,7 @@ mod test {
     /// rejections (unknown bundle names, unknown request fields, no bearer, a
     /// non-user `role`, a service-account caller) and, for accepted masks, that
     /// the minted JWT verifies under the server's keys, carries the caller's
-    /// identity claims and `prefix_scope` plus the requested mask verbatim,
+    /// identity claims and `prefix_mask` plus the requested mask verbatim,
     /// and has a fixed one-hour lifetime that is independent of the bearer's.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
@@ -380,8 +379,8 @@ mod test {
         }
         "#);
 
-        // === A prefix-scoped bearer's scope carries into the minted token ===
-        // Dropping it would widen the bearer. The scope is copied as-is; the
+        // === The bearer's prefix mask carries into the minted token ===
+        // Dropping it would widen the bearer. The prefix mask is copied as-is; the
         // trailing-slash normalization happens when the claims become a Subject.
         let scoped_bearer = server.make_restricted_access_token(
             alice,
@@ -406,9 +405,9 @@ mod test {
         let body: serde_json::Value = minted.json().await.unwrap();
         let claims = server.verify_access_token(body["access_token"].as_str().unwrap());
         assert_eq!(
-            claims.prefix_scope,
+            claims.prefix_mask,
             Some(vec!["aliceCo/".to_string(), "otherCo/team".to_string()]),
-            "the bearer's prefix_scope must survive the mint"
+            "the bearer's prefix_mask must survive the mint"
         );
         assert_eq!(claims.capability_mask, Some(vec!["viewer".to_string()]));
 
@@ -427,7 +426,7 @@ mod test {
                 aud: "authenticated".to_string(),
                 email: Some("alice@example.test".to_string()),
                 capability_mask: None,
-                prefix_scope: None,
+                prefix_mask: None,
             })
         };
         let bearer_exp = server.verify_access_token(&life_extending_token).exp;
@@ -496,7 +495,7 @@ mod test {
                 aud: "authenticated".to_string(),
                 email: None,
                 capability_mask: None,
-                prefix_scope: None,
+                prefix_mask: None,
             }
         };
         let dekaf_token = server.sign_claims(&dekaf_claims);
@@ -920,7 +919,7 @@ mod test {
                 aud: "authenticated".to_string(),
                 email: None,
                 capability_mask: None,
-                prefix_scope: None,
+                prefix_mask: None,
             })
         };
         for (name, header) in [
