@@ -451,6 +451,35 @@ mod test {
     use crate::authz::{Capability, CapabilityBundle, CapabilitySet, Subject};
 
     #[test]
+    fn restricted_token_masks() {
+        let mut results = Vec::new();
+        for capability_mask in [None, Some(vec![]), Some(vec!["viewer"])] {
+            for prefix_mask in [None, Some(vec![]), Some(vec!["acmeCo/"])] {
+                let claims: ControlClaims = serde_json::from_value(serde_json::json!({
+                    "aud": "authenticated", "iat": 0, "exp": 0,
+                    "sub": uuid::Uuid::nil(), "role": "authenticated",
+                    "capability_mask": capability_mask, "prefix_mask": prefix_mask,
+                }))
+                .unwrap();
+                results.push(claims.is_restricted());
+            }
+        }
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+        ]
+        "#);
+    }
+
+    #[test]
     fn prefix_mask_from_token_payload() {
         let mut payload = serde_json::json!({
             "aud": "authenticated", "iat": 1700000000, "exp": 1700003600,

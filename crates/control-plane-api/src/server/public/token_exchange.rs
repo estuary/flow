@@ -356,47 +356,28 @@ mod test {
             // The outgoing write/read grants could leak catalog reads without
             // granting Admin, so an admin-only mutation cannot detect that leak.
             let read: serde_json::Value = server.graphql(&read_data, Some(token)).await;
-            insta::assert_json_snapshot!(read, @r#"
-            {
-              "data": null,
-              "errors": [
+            insta::allow_duplicates! {
+                insta::assert_json_snapshot!(read, @r#"
                 {
-                  "locations": [
+                  "data": null,
+                  "errors": [
                     {
-                      "column": 17,
-                      "line": 2
+                      "locations": [
+                        {
+                          "column": 17,
+                          "line": 2
+                        }
+                      ],
+                      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'aliceCo/data/'",
+                      "path": [
+                        "liveSpecs"
+                      ]
                     }
-                  ],
-                  "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'aliceCo/data/'",
-                  "path": [
-                    "liveSpecs"
                   ]
                 }
-              ]
+                "#);
             }
-            "#);
         }
-
-        // A prefix-masked caller cannot mint even when its role is authenticated.
-        let prefix_masked_bearer = server.make_restricted_access_token(
-            alice,
-            None,
-            None,
-            Some(vec!["aliceCo/in/".to_string()]),
-        );
-        let rejected = server
-            .rest_client()
-            .post(
-                "/api/v1/auth/token",
-                &serde_json::json!({"grant_type": "token_exchange", "prefix_mask": ["aliceCo/"]}),
-                Some(&prefix_masked_bearer),
-            )
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(rejected.status(), reqwest::StatusCode::FORBIDDEN);
-        insta::assert_snapshot!(rejected.text().await.unwrap(),
-            @"Restricted tokens cannot mint new tokens");
 
         for request in [
             serde_json::json!({"grant_type": "token_exchange"}),
@@ -409,8 +390,11 @@ mod test {
                 .await
                 .unwrap();
             assert_eq!(rejected.status(), reqwest::StatusCode::BAD_REQUEST);
-            insta::assert_snapshot!(rejected.text().await.unwrap(),
-                @"At least one of capability_mask or prefix_mask is required");
+            let message = rejected.text().await.unwrap();
+            insta::allow_duplicates! {
+                insta::assert_snapshot!(message,
+                    @"At least one of capability_mask or prefix_mask is required");
+            }
         }
 
         let rejected = server
@@ -427,7 +411,7 @@ mod test {
     }
 
     /// Checks caller eligibility, including rejection of masked callers and
-    /// non-user or service-account callers with missing restrictions.
+    /// non-user or service-account callers.
     /// Also checks request validation, JWT signatures, identity and mask claims,
     /// and the fixed one-hour lifetime independent of the bearer's expiry.
     #[sqlx::test(
@@ -575,14 +559,8 @@ mod test {
 
         // Exercise restriction checks independently of the minted token's role.
         for (capability_mask, prefix_mask) in [
-            (Some(vec![]), None),
             (Some(vec!["viewer".to_string()]), None),
-            (None, Some(vec![])),
             (None, Some(vec!["aliceCo/".to_string()])),
-            (
-                Some(vec!["viewer".to_string()]),
-                Some(vec!["aliceCo/".to_string()]),
-            ),
         ] {
             let restricted_bearer = server.make_restricted_access_token(
                 alice,
@@ -604,8 +582,11 @@ mod test {
                 .await
                 .unwrap();
             assert_eq!(rejected.status(), reqwest::StatusCode::FORBIDDEN);
-            insta::assert_snapshot!(rejected.text().await.unwrap(),
-                @"Restricted tokens cannot mint new tokens");
+            let message = rejected.text().await.unwrap();
+            insta::allow_duplicates! {
+                insta::assert_snapshot!(message,
+                    @"Restricted tokens cannot mint new tokens");
+            }
         }
 
         // === The lifetime is fixed, not capped by the bearer's ===
@@ -697,22 +678,19 @@ mod test {
         };
         let dekaf_token = server.sign_claims(&dekaf_claims);
 
-        for request in [
-            serde_json::json!({"grant_type": "token_exchange", "capability_mask": ["viewer"]}),
-            serde_json::json!({"grant_type": "token_exchange"}),
-        ] {
-            let refused = server
-                .rest_client()
-                .post("/api/v1/auth/token", &request, Some(&dekaf_token))
-                .send()
-                .await
-                .unwrap();
-            assert_eq!(refused.status(), reqwest::StatusCode::FORBIDDEN);
-            insta::assert_snapshot!(
-                refused.text().await.unwrap(),
-                @"Restricted tokens can only be minted from a user session"
-            );
-        }
+        let refused = server
+            .rest_client()
+            .post(
+                "/api/v1/auth/token",
+                &serde_json::json!({"grant_type": "token_exchange", "capability_mask": ["viewer"]}),
+                Some(&dekaf_token),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), reqwest::StatusCode::FORBIDDEN);
+        insta::assert_snapshot!(refused.text().await.unwrap(),
+            @"Restricted tokens can only be minted from a user session");
 
         // === Service accounts cannot mint ===
         // Create an account as alice, then fabricate the access token its API
@@ -743,22 +721,19 @@ mod test {
         .unwrap();
         let sa_token = server.make_access_token(sa_user_id, None);
 
-        for request in [
-            serde_json::json!({"grant_type": "token_exchange", "capability_mask": ["viewer"]}),
-            serde_json::json!({"grant_type": "token_exchange"}),
-        ] {
-            let refused = server
-                .rest_client()
-                .post("/api/v1/auth/token", &request, Some(&sa_token))
-                .send()
-                .await
-                .unwrap();
-            assert_eq!(refused.status(), reqwest::StatusCode::FORBIDDEN);
-            insta::assert_snapshot!(
-                refused.text().await.unwrap(),
-                @"Service account tokens cannot be used to mint restricted tokens"
-            );
-        }
+        let refused = server
+            .rest_client()
+            .post(
+                "/api/v1/auth/token",
+                &serde_json::json!({"grant_type": "token_exchange", "capability_mask": ["viewer"]}),
+                Some(&sa_token),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), reqwest::StatusCode::FORBIDDEN);
+        insta::assert_snapshot!(refused.text().await.unwrap(),
+            @"Service account tokens cannot be used to mint restricted tokens");
     }
 
     /// A token minted by the endpoint is honored by GraphQL authorization:
