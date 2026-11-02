@@ -32,6 +32,12 @@ pub struct LegalConsentVersion {
     pub gte: Option<i32>,
 }
 
+fn validate_tenant(tenant: &String) -> Result<(), async_graphql::InputValueError<String>> {
+    async_graphql::validators::regex(tenant, "^[^/]+/$").map_err(|_| {
+        "Tenant must be a top-level name followed by '/', for example 'acmeCo/'".into()
+    })
+}
+
 #[async_graphql::Object]
 impl LegalTermsQuery {
     /// Returns the latest legal terms of the given type.
@@ -56,7 +62,7 @@ impl LegalTermsQuery {
     async fn legal_consent_check(
         &self,
         ctx: &async_graphql::Context<'_>,
-        #[graphql(validator(regex = "^[^/]+/$"))] tenant: String,
+        #[graphql(validator(custom = "validate_tenant"))] tenant: String,
         r#type: LegalTermsType,
         version: LegalConsentVersion,
     ) -> async_graphql::Result<bool> {
@@ -99,7 +105,7 @@ impl LegalTermsMutation {
     async fn legal_terms_accept(
         &self,
         ctx: &async_graphql::Context<'_>,
-        #[graphql(validator(regex = "^[^/]+/$"))] tenant: String,
+        #[graphql(validator(custom = "validate_tenant"))] tenant: String,
         terms_id: models::Id,
     ) -> async_graphql::Result<LegalTerms> {
         let env = ctx.data::<crate::Envelope>()?;
