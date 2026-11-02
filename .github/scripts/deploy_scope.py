@@ -48,8 +48,8 @@ from dataclasses import dataclass, field
 # cargo (no mise, no Go, no Dockerfile). It include_str!'s the ops-task
 # bundle, which is deliberately absent from the agent target: the Rust
 # flowctl binary is not in the agent image. It also compiles its GraphQL
-# queries against control-plane-api's checked-in SDL, though control-plane-api
-# is not in its closure.
+# queries against control-plane-api's checked-in SDL, and embeds it, though
+# control-plane-api is not in its closure.
 TARGETS = {
     "agent": {
         "workspace_files": {

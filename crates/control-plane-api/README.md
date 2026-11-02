@@ -70,9 +70,10 @@ Replace `flow` with the stack name printed by `mise run local:stack-info`.
 
 ### Updating the GraphQL Schema
 
-The GraphQL SDL is checked in as `control-plane-api.graphql`, and flowctl
-compiles its queries against it. After changing the GraphQL API, regenerate it
-by running the check test, which rewrites the file when it has drifted:
+The GraphQL SDL is checked in as `control-plane-api.graphql`. flowctl compiles
+its queries against it, and embeds it for `flowctl raw graphql-schema`. After
+changing the GraphQL API, regenerate it by running the check test, which
+rewrites the file when it has drifted:
 
 ```bash
 mise exec -- cargo nextest run -p control-plane-api checked_in_sdl_is_current

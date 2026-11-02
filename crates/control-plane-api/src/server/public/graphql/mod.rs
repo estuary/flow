@@ -340,9 +340,9 @@ fn graphql_json_values_preserves_field_order() {
     assert_eq!(json_str.replace(' ', ""), round_tripped);
 }
 
-// flowctl compiles its GraphQL queries against the checked-in SDL. On drift
-// this test regenerates the SDL in place, so a failure is fixed by reviewing
-// and committing the file.
+// flowctl compiles its GraphQL queries against the checked-in SDL, and embeds
+// it for `flowctl raw graphql-schema`. On drift this test regenerates the SDL
+// in place, so a failure is fixed by reviewing and committing the file.
 #[test]
 fn checked_in_sdl_is_current() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("control-plane-api.graphql");
