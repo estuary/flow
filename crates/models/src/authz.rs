@@ -70,6 +70,7 @@ pub enum Capability {
     Assume,
     CreateSandbox,
     ManageAlerts,
+    ManageLegal,
 }
 
 impl std::fmt::Display for Capability {
@@ -179,6 +180,7 @@ impl CapabilityBundle {
                     | Self::TeamAdmin.capabilities()
                     | Self::Billing.capabilities()
                     | Self::ManageDataPlane.capabilities()
+                    | ManageLegal
             }
             Self::Billing => ViewBilling | EditBilling,
             Self::ManageServiceAccounts => {

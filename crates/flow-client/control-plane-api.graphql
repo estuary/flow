@@ -411,6 +411,7 @@ enum CapabilityBit {
 	Assume
 	CreateSandbox
 	ManageAlerts
+	ManageLegal
 }
 
 """
@@ -1633,9 +1634,16 @@ type JobStatus {
 	lockFailures: [LockFailure!]!
 }
 
+input LegalConsentVersion {
+	eq: Int
+	gte: Int
+}
+
 type LegalTerms {
 	id: Id!
 	text: String!
+	type: LegalTermsType!
+	version: Int!
 }
 
 enum LegalTermsType {
@@ -1886,6 +1894,10 @@ type MutationRoot {
 		"""
 		dataPlane: String!
 	): Boolean!
+	"""
+	Accept the latest legal terms of their type. Requires a direct ManageLegal grant and an unrestricted user token.
+	"""
+	legalAccept(tenant: String!, termsId: Id!): LegalTerms!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	setBillingContact(		tenant: String!,
@@ -2708,6 +2720,10 @@ type QueryRoot {
 	Returns the latest legal terms of the given type.
 	"""
 	legalTerms(type: LegalTermsType!): LegalTerms
+	"""
+	Whether the tenant has accepted matching legal terms. Requires CatalogRead anywhere within the tenant.
+	"""
+	legalCheck(tenant: String!, type: LegalTermsType!, version: LegalConsentVersion!): Boolean!
 	"""
 	List refresh tokens owned by the authenticated user.
 	"""
