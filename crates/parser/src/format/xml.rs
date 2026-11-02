@@ -51,10 +51,12 @@ const MAX_DEPTH: usize = 256;
 /// elements was measured at over 1GB.
 const MAX_RECORD_MB: u64 = 64;
 
-/// Maximum number of distinct element names tracked for the inconsistent-array warning. The
+/// Maximum number and length of element names tracked for the inconsistent-array warning. The
 /// tracked names are kept for the whole file, so they're capped to bound memory and the
-/// per-record check regardless of how many distinct names a file contains.
+/// per-record check regardless of which names a file contains. Names past either limit are
+/// still parsed, but aren't checked for the warning.
 const MAX_TRACKED_NAMES: usize = 1024;
+const MAX_TRACKED_NAME_LEN: usize = 256;
 
 /// Number of bytes to inspect when looking for a byte order mark or an encoding declaration.
 const PROLOG_PEEK_BYTES: usize = 1024;
@@ -591,17 +593,18 @@ impl<R: io::BufRead> XmlIter<R> {
     /// Records which children of a completed element occurred once and which were repeated.
     fn note_child_shapes(&mut self, element: &ElementBuilder) {
         for (name, value) in &element.fields {
-            if name.starts_with(ATTRIBUTE_PREFIX) || self.array_elements.contains(name) {
+            if name.starts_with(ATTRIBUTE_PREFIX)
+                || self.array_elements.contains(name)
+                || name.len() > MAX_TRACKED_NAME_LEN
+                || self.single_names.len() + self.repeated_names.len() >= MAX_TRACKED_NAMES
+            {
                 continue;
             }
             // Element values are only ever strings or objects, so an array holds repetitions.
-            let names = if value.is_array() {
-                &mut self.repeated_names
+            if value.is_array() {
+                self.repeated_names.insert(name.clone());
             } else {
-                &mut self.single_names
-            };
-            if names.len() < MAX_TRACKED_NAMES && !names.contains(name) {
-                names.insert(name.clone());
+                self.single_names.insert(name.clone());
             }
         }
     }
@@ -1100,8 +1103,25 @@ mod test {
             2 * MAX_TRACKED_NAMES,
             iter.by_ref().map(Result::unwrap).count()
         );
-        assert_eq!(MAX_TRACKED_NAMES, iter.single_names.len());
-        assert_eq!(MAX_TRACKED_NAMES, iter.repeated_names.len());
+        assert_eq!(
+            MAX_TRACKED_NAMES,
+            iter.single_names.len() + iter.repeated_names.len()
+        );
+    }
+
+    #[test]
+    fn long_names_are_not_tracked() {
+        let long = "n".repeat(MAX_TRACKED_NAME_LEN + 1);
+        let content = format!("<R><{long}>x</{long}><Short>y</Short></R>");
+
+        let input = Input::Stream(Box::new(std::io::Cursor::new(content)));
+        let parser = XmlParser {
+            config: XmlConfig::default(),
+        };
+        let mut iter = parser.iter(input).unwrap();
+        let doc = iter.next().unwrap().unwrap();
+        assert_eq!(json!({"R": {long: "x", "Short": "y"}}), doc);
+        assert_eq!(vec!["Short"], iter.single_names.iter().collect::<Vec<_>>());
     }
 
     #[test]
