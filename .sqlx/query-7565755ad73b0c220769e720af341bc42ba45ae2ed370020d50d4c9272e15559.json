@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT tenant::text AS \"tenant!\", data_tiers, usage_tiers, recurring_usd_cents, trial_start\n           FROM public.tenants WHERE $1::text[] IS NULL OR tenant::text = ANY($1) ORDER BY tenant::text",
+  "query": "SELECT tenant::text AS \"tenant!\", data_tiers, usage_tiers, recurring_usd_cents, trial_start,\n                  plan_kind AS \"plan_kind: crate::PlanKind\"\n           FROM public.tenants WHERE $1::text[] IS NULL OR tenant::text = ANY($1) ORDER BY tenant::text",
   "describe": {
     "columns": [
       {
@@ -52,6 +52,28 @@
             "name": "trial_start"
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "plan_kind: crate::PlanKind",
+        "type_info": {
+          "Custom": {
+            "name": "plan_kind_type",
+            "kind": {
+              "Enum": [
+                "self_serve",
+                "contract",
+                "internal"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "plan_kind"
+          }
+        }
       }
     ],
     "parameters": {
@@ -64,8 +86,9 @@
       false,
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "f41139a231bb5d3b88415c18f50460aa116deb93134af3d362403604ffb94887"
+  "hash": "7565755ad73b0c220769e720af341bc42ba45ae2ed370020d50d4c9272e15559"
 }

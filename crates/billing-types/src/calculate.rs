@@ -7,6 +7,7 @@ pub(crate) struct BillingTerms {
     pub usage_tiers: Vec<i32>,
     pub recurring_usd_cents: i32,
     pub trial_start: Option<chrono::NaiveDate>,
+    pub plan_kind: crate::PlanKind,
 }
 
 #[derive(Debug, Clone)]
@@ -82,7 +83,9 @@ pub(crate) fn calculate(
     adjustments: &[Adjustment],
 ) -> anyhow::Result<Invoice> {
     let period = month_range(year, month)?;
-    let trial = terms.trial_start.map(|start| {
+    // Free tier and trial credits apply only to self-serve tenants.
+    let self_serve = terms.plan_kind == crate::PlanKind::SelfServe;
+    let trial = terms.trial_start.filter(|_| self_serve).map(|start| {
         let end = start
             .checked_add_months(chrono::Months::new(1))
             .expect("stored trial start must allow a representable trial end");
@@ -119,7 +122,7 @@ pub(crate) fn calculate(
         .sum();
     let free_tier_credit: i64 = priced_days
         .iter()
-        .filter(|day| terms.trial_start.is_none_or(|start| day.date < start))
+        .filter(|day| self_serve && terms.trial_start.is_none_or(|start| day.date < start))
         .map(daily_charge)
         .sum();
 
@@ -151,9 +154,7 @@ pub(crate) fn calculate(
                 -trial_credit,
             )
         });
-    let free_tier_item = terms
-        .trial_start
-        .is_none_or(|start| start > period.start)
+    let free_tier_item = (self_serve && terms.trial_start.is_none_or(|start| start > period.start))
         .then(|| {
             let description = match terms.trial_start {
                 Some(start) => format!("Free tier credit ending {}", start.pred_opt().unwrap()),
@@ -355,6 +356,7 @@ mod tests {
             usage_tiers: vec![15],
             recurring_usd_cents: 1000,
             trial_start: Some(date(15)),
+            plan_kind: crate::PlanKind::SelfServe,
         }
     }
 
@@ -616,5 +618,49 @@ mod tests {
         let invoice = calculate(2022, chrono::Month::August, &terms, &usage, &[]).unwrap();
         assert_eq!(invoice.trial_credit, 4_000_000_000);
         assert_eq!(invoice.subtotal, 0);
+    }
+
+    #[test]
+    fn only_self_serve_tenants_receive_credits() {
+        use crate::PlanKind;
+
+        let usage = [1, 20].map(|day| DailyUsage {
+            date: date(day),
+            bytes_read: 0,
+            bytes_written: 0,
+            usage_seconds: 10 * 3600,
+        });
+        // Free tier credit, trial credit, subtotal, and number of credit line items.
+        let cases = [
+            (PlanKind::SelfServe, Some(date(15)), [150, 150, 1000, 2]),
+            (PlanKind::Contract, Some(date(15)), [0, 0, 1300, 0]),
+            (PlanKind::Contract, None, [0, 0, 1300, 0]),
+            (PlanKind::Internal, None, [0, 0, 1300, 0]),
+        ];
+        for (plan_kind, trial_start, expected) in cases {
+            let mut terms = tenant();
+            terms.plan_kind = plan_kind;
+            terms.trial_start = trial_start;
+            let invoice = calculate(2022, chrono::Month::August, &terms, &usage, &[]).unwrap();
+            let credit_items = invoice
+                .line_items
+                .iter()
+                .filter(|item| {
+                    item.description
+                        .as_deref()
+                        .is_some_and(|description| description.contains("credit"))
+                })
+                .count() as i64;
+            assert_eq!(
+                [
+                    invoice.free_tier_credit,
+                    invoice.trial_credit,
+                    invoice.subtotal,
+                    credit_items
+                ],
+                expected,
+                "{plan_kind:?} {trial_start:?}"
+            );
+        }
     }
 }

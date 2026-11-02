@@ -96,7 +96,8 @@ async fn load_inputs(
         .await?;
     let terms = sqlx::query_as!(
         crate::BillingTerms,
-        r#"SELECT tenant::text AS "tenant!", data_tiers, usage_tiers, recurring_usd_cents, trial_start
+        r#"SELECT tenant::text AS "tenant!", data_tiers, usage_tiers, recurring_usd_cents, trial_start,
+                  plan_kind AS "plan_kind: crate::PlanKind"
            FROM public.tenants WHERE $1::text[] IS NULL OR tenant::text = ANY($1) ORDER BY tenant::text"#,
         tenants,
     )
