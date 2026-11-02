@@ -1,0 +1,112 @@
+package broker
+
+import (
+	"fmt"
+	"io"
+	"net"
+
+	"github.com/estuary/flow/go/gazette/broker/fragment"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/peer"
+)
+
+// Replicate dispatches the JournalServer.Replicate API.
+func (svc *Service) Replicate(claims pb.Claims, stream pb.Journal_ReplicateServer) (err error) {
+	var (
+		ctx      = stream.Context()
+		req      *pb.ReplicateRequest
+		resolved *resolution
+	)
+	defer instrumentJournalServerRPC("Replicate", &err, &resolved)()
+
+	defer func() {
+		if err != nil {
+			var addr net.Addr
+			if p, ok := peer.FromContext(ctx); ok {
+				addr = p.Addr
+			}
+			log.WithFields(log.Fields{"err": err, "req": req, "client": addr}).
+				Warn("served Replicate RPC failed")
+		}
+	}()
+
+	if req, err = stream.Recv(); err != nil {
+		return err
+	} else if err = req.Validate(); err != nil {
+		return err
+	} else if req.Header == nil {
+		return fmt.Errorf("expected first ReplicateRequest to have Header")
+	}
+
+	var spool fragment.Spool
+	for done := false; !done; {
+		resolved, err = svc.resolver.resolve(ctx, claims, req.Proposal.Journal, resolveOpts{
+			mayProxy:       false,
+			requirePrimary: false,
+			proxyHeader:    req.Header,
+		})
+		if err != nil {
+			return err
+		} else if resolved.status != pb.Status_OK {
+			return stream.Send(&pb.ReplicateResponse{Status: resolved.status, Header: &resolved.Header})
+		} else if !resolved.Header.Route.Equivalent(&req.Header.Route) {
+			// Require that the request Route is equivalent to the Route we resolved to.
+			return stream.Send(&pb.ReplicateResponse{Status: pb.Status_WRONG_ROUTE, Header: &resolved.Header})
+		}
+
+		// Attempt to obtain exclusive ownership of the replica's Spool.
+		select {
+		case spool = <-resolved.replica.spoolCh:
+			addTrace(ctx, "<-replica.spoolCh => %s", spool)
+			done = true
+		case <-ctx.Done(): // Request was cancelled.
+			return ctx.Err()
+		case <-resolved.invalidateCh: // Replica assignments changed.
+			addTrace(ctx, " ... resolution was invalidated")
+			// Loop to retry.
+		}
+	}
+
+	// Serve the long-lived replication pipeline. When it completes, roll-back
+	// any uncommitted content and release ownership of Spool.
+	spool, err = serveReplicate(stream, *req, spool, &resolved.Header)
+
+	spool.MustApply(&pb.ReplicateRequest{
+		Proposal:  &spool.Fragment.Fragment,
+		Registers: &spool.Registers,
+	})
+	resolved.replica.spoolCh <- spool
+
+	return err
+}
+
+// serveReplicate evaluates a client's Replicate RPC against the local Spool.
+func serveReplicate(stream pb.Journal_ReplicateServer, req pb.ReplicateRequest, spool fragment.Spool, hdr *pb.Header) (fragment.Spool, error) {
+	var (
+		resp = new(pb.ReplicateResponse)
+		err  error
+	)
+	for {
+		if *resp, err = spool.Apply(&req, false); err != nil {
+			return spool, err
+		}
+		if req.Acknowledge {
+			resp.Header, hdr = hdr, nil // Send Header with first ReplicateResponse.
+
+			if err = stream.SendMsg(resp); err != nil {
+				return spool, err
+			}
+		} else if resp.Status != pb.Status_OK {
+			return spool, fmt.Errorf("no ack requested but status != OK: %s", resp)
+		}
+
+		if err = stream.RecvMsg(&req); err == io.EOF {
+			return spool, nil
+		} else if err != nil {
+			return spool, err
+		} else if err = req.Validate(); err != nil {
+			return spool, err
+		}
+	}
+}

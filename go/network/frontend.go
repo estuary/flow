@@ -17,10 +17,10 @@ import (
 	"sync"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	lru "github.com/hashicorp/golang-lru/v2"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // hstsHeaderValue instructs clients to only ever reach us over HTTPS.

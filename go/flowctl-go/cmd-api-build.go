@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/fatih/color"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
-	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
 type apiBuild struct {

@@ -1,0 +1,11 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: protocol.Journal.List
+      post: /v1/journals/list
+      body: "*"
+    - selector: protocol.Journal.Read
+      post: /v1/journals/read
+      body: "*"

@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/prometheus/client_golang/prometheus"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // proxyClient is a connection between the frontend

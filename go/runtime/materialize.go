@@ -7,15 +7,15 @@ import (
 	"io"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	"github.com/estuary/flow/go/gazette/consumer"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
-	"go.gazette.dev/core/broker/client"
-	"go.gazette.dev/core/consumer"
-	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/message"
 )
 
 // materializeApp is a top-level Application which implements the materialization workflow.

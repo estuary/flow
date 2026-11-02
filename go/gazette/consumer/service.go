@@ -1,0 +1,175 @@
+package consumer
+
+import (
+	"context"
+	"time"
+
+	"github.com/estuary/flow/go/gazette/allocator"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/keyspace"
+	"github.com/estuary/flow/go/gazette/server"
+	"github.com/estuary/flow/go/gazette/task"
+	clientv3 "go.etcd.io/etcd/client/v3"
+	"golang.org/x/net/trace"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+// Service is the top-level runtime entity of a Gazette Consumer process.
+// It drives local shard processing in response to allocator.State,
+// powers shard resolution, and is also an implementation of ShardServer.
+type Service struct {
+	// Application served by the Service.
+	App Application
+	// Authorizer of peer-to-peer requests.
+	// Consumer applications may want to use pc.NewAuthShardClient() to build
+	// clients with self-signed Authorizations using the Loopback connection.
+	Authorizer pb.Authorizer
+	// Verifier of requests.
+	// Custom consumer application APIs should secure themselves by verifying
+	// authorizations using this Verifier. See pc.NewVerifiedShardServer() as a model.
+	Verifier pb.Verifier
+	// Resolver of Service shards.
+	Resolver *Resolver
+	// Distributed allocator state of the service.
+	State *allocator.State
+	// Loopback connection which defaults to the local server, but is wired with
+	// a pb.DispatchBalancer. Consumer applications may use Loopback to proxy
+	// application-specific RPCs to peer consumer instance, after performing
+	// shard resolution.
+	Loopback *grpc.ClientConn
+	// Journal client for use by consumer applications.
+	Journals pb.RoutedJournalClient
+	// Etcd client for use by consumer applications.
+	Etcd *clientv3.Client
+	// Delta to apply to message.Clocks used by Shards to sequence published
+	// messages, with respect to real time. This should almost always be left
+	// as zero, but is helpful for test workflows which require fine-grain
+	// control over the write timestamps encoded within message UUIDs.
+	// Never decrease this value once the Service is running, only increase it,
+	// as a decrement will cause Publisher sequencing invariants to be violated.
+	// This is an EXPERIMENTAL API.
+	PublishClockDelta time.Duration
+	// ShardAPI holds function delegates which power the ShardServer API.
+	// They're exposed to allow consumer applications to wrap or alter their behavior.
+	ShardAPI struct {
+		Stat     func(context.Context, pb.Claims, *Service, *pc.StatRequest) (*pc.StatResponse, error)
+		List     func(context.Context, pb.Claims, *Service, *pc.ListRequest) (*pc.ListResponse, error)
+		Apply    func(context.Context, pb.Claims, *Service, *pc.ApplyRequest) (*pc.ApplyResponse, error)
+		GetHints func(context.Context, pb.Claims, *Service, *pc.GetHintsRequest) (*pc.GetHintsResponse, error)
+		Unassign func(context.Context, pb.Claims, *Service, *pc.UnassignRequest) (*pc.UnassignResponse, error)
+	}
+
+	// stoppingCh is closed when the Service is in the process of shutting down.
+	stoppingCh chan struct{}
+}
+
+// NewService constructs a new Service of the Application, driven by allocator.State.
+func NewService(app Application, authorizer pb.Authorizer, verifier pb.Verifier, state *allocator.State, rjc pb.RoutedJournalClient, lo *grpc.ClientConn, etcd *clientv3.Client) *Service {
+	var svc = &Service{
+		App:        app,
+		Authorizer: authorizer,
+		Verifier:   verifier,
+		State:      state,
+		Loopback:   lo,
+		Journals:   rjc,
+		Etcd:       etcd,
+		stoppingCh: make(chan struct{}),
+	}
+	svc.Resolver = NewResolver(state, func(item keyspace.KeyValue) *shard { return newShard(svc, item) })
+
+	// Default implementations of the ShardServer API.
+	svc.ShardAPI.Stat = ShardStat
+	svc.ShardAPI.List = ShardList
+	svc.ShardAPI.Apply = ShardApply
+	svc.ShardAPI.GetHints = ShardGetHints
+	svc.ShardAPI.Unassign = ShardUnassign
+	return svc
+}
+
+// QueueTasks to watch the Service KeySpace and serve any local assignments
+// reflected therein, until the Context is cancelled or an error occurs.
+// All local shards are gracefully stopped prior to return, even when exiting
+// due to an error.
+func (svc *Service) QueueTasks(tasks *task.Group, server *server.Server) {
+	var watchCtx, watchCancel = context.WithCancel(context.Background())
+
+	// Watch the Service KeySpace and manage local shard shards reflecting
+	// the assignments of this consumer. Upon task completion, all shards
+	// have been fully torn down.
+	tasks.Queue("service.Watch", func() error {
+		return svc.Resolver.watch(watchCtx, svc.Etcd)
+	})
+
+	// server.GracefulStop stops the server on task.Group cancellation,
+	// after which the service.Watch is also cancelled.
+	tasks.Queue("service.GracefulStop", func() error {
+		<-tasks.Context().Done()
+
+		// Signal the application that long-lived RPCs should stop,
+		// so that our gRPC server may gracefully drain all ongoing RPCs.
+		close(svc.stoppingCh)
+		// Similarly, ensure all local shards are stopped. Under nominal
+		// shutdown the allocator would already assure this, but if we're in the
+		// process of crashing (eg due to Etcd partition) there may be remaining
+		// local shards. Stopping them also cancels any related RPCs.
+		svc.Resolver.stopServingLocalShards()
+
+		server.BoundedGracefulStop()
+
+		// Now that we're assured no current or future RPCs can be waiting
+		// on a future KeySpace revision, instruct Watch to exit and block
+		// until it does so.
+		watchCancel()
+		svc.Resolver.wg.Wait()
+
+		// All shards (and any peer connections they may have held) have
+		// fully torn down. Now we can tear down the loopback.
+		var err = server.GRPCLoopback.Close()
+		if status.Code(err) == codes.Canceled {
+			err = nil // Loopback already closed. Not an error.
+		}
+		return err
+	})
+}
+
+// Stopping returns a channel which signals when the Service is in the process
+// of shutting down. Consumer applications with long-lived RPCs should use
+// this signal to begin graceful cleanup of outstanding RPCs.
+func (svc *Service) Stopping() <-chan struct{} { return svc.stoppingCh }
+
+func addTrace(ctx context.Context, format string, args ...interface{}) {
+	if tr, ok := trace.FromContext(ctx); ok {
+		tr.LazyPrintf(format, args...)
+	}
+}
+
+// Stat calls its ShardAPI delegate.
+func (svc *Service) Stat(ctx context.Context, claims pb.Claims, req *pc.StatRequest) (*pc.StatResponse, error) {
+	return svc.ShardAPI.Stat(ctx, claims, svc, req)
+}
+
+// List calls its ShardAPI delegate.
+func (svc *Service) List(ctx context.Context, claims pb.Claims, req *pc.ListRequest) (*pc.ListResponse, error) {
+	return svc.ShardAPI.List(ctx, claims, svc, req)
+}
+
+// Apply calls its ShardAPI delegate.
+func (svc *Service) Apply(ctx context.Context, claims pb.Claims, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
+	return svc.ShardAPI.Apply(ctx, claims, svc, req)
+}
+
+// GetHints calls its ShardAPI delegate.
+func (svc *Service) GetHints(ctx context.Context, claims pb.Claims, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
+	return svc.ShardAPI.GetHints(ctx, claims, svc, req)
+}
+
+// Unassign calls its ShardAPI delegate.
+func (svc *Service) Unassign(ctx context.Context, claims pb.Claims, req *pc.UnassignRequest) (*pc.UnassignResponse, error) {
+	return svc.ShardAPI.Unassign(ctx, claims, svc, req)
+}
+
+// Service implements the AuthShardServer interface.
+var _ pc.AuthShardServer = (*Service)(nil)

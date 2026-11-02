@@ -8,17 +8,17 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	"github.com/estuary/flow/go/gazette/consumer"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	store_sqlite "github.com/estuary/flow/go/gazette/consumer/store-sqlite"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pd "github.com/estuary/flow/go/protocols/derive"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
-	"go.gazette.dev/core/broker/client"
-	"go.gazette.dev/core/consumer"
-	"go.gazette.dev/core/consumer/recoverylog"
-	store_sqlite "go.gazette.dev/core/consumer/store-sqlite"
-	"go.gazette.dev/core/message"
 )
 
 // deriveApp is a top-level Application which implements the derivation workflow.

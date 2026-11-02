@@ -1,0 +1,247 @@
+package message
+
+import (
+	"context"
+	"io"
+	"testing"
+
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/brokertest"
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/labels"
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
+)
+
+func TestPublishCommitted(t *testing.T) {
+	var etcd = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var (
+		clock Clock
+		spec  = newTestMsgSpec("a/journal")
+		bk    = brokertest.NewBroker(t, etcd, "local", "broker")
+		ajc   = client.NewAppendService(context.Background(), bk.Client())
+		pub   = NewPublisher(ajc, &clock)
+	)
+	brokertest.CreateJournals(t, bk, spec)
+
+	// Publish some messages that map to |spec|.
+	var mapping = func(Mappable) (pb.Journal, string, error) {
+		return spec.Name, labels.ContentType_JSONLines, nil
+	}
+	for _, s := range []string{"hello", "world", "beer!"} {
+		var aa, err = pub.PublishCommitted(mapping, &testMsg{Str: s})
+		require.NoError(t, err)
+		require.NoError(t, aa.Err())
+	}
+
+	require.Equal(t, []testMsg{
+		{UUID: BuildUUID(pub.producer, 160, Flag_OUTSIDE_TXN), Str: "hello"},
+		{UUID: BuildUUID(pub.producer, 320, Flag_OUTSIDE_TXN), Str: "world"},
+		{UUID: BuildUUID(pub.producer, 480, Flag_OUTSIDE_TXN), Str: "beer!"},
+	}, readAllMsgs(t, bk, spec))
+
+	// Expect validation errors are returned, before the mapping is invoked.
+	var _, err = pub.PublishCommitted(nil, &testMsg{err: errors.New("whoops!")})
+	require.EqualError(t, err, "whoops!")
+
+	bk.Tasks.Cancel()
+	require.NoError(t, bk.Tasks.Wait())
+}
+
+func TestPublishUncommitted(t *testing.T) {
+	var etcd = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var (
+		clock Clock
+		spec1 = newTestMsgSpec("journal/one")
+		spec2 = newTestMsgSpec("journal/two")
+		spec3 = newTestMsgSpec("journal/three")
+
+		bk  = brokertest.NewBroker(t, etcd, "local", "broker")
+		ajc = client.NewAppendService(context.Background(), bk.Client())
+		pub = NewPublisher(ajc, &clock)
+	)
+	brokertest.CreateJournals(t, bk, spec1, spec2, spec3)
+
+	var publish = func(journal pb.Journal, value string) {
+		var mapping = func(Mappable) (pb.Journal, string, error) {
+			return journal, labels.ContentType_JSONLines, nil
+		}
+		var aa, err = pub.PublishUncommitted(mapping, &testMsg{Str: value})
+		require.NoError(t, err)
+		require.NoError(t, aa.Err())
+	}
+
+	// Publish two pending messages.
+	publish(spec1.Name, "value one")
+	publish(spec2.Name, "value two")
+
+	// Build intents. Expect ACK intents for each published journal.
+	var intents, err = pub.BuildAckIntents()
+	require.NoError(t, err)
+	require.Len(t, intents, 2)
+	writeIntents(t, ajc, intents)
+
+	// Publish again, then build & write intents.
+	publish(spec3.Name, "value three")
+	publish(spec1.Name, "value four")
+
+	intents, err = pub.BuildAckIntents()
+	require.NoError(t, err)
+	require.Len(t, intents, 2)
+	writeIntents(t, ajc, intents)
+
+	// Verify expected messages and ACKs were written to journals.
+	require.Equal(t, []testMsg{
+		{UUID: BuildUUID(pub.producer, 160, Flag_CONTINUE_TXN), Str: "value one"},
+		{UUID: BuildUUID(pub.producer, 480, Flag_ACK_TXN)},
+		{UUID: BuildUUID(pub.producer, 960, Flag_CONTINUE_TXN), Str: "value four"},
+		{UUID: BuildUUID(pub.producer, 1280, Flag_ACK_TXN)},
+	}, readAllMsgs(t, bk, spec1))
+
+	require.Equal(t, []testMsg{
+		{UUID: BuildUUID(pub.producer, 320, Flag_CONTINUE_TXN), Str: "value two"},
+		{UUID: BuildUUID(pub.producer, 640, Flag_ACK_TXN)},
+	}, readAllMsgs(t, bk, spec2))
+
+	require.Equal(t, []testMsg{
+		{UUID: BuildUUID(pub.producer, 800, Flag_CONTINUE_TXN), Str: "value three"},
+		{UUID: BuildUUID(pub.producer, 1120, Flag_ACK_TXN)},
+	}, readAllMsgs(t, bk, spec3))
+
+	bk.Tasks.Cancel()
+	require.NoError(t, bk.Tasks.Wait())
+}
+
+func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
+	var etcd = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var (
+		clock Clock
+		ctx   = context.Background()
+		spec  = newTestMsgSpec("a/journal")
+		bk    = brokertest.NewBroker(t, etcd, "local", "broker")
+		ajc   = client.NewAppendService(ctx, bk.Client())
+	)
+	brokertest.CreateJournals(t, bk, spec)
+
+	// Start a long-lived RetryReader of |spec|.
+	var rr = client.NewRetryReader(ctx, bk.Client(), pb.ReadRequest{
+		Journal: spec.Name,
+		Block:   true,
+	})
+	var r = NewReadUncommittedIter(rr, newTestMsg)
+
+	// Sequencer |seq| has a very limited look-back window.
+	var seq = NewSequencer(nil, nil, 3)
+
+	var seqPump = func() (out []testMsg) {
+		var env, err = r.Next()
+		require.NoError(t, err)
+
+		if seq.QueueUncommitted(env) == QueueAckCommitReplay {
+			var journal, from, to = seq.ReplayRange()
+			var rr = client.NewRetryReader(ctx, bk.Client(), pb.ReadRequest{
+				Journal:   journal,
+				Offset:    from,
+				EndOffset: to,
+			})
+			seq.StartReplay(NewReadUncommittedIter(rr, newTestMsg))
+		}
+		for {
+			if err := seq.Step(); err == io.EOF {
+				return
+			}
+			require.NoError(t, err)
+			out = append(out, *seq.Dequeued.Message.(*testMsg))
+		}
+	}
+
+	var mapping = func(Mappable) (pb.Journal, string, error) {
+		return spec.Name, labels.ContentType_JSONLines, nil
+	}
+	var pub = NewPublisher(ajc, &clock)
+	var txnPub = NewPublisher(ajc, &clock)
+
+	// |txnPub| writes first, followed by |pub|, followed by |txnPub| intents.
+	// All messages are served from the Sequencer ring.
+	_, _ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "one"})
+	_, _ = pub.PublishCommitted(mapping, &testMsg{Str: "two"})
+
+	var intents, _ = txnPub.BuildAckIntents()
+	writeIntents(t, ajc, intents)
+
+	require.Equal(t, []testMsg(nil), seqPump())
+	require.Equal(t, []testMsg{
+		{UUID: BuildUUID(pub.producer, 320, Flag_OUTSIDE_TXN), Str: "two"},
+	}, seqPump())
+	require.Equal(t, []testMsg{
+		{UUID: BuildUUID(txnPub.producer, 160, Flag_CONTINUE_TXN), Str: "one"},
+		{UUID: BuildUUID(txnPub.producer, 480, Flag_ACK_TXN)},
+	}, seqPump())
+
+	// Write more interleaved messages, enough to overflow the Sequencer ring.
+	_, _ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "three"})
+	_, _ = pub.PublishCommitted(mapping, &testMsg{Str: "four"})
+	_, _ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "five"})
+	_, _ = pub.PublishCommitted(mapping, &testMsg{Str: "six"})
+	_, _ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "seven"})
+
+	intents, _ = txnPub.BuildAckIntents()
+	writeIntents(t, ajc, intents)
+
+	require.Equal(t, []testMsg(nil), seqPump())
+	require.Equal(t, []testMsg{
+		{UUID: BuildUUID(pub.producer, 800, Flag_OUTSIDE_TXN), Str: "four"},
+	}, seqPump())
+	require.Equal(t, []testMsg(nil), seqPump())
+	require.Equal(t, []testMsg{
+		{UUID: BuildUUID(pub.producer, 1120, Flag_OUTSIDE_TXN), Str: "six"},
+	}, seqPump())
+	require.Equal(t, []testMsg(nil), seqPump())
+	require.Equal(t, []testMsg{
+		{UUID: BuildUUID(txnPub.producer, 640, Flag_CONTINUE_TXN), Str: "three"},
+		{UUID: BuildUUID(txnPub.producer, 960, Flag_CONTINUE_TXN), Str: "five"},
+		{UUID: BuildUUID(txnPub.producer, 1280, Flag_CONTINUE_TXN), Str: "seven"},
+		{UUID: BuildUUID(txnPub.producer, 1440, Flag_ACK_TXN)},
+	}, seqPump())
+
+	bk.Tasks.Cancel()
+	require.NoError(t, bk.Tasks.Wait())
+}
+
+func readAllMsgs(t require.TestingT, bk *brokertest.Broker, spec *pb.JournalSpec) (out []testMsg) {
+	var rr = client.NewRetryReader(context.Background(), bk.Client(), pb.ReadRequest{Journal: spec.Name})
+	var r = NewReadUncommittedIter(rr, newTestMsg)
+	for {
+		var env, err = r.Next()
+		if errors.Cause(err) == client.ErrOffsetNotYetAvailable {
+			return out
+		}
+		require.NoError(t, err)
+		out = append(out, *env.Message.(*testMsg))
+	}
+}
+
+func newTestMsgSpec(name pb.Journal) *pb.JournalSpec {
+	return brokertest.Journal(pb.JournalSpec{
+		Name:     name,
+		LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_JSONLines),
+	})
+}
+
+func writeIntents(t require.TestingT, ajc client.AsyncJournalClient, intents []AckIntent) {
+	for _, i := range intents {
+		var aa = ajc.StartAppend(pb.AppendRequest{Journal: i.Journal}, nil)
+		_, _ = aa.Writer().Write(i.Intent)
+		require.NoError(t, aa.Release())
+		<-aa.Done()
+	}
+}
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }
