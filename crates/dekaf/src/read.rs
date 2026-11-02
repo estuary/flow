@@ -766,9 +766,8 @@ pub fn extract_and_encode<N: json::AsNode>(
                 Ok(value) => avro::encode(buf, schema, value),
                 Err(default) => avro::encode(buf, schema, &default.into_owned()),
             }
-            .context(format!(
-                "Extracting field {extractor:#?}, schema: {schema:?}"
-            )) {
+            .with_context(|| format!("Extracting field {extractor:#?}, schema: {schema:?}"))
+            {
                 let debug_serialized = doc::SerPolicy::debug_value(original).to_string();
                 tracing::debug!(extractor=?extractor, ?schema, debug_serialized, ?e, "Failed to encode");
                 return Err(e);
