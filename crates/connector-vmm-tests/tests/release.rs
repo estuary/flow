@@ -172,6 +172,7 @@ fn release(setup: &Setup) -> String {
             ),
         )
         .env("HOME", setup.dir.join("home"))
+        .env("FIXTURES", "/fixtures")
         // So that what find says doesn't depend on the host's locale.
         .env("LC_ALL", "C")
         .output()
@@ -360,5 +361,19 @@ fn images_and_builders_left_behind_are_only_reported() {
         "125 sudo -n podman image rm\n1 docker buildx ls\n",
     );
     insta::assert_snapshot!(release(&setup));
+    cleanup(&setup);
+}
+
+#[test]
+fn a_routing_lab_which_cannot_be_recovered_keeps_its_dependencies() {
+    let setup = setup();
+    let resources = setup.root.join("resources");
+    let mut entries = std::fs::read_to_string(&resources).unwrap();
+    entries.push_str("routing-lab /tmp/flow-vmm-route-test\n");
+    std::fs::write(resources, entries).unwrap();
+    insta::assert_snapshot!(release_and_retry(
+        &setup,
+        "1 sudo -n python3 /fixtures/routing.py --cleanup /tmp/flow-vmm-route-test\n"
+    ));
     cleanup(&setup);
 }
