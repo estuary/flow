@@ -58,7 +58,7 @@ impl LegalTermsQuery {
         Ok(row)
     }
 
-    /// Whether the tenant has accepted matching legal terms. Requires CatalogRead on the tenant.
+    /// Whether the tenant has accepted matching legal terms. Requires CatalogRead anywhere within the tenant.
     async fn legal_check(
         &self,
         ctx: &async_graphql::Context<'_>,
@@ -73,7 +73,18 @@ impl LegalTermsQuery {
         }
 
         let env = ctx.data::<crate::Envelope>()?;
-        super::verify_authorization(env, &tenant, models::authz::Capability::CatalogRead).await?;
+        let capability = models::authz::Capability::CatalogRead;
+        let prefixes = super::authorized_prefixes::authorized_prefixes(
+            &env.snapshot().role_grants,
+            &env.snapshot().user_grants,
+            &env.claims()?.subject(),
+            capability,
+            Some(&tenant),
+        );
+        if prefixes.is_empty() {
+            // Refresh stale permissions before reporting a terminal denial.
+            super::verify_authorization(env, &tenant, capability).await?;
+        }
 
         // Audit records survive tenant deletion; consent must match the current tenant ID.
         let accepted: bool = sqlx::query_scalar(
@@ -450,7 +461,7 @@ mod test {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO user_grants (user_id, object_role, capability) VALUES ($1, 'otherCo/', 'read'), ($1, 'nestedCo/data/', 'admin')")
+        sqlx::query("INSERT INTO user_grants (user_id, object_role, capability) VALUES ($1, 'otherCo/', 'read'), ($1, 'nestedCo/data/', 'read')")
             .bind(user).execute(&pool).await.unwrap();
         sqlx::query(
             "INSERT INTO internal.tenant_consent (user_id, user_email, terms_id, tenant_name, tenant_id)
@@ -469,6 +480,7 @@ mod test {
             missing: legalCheck(tenant: "acmeCo/", type: MSA, version: { eq: 5 })
             newer: legalCheck(tenant: "acmeCo/", type: MSA, version: { gte: 5 })
             recreated: legalCheck(tenant: "otherCo/", type: MSA, version: { eq: 4 })
+            nested: legalCheck(tenant: "nestedCo/", type: MSA, version: { eq: 4 })
         }"#});
         let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(response, @r#"
@@ -477,6 +489,7 @@ mod test {
             "exact": true,
             "minimum": true,
             "missing": false,
+            "nested": false,
             "newer": false,
             "recreated": false
           }
@@ -505,6 +518,27 @@ mod test {
         "#);
         let mut nested = query.clone();
         nested["variables"]["tenant"] = serde_json::json!("nestedCo/");
+        let mut authorized = Vec::new();
+        for (capability_mask, prefix_mask) in [
+            (None, Some(vec!["nestedCo/data/sub/".to_string()])),
+            (None, Some(vec!["nestedCo/other/".to_string()])),
+            (None, Some(vec!["otherCo/".to_string()])),
+            (Some(vec!["billing".to_string()]), None),
+        ] {
+            let token =
+                server.make_restricted_access_token(user, None, capability_mask, prefix_mask);
+            let response: serde_json::Value = server.graphql(&nested, Some(&token)).await;
+            authorized.push(response.get("errors").is_none());
+        }
+        insta::assert_json_snapshot!(authorized, @r#"
+        [
+          true,
+          false,
+          false,
+          false
+        ]
+        "#);
+        nested["variables"]["tenant"] = serde_json::json!("nestedCoOther/");
         let denied: serde_json::Value = server.graphql(&nested, Some(&token)).await;
         assert!(denied["errors"].is_array(), "{denied}");
     }

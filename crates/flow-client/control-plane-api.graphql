@@ -2721,7 +2721,7 @@ type QueryRoot {
 	"""
 	legalTerms(type: LegalTermsType!): LegalTerms
 	"""
-	Whether the tenant has accepted matching legal terms. Requires CatalogRead on the tenant.
+	Whether the tenant has accepted matching legal terms. Requires CatalogRead anywhere within the tenant.
 	"""
 	legalCheck(tenant: String!, type: LegalTermsType!, version: LegalConsentVersion!): Boolean!
 	"""
