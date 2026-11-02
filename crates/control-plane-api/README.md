@@ -23,7 +23,7 @@ callers supply tenant metadata and collection and recovery storage mappings.
 The GraphQL layer owns signup validation and MSA consent. Legal acceptance in
 `server/public/graphql/legal_terms.rs` requires ManageLegal from the requesting
 user's direct grants; role grants cannot authorize consent.
-`legalConsentCheck(tenant:, type:, version:)` requires CatalogRead on the tenant
+`legalCheck(tenant:, type:, version:)` requires CatalogRead on the tenant
 and returns whether it has accepted a matching version. Supply exactly one of
 `version.eq` or `version.gte`; consent from a deleted tenant does not carry over
 when its name is reused.

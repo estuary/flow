@@ -59,7 +59,7 @@ impl LegalTermsQuery {
     }
 
     /// Whether the tenant has accepted matching legal terms. Requires CatalogRead on the tenant.
-    async fn legal_consent_check(
+    async fn legal_check(
         &self,
         ctx: &async_graphql::Context<'_>,
         #[graphql(validator(custom = "validate_tenant"))] tenant: String,
@@ -102,7 +102,7 @@ pub struct LegalTermsMutation;
 #[async_graphql::Object]
 impl LegalTermsMutation {
     /// Accept the latest legal terms of their type. Requires a direct ManageLegal grant and an unrestricted user token.
-    async fn legal_terms_accept(
+    async fn legal_accept(
         &self,
         ctx: &async_graphql::Context<'_>,
         #[graphql(validator(custom = "validate_tenant"))] tenant: String,
@@ -268,14 +268,14 @@ mod test {
         sqlx::query("INSERT INTO internal.legal_terms (id, type, version, text) VALUES ($1::flowid, 'msa', 99, 'Test agreement')")
             .bind(terms_id).execute(&pool).await.unwrap();
         let query = serde_json::json!({
-            "query": "mutation($id: Id!) { legalTermsAccept(tenant: \"acmeCo/\", termsId: $id) { type version text } }",
+            "query": "mutation($id: Id!) { legalAccept(tenant: \"acmeCo/\", termsId: $id) { type version text } }",
             "variables": {"id": terms_id}
         });
         let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(response, @r#"
         {
           "data": {
-            "legalTermsAccept": {
+            "legalAccept": {
               "text": "Test agreement",
               "type": "MSA",
               "version": 99
@@ -363,7 +363,7 @@ mod test {
         .await
         .unwrap();
         let response: serde_json::Value = server.graphql(&serde_json::json!({
-            "query": "mutation($id: Id!) { legalTermsAccept(tenant: \"otherCo/\", termsId: $id) { id } }",
+            "query": "mutation($id: Id!) { legalAccept(tenant: \"otherCo/\", termsId: $id) { id } }",
             "variables": {"id": terms_id.to_string()},
         }), Some(&token)).await;
         insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""PermissionDenied: Accepting legal terms requires a direct user grant on the tenant. Requires capabilities: admin""#);
@@ -392,7 +392,7 @@ mod test {
         .await
         .unwrap();
         let query = serde_json::json!({
-            "query": "mutation($tenant: String!, $id: Id!) { legalTermsAccept(tenant: $tenant, termsId: $id) { id } }",
+            "query": "mutation($tenant: String!, $id: Id!) { legalAccept(tenant: $tenant, termsId: $id) { id } }",
             "variables": {"tenant": "acmeCo/", "id": terms_id.to_string()}
         });
         let before: i64 = sqlx::query_scalar("SELECT count(*) FROM internal.tenant_consent")
@@ -439,7 +439,7 @@ mod test {
     }
 
     #[sqlx::test(migrations = "../../supabase/migrations")]
-    async fn legal_consent_check(pool: sqlx::PgPool) {
+    async fn legal_check(pool: sqlx::PgPool) {
         let user = seed_accepted_terms(&pool).await;
         sqlx::query("UPDATE user_grants SET capability = 'read' WHERE user_id = $1")
             .bind(user)
@@ -464,11 +464,11 @@ mod test {
         .await;
         let token = server.make_access_token(user, None);
         let query = serde_json::json!({"query": r#"{
-            exact: legalConsentCheck(tenant: "acmeCo/", type: MSA, version: { eq: 3 })
-            minimum: legalConsentCheck(tenant: "acmeCo/", type: MSA, version: { gte: 4 })
-            missing: legalConsentCheck(tenant: "acmeCo/", type: MSA, version: { eq: 5 })
-            newer: legalConsentCheck(tenant: "acmeCo/", type: MSA, version: { gte: 5 })
-            recreated: legalConsentCheck(tenant: "otherCo/", type: MSA, version: { eq: 4 })
+            exact: legalCheck(tenant: "acmeCo/", type: MSA, version: { eq: 3 })
+            minimum: legalCheck(tenant: "acmeCo/", type: MSA, version: { gte: 4 })
+            missing: legalCheck(tenant: "acmeCo/", type: MSA, version: { eq: 5 })
+            newer: legalCheck(tenant: "acmeCo/", type: MSA, version: { gte: 5 })
+            recreated: legalCheck(tenant: "otherCo/", type: MSA, version: { eq: 4 })
         }"#});
         let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         insta::assert_json_snapshot!(response, @r#"
@@ -484,7 +484,7 @@ mod test {
         "#);
 
         let query = serde_json::json!({
-            "query": "query($tenant: String!, $version: LegalConsentVersion!) { legalConsentCheck(tenant: $tenant, type: MSA, version: $version) }",
+            "query": "query($tenant: String!, $version: LegalConsentVersion!) { legalCheck(tenant: $tenant, type: MSA, version: $version) }",
             "variables": {"tenant": "acmeCo/", "version": {"eq": 4}},
         });
         let mut errors = Vec::new();

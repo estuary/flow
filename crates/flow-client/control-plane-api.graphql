@@ -1897,7 +1897,7 @@ type MutationRoot {
 	"""
 	Accept the latest legal terms of their type. Requires a direct ManageLegal grant and an unrestricted user token.
 	"""
-	legalTermsAccept(tenant: String!, termsId: Id!): LegalTerms!
+	legalAccept(tenant: String!, termsId: Id!): LegalTerms!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	setBillingContact(		tenant: String!,
@@ -2723,7 +2723,7 @@ type QueryRoot {
 	"""
 	Whether the tenant has accepted matching legal terms. Requires CatalogRead on the tenant.
 	"""
-	legalConsentCheck(tenant: String!, type: LegalTermsType!, version: LegalConsentVersion!): Boolean!
+	legalCheck(tenant: String!, type: LegalTermsType!, version: LegalConsentVersion!): Boolean!
 	"""
 	List refresh tokens owned by the authenticated user.
 	"""
