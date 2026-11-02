@@ -16,16 +16,24 @@
 //!    own resolver needs the empty answer to move on to its `A` query.
 //! 4. A name that is neither admitted by `allowedNames` nor an unexpired
 //!    remembered CNAME target, with `allowAll` off: `REFUSED`, nothing sent
-//!    upstream, nothing added to the set.
+//!    upstream, nothing added to the set. With `declaredCidrs`, such an
+//!    unnamed question is still forwarded if it is `A`: its answer decides.
 //! 5. A type other than `A`: forwarded, and answered as the upstream answered.
 //!    It authorizes no address and remembers no target.
-//! 6. `A`: forwarded. One answer address inside the baseline condemns the
-//!    whole answer: a partial answer would teach the guest which name resolves
-//!    inward.
+//! 6. `A`: forwarded. One answer address the policy does not reach condemns
+//!    the whole answer: a partial answer would teach the guest which name
+//!    resolves inward. An address within the excluded prefixes is never
+//!    reached. One within `declaredCidrs` always is. One elsewhere in the
+//!    baseline never is. A public address is reached only from a named
+//!    question.
 //! 7. Otherwise each `A` and `CNAME` TTL is clamped independently and
-//!    rewritten in place, every address is authorized and every target
-//!    remembered until at least its clamped TTL, and the set is updated and
-//!    acknowledged before the answer is sent.
+//!    rewritten in place, every address outside `declaredCidrs` is authorized
+//!    and every target of a named question remembered until at least its
+//!    clamped TTL, and the set is updated and acknowledged before the answer
+//!    is sent. The ruleset already admits addresses within `declaredCidrs`,
+//!    so they take no room in the set. An unnamed question's targets are not
+//!    remembered, so that its answer names nothing a later public answer
+//!    could be authorized by.
 
 mod dns;
 mod nftset;
@@ -64,9 +72,11 @@ pub struct Config {
     debug: bool,
     allow_all: bool,
     allowed_names: Vec<AllowedName>,
+    declared: Vec<ipnetwork::Ipv4Network>,
     ttl_floor: u32,
     ttl_cap: u32,
     baseline: Vec<ipnetwork::Ipv4Network>,
+    excluded: Vec<ipnetwork::Ipv4Network>,
 }
 
 impl Config {
@@ -86,14 +96,33 @@ impl Config {
             debug,
             allow_all: policy.allow_all,
             allowed_names: policy.allowed_names.clone(),
+            declared: policy.declared_cidrs.clone(),
             ttl_floor: policy.ttl_floor_secs,
             ttl_cap: policy.ttl_cap_secs,
             baseline: egress::baseline(vmm_subnets),
+            excluded: egress::excluded(vmm_subnets),
         }
     }
 
     fn clamp(&self, ttl: u32) -> u32 {
         ttl.clamp(self.ttl_floor, self.ttl_cap)
+    }
+
+    fn declares(&self, address: Ipv4Addr) -> bool {
+        self.declared.iter().any(|net| net.contains(address))
+    }
+
+    fn refusal(&self, address: Ipv4Addr, named: bool) -> Option<Outcome> {
+        if self.excluded.iter().any(|net| net.contains(address)) {
+            return Some(Outcome::RefusedPrivate(address));
+        }
+        if self.declares(address) {
+            return None;
+        }
+        if self.baseline.iter().any(|net| net.contains(address)) {
+            return Some(Outcome::RefusedPrivate(address));
+        }
+        (!named).then_some(Outcome::RefusedName)
     }
 }
 
@@ -366,7 +395,9 @@ impl Resolver {
                 answer: Some(dns::respond(query, &question, dns::RCODE_NOERROR)),
             });
         }
-        if !self.allowed(&question.name, arrived) {
+        let named = self.allowed(&question.name, arrived);
+        // Only an `A` answer carries addresses to hold an unnamed question to.
+        if !named && (self.config.declared.is_empty() || question.qtype != dns::TYPE_A) {
             return Ok(Handled {
                 decision: decision(name, qtype, Outcome::RefusedName),
                 answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
@@ -396,9 +427,9 @@ impl Resolver {
             let dns::Kind::Address(address) = record.kind else {
                 continue;
             };
-            if self.config.baseline.iter().any(|net| net.contains(address)) {
+            if let Some(outcome) = self.config.refusal(address, named) {
                 return Ok(Handled {
-                    decision: decision(name, qtype, Outcome::RefusedPrivate(address)),
+                    decision: decision(name, qtype, outcome),
                     answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
                 });
             }
@@ -411,7 +442,9 @@ impl Resolver {
             dns::set_ttl(&mut response, record, ttl);
 
             match &record.kind {
+                dns::Kind::Address(address) if self.config.declares(*address) => (),
                 dns::Kind::Address(address) => retain_longest(&mut addresses, *address, ttl),
+                dns::Kind::Target(_) if !named => (),
                 dns::Kind::Target(target) => retain_longest(&mut targets, target.clone(), ttl),
             }
         }
@@ -1211,12 +1244,23 @@ mod tests {
             ),
         ];
 
+        insta::assert_snapshot!(log_steps(&mut resolver, &received, &recorder, steps));
+    }
+
+    /// Handle each step's query at its offset, logging the decision, the
+    /// answer, what went upstream and what was asked of the set.
+    fn log_steps(
+        resolver: &mut Resolver,
+        received: &Received,
+        recorder: &Recorder,
+        steps: Vec<(&str, u64, Vec<u8>)>,
+    ) -> String {
         let mut log = String::new();
         let mut seen = 0;
         let mut elapsed = 0;
 
         for (label, offset, message) in steps {
-            age(&mut resolver, Duration::from_secs(offset - elapsed));
+            age(resolver, Duration::from_secs(offset - elapsed));
             elapsed = offset;
             let handled = resolver
                 .handle(&message, Instant::now())
@@ -1244,7 +1288,315 @@ mod tests {
             seen = calls.len();
             log.push('\n');
         }
-        insta::assert_snapshot!(log);
+        log
+    }
+
+    /// Declared CIDRs admit any name whose `A` answer lies wholly within
+    /// them, beside the names `allowedNames` admits at public addresses. An
+    /// address in neither condemns the answer, and nothing within the CIDRs
+    /// takes room in the set.
+    #[test]
+    fn cidr_decisions() {
+        const POLICY: &str = r#"{
+            "egress": "public",
+            "allowedNames": [
+                "pypi.org",
+                "db.acmeco.example",
+                "outside.acmeco.example",
+                "mixed.acmeco.example",
+                "cdn.acmeco.example"
+            ],
+            "declaredCidrs": ["10.0.0.0/8", "192.168.4.7/32"]
+        }"#;
+        let outside = Ipv4Addr::new(172, 16, 0, 5);
+        let script = vec![
+            (
+                ("pypi.org", dns::TYPE_A),
+                vec![Rr::A("pypi.org", public(10), 300)],
+            ),
+            (
+                ("warehouse.corp.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "warehouse.corp.example",
+                    Ipv4Addr::new(10, 1, 2, 3),
+                    30,
+                )],
+            ),
+            (
+                ("single.corp.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "single.corp.example",
+                    Ipv4Addr::new(192, 168, 4, 7),
+                    300,
+                )],
+            ),
+            (
+                ("neighbor.corp.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "neighbor.corp.example",
+                    Ipv4Addr::new(192, 168, 4, 8),
+                    300,
+                )],
+            ),
+            (
+                ("db.acmeco.example", dns::TYPE_A),
+                vec![
+                    Rr::A("db.acmeco.example", Ipv4Addr::new(10, 4, 5, 6), 300),
+                    Rr::A("db.acmeco.example", public(11), 300),
+                ],
+            ),
+            (
+                ("outside.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("outside.acmeco.example", outside, 300)],
+            ),
+            (
+                ("mixed.acmeco.example", dns::TYPE_A),
+                vec![
+                    Rr::A("mixed.acmeco.example", Ipv4Addr::new(10, 1, 2, 3), 300),
+                    Rr::A("mixed.acmeco.example", outside, 300),
+                ],
+            ),
+            (
+                ("mixed.corp.example", dns::TYPE_A),
+                vec![
+                    Rr::A("mixed.corp.example", Ipv4Addr::new(10, 1, 2, 3), 300),
+                    Rr::A("mixed.corp.example", public(20), 300),
+                ],
+            ),
+            (
+                ("public.corp.example", dns::TYPE_A),
+                vec![Rr::A("public.corp.example", public(21), 300)],
+            ),
+            (
+                ("metadata.corp.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "metadata.corp.example",
+                    Ipv4Addr::new(169, 254, 169, 254),
+                    300,
+                )],
+            ),
+            (("missing.corp.example", dns::TYPE_A), vec![]),
+            (
+                ("alias.corp.example", dns::TYPE_A),
+                vec![
+                    Rr::Cname("alias.corp.example", "target.corp.example", 300),
+                    Rr::A("target.corp.example", Ipv4Addr::new(10, 7, 7, 7), 300),
+                ],
+            ),
+            (
+                ("target.corp.example", dns::TYPE_A),
+                vec![Rr::A("target.corp.example", public(30), 300)],
+            ),
+            (
+                ("cdn.acmeco.example", dns::TYPE_A),
+                vec![
+                    Rr::Cname("cdn.acmeco.example", "edge.cdn.example", 300),
+                    Rr::A("edge.cdn.example", Ipv4Addr::new(10, 8, 8, 8), 300),
+                ],
+            ),
+            (
+                ("edge.cdn.example", dns::TYPE_A),
+                vec![Rr::A("edge.cdn.example", public(31), 300)],
+            ),
+            (("warehouse.corp.example", TYPE_TXT), vec![]),
+        ];
+        let recorder = Recorder::default();
+        let (upstream, received) = recorded_upstream(script, Duration::ZERO);
+        let mut resolver = resolver_under(POLICY, upstream, recorder.clone());
+
+        let steps: Vec<(&str, u64, Vec<u8>)> = vec![
+            (
+                "a listed name at a public address",
+                0,
+                query(1, "pypi.org", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name within a CIDR",
+                1,
+                query(2, "warehouse.corp.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name at a /32",
+                2,
+                query(3, "single.corp.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name beside the /32",
+                3,
+                query(4, "neighbor.corp.example", dns::TYPE_A),
+            ),
+            (
+                "a listed name within a CIDR and at a public address",
+                4,
+                query(5, "db.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a listed name at a private address outside the CIDRs",
+                5,
+                query(6, "outside.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a listed name within a CIDR and outside it",
+                6,
+                query(7, "mixed.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name within a CIDR and at a public address",
+                7,
+                query(8, "mixed.corp.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name at a public address",
+                8,
+                query(9, "public.corp.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name at the metadata service",
+                9,
+                query(10, "metadata.corp.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name with no address",
+                10,
+                query(11, "missing.corp.example", dns::TYPE_A),
+            ),
+            (
+                "TXT for an unlisted name",
+                11,
+                query(12, "warehouse.corp.example", TYPE_TXT),
+            ),
+            (
+                "AAAA for an unlisted name",
+                12,
+                query(13, "warehouse.corp.example", dns::TYPE_AAAA),
+            ),
+            (
+                "an unlisted name's CNAME into a CIDR",
+                13,
+                query(14, "alias.corp.example", dns::TYPE_A),
+            ),
+            (
+                "that target, which is not remembered, at a public address",
+                14,
+                query(15, "target.corp.example", dns::TYPE_A),
+            ),
+            (
+                "a listed name's CNAME into a CIDR",
+                15,
+                query(16, "cdn.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "that target, remembered, at a public address",
+                16,
+                query(17, "edge.cdn.example", dns::TYPE_A),
+            ),
+        ];
+
+        insta::assert_snapshot!(log_steps(&mut resolver, &received, &recorder, steps));
+
+        // Clamped as any answer is, though no set element is held to it.
+        let handled = resolver
+            .handle(
+                &query(18, "warehouse.corp.example", dns::TYPE_A),
+                Instant::now(),
+            )
+            .expect("the answer is accepted");
+        let answer = handled.answer.expect("an answer is returned");
+        let ttls: Vec<u32> = dns::answer_records(&answer)
+            .expect("the rewritten answer still parses")
+            .iter()
+            .map(|record| record.ttl)
+            .collect();
+        assert_eq!(ttls, [90], "30 upstream, floor 90");
+    }
+
+    /// `0.0.0.0/0` admits every name with an `A` answer, and adds nothing to
+    /// the set, but no answer reaching an excluded prefix or the VMM's own
+    /// subnet.
+    #[test]
+    fn every_address_decisions() {
+        let policy = egress::parse(br#"{"egress":"public","declaredCidrs":["0.0.0.0/0"]}"#)
+            .expect("fixture parses");
+        let bridge: ipnetwork::Ipv4Network = "10.89.0.4/24".parse().expect("test constant");
+        let script = vec![
+            (
+                ("anything.example", dns::TYPE_A),
+                vec![Rr::A("anything.example", public(40), 300)],
+            ),
+            (
+                ("private.example", dns::TYPE_A),
+                vec![Rr::A("private.example", Ipv4Addr::new(172, 16, 0, 5), 300)],
+            ),
+            (
+                ("metadata.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "metadata.example",
+                    Ipv4Addr::new(169, 254, 169, 254),
+                    300,
+                )],
+            ),
+            (
+                ("loopback.example", dns::TYPE_A),
+                vec![
+                    Rr::A("loopback.example", public(41), 300),
+                    Rr::A("loopback.example", Ipv4Addr::LOCALHOST, 300),
+                ],
+            ),
+            (
+                ("bridge.example", dns::TYPE_A),
+                vec![Rr::A("bridge.example", Ipv4Addr::new(10, 89, 0, 9), 300)],
+            ),
+            (("anything.example", TYPE_MX), vec![]),
+        ];
+        let recorder = Recorder::default();
+        let (upstream, received) = recorded_upstream(script, Duration::ZERO);
+        let config = Config::new(
+            &policy,
+            &[bridge],
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 53)),
+            upstream,
+            false,
+        );
+        let mut resolver = Resolver::new(config, Box::new(recorder.clone()));
+
+        let steps: Vec<(&str, u64, Vec<u8>)> = vec![
+            (
+                "an unlisted name at a public address",
+                0,
+                query(1, "anything.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name at a private address",
+                1,
+                query(2, "private.example", dns::TYPE_A),
+            ),
+            (
+                "the metadata service",
+                2,
+                query(3, "metadata.example", dns::TYPE_A),
+            ),
+            (
+                "a public address beside loopback",
+                3,
+                query(4, "loopback.example", dns::TYPE_A),
+            ),
+            (
+                "the VMM's own subnet",
+                4,
+                query(5, "bridge.example", dns::TYPE_A),
+            ),
+            (
+                "MX for an unlisted name",
+                5,
+                query(6, "anything.example", TYPE_MX),
+            ),
+        ];
+
+        insta::assert_snapshot!(log_steps(&mut resolver, &received, &recorder, steps));
+        assert!(
+            recorder.calls().is_empty(),
+            "0.0.0.0/0 needs no set element"
+        );
     }
 
     fn summarize(handled: &Handled) -> String {

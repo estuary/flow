@@ -1317,21 +1317,21 @@ mod execution {
         }
 
         insta::assert_snapshot!(rows.join("\n"), @r#"
-    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
-    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
-    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
-    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
-    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } of the task's built spec
-    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
-    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
-    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
-    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
-    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
+    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
+    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
+    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
+    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
+    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
+    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
+    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
+    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
+    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
+    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
     "#);
     }
 
@@ -1411,7 +1411,8 @@ mod execution {
     /// The public-plane refusal of Python derivations is lifted for a VMM launch
     /// alone: an ordinary start is refused before anything is pulled, while a
     /// VMM start goes on to its launch, which fails here at the fixture's state
-    /// directory.
+    /// directory. A VMM start declaring egress CIDRs is refused before its
+    /// launch, by the plane the service was built with.
     #[tokio::test]
     async fn public_python_runs_only_in_a_vmm() {
         let key: [u8; 32] = rand::random();
@@ -1435,8 +1436,15 @@ mod execution {
         let router = connector::ServiceRouter::new(service, signer);
         let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
 
+        let cidrs = Some(flow::ConnectorExecution {
+            vmm: true,
+            egress: Some(flow::connector_execution::Egress {
+                hosts: Vec::new(),
+                cidrs: vec!["10.0.0.0/8".to_string()],
+            }),
+        });
         let mut rows = Vec::new();
-        for execution in [None, vmm_execution()] {
+        for execution in [None, vmm_execution(), cidrs] {
             let responses = drive_router(
                 &router,
                 ops::TaskType::Derivation,
@@ -1454,8 +1462,13 @@ mod execution {
                 }],
             )
             .await;
+            let cidrs = execution
+                .as_ref()
+                .and_then(|execution| execution.egress.as_ref())
+                .map(|egress| format!(" cidrs={:?}", egress.cidrs))
+                .unwrap_or_default();
             rows.push(format!(
-                "vmm={}: {}",
+                "vmm={}{cidrs}: {}",
                 execution.is_some(),
                 render_lines(responses).join(" | ")
             ));
@@ -1464,6 +1477,7 @@ mod execution {
         insta::assert_snapshot!(rows.join("\n"), @r#"
     vmm=false: Status(Unknown): Python derivations may only run in private data-planes
     vmm=true: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
+    vmm=true cidrs=["10.0.0.0/8"]: Status(InvalidArgument): the task declares egress.cidrs, which only private data planes accept
     "#);
     }
 
@@ -1575,8 +1589,8 @@ mod execution {
     start unset: Started(codec=Proto, container=false, process=false, spec=derive) | Derive(opened) | Derive(spec) | Derive(opened) | Derive(opened)
     start ordinary: Started(codec=Proto, container=false, process=false, spec=derive) | Derive(opened) | Derive(spec) | Derive(opened) | Derive(opened)
     vmm: Started(codec=Proto, container=false, process=false, spec=derive) | Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    egress []: Started(codec=Proto, container=false, process=false, spec=derive) | Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) } of the task's built spec
-    egress [api]: Started(codec=Proto, container=false, process=false, spec=derive) | Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } of the task's built spec
+    egress []: Started(codec=Proto, container=false, process=false, spec=derive) | Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
+    egress [api]: Started(codec=Proto, container=false, process=false, spec=derive) | Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
     "#);
     }
     fn local_connector_type(task_type: ops::TaskType) -> i32 {

@@ -194,6 +194,22 @@ pub(crate) fn local_connectors_allowed(plane: crate::Plane) -> bool {
     matches!(plane, crate::Plane::Local)
 }
 
+/// CIDRs can reach private networks, so public planes accept only an empty list.
+pub(crate) fn egress_cidrs(
+    plane: crate::Plane,
+    cidrs: &[String],
+) -> anyhow::Result<Vec<ipnetwork::Ipv4Network>> {
+    // Exhaustive, so that a new kind of plane must decide.
+    match plane {
+        crate::Plane::Public if !cidrs.is_empty() => {
+            anyhow::bail!("the task declares egress.cidrs, which only private data planes accept")
+        }
+        crate::Plane::Public | crate::Plane::Private | crate::Plane::Local => {
+            egress::cidrs("task egress.cidrs", cidrs)
+        }
+    }
+}
+
 pub(crate) fn check_remote_sqlite_vfs(
     is_wire: bool,
     sqlite_vfs_uri_is_set: bool,

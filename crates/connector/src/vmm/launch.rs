@@ -13,7 +13,7 @@
 //! The task holds a clone of the session's log sink, so the session
 //! ends only once its teardown has.
 
-use super::{Eligible, Vmm, plan, record, release};
+use super::{Eligible, TaskEgress, Vmm, plan, record, release};
 use anyhow::Context;
 use proto_flow::runtime;
 use std::time::Duration;
@@ -39,7 +39,7 @@ pub(crate) struct Guard {
 struct Input {
     vmm: Vmm,
     eligible: &'static Eligible,
-    egress: Option<Vec<egress::AllowedName>>,
+    egress: Option<TaskEgress>,
     image: String,
     log_level: ops::LogLevel,
     log_sink: crate::LogSink,
@@ -84,7 +84,7 @@ pub(crate) async fn start(
     ctx: &crate::protocol::StartContext,
     vmm: &Vmm,
     eligible: &'static Eligible,
-    egress: Option<Vec<egress::AllowedName>>,
+    egress: Option<TaskEgress>,
     image: &str,
     secrets: &std::collections::BTreeMap<String, String>,
     build: Option<&str>,
@@ -247,7 +247,7 @@ async fn launch(
                 plane: *plane,
                 task_name,
                 persistent_disk: None,
-                egress: egress.as_deref(),
+                egress: egress.as_ref(),
             },
         )
         .map_err(|err| crate::invalid_argument(format!("{err:#}")))?;
@@ -375,7 +375,7 @@ async fn run_vmm(
     if !plan.ingress.is_empty() {
         crate::container::engine_cmd(&vmm.podman, &plan.ingress)
             .await
-            .context("installing the VMM host ingress permissions")?;
+            .context("installing the VMM host permissions")?;
     }
 
     crate::container::engine_cmd(&vmm.podman, &plan.rootfs)
@@ -451,7 +451,7 @@ async fn run_vmm(
         declarations.declared_usage_rate,
     )?;
 
-    let ip_addr = if plan.ingress.is_empty() {
+    let ip_addr = if plan.ports.is_empty() {
         String::new()
     } else {
         let address = crate::container::engine_cmd(

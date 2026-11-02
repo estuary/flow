@@ -23,8 +23,8 @@ trailing comma at line 1 column 20
 allowAll is set with egress "none", which allows nothing; set egress to "public" or clear allowAll
 
 # allowedNames and declaredCidrs are dormant under egress none, not refused
-{"egress":"none","allowedNames":["pypi.org"],"declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]}]}
-accepted: egress=None allowAll=false allowedNames=[Exact("pypi.org")] declaredCidrs=[93.184.216.0/24 ports [443]] ttl=90..3600
+{"egress":"none","allowedNames":["pypi.org"],"declaredCidrs":["93.184.216.0/24"]}
+accepted: egress=None allowAll=false allowedNames=[Exact("pypi.org")] declaredCidrs=[93.184.216.0/24] ttl=90..3600
 
 # ttlFloorSecs zero
 {"egress":"public","ttlFloorSecs":0}
@@ -175,93 +175,37 @@ accepted: egress=Public allowAll=false allowedNames=[Subdomains("acmeco.example"
 accepted: egress=Public allowAll=false allowedNames=[Exact("s3.amazonaws.com"), Exact("github.io"), Exact("co.uk")] declaredCidrs=[] ttl=90..3600
 
 # declaredCidrs unparsable
-{"egress":"public","declaredCidrs":[{"cidr":"not-a-cidr","ports":[443]}]}
-declaredCidrs "not-a-cidr": invalid address: invalid IPv4 address syntax
+{"egress":"public","declaredCidrs":["not-a-cidr"]}
+declaredCidrs "not-a-cidr" has no prefix length; write an address and a prefix length, such as 10.0.0.0/8, or 10.0.0.1/32 for one address
 
 # declaredCidrs with host bits set
-{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.5/24","ports":[443]}]}
-declaredCidrs "93.184.216.5/24" sets bits below its prefix; write 93.184.216.0/24
+{"egress":"public","declaredCidrs":["93.184.216.5/24"]}
+declaredCidrs "93.184.216.5/24" sets bits below its prefix length; write 93.184.216.0/24, or 93.184.216.5/32 for one address
 
-# declaredCidrs with no ports
-{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[]}]}
-declaredCidrs 93.184.216.0/24 lists no ports
+# declaredCidrs IPv6
+{"egress":"public","declaredCidrs":["fd00::/8"]}
+declaredCidrs "fd00::/8" is IPv6; only IPv4 ranges are supported
 
-# declaredCidrs port 0
-{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[0]}]}
-declaredCidrs 93.184.216.0/24 declares port 0, which is not a destination
+# declaredCidrs in the former shape, with ports
+{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]}]}
+invalid type: map, expected a string at line 1 column 36
 
-# declaredCidrs port 25
-{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443,25]}]}
-declaredCidrs 93.184.216.0/24 declares port 25, which the ruleset drops ahead of every accept
-
-# declaredCidrs overlapping on a shared port
-{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.128/25","ports":[443]}]}
-declaredCidrs 93.184.216.128/25 overlaps 93.184.216.0/24 on a shared port; nft rejects overlapping elements of an interval set
-
-# declaredCidrs overlapping on disjoint ports
-{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.128/25","ports":[8443]}]}
-accepted: egress=Public allowAll=false allowedNames=[] declaredCidrs=[93.184.216.0/24 ports [443]; 93.184.216.128/25 ports [8443]] ttl=90..3600
-
-# declaredCidrs repeating a prefix
-{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.0/24","ports":[8443,443]}]}
-accepted: egress=Public allowAll=false allowedNames=[] declaredCidrs=[93.184.216.0/24 ports [443, 8443]] ttl=90..3600
-
-# declaredCidrs repeating a prefix into an overlap, repeat last
-{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.0/25","ports":[8443]},{"cidr":"93.184.216.0/24","ports":[8443]}]}
-declaredCidrs 93.184.216.0/25 overlaps 93.184.216.0/24 on a shared port; nft rejects overlapping elements of an interval set
-
-# declaredCidrs repeating a prefix into an overlap, repeat first
-{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.0/24","ports":[8443]},{"cidr":"93.184.216.0/25","ports":[8443]}]}
-declaredCidrs 93.184.216.0/25 overlaps 93.184.216.0/24 on a shared port; nft rejects overlapping elements of an interval set
+# declaredCidrs overlapping and repeated, kept disjoint
+{"egress":"public","declaredCidrs":["93.184.216.128/25","93.184.216.0/24","93.184.216.0/24"]}
+accepted: egress=Public allowAll=false allowedNames=[] declaredCidrs=[93.184.216.0/24] ttl=90..3600
 
 # declaredCidrs private (RFC1918)
-{"egress":"public","declaredCidrs":[{"cidr":"10.2.0.0/16","ports":[5432]}]}
-declaredCidrs 10.2.0.0/16 overlaps the baseline exclusion 10.0.0.0/8, which the ruleset drops ahead of every accept
+{"egress":"public","declaredCidrs":["10.2.0.0/16"]}
+accepted: egress=Public allowAll=false allowedNames=[] declaredCidrs=[10.2.0.0/16] ttl=90..3600
 
-# declaredCidrs cloud metadata
-{"egress":"public","declaredCidrs":[{"cidr":"169.254.169.254/32","ports":[80]}]}
-declaredCidrs 169.254.169.254/32 overlaps the baseline exclusion 169.254.0.0/16, which the ruleset drops ahead of every accept
+# declaredCidrs cloud metadata and loopback
+{"egress":"public","declaredCidrs":["169.254.169.254/32","127.0.0.1/32"]}
+accepted: egress=Public allowAll=false allowedNames=[] declaredCidrs=[127.0.0.1/32, 169.254.169.254/32] ttl=90..3600
 
-# declaredCidrs loopback
-{"egress":"public","declaredCidrs":[{"cidr":"127.0.0.1/32","ports":[8080]}]}
-declaredCidrs 127.0.0.1/32 overlaps the baseline exclusion 127.0.0.0/8, which the ruleset drops ahead of every accept
+# declaredCidrs every address
+{"egress":"public","declaredCidrs":["10.89.0.0/24","0.0.0.0/0"]}
+accepted: egress=Public allowAll=false allowedNames=[] declaredCidrs=[0.0.0.0/0] ttl=90..3600
 
-# declaredCidrs shared address space (CGNAT)
-{"egress":"public","declaredCidrs":[{"cidr":"100.100.0.0/16","ports":[443]}]}
-declaredCidrs 100.100.0.0/16 overlaps the baseline exclusion 100.64.0.0/10, which the ruleset drops ahead of every accept
-
-# declaredCidrs IETF protocol assignments
-{"egress":"public","declaredCidrs":[{"cidr":"192.0.0.170/32","ports":[443]}]}
-declaredCidrs 192.0.0.170/32 overlaps the baseline exclusion 192.0.0.0/24, which the ruleset drops ahead of every accept
-
-# declaredCidrs the tap subnet (TEST-NET-1)
-{"egress":"public","declaredCidrs":[{"cidr":"192.0.2.0/30","ports":[443]}]}
-declaredCidrs 192.0.2.0/30 overlaps the baseline exclusion 192.0.2.0/24, which the ruleset drops ahead of every accept
-
-# declaredCidrs benchmarking
-{"egress":"public","declaredCidrs":[{"cidr":"198.18.0.0/15","ports":[443]}]}
-declaredCidrs 198.18.0.0/15 overlaps the baseline exclusion 198.18.0.0/15, which the ruleset drops ahead of every accept
-
-# declaredCidrs documentation (TEST-NET-3)
-{"egress":"public","declaredCidrs":[{"cidr":"203.0.113.0/24","ports":[443]}]}
-declaredCidrs 203.0.113.0/24 overlaps the baseline exclusion 203.0.113.0/24, which the ruleset drops ahead of every accept
-
-# declaredCidrs multicast
-{"egress":"public","declaredCidrs":[{"cidr":"224.0.0.1/32","ports":[443]}]}
-declaredCidrs 224.0.0.1/32 overlaps the baseline exclusion 224.0.0.0/4, which the ruleset drops ahead of every accept
-
-# declaredCidrs reserved
-{"egress":"public","declaredCidrs":[{"cidr":"240.0.0.0/4","ports":[443]}]}
-declaredCidrs 240.0.0.0/4 overlaps the baseline exclusion 240.0.0.0/4, which the ruleset drops ahead of every accept
-
-# declaredCidrs the VMM's own bridge
-{"egress":"public","declaredCidrs":[{"cidr":"10.89.0.0/24","ports":[443]}]}
-declaredCidrs 10.89.0.0/24 overlaps the baseline exclusion 10.0.0.0/8, which the ruleset drops ahead of every accept
-
-# declaredCidrs a VMM subnet on public space
-{"egress":"public","declaredCidrs":[{"cidr":"172.104.9.0/24","ports":[443]}]}
-declaredCidrs 172.104.9.0/24 overlaps the baseline exclusion 172.104.0.0/16, which the ruleset drops ahead of every accept
-
-# allowAll does not rescue a private destination
-{"egress":"public","allowAll":true,"declaredCidrs":[{"cidr":"10.2.0.0/16","ports":[5432]}]}
-declaredCidrs 10.2.0.0/16 overlaps the baseline exclusion 10.0.0.0/8, which the ruleset drops ahead of every accept
+# declaredCidrs beside allowAll
+{"egress":"public","allowAll":true,"declaredCidrs":["10.2.0.0/16"]}
+accepted: egress=Public allowAll=true allowedNames=[] declaredCidrs=[10.2.0.0/16] ttl=90..3600

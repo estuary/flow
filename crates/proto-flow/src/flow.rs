@@ -349,6 +349,12 @@ pub mod connector_execution {
         /// name beneath that base but not the base itself. As the task wrote them.
         #[prost(string, repeated, tag = "1")]
         pub hosts: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        /// IPv4 prefixes, such as `10.0.0.0/8`, within which the connector may
+        /// reach any address on any TCP or UDP port, by address or by any name
+        /// resolving into them. Only private and local data planes accept them.
+        /// As the task wrote them.
+        #[prost(string, repeated, tag = "2")]
+        pub cidrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
 }
 /// Next tag: 13.

@@ -53,6 +53,21 @@ fn tcp(
     )
 }
 
+fn udp(
+    guest: &mut guest::Guest,
+    name: &str,
+    addr: impl ToString,
+    port: u16,
+    timeout: f64,
+) -> serde_json::Value {
+    probe(
+        guest,
+        name,
+        "udp",
+        serde_json::json!({"addr": addr.to_string(), "port": port, "timeout": timeout}),
+    )
+}
+
 fn query(guest: &mut guest::Guest, name: &str, qname: &str, qtype: u16) -> serde_json::Value {
     probe(
         guest,
@@ -84,6 +99,13 @@ fn address(container: &str, network: &str, field: &str) -> Ipv4Addr {
 
 fn listen(run: &run::Run, ip: Ipv4Addr) -> endpoint::Endpoint {
     endpoint::listen(netns::tcp(
+        netns::Namespace::Named(&run.endpoint_netns),
+        (ip, 0).into(),
+    ))
+}
+
+fn echo(run: &run::Run, ip: Ipv4Addr) -> endpoint::Endpoint {
+    endpoint::echo(netns::udp(
         netns::Namespace::Named(&run.endpoint_netns),
         (ip, 0).into(),
     ))
@@ -1970,7 +1992,7 @@ fn ingress_from_host() {
             ..run::Spec::probes(&run, "none.json")
         },
     );
-    let _sibling_permissions = run::ingress(&run, &sibling, &[8080]);
+    let _sibling_permissions = run::ingress(&run, &sibling, &[8080], &[]);
     for policy in ["none.json", "allow-all.json"] {
         let (vmm, mut guest) = start(
             &run,
@@ -1979,7 +2001,7 @@ fn ingress_from_host() {
                 ..run::Spec::probes(&run, policy)
             },
         );
-        let permissions = run::ingress(&run, &vmm, &[8080]);
+        let permissions = run::ingress(&run, &vmm, &[8080], &[]);
         let ip = network_field(&vmm, "IPAddress");
         assert_eq!(
             probe(
@@ -2169,5 +2191,322 @@ fn ingress_from_host() {
             .starts_with("connection-from:")
         );
         drop(stream);
+    }
+}
+
+/// A declared `/32` reaches its private address on TCP and UDP, directly and
+/// by an unlisted name, and nothing beside it. The host boundary holds the
+/// same line for a VMM that has removed its own ruleset, and only while the
+/// launch's grant stands: a sibling cannot use it, and revoking it ends a held
+/// connection.
+#[test]
+fn egress_cidrs() {
+    let run = run::load();
+    let [granted, beside, ..] = run.decoys[..] else {
+        panic!("too few decoys in run.json");
+    };
+    assert_eq!(
+        granted,
+        Ipv4Addr::new(198, 18, 255, 241),
+        "policies/cidrs.json declares the first decoy"
+    );
+    let nameserver = scripted(&run, run.endpoints[0]);
+    for (name, ip) in [
+        ("db.corp.example", granted),
+        ("beside.corp.example", beside),
+        ("ok.acmeco.example", beside),
+    ] {
+        dns::set(&nameserver, name, vec![dns::Record::A(ip, 300)]);
+    }
+    let tcp_granted = listen(&run, granted);
+    let tcp_beside = listen(&run, beside);
+    let udp_granted = echo(&run, granted);
+    let udp_beside = echo(&run, beside);
+
+    let mut spec = run::Spec::probes(&run, "cidrs.json");
+    spec.flags = upstream(&nameserver);
+    let (vmm, mut guest) = start(&run, spec);
+    let permissions = run::ingress(&run, &vmm, &[], &["198.18.255.241/32"]);
+    let (tcp_port, udp_port) = (tcp_granted.addr.port(), udp_granted.addr.port());
+
+    let resolved = probe(
+        &mut guest,
+        "resolve-unlisted-within",
+        "resolve",
+        serde_json::json!({"name": "db.corp.example"}),
+    );
+    assert_eq!(resolved, format!("ok:{granted}"), "resolve-unlisted-within");
+    for (name, qname) in [
+        ("unlisted-beside-refused", "beside.corp.example"),
+        ("listed-beside-refused", "ok.acmeco.example"),
+    ] {
+        assert_eq!(
+            query(&mut guest, name, qname, 1)["status"],
+            "rcode:5",
+            "{name}"
+        );
+    }
+
+    for compromised in [false, true] {
+        if compromised {
+            flush(&vmm);
+            attacker_nat(&vmm);
+        }
+        let case = |name: &str| format!("{name} (compromised={compromised})");
+        for (name, result, want) in [
+            (
+                "tcp-granted",
+                tcp(&mut guest, &case("tcp-granted"), granted, tcp_port, 5.0),
+                "connected",
+            ),
+            (
+                "udp-granted",
+                udp(&mut guest, &case("udp-granted"), granted, udp_port, 5.0),
+                "pong",
+            ),
+            (
+                "tcp-beside",
+                tcp(
+                    &mut guest,
+                    &case("tcp-beside"),
+                    beside,
+                    tcp_beside.addr.port(),
+                    BLOCKED,
+                ),
+                "timeout",
+            ),
+            (
+                "udp-beside",
+                udp(
+                    &mut guest,
+                    &case("udp-beside"),
+                    beside,
+                    udp_beside.addr.port(),
+                    BLOCKED,
+                ),
+                "timeout",
+            ),
+            (
+                "smtp-granted",
+                tcp(&mut guest, &case("smtp-granted"), granted, 25, BLOCKED),
+                "timeout",
+            ),
+        ] {
+            assert_eq!(result, want, "{}", case(name));
+        }
+    }
+
+    // A sibling with no grant of its own, as compromised as this VMM.
+    let (sibling, mut sibling_guest) = start(&run, run::Spec::probes(&run, "cidrs.json"));
+    flush(&sibling);
+    attacker_nat(&sibling);
+    assert_eq!(
+        tcp(
+            &mut sibling_guest,
+            "sibling-tcp-granted",
+            granted,
+            tcp_port,
+            BLOCKED
+        ),
+        "timeout",
+        "a sibling used another launch's grant"
+    );
+    assert_eq!(
+        udp(
+            &mut sibling_guest,
+            "sibling-udp-granted",
+            granted,
+            udp_port,
+            BLOCKED
+        ),
+        "timeout",
+        "a sibling used another launch's grant"
+    );
+
+    let held = probe(
+        &mut guest,
+        "hold-granted",
+        "hold",
+        serde_json::json!({"id": "granted", "addr": granted.to_string(), "port": tcp_port, "timeout": 5}),
+    );
+    assert_eq!(held, "connected");
+    let exchange = |guest: &mut guest::Guest, name: &str, timeout: f64| {
+        probe(
+            guest,
+            name,
+            "exchange",
+            serde_json::json!({"id": "granted", "timeout": timeout}),
+        )
+    };
+    assert_eq!(exchange(&mut guest, "exchange-before-revoke", 5.0), "pong");
+
+    drop(permissions);
+    assert_eq!(
+        exchange(&mut guest, "exchange-after-revoke", BLOCKED),
+        "timeout",
+        "a held connection outlived its grant"
+    );
+    assert_eq!(
+        tcp(&mut guest, "tcp-after-revoke", granted, tcp_port, BLOCKED),
+        "timeout"
+    );
+    assert_eq!(
+        udp(&mut guest, "udp-after-revoke", granted, udp_port, BLOCKED),
+        "timeout"
+    );
+
+    for endpoint in [&tcp_granted, &udp_granted] {
+        assert!(
+            endpoint::accepted(endpoint).contains(&run.endpoint_peer),
+            "the granted decoy never saw the host's end of its hop"
+        );
+    }
+    for endpoint in [&tcp_beside, &udp_beside] {
+        assert_eq!(
+            endpoint::accepted(endpoint),
+            Vec::<Ipv4Addr>::new(),
+            "the decoy beside the grant was reached"
+        );
+    }
+    let upstream = dns::queries(&nameserver);
+    assert!(
+        upstream.iter().any(|name| name == "beside.corp.example"),
+        "an unlisted name goes upstream to be judged by its answer: {upstream:?}"
+    );
+}
+
+/// `0.0.0.0/0` reaches every public and private address, and still nothing
+/// excluded: not the metadata service, the host, the VMM itself or another
+/// VMM. The host boundary holds those for a VMM that has removed its own
+/// ruleset, though the launch's grant covers every address.
+#[test]
+fn egress_every_address() {
+    let run = run::load();
+    let public = run.endpoints[1];
+    let decoy = run.decoys[0];
+    let metadata = Ipv4Addr::new(169, 254, 169, 254);
+    let nameserver = scripted(&run, run.endpoints[0]);
+    for (name, ip) in [
+        ("public.corp.example", public),
+        ("private.corp.example", decoy),
+        ("metadata.corp.example", metadata),
+    ] {
+        dns::set(&nameserver, name, vec![dns::Record::A(ip, 300)]);
+    }
+    let tcp_public = listen(&run, public);
+    let tcp_decoy = listen(&run, decoy);
+    let udp_decoy = echo(&run, decoy);
+    let (sibling, _sibling_guest) = start(&run, run::Spec::probes(&run, "none.json"));
+    let sibling_ip = network_field(&sibling, "IPAddress");
+
+    let mut spec = run::Spec::probes(&run, "every-address.json");
+    spec.flags = upstream(&nameserver);
+    let (vmm, mut guest) = start(&run, spec);
+    let _permissions = run::ingress(&run, &vmm, &[], &["0.0.0.0/0"]);
+    let gateway = network_field(&vmm, "Gateway");
+    let uplink = network_field(&vmm, "IPAddress");
+
+    for (name, qname, want) in [
+        (
+            "resolve-public",
+            "public.corp.example",
+            format!("ok:{public}"),
+        ),
+        (
+            "resolve-private",
+            "private.corp.example",
+            format!("ok:{decoy}"),
+        ),
+    ] {
+        let resolved = probe(
+            &mut guest,
+            name,
+            "resolve",
+            serde_json::json!({"name": qname}),
+        );
+        assert_eq!(resolved, want, "{name}");
+    }
+    assert_eq!(
+        query(&mut guest, "metadata-refused", "metadata.corp.example", 1)["status"],
+        "rcode:5"
+    );
+    // The VMM's own addresses are its input chain's, which a flush removes.
+    for (name, addr) in [("vmm-uplink", uplink), ("vmm-tap", VMM_TAP)] {
+        assert_eq!(
+            tcp(&mut guest, name, addr, 443, BLOCKED),
+            "timeout",
+            "{name}"
+        );
+    }
+
+    for compromised in [false, true] {
+        if compromised {
+            flush(&vmm);
+            attacker_nat(&vmm);
+        }
+        let case = |name: &str| format!("{name} (compromised={compromised})");
+        for (name, result, want) in [
+            (
+                "tcp-public",
+                tcp(
+                    &mut guest,
+                    &case("tcp-public"),
+                    public,
+                    tcp_public.addr.port(),
+                    5.0,
+                ),
+                "connected",
+            ),
+            (
+                "tcp-private",
+                tcp(
+                    &mut guest,
+                    &case("tcp-private"),
+                    decoy,
+                    tcp_decoy.addr.port(),
+                    5.0,
+                ),
+                "connected",
+            ),
+            (
+                "udp-private",
+                udp(
+                    &mut guest,
+                    &case("udp-private"),
+                    decoy,
+                    udp_decoy.addr.port(),
+                    5.0,
+                ),
+                "pong",
+            ),
+            (
+                "tcp-metadata",
+                tcp(&mut guest, &case("tcp-metadata"), metadata, 80, BLOCKED),
+                "timeout",
+            ),
+            (
+                "tcp-gateway",
+                tcp(&mut guest, &case("tcp-gateway"), gateway, 443, BLOCKED),
+                "timeout",
+            ),
+            (
+                "tcp-sibling",
+                tcp(&mut guest, &case("tcp-sibling"), sibling_ip, 8080, BLOCKED),
+                "timeout",
+            ),
+            (
+                "smtp-private",
+                tcp(&mut guest, &case("smtp-private"), decoy, 25, BLOCKED),
+                "timeout",
+            ),
+        ] {
+            assert_eq!(result, want, "{}", case(name));
+        }
+    }
+    for endpoint in [&tcp_public, &tcp_decoy, &udp_decoy] {
+        assert!(
+            endpoint::accepted(endpoint).contains(&run.endpoint_peer),
+            "an endpoint never saw the host's end of its hop"
+        );
     }
 }

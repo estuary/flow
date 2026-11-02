@@ -213,7 +213,10 @@ mod test {
             }),
             Some(flow::ConnectorExecution {
                 vmm: false,
-                egress: Some(flow::connector_execution::Egress { hosts: Vec::new() }),
+                egress: Some(flow::connector_execution::Egress {
+                    hosts: Vec::new(),
+                    cidrs: Vec::new(),
+                }),
             }),
         ]
         .into_iter()
@@ -244,7 +247,7 @@ mod test {
         Open None => extracted
         Open Some(ConnectorExecution { vmm: false, egress: None }) => extracted
         Open Some(ConnectorExecution { vmm: true, egress: None }) => this task requests connector execution ConnectorExecution { vmm: true, egress: None }, which the V1 runtime cannot provide
-        Open Some(ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }) => this task requests connector execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [] }) }, which the V1 runtime cannot provide
+        Open Some(ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [], cidrs: [] }) }) => this task requests connector execution ConnectorExecution { vmm: false, egress: Some(Egress { hosts: [], cidrs: [] }) }, which the V1 runtime cannot provide
         "#);
     }
 }

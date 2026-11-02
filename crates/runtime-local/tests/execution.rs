@@ -54,6 +54,7 @@ async fn vmm_execution_is_carried_to_capture_apply() {
                     "api.acmeco.example".to_string(),
                     "*.svc.acmeco.example".to_string(),
                 ],
+                cidrs: Vec::new(),
             }),
         })
     );

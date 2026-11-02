@@ -330,6 +330,10 @@ expression: json_catalogue(ex_capture_requests())
           "hosts": [
             "api.acmeco.example",
             "*.svc.acmeco.example"
+          ],
+          "cidrs": [
+            "10.0.0.0/8",
+            "192.168.4.7/32"
           ]
         }
       }
@@ -537,6 +541,10 @@ expression: json_catalogue(ex_capture_requests())
           "hosts": [
             "api.acmeco.example",
             "*.svc.acmeco.example"
+          ],
+          "cidrs": [
+            "10.0.0.0/8",
+            "192.168.4.7/32"
           ]
         }
       }

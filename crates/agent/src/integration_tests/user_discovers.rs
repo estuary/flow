@@ -1124,12 +1124,14 @@ async fn test_discover_carries_drafted_execution() {
                 "acmeCo/vmm",
                 true,
                 Some(models::Egress {
-                    hosts: vec!["api.acmeco.example".to_string()]
+                    hosts: vec!["api.acmeco.example".to_string()],
+                    cidrs: Vec::new(),
                 }),
                 Some(proto_flow::flow::ConnectorExecution {
                     vmm: true,
                     egress: Some(proto_flow::flow::connector_execution::Egress {
                         hosts: vec!["api.acmeco.example".to_string()],
+                        cidrs: Vec::new(),
                     }),
                 })
             ),

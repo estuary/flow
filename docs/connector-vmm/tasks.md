@@ -1,7 +1,8 @@
 # Running a task's connector in a VMM
 
 A task may ask for its connector to run inside a micro-VM (a VMM) rather than
-an ordinary container, and may declare the host names that connector reaches.
+an ordinary container, and may declare the host names and address ranges that
+connector reaches.
 This page describes those two catalog fields, `vmm` and `egress`, and what a
 data plane does with them.
 
@@ -94,20 +95,23 @@ the exception, on a public plane whose operator has enabled VMM execution.
 
 ## Declaring egress
 
-`egress` lists host names the connector may reach:
+`egress` lists host names and IPv4 address ranges the connector may reach:
 
 ```yaml
 egress:
   hosts:
     - api.acmeco.example
+  cidrs:
+    - 10.20.0.0/16
 ```
 
-- `hosts` is required whenever `egress` is present; `egress: {}` is an error.
+- `hosts` and `cidrs` are each optional, and a missing list is an empty one.
 - `egress: null` is the same as omitting it.
-- `hosts: []` is a declaration that adds no hosts. It is not deny-all: the
-  connector's own and its image's hosts still apply, and it still turns on
-  filtering on a plane which would otherwise not filter.
-- Repeats and differences of case are tolerated.
+- `egress: {}`, or empty lists, is a declaration that adds nothing. It is not
+  deny-all: the connector's own and its image's hosts still apply, and it
+  still turns on filtering on a plane which would otherwise not filter.
+- Repeats and differences of case are tolerated, and so are overlapping
+  ranges.
 
 Declaring egress never turns on VMM execution. Only VMM execution enforces a
 declaration today, so a task declaring `egress` without `vmm: true` is refused
@@ -128,7 +132,8 @@ The hosts a VMM connector may reach are the union of three sources:
    `["api.acmeco.example", "*.cdn.acmeco.example"]`. A missing, blank or
    empty label adds nothing; anything else that isn't valid names fails the
    launch.
-3. **Task additions**: `egress.hosts`.
+3. **Task additions**: `egress.hosts`, and every address within
+   `egress.cidrs` (see [Address ranges](#address-ranges)).
 
 Whether that union applies depends on the plane and on whether the task
 declares egress:
@@ -137,17 +142,20 @@ declares egress:
 |---|---|---|
 | public | omitted or `null` | connector defaults plus image declarations, by name |
 | private, or local | omitted or `null` | any public destination, by name or address |
-| any | declared, including `hosts: []` | connector defaults, image declarations and task additions, by name |
+| any | declared, including `egress: {}` | connector defaults, image declarations and task additions, by name, and any address within `egress.cidrs` |
 
 On every plane, nothing a task declares lifts the platform's exclusions.
-Private, loopback, link-local (including every cloud's instance metadata
-service), multicast and other special-purpose IPv4 addresses, the host, other
-VMMs, IPv6 and TCP port 25 are never reachable. A permitted name which
-resolves to an excluded address is refused. These exclusions are enforced
-twice: inside the VMM, and on the host outside the VMM's authority.
+Loopback, link-local (including every cloud's instance metadata service),
+multicast and other addresses which are not destinations, the host running
+the connector, other VMMs, IPv6 and TCP port 25 are never reachable. Private
+and other special-purpose IPv4 addresses are reachable only within
+`egress.cidrs`. A permitted name which resolves to an unreachable address is
+refused. These exclusions are enforced twice: inside the VMM, and on the host
+outside the VMM's authority.
 
-There are no settings for ports, address ranges, rates, DNS TTLs, allow-all
-or deny-all. A permitted name is reachable on any port.
+There are no settings for ports, rates, DNS TTLs, allow-all or deny-all. A
+permitted name, and an address within a declared range, is reachable on any
+port.
 
 ### Host names
 
@@ -172,12 +180,40 @@ Publication checks each host and reports an invalid one at its index, as
 "declares an invalid egress host". The data plane checks again before a
 launch.
 
+### Address ranges
+
+`egress.cidrs` opens private networks, such as a database in your own VPC, to
+the connector.
+
+- Each is an IPv4 address and a prefix length, such as `10.20.0.0/16`, or
+  `10.20.3.4/32` for one address. IPv6 ranges, bare addresses, netmasks and
+  addresses with bits set below the prefix (`10.20.3.4/16`) are refused.
+- Every address within a range is reachable on any TCP or UDP port, except
+  TCP port 25, whether the connector uses the address directly or a name
+  resolving to it. A name need not be listed in `hosts` when every address it
+  resolves to lies within the declared ranges.
+- Broad ranges, including `10.0.0.0/8` and `0.0.0.0/0`, are accepted. The
+  exclusions above still apply within them: `0.0.0.0/0` reaches every public
+  and private address, but not the metadata service, loopback, the host or
+  other VMMs.
+- Only private data planes accept a range, and local ones for a preview. A
+  public data plane refuses any nonempty `cidrs` when the connector starts,
+  including at publication: "the task declares egress.cidrs, which only
+  private data planes accept". Publication checks the syntax of each range
+  and reports an invalid one at its index, as "declares an invalid egress
+  CIDR".
+
 ### What enforcement is, and is not
 
 A VMM's resolver answers only permitted names, and only the addresses those
 answers return become reachable. A permitted name may be queried for any
 record type. Only its address answers are checked against the exclusions
-above; other answers, such as TXT or SRV, are returned unfiltered.
+above; other answers, such as TXT or SRV, are returned unfiltered. With
+`egress.cidrs`, any other name may be asked for its IPv4 address, and its
+answer is returned only if every address lies within the declared ranges. One
+address outside them refuses the whole answer, and so does an address a listed
+name resolves to that is neither public nor within the ranges. A record type
+other than an IPv4 address, such as SRV, needs the name in `hosts`.
 Permitting a name trusts whoever controls it: its addresses, and the CNAME
 targets it points to. This makes a connector's intended destinations visible
 and reviewable. It is not an exfiltration control: data can leave through a
@@ -197,7 +233,8 @@ with no egress enforcement.
 
 A local plane, like a private one, lets an undeclared task reach any public
 destination, so a local preview does not reproduce a public plane's filtering.
-Declare `egress` (even `hosts: []`) to preview with name filtering.
+Declare `egress` (even `egress: {}`) to preview with name filtering. A local
+plane accepts `egress.cidrs`, which a public plane refuses.
 
 ## What a VMM task logs
 
@@ -205,7 +242,7 @@ Each VMM launch logs, at `info`, the egress it applies and where each name
 came from:
 
 ```
-VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example, *.cdn.acmeco.example (task egress.hosts)
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example, *.cdn.acmeco.example (task egress.hosts); and any address within 10.20.0.0/16 (task egress.cidrs)
 ```
 
 or "VMM egress permits any public destination: the task declares no egress,

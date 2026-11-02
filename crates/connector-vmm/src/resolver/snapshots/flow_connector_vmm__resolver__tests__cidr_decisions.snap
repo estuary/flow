@@ -1,0 +1,91 @@
+---
+source: crates/connector-vmm/src/resolver/mod.rs
+expression: "log_steps(&mut resolver, &received, &recorder, steps)"
+---
+# a listed name at a public address (t+0s)
+name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=50
+upstream: [pypi.org/1]
+set: delete [] add [93.184.216.10 timeout 300s]
+
+# an unlisted name within a CIDR (t+1s)
+name=warehouse.corp.example qtype=1 outcome=resolved addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=78
+upstream: [warehouse.corp.example/1]
+
+# an unlisted name at a /32 (t+2s)
+name=single.corp.example qtype=1 outcome=resolved addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=72
+upstream: [single.corp.example/1]
+
+# an unlisted name beside the /32 (t+3s)
+name=neighbor.corp.example qtype=1 outcome=refused-private=192.168.4.8 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
+upstream: [neighbor.corp.example/1]
+
+# a listed name within a CIDR and at a public address (t+4s)
+name=db.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.11/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=2 bytes=101
+upstream: [db.acmeco.example/1]
+set: delete [] add [93.184.216.11 timeout 300s]
+
+# a listed name at a private address outside the CIDRs (t+5s)
+name=outside.acmeco.example qtype=1 outcome=refused-private=172.16.0.5 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=40
+upstream: [outside.acmeco.example/1]
+
+# a listed name within a CIDR and outside it (t+6s)
+name=mixed.acmeco.example qtype=1 outcome=refused-private=172.16.0.5 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=38
+upstream: [mixed.acmeco.example/1]
+
+# an unlisted name within a CIDR and at a public address (t+7s)
+name=mixed.corp.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=36
+upstream: [mixed.corp.example/1]
+
+# an unlisted name at a public address (t+8s)
+name=public.corp.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=37
+upstream: [public.corp.example/1]
+
+# an unlisted name at the metadata service (t+9s)
+name=metadata.corp.example qtype=1 outcome=refused-private=169.254.169.254 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
+upstream: [metadata.corp.example/1]
+
+# an unlisted name with no address (t+10s)
+name=missing.corp.example qtype=1 outcome=resolved addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=0 bytes=38
+upstream: [missing.corp.example/1]
+
+# TXT for an unlisted name (t+11s)
+name=warehouse.corp.example qtype=16 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=40
+upstream: []
+
+# AAAA for an unlisted name (t+12s)
+name=warehouse.corp.example qtype=28 outcome=aaaa-empty addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=0 bytes=40
+upstream: []
+
+# an unlisted name's CNAME into a CIDR (t+13s)
+name=alias.corp.example qtype=1 outcome=resolved addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=2 bytes=122
+upstream: [alias.corp.example/1]
+
+# that target, which is not remembered, at a public address (t+14s)
+name=target.corp.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=37
+upstream: [target.corp.example/1]
+
+# a listed name's CNAME into a CIDR (t+15s)
+name=cdn.acmeco.example qtype=1 outcome=resolved addresses=[] targets=[edge.cdn.example/300] refreshed=[]
+answer: rcode=0 ancount=2 bytes=116
+upstream: [cdn.acmeco.example/1]
+
+# that target, remembered, at a public address (t+16s)
+name=edge.cdn.example qtype=1 outcome=resolved addresses=[93.184.216.31/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=66
+upstream: [edge.cdn.example/1]
+set: delete [] add [93.184.216.31 timeout 300s]

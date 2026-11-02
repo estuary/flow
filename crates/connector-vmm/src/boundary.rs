@@ -13,10 +13,11 @@
 //!
 //! Drops in these base chains cannot be undone by another table's accepts.
 //! Podman's resolver on the arrival bridge is the guest's DNS exception.
-//! Host ingress uses a reserved packet mark cleared at priority -12 and set by
-//! launch-owned chains at priority -11. Permissions are checked on every packet,
-//! so stale conntrack state cannot authorize a replacement launch. Forwarded
-//! ingress and guest-originated host connections remain blocked.
+//! Host ingress, and forwarded egress to a task's declared CIDRs, use a
+//! reserved packet mark cleared at priority -12 and set by launch-owned chains
+//! at priority -11. Permissions are checked on every packet, so stale
+//! conntrack state cannot authorize a replacement launch. Forwarded ingress
+//! and guest-originated host connections remain blocked.
 
 use std::collections::BTreeMap;
 
@@ -48,14 +49,21 @@ pub enum Action {
     Verify,
     /// Delete both tables. Refused while any VMM bridge exists.
     Remove,
-    /// Permit host-originated TCP connections to one launch's declared ports.
+    /// Permit host-originated TCP connections to one launch's declared ports,
+    /// and its forwarded traffic to its task's declared CIDRs.
     Grant {
         #[arg(long, value_parser = crate::ingress::token)]
         owner: String,
         #[arg(long, value_parser = crate::ingress::bridge)]
         bridge: String,
-        #[arg(long, required = true, value_parser = clap::value_parser!(u16).range(1..))]
+        #[arg(
+            long,
+            required_unless_present = "cidr",
+            value_parser = clap::value_parser!(u16).range(1..)
+        )]
         port: Vec<u16>,
+        #[arg(long, value_parser = crate::ingress::cidr)]
+        cidr: Vec<String>,
     },
     /// Remove only the permissions belonging to this owner token.
     Revoke {
@@ -73,7 +81,8 @@ pub fn run(action: &Action) -> anyhow::Result<()> {
             owner,
             bridge,
             port,
-        } => crate::ingress::grant(owner, bridge, port),
+            cidr,
+        } => crate::ingress::grant(owner, bridge, port, cidr),
         Action::Revoke { owner } => crate::ingress::revoke(owner),
     }
 }
@@ -272,29 +281,37 @@ fn expected() -> Vec<serde_json::Value> {
         "left": { "payload": { "protocol": "ether", "field": "type" } },
         "right": { "set": ["ip", "arp"] },
     }});
-    let baseline: Vec<serde_json::Value> = egress::baseline(&[])
-        .iter()
-        .map(|prefix| serde_json::json!({ "prefix": { "addr": prefix.ip().to_string(), "len": prefix.prefix() } }))
-        .collect();
-
-    vec![
-        serde_json::json!({ "table": { "family": "inet", "name": TABLE } }),
+    let elements = |prefixes: Vec<ipnetwork::Ipv4Network>| -> Vec<serde_json::Value> {
+        prefixes
+            .iter()
+            .map(|prefix| serde_json::json!({ "prefix": { "addr": prefix.ip().to_string(), "len": prefix.prefix() } }))
+            .collect()
+    };
+    let set = |name: &str, prefixes: Vec<ipnetwork::Ipv4Network>| {
         serde_json::json!({ "set": {
             "family": "inet",
             "table": TABLE,
-            "name": "baseline",
+            "name": name,
             "type": "ipv4_addr",
             "flags": ["interval"],
-            "elem": baseline,
-        }}),
+            "elem": elements(prefixes),
+        }})
+    };
+
+    vec![
+        serde_json::json!({ "table": { "family": "inet", "name": TABLE } }),
+        set("baseline", egress::baseline(&[])),
+        set("excluded", egress::excluded(&[])),
         chain("inet", "prerouting", PREROUTING_PRIORITY),
         chain("inet", "input", FILTER_PRIORITY),
         chain("inet", "forward", FILTER_PRIORITY),
         chain("inet", "output", FILTER_PRIORITY),
-        mark_chain("input"),
-        mark_chain("output"),
-        clear_mark("input", "iifname"),
-        clear_mark("output", "oifname"),
+        mark_chain("ingress_input", "input"),
+        mark_chain("ingress_output", "output"),
+        mark_chain("egress_forward", "forward"),
+        clear_mark("ingress_input", "iifname", "clear-ingress-mark"),
+        clear_mark("ingress_output", "oifname", "clear-ingress-mark"),
+        clear_mark("egress_forward", "iifname", "clear-egress-mark"),
         // IPv6 is dropped rather than filtered: nothing here would bound it.
         rule(
             "inet",
@@ -357,8 +374,24 @@ fn expected() -> Vec<serde_json::Value> {
         rule(
             "inet",
             "forward",
+            "excluded",
+            vec![from(), payload("==", "ip", "daddr", "@excluded".into())],
+            "drop",
+        ),
+        // A launch's grant marks its packets to its task's declared CIDRs.
+        rule(
+            "inet",
+            "forward",
             "baseline",
-            vec![from(), payload("==", "ip", "daddr", "@baseline".into())],
+            vec![
+                from(),
+                payload("==", "ip", "daddr", "@baseline".into()),
+                serde_json::json!({ "match": {
+                    "op": "!=",
+                    "left": { "meta": { "key": "mark" } },
+                    "right": crate::ingress::MARK,
+                }}),
+            ],
             "drop",
         ),
         rule(
@@ -449,15 +482,15 @@ fn expected() -> Vec<serde_json::Value> {
     ]
 }
 
-fn mark_chain(hook: &str) -> serde_json::Value {
+fn mark_chain(name: &str, hook: &str) -> serde_json::Value {
     let mut chain = chain("inet", hook, FILTER_PRIORITY - 2);
-    chain["chain"]["name"] = format!("ingress_{hook}").into();
+    chain["chain"]["name"] = name.into();
     chain
 }
 
-fn clear_mark(hook: &str, interface: &str) -> serde_json::Value {
+fn clear_mark(chain: &str, interface: &str, comment: &str) -> serde_json::Value {
     serde_json::json!({ "rule": {
-        "family": "inet", "table": TABLE, "chain": format!("ingress_{hook}"), "comment": "clear-ingress-mark",
+        "family": "inet", "table": TABLE, "chain": chain, "comment": comment,
         "expr": [meta(interface, format!("{BRIDGE_PREFIX}*").into()), meta("mark", crate::ingress::MARK.into()),
             { "counter": null }, { "mangle": { "key": { "meta": { "key": "mark" } }, "value": 0 } }],
     } })
@@ -667,6 +700,9 @@ mod tests {
                 ("a baseline element removed", |items| {
                     items[2]["set"]["elem"].as_array_mut().unwrap().remove(4);
                 }),
+                ("an excluded element removed", |items| {
+                    items[3]["set"]["elem"].as_array_mut().unwrap().remove(2);
+                }),
                 ("an accept inserted ahead of the forward drops", |items| {
                     let at = position(items, "forward", "vmm-to-vmm");
                     items.insert(at, serde_json::json!({ "rule": {
@@ -733,7 +769,10 @@ mod tests {
             let verdict = expr.last().expect("a verdict");
             if verdict.get("accept").is_some() {
                 accepts.push(format!("{}/{}", rule["chain"], rule["comment"]));
-            } else if rule["comment"] == "clear-ingress-mark" {
+            } else if ["clear-ingress-mark", "clear-egress-mark"]
+                .iter()
+                .any(|comment| rule["comment"] == *comment)
+            {
                 assert_eq!(
                     verdict["mangle"],
                     serde_json::json!({"key": {"meta": {"key": "mark"}}, "value": 0})

@@ -284,6 +284,13 @@ pub enum Error {
         #[source]
         detail: anyhow::Error,
     },
+    #[error("{entity} {name} declares an invalid egress CIDR")]
+    InvalidEgressCidr {
+        entity: &'static str,
+        name: String,
+        #[source]
+        detail: anyhow::Error,
+    },
     #[error("error while communicating with the Flow control-plane API")]
     ControlPlane {
         #[source]

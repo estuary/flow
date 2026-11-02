@@ -1,0 +1,25 @@
+---
+source: crates/connector-vmm/src/ingress.rs
+expression: table
+---
+add table inet flow_vmm_ingress_00112233445566778899aabbccddeeff {
+chain output {
+type filter hook output priority -11; policy accept;
+oifname "fvm0123456789ab" meta nfproto ipv4 ct direction original ct state new,established tcp dport { 8080 } meta mark set 1180061001
+}
+chain input {
+type filter hook input priority -11; policy accept;
+iifname "fvm0123456789ab" meta nfproto ipv4 ct direction reply ct state established tcp sport { 8080 } meta mark set 1180061001
+}
+chain forward {
+type filter hook forward priority -11; policy accept;
+iifname "fvm0123456789ab" meta nfproto ipv4 ip daddr { 10.0.0.0/8, 192.168.4.7/32 } meta mark set 1180061001
+}
+}
+
+add table inet flow_vmm_ingress_00112233445566778899aabbccddeeff {
+chain forward {
+type filter hook forward priority -11; policy accept;
+iifname "fvm0123456789ab" meta nfproto ipv4 ip daddr { 0.0.0.0/0 } meta mark set 1180061001
+}
+}

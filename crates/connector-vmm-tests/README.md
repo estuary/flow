@@ -30,8 +30,9 @@ connector-init over a guest's vsock connection.
 ## Coverage and entry points
 
 - `tests/kvm.rs`: guest boot, devices, filesystem and connector-mount
-  isolation, RPC, teardown, egress allowlists and expiry, host-only declared
-  TCP ingress with bidirectional traffic under `egress: none`, and host isolation
+  isolation, RPC, teardown, egress allowlists and expiry, declared CIDRs over
+  TCP and UDP with their host grant's lifecycle, host-only declared TCP
+  ingress with bidirectional traffic under `egress: none`, and host isolation
   after a VMM removes its own rules. Connector-mount tests check that host
   file replacements become visible inside the guest.
 - `tests/dns_answers/`, `tests/dns_capacity/`: refused answers and capacity
@@ -72,11 +73,12 @@ injection. Recovery holds match the seeded orphans' tokens so a failed launch
 can release its own resources. `src/host.rs` reads kernel state; `src/guest.rs`
 talks to the stdlib Python probe server in `fixtures/probes.py`.
 
-`src/dns.rs` and `src/endpoint.rs` serve controlled DNS and TCP traffic.
+`src/dns.rs` and `src/endpoint.rs` serve controlled DNS, TCP and UDP traffic.
 `src/netns.rs` and `fixtures/bind.py` bind sockets in the endpoint namespace.
 The endpoints use addresses under `192.31.196.240/28`, routed one hop from
 the host so host-isolation rules apply. Excluded decoys use
-`198.18.255.240/28`. Both ranges are blackholed beneath their test routes;
+`198.18.255.240/28`; a declared CIDR may reach them, as it would private
+space. Both ranges are blackholed beneath their test routes;
 the namespace routes only back to the host.
 
 ## Resources and diagnostics

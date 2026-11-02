@@ -291,6 +291,8 @@ credentials, `task-update.json`.
 | "connector image '...' is not eligible for VMM execution as a ..." | The task's image or type is not eligible (see [tasks.md](tasks.md#which-tasks-are-eligible)). |
 | "the task declares egress, which ordinary execution cannot enforce" | `egress` without `vmm: true`. Catalog validation reports it first, as "declares egress, which its connector's execution cannot enforce". |
 | "task egress.hosts ..." or "declares an invalid egress host" | An invalid host name; the message names the rule. |
+| "task egress.cidrs ..." or "declares an invalid egress CIDR" | An invalid address range; the message names the rule. |
+| "the task declares egress.cidrs, which only private data planes accept" | `egress.cidrs` on a public data plane, which never accepts one. |
 | "connector Started with execution ..., but ... was requested" | The serving reactor ignored or changed the execution settings: it predates them. See [Rollout](#rollout). |
 | "CONNECTOR_VMM_STATE_DIR is required when CONNECTOR_VMM_IMAGE is set", or another variable named with its value | Configuration refused at service construction. |
 | "CONNECTOR_VMM_STATE_DIR ..." (FailedPrecondition) | The state directory is missing or not a directory. |
@@ -304,7 +306,8 @@ credentials, `task-update.json`.
 Egress: each launch logs the egress it applies, with each name's source, and
 the VMM logs refused names at `warn`, at most 32 per VMM (see
 [tasks.md](tasks.md#what-a-vmm-task-logs)). A name expected to work and
-refused is either undeclared or resolving to a non-public address.
+refused is either undeclared or resolving to a non-public address outside
+the task's `egress.cidrs`.
 
 Recovery reports go to the reactor's own logs (tracing), not the task's:
 

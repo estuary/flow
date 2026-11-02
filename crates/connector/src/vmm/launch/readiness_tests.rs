@@ -768,6 +768,7 @@ async fn launch(h: &mut Harness, Launch { stderr, peer, then }: Launch) -> Repor
         egress,
     } = crate::vmm::vmm_for(
         Some(&config),
+        ctx.plane,
         ops::TaskType::Derivation,
         Some(IMAGE),
         &ctx.execution,

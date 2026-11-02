@@ -38,9 +38,10 @@ pub struct CaptureDef {
     pub vmm: bool,
     /// # Egress this capture's connector is held to.
     /// Declaring egress, even with no hosts, holds the connector to the hosts
-    /// of its connector and image, plus those listed. Only an execution which
-    /// enforces egress, such as VMM execution (`vmm: true`), may run a task
-    /// which declares it; any other fails the task.
+    /// of its connector and image, plus the hosts and address ranges listed.
+    /// Only an execution which enforces egress, such as VMM execution
+    /// (`vmm: true`), may run a task which declares it; any other fails the
+    /// task.
     /// When omitted, the data plane decides: a public data plane holds a VMM
     /// to its connector's and image's hosts, while a private data plane lets
     /// it reach any public destination.

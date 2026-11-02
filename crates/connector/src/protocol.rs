@@ -170,6 +170,7 @@ pub(crate) async fn start<P: Protocol>(
     };
     let execution = crate::vmm::vmm_for(
         ctx.vmm.as_ref(),
+        ctx.plane,
         P::TASK_TYPE,
         image,
         &ctx.execution,

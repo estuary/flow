@@ -611,13 +611,14 @@ pub fn random_hex() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Host permissions for a test guest. Recorded before creation for task cleanup.
+/// Host permissions for a test guest: ingress to `ports`, and egress to
+/// `cidrs`. Recorded before creation for task cleanup, and revoked on drop.
 pub struct Ingress {
     image: String,
     owner: String,
 }
 
-pub fn ingress(run: &Run, vmm: &Vmm, ports: &[u16]) -> Ingress {
+pub fn ingress(run: &Run, vmm: &Vmm, ports: &[u16], cidrs: &[&str]) -> Ingress {
     let owner = format!("{}{}", random_hex(), random_hex());
     record("ingress", &format!("{} {owner}", run.vmm_image));
     let mut args = crate::launch::boundary(&run.vmm_image, "host", "grant");
@@ -626,6 +627,7 @@ pub fn ingress(run: &Run, vmm: &Vmm, ports: &[u16]) -> Ingress {
         format!("--bridge=fvm{}", &vmm.name[3..15]),
     ]);
     args.extend(ports.iter().map(|port| format!("--port={port}")));
+    args.extend(cidrs.iter().map(|cidr| format!("--cidr={cidr}")));
     podman(&args.iter().map(String::as_str).collect::<Vec<_>>());
     Ingress {
         image: run.vmm_image.clone(),
