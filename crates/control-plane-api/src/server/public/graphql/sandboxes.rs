@@ -190,6 +190,27 @@ impl SandboxesMutation {
             models::authz::Capability::CreateSandbox,
         )
         .await?;
+
+        let accepted = super::legal_terms::check_consent(
+            &env.pg_pool,
+            catalog_name.as_str(),
+            super::legal_terms::LegalTermsType::Sandbox,
+            &super::legal_terms::LegalConsentVersion {
+                eq: None,
+                gte: Some(1),
+            },
+        )
+        .await
+        .map_err(|error| {
+            async_graphql::Error::new_with_source(
+                anyhow::Error::new(error).context("checking sandbox agreement acceptance"),
+            )
+        })?;
+        if !accepted {
+            return Err(async_graphql::Error::new(
+                "The tenant must accept a sandbox agreement before creating sandboxes",
+            ));
+        }
         let client = sprites_client(ctx)?;
 
         let sandbox =
@@ -343,4 +364,110 @@ fn sprites_client(ctx: &Context<'_>) -> async_graphql::Result<Arc<crate::sprites
         .sprites
         .clone()
         .ok_or_else(|| async_graphql::Error::new("Sandboxes are not configured"))
+}
+
+#[cfg(test)]
+mod test {
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn sandbox_create_requires_agreement(pool: sqlx::PgPool) {
+        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'alice@example.test')")
+            .bind(user)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO tenants (tenant) VALUES ('acmeCo/'), ('acmeCoOther/')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO user_grants (user_id, object_role, capability, bundles)
+             VALUES ($1, 'acmeCo/nested/', 'read', ARRAY['create_sandbox']::capability_bundle[])",
+        )
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let server = crate::test_server::TestServer::start(
+            pool.clone(),
+            crate::test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let token = server.make_access_token(user, None);
+        let query = serde_json::json!({"query": r#"mutation {
+            sandboxCreate(catalogName: "acmeCo/nested/sandbox") { catalogName }
+        }"#});
+        let mut outcomes = Vec::new();
+        let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
+        outcomes.push(response["errors"][0]["message"].clone());
+
+        // MSA consent, another tenant, and a deleted tenant cannot cover this name.
+        sqlx::query(
+            "INSERT INTO internal.tenant_consent
+                 (user_id, user_email, terms_id, tenant_name, tenant_id)
+             SELECT $1, 'alice@example.test', l.id, t.tenant, t.id
+             FROM internal.legal_terms l CROSS JOIN tenants t
+             WHERE l.type = 'msa' OR t.tenant = 'acmeCoOther/'",
+        )
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO internal.tenant_consent
+                 (user_id, user_email, terms_id, tenant_name, tenant_id)
+             SELECT $1, 'alice@example.test', id, 'acmeCo/', '00:00:00:00:00:00:00:01'::flowid
+             FROM internal.legal_terms WHERE type = 'sandbox'",
+        )
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
+        outcomes.push(response["errors"][0]["message"].clone());
+
+        sqlx::query(
+            "INSERT INTO internal.legal_terms (type, text)
+             VALUES ('sandbox', 'Updated sandbox agreement')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO internal.tenant_consent
+                 (user_id, user_email, terms_id, tenant_name, tenant_id)
+             SELECT $1, 'alice@example.test', l.id, t.tenant, t.id
+             FROM internal.legal_terms l CROSS JOIN tenants t
+             WHERE l.type = 'sandbox' AND l.version = 2 AND t.tenant = 'acmeCo/'",
+        )
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
+        outcomes.push(response["errors"][0]["message"].clone());
+
+        sqlx::query(
+            "INSERT INTO internal.tenant_consent
+                 (user_id, user_email, terms_id, tenant_name, tenant_id)
+             SELECT $1, 'alice@example.test', l.id, t.tenant, t.id
+             FROM internal.legal_terms l CROSS JOIN tenants t
+             WHERE l.type = 'sandbox' AND l.version = 1 AND t.tenant = 'acmeCo/'",
+        )
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+        // The test server has no VM provider; reaching it proves consent passed.
+        let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
+        outcomes.push(response["errors"][0]["message"].clone());
+        insta::assert_json_snapshot!(outcomes, @r#"
+        [
+          "The tenant must accept a sandbox agreement before creating sandboxes",
+          "The tenant must accept a sandbox agreement before creating sandboxes",
+          "Sandboxes are not configured",
+          "Sandboxes are not configured"
+        ]
+        "#);
+    }
 }

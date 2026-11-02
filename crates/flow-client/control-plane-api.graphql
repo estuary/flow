@@ -1651,6 +1651,10 @@ enum LegalTermsType {
 	Master Services Agreement.
 	"""
 	MSA
+	"""
+	Consent to use sandboxes.
+	"""
+	SANDBOX
 }
 
 type LiveSpec {

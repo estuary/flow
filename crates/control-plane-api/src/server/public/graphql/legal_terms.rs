@@ -16,6 +16,8 @@ pub struct LegalTermsQuery;
 pub enum LegalTermsType {
     /// Master Services Agreement.
     Msa,
+    /// Consent to use sandboxes.
+    Sandbox,
 }
 
 #[derive(async_graphql::SimpleObject, sqlx::FromRow)]
@@ -86,25 +88,35 @@ impl LegalTermsQuery {
             super::verify_authorization(env, &tenant, capability).await?;
         }
 
-        // Audit records survive tenant deletion; consent must match the current tenant ID.
-        let accepted: bool = sqlx::query_scalar(
-            "SELECT EXISTS (
-                 SELECT 1 FROM internal.tenant_consent c
-                 JOIN public.tenants t ON t.id = c.tenant_id
-                 JOIN internal.legal_terms l ON l.id = c.terms_id
-                 WHERE t.tenant = $1 AND l.type = $2
-                   AND ($3::integer IS NULL OR l.version = $3)
-                   AND ($4::integer IS NULL OR l.version >= $4)
-             )",
-        )
-        .bind(&tenant)
-        .bind(r#type)
-        .bind(version.eq)
-        .bind(version.gte)
-        .fetch_one(&env.pg_pool)
-        .await?;
-        Ok(accepted)
+        Ok(check_consent(&env.pg_pool, &tenant, r#type, &version).await?)
     }
+}
+
+/// Check agreement coverage for a tenant or catalog name. Empty version bounds match any version.
+/// Callers authorize access before checking consent.
+pub(super) async fn check_consent(
+    pool: &sqlx::PgPool,
+    catalog_name: &str,
+    terms_type: LegalTermsType,
+    version: &LegalConsentVersion,
+) -> Result<bool, sqlx::Error> {
+    // Audit records survive tenant deletion; consent must match the current tenant ID.
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM internal.tenant_consent c
+             JOIN public.tenants t ON t.id = c.tenant_id
+             JOIN internal.legal_terms l ON l.id = c.terms_id
+             WHERE starts_with($1, t.tenant::text) AND l.type = $2
+               AND ($3::integer IS NULL OR l.version = $3)
+               AND ($4::integer IS NULL OR l.version >= $4)
+         )",
+    )
+    .bind(catalog_name)
+    .bind(terms_type)
+    .bind(version.eq)
+    .bind(version.gte)
+    .fetch_one(pool)
+    .await
 }
 
 #[derive(Debug, Default)]

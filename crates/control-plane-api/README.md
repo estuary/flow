@@ -27,6 +27,8 @@ user's direct grants; role grants cannot authorize consent.
 and returns whether it has accepted a matching version. Supply exactly one of
 `version.eq` or `version.gte`; consent from a deleted tenant does not carry over
 when its name is reused.
+`sandboxCreate` requires CreateSandbox and an accepted sandbox agreement at version 1 or newer for
+the current tenant containing `catalogName`.
 
 GraphQL terminal authorization failures carry an
 `authorization::AuthorizationDenied` source with the required capability bit.
