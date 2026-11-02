@@ -16,6 +16,8 @@ pub struct LegalTermsQuery;
 pub enum LegalTermsType {
     /// Master Services Agreement.
     Msa,
+    /// Consent to use sandboxes.
+    Sandbox,
 }
 
 #[derive(async_graphql::SimpleObject, sqlx::FromRow)]
@@ -30,6 +32,11 @@ pub struct LegalTerms {
 pub struct LegalConsentVersion {
     pub eq: Option<i32>,
     pub gte: Option<i32>,
+}
+
+pub(super) enum ConsentVersion {
+    Eq(i32),
+    Gte(i32),
 }
 
 fn validate_tenant(tenant: &String) -> Result<(), async_graphql::InputValueError<String>> {
@@ -66,11 +73,15 @@ impl LegalTermsQuery {
         r#type: LegalTermsType,
         version: LegalConsentVersion,
     ) -> async_graphql::Result<bool> {
-        if version.eq.is_some() == version.gte.is_some() {
-            return Err(async_graphql::Error::new(
-                "Provide exactly one of version.eq or version.gte",
-            ));
-        }
+        let version = match (version.eq, version.gte) {
+            (Some(version), None) => ConsentVersion::Eq(version),
+            (None, Some(version)) => ConsentVersion::Gte(version),
+            _ => {
+                return Err(async_graphql::Error::new(
+                    "Provide exactly one of version.eq or version.gte",
+                ));
+            }
+        };
 
         let env = ctx.data::<crate::Envelope>()?;
         let capability = models::authz::Capability::CatalogRead;
@@ -86,25 +97,39 @@ impl LegalTermsQuery {
             super::verify_authorization(env, &tenant, capability).await?;
         }
 
-        // Audit records survive tenant deletion; consent must match the current tenant ID.
-        let accepted: bool = sqlx::query_scalar(
-            "SELECT EXISTS (
-                 SELECT 1 FROM internal.tenant_consent c
-                 JOIN public.tenants t ON t.id = c.tenant_id
-                 JOIN internal.legal_terms l ON l.id = c.terms_id
-                 WHERE t.tenant = $1 AND l.type = $2
-                   AND ($3::integer IS NULL OR l.version = $3)
-                   AND ($4::integer IS NULL OR l.version >= $4)
-             )",
-        )
-        .bind(&tenant)
-        .bind(r#type)
-        .bind(version.eq)
-        .bind(version.gte)
-        .fetch_one(&env.pg_pool)
-        .await?;
-        Ok(accepted)
+        Ok(check_consent(&env.pg_pool, &tenant, r#type, version).await?)
     }
+}
+
+/// Check the tenant's agreement coverage.
+/// Callers authorize access before checking consent.
+pub(super) async fn check_consent(
+    pool: &sqlx::PgPool,
+    tenant: &str,
+    terms_type: LegalTermsType,
+    version: ConsentVersion,
+) -> Result<bool, sqlx::Error> {
+    let (version, exact) = match version {
+        ConsentVersion::Eq(version) => (version, true),
+        ConsentVersion::Gte(version) => (version, false),
+    };
+    // Audit records survive tenant deletion; consent must match the current tenant ID.
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM internal.tenant_consent c
+             JOIN public.tenants t ON t.id = c.tenant_id
+             JOIN internal.legal_terms l ON l.id = c.terms_id
+             WHERE t.tenant = $1 AND l.type = $2
+               AND l.version >= $3
+               AND (NOT $4::boolean OR l.version = $3)
+         )",
+    )
+    .bind(tenant)
+    .bind(terms_type)
+    .bind(version)
+    .bind(exact)
+    .fetch_one(pool)
+    .await
 }
 
 #[derive(Debug, Default)]

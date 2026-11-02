@@ -181,6 +181,7 @@ impl CapabilityBundle {
                     | Self::Billing.capabilities()
                     | Self::ManageDataPlane.capabilities()
                     | ManageLegal
+                    | CreateSandbox
             }
             Self::Billing => ViewBilling | EditBilling,
             Self::ManageServiceAccounts => {
