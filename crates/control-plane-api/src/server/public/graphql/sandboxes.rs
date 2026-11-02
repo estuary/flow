@@ -207,9 +207,16 @@ impl SandboxesMutation {
             )
         })?;
         if !accepted {
-            return Err(async_graphql::Error::new(
-                "The tenant must accept a sandbox agreement before creating sandboxes",
-            ));
+            let tenant = catalog_name.as_str().split('/').next().unwrap();
+            let mut consent_url =
+                url::Url::parse("https://dashboard.estuary.dev/legal-consent").unwrap();
+            consent_url
+                .query_pairs_mut()
+                .append_pair("type", "sandbox")
+                .append_pair("tenant", tenant);
+            return Err(async_graphql::Error::new(format!(
+                "The tenant must accept a sandbox agreement before creating sandboxes. Accept at {consent_url}"
+            )));
         }
         let client = sprites_client(ctx)?;
 
@@ -463,8 +470,8 @@ mod test {
         outcomes.push(response["errors"][0]["message"].clone());
         insta::assert_json_snapshot!(outcomes, @r#"
         [
-          "The tenant must accept a sandbox agreement before creating sandboxes",
-          "The tenant must accept a sandbox agreement before creating sandboxes",
+          "The tenant must accept a sandbox agreement before creating sandboxes. Accept at https://dashboard.estuary.dev/legal-consent?type=sandbox&tenant=acmeCo",
+          "The tenant must accept a sandbox agreement before creating sandboxes. Accept at https://dashboard.estuary.dev/legal-consent?type=sandbox&tenant=acmeCo",
           "Sandboxes are not configured",
           "Sandboxes are not configured"
         ]
