@@ -191,9 +191,10 @@ impl SandboxesMutation {
         )
         .await?;
 
+        let tenant = models::tenant_from(catalog_name.as_str());
         let accepted = super::legal_terms::check_consent(
             &env.pg_pool,
-            catalog_name.as_str(),
+            tenant,
             super::legal_terms::LegalTermsType::Sandbox,
             super::legal_terms::ConsentVersion::Gte(1),
         )
@@ -204,13 +205,12 @@ impl SandboxesMutation {
             )
         })?;
         if !accepted {
-            let tenant = catalog_name.as_str().split('/').next().unwrap();
             let mut consent_url =
                 url::Url::parse("https://dashboard.estuary.dev/legal-consent").unwrap();
             consent_url
                 .query_pairs_mut()
                 .append_pair("type", "sandbox")
-                .append_pair("tenant", tenant);
+                .append_pair("tenant", tenant.trim_end_matches('/'));
             return Err(async_graphql::Error::new(format!(
                 "The tenant must accept a sandbox agreement before creating sandboxes. Accept at {consent_url}"
             )));

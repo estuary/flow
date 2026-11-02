@@ -101,11 +101,11 @@ impl LegalTermsQuery {
     }
 }
 
-/// Check the owning tenant's agreement coverage.
+/// Check the tenant's agreement coverage.
 /// Callers authorize access before checking consent.
 pub(super) async fn check_consent(
     pool: &sqlx::PgPool,
-    catalog_name: &str,
+    tenant: &str,
     terms_type: LegalTermsType,
     version: ConsentVersion,
 ) -> Result<bool, sqlx::Error> {
@@ -119,12 +119,12 @@ pub(super) async fn check_consent(
              SELECT 1 FROM internal.tenant_consent c
              JOIN public.tenants t ON t.id = c.tenant_id
              JOIN internal.legal_terms l ON l.id = c.terms_id
-             WHERE starts_with($1, t.tenant::text) AND l.type = $2
+             WHERE t.tenant = $1 AND l.type = $2
                AND l.version >= $3
                AND (NOT $4::boolean OR l.version = $3)
          )",
     )
-    .bind(catalog_name)
+    .bind(tenant)
     .bind(terms_type)
     .bind(version)
     .bind(exact)
