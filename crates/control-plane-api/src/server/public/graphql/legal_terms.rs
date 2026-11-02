@@ -144,22 +144,24 @@ impl LegalTermsMutation {
             ));
         }
 
-        // Capture the stored identity and current tenant ID in the immutable audit record.
+        // Return eligible terms even when another request records consent first.
         let terms = sqlx::query_as::<_, LegalTerms>(
-            "WITH consent AS (
-                 INSERT INTO internal.tenant_consent
-                     (user_id, user_email, terms_id, tenant_name, tenant_id)
-                 SELECT u.id, u.email, l.id, t.tenant, t.id
+            "WITH terms AS (
+                 SELECT l.id, l.text, l.type, l.version,
+                        u.id AS user_id, u.email, t.tenant, t.id AS tenant_id
                  FROM auth.users u CROSS JOIN public.tenants t CROSS JOIN internal.legal_terms l
                  WHERE u.id = $1 AND t.tenant = $2 AND l.id = $3
                    AND NOT EXISTS (
                        SELECT 1 FROM internal.legal_terms newer
                        WHERE newer.type = l.type AND newer.version > l.version
                    )
-                 RETURNING terms_id
+             ), consent AS (
+                 INSERT INTO internal.tenant_consent
+                     (user_id, user_email, terms_id, tenant_name, tenant_id)
+                 SELECT user_id, email, id, tenant, tenant_id FROM terms
+                 ON CONFLICT (tenant_id, terms_id) DO NOTHING
              )
-             SELECT l.id, l.text, l.type, l.version FROM internal.legal_terms l
-             JOIN consent c ON c.terms_id = l.id",
+             SELECT id, text, type, version FROM terms",
         )
         .bind(claims.sub)
         .bind(tenant.as_str())
@@ -242,6 +244,14 @@ mod test {
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn accept_legal_terms(pool: sqlx::PgPool) {
         let user = seed_accepted_terms(&pool).await;
+        let other_user = uuid::Uuid::from_bytes([0x22; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'bob@example.test')")
+            .bind(other_user)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO user_grants (user_id, object_role, capability) VALUES ($1, 'acmeCo/', 'admin')")
+            .bind(other_user).execute(&pool).await.unwrap();
         let server = crate::test_server::TestServer::start(
             pool.clone(),
             crate::test_server::snapshot(pool.clone(), false).await,
@@ -286,6 +296,28 @@ mod test {
           "userMatches": true
         }
         "#);
+        let original: serde_json::Value = sqlx::query_scalar(
+            "SELECT to_jsonb(c) FROM internal.tenant_consent c WHERE terms_id = $1::flowid",
+        )
+        .bind(terms_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let other_token = server.make_access_token(other_user, Some("bob@example.test"));
+        let (retry, other_acceptance) = tokio::join!(
+            server.graphql::<_, serde_json::Value>(&query, Some(&token)),
+            server.graphql::<_, serde_json::Value>(&query, Some(&other_token)),
+        );
+        assert_eq!(retry, response);
+        assert_eq!(other_acceptance, response);
+        let rows: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(c) FROM internal.tenant_consent c WHERE terms_id = $1::flowid",
+        )
+        .bind(terms_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows, vec![original]);
     }
 
     #[sqlx::test(migrations = "../../supabase/migrations")]
