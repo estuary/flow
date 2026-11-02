@@ -28,7 +28,7 @@ and returns whether it has accepted a matching version. Supply exactly one of
 `version.eq` or `version.gte`; consent from a deleted tenant does not carry over
 when its name is reused.
 `sandboxCreate` requires CreateSandbox and an accepted sandbox agreement for
-the current tenant containing `catalogName`, extracted with `models::tenant_from`.
+the current tenant containing `catalogName`.
 
 GraphQL terminal authorization failures carry an
 `authorization::AuthorizationDenied` source with the required capability bit.
