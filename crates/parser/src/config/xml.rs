@@ -10,7 +10,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 ///   prefixed with `@`, and any text content is placed under `#text`.
 /// - Child elements that occur more than once become JSON arrays. Elements named in
 ///   `arrayElements` always become arrays, even if they only occur once.
-/// - All values are strings. Namespace prefixes are removed from names.
+/// - All values are strings. Namespace prefixes are removed from element names, but attribute
+///   names keep them, such as `@xsi:type`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(title = "XML")]

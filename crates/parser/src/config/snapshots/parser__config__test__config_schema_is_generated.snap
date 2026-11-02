@@ -554,7 +554,7 @@ expression: schema
           "properties": {
             "config": {
               "title": "XML",
-              "description": "Configuration for parsing XML documents into JSON.\n\nElements are converted using the following rules:\n- Each document holds its element under the element's own name, such as `{\"Order\": {...}}`.\n- An element with only text content becomes a JSON string.\n- An element with attributes or child elements becomes a JSON object. Attributes are\n  prefixed with `@`, and any text content is placed under `#text`.\n- Child elements that occur more than once become JSON arrays. Elements named in\n  `arrayElements` always become arrays, even if they only occur once.\n- All values are strings. Namespace prefixes are removed from names.",
+              "description": "Configuration for parsing XML documents into JSON.\n\nElements are converted using the following rules:\n- Each document holds its element under the element's own name, such as `{\"Order\": {...}}`.\n- An element with only text content becomes a JSON string.\n- An element with attributes or child elements becomes a JSON object. Attributes are\n  prefixed with `@`, and any text content is placed under `#text`.\n- Child elements that occur more than once become JSON arrays. Elements named in\n  `arrayElements` always become arrays, even if they only occur once.\n- All values are strings. Namespace prefixes are removed from element names, but attribute\n  names keep them, such as `@xsi:type`.",
               "type": "object",
               "properties": {
                 "arrayElements": {

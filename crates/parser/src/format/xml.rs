@@ -11,7 +11,9 @@
 //!   warning so the user can add it.
 //! - All values are strings. Types are never inferred, since doing so would corrupt values such
 //!   as postal codes and identifiers with leading zeros.
-//! - Namespace prefixes are removed from element and attribute names, and namespace
+//! - Namespace prefixes are removed from element names, so `<ns:Item>` and `<Item>` are both
+//!   `Item`. Attribute names keep their prefixes, such as `@xsi:type`, because distinct
+//!   attributes like `type` and `xsi:type` can appear on the same element. Namespace
 //!   declarations are dropped.
 //! - Leading and trailing whitespace is trimmed from text, except for whitespace within CDATA
 //!   sections or produced by character references. When text is interleaved with child elements
@@ -43,6 +45,10 @@ const MAX_DEPTH: usize = 256;
 /// Maximum size of a single record, in megabytes of XML input. A record is built in memory
 /// before it's emitted, so larger records are rejected. Without a record path the record is
 /// the whole file, so this mostly catches batch files that should set one.
+///
+/// This bounds input bytes, not memory. Each element becomes its own JSON object, so a record
+/// of many small elements can use about 20 times its input size: 56MB of attribute-only
+/// elements was measured at over 1GB.
 const MAX_RECORD_MB: u64 = 64;
 
 /// Number of bytes to inspect when looking for a byte order mark or an encoding declaration.
@@ -627,7 +633,7 @@ impl<R: io::BufRead> XmlIter<R> {
                 .normalized_value(self.version)
                 .map_err(|err| self.malformed(self.reader.buffer_position(), err))?;
             fields.insert(
-                format!("{ATTRIBUTE_PREFIX}{}", attribute.key.local_name().as_ref()),
+                format!("{ATTRIBUTE_PREFIX}{}", attribute.key.as_ref()),
                 Value::String(value.into_owned()),
             );
         }
@@ -845,14 +851,38 @@ mod test {
     }
 
     #[test]
-    fn namespaces_are_stripped() {
+    fn element_namespaces_are_stripped() {
         let doc = parse_one(
             r#"<ns:Root xmlns:ns="urn:a" xmlns="urn:b" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
                  <ns:Item xsi:type="Thing">x</ns:Item>
                </ns:Root>"#,
         );
         assert_eq!(
-            json!({"Root": {"Item": {"@type": "Thing", "#text": "x"}}}),
+            json!({"Root": {"Item": {"@xsi:type": "Thing", "#text": "x"}}}),
+            doc
+        );
+    }
+
+    #[test]
+    fn attributes_in_different_namespaces_are_all_kept() {
+        let doc = parse_one(
+            r#"<Catalog xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ext="urn:acme:legacy">
+                 <Product id="P-100" ext:id="LEGACY-7731" type="physical" xsi:type="BookProduct"
+                          xml:lang="en" lang="de">
+                   <Price currency="USD" ext:currency="EUR">24.99</Price>
+                 </Product>
+               </Catalog>"#,
+        );
+        assert_eq!(
+            json!({"Catalog": {"Product": {
+                "@id": "P-100",
+                "@ext:id": "LEGACY-7731",
+                "@type": "physical",
+                "@xsi:type": "BookProduct",
+                "@xml:lang": "en",
+                "@lang": "de",
+                "Price": {"@currency": "USD", "@ext:currency": "EUR", "#text": "24.99"},
+            }}}),
             doc
         );
     }
