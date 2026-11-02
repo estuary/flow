@@ -14,6 +14,18 @@ engine, and platform.
 - `mise run ci:connector-vmm-kvm --platform` previews and publishes a Python
   derivation on this checkout's local stack. The task starts and stops the
   stack and refuses to start if it is already running.
+- `mise run ci:connector-vmm-kvm --routing-deployment /path/to/est-dry-dock`
+  also runs the dual-NIC static outbound routing regression. The deployment
+  checkout must contain `roles/common/templates/flow-vmm-routing.j2`.
+  This requires host `nft` and Python `jinja2`. It starts a rootful Podman API
+  service with private storage inside an isolated host network namespace.
+  Its ordinary connector and real KVM guests contact a source-recording
+  endpoint through simulated public and static-NAT paths. It applies the
+  rendered deployment script and checks destination enforcement, internal
+  routing, ingress, isolation, concurrent launches, cleanup, route recreation,
+  and API restart/network reload. The resource journal also recovers the lab
+  after its owner dies. See
+  [the investigation](../../docs/connector-vmm/static-outbound.md).
 - `mise exec -- cargo nextest run -p connector-vmm-tests` runs the harness's
   unit tests. The default nextest profile excludes KVM and platform tests.
 

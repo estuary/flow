@@ -4,6 +4,7 @@ set -euo pipefail
 #MISE description="Run the connector VMM's KVM integration suite, or with --platform its local platform integration test (needs /dev/kvm, passwordless sudo, rootful podman and docker buildx)"
 #USAGE arg "[filter]" help="Run only tests whose names match, of the suite or, with --platform, of the platform tests. The run is then partial; for the suite, connector-init's vsock test is skipped."
 #USAGE flag "--allow-missing-vsock-loopback" help="Let connector-init's vsock test skip where vsock_loopback cannot load. The suite's own guest still proves connector-init serving over vsock."
+#USAGE flag "--routing-deployment <path>" help="Also run the isolated dual-NIC static NAT regression using a checkout of estuary/est-dry-dock with VMM routing installed."
 #USAGE flag "--platform" help="Instead of the suite, start this checkout's stack with its reactor launching VMMs, preview and publish a Python derivation through flowctl and the reactor, and stop the stack. Refused while the stack is running."
 
 # Must match `run::ROOT` in crates/connector-vmm-tests/src/run.rs.
@@ -38,6 +39,7 @@ DECOYS=(198.18.255.241 198.18.255.242)
 FILTER="${usage_filter:-}"
 ALLOW_MISSING_VSOCK="${usage_allow_missing_vsock_loopback:-false}"
 PLATFORM="${usage_platform:-false}"
+ROUTING_DEPLOYMENT="${usage_routing_deployment:-}"
 
 fail() {
     echo "ci:connector-vmm-kvm: $*" >&2
@@ -76,6 +78,14 @@ docker buildx version >/dev/null 2>&1 || fail "docker buildx is unavailable"
 command -v python3 >/dev/null || fail "python3 is unavailable (the inbound probe runs it in a VMM's network namespace)"
 command -v x86_64-linux-musl-gcc >/dev/null || fail "x86_64-linux-musl-gcc is unavailable (install musl-tools to build the guest binaries)"
 sudo -n sh -c 'command -v conntrack' >/dev/null || fail "conntrack is unavailable (install conntrack to read a VMM's flow table)"
+
+if [ -n "${ROUTING_DEPLOYMENT}" ]; then
+    [ "${PLATFORM}" = false ] || fail "--routing-deployment runs with the KVM suite, not --platform"
+    [ -f "${ROUTING_DEPLOYMENT}/roles/common/templates/flow-vmm-routing.j2" ] \
+        || fail "--routing-deployment must name the deployment checkout with flow-vmm-routing.j2"
+    command -v nft >/dev/null || fail "nft is unavailable (the isolated routing lab runs host tools)"
+    sudo -n python3 -c 'import jinja2' || fail "python3-jinja2 is unavailable to root"
+fi
 
 if [ "${PLATFORM}" = true ]; then
     : "${FLOW_STACK_NAME:?run this task under mise}" "${FLOW_CLUSTER:?}" "${FLOW_PLANE_BASE:?}" "${FLOW_STACK_DIR:?}"
@@ -277,6 +287,13 @@ FIXTURE_HASH=$(cat "${FIXTURES}/guest.Containerfile" "${FIXTURES}/probes.py" | s
 GUEST_IMAGE="localhost/connector-vmm-test-guest:${FIXTURE_HASH}"
 record image "${GUEST_IMAGE}"
 sudo -n podman build -q -t "${GUEST_IMAGE}" -f "${FIXTURES}/guest.Containerfile" "${FIXTURES}" >/dev/null
+
+if [ -n "${ROUTING_DEPLOYMENT}" ]; then
+    echo "=== Static outbound routing through an isolated host Podman API socket ==="
+    sudo -n python3 "${FIXTURES}/routing.py" --deployment "${ROUTING_DEPLOYMENT}" --resources "${ROOT}/resources" \
+        --vmm-image "${VMM_IMAGE}" \
+        --connector-init "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-connector-init"
+fi
 
 echo "=== Setting up the controlled endpoints in network namespace ${NETNS} ==="
 for fence in "${FENCE}" "${DECOY_FENCE}"; do
