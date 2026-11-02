@@ -1,4 +1,5 @@
 use anyhow::Context;
+use futures::StreamExt;
 use std::collections::{BTreeMap, HashMap};
 
 // SnapshotData encapsulates all data required to construct a Snapshot.
@@ -767,8 +768,12 @@ pub async fn try_fetch(
             (dp, decrypted)
         });
     }
+    // Bound concurrent `sops` invocations, as a cold start decrypts every plane.
     let decrypt_jobs: Vec<(&mut FetchedDataPlane, anyhow::Result<Vec<String>>)> =
-        futures::future::join_all(decrypt_jobs).await;
+        futures::stream::iter(decrypt_jobs)
+            .buffer_unordered(15)
+            .collect()
+            .await;
 
     for (dp, decrypted) in decrypt_jobs {
         match (&mut dp.hmac_keys, decrypted) {
