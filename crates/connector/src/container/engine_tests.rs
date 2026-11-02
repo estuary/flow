@@ -186,6 +186,7 @@ fn engine_environment_child() {
         egress,
     } = crate::vmm::vmm_for(
         Some(&vmm),
+        ctx.plane,
         ops::TaskType::Derivation,
         Some(image),
         &ctx.execution,

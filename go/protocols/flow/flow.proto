@@ -230,6 +230,11 @@ message ConnectorExecution {
     // connector and image: an exact name, or `*.` and a base name for every
     // name beneath that base but not the base itself. As the task wrote them.
     repeated string hosts = 1;
+    // IPv4 prefixes, such as `10.0.0.0/8`, within which the connector may
+    // reach any address on any TCP or UDP port, by address or by any name
+    // resolving into them. Only private and local data planes accept them.
+    // As the task wrote them.
+    repeated string cidrs = 2;
   }
   // Egress the task declares. Its presence is the declaration, even with no
   // hosts: an execution which cannot enforce egress fails the invocation.

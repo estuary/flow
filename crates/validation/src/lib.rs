@@ -836,8 +836,9 @@ fn is_valid_network_port(port: u32) -> bool {
 }
 
 /// Reject VMM execution on V1, and declared egress which no execution of the
-/// task could enforce or which names invalid hosts, while preserving both for
-/// the connector service.
+/// task could enforce or which names invalid hosts or CIDRs, while preserving
+/// both for the connector service. Whether the data plane accepts CIDRs is
+/// the connector service's to decide.
 fn walk_execution(
     scope: Scope,
     entity: &'static str,
@@ -856,7 +857,7 @@ fn walk_execution(
         }
         .push(scope.push_prop("vmm"), errors);
     }
-    if let Some(models::Egress { hosts }) = egress {
+    if let Some(models::Egress { hosts, cidrs }) = egress {
         let scope = scope.push_prop("egress");
 
         if !vmm {
@@ -866,8 +867,8 @@ fn walk_execution(
             }
             .push(scope, errors);
         }
-        // Each host on its own, so that every invalid one is reported.
-        let scope = scope.push_prop("hosts");
+        // Each host and CIDR on its own, so that every invalid one is reported.
+        let hosts_scope = scope.push_prop("hosts");
         for (index, host) in hosts.iter().enumerate() {
             if let Err(detail) = egress::hosts("egress.hosts", std::slice::from_ref(host)) {
                 Error::InvalidEgressHost {
@@ -875,7 +876,18 @@ fn walk_execution(
                     name: name.to_string(),
                     detail,
                 }
-                .push(scope.push_item(index), errors);
+                .push(hosts_scope.push_item(index), errors);
+            }
+        }
+        let cidrs_scope = scope.push_prop("cidrs");
+        for (index, cidr) in cidrs.iter().enumerate() {
+            if let Err(detail) = egress::cidrs("egress.cidrs", std::slice::from_ref(cidr)) {
+                Error::InvalidEgressCidr {
+                    entity,
+                    name: name.to_string(),
+                    detail,
+                }
+                .push(cidrs_scope.push_item(index), errors);
             }
         }
     }

@@ -395,6 +395,7 @@ mod test {
                 vmm,
                 egress: hosts.map(|hosts| Egress {
                     hosts: hosts.iter().map(ToString::to_string).collect(),
+                    cidrs: Vec::new(),
                 }),
             })
         };
@@ -441,12 +442,12 @@ mod test {
         Some(ConnectorExecution { vmm: true, egress: None }) / Some(ConnectorExecution { vmm: true, egress: None }) => started
         Some(ConnectorExecution { vmm: true, egress: None }) / None => connector Started with execution ConnectorExecution { vmm: false, egress: None }, but ConnectorExecution { vmm: true, egress: None } was requested
         None / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: false, egress: None } was requested
-        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }) => started
-        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) }) => started
-        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }) / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } was requested
-        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["*.acmeco.example"] }) }) => connector Started with execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["*.acmeco.example"] }) }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) } was requested
-        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) }) / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [] }) } was requested
-        Some(ConnectorExecution { vmm: true, egress: None }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }) => connector Started with execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"] }) }, but ConnectorExecution { vmm: true, egress: None } was requested
+        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }) => started
+        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) }) => started
+        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }) / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } was requested
+        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["*.acmeco.example"], cidrs: [] }) }) => connector Started with execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["*.acmeco.example"], cidrs: [] }) }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } was requested
+        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) }) / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } was requested
+        Some(ConnectorExecution { vmm: true, egress: None }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }) => connector Started with execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }, but ConnectorExecution { vmm: true, egress: None } was requested
         "#);
     }
 }

@@ -31,6 +31,30 @@ test://example/catalog.yaml:
             source: acmeCo/source
             shuffle: any
 
+    # CIDRs alone are a declaration, carried as written: the connector
+    # normalizes them, and decides whether the data plane accepts them.
+    acmeCo/cidr-egress-derivation:
+      schema:
+        type: object
+        properties:
+          id: { type: integer }
+        required: [id]
+      key: [/id]
+      derive:
+        using:
+          python:
+            module: python module placeholder
+        vmm: true
+        egress:
+          cidrs: [10.1.2.3/32, 10.0.0.0/8, 0.0.0.0/0]
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+        transforms:
+          - name: fromSource
+            source: acmeCo/source
+            shuffle: any
+
     # Declared egress without hosts is still a declaration.
     acmeCo/empty-egress-derivation:
       schema:
@@ -118,7 +142,7 @@ test://example/catalog.yaml:
             shuffle: any
 
   captures:
-    # Every invalid host is reported, at its own index.
+    # Every invalid host and CIDR is reported, at its own index.
     acmeCo/invalid-egress-capture:
       endpoint:
         connector:
@@ -133,6 +157,13 @@ test://example/catalog.yaml:
           - "*.github.io"
           - api..acmeco.example
           - "api.*.acmeco.example"
+        cidrs:
+          - 10.0.0.0/8
+          - fd00::/8
+          - 10.1.2.3/8
+          - 10.0.0.1
+          - 192.168.0.0/33
+          - 169.254.169.254/32
       bindings:
         - resource: { table: one }
           target: acmeCo/source
@@ -157,6 +188,7 @@ test://example/catalog.yaml:
       vmm: true
       egress:
         hosts: ["*.warehouse.acmeco.example"]
+        cidrs: [192.168.0.0/16]
       shards:
         flags:
           enable-runtime-v2: "true"
@@ -196,6 +228,19 @@ driver:
       shuffleKeyTypes: []
       transforms:
         - readOnly: true
+    acmeCo/cidr-egress-derivation:
+      execution:
+        vmm: true
+        egress:
+          cidrs: [10.1.2.3/32, 10.0.0.0/8, 0.0.0.0/0]
+      connectorType: IMAGE
+      config:
+        image: ghcr.io/estuary/derive-python:stable
+        config:
+          module: python module placeholder
+      shuffleKeyTypes: []
+      transforms:
+        - readOnly: true
     acmeCo/empty-egress-derivation:
       execution: { vmm: true, egress: {} }
       connectorType: IMAGE
@@ -211,7 +256,9 @@ driver:
     acmeCo/egress-materialization:
       execution:
         vmm: true
-        egress: { hosts: ["*.warehouse.acmeco.example"] }
+        egress:
+          hosts: ["*.warehouse.acmeco.example"]
+          cidrs: [192.168.0.0/16]
       connectorType: IMAGE
       config: { image: materialize/image, config: {} }
       bindings:

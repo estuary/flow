@@ -249,7 +249,7 @@ expression: "&schema"
         },
         "egress": {
           "title": "Egress this capture's connector is held to.",
-          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus those listed. Only an execution which\nenforces egress, such as VMM execution (`vmm: true`), may run a task\nwhich declares it; any other fails the task.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
+          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
           "$ref": "#/$defs/Egress"
         },
         "endpoint": {
@@ -645,7 +645,7 @@ expression: "&schema"
       "properties": {
         "egress": {
           "title": "Egress this derivation's connector is held to.",
-          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus those listed. Only an execution which\nenforces egress, such as VMM execution (`vmm: true`), may run a task\nwhich declares it; any other fails the task.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
+          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
           "$ref": "#/$defs/Egress"
         },
         "redactSalt": {
@@ -864,22 +864,27 @@ expression: "&schema"
       ]
     },
     "Egress": {
-      "description": "Egress a task declares: the host names its connector may reach.",
+      "description": "Egress a task declares: the host names and address ranges its connector\nmay reach.",
       "type": "object",
       "properties": {
+        "cidrs": {
+          "title": "IPv4 address ranges the connector may reach.",
+          "description": "Each is an address and a prefix length, such as `10.0.0.0/8` or\n`10.1.2.3/32`, with no bits set below the prefix. Every address within\na range is reachable on any TCP or UDP port, private addresses\nincluded, both directly and by any name which resolves only into\ndeclared ranges. Ranges may overlap, and `0.0.0.0/0` covers every\naddress. Loopback, link-local and other addresses which are not\ndestinations, the machine running the connector, and TCP port 25,\nremain unreachable.\n\nOnly private and local data planes accept address ranges.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "hosts": {
           "title": "Host names the connector may reach.",
-          "description": "These add to the hosts the connector and its image already declare,\nand an empty list adds none. `api.acmeco.example` matches only itself.\n`*.acmeco.example` matches every name beneath `acmeco.example`, at any\ndepth, but not `acmeco.example` itself: list both to reach both.\nA wildcard may not cover a public suffix, such as `*.com`.\nNames are case-insensitive, have no trailing dot, and are written in\npunycode (`xn--`) where they are not ASCII.\n\nA permitted name is reachable on any port, but only at public\naddresses: private, loopback, link-local and other special-purpose\naddresses, and TCP port 25, are never reachable.",
+          "description": "These add to the hosts the connector and its image already declare,\nand an empty or missing list adds none. `api.acmeco.example` matches\nonly itself. `*.acmeco.example` matches every name beneath\n`acmeco.example`, at any depth, but not `acmeco.example` itself: list\nboth to reach both. A wildcard may not cover a public suffix, such as\n`*.com`. Names are case-insensitive, have no trailing dot, and are\nwritten in punycode (`xn--`) where they are not ASCII.\n\nA permitted name is reachable on any port, but only at public\naddresses, or at addresses within `cidrs`. Loopback, link-local and\nother addresses which are not destinations, and TCP port 25, are never\nreachable.",
           "type": "array",
           "items": {
             "type": "string"
           }
         }
       },
-      "additionalProperties": false,
-      "required": [
-        "hosts"
-      ]
+      "additionalProperties": false
     },
     "Field": {
       "description": "Field names a projection of a document location. They may include '/',\nbut cannot begin or end with one.\nMany Fields are automatically inferred by Flow from a collection JSON Schema,\nand are the JSON Pointer of the document location with the leading '/' removed.\nUser-provided Fields which act as a logical partitions are restricted to\nUnicode letters, numbers, '-', '_', or '.'",
@@ -1140,7 +1145,7 @@ expression: "&schema"
         },
         "egress": {
           "title": "Egress this materialization's connector is held to.",
-          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus those listed. Only an execution which\nenforces egress, such as VMM execution (`vmm: true`), may run a task\nwhich declares it; any other fails the task.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
+          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
           "$ref": "#/$defs/Egress"
         },
         "endpoint": {

@@ -754,6 +754,7 @@ async fn vmm_execution_is_carried_to_validate_and_open() {
             vmm: true,
             egress: Some(proto_flow::flow::connector_execution::Egress {
                 hosts: vec!["api.acmeco.example".to_string()],
+                cidrs: Vec::new(),
             }),
         })
     );

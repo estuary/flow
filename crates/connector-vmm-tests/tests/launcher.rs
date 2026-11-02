@@ -315,7 +315,10 @@ fn owner_process() {
     } = serde_json::from_str(config.to_str().expect("UTF-8")).expect("an owner's configuration");
     let execution = flow::ConnectorExecution {
         vmm: true,
-        egress: egress.map(|hosts| flow::connector_execution::Egress { hosts }),
+        egress: egress.map(|hosts| flow::connector_execution::Egress {
+            hosts,
+            cidrs: Vec::new(),
+        }),
     };
 
     // The host's /proc names this process by its PID on the host, whatever
@@ -978,6 +981,7 @@ fn probe_egress(
         vmm: true,
         egress: egress.map(|hosts| flow::connector_execution::Egress {
             hosts: hosts.iter().map(ToString::to_string).collect(),
+            cidrs: Vec::new(),
         }),
     };
 

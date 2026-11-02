@@ -18,10 +18,10 @@ pub fn render(
     ingress_ports: &[u16],
 ) -> anyhow::Result<String> {
     let baseline = egress::baseline(vmm_subnets);
-    egress::check_declared(policy, &baseline)?;
-
     let public = policy.egress == Mode::Public;
-    let declared = declared_elements(policy);
+    // `egress: none` renders no declared CIDRs: the chain that would match
+    // them does not exist.
+    let declared: &[ipnetwork::Ipv4Network] = if public { &policy.declared_cidrs } else { &[] };
     let mut out = String::new();
 
     writeln!(
@@ -55,6 +55,22 @@ pub fn render(
     writeln!(out, "\t\telements = {{ {} }}", join(&baseline))?;
     out.push_str("\t}\n\n");
 
+    if !declared.is_empty() {
+        // The part of the baseline a declared CIDR does not lift. Without
+        // one it is within `baseline` and goes unrendered.
+        out.push_str(
+            "\tset excluded {\n\
+             \t\ttype ipv4_addr\n\
+             \t\tflags interval\n\
+             \t\tauto-merge\n",
+        );
+        writeln!(
+            out,
+            "\t\telements = {{ {} }}",
+            join(&egress::excluded(vmm_subnets))
+        )?;
+        out.push_str("\t}\n\n");
+    }
     if public {
         // Filled by the resolver, one element per answered address, with the
         // clamped TTL as its timeout.
@@ -68,12 +84,13 @@ pub fn render(
         )?;
     }
     if !declared.is_empty() {
+        // `egress::cidrs` leaves the prefixes disjoint, so they need no merge.
         out.push_str(
             "\tset declared {\n\
-             \t\ttype ipv4_addr . inet_service\n\
+             \t\ttype ipv4_addr\n\
              \t\tflags interval\n",
         );
-        writeln!(out, "\t\telements = {{ {} }}", declared.join(", "))?;
+        writeln!(out, "\t\telements = {{ {} }}", join(declared))?;
         out.push_str("\t}\n\n");
     }
 
@@ -101,7 +118,14 @@ pub fn render(
     // Kills ICMP, which is why it sits after the established/related accept:
     // ICMP errors belonging to a tracked connection are still useful.
     out.push_str("\t\tmeta l4proto != { tcp, udp } counter drop comment \"tcp-udp-only\"\n");
-    out.push_str("\t\tip daddr @baseline counter drop comment \"baseline\"\n");
+    if declared.is_empty() {
+        out.push_str("\t\tip daddr @baseline counter drop comment \"baseline\"\n");
+    } else {
+        out.push_str("\t\tip daddr @excluded counter drop comment \"excluded\"\n");
+        out.push_str(
+            "\t\tip daddr @baseline ip daddr != @declared counter drop comment \"baseline\"\n",
+        );
+    }
     out.push_str("\t\ttcp dport 25 counter drop comment \"smtp\"\n");
 
     if public {
@@ -118,9 +142,7 @@ pub fn render(
         }
         out.push_str("\t\tip daddr @resolved counter accept comment \"resolved\"\n");
         if !declared.is_empty() {
-            out.push_str(
-                "\t\tip daddr . tcp dport @declared counter accept comment \"declared\"\n",
-            );
+            out.push_str("\t\tip daddr @declared counter accept comment \"declared\"\n");
         }
         out.push_str("\t}\n\n");
     }
@@ -186,24 +208,6 @@ pub fn render(
     Ok(out)
 }
 
-/// One `cidr . port` element per declared port. `egress: none` renders none of
-/// them: the chain that would match them does not exist.
-fn declared_elements(policy: &Policy) -> Vec<String> {
-    if policy.egress != Mode::Public {
-        return Vec::new();
-    }
-    policy
-        .declared_cidrs
-        .iter()
-        .flat_map(|declared| {
-            declared
-                .ports
-                .iter()
-                .map(move |port| format!("{} . {port}", declared.cidr))
-        })
-        .collect()
-}
-
 fn join(prefixes: &[ipnetwork::Ipv4Network]) -> String {
     prefixes
         .iter()
@@ -231,9 +235,16 @@ mod tests {
     const PUBLIC: &str = r#"{"egress":"public"}"#;
     const NONE: &str = r#"{"egress":"none"}"#;
     const ALLOW_ALL: &str = r#"{"egress":"public","allowAll":true}"#;
+    /// Private, public and single-address prefixes, one of which covers the
+    /// VMM's own bridge.
     const DECLARED: &str = r#"{
         "egress": "public",
-        "declaredCidrs": [ { "cidr": "93.184.216.0/24", "ports": [8443, 443] } ]
+        "allowedNames": ["pypi.org"],
+        "declaredCidrs": ["192.168.4.7/32", "10.0.0.0/8", "93.184.216.0/24"]
+    }"#;
+    const EVERY_ADDRESS: &str = r#"{
+        "egress": "public",
+        "declaredCidrs": ["0.0.0.0/0"]
     }"#;
     const ALLOWED_NAMES: &str = r#"{
         "egress": "public",
@@ -246,7 +257,7 @@ mod tests {
     const NONE_DORMANT: &str = r#"{
         "egress": "none",
         "allowedNames": ["pypi.org"],
-        "declaredCidrs": [ { "cidr": "93.184.216.0/24", "ports": [443] } ]
+        "declaredCidrs": ["93.184.216.0/24"]
     }"#;
 
     #[test]
@@ -273,6 +284,11 @@ mod tests {
     #[test]
     fn declared_ruleset() {
         insta::assert_snapshot!(render(DECLARED));
+    }
+
+    #[test]
+    fn every_address_ruleset() {
+        insta::assert_snapshot!(render(EVERY_ADDRESS));
     }
 
     #[test]
@@ -331,6 +347,17 @@ mod tests {
                 ],
             ),
             (
+                EVERY_ADDRESS,
+                &[
+                    "forward:replies",
+                    "egress_accept:resolved",
+                    "egress_accept:declared",
+                    "input:loopback",
+                    "input:replies",
+                    "input:tap-dns",
+                ],
+            ),
+            (
                 ALLOWED_NAMES,
                 &[
                     "forward:replies",
@@ -354,6 +381,19 @@ mod tests {
                 .iter()
                 .position(|rule| rule.contains("@baseline") && rule.contains(" drop "))
                 .expect("every forward chain drops the baseline");
+            // A declared CIDR lifts the baseline drop where it meets it, so
+            // what no CIDR lifts is dropped outright, and before it.
+            let excluded = forward
+                .iter()
+                .position(|rule| rule.contains("@excluded") && rule.contains(" drop "));
+            if text.contains("set declared") {
+                let excluded = excluded.expect("a declared CIDR's chain drops the exclusions");
+                assert!(excluded < baseline, "{document}");
+                assert!(!forward[excluded].contains("@declared"), "{document}");
+            } else {
+                assert_eq!(excluded, None, "{document}");
+                assert!(!forward[baseline].contains("@declared"), "{document}");
+            }
 
             for (index, rule) in forward.iter().enumerate() {
                 assert!(
@@ -387,6 +427,7 @@ mod tests {
                 "chain egress_accept",
                 "set resolved",
                 "set declared",
+                "set excluded",
                 "tap-dns",
             ] {
                 assert!(!text.contains(absent), "{absent:?} survives {document}");

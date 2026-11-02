@@ -251,24 +251,33 @@ pub(crate) enum Execution<'a> {
     Vmm {
         vmm: &'a Vmm,
         eligible: &'static Eligible,
-        egress: Option<Vec<egress::AllowedName>>,
+        egress: Option<TaskEgress>,
     },
 }
 
+/// The egress a task declares, validated and normalized.
+#[derive(Debug)]
+pub(crate) struct TaskEgress {
+    pub hosts: Vec<egress::AllowedName>,
+    pub cidrs: Vec<ipnetwork::Ipv4Network>,
+}
+
 /// Decide whether a connector start may proceed, and how, given the
-/// `execution` it requests and the VMM capability `vmm` of this service.
-/// `image` is the connector's image, or None if its endpoint isn't an image.
-/// A request which embeds the task's built spec passes that spec's execution
-/// as `spec_execution`, which must agree with `execution`, so that a caller
-/// cannot drop the task's settings.
+/// `execution` it requests, and the VMM capability `vmm` and data plane
+/// `plane` of this service. `image` is the connector's image, or None if its
+/// endpoint isn't an image. A request which embeds the task's built spec
+/// passes that spec's execution as `spec_execution`, which must agree with
+/// `execution`, so that a caller cannot drop the task's settings.
 ///
 /// Every connector start is decided here, before any image is pulled or any
 /// connector is started. A request for VMM execution is either launched in a
 /// VMM or fails: it never falls back to an ordinary container. Declared
-/// egress is refused by any execution which cannot enforce it, and its hosts
-/// are validated here, so that a direct caller cannot skip either check.
+/// egress is refused by any execution which cannot enforce it, its hosts and
+/// CIDRs are validated here, and CIDRs are refused on a public plane, so that
+/// a direct caller cannot skip any of these checks.
 pub(crate) fn vmm_for<'a>(
     vmm: Option<&'a Vmm>,
+    plane: crate::Plane,
     task_type: ops::TaskType,
     image: Option<&str>,
     execution: &flow::ConnectorExecution,
@@ -305,8 +314,11 @@ pub(crate) fn vmm_for<'a>(
     let egress = execution
         .egress
         .as_ref()
-        .map(|flow::connector_execution::Egress { hosts }| {
-            egress::hosts("task egress.hosts", hosts)
+        .map(|flow::connector_execution::Egress { hosts, cidrs }| {
+            anyhow::Ok(TaskEgress {
+                hosts: egress::hosts("task egress.hosts", hosts)?,
+                cidrs: crate::policy::egress_cidrs(plane, cidrs)?,
+            })
         })
         .transpose()
         .map_err(|err| crate::invalid_argument(format!("{err:#}")))?;
@@ -592,6 +604,7 @@ mod test {
             vmm,
             egress: hosts.map(|hosts| Egress {
                 hosts: hosts.iter().map(ToString::to_string).collect(),
+                cidrs: Vec::new(),
             }),
         }
     }
@@ -626,8 +639,14 @@ mod test {
             for task_type in task_types {
                 for image in images {
                     for execution in [&ordinary, &vmm] {
-                        let outcome =
-                            outcome(vmm_for(capability, task_type, image, execution, None));
+                        let outcome = outcome(vmm_for(
+                            capability,
+                            crate::Plane::Private,
+                            task_type,
+                            image,
+                            execution,
+                            None,
+                        ));
                         if !execution.vmm {
                             assert_eq!(outcome, "ordinary", "{task_type:?} {image:?}");
                             continue;
@@ -684,14 +703,16 @@ mod test {
                 for (name, execution) in &executions {
                     let outcome = match vmm_for(
                         capability,
+                        crate::Plane::Private,
                         ops::TaskType::Derivation,
                         image,
                         execution,
                         None,
                     ) {
                         Ok(super::Execution::Vmm { egress, .. }) => {
-                            let hosts: Option<Vec<String>> =
-                                egress.map(|hosts| hosts.iter().map(ToString::to_string).collect());
+                            let hosts: Option<Vec<String>> = egress.map(|egress| {
+                                egress.hosts.iter().map(ToString::to_string).collect()
+                            });
                             format!("vmm, task hosts {hosts:?}")
                         }
                         result => outcome(result),
@@ -705,6 +726,84 @@ mod test {
             }
         }
         insta::assert_snapshot!(rows.join("\n"));
+    }
+
+    /// Only a private or local plane accepts CIDRs, and every plane accepts
+    /// an empty list. CIDRs are validated and normalized whatever the plane.
+    #[test]
+    fn vmm_for_cidrs_by_plane() {
+        let capable = super::fixture();
+        let image = Some("ghcr.io/estuary/derive-python:stable");
+        let declarations: [(&str, &[&str]); 6] = [
+            ("[]", &[]),
+            (
+                "[10/8, 10.2/16, 192.168.4.7/32]",
+                &["10.0.0.0/8", "10.2.0.0/16", "192.168.4.7/32"],
+            ),
+            ("[0/0]", &["0.0.0.0/0"]),
+            ("[93.184.216/24] (public)", &["93.184.216.0/24"]),
+            ("[fd00::/8]", &["fd00::/8"]),
+            ("[10.1.2.3/8]", &["10.1.2.3/8"]),
+        ];
+
+        let mut rows = Vec::new();
+        for plane in [
+            crate::Plane::Public,
+            crate::Plane::Private,
+            crate::Plane::Local,
+        ] {
+            for (name, cidrs) in declarations {
+                let execution = ConnectorExecution {
+                    vmm: true,
+                    egress: Some(Egress {
+                        hosts: vec!["api.acmeco.example".to_string()],
+                        cidrs: cidrs.iter().map(ToString::to_string).collect(),
+                    }),
+                };
+                let outcome = match vmm_for(
+                    Some(&capable),
+                    plane,
+                    ops::TaskType::Derivation,
+                    image,
+                    &execution,
+                    None,
+                ) {
+                    Ok(super::Execution::Vmm {
+                        egress: Some(egress),
+                        ..
+                    }) => {
+                        let cidrs: Vec<String> =
+                            egress.cidrs.iter().map(ToString::to_string).collect();
+                        format!("vmm, task cidrs {cidrs:?}")
+                    }
+                    result => outcome(result),
+                };
+                rows.push(format!(
+                    "{plane:<7} {name:<34} => {outcome}",
+                    plane = plane.as_str_name(),
+                ));
+            }
+        }
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+        PUBLIC  []                                 => vmm, task cidrs []
+        PUBLIC  [10/8, 10.2/16, 192.168.4.7/32]    => InvalidArgument: the task declares egress.cidrs, which only private data planes accept
+        PUBLIC  [0/0]                              => InvalidArgument: the task declares egress.cidrs, which only private data planes accept
+        PUBLIC  [93.184.216/24] (public)           => InvalidArgument: the task declares egress.cidrs, which only private data planes accept
+        PUBLIC  [fd00::/8]                         => InvalidArgument: the task declares egress.cidrs, which only private data planes accept
+        PUBLIC  [10.1.2.3/8]                       => InvalidArgument: the task declares egress.cidrs, which only private data planes accept
+        PRIVATE []                                 => vmm, task cidrs []
+        PRIVATE [10/8, 10.2/16, 192.168.4.7/32]    => vmm, task cidrs ["10.0.0.0/8", "192.168.4.7/32"]
+        PRIVATE [0/0]                              => vmm, task cidrs ["0.0.0.0/0"]
+        PRIVATE [93.184.216/24] (public)           => vmm, task cidrs ["93.184.216.0/24"]
+        PRIVATE [fd00::/8]                         => InvalidArgument: task egress.cidrs "fd00::/8" is IPv6; only IPv4 ranges are supported
+        PRIVATE [10.1.2.3/8]                       => InvalidArgument: task egress.cidrs "10.1.2.3/8" sets bits below its prefix length; write 10.0.0.0/8, or 10.1.2.3/32 for one address
+        LOCAL   []                                 => vmm, task cidrs []
+        LOCAL   [10/8, 10.2/16, 192.168.4.7/32]    => vmm, task cidrs ["10.0.0.0/8", "192.168.4.7/32"]
+        LOCAL   [0/0]                              => vmm, task cidrs ["0.0.0.0/0"]
+        LOCAL   [93.184.216/24] (public)           => vmm, task cidrs ["93.184.216.0/24"]
+        LOCAL   [fd00::/8]                         => InvalidArgument: task egress.cidrs "fd00::/8" is IPv6; only IPv4 ranges are supported
+        LOCAL   [10.1.2.3/8]                       => InvalidArgument: task egress.cidrs "10.1.2.3/8" sets bits below its prefix length; write 10.0.0.0/8, or 10.1.2.3/32 for one address
+        "#);
     }
 
     #[test]
@@ -728,7 +827,14 @@ mod test {
         let mut rows = Vec::new();
         for (start_name, start) in &executions {
             for (spec_name, spec) in &executions {
-                let outcome = outcome(vmm_for(None, derivation, image, start, Some(spec)));
+                let outcome = outcome(vmm_for(
+                    None,
+                    crate::Plane::Private,
+                    derivation,
+                    image,
+                    start,
+                    Some(spec),
+                ));
                 rows.push(format!("start {start_name} spec {spec_name} => {outcome}"));
             }
         }

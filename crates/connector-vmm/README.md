@@ -140,11 +140,12 @@ from its scratch disk belongs to `guest-init::root`.
 A guest with a compromised kernel is assumed (not measured) to reach code
 execution in this process via virtiofs and `/proc`; from there
 `nft flush ruleset` succeeds (measured). The baseline exclusions then hold only
-because the host boundary enforces them outside this process's authority. A
-VMM that has flushed its rules can still reach any public address, including
-names its policy never allowed, and its guest can too once the VMM
-masquerades it again: the boundary excludes networks, and says nothing about
-which public destinations a connector uses or how often.
+because the host boundary enforces them outside this process's authority,
+less the CIDRs its launch was granted. A VMM that has flushed its rules can
+still reach any public address, including names its policy never allowed,
+and its guest can too once the VMM masquerades it again: the boundary
+excludes networks, and says nothing about which public destinations a
+connector uses or how often.
 
 ## Launcher requirements
 
@@ -239,21 +240,25 @@ the host will have, and every owner installs identical tables.
 |---|---|
 | inet prerouting (raw) | IPv6; a source that does not route back out of the bridge it came in on; IP fragments (none arrive while conntrack reassembles) |
 | inet input | everything addressed to the host, except UDP/53 to the bridge gateway and TCP replies to authorized host ingress |
-| inet forward | anything to another VMM bridge or back out of its own; `egress::baseline` destinations; TCP/25; IPv6 into a VMM; any packet into a VMM that is not a reply |
+| inet forward | anything to another VMM bridge or back out of its own; `egress::excluded` destinations; `egress::baseline` destinations without a granted mark; TCP/25; IPv6 into a VMM; any packet into a VMM that is not a reply |
 | inet output | IPv6, and connections from the host into a VMM without a reply state or an ingress authorization |
 | bridge prerouting, output | frames that are neither IPv4 nor ARP |
 | bridge forward | every frame from one port of a VMM bridge to another |
 
 Podman's resolver on the arrival bridge is the DNS exception. Host ingress
-is authorized by `boundary grant --owner TOKEN --bridge BRIDGE --port PORT`
-(repeated for each declared TCP port). It creates a host table named
+and a task's declared CIDRs are authorized by `boundary grant --owner TOKEN
+--bridge BRIDGE`, with `--port PORT` for each declared TCP port and `--cidr
+CIDR` for each declared range. It creates a host table named
 `flow_vmm_ingress_TOKEN`. The shared boundary clears reserved packet mark
-`0x46564d49` at priority -12 on local input and output across VMM bridges.
-The launch's chains at priority -11 mark IPv4 TCP packets to declared ports
-in the original direction and established replies from those ports. The shared
-boundary admits those marked packets at priority -10. Every packet must match
-current permissions, so stale conntrack state cannot authorize a replacement.
-A guest-supplied authorization mark is cleared. Forwarded traffic is never authorized.
+`0x46564d49` at priority -12 on local input, output and forwarding across VMM
+bridges. The launch's chains at priority -11 mark IPv4 TCP packets to declared
+ports in the original direction, established replies from those ports, and
+packets forwarded from its bridge to its CIDRs. The shared boundary admits
+those marked packets at priority -10: to the host for ingress, and past the
+baseline drop for CIDRs, though never past `excluded`, another VMM bridge or
+TCP/25. Every packet must match current permissions, so stale conntrack state
+cannot authorize a replacement. A guest-supplied authorization mark is
+cleared. Forwarded traffic into a VMM is never authorized.
 
 `boundary revoke --owner TOKEN` atomically removes that owner's table and is
 idempotent. The launcher records the VMM image needed for recovery before
@@ -295,14 +300,15 @@ rules of `allowedNames` and the baseline are documented in
 `resolved` set and the guest's DNS rule all absent. `allowAll` adds one accept
 at the head of the acceptance chain and removes the requirement that a
 destination be *named* - not the requirement that it be public.
+`declaredCidrs` adds the `declared` and `excluded` sets.
 
 ## The ruleset, in one paragraph
 
 One table, `inet flow_egress`, replaced wholesale on every apply. The forward
 chain drops by policy and works through anti-spoof, established/related, IPv6,
-anything that is not TCP or UDP, the baseline exclusions and tcp/25, before
-jumping to `egress_accept` where the only three accepts live: `allowAll`,
-`@resolved` and `@declared`. `@resolved` is empty until the
+anything that is not TCP or UDP, the `excluded` prefixes, the baseline
+exclusions outside `@declared` and tcp/25, before jumping to `egress_accept`
+where the only three accepts live: `allowAll`, `@resolved` and `@declared`. `@resolved` is empty until the
 resolver puts something in it. The input chain drops by policy and lets exactly
 one thing in from the tap: the guest's DNS query to the VMM. The output chain
 lets nothing out to the tap that is not an established reply, so nothing in the
@@ -311,25 +317,29 @@ uplink to the guest before the egress exclusions. Their replies use the
 established connection, including with `egress: none`. Postrouting masquerades
 the guest out of the uplink.
 
-## Public destinations only
+## Public destinations only, unless a CIDR is declared
 
-A connector may reach public unicast addresses and nothing else. Every private
-address is treated as sensitive even where the service behind it authenticates,
-and there is no known sensitive public-IP service, so the boundary is drawn at
-reachability rather than at a list of things worth protecting.
+Without `declaredCidrs`, a connector may reach public unicast addresses and
+nothing else. Every private address is treated as sensitive even where the
+service behind it authenticates, and there is no known sensitive public-IP
+service, so the boundary is drawn at reachability rather than at a list of
+things worth protecting.
 
 `egress::baseline` is that boundary: every prefix IANA's IPv4 Special-Purpose
 Address Registry marks as not globally reachable, plus multicast (listed in
 [`crates/egress`](../egress/README.md)), plus the VMM's own interface subnets
-read at start.
+read at start. A declared CIDR lifts it where they meet, except for
+`egress::excluded`: the prefixes which are not routed destinations or hold the
+metadata service or the tap, plus the VMM's own subnets.
 
-These exclusions win over everything. `allowAll` does not lift them, a declared
-CIDR inside one is refused rather than rendered, and an answer from the
-resolver naming one is refused rather than added to `@resolved`. In the
-rendered text the guarantee is positional: `ip daddr @baseline counter drop`
-precedes every rule that can reach `egress_accept`, and that chain is reachable
-only by the jump below it. `ruleset::tests::every_accept_is_accounted_for`
-asserts both over every policy shape.
+`allowAll` lifts none of it. A resolver answer naming a baseline address
+outside the CIDRs, or an excluded one, is refused rather than added to
+`@resolved`. In the rendered text the guarantee is positional:
+`ip daddr @excluded counter drop` and the baseline drop precede every rule
+that can reach `egress_accept`, the baseline drop spares only `@declared`, and
+that chain is reachable only by the jump below it.
+`ruleset::tests::every_accept_is_accounted_for` asserts these over every
+policy shape.
 
 The guest's DNS query to the VMM is the one local destination it may address,
 and it is in the input chain rather than the forward chain because a packet
@@ -349,7 +359,11 @@ lost socket or a panic prints one framed line and aborts the process.
 The query gate and TTL authorization rules are documented in
 `src/resolver/mod.rs`. Only answer-section records authorize destinations;
 remembered CNAME targets match exactly. Address and target counts share the
-ruleset's `RESOLVED_SIZE` cap.
+ruleset's `RESOLVED_SIZE` cap. With `declaredCidrs`, an unlisted name's `A`
+question also goes upstream, and its answer stands only if every address lies
+within the CIDRs. Such an answer remembers no CNAME target, so it cannot make
+a later public answer authorized, and addresses within the CIDRs take no room
+in `@resolved`, which `@declared` already covers.
 
 `Resolver::plan` preserves outstanding TTLs. An expiry is dated from the clock
 after the kernel acknowledged the batch that set it, and the kernel started that
@@ -374,9 +388,10 @@ per-query decision lines are separate, and test-only.
 
 ## Non-obvious details
 
-- **`declared` matches TCP only.** The rule is
-  `ip daddr . tcp dport @declared`, so a declared port admits TCP and nothing
-  else. UDP destinations have no declared path.
+- **`declared` matches every port.** The rule is `ip daddr @declared`, so a
+  declared CIDR admits TCP and UDP on any port; the earlier drops still take
+  everything else, and tcp/25. `egress::cidrs` leaves its prefixes disjoint,
+  so the set needs no `auto-merge`.
 - **`ttlFloorSecs` may not be zero.** An nft set element with `timeout 0s`
   never expires, so a zero floor would turn one answer into a permanent hole
   in `resolved`. `ttlCapSecs` is bounded for the same reason.
@@ -407,7 +422,8 @@ control.
   the addresses that come back.
 - DNS exfiltration through permitted names is accepted. A permitted name may be
   queried for any record type, and a connector that wants to leak data through
-  a name it is allowed to resolve can.
+  a name it is allowed to resolve can. With `declaredCidrs`, any name may be
+  queried for `A`.
 - A remembered CNAME target is whatever an allowed zone pointed at. That is not
   new reach: whoever controls an allowed zone could already answer its own name
   with any public address, and the baseline check runs on every `A` answer
@@ -419,8 +435,8 @@ control.
   this layer.
 
 The properties this layer does carry are the ones above: no private or
-special-use destination, no IPv6, no protocol other than TCP and UDP, no
-inbound connection except host-authorized declared TCP ports, and no
-guest-initiated path to the VMM itself except the DNS rule. The host boundary
-holds the destination, IPv6 and ingress restrictions even against a VMM that
-has removed this layer.
+special-use destination outside the task's CIDRs, no excluded destination at
+all, no IPv6, no protocol other than TCP and UDP, no inbound connection except
+host-authorized declared TCP ports, and no guest-initiated path to the VMM
+itself except the DNS rule. The host boundary holds the destination, IPv6 and
+ingress restrictions even against a VMM that has removed this layer.

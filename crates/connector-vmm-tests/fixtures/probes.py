@@ -73,6 +73,22 @@ def op_tcp(r):
     return result
 
 
+def op_udp(r):
+    """One datagram. UDP has no handshake, so only a reply proves it arrived."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(r["timeout"])
+    try:
+        sock.sendto(b"ping\n", (r["addr"], r["port"]))
+        reply, _ = sock.recvfrom(16)
+        return reply.decode().strip()
+    except socket.timeout:
+        return "timeout"
+    except OSError as error:
+        return oserror(error)
+    finally:
+        sock.close()
+
+
 def op_hold(r):
     sock, result = connect(socket.AF_INET, socket.SOCK_STREAM, (r["addr"], r["port"]), r["timeout"])
     if sock:

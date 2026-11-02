@@ -257,7 +257,26 @@ mod tests {
             vec!["flow-connector-vmm", "boundary", "remove"],
             vec!["flow-connector-vmm", "boundary"],
             vec!["flow-connector-vmm", "boundary", "flush"],
+            grant(&["--port", "8080"]),
+            grant(&["--cidr", "10.0.0.0/8", "--cidr", "192.168.4.7/32"]),
+            grant(&["--port", "8080", "--cidr", "0.0.0.0/0"]),
+            grant(&[]),
+            grant(&["--cidr", "fd00::/8"]),
+            grant(&["--cidr", "10.1.2.3/8"]),
         ]
+    }
+
+    fn grant(extra: &[&'static str]) -> Vec<&'static str> {
+        const REQUIRED: &[&str] = &[
+            "flow-connector-vmm",
+            "boundary",
+            "grant",
+            "--owner",
+            "00112233445566778899aabbccddeeff",
+            "--bridge",
+            "fvm0123456789ab",
+        ];
+        [REQUIRED, extra].concat()
     }
 
     fn run(extra: &[&'static str]) -> Vec<&'static str> {

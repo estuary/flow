@@ -2097,9 +2097,15 @@ impl serde::Serialize for connector_execution::Egress {
         if !self.hosts.is_empty() {
             len += 1;
         }
+        if !self.cidrs.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.ConnectorExecution.Egress", len)?;
         if !self.hosts.is_empty() {
             struct_ser.serialize_field("hosts", &self.hosts)?;
+        }
+        if !self.cidrs.is_empty() {
+            struct_ser.serialize_field("cidrs", &self.cidrs)?;
         }
         struct_ser.end()
     }
@@ -2112,11 +2118,13 @@ impl<'de> serde::Deserialize<'de> for connector_execution::Egress {
     {
         const FIELDS: &[&str] = &[
             "hosts",
+            "cidrs",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Hosts,
+            Cidrs,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2140,6 +2148,7 @@ impl<'de> serde::Deserialize<'de> for connector_execution::Egress {
                     {
                         match value {
                             "hosts" => Ok(GeneratedField::Hosts),
+                            "cidrs" => Ok(GeneratedField::Cidrs),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2160,6 +2169,7 @@ impl<'de> serde::Deserialize<'de> for connector_execution::Egress {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut hosts__ = None;
+                let mut cidrs__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Hosts => {
@@ -2168,6 +2178,12 @@ impl<'de> serde::Deserialize<'de> for connector_execution::Egress {
                             }
                             hosts__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Cidrs => {
+                            if cidrs__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("cidrs"));
+                            }
+                            cidrs__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2175,6 +2191,7 @@ impl<'de> serde::Deserialize<'de> for connector_execution::Egress {
                 }
                 Ok(connector_execution::Egress {
                     hosts: hosts__.unwrap_or_default(),
+                    cidrs: cidrs__.unwrap_or_default(),
                 })
             }
         }

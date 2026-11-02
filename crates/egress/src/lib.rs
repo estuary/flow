@@ -1,16 +1,11 @@
-//! The host names a connector may reach, the policy JSON the launcher writes
-//! into a VMM's `/init/policy.json`, and the baseline exclusions that are not
-//! in it: the baseline belongs to the ruleset, not to the tenant.
+//! Task egress declarations and the policy JSON carried into a VMM.
 //!
-//! Everything a connector may reach is a public unicast destination. Every
-//! refusal in this module is a policy the ruleset could not have honored, so
-//! it is refused here rather than rendered into text that means something
-//! narrower than it reads. See the crate README for the exclusion list and
-//! the rationale behind each prefix.
+//! Host names reach public destinations. Declared CIDRs also reach private
+//! destinations, subject to `excluded`. See the crate README for prefix lists.
 
-/// Destinations no policy reaches, before the VMM's own subnets are folded in.
-/// Every entry is a prefix IANA's IPv4 Special-Purpose Address Registry marks
-/// as not globally reachable, plus multicast, which is not a unicast
+/// Destinations no host name reaches, before the VMM's own subnets are folded
+/// in. Every entry is a prefix IANA's IPv4 Special-Purpose Address Registry
+/// marks as not globally reachable, plus multicast, which is not a unicast
 /// destination at all. The crate README names each one.
 const BASELINE: &[&str] = &[
     "0.0.0.0/8",
@@ -30,14 +25,27 @@ const BASELINE: &[&str] = &[
     "240.0.0.0/4",
 ];
 
+/// The part of `BASELINE` no declared CIDR reaches either. Each is not a
+/// destination a network routes to, or holds one that must stay unreachable:
+/// link-local holds every cloud's instance metadata service, and
+/// `192.0.2.0/24` holds the tap.
+const EXCLUDED: &[&str] = &[
+    "0.0.0.0/8",
+    "127.0.0.0/8",
+    "169.254.0.0/16",
+    "192.0.2.0/24",
+    "224.0.0.0/4",
+    "240.0.0.0/4",
+];
+
 /// A validated, normalized policy: names lowercased and deduplicated, prefixes
-/// canonical, ports sorted.
+/// canonical and disjoint.
 #[derive(Debug)]
 pub struct Policy {
     pub egress: Mode,
     pub allow_all: bool,
     pub allowed_names: Vec<AllowedName>,
-    pub declared_cidrs: Vec<Declared>,
+    pub declared_cidrs: Vec<ipnetwork::Ipv4Network>,
     pub ttl_floor_secs: u32,
     pub ttl_cap_secs: u32,
 }
@@ -66,12 +74,6 @@ impl std::fmt::Display for AllowedName {
     }
 }
 
-#[derive(Debug)]
-pub struct Declared {
-    pub cidr: ipnetwork::Ipv4Network,
-    pub ports: Vec<u16>,
-}
-
 /// The wire shape, kept separate from `Policy` so that nothing downstream can
 /// read a field that has not been through `parse`.
 #[derive(serde::Deserialize)]
@@ -83,18 +85,11 @@ struct Document {
     #[serde(default)]
     allowed_names: Vec<String>,
     #[serde(default)]
-    declared_cidrs: Vec<DocumentDeclared>,
+    declared_cidrs: Vec<String>,
     #[serde(default = "default_ttl_floor")]
     ttl_floor_secs: u32,
     #[serde(default = "default_ttl_cap")]
     ttl_cap_secs: u32,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DocumentDeclared {
-    cidr: String,
-    ports: Vec<u16>,
 }
 
 fn default_ttl_floor() -> u32 {
@@ -109,10 +104,6 @@ fn default_ttl_cap() -> u32 {
 /// record a public nameserver serves is that same permanent element with a
 /// longer fuse. One day is well clear of real TTLs.
 const TTL_CAP_MAX: u32 = 86_400;
-
-/// The ruleset drops tcp/25 ahead of every accept, so a policy that declares
-/// it means something narrower than it reads.
-const SMTP_PORT: u16 = 25;
 
 pub fn load(path: &std::path::Path) -> anyhow::Result<Policy> {
     let content =
@@ -153,7 +144,7 @@ pub fn parse(content: &[u8]) -> anyhow::Result<Policy> {
         egress: document.egress,
         allow_all: document.allow_all,
         allowed_names: hosts("allowedNames", &document.allowed_names)?,
-        declared_cidrs: normalize_declared(&document.declared_cidrs)?,
+        declared_cidrs: cidrs("declaredCidrs", &document.declared_cidrs)?,
         ttl_floor_secs: document.ttl_floor_secs,
         ttl_cap_secs: document.ttl_cap_secs,
     })
@@ -164,33 +155,31 @@ pub fn parse(content: &[u8]) -> anyhow::Result<Policy> {
 /// container's bridge, which sits inside `10.0.0.0/8` and is why the rendered
 /// set needs `auto-merge`.
 pub fn baseline(vmm_subnets: &[ipnetwork::Ipv4Network]) -> Vec<ipnetwork::Ipv4Network> {
-    let mut baseline: Vec<ipnetwork::Ipv4Network> = BASELINE
+    with_subnets(BASELINE, vmm_subnets)
+}
+
+/// The part of the baseline no policy reaches, declared CIDRs included: the
+/// constant prefixes plus the VMM's own subnets, as for `baseline`.
+pub fn excluded(vmm_subnets: &[ipnetwork::Ipv4Network]) -> Vec<ipnetwork::Ipv4Network> {
+    with_subnets(EXCLUDED, vmm_subnets)
+}
+
+fn with_subnets(
+    constants: &[&str],
+    vmm_subnets: &[ipnetwork::Ipv4Network],
+) -> Vec<ipnetwork::Ipv4Network> {
+    let mut prefixes: Vec<ipnetwork::Ipv4Network> = constants
         .iter()
-        .map(|raw| raw.parse().expect("BASELINE entries are constants"))
+        .map(|raw| raw.parse().expect("prefix lists are constants"))
         .collect();
 
     for subnet in vmm_subnets {
         let subnet = canonical(*subnet);
-        if !baseline.contains(&subnet) {
-            baseline.push(subnet);
+        if !prefixes.contains(&subnet) {
+            prefixes.push(subnet);
         }
     }
-    baseline
-}
-
-/// Reject grants the baseline drop would prevent the ruleset from honoring.
-pub fn check_declared(policy: &Policy, baseline: &[ipnetwork::Ipv4Network]) -> anyhow::Result<()> {
-    for declared in &policy.declared_cidrs {
-        let Some(hit) = baseline.iter().find(|entry| entry.overlaps(declared.cidr)) else {
-            continue;
-        };
-        anyhow::bail!(
-            "declaredCidrs {} overlaps the baseline exclusion {hit}, which the ruleset drops \
-             ahead of every accept",
-            declared.cidr
-        );
-    }
-    Ok(())
+    prefixes
 }
 
 /// `ipnetwork` keeps whatever host bits it parsed and prints them back, which
@@ -220,16 +209,45 @@ pub fn hosts(field: &str, raw: &[String]) -> anyhow::Result<Vec<AllowedName>> {
     Ok(names)
 }
 
+/// Validate IPv4 CIDRs, naming `field` in errors. Returned prefixes are sorted
+/// and disjoint for nft interval sets. Runtime exclusions may leave holes
+/// within declared prefixes.
+pub fn cidrs(field: &str, raw: &[String]) -> anyhow::Result<Vec<ipnetwork::Ipv4Network>> {
+    let mut prefixes = raw
+        .iter()
+        .map(|cidr| check_cidr(field, cidr))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    prefixes.sort_by_key(|prefix| (u32::from(prefix.network()), prefix.prefix()));
+
+    // Two prefixes nest or are disjoint. Sorted, one within any kept prefix is
+    // within the last kept.
+    let mut kept: Vec<ipnetwork::Ipv4Network> = Vec::with_capacity(prefixes.len());
+    for prefix in prefixes {
+        if !kept
+            .last()
+            .is_some_and(|last| last.contains(prefix.network()))
+        {
+            kept.push(prefix);
+        }
+    }
+    Ok(kept)
+}
+
 /// The policy document a launcher writes: public destinations, reachable only
-/// by the names in `names`. An empty list admits no name at all.
-pub fn public_policy(names: &[AllowedName]) -> Vec<u8> {
+/// by the names in `names`, and every destination within `cidrs`. Empty lists
+/// admit no name and no range.
+pub fn public_policy(names: &[AllowedName], cidrs: &[ipnetwork::Ipv4Network]) -> Vec<u8> {
     let names: Vec<String> = names.iter().map(AllowedName::to_string).collect();
 
-    serde_json::to_vec(&serde_json::json!({
+    let mut document = serde_json::json!({
         "egress": "public",
         "allowedNames": names,
-    }))
-    .expect("a map of strings always serializes")
+    });
+    if !cidrs.is_empty() {
+        let cidrs: Vec<String> = cidrs.iter().map(ToString::to_string).collect();
+        document["declaredCidrs"] = cidrs.into();
+    }
+    serde_json::to_vec(&document).expect("a map of strings always serializes")
 }
 
 /// The policy document of a launch whose guest may reach any public
@@ -332,74 +350,41 @@ fn check_wildcard_base(field: &str, original: &str, base: &str) -> anyhow::Resul
     );
 }
 
-fn normalize_declared(raw: &[DocumentDeclared]) -> anyhow::Result<Vec<Declared>> {
-    let mut declared: Vec<Declared> = Vec::with_capacity(raw.len());
-
-    // Merging runs to completion before anything is compared: a repeated
-    // prefix contributes ports that the overlap check below has to see, so an
-    // entry validated as it arrived would be judged against a port set still
-    // being assembled, and the same three entries would pass or fail on their
-    // order alone.
-    for entry in raw {
-        let cidr: ipnetwork::Ipv4Network = entry
-            .cidr
-            .parse()
-            .map_err(|e| anyhow::anyhow!("declaredCidrs {:?}: {e}", entry.cidr))?;
-
-        // Masking host bits would widen the grant; retaining them makes nft
-        // reject the element.
-        if cidr.ip() != cidr.network() {
-            anyhow::bail!(
-                "declaredCidrs {:?} sets bits below its prefix; write {}/{}",
-                entry.cidr,
-                cidr.network(),
-                cidr.prefix()
-            );
-        }
-        if entry.ports.is_empty() {
-            anyhow::bail!("declaredCidrs {cidr} lists no ports");
-        }
-        if entry.ports.contains(&0) {
-            anyhow::bail!("declaredCidrs {cidr} declares port 0, which is not a destination");
-        }
-        if entry.ports.contains(&SMTP_PORT) {
-            anyhow::bail!(
-                "declaredCidrs {cidr} declares port {SMTP_PORT}, which the ruleset drops ahead \
-                 of every accept"
-            );
-        }
-
-        // Repeated prefixes merge because nft interval sets reject duplicate
-        // elements.
-        match declared.iter_mut().find(|existing| existing.cidr == cidr) {
-            Some(existing) => existing.ports.extend(&entry.ports),
-            None => declared.push(Declared {
-                cidr,
-                ports: entry.ports.clone(),
-            }),
-        }
+/// One prefix, written as an IPv4 address and a decimal prefix length. Bare
+/// addresses and netmasks are refused rather than read, so that what was
+/// written is the range granted.
+fn check_cidr(field: &str, raw: &str) -> anyhow::Result<ipnetwork::Ipv4Network> {
+    if raw.contains(':') {
+        anyhow::bail!("{field} {raw:?} is IPv6; only IPv4 ranges are supported");
     }
-    for entry in &mut declared {
-        entry.ports.sort_unstable();
-        entry.ports.dedup();
-    }
-
-    // Distinct prefixes that overlap are only a conflict where their ports
-    // meet, because the set is keyed on the pair.
-    for (index, entry) in declared.iter().enumerate() {
-        let Some(other) = declared[..index].iter().find(|other| {
-            other.cidr.overlaps(entry.cidr) && other.ports.iter().any(|p| entry.ports.contains(p))
-        }) else {
-            continue;
-        };
+    let Some((address, length)) = raw.split_once('/') else {
         anyhow::bail!(
-            "declaredCidrs {} overlaps {} on a shared port; nft rejects overlapping \
-             elements of an interval set",
-            entry.cidr,
-            other.cidr
+            "{field} {raw:?} has no prefix length; write an address and a prefix length, \
+             such as 10.0.0.0/8, or 10.0.0.1/32 for one address"
+        );
+    };
+    let Ok(address) = address.parse::<std::net::Ipv4Addr>() else {
+        anyhow::bail!("{field} {raw:?} does not begin with an IPv4 address");
+    };
+    let Some(length) = Some(length)
+        .filter(|length| !length.is_empty() && length.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|length| length.parse::<u8>().ok())
+        .filter(|length| *length <= 32)
+    else {
+        anyhow::bail!("{field} {raw:?} has a prefix length other than a number from 0 to 32");
+    };
+    let cidr = ipnetwork::Ipv4Network::new(address, length).expect("a prefix length of at most 32");
+
+    // `10.1.2.3/8` may mean one host or the whole range. Masking it would
+    // grant the range.
+    if cidr.ip() != cidr.network() {
+        anyhow::bail!(
+            "{field} {raw:?} sets bits below its prefix length; write {}/{length}, \
+             or {address}/32 for one address",
+            cidr.network()
         );
     }
-    Ok(declared)
+    Ok(cidr)
 }
 
 #[cfg(test)]
@@ -416,16 +401,12 @@ mod tests {
 
     #[test]
     fn refusals() {
-        let baseline = super::baseline(&vmm_subnets());
         let mut table = String::new();
 
         for (label, document) in cases() {
             table.push_str(&format!("# {label}\n{document}\n"));
 
-            let outcome = super::parse(document.as_bytes())
-                .and_then(|policy| super::check_declared(&policy, &baseline).map(|()| policy));
-
-            match outcome {
+            match super::parse(document.as_bytes()) {
                 Ok(policy) => table.push_str(&format!("accepted: {}\n\n", describe(&policy))),
                 Err(error) => table.push_str(&format!("{error:#}\n\n")),
             }
@@ -434,12 +415,12 @@ mod tests {
     }
 
     /// What an accepted policy normalized to, so the snapshot shows the
-    /// lowercasing, deduplication and port ordering as well as the refusals.
+    /// lowercasing, deduplication and prefix ordering as well as the refusals.
     fn describe(policy: &super::Policy) -> String {
         let declared: Vec<String> = policy
             .declared_cidrs
             .iter()
-            .map(|declared| format!("{} ports {:?}", declared.cidr, declared.ports))
+            .map(ToString::to_string)
             .collect();
 
         format!(
@@ -447,14 +428,14 @@ mod tests {
             policy.egress,
             policy.allow_all,
             policy.allowed_names,
-            declared.join("; "),
+            declared.join(", "),
             policy.ttl_floor_secs,
             policy.ttl_cap_secs,
         )
     }
 
-    /// What a launcher writes is what the VMM reads back: the same names, and
-    /// every other field at its default.
+    /// What a launcher writes is what the VMM reads back: the same names and
+    /// prefixes, and every other field at its default.
     #[test]
     fn public_policy_round_trips() {
         let names = super::hosts(
@@ -466,7 +447,7 @@ mod tests {
             ],
         )
         .expect("valid names");
-        let document = super::public_policy(&names);
+        let document = super::public_policy(&names, &[]);
 
         insta::assert_snapshot!(
             String::from_utf8(document.clone()).expect("JSON is UTF-8"),
@@ -480,9 +461,113 @@ mod tests {
         assert!(policy.declared_cidrs.is_empty());
         assert_eq!((policy.ttl_floor_secs, policy.ttl_cap_secs), (90, 3600));
 
-        let empty = super::parse(&super::public_policy(&[])).expect("an empty list parses");
+        let empty = super::parse(&super::public_policy(&[], &[])).expect("an empty list parses");
         assert_eq!(empty.egress, super::Mode::Public);
         assert!(empty.allowed_names.is_empty());
+
+        let cidrs = super::cidrs(
+            "task egress.cidrs",
+            &["192.168.4.0/24".to_string(), "10.0.0.0/8".to_string()],
+        )
+        .expect("valid prefixes");
+        let document = super::public_policy(&names[..1], &cidrs);
+
+        insta::assert_snapshot!(
+            String::from_utf8(document.clone()).expect("JSON is UTF-8"),
+            @r#"{"allowedNames":["pypi.org"],"declaredCidrs":["10.0.0.0/8","192.168.4.0/24"],"egress":"public"}"#
+        );
+        let policy = super::parse(&document).expect("the parser accepts a launcher's prefixes");
+        assert_eq!(policy.declared_cidrs, cidrs);
+    }
+
+    /// Every prefix no CIDR lifts is one no host name reaches either.
+    #[test]
+    fn excluded_is_within_the_baseline() {
+        let baseline = super::baseline(&vmm_subnets());
+        let excluded = super::excluded(&vmm_subnets());
+
+        for prefix in &excluded {
+            assert!(baseline.contains(prefix), "{prefix} is not in the baseline");
+        }
+        for subnet in vmm_subnets() {
+            let subnet = super::canonical(subnet);
+            assert!(excluded.contains(&subnet), "{subnet} is not excluded");
+        }
+    }
+
+    #[test]
+    fn cidrs_name_the_field_they_came_from() {
+        let rows: Vec<String> = [
+            "fd00::/8",
+            "::ffff:10.0.0.0/104",
+            "10.0.0.1",
+            "10.0.0.0/33",
+            "10.0.0.0/",
+            "10.0.0.0/+8",
+            "10.0.0.0/255.0.0.0",
+            "10/8",
+            "010.0.0.0/8",
+            " 10.0.0.0/8",
+            "10.0.0.0/8/8",
+            "10.1.2.3/8",
+            "",
+        ]
+        .into_iter()
+        .map(|cidr| {
+            let error = super::cidrs("task egress.cidrs", &[cidr.to_string()])
+                .expect_err("each is refused");
+            format!("{error:#}")
+        })
+        .collect();
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+        task egress.cidrs "fd00::/8" is IPv6; only IPv4 ranges are supported
+        task egress.cidrs "::ffff:10.0.0.0/104" is IPv6; only IPv4 ranges are supported
+        task egress.cidrs "10.0.0.1" has no prefix length; write an address and a prefix length, such as 10.0.0.0/8, or 10.0.0.1/32 for one address
+        task egress.cidrs "10.0.0.0/33" has a prefix length other than a number from 0 to 32
+        task egress.cidrs "10.0.0.0/" has a prefix length other than a number from 0 to 32
+        task egress.cidrs "10.0.0.0/+8" has a prefix length other than a number from 0 to 32
+        task egress.cidrs "10.0.0.0/255.0.0.0" has a prefix length other than a number from 0 to 32
+        task egress.cidrs "10/8" does not begin with an IPv4 address
+        task egress.cidrs "010.0.0.0/8" does not begin with an IPv4 address
+        task egress.cidrs " 10.0.0.0/8" does not begin with an IPv4 address
+        task egress.cidrs "10.0.0.0/8/8" has a prefix length other than a number from 0 to 32
+        task egress.cidrs "10.1.2.3/8" sets bits below its prefix length; write 10.0.0.0/8, or 10.1.2.3/32 for one address
+        task egress.cidrs "" has no prefix length; write an address and a prefix length, such as 10.0.0.0/8, or 10.0.0.1/32 for one address
+        "#);
+    }
+
+    #[test]
+    fn cidrs_normalize() {
+        let rows: Vec<String> = [
+            vec!["10.0.0.0/8"],
+            vec!["10.1.2.3/32", "10.1.2.3/32"],
+            vec!["10.2.0.0/16", "10.0.0.0/8", "10.0.0.0/8", "10.2.3.0/24"],
+            vec!["10.0.0.0/9", "10.128.0.0/9"],
+            vec!["192.168.1.0/24", "172.16.0.0/12", "10.0.0.0/8"],
+            vec!["169.254.169.254/32", "127.0.0.1/32", "224.0.0.0/4"],
+            vec!["10.89.0.0/24", "0.0.0.0/0", "93.184.216.0/24"],
+            vec![],
+        ]
+        .into_iter()
+        .map(|raw| {
+            let raw: Vec<String> = raw.into_iter().map(str::to_string).collect();
+            let kept = super::cidrs("task egress.cidrs", &raw).expect("each is accepted");
+            let kept: Vec<String> = kept.iter().map(ToString::to_string).collect();
+            format!("{raw:?} => {kept:?}")
+        })
+        .collect();
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+        ["10.0.0.0/8"] => ["10.0.0.0/8"]
+        ["10.1.2.3/32", "10.1.2.3/32"] => ["10.1.2.3/32"]
+        ["10.2.0.0/16", "10.0.0.0/8", "10.0.0.0/8", "10.2.3.0/24"] => ["10.0.0.0/8"]
+        ["10.0.0.0/9", "10.128.0.0/9"] => ["10.0.0.0/9", "10.128.0.0/9"]
+        ["192.168.1.0/24", "172.16.0.0/12", "10.0.0.0/8"] => ["10.0.0.0/8", "172.16.0.0/12", "192.168.1.0/24"]
+        ["169.254.169.254/32", "127.0.0.1/32", "224.0.0.0/4"] => ["127.0.0.1/32", "169.254.169.254/32", "224.0.0.0/4"]
+        ["10.89.0.0/24", "0.0.0.0/0", "93.184.216.0/24"] => ["0.0.0.0/0"]
+        [] => []
+        "#);
     }
 
     #[test]
@@ -553,7 +638,7 @@ mod tests {
             ),
             (
                 "allowedNames and declaredCidrs are dormant under egress none, not refused",
-                r#"{"egress":"none","allowedNames":["pypi.org"],"declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]}]}"#,
+                r#"{"egress":"none","allowedNames":["pypi.org"],"declaredCidrs":["93.184.216.0/24"]}"#,
             ),
             (
                 "ttlFloorSecs zero",
@@ -705,98 +790,41 @@ mod tests {
             ),
             (
                 "declaredCidrs unparsable",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"not-a-cidr","ports":[443]}]}"#,
+                r#"{"egress":"public","declaredCidrs":["not-a-cidr"]}"#,
             ),
             (
                 "declaredCidrs with host bits set",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.5/24","ports":[443]}]}"#,
+                r#"{"egress":"public","declaredCidrs":["93.184.216.5/24"]}"#,
             ),
             (
-                "declaredCidrs with no ports",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[]}]}"#,
+                "declaredCidrs IPv6",
+                r#"{"egress":"public","declaredCidrs":["fd00::/8"]}"#,
             ),
             (
-                "declaredCidrs port 0",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[0]}]}"#,
+                "declaredCidrs in the former shape, with ports",
+                r#"{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]}]}"#,
             ),
             (
-                "declaredCidrs port 25",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443,25]}]}"#,
+                "declaredCidrs overlapping and repeated, kept disjoint",
+                r#"{"egress":"public","declaredCidrs":["93.184.216.128/25","93.184.216.0/24","93.184.216.0/24"]}"#,
             ),
-            (
-                "declaredCidrs overlapping on a shared port",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.128/25","ports":[443]}]}"#,
-            ),
-            (
-                "declaredCidrs overlapping on disjoint ports",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.128/25","ports":[8443]}]}"#,
-            ),
-            (
-                "declaredCidrs repeating a prefix",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.0/24","ports":[8443,443]}]}"#,
-            ),
-            // The merged port set has to be complete before any prefix is
-            // compared, so these two differ only in where the repeat sits and
-            // must be refused identically.
-            (
-                "declaredCidrs repeating a prefix into an overlap, repeat last",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.0/25","ports":[8443]},{"cidr":"93.184.216.0/24","ports":[8443]}]}"#,
-            ),
-            (
-                "declaredCidrs repeating a prefix into an overlap, repeat first",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"93.184.216.0/24","ports":[443]},{"cidr":"93.184.216.0/24","ports":[8443]},{"cidr":"93.184.216.0/25","ports":[8443]}]}"#,
-            ),
+            // The baseline's exclusions are the ruleset's to apply, not a
+            // reason to refuse a declaration that overlaps them.
             (
                 "declaredCidrs private (RFC1918)",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"10.2.0.0/16","ports":[5432]}]}"#,
+                r#"{"egress":"public","declaredCidrs":["10.2.0.0/16"]}"#,
             ),
             (
-                "declaredCidrs cloud metadata",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"169.254.169.254/32","ports":[80]}]}"#,
+                "declaredCidrs cloud metadata and loopback",
+                r#"{"egress":"public","declaredCidrs":["169.254.169.254/32","127.0.0.1/32"]}"#,
             ),
             (
-                "declaredCidrs loopback",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"127.0.0.1/32","ports":[8080]}]}"#,
+                "declaredCidrs every address",
+                r#"{"egress":"public","declaredCidrs":["10.89.0.0/24","0.0.0.0/0"]}"#,
             ),
             (
-                "declaredCidrs shared address space (CGNAT)",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"100.100.0.0/16","ports":[443]}]}"#,
-            ),
-            (
-                "declaredCidrs IETF protocol assignments",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"192.0.0.170/32","ports":[443]}]}"#,
-            ),
-            (
-                "declaredCidrs the tap subnet (TEST-NET-1)",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"192.0.2.0/30","ports":[443]}]}"#,
-            ),
-            (
-                "declaredCidrs benchmarking",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"198.18.0.0/15","ports":[443]}]}"#,
-            ),
-            (
-                "declaredCidrs documentation (TEST-NET-3)",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"203.0.113.0/24","ports":[443]}]}"#,
-            ),
-            (
-                "declaredCidrs multicast",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"224.0.0.1/32","ports":[443]}]}"#,
-            ),
-            (
-                "declaredCidrs reserved",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"240.0.0.0/4","ports":[443]}]}"#,
-            ),
-            (
-                "declaredCidrs the VMM's own bridge",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"10.89.0.0/24","ports":[443]}]}"#,
-            ),
-            (
-                "declaredCidrs a VMM subnet on public space",
-                r#"{"egress":"public","declaredCidrs":[{"cidr":"172.104.9.0/24","ports":[443]}]}"#,
-            ),
-            (
-                "allowAll does not rescue a private destination",
-                r#"{"egress":"public","allowAll":true,"declaredCidrs":[{"cidr":"10.2.0.0/16","ports":[5432]}]}"#,
+                "declaredCidrs beside allowAll",
+                r#"{"egress":"public","allowAll":true,"declaredCidrs":["10.2.0.0/16"]}"#,
             ),
         ]
     }

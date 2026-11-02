@@ -18,6 +18,7 @@ pub(crate) fn egress_execution(vmm: bool, hosts: &[&str]) -> Option<flow::Connec
         vmm,
         egress: Some(flow::connector_execution::Egress {
             hosts: hosts.iter().map(ToString::to_string).collect(),
+            cidrs: Vec::new(),
         }),
     })
 }

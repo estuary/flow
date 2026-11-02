@@ -228,7 +228,9 @@ EOF or status. A client which does not drain responses may park the handler.
   in-process endpoint cannot request it. A start whose execution declares
   `egress` without a VMM is refused first, whatever its endpoint: only a VMM
   enforces egress, and a declaration is never quietly dropped. A VMM start's
-  declared hosts are validated here too, before anything is pulled.
+  declared hosts and CIDRs are validated here too, before anything is pulled,
+  and `policy::egress_cidrs` refuses any CIDR on a public plane. Catalog
+  validation checks only their syntax: it does not know the plane.
   `Started.execution` is set only once the VMM's connector-init is dialed and
   the Spec exchanged.
 
@@ -282,6 +284,14 @@ EOF or status. A client which does not drain responses may park the handler.
   but still never a destination the VMM's baseline excludes. The plane is the
   service's own; nothing a task sends chooses it. Each launch logs which
   applies, and every permitted name with its source, to the task's logs.
+
+- **A task's CIDRs open private destinations, guest and host alike.** On a
+  private or local plane, `egress.cidrs` is written into the policy as
+  `declaredCidrs`, and the launch's host grant carries a `--cidr` for each
+  range, because the host boundary drops private destinations for every VMM
+  otherwise. The grant is the one described below for ingress, so it is
+  installed, recorded and revoked with it, and a launch with CIDRs but no
+  declared port still has one.
 
 - **A VMM launch is planned before anything is created.** `vmm::plan::plan`
   turns the configuration and the connector's image inspection into the
@@ -427,7 +437,7 @@ EOF or status. A client which does not drain responses may park the handler.
 
 - **VMM control uses `init.sock`; container networking uses declared TCP ports.**
   A VMM with declared ports reports its container IPv4 address and the image's
-  port declarations. The host proxy dials that address; the VMM forwards to
+  port declarations; one without reports no address. The host proxy dials that address; the VMM forwards to
   the guest. Ports are not published on host interfaces. Host permissions are
   keyed by the VMM bridge and declared port, owned by the launch token, and
   recorded with the VMM image used to revoke them during teardown or recovery.

@@ -33,7 +33,7 @@ ENDPOINTS=(192.31.196.241 192.31.196.242 192.31.196.243 192.31.196.244 192.31.19
 # The host's end of the hop, and so the address endpoints see VMMs come from.
 ENDPOINT_PEER=192.31.196.254
 DECOY_FENCE=198.18.255.240/28
-DECOYS=(198.18.255.241)
+DECOYS=(198.18.255.241 198.18.255.242)
 
 FILTER="${usage_filter:-}"
 ALLOW_MISSING_VSOCK="${usage_allow_missing_vsock_loopback:-false}"

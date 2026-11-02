@@ -1,0 +1,1 @@
+{"egress": "public", "allowedNames": ["ok.acmeco.example"], "declaredCidrs": ["198.18.255.241/32"]}
