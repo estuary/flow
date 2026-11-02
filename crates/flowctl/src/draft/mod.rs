@@ -17,21 +17,21 @@ pub use publication::publish;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/draft/create-mutation.graphql"
 )]
 struct CreateDraftMutation;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/draft/delete-mutation.graphql"
 )]
 struct DeleteDraftMutation;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/draft/stage-specs-mutation.graphql",
     variables_derives = "Debug",
     extern_enums("CatalogType")
@@ -42,35 +42,35 @@ pub type DraftSpecInput = stage_draft_specs_mutation::DraftSpecInput;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/draft/unstage-specs-mutation.graphql"
 )]
 struct UnstageDraftSpecsMutation;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/draft/fetch-query.graphql"
 )]
 struct FetchDraftQuery;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/draft/fetch-errors-query.graphql"
 )]
 struct FetchDraftErrorsQuery;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/draft/list-query.graphql"
 )]
 struct ListDraftsQuery;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/draft/list-specs-query.graphql",
     extern_enums("CatalogType")
 )]

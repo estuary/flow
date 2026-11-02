@@ -17,7 +17,7 @@
 //!
 //! #[derive(graphql_client::GraphqlQuery)]
 //! #[graphql(
-//!   schema_path = "../flow-client/control-plane-api.graphql",
+//!   schema_path = "../control-plane-api/control-plane-api.graphql",
 //!   query_path = "src/path/to/your/query.graphql",
 //! )]
 //! pub struct MyQuery;

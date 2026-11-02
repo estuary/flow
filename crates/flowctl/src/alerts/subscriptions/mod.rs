@@ -107,7 +107,7 @@ impl AlertSubscriptions {
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/alerts/subscriptions/list-query.graphql",
     response_derives = "Serialize,Clone",
     variables_derives = "Clone",
@@ -170,7 +170,7 @@ impl output::CliOutput for list_alert_subscriptions::SelectAlertSubscription {
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/alerts/subscriptions/create-mutation.graphql",
     response_derives = "Serialize,Clone",
     variables_derives = "Clone",
@@ -180,7 +180,7 @@ struct CreateAlertSubscription;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/alerts/subscriptions/update-mutation.graphql",
     response_derives = "Serialize,Clone,Debug",
     variables_derives = "Clone",
@@ -300,7 +300,7 @@ async fn get_existing_subscription(
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/alerts/subscriptions/delete-mutation.graphql",
     response_derives = "Serialize,Clone,Debug",
     variables_derives = "Clone",

@@ -47,7 +47,9 @@ from dataclasses import dataclass, field
 # flowctl: the released CLI binary, built by flowctl-release.yaml with plain
 # cargo (no mise, no Go, no Dockerfile). It include_str!'s the ops-task
 # bundle, which is deliberately absent from the agent target: the Rust
-# flowctl binary is not in the agent image.
+# flowctl binary is not in the agent image. It also compiles its GraphQL
+# queries against control-plane-api's checked-in SDL, though control-plane-api
+# is not in its closure.
 TARGETS = {
     "agent": {
         "workspace_files": {
@@ -83,6 +85,7 @@ TARGETS = {
             ".github/workflows/flowctl-release.yaml",
             ".sqlx/",  # offline query metadata; the release builds with SQLX_OFFLINE=1
             "ops-catalog/ops-task-template.bundle.json",
+            "crates/control-plane-api/control-plane-api.graphql",
         ),
     },
 }

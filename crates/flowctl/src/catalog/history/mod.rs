@@ -4,7 +4,7 @@ use serde::Serialize;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/catalog/history/query.graphql",
     response_derives = "Serialize,Clone",
     variables_derives = "Clone",

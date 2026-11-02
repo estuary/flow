@@ -24,14 +24,14 @@ pub struct Discover {
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/discover/create-mutation.graphql"
 )]
 struct CreateDiscoverMutation;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/discover/poll-query.graphql",
     response_derives = "Debug,PartialEq"
 )]
