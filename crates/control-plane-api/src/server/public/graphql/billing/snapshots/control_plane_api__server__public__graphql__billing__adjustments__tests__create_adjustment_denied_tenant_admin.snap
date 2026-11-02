@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/adjustments.rs
+expression: denied
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 13,
+          "line": 8
+        }
+      ],
+      "message": "PermissionDenied: adjustco@example.test is not authorized to access prefix or name 'estuary_support/' with required capability admin",
+      "path": [
+        "createBillingAdjustment"
+      ]
+    }
+  ]
+}

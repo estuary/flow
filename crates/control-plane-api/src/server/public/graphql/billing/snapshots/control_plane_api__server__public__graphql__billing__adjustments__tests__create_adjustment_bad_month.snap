@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/adjustments.rs
+expression: bad_month
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 13,
+          "line": 8
+        }
+      ],
+      "message": "billedMonth must be the first instant of a month in UTC, like 2026-07-01T00:00:00Z",
+      "path": [
+        "createBillingAdjustment"
+      ]
+    }
+  ]
+}
