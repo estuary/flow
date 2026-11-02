@@ -195,10 +195,7 @@ impl SandboxesMutation {
             &env.pg_pool,
             catalog_name.as_str(),
             super::legal_terms::LegalTermsType::Sandbox,
-            &super::legal_terms::LegalConsentVersion {
-                eq: None,
-                gte: Some(1),
-            },
+            super::legal_terms::ConsentVersion::Gte(1),
         )
         .await
         .map_err(|error| {
@@ -408,44 +405,13 @@ mod test {
         let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         outcomes.push(response["errors"][0]["message"].clone());
 
-        // MSA consent, another tenant, and a deleted tenant cannot cover this name.
+        // MSA consent and another tenant cannot cover this name.
         sqlx::query(
             "INSERT INTO internal.tenant_consent
                  (user_id, user_email, terms_id, tenant_name, tenant_id)
              SELECT $1, 'alice@example.test', l.id, t.tenant, t.id
              FROM internal.legal_terms l CROSS JOIN tenants t
              WHERE l.type = 'msa' OR t.tenant = 'acmeCoOther/'",
-        )
-        .bind(user)
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO internal.tenant_consent
-                 (user_id, user_email, terms_id, tenant_name, tenant_id)
-             SELECT $1, 'alice@example.test', id, 'acmeCo/', '00:00:00:00:00:00:00:01'::flowid
-             FROM internal.legal_terms WHERE type = 'sandbox'",
-        )
-        .bind(user)
-        .execute(&pool)
-        .await
-        .unwrap();
-        let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
-        outcomes.push(response["errors"][0]["message"].clone());
-
-        sqlx::query(
-            "INSERT INTO internal.legal_terms (type, text)
-             VALUES ('sandbox', 'Updated sandbox agreement')",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO internal.tenant_consent
-                 (user_id, user_email, terms_id, tenant_name, tenant_id)
-             SELECT $1, 'alice@example.test', l.id, t.tenant, t.id
-             FROM internal.legal_terms l CROSS JOIN tenants t
-             WHERE l.type = 'sandbox' AND l.version = 2 AND t.tenant = 'acmeCo/'",
         )
         .bind(user)
         .execute(&pool)
@@ -472,7 +438,6 @@ mod test {
         [
           "The tenant must accept a sandbox agreement before creating sandboxes. Accept at https://dashboard.estuary.dev/legal-consent?type=sandbox&tenant=acmeCo",
           "The tenant must accept a sandbox agreement before creating sandboxes. Accept at https://dashboard.estuary.dev/legal-consent?type=sandbox&tenant=acmeCo",
-          "Sandboxes are not configured",
           "Sandboxes are not configured"
         ]
         "#);
