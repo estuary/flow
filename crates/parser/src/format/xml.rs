@@ -51,6 +51,11 @@ const MAX_DEPTH: usize = 256;
 /// elements was measured at over 1GB.
 const MAX_RECORD_MB: u64 = 64;
 
+/// Maximum number of distinct element names tracked for the inconsistent-array warning. The
+/// tracked names are kept for the whole file, so they're capped to bound memory and the
+/// per-record check regardless of how many distinct names a file contains.
+const MAX_TRACKED_NAMES: usize = 1024;
+
 /// Number of bytes to inspect when looking for a byte order mark or an encoding declaration.
 const PROLOG_PEEK_BYTES: usize = 1024;
 
@@ -590,10 +595,13 @@ impl<R: io::BufRead> XmlIter<R> {
                 continue;
             }
             // Element values are only ever strings or objects, so an array holds repetitions.
-            if value.is_array() {
-                self.repeated_names.insert(name.clone());
+            let names = if value.is_array() {
+                &mut self.repeated_names
             } else {
-                self.single_names.insert(name.clone());
+                &mut self.single_names
+            };
+            if names.len() < MAX_TRACKED_NAMES && !names.contains(name) {
+                names.insert(name.clone());
             }
         }
     }
@@ -1073,6 +1081,27 @@ mod test {
             vec!["Line"],
             warned_names(with_record_path("/Batch/Order"), content)
         );
+    }
+
+    #[test]
+    fn tracked_names_are_capped() {
+        let mut content = String::from("<Batch>");
+        for i in 0..2 * MAX_TRACKED_NAMES {
+            content.push_str(&format!("<R><n{i}>x</n{i}><m{i}/><m{i}/></R>"));
+        }
+        content.push_str("</Batch>");
+
+        let input = Input::Stream(Box::new(std::io::Cursor::new(content)));
+        let parser = XmlParser {
+            config: with_record_path("/Batch/R"),
+        };
+        let mut iter = parser.iter(input).unwrap();
+        assert_eq!(
+            2 * MAX_TRACKED_NAMES,
+            iter.by_ref().map(Result::unwrap).count()
+        );
+        assert_eq!(MAX_TRACKED_NAMES, iter.single_names.len());
+        assert_eq!(MAX_TRACKED_NAMES, iter.repeated_names.len());
     }
 
     #[test]
