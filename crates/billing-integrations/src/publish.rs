@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use billing_types::{
-    BillingProvider, InvoiceMetadata, InvoiceType, PaymentProvider, StripeBillingProvider,
-    record_customer_id,
+    BillingProvider, InvoiceMetadata, InvoiceType, PaymentProvider, PlanKind,
+    StripeBillingProvider, record_customer_id,
 };
 use chrono::{Duration, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
@@ -92,6 +92,7 @@ enum InvoiceResult {
     Updated,
     Replaced,
     LessThanMinimum,
+    InternalTenant,
     FreeTier,
     FutureTrialStart,
     NoDataMoved,
@@ -132,6 +133,7 @@ impl InvoiceResult {
             InvoiceResult::LessThanMinimum => {
                 "Skipping invoice for less than the minimum chargable amount ($0.50)".to_string()
             }
+            InvoiceResult::InternalTenant => "Skipping invoice for internal tenant".to_string(),
             InvoiceResult::FreeTier => "Skipping usage invoice for tenant in free tier".to_string(),
             InvoiceResult::FutureTrialStart => {
                 "Skipping invoice ending before free trial start date".to_string()
@@ -187,7 +189,7 @@ impl InvoiceAction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct Invoice {
     subtotal: i64,
     line_items: sqlx::types::Json<Vec<LineItem>>,
@@ -198,6 +200,7 @@ pub(crate) struct Invoice {
     extra: Option<sqlx::types::Json<Option<Extra>>>,
     has_full_pipeline: bool,
     payment_provider: PaymentProvider,
+    plan_kind: PlanKind,
     tenant_trial_start: Option<NaiveDate>,
     pub(crate) stripe_invoice_id: Option<String>,
     stripe_customer_id: Option<String>,
@@ -303,7 +306,14 @@ impl Invoice {
             _ => {}
         };
 
-        if let InvoiceType::Final = self.invoice_type {
+        if self.plan_kind == PlanKind::Internal {
+            return Ok(InvoiceAction::Skip {
+                result: InvoiceResult::InternalTenant,
+            });
+        }
+
+        // The free tier and trial are self-serve terms. `trial_start` does not exempt a `contract` tenant's usage.
+        if let (InvoiceType::Final, PlanKind::SelfServe) = (self.invoice_type, self.plan_kind) {
             match self.tenant_trial_start {
                 Some(trial_start) if self.date_end < trial_start => {
                     return Ok(InvoiceAction::Skip {
@@ -806,6 +816,7 @@ pub(crate) async fn load_invoices(
             extra,
             coalesce(dataflow.has_full_pipeline, false) as has_full_pipeline,
             tenants.payment_provider,
+            tenants.plan_kind,
             tenants.trial_start as tenant_trial_start,
             invoices_ext.stripe_invoice_id,
             tenants.stripe_customer_id
@@ -942,6 +953,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             InvoiceResult::NoDataMoved
             | InvoiceResult::NoFullPipeline
             | InvoiceResult::LessThanMinimum
+            | InvoiceResult::InternalTenant
             | InvoiceResult::FreeTier
             | InvoiceResult::AlreadyProcessed => 0,
             _ => 10,
@@ -1297,6 +1309,7 @@ mod tests {
             }))),
             has_full_pipeline: true,
             payment_provider: PaymentProvider::Stripe,
+            plan_kind: PlanKind::SelfServe,
             tenant_trial_start: Some("2020-01-01".parse().unwrap()),
             stripe_invoice_id: recorded.map(str::to_string),
             stripe_customer_id: Some(CUSTOMER_ID.to_string()),
@@ -1413,6 +1426,44 @@ mod tests {
         Final recreate=false: error: Recorded invoice in_recorded no longer exists in Stripe. Pass --recreate-existing to create a replacement.
         Final recreate=true: create: replacing None; customer cus_acme
         Final recreate=true: create: replacing Some("in_recorded"); customer cus_acme
+        "#);
+    }
+
+    #[tokio::test]
+    async fn plan_kind_selects_skip_rules() {
+        let cases = [
+            (PlanKind::Internal, InvoiceType::Final, Some("2020-01-01")),
+            (PlanKind::Internal, InvoiceType::Manual, Some("2020-01-01")),
+            (PlanKind::SelfServe, InvoiceType::Final, Some("2020-01-01")),
+            (PlanKind::SelfServe, InvoiceType::Final, Some("2026-09-01")),
+            (PlanKind::SelfServe, InvoiceType::Final, None),
+            (PlanKind::Contract, InvoiceType::Final, Some("2026-09-01")),
+            (PlanKind::Contract, InvoiceType::Final, None),
+        ];
+
+        let (client, requests) = stripe_stub(vec![]).await;
+        let provider = StripeBillingProvider::from_client(client);
+        let mut outcomes = Vec::new();
+        for (plan_kind, invoice_type, trial_start) in cases {
+            let mut invoice = bill(invoice_type, None);
+            invoice.plan_kind = plan_kind;
+            invoice.tenant_trial_start = trial_start.map(|d| d.parse().unwrap());
+            invoice.stripe_customer_id = None;
+            let action = invoice.classify(&provider, false).await.unwrap();
+            outcomes.push(format!(
+                "{plan_kind:?} {invoice_type:?} trial_start={trial_start:?}: {}",
+                describe(&action)
+            ));
+        }
+        assert!(requests.lock().unwrap().is_empty());
+        insta::assert_snapshot!(outcomes.join("\n"), @r#"
+        Internal Final trial_start=Some("2020-01-01"): skip: Skipping invoice for internal tenant
+        Internal Manual trial_start=Some("2020-01-01"): skip: Skipping invoice for internal tenant
+        SelfServe Final trial_start=Some("2020-01-01"): create: replacing None; customer none
+        SelfServe Final trial_start=Some("2026-09-01"): skip: Skipping invoice ending before free trial start date
+        SelfServe Final trial_start=None: skip: Skipping usage invoice for tenant in free tier
+        Contract Final trial_start=Some("2026-09-01"): create: replacing None; customer none
+        Contract Final trial_start=None: create: replacing None; customer none
         "#);
     }
 
@@ -1619,9 +1670,9 @@ mod tests {
     async fn loads_month_bills_from_db_with_tenant_filters(pool: sqlx::PgPool) {
         sqlx::raw_sql(
             r#"
-            insert into tenants (id, tenant, created_at) values
-                (internal.id_generator(), 'acmeCo/', '2020-01-01'),
-                (internal.id_generator(), 'otherCo/', '2020-01-01');
+            insert into tenants (id, tenant, created_at, plan_kind) values
+                (internal.id_generator(), 'acmeCo/', '2020-01-01', 'self_serve'),
+                (internal.id_generator(), 'otherCo/', '2020-01-01', 'internal');
             insert into internal.billing_historicals (tenant, billed_month, report, stripe_invoice_id) values
                 ('acmeCo/', '2026-08-01', '{"billed_month":"2026-08-01","subtotal":10000}', 'in_acme'),
                 ('otherCo/', '2026-08-01', '{"billed_month":"2026-08-01","subtotal":10000}', null);
@@ -1683,6 +1734,7 @@ mod tests {
         .unwrap();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].stripe_invoice_id, None);
+        assert_eq!(selected[0].plan_kind, PlanKind::Internal);
     }
 
     #[sqlx::test(migrations = "../../supabase/migrations")]
