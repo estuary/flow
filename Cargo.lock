@@ -3570,7 +3570,6 @@ dependencies = [
  "anyhow",
  "base64 0.23.1",
  "chrono",
- "control-plane-api",
  "futures",
  "gazette",
  "jsonwebtoken",

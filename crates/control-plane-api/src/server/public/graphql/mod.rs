@@ -151,13 +151,6 @@ pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchem
     .finish()
 }
 
-/// Returns the GraphQL SDL (Schema Definition Language) as a string.
-/// This is used by the flow-client build script to generate types.
-pub fn schema_sdl() -> String {
-    let schema = create_schema(models::AlertConfig::default());
-    schema.sdl()
-}
-
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub(crate) async fn graphql_handler(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
@@ -345,4 +338,22 @@ fn graphql_json_values_preserves_field_order() {
     let parsed: async_graphql::Value = serde_json::from_str(json_str).unwrap();
     let round_tripped = serde_json::to_string(&parsed).unwrap();
     assert_eq!(json_str.replace(' ', ""), round_tripped);
+}
+
+// flowctl compiles its GraphQL queries against the checked-in SDL. On drift
+// this test regenerates the SDL in place, so a failure is fixed by reviewing
+// and committing the file.
+#[test]
+fn checked_in_sdl_is_current() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("control-plane-api.graphql");
+    let sdl = create_schema(models::AlertConfig::default()).sdl();
+    let committed = std::fs::read_to_string(&path).unwrap();
+
+    if committed != sdl {
+        std::fs::write(&path, sdl).unwrap();
+        panic!(
+            "checked-in GraphQL SDL was out of date; it has been regenerated in place -- review and commit {}",
+            path.display()
+        );
+    }
 }

@@ -102,7 +102,7 @@ impl Secrets {
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/secret/list-query.graphql",
     response_derives = "Serialize,Clone,Debug",
     variables_derives = "Clone,Debug"
@@ -111,7 +111,7 @@ struct ListSecrets;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/secret/set-mutation.graphql",
     response_derives = "Serialize,Clone,Debug",
     variables_derives = "Clone,Debug"
@@ -120,7 +120,7 @@ struct SetSecret;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/secret/delete-mutation.graphql",
     response_derives = "Serialize,Clone,Debug",
     variables_derives = "Clone,Debug"

@@ -68,7 +68,7 @@ impl Configs {
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/alerts/configs/list-query.graphql",
     response_derives = "Serialize,Clone,Debug",
     variables_derives = "Clone,Debug"
@@ -77,7 +77,7 @@ struct ListAlertConfigs;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/alerts/configs/update-mutation.graphql",
     response_derives = "Serialize,Clone,Debug",
     variables_derives = "Clone,Debug"
