@@ -21,9 +21,14 @@ the workload and becoming it. The VMM injects it into the guest root at
 ## Non-obvious details
 
 - **libkrun's init ran first.** `/dev`, `/proc`, `/sys`, `/sys/fs/cgroup`,
-  `/dev/pts` and `/dev/shm` are mounted, `lo` is up, and the image's `Env` and
-  `WorkingDir` are applied. None of that is repeated here. The VMM resolves
-  `HOME` into that `Env`.
+  `/dev/pts` and `/dev/shm` are mounted, `lo` is up, and the image's `Env` is
+  applied. None of that is repeated here. The VMM resolves `HOME` into that
+  `Env`.
+- **The working directory is entered again after the mounts.** libkrun's init
+  enters the image's `WorkingDir` and ignores a failure, which leaves `/`. The
+  mounts here may cover that directory, so its physical path is read before
+  them and entered again after them, before anything is exec'd. A `WorkingDir`
+  that only the image had, such as one under `/tmp`, fails the launch.
 - **`HOSTNAME` is the image's, or the kernel's.** libkrun's init names the
   kernel after the image's `HOSTNAME`, or `localhost` without one. An image
   value, even an empty one, stays as podman keeps it; a missing one is set to

@@ -33,6 +33,10 @@ fn run(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     )?;
     net::disable_ipv6()?;
 
+    // libkrun's init entered the image's `WorkingDir`, and these mounts may
+    // cover it. Entering its path again afterwards finds what is mounted there.
+    let working_dir =
+        std::env::current_dir().map_err(|e| format!("reading the working directory: {e}"))?;
     root::mount_scratch(args.uid, args.gid)?;
     let hostname = root::write_etc(args.nameserver, args.guest_ip.address)?;
     root::mount_connector_mount(&args.connector_mount)?;
@@ -40,6 +44,12 @@ fn run(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     if let Some(guest_path) = &args.persistent_disk {
         root::mount_persistent_disk(guest_path)?;
     }
+    std::env::set_current_dir(&working_dir).map_err(|e| {
+        format!(
+            "re-entering the working directory {} after mounting: {e}",
+            working_dir.display()
+        )
+    })?;
     default_hostname(&hostname);
 
     // Ignore the probe's exit status so a failed probe does not stop the workload.
