@@ -68,6 +68,12 @@ the workload and becoming it. The VMM injects it into the guest root at
   replaces the guest's, set before the gid and the uid, since nothing can set
   it once the uid has dropped. `--run-as-root` skips all three and still gives
   uv's cache to `--uid`/`--gid`, leaving `HOME` the image user's.
+- **The workload gains no privilege by exec.** `PR_SET_NO_NEW_PRIVS` is set
+  once the user is, just before the workload's exec, `--run-as-root` or not.
+  The image's root is not `nosuid` in the guest, so its setuid and setgid bits
+  and file capabilities would otherwise grant the workload, or anything it
+  runs, more than it holds. It takes nothing away: an image whose user is
+  root keeps root's capabilities. `--as-root-exec` runs before it is set.
 - **uv's cache is chowned, the persistent disk is not.** mkfs leaves the
   scratch root owned by root, and it stays so; the workload runs as the
   image's user. The persistent disk is the task's own, and its owner formats

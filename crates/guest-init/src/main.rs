@@ -67,6 +67,14 @@ fn exec_workload(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     if !args.run_as_root {
         drop_privileges(args.uid, args.gid, &args.supplementary_gids)?;
     }
+    // The image's setuid and setgid bits and file capabilities would otherwise
+    // grant privilege: its root is not `nosuid` in the guest.
+    //
+    // Safety: no pointers. prctl reads its variadic arguments as `c_ulong`s.
+    let (on, unused): (libc::c_ulong, libc::c_ulong) = (1, 0);
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, on, unused, unused, unused) } < 0 {
+        return Err(sys::last_error("prctl(PR_SET_NO_NEW_PRIVS)"));
+    }
 
     let program = std::ffi::CString::new(args.argv[0].as_str())
         .map_err(|e| format!("workload argv[0] {:?}: {e}", args.argv[0]))?;

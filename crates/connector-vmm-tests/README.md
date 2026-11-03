@@ -46,7 +46,9 @@ connector-init over a guest's vsock connection.
   TCP and UDP with their host grant's lifecycle, host-only declared TCP
   ingress with bidirectional traffic under `egress: none`, and host isolation
   after a VMM removes its own rules. Connector-mount tests check that host
-  file replacements become visible inside the guest.
+  file replacements become visible inside the guest. `no_new_privileges`
+  runs controlled setuid, setgid and file-capability programs from the
+  workload, and as the same user before guest-init sets no_new_privs.
 - `tests/dns_answers/`, `tests/dns_capacity/`: refused answers and capacity
   overflow must not partially authorize addresses in the kernel. Resolver
   unit tests cover TTL retention, CNAME capacity, and reclamation with explicit
