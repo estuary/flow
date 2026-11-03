@@ -4,23 +4,39 @@ expression: table
 ---
 # just claimed
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n"
-=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: None }
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: Some("/tmp/connector-mounts-1000/mount-fv_0123456789abcdef"), state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: None }
 
 # owns ingress
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\",\"ingress_image\":\"vmm:local\"}\n"
-=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: Some("vmm:local") }
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: Some("/tmp/connector-mounts-1000/mount-fv_0123456789abcdef"), state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: Some("vmm:local") }
+
+# a grant's, naming no mount
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"ingress_image\":\"vmm:local\"}\n"
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: None, state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: Some("vmm:local") }
+
+# a grant's, marking its state
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"ingress_image\":\"vmm:local\"}\n{\"created\":\"state\"}\n"
+=> refused: names no connector mount, yet marks a directory as created
+
+# a grant's, marking a mount
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"ingress_image\":\"vmm:local\"}\n{\"created\":\"mount\"}\n"
+=> refused: names no connector mount, yet marks a directory as created
+
+# neither a mount nor a grant
+"{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\"}\n"
+=> refused: names neither a connector mount nor an ingress grant
 
 # with its mount
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"mount\"}\n"
-=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: true, created_state: false, ingress_image: None }
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: Some("/tmp/connector-mounts-1000/mount-fv_0123456789abcdef"), state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: true, created_state: false, ingress_image: None }
 
 # with both directories
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"mount\"}\n{\"created\":\"state\"}\n"
-=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: true, created_state: true, ingress_image: None }
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: Some("/tmp/connector-mounts-1000/mount-fv_0123456789abcdef"), state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: true, created_state: true, ingress_image: None }
 
 # a torn marker
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}\n{\"created\":\"mount\"}"
-=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef", state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: None }
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: Some("/tmp/connector-mounts-1000/mount-fv_0123456789abcdef"), state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: None }
 
 # a torn claim
 "{\"version\":1,\"id\":\"fv_0123456789abcdef\",\"token\":\"00112233445566778899aabbccddeeff\",\"mount\":\"/tmp/connector-mounts-1000/mount-fv_0123456789abcdef\"}"

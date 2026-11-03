@@ -1,10 +1,10 @@
 //! The connector service's VMM launches, through the actual launcher. Each
 //! test drives an in-process `connector::Service` whose VMM configuration
 //! names this run's images, and a state directory, TMPDIR and podman of the
-//! test's own (`connector_vmm_tests::launcher`). Recovery tests also launch
-//! in other processes, which they kill as a crash would: this same binary,
-//! running only `owner_process` (see `Owner`). Like the rest of the suite,
-//! these run only under `mise run ci:connector-vmm-kvm`.
+//! test's own (`connector_vmm_tests::launcher`). Recovery tests also launch,
+//! or recover, in other processes, which they kill as a crash would: this
+//! same binary, running only `owner_process` (see `Owner`). Like the rest of
+//! the suite, these run only under `mise run ci:connector-vmm-kvm`.
 
 mod replacement;
 #[path = "common/rpc.rs"]
@@ -148,14 +148,14 @@ fn unary(
         .map(|(started, _response)| started)
 }
 
-/// A Spec through `router` which must succeed: a launch, whose start releases
-/// what dead launches left beneath its state directory.
-fn launch(runtime: &tokio::runtime::Runtime, router: &connector::ServiceRouter, image: &str) {
-    let logs = Logs::default();
-    let started = unary(runtime, router, &logs, spec(image))
-        .unwrap_or_else(|err| panic!("launching: {err:#}\n{:#?}", logs.messages()));
-    assert_started(&started);
+/// One recovery pass beneath `vmm`'s state directory, as a reactor's
+/// `connector::VmmRecovery` runs them. Returns how many problems it left.
+fn recover(runtime: &tokio::runtime::Runtime, vmm: &connector::Vmm) -> u64 {
+    runtime.block_on(vmm.recover())
 }
+
+/// Bounds a `connector::VmmRecovery`'s first pass, or one after its pause.
+const PASSED: Duration = Duration::from_secs(90);
 
 /// Open a session without waiting on it, as a client which may walk away.
 fn open(
@@ -294,11 +294,15 @@ struct OwnerConfig {
     /// The task's declared egress hosts, which `Started` must echo.
     #[serde(default)]
     egress: Option<Vec<String>>,
+    /// Run one recovery pass, and report its problems, instead of a launch.
+    #[serde(default)]
+    recover: bool,
 }
 
 /// Not a test of its own: the launch of an `Owner`, which runs this binary
 /// with only this test selected and `OWNER` set. It reports on stdout, holds
 /// its session until its stdin closes, then ends it and reports its release.
+/// A recovering owner instead reports its pass's problems, and exits.
 #[test]
 #[ignore = "run only by Owner::spawn, as a process of its own"]
 fn owner_process() {
@@ -312,6 +316,7 @@ fn owner_process() {
         image,
         barrier,
         egress,
+        recover: recovering,
     } = serde_json::from_str(config.to_str().expect("UTF-8")).expect("an owner's configuration");
     let execution = flow::ConnectorExecution {
         vmm: true,
@@ -330,7 +335,7 @@ fn owner_process() {
         .enable_all()
         .build()
         .expect("a tokio runtime");
-    let router = router(vmm_at(&podman, &state_dir, &vmm_image));
+    let vmm = vmm_at(&podman, &state_dir, &vmm_image);
     let logger = |log: &ops::Log| {
         let fields: String = log
             .fields_json_map
@@ -352,7 +357,12 @@ fn owner_process() {
         });
         println!("owner: go {}", epoch_ms());
     }
+    if recovering {
+        println!("owner: recovered {}", recover(&runtime, &vmm));
+        return;
+    }
 
+    let router = router(vmm);
     let (request_tx, mut response_rx, started) =
         match runtime.block_on(proto_grpc::connector::start(
             &router,
@@ -420,15 +430,40 @@ impl Owner {
         barrier: Option<&str>,
         egress: Option<&[&str]>,
     ) -> Self {
-        let config = serde_json::to_string(&OwnerConfig {
+        let config = OwnerConfig {
             podman: root.podman.clone(),
             state_dir: state_dir.to_string(),
             vmm_image: vmm_image.to_string(),
             image: run.derive_python_image.clone(),
             barrier: barrier.map(ToString::to_string),
             egress: egress.map(|hosts| hosts.iter().map(ToString::to_string).collect()),
-        })
-        .unwrap();
+            recover: false,
+        };
+        Self::spawn_config(root, &config, namespaced)
+    }
+
+    /// One recovery pass beneath `state_dir`, with `root`'s podman and the
+    /// run's VMM image, once `barrier` exists, if given.
+    fn recovering(
+        run: &run::Run,
+        root: &launcher::Root,
+        state_dir: &str,
+        barrier: Option<&str>,
+    ) -> Self {
+        let config = OwnerConfig {
+            podman: root.podman.clone(),
+            state_dir: state_dir.to_string(),
+            vmm_image: run.vmm_image.clone(),
+            image: run.derive_python_image.clone(),
+            barrier: barrier.map(ToString::to_string),
+            egress: None,
+            recover: true,
+        };
+        Self::spawn_config(root, &config, false)
+    }
+
+    fn spawn_config(root: &launcher::Root, config: &OwnerConfig, namespaced: bool) -> Self {
+        let config = serde_json::to_string(config).unwrap();
         let exe = std::env::current_exe().expect("this test binary");
         let exe = exe.to_str().expect("a UTF-8 path");
         let test = [
@@ -898,9 +933,6 @@ fn spec_through_the_vmm() {
     assert_eq!(
         commands,
         [
-            "ps --all",
-            "network ls",
-            "volume ls",
             format!("pull {}", run.derive_python_image).as_str(),
             "image inspect",
             "run --rm",
@@ -1370,7 +1402,7 @@ fn abandoned_before_the_vmm_runs() {
 
     let calls = launcher::calls(&root);
     assert!(
-        !calls.iter().any(|call| call.contains("--name=")),
+        !calls.iter().any(|call| call.starts_with("create ")),
         "the VMM was created: {calls:#?}"
     );
     assert_eq!(calls[calls.len() - 2], format!("network rm {name}"));
@@ -1473,9 +1505,63 @@ fn abandoned_after_readiness() {
     assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
 }
 
+/// A reactor stops a shard by destroying its runtime, and the launch's task
+/// with it, before any teardown runs. No launch follows: the process's
+/// recovery, started as a reactor's, releases it all.
+#[test]
+fn a_destroyed_runtime_is_recovered_without_a_launch() {
+    let (run, root, runtime) = setup();
+    let vmm = vmm(&root, &run.fake_image);
+    let shard = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("a shard's runtime");
+    let router = router(vmm.clone());
+    let logs = Logs::default();
+    let logger = |log: &ops::Log| logs.push(log);
+
+    let (request_tx, response_rx, started) = shard
+        .block_on(proto_grpc::connector::start(
+            &router,
+            &logger,
+            proto_grpc::connector::SPEC_TASK_NAME,
+            spec(&run.derive_python_image),
+        ))
+        .unwrap_or_else(|err| panic!("starting: {err:#}\n{:#?}", logs.messages()));
+    assert_started(&started);
+    let name = launcher::vmm_name(&root).expect("the launch created a network");
+    let record = launcher::record(&root.state_dir, &name);
+    let footprint = launcher::footprint(&root.state_dir, &root.tmp_dir, &name);
+    let _rpc = hold_rpc(&runtime, &root.state_dir, &name);
+
+    shard.shutdown_background();
+    std::mem::drop((request_tx, response_rx));
+    run::eventually("the launch's lock to go with its runtime", RELEASED, || {
+        (!launcher::locked(&record)).then_some(())
+    });
+    launcher::assert_whole(&footprint);
+    assert!(!removed(&root, &footprint.id), "no teardown ran");
+
+    let recovery = vmm.spawn_recovery(runtime.handle());
+    run::eventually("recovery to release it", PASSED, || {
+        launcher::remaining(&footprint).is_empty().then_some(())
+    });
+    std::mem::drop(recovery);
+    assert!(removed(&root, &footprint.id), "recovery removed it");
+    assert_eq!(
+        launcher::leftovers(&root, Some(&name)),
+        Vec::<String>::new()
+    );
+    let pulls = launcher::calls(&root)
+        .into_iter()
+        .filter(|call| call.starts_with("pull "))
+        .count();
+    assert_eq!(pulls, 1, "only the destroyed launch's");
+}
+
 /// A removal podman refuses (a sidecar on the VMM's network) is reported, and
-/// the rest is removed. The record is kept as it was and let go, and the next
-/// launch releases what remains once it can.
+/// the rest is removed. The record is kept as it was and let go, and a
+/// recovery pass releases what remains once it can.
 #[test]
 fn a_failed_release_is_kept_and_retried() {
     let (run, root, runtime) = setup();
@@ -1528,8 +1614,11 @@ fn a_failed_release_is_kept_and_retried() {
     assert_eq!(std::fs::read(&record).unwrap(), written, "kept as it was");
     assert!(!launcher::locked(&record), "and let go");
 
+    let recovering = vmm(&root, &run.fake_image);
+    assert_eq!(recover(&runtime, &recovering), 1, "the network is in use");
+    assert_eq!(std::fs::read(&record).unwrap(), written, "kept again");
     std::mem::drop(sidecar);
-    launch(&runtime, &router, &run.derive_python_image);
+    assert_eq!(recover(&runtime, &recovering), 0);
     assert_eq!(
         launcher::leftovers(&root, Some(&name)),
         Vec::<String>::new()
@@ -1612,13 +1701,14 @@ fn a_vmm_which_fails_refuses_the_launch() {
     );
 }
 
-/// Hold a create past its owner's death and recovery. The next launch removes
-/// the late network or volume by its state directory's label. A late container
+/// Hold a create past its owner's death, as a reactor's would be. A recovery
+/// started afterwards, as a restarted reactor's with no shards, releases the
+/// record at once. A later pass of its own, with no launch between, removes the
+/// late network or volume by its state directory's label. A late container
 /// create fails because recovery removed its network and volume.
 fn an_orphaned_command(step: &str, kind: &str, exists: fn(&str) -> bool, makes: bool) {
     let (run, root, runtime) = setup();
     let other = launcher::root();
-    let successor = router(vmm_at(&other.podman, &root.state_dir, &run.fake_image));
 
     let hold = launcher::hold(&root, step);
     let owner = Owner::spawn(&run, &root, &root.state_dir, &run.fake_image, false);
@@ -1627,21 +1717,40 @@ fn an_orphaned_command(step: &str, kind: &str, exists: fn(&str) -> bool, makes: 
     let record = launcher::record(&root.state_dir, &name);
     owner.kill();
 
-    launch(&runtime, &successor, &run.derive_python_image);
-    assert!(!launcher::path_exists(&record), "released meanwhile");
+    let recovery =
+        vmm_at(&other.podman, &root.state_dir, &run.fake_image).spawn_recovery(runtime.handle());
+    let first = run::eventually("the first pass to end", PASSED, || {
+        let metrics = connector::Vmm::recovery_metrics();
+        (metrics.last_success != 0).then_some(metrics)
+    });
+    assert_eq!((first.failed_passes, first.pending), (0, 0));
+    assert!(
+        !launcher::path_exists(&record),
+        "released by the first pass"
+    );
     assert!(!exists(&name), "nothing was made yet");
 
     std::mem::drop(hold);
     run::eventually("the orphaned command to end", STARTED, || {
         wrappers(&root).is_empty().then_some(())
     });
-    assert_eq!(exists(&name), makes, "the {kind}, once the command ended");
-
-    launch(&runtime, &successor, &run.derive_python_image);
+    // The next pass starts 30 seconds after the first ended.
     assert_eq!(
-        launcher::left(&root.state_dir, &root.tmp_dir, &name),
-        Vec::<String>::new(),
-        "removed by the launch, before any cleanup of the test's"
+        exists(&name),
+        makes,
+        "the {kind}, once the command ended after the first pass"
+    );
+
+    run::eventually("a later pass to remove what it made", PASSED, || {
+        launcher::left(&root.state_dir, &root.tmp_dir, &name)
+            .is_empty()
+            .then_some(())
+    });
+    std::mem::drop(recovery);
+    let calls = launcher::calls(&other);
+    assert!(
+        !calls.iter().any(|call| call.starts_with("pull ")),
+        "with no launch: {calls:#?}"
     );
 }
 
@@ -1671,7 +1780,7 @@ fn a_kill_while_the_rootfs_volume_is_created() {
 fn a_kill_before_the_container_id_is_read() {
     let (run, root, runtime) = setup();
     let other = launcher::root();
-    let successor = router(vmm_at(&other.podman, &root.state_dir, &run.fake_image));
+    let successor = vmm_at(&other.podman, &root.state_dir, &run.fake_image);
 
     let hold = launcher::hold(&root, "created");
     let owner = Owner::spawn(&run, &root, &root.state_dir, &run.fake_image, false);
@@ -1685,7 +1794,7 @@ fn a_kill_before_the_container_id_is_read() {
         "podman made the container"
     );
     assert!(!launcher::locked(&record), "its command let go as it ended");
-    launch(&runtime, &successor, &run.derive_python_image);
+    assert_eq!(recover(&runtime, &successor), 0);
     assert_eq!(
         launcher::left(&root.state_dir, &root.tmp_dir, &name),
         Vec::<String>::new()
@@ -1697,7 +1806,7 @@ fn a_kill_before_the_container_id_is_read() {
 fn a_kill_before_readiness() {
     let (run, root, runtime) = setup();
     let other = launcher::root();
-    let successor = router(vmm_at(&other.podman, &root.state_dir, &run.fake_image));
+    let successor = vmm_at(&other.podman, &root.state_dir, &run.fake_image);
 
     launcher::gate_readiness(&root);
     let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, false);
@@ -1707,19 +1816,19 @@ fn a_kill_before_readiness() {
     // The pre-init gate keeps the guest alive without starting init's idle watchdog.
     owner.kill();
 
-    launch(&runtime, &successor, &run.derive_python_image);
-    assert!(removed(&other, &footprint.id), "the launch removed it");
+    assert_eq!(recover(&runtime, &successor), 0);
+    assert!(removed(&other, &footprint.id), "recovery removed it");
     assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
 }
 
-/// A VMM serving its session when its owner is killed is released by the
-/// next launch, which leaves alone a live owner sharing its state directory
+/// A VMM serving its session when its owner is killed is released by a
+/// recovery pass, which leaves alone a live owner sharing its state directory
 /// and one beneath another, as another stack's would be.
 #[test]
 fn a_kill_while_serving_spares_live_owners() {
     let (run, root, runtime) = setup();
     let (neighbour, stranger, other) = (launcher::root(), launcher::root(), launcher::root());
-    let successor = router(vmm_at(&other.podman, &root.state_dir, &run.fake_image));
+    let successor = vmm_at(&other.podman, &root.state_dir, &run.fake_image);
 
     let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, false);
     owner.started();
@@ -1742,15 +1851,10 @@ fn a_kill_while_serving_spares_live_owners() {
     .collect();
 
     owner.kill();
-    launch(&runtime, &successor, &run.derive_python_image);
-    assert!(removed(&other, &footprint.id), "the launch removed it");
+    assert_eq!(recover(&runtime, &successor), 0);
+    assert!(removed(&other, &footprint.id), "recovery removed it");
     assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
 
-    let replacement = launcher::vmm_name(&other).expect("the launch named its network");
-    assert_ne!(
-        replacement, name,
-        "a replacement never takes a dead launch's id"
-    );
     let socket = format!("{}/{name}/sock/init.sock", root.state_dir);
     assert!(!launcher::path_exists(&socket), "nor its socket, {socket}");
 
@@ -1765,13 +1869,14 @@ fn a_kill_while_serving_spares_live_owners() {
 }
 
 /// Removal of the dead owner's container fails, unknowingly, by a fault in
-/// its query, so nothing it may use is touched; once the fault clears, the
-/// next launch releases it all.
+/// its query, so nothing it may use is touched. A recovery retries it every
+/// pass, each counted failed with the one problem pending, and once the
+/// fault clears, a later pass of its own releases it all.
 #[test]
 fn an_unknown_container_keeps_everything() {
     let (run, root, runtime) = setup();
     let other = launcher::root();
-    let successor = router(vmm_at(&other.podman, &root.state_dir, &run.fake_image));
+    let successor = vmm_at(&other.podman, &root.state_dir, &run.fake_image);
 
     let owner = Owner::spawn(&run, &root, &root.state_dir, &run.fake_image, false);
     owner.started();
@@ -1782,23 +1887,46 @@ fn an_unknown_container_keeps_everything() {
     owner.kill();
 
     let fault = launcher::fail(&other, "ps", &launcher::token(&record));
-    launch(&runtime, &successor, &run.derive_python_image);
+    let recovery = successor.spawn_recovery(runtime.handle());
+    let failing = run::eventually("two failed passes", PASSED * 2, || {
+        let metrics = connector::Vmm::recovery_metrics();
+        (metrics.failed_passes >= 2).then_some(metrics)
+    });
+    assert_eq!(
+        (failing.started, failing.pending, failing.last_success),
+        (true, 1, 0)
+    );
     launcher::assert_whole(&footprint);
-    assert!(!launcher::locked(&record), "let go for a later launch");
+    // In the pause after the pass which just ended.
+    assert!(!launcher::locked(&record), "let go for a later pass");
     std::mem::drop(fault);
 
-    launch(&runtime, &successor, &run.derive_python_image);
-    assert!(removed(&other, &footprint.id), "the launch removed it");
-    assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
+    run::eventually("a later pass to release it", PASSED, || {
+        launcher::remaining(&footprint).is_empty().then_some(())
+    });
+    let recovered = run::eventually("that pass to end", PASSED, || {
+        let metrics = connector::Vmm::recovery_metrics();
+        (metrics.last_success != 0).then_some(metrics)
+    });
+    std::mem::drop(recovery);
+    assert_eq!(recovered.pending, 0);
+    assert!(recovered.failed_passes >= 2);
+    assert!(removed(&other, &footprint.id), "recovery removed it");
+    assert!(
+        !launcher::calls(&other)
+            .iter()
+            .any(|call| call.starts_with("pull ")),
+        "with no launch"
+    );
 }
 
-/// Owners in PID namespaces of their own, each of them PID 1: a live owner
-/// is spared by a launch sharing its PID, and a dead one is released by
-/// another.
+/// Owners in PID namespaces of their own, each of them PID 1: a live owner,
+/// and another launched after a third died, are spared by a recovery pass
+/// which releases the dead one.
 #[test]
 fn owners_alike_by_pid() {
     let (run, root, runtime) = setup();
-    let (neighbour, successor) = (launcher::root(), launcher::root());
+    let (neighbour, successor, recoverer) = (launcher::root(), launcher::root(), launcher::root());
 
     let owner = Owner::spawn(&run, &root, &root.state_dir, &run.fake_image, true);
     owner.started();
@@ -1817,9 +1945,15 @@ fn owners_alike_by_pid() {
     let next = Owner::spawn(&run, &successor, &root.state_dir, &run.fake_image, true);
     next.started();
     assert_eq!(next.pid, 1);
-    assert!(removed(&successor, &footprint.id), "the launch removed it");
+    let next_name = launcher::vmm_name(&successor).expect("the launch named its network");
+    let next_footprint = launcher::footprint(&root.state_dir, &successor.tmp_dir, &next_name);
+
+    let recovering = vmm_at(&recoverer.podman, &root.state_dir, &run.fake_image);
+    assert_eq!(recover(&runtime, &recovering), 0);
+    assert!(removed(&recoverer, &footprint.id), "recovery removed it");
     assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
     launcher::assert_whole(&live_footprint);
+    launcher::assert_whole(&next_footprint);
 
     live.end();
     next.end();
@@ -1834,7 +1968,6 @@ fn owners_alike_by_pid() {
 #[test]
 fn records_which_prove_nothing() {
     let (run, root, runtime) = setup();
-    let router = router(vmm(&root, &run.fake_image));
     let mounts = launcher::mounts(&root);
     let new_name = || format!("fv_{}", run::random_hex());
     let token = format!("{}{}", run::random_hex(), run::random_hex());
@@ -1917,7 +2050,11 @@ fn records_which_prove_nothing() {
     let unrecorded = new_name();
     plant(&unrecorded, None, &format!("{mounts}/mount-{unrecorded}"));
 
-    launch(&runtime, &router, &run.derive_python_image);
+    assert_eq!(
+        recover(&runtime, &vmm(&root, &run.fake_image)),
+        4,
+        "each malformed record is a problem; the held one is not"
+    );
 
     assert!(launcher::container_exists(&named) && launcher::network_exists(&named));
     assert!(
@@ -1927,11 +2064,6 @@ fn records_which_prove_nothing() {
     for path in kept.iter().chain(&untouchable) {
         assert!(launcher::path_exists(path), "{path} remains");
     }
-    let launched = launcher::vmm_name(&root).expect("the launch named its network");
-    assert_eq!(
-        launcher::left(&root.state_dir, &root.tmp_dir, &launched),
-        Vec::<String>::new()
-    );
 
     run::podman(&["rm", "--force", "--time=0", &named]);
     run::podman(&["network", "rm", &named]);
@@ -1940,7 +2072,6 @@ fn records_which_prove_nothing() {
 #[test]
 fn labeled_resources_without_a_record() {
     let (run, root, runtime) = setup();
-    let router = router(vmm(&root, &run.fake_image));
     let other = launcher::root();
     let new_name = || format!("fv_{}", run::random_hex());
     let make = |name: &str, state_dir: &str| {
@@ -1968,7 +2099,7 @@ fn labeled_resources_without_a_record() {
     let foreign = new_name();
     make(&foreign, &other.state_dir);
 
-    launch(&runtime, &router, &run.derive_python_image);
+    assert_eq!(recover(&runtime, &vmm(&root, &run.fake_image)), 0);
 
     assert_eq!(exists(&unrecorded), (false, false), "its record is gone");
     assert_eq!(exists(&held), (true, true), "its record is held");
@@ -1989,18 +2120,18 @@ const ORPHAN: Duration = Duration::from_secs(30);
 /// Bounds a Spec of a serving VMM, inside the gate's budget.
 const SERVED: Duration = Duration::from_secs(20);
 
-/// Where a launch recovering a dead owner's VMM is killed.
+/// Where a process recovering a dead owner's VMM is killed.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Gate {
     /// Its removal of the container is held before podman runs it, and runs
-    /// once the next launch has recovered the record.
+    /// once the next pass has recovered the record.
     BeforeContainerRemoval,
     /// Its removal of the container has finished.
     AfterContainerRemoval,
     /// Its removal of the network is held before podman runs it, and runs
-    /// once the next launch has recovered the record.
+    /// once the next pass has recovered the record.
     BeforeNetworkRemoval,
-    /// As before, but the orphaned removal runs before the next launch.
+    /// As before, but the orphaned removal runs before the next pass.
     BeforeNetworkRemovalRunFirst,
     /// Its removal of the network has finished. The mount, state and record
     /// remain: no engine call separates their removals, so no gate does.
@@ -2175,16 +2306,17 @@ fn parent(pid: u32) -> String {
         .to_string()
 }
 
-/// A launch recovering a dead owner's serving VMM is killed with SIGKILL at
-/// `gate`, beside a live owner sharing its state directory and resources no
-/// record names. The next launch releases everything the dead owner's record
-/// names, removing the record last, and touches nothing else.
+/// A process recovering a dead owner's serving VMM, as a reactor's recovery
+/// would, is killed with SIGKILL at `gate`, beside a live owner sharing its
+/// state directory and resources no record names. The next pass releases
+/// everything the dead owner's record names, removing the record last, and
+/// touches nothing else.
 fn a_kill_of_recovery(gate: Gate) {
     use std::os::unix::process::ExitStatusExt;
 
     let (run, root, runtime) = setup();
     let (neighbour, recoverer, other) = (launcher::root(), launcher::root(), launcher::root());
-    let successor = router(vmm_at(&other.podman, &root.state_dir, &run.fake_image));
+    let successor = vmm_at(&other.podman, &root.state_dir, &run.fake_image);
     let evidence = Evidence(
         run.run_dir
             .join(format!("recovery-killed-{gate:?}.evidence")),
@@ -2237,7 +2369,7 @@ fn a_kill_of_recovery(gate: Gate) {
             "after-network-rm",
         ),
     };
-    let recovering = Owner::spawn(&run, &recoverer, &root.state_dir, &run.fake_image, false);
+    let recovering = Owner::recovering(&run, &recoverer, &root.state_dir, None);
     launcher::wait_held(&recoverer, what, GATE);
     let gated = std::time::Instant::now();
     let held = launcher::held_by(&recoverer, what);
@@ -2265,9 +2397,9 @@ fn a_kill_of_recovery(gate: Gate) {
     assert_eq!(
         launcher::calls(&recoverer),
         removals[..reached],
-        "the recovering launch called nothing else, so far"
+        "the recovering process called nothing else, so far"
     );
-    assert!(launcher::locked(&record), "the recovering launch holds it");
+    assert!(launcher::locked(&record), "the recovering process holds it");
     let at_gate = launcher::remaining(&footprint);
     if gate == Gate::BeforeContainerRemoval {
         launcher::assert_whole(&footprint);
@@ -2291,7 +2423,7 @@ fn a_kill_of_recovery(gate: Gate) {
     ));
     sentinels.assert_intact();
     evidence.note(format_args!(
-        "held {what}: podman {wrapper} ({cmdline}) wrote {held:?}; recovering launch {} \
+        "held {what}: podman {wrapper} ({cmdline}) wrote {held:?}; recovering process {} \
          holds the record; remaining {at_gate:?}",
         recovering.host_pid
     ));
@@ -2302,17 +2434,17 @@ fn a_kill_of_recovery(gate: Gate) {
     assert_eq!(
         launcher::start_time(u32::try_from(recovering_pid).expect("a PID")),
         None,
-        "the recovering launch is gone"
+        "the recovering process is gone"
     );
     assert_eq!(
         launcher::start_time(wrapper),
         Some(wrapper_started.clone()),
-        "the held podman outlives its launcher"
+        "the held podman outlives its caller"
     );
     let reparented = parent(wrapper);
     assert!(
         !launcher::locked(&record),
-        "the record's lock went with the recovering launch"
+        "the record's lock went with the recovering process"
     );
     assert_eq!(
         launcher::remaining(&footprint),
@@ -2320,7 +2452,7 @@ fn a_kill_of_recovery(gate: Gate) {
         "the kill changed nothing"
     );
     evidence.note(format_args!(
-        "recovering launch {recovering_pid} {killed} after {:?} held; podman {wrapper} lives \
+        "recovering process {recovering_pid} {killed} after {:?} held; podman {wrapper} lives \
          on beneath {reparented}; record unlocked",
         gated.elapsed()
     ));
@@ -2342,7 +2474,7 @@ fn a_kill_of_recovery(gate: Gate) {
         gate,
         Gate::BeforeContainerRemoval | Gate::BeforeNetworkRemoval
     ) {
-        launch(&runtime, &successor, &run.derive_python_image);
+        assert_eq!(recover(&runtime, &successor), 0);
         evidence.note(format_args!(
             "recovered beside the orphaned removal; remaining {:?}",
             launcher::remaining(&footprint)
@@ -2356,7 +2488,7 @@ fn a_kill_of_recovery(gate: Gate) {
                 "the orphaned command removed the network"
             );
         }
-        launch(&runtime, &successor, &run.derive_python_image);
+        assert_eq!(recover(&runtime, &successor), 0);
     }
 
     let successor_calls: Vec<String> = launcher::calls(&other)
@@ -2384,7 +2516,7 @@ fn a_kill_of_recovery(gate: Gate) {
         format!("volume ls --filter label=dev.estuary.vmm-owner={token} --format {{{{.Name}}}}"),
         format!("volume rm {name}"),
     ]);
-    assert_eq!(successor_calls, looked, "the next launch's release");
+    assert_eq!(successor_calls, looked, "the next pass's release");
     assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
     assert_eq!(
         launcher::left(&root.state_dir, &root.tmp_dir, &name),
@@ -2392,22 +2524,17 @@ fn a_kill_of_recovery(gate: Gate) {
     );
     launcher::assert_whole(&peer_footprint);
     evidence.note(format_args!(
-        "peer after the next launch's recovery: {}",
+        "peer after the next pass: {}",
         served(&runtime, &root.state_dir, &peer_name)
     ));
     sentinels.assert_intact();
     assert_eq!(
         launcher::leftovers(&recoverer, None),
         Vec::<String>::new(),
-        "the killed launch made nothing of its own"
-    );
-    let replacement = launcher::vmm_name(&other).expect("the launch named its network");
-    assert_eq!(
-        launcher::left(&root.state_dir, &other.tmp_dir, &replacement),
-        Vec::<String>::new()
+        "the killed process made nothing of its own"
     );
     evidence.note(format_args!(
-        "next launch released {name} with {successor_calls:?}; remaining {:?}; peer whole; \
+        "next pass released {name} with {successor_calls:?}; remaining {:?}; peer whole; \
          sentinels intact",
         launcher::remaining(&footprint)
     ));
@@ -2419,7 +2546,7 @@ fn a_kill_of_recovery(gate: Gate) {
     );
     assert_eq!(launcher::remaining(&peer_footprint), Vec::<String>::new());
     // With every owner gone, a last recovery still leaves what's unrecorded.
-    launch(&runtime, &successor, &run.derive_python_image);
+    assert_eq!(recover(&runtime, &successor), 0);
     sentinels.assert_intact();
     let state: std::collections::BTreeSet<String> = std::fs::read_dir(&root.state_dir)
         .expect("reading the state directory")
@@ -2474,7 +2601,7 @@ fn a_recovery_killed_after_network_removal() {
     a_kill_of_recovery(Gate::AfterNetworkRemoval);
 }
 
-/// Bounds the eight launches, from the barrier's opening.
+/// Bounds the eight passes and four launches, from the barrier's opening.
 const GROUP: Duration = Duration::from_secs(90);
 
 fn epoch_ms() -> u128 {
@@ -2536,10 +2663,9 @@ struct Orphan {
     name: String,
     token: String,
     record: String,
-    /// The calls the launch which takes its record makes to release it.
+    /// The calls the pass which takes its record makes to release it.
     release: Vec<String>,
-    /// Kept by the test until the race, so that no launch made meanwhile
-    /// recovers it first.
+    /// Kept by the test until the race, so that nothing recovers it first.
     lock: Option<std::fs::File>,
 }
 
@@ -2613,17 +2739,19 @@ fn claimed(
     }
 }
 
-/// Eight launchers start at once beneath one state directory, beside a
-/// serving VMM and orphans left at four stages: a claimed record and its
-/// directories only, a network, a created container, and a serving VMM.
-/// Each launcher's first `ps` is held, so the four which take an orphan's
-/// record wait holding its lock while the other four, finding every orphan
-/// locked, must launch past them. Each orphan is released by exactly the
-/// launch which took it, every launch starts, and the peer serves
-/// throughout. The eight and the orphans other than the serving VMM run the
-/// fake image; the peer and the serving orphan are real VMMs.
+/// Eight recovery passes start at once beneath one state directory, as the
+/// recoveries of processes sharing it would, and four launches with them,
+/// beside a serving VMM and orphans left at four stages: a claimed record
+/// and its directories only, a network, a created container, and a serving
+/// VMM. Each pass's first `ps` naming an orphan is held, so the four which
+/// take an orphan's record wait holding its lock while the other four,
+/// finding every orphan locked, pass them by. Each orphan is released by
+/// exactly the pass which took it, every launch starts and is left whole, and
+/// the peer serves throughout. The launches and the orphans other than the
+/// serving VMM run the fake image; the peer and the serving orphan are real
+/// VMMs.
 #[test]
-fn eight_launches_recover_shared_orphans() {
+fn eight_recoveries_race_beside_launches() {
     use std::os::unix::process::ExitStatusExt;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -2644,8 +2772,7 @@ fn eight_launches_recover_shared_orphans() {
         served(&runtime, &state_dir, &peer_name)
     ));
 
-    // The serving orphan first: each later orphan's launch passes over the
-    // earlier ones, which the test holds locked.
+    // The test holds each orphan's record locked until the race.
     let serving_root = launcher::root();
     let before = records(&state_dir);
     let owner = Owner::spawn(&run, &serving_root, &state_dir, &run.vmm_image, false);
@@ -2688,7 +2815,7 @@ fn eight_launches_recover_shared_orphans() {
         assert_eq!(
             others,
             Vec::<String>::new(),
-            "{}'s launch recovered nothing",
+            "{}'s launch touched no other orphan",
             orphan.stage
         );
     }
@@ -2702,12 +2829,17 @@ fn eight_launches_recover_shared_orphans() {
     ));
 
     let barrier = format!("{}/barrier", shared.dir);
-    let launchers: Vec<launcher::Root> = (0..8).map(|_| launcher::root()).collect();
+    let recoverers: Vec<launcher::Root> = (0..8).map(|_| launcher::root()).collect();
     let orphan_tokens: Vec<&str> = orphans.iter().map(|orphan| orphan.token.as_str()).collect();
-    let holds: Vec<launcher::Hold> = launchers
+    let holds: Vec<launcher::Hold> = recoverers
         .iter()
         .map(|root| launcher::hold_naming(root, "ps", &orphan_tokens))
         .collect();
+    let recovering: Vec<Owner> = recoverers
+        .iter()
+        .map(|root| Owner::recovering(&run, root, &state_dir, Some(&barrier)))
+        .collect();
+    let launchers: Vec<launcher::Root> = (0..4).map(|_| launcher::root()).collect();
     let owners: Vec<Owner> = launchers
         .iter()
         .map(|root| {
@@ -2722,11 +2854,11 @@ fn eight_launches_recover_shared_orphans() {
             )
         })
         .collect();
-    for owner in &owners {
+    for owner in recovering.iter().chain(&owners) {
         owner.report("waiting", STARTED);
     }
 
-    // The starting state, with only the eight about to launch.
+    // The starting state, with only the twelve about to start.
     for orphan in &mut orphans {
         std::mem::drop(orphan.lock.take());
         assert!(
@@ -2790,28 +2922,33 @@ fn eight_launches_recover_shared_orphans() {
 
         let opened = epoch_ms();
         std::fs::write(&barrier, "").expect("opening the barrier");
-        let gone: Vec<u128> = owners
+        let gone: Vec<u128> = recovering
             .iter()
+            .chain(&owners)
             .map(|owner| owner.report("go", GROUP).parse().expect("a time"))
             .collect();
         evidence.note(format_args!(
-            "barrier opened at {opened}; the eight went at {gone:?}, within {} ms",
+            "barrier opened at {opened}; the twelve went at {gone:?}, within {} ms",
             gone.iter().max().unwrap() - gone.iter().min().unwrap()
         ));
 
         let held = |root: &launcher::Root| launcher::path_exists(&format!("{}/held-ps", root.dir));
-        run::eventually("four launches to hold an orphan each", GROUP, || {
-            (launchers.iter().filter(|root| held(root)).count() == orphans.len()).then_some(())
+        run::eventually("four passes to hold an orphan each", GROUP, || {
+            (recoverers.iter().filter(|root| held(root)).count() == orphans.len()).then_some(())
         });
         let mut taken = std::collections::BTreeMap::new();
-        for (i, root) in launchers.iter().enumerate() {
+        for (i, root) in recoverers.iter().enumerate() {
             if !held(root) {
-                owners[i].report("started", GROUP);
-                evidence.note(format_args!("launch {i} started, past every orphan"));
+                assert_eq!(recovering[i].report("recovered", GROUP), "0");
+                evidence.note(format_args!("pass {i} ended, past every orphan"));
             }
         }
+        for (i, owner) in owners.iter().enumerate() {
+            owner.report("started", GROUP);
+            evidence.note(format_args!("launch {i} started"));
+        }
         // Everything below is observed while the four still hold.
-        for (i, root) in launchers.iter().enumerate() {
+        for (i, root) in recoverers.iter().enumerate() {
             let calls = launcher::calls(root);
             let named: Vec<&Orphan> = orphans
                 .iter()
@@ -2819,16 +2956,16 @@ fn eight_launches_recover_shared_orphans() {
                 .collect();
             if held(root) {
                 let [orphan] = &named[..] else {
-                    panic!("launch {i} holds one orphan, not {calls:?}");
+                    panic!("pass {i} holds one orphan, not {calls:?}");
                 };
                 assert_eq!(
                     calls,
                     orphan.release[..1],
-                    "launch {i} is held at its first call"
+                    "pass {i} is held at its first call"
                 );
                 assert!(
                     launcher::locked(&orphan.record),
-                    "launch {i} holds {}",
+                    "pass {i} holds {}",
                     orphan.stage
                 );
                 assert!(
@@ -2837,74 +2974,69 @@ fn eight_launches_recover_shared_orphans() {
                     orphan.stage
                 );
             } else {
-                assert!(named.is_empty(), "launch {i} touched no orphan: {calls:?}");
+                assert!(named.is_empty(), "pass {i} touched no orphan: {calls:?}");
             }
         }
         assert_eq!(
             taken.len(),
             orphans.len(),
-            "every orphan is held by one launch"
+            "every orphan is held by one pass"
         );
         launcher::assert_whole(&serving_footprint);
         launcher::assert_whole(&peer_footprint);
         evidence.note(format_args!(
-            "while held: orphan stage -> launch {taken:?}, each record locked, the serving \
+            "while held: orphan stage -> pass {taken:?}, each record locked, the serving \
              orphan whole; {}",
             served(&runtime, &state_dir, &peer_name)
         ));
 
         std::mem::drop(holds);
         for i in taken.values() {
-            owners[*i].report("started", GROUP);
-            evidence.note(format_args!(
-                "launch {i} started, having released its orphan"
-            ));
+            assert_eq!(recovering[*i].report("recovered", GROUP), "0");
+            evidence.note(format_args!("pass {i} ended, having released its orphan"));
         }
         stop.store(true, Ordering::Relaxed);
         (checker.join().expect("the peer's service checks"), taken)
     });
     let (checks, taken) = checks;
     evidence.note(format_args!(
-        "all eight started; the peer answered all {} checks through the race",
+        "all eight passes ended and all four launches started; the peer answered all {} checks \
+         through the race",
         checks.len()
     ));
     for check in &checks {
         evidence.note(format_args!("peer check at {check}"));
     }
 
-    // Each orphan was released by the launch which took it, and only that.
+    // Each orphan was released by the pass which took it, and only that.
     for orphan in &orphans {
         let i = taken[orphan.stage];
-        let calls = launcher::calls(&launchers[i]);
+        let calls = launcher::calls(&recoverers[i]);
         let n = orphan.release.len();
         assert_eq!(
             calls[..n],
             orphan.release[..],
-            "launch {i} released {}",
+            "pass {i} released {}",
             orphan.stage
         );
-        // Its recovery then lists what carries the state directory's label.
-        // A concurrent release may leave it a resource to remove meanwhile.
-        let pull = calls
-            .iter()
-            .position(|call| call.starts_with("pull "))
-            .unwrap_or_else(|| panic!("launch {i} then launched: {calls:?}"));
+        // It then lists what carries the state directory's label. A
+        // concurrent release may leave it a resource to remove meanwhile.
         let labeled = format!("--filter label=dev.estuary.vmm-state-dir={state_dir} ");
         assert_eq!(
-            calls[n..pull]
+            calls[n..]
                 .iter()
                 .filter(|call| call.contains(&labeled))
                 .count(),
             3,
-            "launch {i} listed by its state directory, then launched: {calls:?}"
+            "pass {i} then listed by its state directory: {calls:?}"
         );
-        for (j, root) in launchers.iter().enumerate() {
+        for (j, root) in recoverers.iter().chain(&launchers).enumerate() {
             assert!(
                 j == i
                     || !launcher::calls(root)
                         .iter()
                         .any(|call| call.contains(&orphan.token)),
-                "only launch {i} released {}",
+                "only pass {i} released {}",
                 orphan.stage
             );
         }
@@ -2929,7 +3061,8 @@ fn eight_launches_recover_shared_orphans() {
     launcher::assert_whole(&peer_footprint);
     sentinels.assert_intact();
     evidence.note(format_args!(
-        "orphans released as expected; the eight serve {:?}; peer whole; sentinels intact; {}",
+        "orphans released as expected; the four launches serve {:?}; peer whole; sentinels \
+         intact; {}",
         footprints.iter().map(|f| &f.name).collect::<Vec<_>>(),
         served(&runtime, &state_dir, &peer_name)
     ));
@@ -2948,8 +3081,13 @@ fn eight_launches_recover_shared_orphans() {
     peer.end();
     assert_eq!(launcher::remaining(&peer_footprint), Vec::<String>::new());
     let other = launcher::root();
-    let successor = router(vmm_at(&other.podman, &state_dir, &run.fake_image));
-    launch(&runtime, &successor, &run.derive_python_image);
+    assert_eq!(
+        recover(
+            &runtime,
+            &vmm_at(&other.podman, &state_dir, &run.fake_image)
+        ),
+        0
+    );
     sentinels.assert_intact();
     let unrecorded = std::path::Path::new(&sentinels.files[0])
         .parent()
@@ -2972,8 +3110,9 @@ fn eight_launches_recover_shared_orphans() {
         [unrecorded].into(),
         "only the unrecorded state remains"
     );
-    let roots = launchers
+    let roots = recoverers
         .iter()
+        .chain(&launchers)
         .chain(orphans.iter().map(|orphan| &orphan.root))
         .chain([&peer_root, &other]);
     for root in roots {
@@ -2985,7 +3124,7 @@ fn eight_launches_recover_shared_orphans() {
         );
     }
     evidence.note(format_args!(
-        "the eight and the peer ended and were measured gone; a last recovery left state \
+        "the launches and the peer ended and were measured gone; a last recovery left state \
          {state:?}; no podman of the test's runs"
     ));
     sentinels.remove();
@@ -3067,25 +3206,13 @@ fn a_stalled_container_query_keeps_everything() {
     owner.kill();
     let written = std::fs::read(&record).unwrap();
     let control = launcher::stall(&recoverer, "ps", &[&token]);
-    let recovering = router(vmm_at(&recoverer.podman, &root.state_dir, &run.vmm_image));
+    let recovering = vmm_at(&recoverer.podman, &root.state_dir, &run.vmm_image);
     let task = {
-        let router = recovering.clone();
-        let request = spec(&run.derive_python_image);
+        let recovering = recovering.clone();
         runtime.spawn(async move {
-            let logs = Logs::default();
-            let logger = |log: &ops::Log| logs.push(log);
-            tokio::time::timeout(
-                STARTED,
-                proto_grpc::connector::start(
-                    &router,
-                    &logger,
-                    proto_grpc::connector::SPEC_TASK_NAME,
-                    request,
-                ),
-            )
-            .await
-            .expect("the recovering launch to finish")
-            .unwrap_or_else(|err| panic!("launching: {err:#}\n{:#?}", logs.messages()))
+            tokio::time::timeout(STARTED, recovering.recover())
+                .await
+                .expect("the pass to finish")
         })
     };
     let stalled = run::eventually("the recovery's stalled query", STARTED, || {
@@ -3100,9 +3227,8 @@ fn a_stalled_container_query_keeps_everything() {
         served(&runtime, &root.state_dir, &peer_name)
     ));
 
-    let (request_tx, mut response_rx, started_response) = runtime.block_on(task).unwrap();
-    assert_started(&started_response);
-    // The stall stays installed: only the launcher's timeout can end the command.
+    assert_eq!(runtime.block_on(task).unwrap(), 1, "the timed-out query");
+    // The stall stays installed: only the pass's timeout can end the command.
     run::eventually(
         "the timed-out command and its observed children to end",
         RELEASED,
@@ -3124,17 +3250,9 @@ fn a_stalled_container_query_keeps_everything() {
         "timeout kept the orphan; peer: {}",
         served(&runtime, &root.state_dir, &peer_name)
     ));
-    drop(request_tx);
-    runtime.block_on(async {
-        tokio::time::timeout(RELEASED, async {
-            while response_rx.recv().await.is_some() {}
-        })
-        .await
-        .expect("the session to end");
-    });
 
     drop(control);
-    launch(&runtime, &recovering, &run.derive_python_image);
+    assert_eq!(recover(&runtime, &recovering), 0);
     assert!(removed(&recoverer, &footprint.id));
     assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
     launcher::assert_whole(&peer_footprint);
@@ -3146,15 +3264,775 @@ fn a_stalled_container_query_keeps_everything() {
     peer.end();
     assert_eq!(launcher::remaining(&peer_footprint), Vec::<String>::new());
     assert_eq!(records(&root.state_dir), Default::default());
-    for name in launcher::calls(&recoverer).iter().filter_map(|call| {
-        call.strip_prefix("network create ")
-            .and_then(|args| args.rsplit(' ').next())
-    }) {
-        assert_eq!(
-            launcher::left(&root.state_dir, &recoverer.tmp_dir, name),
-            Vec::<String>::new()
-        );
-    }
     assert_eq!(wrappers(&recoverer), Vec::<u32>::new());
     sentinels.remove();
+}
+
+/// A launch's ingress grant which podman's API service creates, or starts,
+/// only after recovery has revoked its token and removed its record. Each
+/// grant is a remote `podman run`'s requests, sent apart: its create, then
+/// (perhaps) its start. Recovery reaches the same service, as a production
+/// launcher reaches the host's.
+struct LateGrant {
+    /// The service's URL.
+    url: String,
+    /// The VMM image, whose `nft` lists the host's tables.
+    vmm_image: String,
+    /// The launch's name, `fv_<id>`.
+    name: String,
+    /// The grant's container: `fv_<id>-ingress`, and its ID.
+    container: String,
+    id: String,
+    token: String,
+    /// The ID of the image it was created from.
+    image_id: String,
+    /// When its create was sent, in seconds since the epoch.
+    since: String,
+}
+
+impl LateGrant {
+    /// The create through `api` of a grant of a new launch beneath
+    /// `state_dir`, whose record is gone.
+    fn create(run: &run::Run, api: &launcher::Api, state_dir: &str) -> Self {
+        let name = format!("fv_{}", run::random_hex());
+        let token = format!("{}{}", run::random_hex(), run::random_hex());
+        Self::create_as(run, api, state_dir, &name, &token, &run.vmm_image)
+    }
+
+    /// The create of launch `name`'s grant under `token`, from `image`, as
+    /// the plan's line creates it.
+    fn create_as(
+        run: &run::Run,
+        api: &launcher::Api,
+        state_dir: &str,
+        name: &str,
+        token: &str,
+        image: &str,
+    ) -> Self {
+        let container = format!("{name}-ingress");
+        // Released newest first: the container, then its grant.
+        run::record("ingress", &format!("{} {token}", run.vmm_image));
+        run::record("container", &container);
+
+        let since = epoch_ms().div_euclid(1000).to_string();
+        let created = api.podman(&[
+            "create",
+            "--network=host",
+            "--log-driver=none",
+            "--read-only",
+            "--cap-drop=all",
+            "--cap-add=CAP_NET_ADMIN",
+            &format!("--name={container}"),
+            &format!("--label=dev.estuary.vmm-owner={token}"),
+            &format!("--label=dev.estuary.vmm-state-dir={state_dir}"),
+            image,
+            "boundary",
+            "grant",
+            &format!("--owner={token}"),
+            &format!("--bridge=fvm{}", &name[3..15]),
+            "--port=8080",
+        ]);
+        assert!(
+            created.status.success(),
+            "creating {container}: {}",
+            String::from_utf8_lossy(&created.stderr)
+        );
+        let id = String::from_utf8_lossy(&created.stdout).trim().to_string();
+        let image_id = run::podman(&["container", "inspect", "--format", "{{.Image}}", &id]);
+        Self {
+            url: api.url.clone(),
+            vmm_image: run.vmm_image.clone(),
+            image_id: image_id.trim().to_string(),
+            id,
+            name: name.to_string(),
+            container,
+            token: token.to_string(),
+            since,
+        }
+    }
+
+    /// `podman --remote` of its service, as root.
+    fn api(&self, args: &[&str]) -> std::process::Output {
+        let mut argv = vec!["podman", "--remote", "--url", &self.url];
+        argv.extend(args);
+        run::sudo_output(&argv, None)
+    }
+
+    /// Its start, which must grant, and its container then exit and remain.
+    fn start(&self) {
+        let started = self.api(&["start", &self.id]);
+        assert!(
+            started.status.success(),
+            "starting {}: {}",
+            self.container,
+            String::from_utf8_lossy(&started.stderr)
+        );
+        let waited = self.api(&["wait", &self.id]);
+        assert_eq!(
+            String::from_utf8_lossy(&waited.stdout).trim(),
+            "0",
+            "{} granted",
+            self.container
+        );
+        assert!(self.granted() && self.exists(), "granted, and kept");
+    }
+
+    fn exists(&self) -> bool {
+        launcher::container_exists(&self.id)
+    }
+
+    /// Whether the host holds the grant's nftables table.
+    fn granted(&self) -> bool {
+        let table = format!("flow_vmm_ingress_{}", self.token);
+        let listed = run::sudo_output(
+            &[
+                "podman",
+                "run",
+                "--rm",
+                "--network=host",
+                "--cap-drop=all",
+                "--cap-add=CAP_NET_ADMIN",
+                "--entrypoint=nft",
+                &self.vmm_image,
+                "list",
+                "table",
+                "inet",
+                &table,
+            ],
+            None,
+        );
+        match listed.status.code() {
+            Some(0) => true,
+            Some(1) => false,
+            _ => panic!(
+                "listing {table}: {}",
+                String::from_utf8_lossy(&listed.stderr)
+            ),
+        }
+    }
+
+    /// What the service did with the container, in its order.
+    fn events(&self) -> Vec<String> {
+        let events = self.api(&[
+            "events",
+            "--stream=false",
+            "--since",
+            &self.since,
+            "--filter",
+            &format!("container={}", self.id),
+            "--format",
+            "{{.Status}}",
+        ]);
+        assert!(
+            events.status.success(),
+            "{}",
+            String::from_utf8_lossy(&events.stderr)
+        );
+        String::from_utf8_lossy(&events.stdout)
+            .lines()
+            .filter(|status| *status != "sync")
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    /// The claim a pass must record of it, in its fields' order: its token,
+    /// and the ID of the image it was created from.
+    fn claim(&self) -> String {
+        format!(
+            "{{\"version\":1,\"id\":\"{}\",\"token\":\"{}\",\"ingress_image\":\"{}\"}}\n",
+            self.name, self.token, self.image_id
+        )
+    }
+
+    fn assert_gone(&self, state_dir: &str) {
+        assert!(!self.exists(), "{} is removed", self.container);
+        assert!(!self.granted(), "{}'s grant is revoked", self.container);
+        assert!(
+            !launcher::path_exists(&launcher::record(state_dir, &self.name)),
+            "its record is removed"
+        );
+    }
+}
+
+/// The recovery of `state_dir` by a podman of its own, `root`'s, which
+/// reaches `api`.
+fn remote_recovery(
+    root: &launcher::Root,
+    api: &launcher::Api,
+    state_dir: &str,
+    run: &run::Run,
+) -> connector::Vmm {
+    launcher::remote(root, &api.url);
+    vmm_at(&root.podman, state_dir, &run.vmm_image)
+}
+
+/// The race of a grant whose start arrives after recovery. A dead launch's
+/// record is released, revoking its token. Then its grant's container is
+/// created, after that release, and the next pass finds it with no record.
+/// That pass records it first, locked, and only then removes it. The start
+/// podman's service is yet to serve then fails, so nothing is granted.
+#[test]
+fn a_grant_started_after_recovery_cannot_grant() {
+    let (run, root, runtime) = setup();
+    let api = launcher::Api::start(&root, false);
+    let recoverer = launcher::root();
+    let recovery = remote_recovery(&recoverer, &api, &root.state_dir, &run);
+    let evidence = Evidence(run.run_dir.join("late-grant-start.evidence"));
+
+    // What a launch's own claim held: its token, and the image to revoke with.
+    let name = format!("fv_{}", run::random_hex());
+    let token = format!("{}{}", run::random_hex(), run::random_hex());
+    let mounts = launcher::mounts(&root);
+    std::fs::write(
+        launcher::record(&root.state_dir, &name),
+        format!(
+            "{}\n",
+            serde_json::json!({
+                "version": 1,
+                "id": name,
+                "token": token,
+                "mount": format!("{mounts}/mount-{name}"),
+                "ingress_image": run.vmm_image,
+            })
+        ),
+    )
+    .unwrap();
+    assert_eq!(recover(&runtime, &recovery), 0);
+    let calls = launcher::calls(&recoverer);
+    assert!(
+        calls
+            .iter()
+            .any(|call| call.ends_with(&format!("boundary revoke --owner={token}"))),
+        "the record's release revoked {token}: {calls:#?}"
+    );
+    assert!(!launcher::path_exists(&launcher::record(
+        &root.state_dir,
+        &name
+    )));
+
+    // Its grant's create arrives only now.
+    let late = LateGrant::create_as(&run, &api, &root.state_dir, &name, &token, &run.vmm_image);
+    assert!(late.exists() && !late.granted());
+    evidence.note(format_args!(
+        "{} created after its record's release, not started",
+        late.id
+    ));
+
+    let hold = launcher::hold(&recoverer, "rm");
+    let pass = {
+        let recovery = recovery.clone();
+        runtime.spawn(async move { recovery.recover().await })
+    };
+    launcher::wait_held(&recoverer, "rm", GATE);
+    let record = launcher::record(&root.state_dir, &late.name);
+    assert_eq!(
+        std::fs::read_to_string(&record).unwrap(),
+        late.claim(),
+        "recorded before its removal"
+    );
+    assert!(launcher::locked(&record), "and locked");
+    assert!(late.exists(), "not yet removed");
+    evidence.note(format_args!(
+        "held its removal: record {:?}, locked",
+        std::fs::read_to_string(&record).unwrap()
+    ));
+    std::mem::drop(hold);
+    assert_eq!(runtime.block_on(pass).unwrap(), 0);
+    late.assert_gone(&root.state_dir);
+
+    let started = late.api(&["start", &late.id]);
+    assert!(!started.status.success(), "a start after its removal fails");
+    assert!(
+        String::from_utf8_lossy(&started.stderr).contains("no such container"),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    assert!(!late.granted(), "and grants nothing");
+    assert_eq!(late.events(), ["create", "remove"]);
+    evidence.note(format_args!(
+        "the late start failed: {}; the service's events {:?}",
+        String::from_utf8_lossy(&started.stderr).trim(),
+        late.events()
+    ));
+}
+
+/// A late grant which podman created and started, so that it granted, is
+/// revoked by the next pass, which records it, removes it, then revokes. The
+/// name it was run by has since moved to another image: the record holds the
+/// ID of the one which granted, and the revoke runs that.
+#[test]
+fn a_late_grant_which_ran_is_revoked() {
+    let (run, root, runtime) = setup();
+    let api = launcher::Api::start(&root, false);
+    let recoverer = launcher::root();
+    let recovery = remote_recovery(&recoverer, &api, &root.state_dir, &run);
+
+    let tag = format!("localhost/connector-vmm-tests-grant:{}", run::random_hex());
+    run::record("image", &tag);
+    run::podman(&["tag", &run.vmm_image, &tag]);
+    let name = format!("fv_{}", run::random_hex());
+    let token = format!("{}{}", run::random_hex(), run::random_hex());
+    let late = LateGrant::create_as(&run, &api, &root.state_dir, &name, &token, &tag);
+    late.start();
+    run::podman(&["tag", &run.fake_image, &tag]);
+    let moved = run::podman(&["image", "inspect", "--format", "{{.Id}}", &tag]);
+    assert_ne!(
+        moved.trim(),
+        late.image_id,
+        "the name now names another image"
+    );
+
+    let hold = launcher::hold(&recoverer, "rm");
+    let pass = {
+        let recovery = recovery.clone();
+        runtime.spawn(async move { recovery.recover().await })
+    };
+    launcher::wait_held(&recoverer, "rm", GATE);
+    let record = launcher::record(&root.state_dir, &late.name);
+    assert_eq!(std::fs::read_to_string(&record).unwrap(), late.claim());
+    std::mem::drop(hold);
+    assert_eq!(runtime.block_on(pass).unwrap(), 0);
+    late.assert_gone(&root.state_dir);
+
+    let calls: Vec<String> = launcher::calls(&recoverer)
+        .into_iter()
+        .filter(|call| {
+            [&late.token, &late.name, &late.id]
+                .iter()
+                .any(|of| call.contains(*of))
+        })
+        .map(|call| {
+            call.replace(&late.token, "<token>")
+                .replace(&late.name, "fv_<id>")
+                .replace(&late.id, "<id>")
+                .replace(&late.image_id, "<granting image id>")
+                .replace(&root.state_dir, "<state>")
+        })
+        .collect();
+    insta::assert_snapshot!(calls.join("\n"), @r"
+    container inspect fv_<id>-ingress
+    ps --all --no-trunc --filter label=dev.estuary.vmm-owner=<token> --format {{.ID}}
+    rm --force --time=0 --ignore <id>
+    run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN --name=fv_<id>-revoke --label=dev.estuary.vmm-owner=<token> --label=dev.estuary.vmm-state-dir=<state> <granting image id> boundary revoke --owner=<token>
+    network ls --filter label=dev.estuary.vmm-owner=<token> --format {{.Name}}
+    volume ls --filter label=dev.estuary.vmm-owner=<token> --format {{.Name}}
+    ");
+    let events = late.events();
+    let at = |status: &str| events.iter().position(|event| event == status);
+    assert!(
+        at("create") < at("start") && at("start") < at("died") && at("died") < at("remove"),
+        "{events:?}"
+    );
+    run::podman(&["untag", &tag, &tag]);
+}
+
+/// What a pass records of a late grant outlasts a failed removal of its
+/// container, and a failed revoke, either of which keeps the record for a
+/// later pass to finish from.
+#[test]
+fn a_late_grant_is_kept_recorded_across_failures() {
+    let (run, root, runtime) = setup();
+    let api = launcher::Api::start(&root, false);
+    let recoverer = launcher::root();
+    let recovery = remote_recovery(&recoverer, &api, &root.state_dir, &run);
+
+    let late = LateGrant::create(&run, &api, &root.state_dir);
+    late.start();
+    let record = launcher::record(&root.state_dir, &late.name);
+    let fault = launcher::fail(&recoverer, "rm", &late.id);
+    assert_eq!(recover(&runtime, &recovery), 1, "its removal failed");
+    assert_eq!(std::fs::read_to_string(&record).unwrap(), late.claim());
+    assert!(!launcher::locked(&record), "let go for a later pass");
+    assert!(late.exists() && late.granted(), "untouched");
+    std::mem::drop(fault);
+
+    let fault = launcher::fail(&recoverer, "revoke", &late.token);
+    assert_eq!(recover(&runtime, &recovery), 1, "its revoke failed");
+    assert_eq!(std::fs::read_to_string(&record).unwrap(), late.claim());
+    assert!(!late.exists() && late.granted(), "removed, not yet revoked");
+    std::mem::drop(fault);
+
+    assert_eq!(recover(&runtime, &recovery), 0);
+    late.assert_gone(&root.state_dir);
+}
+
+/// A process recovering a late grant dies after recording it: before its
+/// removal of the container, or after it and before the revoke. The record it
+/// left, unlocked, has the next pass finish the job.
+#[test]
+fn a_late_grant_survives_its_recovery_dying() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let (run, root, runtime) = setup();
+    let api = launcher::Api::start(&root, false);
+    let next = launcher::root();
+    let recovery = remote_recovery(&next, &api, &root.state_dir, &run);
+
+    for (what, removed) in [("rm", false), ("after-rm", true)] {
+        let late = LateGrant::create(&run, &api, &root.state_dir);
+        late.start();
+        let record = launcher::record(&root.state_dir, &late.name);
+        let dying = launcher::root();
+        launcher::remote(&dying, &api.url);
+        let hold = match what {
+            "rm" => launcher::hold(&dying, "rm"),
+            _ => launcher::hold_after(&dying, "rm", 1),
+        };
+        let owner = Owner::recovering(&run, &dying, &root.state_dir, None);
+        launcher::wait_held(&dying, what, GATE);
+        assert_eq!(std::fs::read_to_string(&record).unwrap(), late.claim());
+        assert!(launcher::locked(&record), "held by the recovering process");
+        assert_eq!(owner.kill().signal(), Some(libc::SIGKILL));
+        assert!(!launcher::locked(&record), "let go as it died");
+        assert_eq!(std::fs::read_to_string(&record).unwrap(), late.claim());
+        assert_eq!((late.exists(), late.granted()), (!removed, true), "{what}");
+
+        assert_eq!(recover(&runtime, &recovery), 0, "{what}");
+        late.assert_gone(&root.state_dir);
+        std::mem::drop(hold);
+        run::eventually("the orphaned podman to end", ORPHAN, || {
+            wrappers(&dying).is_empty().then_some(())
+        });
+        assert!(
+            !late.granted(),
+            "{what}: the orphaned removal grants nothing"
+        );
+    }
+}
+
+/// Two passes find one late grant with no record. Only the one whose claim
+/// links its record first releases it; the other's claim finds the record
+/// there, and it leaves the grant to the first. A third pass, meanwhile,
+/// finds the record held and lets it be.
+#[test]
+fn a_late_grant_is_recorded_once() {
+    let (run, root, runtime) = setup();
+    let api = launcher::Api::start(&root, false);
+    let (first, second, third) = (launcher::root(), launcher::root(), launcher::root());
+    let passes =
+        [&first, &second, &third].map(|at| remote_recovery(at, &api, &root.state_dir, &run));
+
+    let late = LateGrant::create(&run, &api, &root.state_dir);
+    late.start();
+    let record = launcher::record(&root.state_dir, &late.name);
+    let holds = [
+        launcher::hold(&first, "inspect"),
+        launcher::hold(&second, "inspect"),
+    ];
+    let spawn = |vmm: &connector::Vmm| {
+        let vmm = vmm.clone();
+        runtime.spawn(async move { vmm.recover().await })
+    };
+    let (first_pass, second_pass) = (spawn(&passes[0]), spawn(&passes[1]));
+    launcher::wait_held(&first, "inspect", GATE);
+    launcher::wait_held(&second, "inspect", GATE);
+    assert!(!launcher::path_exists(&record), "both found it unrecorded");
+
+    let removal = launcher::hold(&first, "rm");
+    let [first_inspect, second_inspect] = holds;
+    std::mem::drop(first_inspect);
+    launcher::wait_held(&first, "rm", GATE);
+    assert!(launcher::locked(&record), "the first recorded it");
+    std::mem::drop(second_inspect);
+    assert_eq!(runtime.block_on(second_pass).unwrap(), 0);
+    assert_eq!(recover(&runtime, &passes[2]), 0);
+    for (at, root) in [("second", &second), ("third", &third)] {
+        let named: Vec<String> = launcher::calls(root)
+            .into_iter()
+            .filter(|call| {
+                call.starts_with("rm ") || call.contains(&late.token) || call.contains(&late.id)
+            })
+            .collect();
+        assert_eq!(named, Vec::<String>::new(), "the {at} removed nothing");
+    }
+    assert!(late.exists() && late.granted(), "left to the first");
+
+    std::mem::drop(removal);
+    assert_eq!(runtime.block_on(first_pass).unwrap(), 0);
+    late.assert_gone(&root.state_dir);
+}
+
+/// A pass inspects a late grant, then another pass records, removes and
+/// revokes it, and removes its record, before the first claims one. The
+/// first's record then names a grant already gone: its release finds no
+/// container, revokes again, and removes the record.
+#[test]
+fn a_late_grant_released_meanwhile_is_released_again() {
+    let (run, root, runtime) = setup();
+    let api = launcher::Api::start(&root, false);
+    let (first, second) = (launcher::root(), launcher::root());
+    let passes = [&first, &second].map(|at| remote_recovery(at, &api, &root.state_dir, &run));
+
+    let late = LateGrant::create(&run, &api, &root.state_dir);
+    late.start();
+    let inspected = launcher::hold_after(&first, "inspect", 1);
+    let first_pass = {
+        let vmm = passes[0].clone();
+        runtime.spawn(async move { vmm.recover().await })
+    };
+    launcher::wait_held(&first, "after-inspect", GATE);
+    assert_eq!(recover(&runtime, &passes[1]), 0);
+    late.assert_gone(&root.state_dir);
+
+    std::mem::drop(inspected);
+    assert_eq!(runtime.block_on(first_pass).unwrap(), 0);
+    late.assert_gone(&root.state_dir);
+    let calls: Vec<String> = launcher::calls(&first)
+        .into_iter()
+        .filter(|call| call.contains(&late.token) || call.contains(&late.name))
+        .map(|call| {
+            call.replace(&late.token, "<token>")
+                .replace(&late.name, "fv_<id>")
+                .replace(&late.image_id, "<granting image id>")
+                .replace(&root.state_dir, "<state>")
+        })
+        .collect();
+    insta::assert_snapshot!(calls.join("\n"), @r"
+    container inspect fv_<id>-ingress
+    ps --all --no-trunc --filter label=dev.estuary.vmm-owner=<token> --format {{.ID}}
+    run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN --name=fv_<id>-revoke --label=dev.estuary.vmm-owner=<token> --label=dev.estuary.vmm-state-dir=<state> <granting image id> boundary revoke --owner=<token>
+    network ls --filter label=dev.estuary.vmm-owner=<token> --format {{.Name}}
+    volume ls --filter label=dev.estuary.vmm-owner=<token> --format {{.Name}}
+    ");
+}
+
+/// Root's POSIX lock on `path` until dropped: the kind container storage
+/// takes, so podman waits on it, as it would not on a BSD `flock`.
+struct StoreGate {
+    holder: std::process::Child,
+    inode: String,
+}
+
+impl StoreGate {
+    fn hold(path: &str) -> Self {
+        use std::io::BufRead;
+
+        const LOCK: &str = "import fcntl, sys
+f = open(sys.argv[1], 'r+')
+fcntl.lockf(f, fcntl.LOCK_EX)
+print('locked', flush=True)
+sys.stdin.buffer.read()
+";
+        let mut holder = std::process::Command::new("sudo")
+            .args(["-n", "python3", "-c", LOCK, path])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|e| panic!("locking {path}: {e}"));
+        let mut locked = String::new();
+        std::io::BufReader::new(holder.stdout.as_mut().expect("stdout is piped"))
+            .read_line(&mut locked)
+            .unwrap_or_else(|e| panic!("locking {path}: {e}"));
+        assert_eq!(locked.trim(), "locked", "locking {path}");
+        Self {
+            holder,
+            inode: run::sudo(&["stat", "--format=%i", path]).trim().to_string(),
+        }
+    }
+
+    /// The process waiting on this lock in `/proc/locks`, if its command
+    /// line names `url`: an API service, waiting while it serves a request.
+    fn waiter(&self, url: &str) -> Option<u32> {
+        let locks = std::fs::read_to_string("/proc/locks").expect("reading /proc/locks");
+        locks.lines().find_map(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let [_, "->", "POSIX", _, _, pid, file, ..] = fields[..] else {
+                return None;
+            };
+            if file.rsplit(':').next() != Some(self.inode.as_str()) {
+                return None;
+            }
+            let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+            String::from_utf8_lossy(&cmdline)
+                .split('\0')
+                .any(|arg| arg == url)
+                .then(|| pid.parse().expect("a PID"))
+        })
+    }
+}
+
+impl Drop for StoreGate {
+    fn drop(&mut self) {
+        std::mem::drop(self.holder.stdin.take());
+        _ = self.holder.wait();
+    }
+}
+
+/// A create which podman's API service accepted, and then waited to carry
+/// out, outlives its client, and the release of its launch's record by a
+/// pass which found nothing of it. The service, of a store of its own so that
+/// its gate holds up no other test, waits on a lock of its containers'
+/// storage, which its listings don't take. Once the create lands, a later
+/// pass of the same recovery, with no launch between, removes it.
+#[test]
+fn a_create_the_service_accepted_lands_after_its_release() {
+    an_accepted_create("", &[]);
+}
+
+/// As a launch's container, its boundary verify's, which `run --rm` removes
+/// only once it has started. It grants nothing, so it's removed as it is.
+#[test]
+fn a_verify_the_service_accepted_lands_after_its_release() {
+    an_accepted_create("-verify", &["--rm"]);
+}
+
+/// The create of launch `fv_<id>`'s container `fv_<id><suffix>`, with
+/// `options`, held by its service until after the release of its record.
+fn an_accepted_create(suffix: &str, options: &[&str]) {
+    let (run, root, runtime) = setup();
+    let api = launcher::Api::start(&root, true);
+    let evidence = Evidence(
+        run.run_dir
+            .join(format!("accepted-create{suffix}.evidence")),
+    );
+    let image = "localhost/connector-vmm-tests-empty:latest";
+    let empty = format!("{}/empty.tar", api.dir);
+    // An archive of nothing: two zeroed blocks, padded to a record.
+    std::fs::write(&empty, vec![0u8; 10240]).unwrap();
+    let imported = api.podman(&["import", &empty, image]);
+    assert!(
+        imported.status.success(),
+        "importing {image}: {}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    let recoverer = launcher::root();
+    launcher::remote(&recoverer, &api.url);
+    let recovering = vmm_at(&recoverer.podman, &root.state_dir, &run.vmm_image);
+    let listed = |name: &str| {
+        let listed = api.podman(&["ps", "--all", "--format", "{{.Names}}"]);
+        assert!(listed.status.success(), "listing through {}", api.url);
+        String::from_utf8_lossy(&listed.stdout)
+            .lines()
+            .any(|line| line == name)
+    };
+
+    // The launch's record, held as its live owner holds it.
+    let name = format!("fv_{}", run::random_hex());
+    let container = format!("{name}{suffix}");
+    let token = format!("{}{}", run::random_hex(), run::random_hex());
+    let mounts = launcher::mounts(&root);
+    let record = launcher::record(&root.state_dir, &name);
+    std::fs::write(
+        &record,
+        format!(
+            "{}\n",
+            serde_json::json!({
+                "version": 1,
+                "id": name,
+                "token": token,
+                "mount": format!("{mounts}/mount-{name}"),
+            })
+        ),
+    )
+    .unwrap();
+    let owner = std::fs::File::open(&record).unwrap();
+    owner.lock().unwrap();
+
+    let lock = format!("{}/store/vfs-containers/containers.lock", api.dir);
+    assert!(launcher::path_exists_as_root(&lock), "{lock}");
+    let gate = StoreGate::hold(&lock);
+    // Its create, by a client which writes its own PID first.
+    let client_pid = format!("{}/client.pid", root.dir);
+    let mut client = std::process::Command::new("sudo")
+        .args([
+            "-n",
+            "sh",
+            "-c",
+            r#"echo $$ >"$1"; shift; exec "$@""#,
+            "client",
+        ])
+        .args([
+            &client_pid,
+            "podman",
+            "--remote",
+            "--url",
+            &api.url,
+            "create",
+        ])
+        .args(options)
+        .args(["--network=none", &format!("--name={container}")])
+        .arg(format!("--label=dev.estuary.vmm-owner={token}"))
+        .arg(format!(
+            "--label=dev.estuary.vmm-state-dir={}",
+            root.state_dir
+        ))
+        .args([image, "true"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("sending the create");
+    let waiter = run::eventually("the service to wait on the gate", GATE, || {
+        gate.waiter(&api.url)
+    });
+    assert!(!listed(&container), "the create hasn't landed");
+
+    let client_pid = run::eventually("the client's PID", GATE, || {
+        std::fs::read_to_string(&client_pid)
+            .ok()
+            .and_then(|pid| pid.trim().parse::<u32>().ok())
+    });
+    run::sudo(&["kill", "-KILL", &client_pid.to_string()]);
+    client.wait().expect("waiting for the client's sudo");
+    assert_eq!(launcher::start_time(client_pid), None, "the client is gone");
+    std::mem::drop(owner);
+    evidence.note(format_args!(
+        "service process {waiter} waits on {lock} (inode {}) for {container}'s create; its \
+         client {client_pid} was killed and the record let go",
+        gate.inode
+    ));
+
+    let recovery = recovering.spawn_recovery(runtime.handle());
+    let first = run::eventually("the first pass to end", PASSED, || {
+        let metrics = connector::Vmm::recovery_metrics();
+        (metrics.last_success != 0).then_some(metrics)
+    });
+    assert_eq!((first.failed_passes, first.pending), (0, 0));
+    assert!(
+        !launcher::path_exists(&record),
+        "released by the first pass"
+    );
+    assert_eq!(
+        gate.waiter(&api.url),
+        Some(waiter),
+        "the create still waits, once the pass has ended"
+    );
+    assert!(!listed(&container), "and hasn't landed");
+    evidence.note(format_args!(
+        "the first pass released {record} and ended at {}; the service still waits",
+        first.last_success
+    ));
+
+    std::mem::drop(gate);
+    run::eventually("the accepted create to land", GATE, || {
+        listed(&container).then_some(())
+    });
+    // The next pass starts 30 seconds after the first ended.
+    assert_eq!(connector::Vmm::recovery_metrics(), first, "no pass since");
+    evidence.note(format_args!("{container} landed once the gate was let go"));
+
+    run::eventually("a later pass to remove it", PASSED, || {
+        (!listed(&container)).then_some(())
+    });
+    std::mem::drop(recovery);
+    let calls = launcher::calls(&recoverer);
+    assert!(
+        calls.contains(&format!("rm --force --time=0 --ignore {container}")),
+        "{calls:#?}"
+    );
+    assert!(
+        !calls
+            .iter()
+            .any(|call| call.starts_with("container inspect")),
+        "it was not taken for a grant: {calls:#?}"
+    );
+    assert!(!launcher::path_exists(&record), "nor recorded");
+    assert!(
+        !calls
+            .iter()
+            .any(|call| call.starts_with("pull ") || call.starts_with("create ")),
+        "with no launch: {calls:#?}"
+    );
+    evidence.note(format_args!(
+        "a later pass removed {container}, with no launch"
+    ));
 }

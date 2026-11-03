@@ -120,17 +120,30 @@ fn recovery_retries_failed_ingress_removal() {
             .dir
             .join("connector-mounts-1000")
             .join(format!("mount-{name}"));
-        let line =
-            crate::vmm::record::claim_line(name, token, mount.to_str().unwrap(), Some("vmm:local"));
+        let line = crate::vmm::record::claim_line(
+            name,
+            token,
+            Some(mount.to_str().unwrap()),
+            Some("vmm:local"),
+        );
         drop(crate::vmm::record::claim(state, name, &line).unwrap());
         std::fs::write(h.dir.join("ingress"), "").unwrap();
         std::fs::write(h.dir.join("refuse-revoke"), "").unwrap();
         let engine = h.dir.join("engine");
-        crate::vmm::release::recover(engine.to_str().unwrap(), state).await;
+        let problems = crate::vmm::release::recover(engine.to_str().unwrap(), state).await;
+        let subjects: Vec<&str> = problems.iter().map(|p| p.subject.as_str()).collect();
+        assert_eq!(
+            subjects,
+            [format!(
+                "{}: ingress {token}",
+                crate::vmm::record::path(state, name)
+            )]
+        );
         assert!(h.dir.join("ingress").exists());
         assert!(Path::new(&crate::vmm::record::path(state, name)).exists());
         std::fs::remove_file(h.dir.join("refuse-revoke")).unwrap();
-        crate::vmm::release::recover(engine.to_str().unwrap(), state).await;
+        let problems = crate::vmm::release::recover(engine.to_str().unwrap(), state).await;
+        assert_eq!(problems, []);
         assert!(!h.dir.join("ingress").exists());
         assert!(!Path::new(&crate::vmm::record::path(state, name)).exists());
         let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();

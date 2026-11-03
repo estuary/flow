@@ -1,9 +1,9 @@
 //! The IO of one VMM launch, from an admitted connector start to a dialed
-//! connector-init: release what dead launches left in the state directory,
-//! pull and inspect the connector's image with the VMM's podman, claim the
-//! launch's ownership record, prepare its connector mount and `fv_<id>`
-//! state, verify the host boundary, create the VMM's network, volume and
-//! container, start it, and dial `init.sock` until connector-init's health is SERVING.
+//! connector-init: pull and inspect the connector's image with the VMM's
+//! podman, claim the launch's ownership record, prepare its connector mount
+//! and `fv_<id>` state, verify the host boundary, create the VMM's network,
+//! volume and container, start it, and dial `init.sock` until connector-init's
+//! health is SERVING. A launch recovers nothing of others': `recovery` does.
 //!
 //! One spawned task owns everything a launch creates, from its claim to its
 //! release, and holds the record's lock throughout (see `record`). The
@@ -11,7 +11,7 @@
 //! interrupted, so each client has exited before teardown looks for what it
 //! made. `release::recover` handles creates that finish later in the podman service.
 //! The task holds a clone of the session's log sink, so the session
-//! ends only once its teardown has.
+//! ends only once its teardown has. `drain` awaits every such task.
 
 use super::{Eligible, TaskEgress, Vmm, plan, record, release};
 use anyhow::Context;
@@ -29,6 +29,17 @@ const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(1);
 /// its container is removed.
 const START_EXIT_TIMEOUT: Duration = Duration::from_secs(10);
 const PUMP_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Every launch's task in this process, for `drain`.
+static LAUNCHES: std::sync::LazyLock<tokio_util::task::TaskTracker> =
+    std::sync::LazyLock::new(tokio_util::task::TaskTracker::new);
+
+/// Wait at most `timeout` for every launch's task to end, returning whether
+/// they did. Launches which start meanwhile are waited for too.
+pub(super) async fn drain(timeout: Duration) -> bool {
+    LAUNCHES.close();
+    tokio::time::timeout(timeout, LAUNCHES.wait()).await.is_ok()
+}
 
 /// Ties a VMM to the served stream: dropping it tells the launch's task to
 /// tear the VMM down.
@@ -109,7 +120,7 @@ pub(crate) async fn start(
     };
     let (launched_tx, launched_rx) = tokio::sync::oneshot::channel();
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-    tokio::spawn(lifecycle(input, launched_tx, stop_rx));
+    LAUNCHES.spawn(lifecycle(input, launched_tx, stop_rx));
 
     // Dropping this future, as an abandoned start does, drops the receiver,
     // which the task watches for.
@@ -170,12 +181,6 @@ async fn launch(
     check_state_owner(std::path::Path::new(&vmm.state_dir))
         .with_context(|| format!("CONNECTOR_VMM_STATE_DIR {}", vmm.state_dir))
         .map_err(precondition)?;
-
-    unless_abandoned(launched_tx, async {
-        release::recover(podman, &vmm.state_dir).await;
-        Ok(())
-    })
-    .await?;
 
     // Ordinary admission's public-plane refusal of Python is not applied:
     // eligibility, which `vmm_for` decided, is narrower than it, and this
@@ -255,7 +260,7 @@ async fn launch(
         let file = match record::claim(
             &vmm.state_dir,
             &plan.name,
-            &record::claim_line(&plan.name, &plan.token, &plan.mount, ingress_image),
+            &record::claim_line(&plan.name, &plan.token, Some(&plan.mount), ingress_image),
         ) {
             Ok(file) => file,
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -271,7 +276,7 @@ async fn launch(
             record: record::Record {
                 name: plan.name.clone(),
                 token: plan.token.clone(),
-                mount: plan.mount.clone(),
+                mount: Some(plan.mount.clone()),
                 state: plan.state.clone(),
                 created_mount: false,
                 created_state: false,
@@ -567,7 +572,7 @@ fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<String> {
         .map_err(|mounts| anyhow::anyhow!("the connector mounts directory {mounts:?} is not UTF-8"))
 }
 
-fn check_state_owner(path: &std::path::Path) -> anyhow::Result<()> {
+pub(super) fn check_state_owner(path: &std::path::Path) -> anyhow::Result<()> {
     use std::os::unix::fs::MetadataExt;
 
     let metadata = crate::protocol::check_directory_owner(path, unsafe { libc::geteuid() })?;
@@ -664,7 +669,7 @@ fn set_mode(path: impl AsRef<std::path::Path>, mode: u32) -> anyhow::Result<()> 
 
 /// Stop the launch's VMM, then release what its record owns. What remains is
 /// reported to the session and to this process's log, and its record is kept
-/// for a later launch to release.
+/// for recovery to release.
 async fn teardown(input: &Input, owned: Option<Owned>) {
     let Some(Owned {
         file: _held,
@@ -739,6 +744,29 @@ mod readiness_tests;
 mod test {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
+    use std::time::Duration;
+
+    /// `drain` waits for every launch's task, those started meanwhile too,
+    /// and no longer than its timeout.
+    #[tokio::test(start_paused = true)]
+    async fn drain_awaits_launches_within_its_bound() {
+        let (end_tx, end_rx) = tokio::sync::oneshot::channel::<()>();
+        super::LAUNCHES.spawn(async move { _ = end_rx.await });
+
+        let began = tokio::time::Instant::now();
+        assert!(!super::drain(Duration::from_secs(30)).await);
+        assert_eq!(began.elapsed(), Duration::from_secs(30), "bounded");
+
+        super::LAUNCHES.spawn(tokio::time::sleep(Duration::from_secs(5)));
+        std::mem::drop(end_tx);
+        let began = tokio::time::Instant::now();
+        assert!(super::drain(Duration::from_secs(30)).await);
+        assert_eq!(
+            began.elapsed(),
+            Duration::from_secs(5),
+            "until the last ended"
+        );
+    }
 
     #[test]
     fn state_directory_is_private() {

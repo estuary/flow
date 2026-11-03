@@ -248,6 +248,93 @@ pub fn stalled(root: &Root, step: &str) -> Vec<Stalled> {
     stalled
 }
 
+/// Runs every command of the test's podman as a client of the API service at
+/// `url`, rather than as podman itself.
+pub fn remote(root: &Root, url: &str) {
+    let path = format!("{}/remote", root.dir);
+    std::fs::write(&path, url).unwrap_or_else(|e| panic!("creating {path}: {e}"));
+}
+
+/// A test-owned rootful podman API service, stopped on drop or after
+/// `API_IDLE` seconds idle if its test dies first.
+pub struct Api {
+    pub url: String,
+    /// Where it is, holding its log and any private store.
+    pub dir: String,
+    service: std::process::Child,
+}
+
+const API_IDLE: u32 = 300;
+
+impl Api {
+    pub fn start(root: &Root, private: bool) -> Self {
+        let dir = format!("{}/api", root.dir);
+        std::fs::create_dir(&dir).unwrap_or_else(|e| panic!("creating {dir}: {e}"));
+        let store: Vec<String> = if private {
+            // podman refuses a runroot longer than 50 bytes, as `dir` is. The
+            // task's release lists what's two levels beneath it, as the test.
+            let parent = format!("{}/launcher-{}", run::ROOT, &run::random_hex()[..8]);
+            run::record("dir", &parent);
+            // SAFETY: both take nothing and cannot fail.
+            let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+            run::sudo(&[
+                "install",
+                "-d",
+                "-o",
+                &uid.to_string(),
+                "-g",
+                &gid.to_string(),
+                "-m",
+                "0755",
+                &parent,
+                &format!("{parent}/r"),
+            ]);
+            vec![
+                format!("--root={dir}/store"),
+                format!("--runroot={parent}/r"),
+                "--storage-driver=vfs".to_string(),
+                "--events-backend=file".to_string(),
+            ]
+        } else {
+            Vec::new()
+        };
+        let url = format!("unix://{dir}/api.sock");
+        let log = format!("{dir}/service.log");
+        let log = std::fs::File::create(&log).unwrap_or_else(|e| panic!("creating {log}: {e}"));
+
+        let service = std::process::Command::new("sudo")
+            .args(["-n", "podman"])
+            .args(&store)
+            .args(["system", "service", &format!("--time={API_IDLE}"), &url])
+            .stdin(std::process::Stdio::null())
+            .stdout(log.try_clone().expect("cloning the service's log"))
+            .stderr(log)
+            .spawn()
+            .unwrap_or_else(|e| panic!("starting a podman API service at {url}: {e}"));
+        let api = Self { url, dir, service };
+        run::eventually("the API service to answer", Duration::from_secs(30), || {
+            api.podman(&["version"]).status.success().then_some(())
+        });
+        api
+    }
+
+    /// `podman --remote` of this service, as root.
+    pub fn podman(&self, args: &[&str]) -> std::process::Output {
+        let mut argv = vec!["podman", "--remote", "--url", &self.url];
+        argv.extend(args);
+        run::sudo_output(&argv, None)
+    }
+}
+
+impl Drop for Api {
+    fn drop(&mut self) {
+        // sudo relays it to the service, which stops.
+        // SAFETY: kill takes plain integers.
+        unsafe { libc::kill(self.service.id() as libc::pid_t, libc::SIGTERM) };
+        _ = self.service.wait();
+    }
+}
+
 /// Appends `flags`, test-only flags of the VMM's `run`, to every `podman
 /// create` of the test's podman. The calls it records are the launcher's own.
 pub fn vmm_flags(root: &Root, flags: &[String]) {

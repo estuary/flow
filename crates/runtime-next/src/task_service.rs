@@ -9,6 +9,7 @@ pub struct TaskService {
     cancel_tx: oneshot::Sender<()>,
     tokio_context: crate::TokioContext,
     server: tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
+    vmm_recovery: Option<connector::VmmRecovery>,
 }
 
 impl TaskService {
@@ -20,6 +21,7 @@ impl TaskService {
             container_network,
             plane,
             process,
+            vmm_recovery,
         } = config;
 
         if !std::path::Path::new(&uds_path).is_absolute() {
@@ -84,12 +86,18 @@ impl TaskService {
         let data_plane_signer =
             proto_grpc::Signer::new(data_plane_fqdn.clone(), data_plane_signing_key.clone());
 
+        let vmm = connector::Vmm::from_env()?;
+        let vmm_recovery = vmm
+            .as_ref()
+            .filter(|_| vmm_recovery)
+            .map(|vmm| vmm.spawn_recovery(tokio_context.handle()));
+
         // The connector service is served both in-process and on this task's UDS, where
         // the Go connector proxy reaches it on behalf of the control plane.
         let connector_svc = connector::Service::new(
             plane,
             container_network,
-            connector::Vmm::from_env()?,
+            vmm,
             proto_grpc::Authenticator::new(data_plane_fqdn.clone(), data_plane_verify_keys),
             process,
             registry.clone(),
@@ -145,6 +153,7 @@ impl TaskService {
             cancel_tx,
             tokio_context,
             server,
+            vmm_recovery,
         })
     }
 
@@ -153,8 +162,11 @@ impl TaskService {
             cancel_tx,
             tokio_context,
             server,
+            vmm_recovery,
         } = self;
 
+        // Abandons a pass under way, rather than wait on its backlog.
+        std::mem::drop(vmm_recovery);
         _ = cancel_tx.send(());
 
         let log = match tokio_context.block_on(server) {

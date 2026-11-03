@@ -1,12 +1,15 @@
-//! VMM capability, connector start admission, and the plan, launch, ownership
-//! and release of a VMM.
+//! VMM capability, connector start admission, and the plan, launch, ownership,
+//! release and recovery of a VMM.
 use anyhow::Context;
 use proto_flow::flow;
 
 pub(crate) mod launch;
 mod plan;
 mod record;
+mod recovery;
 mod release;
+
+pub use recovery::{Metrics as RecoveryMetrics, Recovery};
 
 /// VMM capability of a connector service, and the configuration every VMM it
 /// launches shares.
@@ -119,6 +122,32 @@ impl Vmm {
             vcpus,
             cgroup_parent,
         }))
+    }
+
+    /// Recover what dead launches left beneath this configuration's
+    /// `STATE_DIR`, on `runtime`, until the returned `Recovery` is dropped:
+    /// one pass at once, then another 30 seconds after each ends. Its owner
+    /// must outlive the shard runtimes it recovers.
+    pub fn spawn_recovery(&self, runtime: &tokio::runtime::Handle) -> Recovery {
+        recovery::spawn(self.clone(), runtime)
+    }
+
+    /// One recovery pass, now and to its end, as a `Recovery` runs them.
+    /// Returns how many problems it left.
+    pub async fn recover(&self) -> u64 {
+        recovery::pass(self, &Default::default()).await
+    }
+
+    /// The metrics of this process's recovery passes.
+    pub fn recovery_metrics() -> RecoveryMetrics {
+        recovery::metrics()
+    }
+
+    /// Wait at most `timeout` for every VMM launch of this process to end,
+    /// teardown included, returning whether they all did. For a process about
+    /// to exit, whose runtime would otherwise drop them where they are.
+    pub async fn drain_launches(timeout: std::time::Duration) -> bool {
+        launch::drain(timeout).await
     }
 }
 

@@ -146,7 +146,10 @@ types.
   `shard::Service` which routes to it, and serves both over a per-shard Unix
   domain socket. Each shard gets its own tokio runtime of
   `FLOW_RUNTIME_WORKER_THREADS` workers (default one), so raising it multiplies
-  by the reactor's shard count.
+  by the reactor's shard count. The reactor also builds one shard-less service
+  for its connector proxy, whose `TaskServiceConfig.vmm_recovery` has it run
+  the reactor's one VMM recovery (`connector::Vmm::spawn_recovery`) until
+  `graceful_stop`.
 - **`leader::Service::new`** (`leader/service.rs`) — sidecar process builds
   one of these and registers it on the sidecar port alongside `shuffle::Service`.
 - **`shard::Service`** (`shard/service.rs`) — implements the controller-facing

@@ -101,6 +101,16 @@ typedef struct GlobalMemoryStats {
   uint64_t realloc_ops_total;
 } GlobalMemoryStats;
 
+/**
+ * This process's VMM recovery passes: `connector::VmmRecoveryMetrics`.
+ */
+typedef struct VmmRecoveryStats {
+  bool started;
+  uint64_t failed_passes_total;
+  uint64_t pending;
+  uint64_t last_success_seconds;
+} VmmRecoveryStats;
+
 typedef struct TaskServiceImplPtr {
   uint8_t _private[0];
 } TaskServiceImplPtr;
@@ -137,6 +147,8 @@ void extract_drop(struct Channel *ch);
  * Returns general statistics on memory allocations perfomed from within libbindings.
  */
 struct GlobalMemoryStats get_memory_stats(void);
+
+struct VmmRecoveryStats get_vmm_recovery_stats(void);
 
 struct TaskService *new_task_service(const uint8_t *config_ptr, uint32_t config_len);
 
