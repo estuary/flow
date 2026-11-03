@@ -37,7 +37,7 @@ fn run(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     // cover it. Entering its path again afterwards finds what is mounted there.
     let working_dir =
         std::env::current_dir().map_err(|e| format!("reading the working directory: {e}"))?;
-    root::mount_scratch(args.uid, args.gid)?;
+    root::mount_scratch()?;
     let hostname = root::write_etc(args.nameserver, args.guest_ip.address)?;
     root::mount_connector_mount(&args.connector_mount)?;
 
@@ -65,14 +65,11 @@ fn run(args: &cli::Args) -> Result<std::convert::Infallible, String> {
 }
 
 fn exec_workload(args: &cli::Args) -> Result<std::convert::Infallible, String> {
-    // Keep temporary files and package caches on the bounded scratch disk.
+    // Keep temporary files on the bounded scratch disk.
     //
     // Safety: nothing here has spawned a thread, so no other thread can be in
-    // `getenv` while these are set.
-    unsafe {
-        std::env::set_var("TMPDIR", root::TMP);
-        std::env::set_var("UV_CACHE_DIR", root::UV_CACHE);
-    }
+    // `getenv` while this is set.
+    unsafe { std::env::set_var("TMPDIR", root::TMP) };
 
     if !args.run_as_root {
         drop_privileges(args.uid, args.gid, &args.supplementary_gids)?;

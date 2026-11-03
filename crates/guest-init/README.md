@@ -45,9 +45,6 @@ the workload and becoming it. The VMM injects it into the guest root at
   - `/tmp` and `/var/tmp` are bound from `/scratch/tmp` and `/scratch/var-tmp`
     (1777), for a workload that names them rather than `TMPDIR`. `TMPDIR` is
     `/tmp` whatever the image's `Env` says.
-  - `UV_CACHE_DIR` is `/scratch/uv-cache`, the workload's own and apart from
-    `TMPDIR`: uv refuses a project inside its cache, and derive-python makes
-    its projects in `TMPDIR`.
   - `/etc` is copied to `/scratch/etc`, which gets the generated
     `resolv.conf` and `hosts` and is bound back over `/etc` read-only. An
     image commonly has no `/etc/hosts`, since a container runtime mounts its
@@ -71,18 +68,16 @@ the workload and becoming it. The VMM injects it into the guest root at
 - **The user's groups come from the VMM.** It resolves `--supplementary-gid`
   from the image's own account files; nothing here reads them. The list
   replaces the guest's, set before the gid and the uid, since nothing can set
-  it once the uid has dropped. `--run-as-root` skips all three and still gives
-  uv's cache to `--uid`/`--gid`, leaving `HOME` the image user's.
+  it once the uid has dropped. `--run-as-root` skips all three, leaving `HOME`
+  the image user's.
 - **The workload gains no privilege by exec.** `PR_SET_NO_NEW_PRIVS` is set
   once the user is, just before the workload's exec, `--run-as-root` or not.
   The image's root is not `nosuid` in the guest, so its setuid and setgid bits
   and file capabilities would otherwise grant the workload, or anything it
   runs, more than it holds. It takes nothing away: an image whose user is
   root keeps root's capabilities. `--as-root-exec` runs before it is set.
-- **uv's cache is chowned, the persistent disk is not.** mkfs leaves the
-  scratch root owned by root, and it stays so; the workload runs as the
-  image's user. The persistent disk is the task's own, and its owner formats
-  its root for the client and reads a later `chown` as a delta.
+- **The persistent disk is not chowned.** It is the task's own, and its owner
+  formats its root for the client and reads a later `chown` as a delta.
 - **Scratch is `nodev,nosuid`, and not `noexec`.** uv runs a project's
   environment from `TMPDIR`. `/etc` is read-only besides.
 - **Exit codes are a shell's.** 127 for a workload that is not there, 126 for
