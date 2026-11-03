@@ -1011,7 +1011,7 @@ struct Probed {
 /// Launch derive-python's Spec on a `plane` service, as a task whose egress is
 /// `egress`, with the guest probing `cases` before connector-init starts. The
 /// launcher plans and writes the policy; this test's podman only appends the
-/// VMM's test-only flags, for the nameserver and the probe.
+/// VMM's test controls, for the nameserver and the probe.
 fn probe_egress(
     (run, root, runtime): &(run::Run, launcher::Root, tokio::runtime::Runtime),
     plane: connector::Plane,
@@ -1028,18 +1028,15 @@ fn probe_egress(
         &serde_json::to_string(&cases).expect("a string serializes"),
     );
     let encoded = base64::engine::general_purpose::STANDARD.encode(script);
-    launcher::vmm_flags(
-        root,
-        &[
-            "--resolver-upstream".to_string(),
-            destinations.nameserver.addr.to_string(),
-            "--as-root-exec".to_string(),
-            format!(
-                "{} -c \"import base64; exec(base64.b64decode('{encoded}'))\"",
-                run::PROBES[0]
-            ),
-        ],
-    );
+    let mut flags = vec![
+        "--resolver-upstream".to_string(),
+        destinations.nameserver.addr.to_string(),
+    ];
+    flags.extend(launcher::before_connector_init(&format!(
+        "{} -c \"import base64; exec(base64.b64decode('{encoded}'))\"",
+        run::PROBES[0]
+    )));
+    launcher::vmm_flags(root, &flags);
     let execution = flow::ConnectorExecution {
         vmm: true,
         egress: egress.map(|hosts| flow::connector_execution::Egress {

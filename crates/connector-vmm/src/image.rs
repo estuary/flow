@@ -24,8 +24,6 @@ pub struct ImageConfig {
 pub struct Guest<'a> {
     pub connector_mount: &'a str,
     pub persistent_disk: Option<&'a str>,
-    pub run_as_root: bool,
-    pub as_root_exec: Option<&'a str>,
     /// Replaces the default workload when present.
     pub exec: Option<&'a [String]>,
     pub uid: u32,
@@ -197,13 +195,6 @@ pub fn guest_argv(guest: &Guest) -> Vec<String> {
     if let Some(guest_path) = guest.persistent_disk {
         argv.push("--persistent-disk".to_string());
         argv.push(guest_path.to_string());
-    }
-    if guest.run_as_root {
-        argv.push("--run-as-root".to_string());
-    }
-    if let Some(command) = guest.as_root_exec {
-        argv.push("--as-root-exec".to_string());
-        argv.push(command.to_string());
     }
     argv.push("--".to_string());
     argv.extend(workload);
@@ -390,14 +381,6 @@ mod tests {
                 },
             ),
             (
-                "as root, with a root command first",
-                Guest {
-                    run_as_root: true,
-                    as_root_exec: Some("sysctl -w vm.drop_caches=3"),
-                    ..base()
-                },
-            ),
-            (
                 "--exec replaces the workload, not the init",
                 Guest {
                     exec: Some(&exec),
@@ -452,15 +435,6 @@ mod tests {
             (
                 "the runtime set no log variables",
                 base(),
-                vec![("CONNECTOR_MOUNT", MOUNT.to_string())],
-            ),
-            (
-                "--run-as-root keeps the image user's identity and HOME",
-                Guest {
-                    run_as_root: true,
-                    as_root_exec: Some("env"),
-                    ..base()
-                },
                 vec![("CONNECTOR_MOUNT", MOUNT.to_string())],
             ),
         ] {
@@ -906,8 +880,6 @@ mod tests {
         Guest {
             connector_mount: MOUNT,
             persistent_disk: None,
-            run_as_root: false,
-            as_root_exec: None,
             exec: None,
             uid: 1000,
             gid: 1001,

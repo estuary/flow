@@ -32,7 +32,7 @@ the workload and becoming it. The VMM injects it into the guest root at
 - **`HOSTNAME` is the image's, or the kernel's.** libkrun's init names the
   kernel after the image's `HOSTNAME`, or `localhost` without one. An image
   value, even an empty one, stays as podman keeps it; a missing one is set to
-  the kernel's hostname before `--as-root-exec` or the workload runs.
+  the kernel's hostname before the workload runs.
 - **Nothing here may change the root of the shared mount namespace.** libkrun's
   init reports the workload's exit code through an ioctl on `/`, and only when
   `statfs("/")` returns virtiofs magic. A `pivot_root`, or a mount over `/`,
@@ -68,14 +68,13 @@ the workload and becoming it. The VMM injects it into the guest root at
 - **The user's groups come from the VMM.** It resolves `--supplementary-gid`
   from the image's own account files; nothing here reads them. The list
   replaces the guest's, set before the gid and the uid, since nothing can set
-  it once the uid has dropped. `--run-as-root` skips all three, leaving `HOME`
-  the image user's.
+  it once the uid has dropped.
 - **The workload gains no privilege by exec.** `PR_SET_NO_NEW_PRIVS` is set
-  once the user is, just before the workload's exec, `--run-as-root` or not.
-  The image's root is not `nosuid` in the guest, so its setuid and setgid bits
-  and file capabilities would otherwise grant the workload, or anything it
-  runs, more than it holds. It takes nothing away: an image whose user is
-  root keeps root's capabilities. `--as-root-exec` runs before it is set.
+  once the user is, just before the workload's exec. The image's root is not
+  `nosuid` in the guest, so its setuid and setgid bits and file capabilities
+  would otherwise grant the workload, or anything it runs, more than it holds.
+  It takes nothing away: an image whose user is root keeps root's
+  capabilities.
 - **The persistent disk is not chowned.** It is the task's own, and its owner
   formats its root for the client and reads a later `chown` as a delta.
 - **Scratch is `nodev,nosuid`, and not `noexec`.** uv runs a project's

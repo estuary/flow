@@ -261,10 +261,27 @@ pub fn vmm_flags(root: &Root, flags: &[String]) {
     std::fs::write(&path, content).unwrap_or_else(|e| panic!("creating {path}: {e}"));
 }
 
+/// `--exec` for a workload which runs `script` under `/bin/sh`, as the
+/// image's user, and then becomes connector-init as the default workload
+/// would, whatever the script's status. `script` is the shell's only
+/// interpolation.
+pub fn before_connector_init(script: &str) -> Vec<String> {
+    let mount = run::GUEST_CONNECTOR_MOUNT;
+    vec![
+        "--exec".to_string(),
+        "/bin/sh".to_string(),
+        "-c".to_string(),
+        format!(
+            "{script}; exec {mount}/flow-connector-init \
+             --image-inspect-json-path={mount}/image-inspect.json --vsock-port=49092"
+        ),
+    ]
+}
+
 const GATE: &str = "connector-vmm-tests: held before connector-init";
 
-/// Guest-init waits for this shell to exit; SIGSTOP holds it indefinitely
-/// before connector-init and its idle watchdog can start.
+/// The workload's shell stops itself before it execs connector-init, so
+/// neither connector-init nor its idle watchdog starts.
 fn gate_command() -> String {
     format!("printf '%s\\n' '{GATE}' >&2 && kill -STOP $$")
 }
@@ -273,7 +290,7 @@ fn gate_command() -> String {
 /// (replacing any others). `gate.py` keeps the guest's `GATE` line from the
 /// launcher, and marks the hold `readiness` with it.
 pub fn gate_readiness(root: &Root) {
-    vmm_flags(root, &["--as-root-exec".to_string(), gate_command()]);
+    vmm_flags(root, &before_connector_init(&gate_command()));
     let path = format!("{}/gate-readiness", root.dir);
     std::fs::write(&path, GATE).unwrap_or_else(|e| panic!("creating {path}: {e}"));
 }
@@ -732,8 +749,9 @@ mod test {
     fn the_gate_announces_then_stops() {
         use std::io::Read;
 
-        let mut child = std::process::Command::new("/bin/sh")
-            .args(["-c", &super::gate_command()])
+        let exec = super::before_connector_init(&super::gate_command());
+        let mut child = std::process::Command::new(&exec[1])
+            .args(&exec[2..])
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();

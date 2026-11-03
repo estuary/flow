@@ -48,7 +48,11 @@ connector-init over a guest's vsock connection.
   after a VMM removes its own rules. Connector-mount tests check that host
   file replacements become visible inside the guest. `no_new_privileges`
   runs controlled setuid, setgid and file-capability programs from the
-  workload, and as the same user before guest-init sets no_new_privs.
+  workload, and as the same user in a plain podman container as the control.
+  Root workloads come from images whose `User` is root.
+  `spec_rpc_through_init_sock`, `production_guest` and
+  `production_refuses_test_controls` run the packaged VMM image, with
+  connector-init as the workload where they boot a guest.
 - `tests/dns_answers/`, `tests/dns_capacity/`: refused answers and capacity
   overflow must not partially authorize addresses in the kernel. Resolver
   unit tests cover TTL retention, CNAME capacity, and reclamation with explicit
@@ -74,7 +78,11 @@ connector-init over a guest's vsock connection.
 
 `mise/tasks/ci/connector-vmm-kvm` builds the binaries and images, installs or
 verifies the host boundary, stages controlled endpoints, and writes the run
-configuration. Its companion `connector-vmm-kvm-lib.sh` tracks and releases
+configuration. It builds two VMM images which differ only in
+`flow-connector-vmm`: the packaged build, which `--platform` uses, and the
+suite's, built with connector-vmm's `test-controls` feature in a target
+directory of its own. It checks that both carry this run's `flow-guest-init`.
+Its companion `connector-vmm-kvm-lib.sh` tracks and releases
 resources. Cargo and tests run as the invoking user; privileged operations
 use `sudo -n`.
 
@@ -83,9 +91,11 @@ use `sudo -n`.
 Tests removing connector images use `run::stop` to check container and
 image-volume removal before removing the image.
 `src/launcher.rs` and `fixtures/podman.sh` provide launcher control and fault
-injection. Recovery holds match the seeded orphans' tokens so a failed launch
-can release its own resources. `src/host.rs` reads kernel state; `src/guest.rs`
-talks to the stdlib Python probe server in `fixtures/probes.py`.
+injection; `launcher::before_connector_init` runs a test's script in the
+workload before connector-init. Recovery holds match the seeded orphans'
+tokens so a failed launch can release its own resources. `src/host.rs` reads
+kernel state; `src/guest.rs` talks to the stdlib Python probe server in
+`fixtures/probes.py`.
 
 `src/dns.rs` and `src/endpoint.rs` serve controlled DNS, TCP and UDP traffic.
 `src/netns.rs` and `fixtures/bind.py` bind sockets in the endpoint namespace.

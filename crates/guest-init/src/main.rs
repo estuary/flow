@@ -52,15 +52,6 @@ fn run(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     })?;
     default_hostname(&hostname);
 
-    // Ignore the probe's exit status so a failed probe does not stop the workload.
-    if let Some(command) = &args.as_root_exec {
-        std::process::Command::new("/bin/sh")
-            .arg("-c")
-            .arg(command)
-            .status()
-            .map_err(|e| format!("running --as-root-exec via /bin/sh: {e}"))?;
-    }
-
     exec_workload(args)
 }
 
@@ -71,9 +62,7 @@ fn exec_workload(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     // `getenv` while this is set.
     unsafe { std::env::set_var("TMPDIR", root::TMP) };
 
-    if !args.run_as_root {
-        drop_privileges(args.uid, args.gid, &args.supplementary_gids)?;
-    }
+    drop_privileges(args.uid, args.gid, &args.supplementary_gids)?;
     // The image's setuid and setgid bits and file capabilities would otherwise
     // grant privilege: its root is not `nosuid` in the guest.
     //

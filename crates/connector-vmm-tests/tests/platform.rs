@@ -613,7 +613,7 @@ fn a_python_derivation_through_the_platform() {
             "{call}"
         );
     }
-    for flag in ["--resolver-upstream", "--as-root-exec"] {
+    for flag in ["--debug", "--resolver-upstream", "--exec"] {
         assert!(
             !all.iter().any(|call| call.contains(flag)),
             "no launch is given {flag}"

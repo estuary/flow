@@ -15,8 +15,12 @@ between two probes rather than racing a script's sleeps. Every response is
 also written to stderr, where it survives in the suite's diagnostics even if
 the connection does not.
 
-`once REQUEST` answers a single request on stderr, for the probes that need
-guest root and so run under `--as-root-exec` before the workload drops it.
+`once REQUEST` answers a single request on stderr, for a workload script
+that probes before it serves.
+
+`spec` is a capture connector's entrypoint under connector-init, the
+default workload: it answers one Spec request with what its own process sees
+in place of a config schema.
 
 A dropped packet and a refused connection are different results: `timeout`
 means nothing answered, `refused` means a host answered with a reset.
@@ -368,13 +372,22 @@ def op_exec(r):
 
 
 def op_run(r):
-    """`argv`'s exit code and stdout. With `uid`, guest root runs it as that
-    user, setting `groups`, then `gid`, then `uid` before the exec, as
-    flow-guest-init does for the workload."""
-    done = subprocess.run(r["argv"], capture_output=True, text=True,
-                          user=r.get("uid"), group=r.get("gid"),
-                          extra_groups=r.get("groups"))
+    """`argv`'s exit code and stdout."""
+    done = subprocess.run(r["argv"], capture_output=True, text=True)
     return {"exit": done.returncode, "stdout": done.stdout}
+
+
+def op_stat(r):
+    """Mode bits and the file capability, as the guest sees them."""
+    try:
+        mode = os.stat(r["path"]).st_mode
+    except OSError as error:
+        return oserror(error)
+    try:
+        capability = os.getxattr(r["path"], "security.capability").hex()
+    except OSError as error:
+        capability = oserror(error)
+    return {"mode": "%04o" % (mode & 0o7777), "capability": capability}
 
 
 def op_env(r):
@@ -427,13 +440,29 @@ def serve():
         conn.sendall(json.dumps(answer(json.loads(line))).encode() + b"\n")
 
 
+def spec():
+    sys.stdin.readline()
+    cwd = os.getcwd()
+    seen = {
+        "status": op_read({"path": "/proc/self/status"})["content"],
+        "cwd": cwd,
+        "cwd-by-path": op_same({"a": ".", "b": cwd}),
+        "mounts": op_mounts({}),
+    }
+    response = {"spec": {"protocol": 3032023, "configSchema": seen,
+                         "resourceConfigSchema": {}, "documentationUrl": "https://acmeco.example"}}
+    print(json.dumps(response), flush=True)
+
+
 def main():
     if sys.argv[1] == "serve":
         serve()
     elif sys.argv[1] == "once":
         answer(json.loads(sys.argv[2]))
+    elif sys.argv[1] == "spec":
+        spec()
     else:
-        sys.exit("probes.py: expected `serve` or `once REQUEST`")
+        sys.exit("probes.py: expected `serve`, `once REQUEST` or `spec`")
 
 
 if __name__ == "__main__":

@@ -96,13 +96,12 @@ the connector mount or `/proc`, reads whatever the image has at that path.
 matching rootful podman 4.9 over runc. A colon in `User` suppresses memberships:
 `user:` keeps the passwd gid, and `:group` selects uid 0 in that group. The list
 travels as repeated `--supplementary-gid` flags; `guest-init` sets it with
-`setgroups` before `setgid` and `setuid`. `--run-as-root` skips all three.
+`setgroups` before `setgid` and `setuid`.
 
 `HOME` comes from the resolved passwd entry, including empty fields. Without
 an entry, an explicit uid defaults to `WorkingDir`; an empty user defaults to
 `/`. The image's nonempty `HOME` wins. `image::krun_config` appends defaults
-because libkrun applies `HOME` and `TERM` last-wins. `--run-as-root` retains
-the image user's `HOME`.
+because libkrun applies `HOME` and `TERM` last-wins.
 
 ## Disks and shares
 
@@ -194,6 +193,9 @@ constraints:
 - `flow-connector-vmm` is built on the Ubuntu runner and runs against Fedora's
   glibc, which must be at least as new.
 - Nothing in the image is written at runtime; the container root is read-only.
+- `run`'s test controls, `--debug`, `--resolver-upstream` and `--exec`, parse
+  only with the `test-controls` feature. Only the KVM suite's own image
+  enables it, and `ci:package` refuses a binary that accepts `--exec`.
 
 `connector-vmm-fake` implements `run`'s launch contract without a VM, for
 exercising a launcher where KVM is unavailable. `fake-entrypoint.sh`, at the

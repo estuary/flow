@@ -141,8 +141,8 @@ fn exists(path: &str) -> bool {
         .success()
 }
 
-/// A probe result the guest wrote to its stderr, for the `--as-root-exec`
-/// probes that run before the control channel exists.
+/// A probe result the guest wrote to its stderr, for the `once` probes a
+/// workload script runs before the control channel exists.
 fn stderr_probe(vmm: &run::Vmm, name: &str) -> serde_json::Value {
     run::stderr_text(vmm)
         .lines()
@@ -418,8 +418,11 @@ fn image_user_through_linked_account_files() {
 /// No exec beneath the workload gains privilege from a setuid or setgid bit or
 /// a file capability, and an image whose user is root keeps root's privilege.
 ///
-/// Guest root runs each program as the image's user under `--as-root-exec`,
-/// before flow-guest-init sets no_new_privs, to show what it grants without it.
+/// The control runs each program, as the same user, in a plain podman
+/// container without no_new_privs, where each grants its privilege. That is
+/// the host's kernel and container storage, not the guest's virtiofs root.
+/// The guest workload always has no_new_privs, so it also checks the bits and
+/// capability on a root mounted without `nosuid`.
 #[test]
 fn no_new_privileges() {
     let run = run::load();
@@ -468,7 +471,6 @@ fn no_new_privileges() {
             String::from_utf8_lossy(&built.stderr)
         );
     }
-    let probes = run::PROBES.join(" ");
     let ran = |name: &str, result: serde_json::Value| {
         let stdout = result["stdout"]
             .as_str()
@@ -481,43 +483,61 @@ fn no_new_privileges() {
             .unwrap_or_else(|| panic!("{name}: {result}"));
         credentials(content)
     };
-
     let programs = ["setuid-cat", "setgid-cat", "filecap-cat"];
-    let argv = |program: &str| {
-        serde_json::json!([format!("/usr/local/bin/{program}"), "/proc/self/status"])
-    };
-    let controls: Vec<String> = programs
-        .iter()
-        .map(|program| {
-            let request = serde_json::json!({
-                "probe": format!("control {program}"),
-                "op": "run",
-                "argv": argv(program),
-                "uid": 4321,
-                "gid": 4321,
-                "groups": [4321, 4323],
-            });
-            format!("'{request}'")
-        })
-        .collect();
+    let path = |program: &str| format!("/usr/local/bin/{program}");
+
+    let mut table = String::from("a podman container, as acmesvc:\n");
+    for program in programs {
+        let output = run::sudo_output(
+            &[
+                "podman",
+                "run",
+                "--rm",
+                "--network=none",
+                "--entrypoint",
+                &path(program),
+                &user_image,
+                "/proc/self/status",
+            ],
+            None,
+        );
+        assert!(
+            output.status.success(),
+            "{program} in a container: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).expect("status is UTF-8");
+        table.push_str(&format!("{program}:\n{}", credentials(&stdout)));
+    }
+
     let spec = run::Spec {
         connector_image: user_image.clone(),
-        flags: vec![
-            "--as-root-exec".to_string(),
-            format!(
-                "for r in {}; do {probes} once \"$r\"; done",
-                controls.join(" ")
-            ),
-        ],
         ..run::Spec::probes(&run, "none.json")
     };
     let (vmm, mut guest) = start(&run, spec);
-
-    let mut table = String::from("--as-root-exec, as acmesvc:\n");
+    table.push_str("the guest's view:\n");
     for program in programs {
-        let name = format!("control {program}");
-        table.push_str(&ran(program, stderr_probe(&vmm, &name)));
+        let stat = probe(
+            &mut guest,
+            program,
+            "stat",
+            serde_json::json!({"path": path(program)}),
+        );
+        table.push_str(&format!(
+            "{program}: mode {} capability {}\n",
+            stat["mode"], stat["capability"]
+        ));
     }
+    let mounts = probe(&mut guest, "mounts", "mounts", serde_json::json!({}));
+    let root = mounts
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .find(|line| line.split(' ').nth(1) == Some("/"))
+        .unwrap_or_else(|| panic!("no / in {mounts}"));
+    table.push_str(&format!("/: {root}\n"));
+
     let workload = probe(
         &mut guest,
         "workload",
@@ -531,27 +551,18 @@ fn no_new_privileges() {
             &mut guest,
             program,
             "run",
-            serde_json::json!({"argv": argv(program)}),
+            serde_json::json!({"argv": [path(program), "/proc/self/status"]}),
         );
         table.push_str(&ran(program, result));
     }
     std::mem::drop(guest);
     run::stop(vmm);
 
-    let control =
-        serde_json::json!({"probe": "control root", "op": "read", "path": "/proc/self/status"});
     let spec = run::Spec {
         connector_image: root_image.clone(),
-        flags: vec![
-            "--as-root-exec".to_string(),
-            format!("{probes} once '{control}'"),
-        ],
         ..run::Spec::probes(&run, "none.json")
     };
     let (vmm, mut guest) = start(&run, spec);
-
-    table.push_str("--as-root-exec, as root:\n");
-    table.push_str(&read("control root", stderr_probe(&vmm, "control root")));
     let workload = probe(
         &mut guest,
         "workload",
@@ -571,35 +582,44 @@ fn no_new_privileges() {
     run::stop(vmm);
     run::podman(&["image", "rm", &root_image, &user_image]);
 
-    insta::assert_snapshot!(table, @r"
-    --as-root-exec, as acmesvc:
-    setuid-cat, exit 0:
+    insta::assert_snapshot!(table, @r#"
+    a podman container, as acmesvc:
+    setuid-cat:
     Uid: 4321 0 0 0
     Gid: 4321 4321 4321 4321
     Groups: 4321 4323
-    CapPrm: 000001ffffffffff
-    CapEff: 000001ffffffffff
+    CapPrm: 00000000800405fb
+    CapEff: 00000000800405fb
+    CapBnd: 00000000800405fb
     NoNewPrivs: 0
-    setgid-cat, exit 0:
+    setgid-cat:
     Uid: 4321 4321 4321 4321
     Gid: 4321 0 0 0
     Groups: 4321 4323
     CapPrm: 0000000000000000
     CapEff: 0000000000000000
+    CapBnd: 00000000800405fb
     NoNewPrivs: 0
-    filecap-cat, exit 0:
+    filecap-cat:
     Uid: 4321 4321 4321 4321
     Gid: 4321 4321 4321 4321
     Groups: 4321 4323
     CapPrm: 0000000000000400
     CapEff: 0000000000000400
+    CapBnd: 00000000800405fb
     NoNewPrivs: 0
+    the guest's view:
+    setuid-cat: mode "4755" capability "error:ENODATA"
+    setgid-cat: mode "2755" capability "error:ENODATA"
+    filecap-cat: mode "0755" capability "0100000200040000000000000000000000000000"
+    /: /dev/root / virtiofs rw,relatime 0 0
     the workload, as acmesvc:
     Uid: 4321 4321 4321 4321
     Gid: 4321 4321 4321 4321
     Groups: 4321 4323
     CapPrm: 0000000000000000
     CapEff: 0000000000000000
+    CapBnd: 000001ffffffffff
     NoNewPrivs: 1
     setuid-cat, exit 0:
     Uid: 4321 4321 4321 4321
@@ -607,6 +627,7 @@ fn no_new_privileges() {
     Groups: 4321 4323
     CapPrm: 0000000000000000
     CapEff: 0000000000000000
+    CapBnd: 000001ffffffffff
     NoNewPrivs: 1
     setgid-cat, exit 0:
     Uid: 4321 4321 4321 4321
@@ -614,6 +635,7 @@ fn no_new_privileges() {
     Groups: 4321 4323
     CapPrm: 0000000000000000
     CapEff: 0000000000000000
+    CapBnd: 000001ffffffffff
     NoNewPrivs: 1
     filecap-cat, exit 0:
     Uid: 4321 4321 4321 4321
@@ -621,20 +643,15 @@ fn no_new_privileges() {
     Groups: 4321 4323
     CapPrm: 0000000000000000
     CapEff: 0000000000000000
+    CapBnd: 000001ffffffffff
     NoNewPrivs: 1
-    --as-root-exec, as root:
-    Uid: 0 0 0 0
-    Gid: 0 0 0 0
-    Groups:
-    CapPrm: 000001ffffffffff
-    CapEff: 000001ffffffffff
-    NoNewPrivs: 0
     the workload, as root:
     Uid: 0 0 0 0
     Gid: 0 0 0 0
     Groups: 0
     CapPrm: 000001ffffffffff
     CapEff: 000001ffffffffff
+    CapBnd: 000001ffffffffff
     NoNewPrivs: 1
     cat, exit 0:
     Uid: 0 0 0 0
@@ -642,8 +659,9 @@ fn no_new_privileges() {
     Groups: 0
     CapPrm: 000001ffffffffff
     CapEff: 000001ffffffffff
+    CapBnd: 000001ffffffffff
     NoNewPrivs: 1
-    ");
+    "#);
 }
 
 /// The identity lines of a `/proc/<pid>/status`, with whitespace collapsed.
@@ -657,6 +675,7 @@ fn credentials(status: &str) -> String {
                 "Groups:",
                 "CapPrm:",
                 "CapEff:",
+                "CapBnd:",
                 "NoNewPrivs:",
             ]
             .iter()
@@ -666,7 +685,7 @@ fn credentials(status: &str) -> String {
         .collect()
 }
 
-/// Environment defaults reach both diagnostics and the workload.
+/// Environment defaults reach the workload.
 #[test]
 fn image_environment() {
     let run = run::load();
@@ -704,14 +723,6 @@ fn image_environment() {
 
     let spec = run::Spec {
         connector_image: image.clone(),
-        flags: vec![
-            "--as-root-exec".to_string(),
-            format!(
-                "{} once '{}'",
-                run::PROBES.join(" "),
-                serde_json::json!({"probe": "root-env", "op": "env"})
-            ),
-        ],
         ..run::Spec::probes(&run, "none.json")
     };
     let (vmm, mut guest) = start(&run, spec);
@@ -726,15 +737,9 @@ fn image_environment() {
         .unwrap_or_else(|| panic!("reading /proc/sys/kernel/hostname: {kernel}"))
         .trim()
         .to_string();
-    let workload = probe(&mut guest, "env", "env", serde_json::json!({}));
-
-    for (name, env) in [
-        ("--as-root-exec", stderr_probe(&vmm, "root-env")),
-        ("workload", workload),
-    ] {
-        assert_eq!(env["HOME"], "/home/acmesvc", "{name} HOME: {env}");
-        assert_eq!(env["HOSTNAME"], kernel.as_str(), "{name} HOSTNAME: {env}");
-    }
+    let env = probe(&mut guest, "env", "env", serde_json::json!({}));
+    assert_eq!(env["HOME"], "/home/acmesvc", "HOME: {env}");
+    assert_eq!(env["HOSTNAME"], kernel.as_str(), "HOSTNAME: {env}");
 
     std::mem::drop(guest);
     run::stop(vmm);
@@ -808,12 +813,13 @@ fn image_uv_cache_dir() {
     "#);
 }
 
-/// The default workload: connector-init from the connector mount,
-/// serving over vsock, answering a Spec RPC dialed unprivileged.
+/// The packaged VMM's default workload: connector-init from the connector
+/// mount, serving over vsock, answering a Spec RPC dialed unprivileged.
 #[test]
 fn spec_rpc_through_init_sock() {
     let run = run::load();
     let spec = run::Spec {
+        vmm_image: run.production_vmm_image.clone(),
         connector_image: run.hello_world_image.clone(),
         exec: None,
         ..run::Spec::probes(&run, "none.json")
@@ -821,7 +827,15 @@ fn spec_rpc_through_init_sock() {
     let vmm = run::start(&run, spec);
     run::wait_ready(&vmm, READY);
 
-    let path = run::socket_path(&vmm);
+    let spec = spec_rpc(&vmm);
+    assert_eq!(spec.protocol, 3032023, "the capture protocol");
+    assert!(!spec.config_schema_json.is_empty(), "a config schema");
+    run::assert_framing(&vmm, true);
+}
+
+/// A capture Spec RPC to connector-init, dialed unprivileged over init.sock.
+fn spec_rpc(vmm: &run::Vmm) -> proto_flow::capture::response::Spec {
+    let path = run::socket_path(vmm);
     let responses = tokio::runtime::Runtime::new()
         .expect("a tokio runtime")
         .block_on(async move {
@@ -860,9 +874,179 @@ fn spec_rpc_through_init_sock() {
     else {
         panic!("expected a Spec response, got {responses:?}");
     };
-    assert_eq!(spec.protocol, 3032023, "the capture protocol");
-    assert!(!spec.config_schema_json.is_empty(), "a config schema");
+    *spec
+}
+
+/// The packaged VMM's default workload, as the connector process it starts
+/// sees itself: the image's user and groups, no_new_privs, its `WorkingDir`
+/// as mounted, and the guest's mounts.
+#[test]
+fn production_guest() {
+    let run = run::load();
+    let image = format!(
+        "localhost/connector-vmm-kvm-production-guest:{}",
+        run::random_hex()
+    );
+    run::record("image", &image);
+    let containerfile = format!(
+        "FROM {}\n\
+         USER root\n\
+         RUN echo 'acmesvc:x:4321:4321::/:/usr/sbin/nologin' >> /etc/passwd \
+         && echo 'acmesvc:x:4321:' >> /etc/group \
+         && echo 'acmeextra:x:4323:acmesvc' >> /etc/group\n\
+         USER acmesvc\n\
+         WORKDIR /tmp\n\
+         ENTRYPOINT [\"{}\", \"{}\", \"spec\"]\n",
+        run.guest_image,
+        run::PROBES[0],
+        run::PROBES[1],
+    );
+    let context = run::fixture("");
+    let built = run::sudo_output(
+        &[
+            "podman",
+            "build",
+            "-q",
+            "-t",
+            &image,
+            "-f",
+            "-",
+            &context.to_string_lossy(),
+        ],
+        Some(containerfile.as_bytes()),
+    );
+    assert!(
+        built.status.success(),
+        "building {image}: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let spec = run::Spec {
+        vmm_image: run.production_vmm_image.clone(),
+        connector_image: image.clone(),
+        exec: None,
+        ..run::Spec::probes(&run, "none.json")
+    };
+    let vmm = run::start(&run, spec);
+    run::wait_ready(&vmm, READY);
+    let spec = spec_rpc(&vmm);
+    let seen: serde_json::Value =
+        serde_json::from_slice(&spec.config_schema_json).expect("the probe answers JSON");
+
+    let mut table = credentials(seen["status"].as_str().expect("a status"));
+    table.push_str(&format!("cwd {}: {}\n", seen["cwd"], seen["cwd-by-path"]));
+    for line in seen["mounts"]
+        .as_array()
+        .expect("mounts")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+    {
+        let point = line.split(' ').nth(1).unwrap_or("");
+        if [
+            "/",
+            "/scratch",
+            "/tmp",
+            "/var/tmp",
+            "/etc",
+            run::GUEST_CONNECTOR_MOUNT,
+        ]
+        .contains(&point)
+        {
+            table.push_str(&format!("{line}\n"));
+        }
+    }
     run::assert_framing(&vmm, true);
+    run::stop(vmm);
+    run::podman(&["image", "rm", &image]);
+
+    insta::assert_snapshot!(table, @r#"
+    Uid: 4321 4321 4321 4321
+    Gid: 4321 4321 4321 4321
+    Groups: 4321 4323
+    CapPrm: 0000000000000000
+    CapEff: 0000000000000000
+    CapBnd: 000001ffffffffff
+    NoNewPrivs: 1
+    cwd "/tmp": "same-file"
+    /dev/root / virtiofs rw,relatime 0 0
+    /dev/vda /scratch ext4 rw,nosuid,nodev,relatime 0 0
+    /dev/vda /tmp ext4 rw,nosuid,nodev,relatime 0 0
+    /dev/vda /var/tmp ext4 rw,nosuid,nodev,relatime 0 0
+    /dev/vda /etc ext4 ro,nosuid,nodev,relatime 0 0
+    connector-mount /connector-mount virtiofs ro,nosuid,nodev,relatime 0 0
+    "#);
+}
+
+/// The packaged VMM refuses each test control as it parses, and neither image
+/// takes `--run-as-root` or `--as-root-exec`.
+#[test]
+fn production_refuses_test_controls() {
+    let run = run::load();
+    let mut table = String::new();
+
+    for (name, image, flags) in [
+        ("production", &run.production_vmm_image, &["--debug"][..]),
+        (
+            "production",
+            &run.production_vmm_image,
+            &["--resolver-upstream", "192.0.2.53:53"],
+        ),
+        (
+            "production",
+            &run.production_vmm_image,
+            &["--exec", "/bin/true"],
+        ),
+        ("production", &run.production_vmm_image, &["--run-as-root"]),
+        (
+            "production",
+            &run.production_vmm_image,
+            &["--as-root-exec", "id"],
+        ),
+        ("test", &run.vmm_image, &["--exec", "/bin/true"]),
+        ("test", &run.vmm_image, &["--run-as-root"]),
+        ("test", &run.vmm_image, &["--as-root-exec", "id"]),
+    ] {
+        let mut argv = vec![
+            "podman",
+            "run",
+            "--rm",
+            "--network=none",
+            image,
+            "run",
+            "--policy",
+            "/init/policy.json",
+            "--connector-mount",
+            "/connector-mounts-0/mount-acme",
+            "--memory-mib",
+            "512",
+            "--vcpus",
+            "2",
+            "--disk-mib",
+            "256",
+        ];
+        argv.extend(flags);
+        let output = run::sudo_output(&argv, None);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let first = stderr
+            .lines()
+            .find(|line| line.starts_with("flow-connector-vmm:"))
+            .unwrap_or("");
+        table.push_str(&format!(
+            "{name} {}: exit {:?}, {first}\n",
+            flags.join(" "),
+            output.status.code()
+        ));
+    }
+    insta::assert_snapshot!(table, @r"
+    production --debug: exit Some(2), flow-connector-vmm: error: unexpected argument '--debug' found
+    production --resolver-upstream 192.0.2.53:53: exit Some(2), flow-connector-vmm: error: unexpected argument '--resolver-upstream' found
+    production --exec /bin/true: exit Some(2), flow-connector-vmm: error: unexpected argument '--exec' found
+    production --run-as-root: exit Some(2), flow-connector-vmm: error: unexpected argument '--run-as-root' found
+    production --as-root-exec id: exit Some(2), flow-connector-vmm: error: unexpected argument '--as-root-exec' found
+    test --exec /bin/true: exit Some(2), flow-connector-vmm: / is writable; the VMM container must be launched with `--read-only`
+    test --run-as-root: exit Some(2), flow-connector-vmm: error: unexpected argument '--run-as-root' found
+    test --as-root-exec id: exit Some(2), flow-connector-vmm: error: unexpected argument '--as-root-exec' found
+    ");
 }
 
 /// Where the guest's bytes land, and that the cgroup holds.
@@ -1004,9 +1188,9 @@ fn storage() {
     run::assert_framing(&vmm, true);
 }
 
-/// The root is read-only outside the guest. Guest root's writes fail though
-/// its own view mounts `/` read-write, and still fail once it has unmounted
-/// what flow-guest-init bound over the image.
+/// The root is read-only outside the guest. A root workload's writes fail
+/// though its own view mounts `/` read-write, and still fail once it has
+/// unmounted what flow-guest-init bound over the image.
 #[test]
 fn read_only_root() {
     let run = run::load();
@@ -1029,16 +1213,18 @@ fn read_only_root() {
             .join(" ")
     };
     let probes = run::PROBES.join(" ");
-    // The unmounts are in a mount namespace of their own, so the workload
+    // The unmounts are in a mount namespace of their own, so the probe server
     // keeps its `/etc` and `/tmp`.
-    let command = format!(
+    let script = format!(
         "for r in {}; do {probes} once \"$r\"; done; \
-         unshare -m sh -c 'umount /etc /tmp && for r in \"$@\"; do {probes} once \"$r\"; done' sh {}",
+         unshare -m sh -c 'umount /etc /tmp && for r in \"$@\"; do {probes} once \"$r\"; done' sh {}; \
+         exec {probes} serve",
         quoted(&mounted),
         quoted(&unmounted),
     );
     let spec = run::Spec {
-        flags: vec!["--as-root-exec".to_string(), command],
+        connector_image: run.root_guest_image.clone(),
+        exec: Some(vec!["/bin/sh".to_string(), "-c".to_string(), script]),
         ..run::Spec::probes(&run, "none.json")
     };
     let (vmm, mut guest) = start(&run, spec);
@@ -1426,7 +1612,7 @@ fn oom_panic() {
     let run = run::load();
     let spec = run::Spec {
         memory_mib: 256,
-        flags: vec!["--run-as-root".to_string()],
+        connector_image: run.root_guest_image.clone(),
         exec: Some(vec![
             "/bin/sh".to_string(),
             "-c".to_string(),
@@ -1477,15 +1663,31 @@ fn egress_allowlist() {
         dns::set(&nameserver, name, vec![dns::Record::A(ip, 300)]);
     }
 
+    // Raw sockets need a root workload, so a guest of its own, under the same
+    // policy and nameserver, sends the echo request.
+    let spec = run::Spec {
+        connector_image: run.root_guest_image.clone(),
+        flags: upstream(&nameserver),
+        ..run::Spec::probes(&run, "allowlist.json")
+    };
+    let (root_vmm, mut root_guest) = start(&run, spec);
+    let icmp = probe(
+        &mut root_guest,
+        "icmp-blocked",
+        "icmp",
+        serde_json::json!({"name": "ok.acmeco.example", "timeout": BLOCKED}),
+    );
+    assert_eq!(icmp, "timeout", "icmp-blocked");
+    let counters = host::counters(&root_vmm.name);
+    assert!(
+        counter(&counters, "forward/tcp-udp-only") > 0,
+        "the echo request never met forward/tcp-udp-only: {counters:?}"
+    );
+    std::mem::drop(root_guest);
+    run::stop(root_vmm);
+
     let mut spec = run::Spec::probes(&run, "allowlist.json");
     spec.flags = upstream(&nameserver);
-    // Raw sockets need guest root, which only lasts until the workload runs.
-    spec.flags.push("--as-root-exec".to_string());
-    spec.flags.push(format!(
-        "{} once '{}'",
-        run::PROBES.join(" "),
-        serde_json::json!({"probe": "icmp-blocked", "op": "icmp", "name": "ok.acmeco.example", "timeout": BLOCKED})
-    ));
     let (vmm, mut guest) = start(&run, spec);
     let pid = run::pid(&vmm);
     let gateway = network_field(&vmm, "Gateway");
@@ -1637,11 +1839,6 @@ except OSError as e:
         serde_json::json!({"port": 34567, "wait": 1}),
     );
     assert_eq!(inbound, "no-connection", "inbound-accepted");
-    assert_eq!(
-        stderr_probe(&vmm, "icmp-blocked"),
-        "timeout",
-        "icmp-blocked"
-    );
 
     // Read while the allowed flow is still held open, so the table shows it.
     let flows = guest_flows(pid);
@@ -1670,7 +1867,6 @@ except OSError as e:
     for rule in [
         "forward/baseline",
         "forward/smtp",
-        "forward/tcp-udp-only",
         "forward/forward-drop",
         "egress_accept/resolved",
         "input/tap-dns",

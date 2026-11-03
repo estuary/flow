@@ -27,8 +27,14 @@ pub const GUEST_CONNECTOR_MOUNT: &str = "/connector-mount";
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Run {
     pub run_dir: PathBuf,
+    /// Built with connector-vmm's `test-controls` feature, and otherwise
+    /// `production_vmm_image`: what a launch uses unless its `Spec` says not.
     pub vmm_image: String,
+    /// The default build, as packaged, which refuses the test controls.
+    pub production_vmm_image: String,
     pub guest_image: String,
+    /// `guest_image` whose `User` is root.
+    pub root_guest_image: String,
     pub hello_world_image: String,
     /// `connector-vmm-fake`, built from this checkout.
     pub fake_image: String,
@@ -49,6 +55,7 @@ pub struct Run {
 
 /// What a test launches. `Spec::probes` is the common case.
 pub struct Spec<'a> {
+    pub vmm_image: String,
     pub policy: &'a str,
     pub connector_image: String,
     pub memory_mib: u32,
@@ -70,6 +77,7 @@ impl<'a> Spec<'a> {
         exec.push("serve".to_string());
 
         Spec {
+            vmm_image: run.vmm_image.clone(),
             policy,
             connector_image: run.guest_image.clone(),
             memory_mib: 512,
@@ -264,7 +272,7 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
         network: &name,
         state_dir: &state_dir,
         connector_mount: &connector_mount,
-        vmm_image: &run.vmm_image,
+        vmm_image: &spec.vmm_image,
         memory_mib: spec.memory_mib,
         vcpus: 2,
         disk_mib: spec.disk_mib,

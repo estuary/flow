@@ -146,6 +146,32 @@ mod tests {
         insta::assert_snapshot!(table);
     }
 
+    /// The test controls parse only with the `test-controls` feature.
+    /// `--run-as-root` and `--as-root-exec` parse in neither build.
+    #[test]
+    fn test_controls() {
+        let mut table = String::new();
+
+        for case in [
+            // `--exec` takes every remaining argument, flag-shaped ones
+            // included, which is why it has to come last.
+            run(&["--debug", "--exec", "/bin/sh", "-c", "exit 7"]),
+            run(&["--exec", "/bin/sh", "-c", "exit 7", "--debug"]),
+            run(&["--exec"]),
+            run(&["--resolver-upstream", "192.0.2.53:53"]),
+            run(&["--run-as-root"]),
+            run(&["--as-root-exec", "id"]),
+        ] {
+            table.push_str(&format!("$ {}\n", command_line(&case)));
+            table.push_str(&outcome(&case));
+            table.push('\n');
+        }
+        #[cfg(feature = "test-controls")]
+        insta::assert_snapshot!("test_controls_enabled", table);
+        #[cfg(not(feature = "test-controls"))]
+        insta::assert_snapshot!("test_controls_disabled", table);
+    }
+
     #[test]
     fn check_launch_parses_as_run_does() {
         for case in cases() {
@@ -231,11 +257,6 @@ mod tests {
             vec!["flow-connector-vmm", "print-ruleset"],
             run(&[]),
             run(&["--persistent-disk", "/acmeCo/state"]),
-            // `--exec` takes every remaining argument, flag-shaped ones
-            // included, which is why it has to come last.
-            run(&["--debug", "--exec", "/bin/sh", "-c", "exit 7"]),
-            run(&["--exec", "/bin/sh", "-c", "exit 7", "--debug"]),
-            run(&["--exec"]),
             with("--connector-mount", "relative/mount"),
             with("--connector-mount", "/"),
             with("--vcpus", "256"),
@@ -337,16 +358,13 @@ mod tests {
     fn describe_launch(command: &str, args: &crate::launch::Args) -> String {
         format!(
             "ok: {command} policy={} connector_mount={} memory_mib={} vcpus={} disk_mib={} \
-             persistent_disk={:?} run_as_root={} as_root_exec={:?} debug={} \
-             resolver_upstream={:?} exec={:?}\n",
+             persistent_disk={:?} debug={} resolver_upstream={:?} exec={:?}\n",
             args.policy.display(),
             args.connector_mount,
             args.memory_mib,
             args.vcpus,
             args.disk_mib,
             args.persistent_disk,
-            args.run_as_root,
-            args.as_root_exec,
             args.debug,
             args.resolver_upstream.map(|u| u.to_string()),
             args.exec,
