@@ -23,25 +23,10 @@ pub fn evaluate_alert_actions(
     open_alerts: Vec<Alert>,
     current_alert_state: Vec<AlertViewRow>,
 ) -> Vec<AlertAction> {
-    let mut indexed_open: HashMap<(String, AlertType), (models::Id, DateTime<Utc>, ArgsObject)> =
-        open_alerts
-            .into_iter()
-            .map(|alert| {
-                let Alert {
-                    id,
-                    catalog_name,
-                    alert_type,
-                    fired_at,
-                    resolved_at: _,
-                    arguments,
-                    resolved_arguments: _,
-                } = alert;
-
-                let key = (catalog_name, alert_type);
-                let value = (id, fired_at, arguments.0);
-                (key, value)
-            })
-            .collect();
+    let mut indexed_open: HashMap<(String, AlertType), models::Id> = open_alerts
+        .into_iter()
+        .map(|alert| ((alert.catalog_name, alert.alert_type), alert.id))
+        .collect();
 
     let mut actions = Vec::new();
     for view_alert in current_alert_state {
@@ -53,7 +38,7 @@ pub fn evaluate_alert_actions(
         } = view_alert;
         let key = (catalog_name, alert_type);
 
-        if let Some((_open_key, (id, _fired_at, _open_args))) = indexed_open.remove_entry(&key) {
+        if let Some(id) = indexed_open.remove(&key) {
             if !firing {
                 // The alert is currently open, but the view now shows it as resolved
                 let (catalog_name, alert_type) = key;
@@ -62,7 +47,7 @@ pub fn evaluate_alert_actions(
                     catalog_name,
                     alert_type,
                     resolved_at: eval_timestamp,
-                    base_resolved_arguments: arguments.map(|j| j.0),
+                    base_resolved_arguments: Some(arguments),
                 }));
             }
         } else {
@@ -76,7 +61,7 @@ pub fn evaluate_alert_actions(
                     catalog_name,
                     alert_type,
                     fired_at: eval_timestamp,
-                    base_arguments: arguments.map(|j| j.0).unwrap_or_default(),
+                    base_arguments: arguments,
                 }));
             }
         }
@@ -84,7 +69,7 @@ pub fn evaluate_alert_actions(
 
     // Any open alerts remaining in `indexed_open` can now be resolved, since they no
     // longer appear in the corresponding alert view.
-    for ((catalog_name, alert_type), (id, _fired_at, _)) in indexed_open {
+    for ((catalog_name, alert_type), id) in indexed_open {
         actions.push(AlertAction::Resolve(ResolveAlert {
             id,
             catalog_name,
@@ -100,12 +85,8 @@ pub fn evaluate_alert_actions(
 pub struct AlertViewRow {
     pub catalog_name: String,
     pub alert_type: AlertType,
-    /// Optional arguments for the alert, _not_ including any recipients. If an
-    /// alert view row with `arguments: None` triggers the firing of an alert,
-    /// then the effective arguments will be an empty object. The `recipients`
-    /// will be added to these arguments automatically if this alert is firing
-    /// or resolving, overwriting any previous value.
-    pub base_arguments: Option<sqlx::types::Json<ArgsObject>>,
+    /// Alert arguments. Recipients are populated when the alert fires or resolves.
+    pub base_arguments: ArgsObject,
     /// Whether the alert should currently be firing. Normally, it's sufficient
     /// for a view to simply not include a previously firing alert in order for
     /// it to be resolved. But certain alert types may wish to provide a

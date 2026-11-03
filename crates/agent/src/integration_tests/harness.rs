@@ -178,6 +178,7 @@ pub struct TestHarness {
     pub pool: sqlx::PgPool,
     /// BigTable emulator holding the catalog stats that controllers read.
     pub catalog_stats: Arc<catalog_stats::Client>,
+    pub billing_provider: Arc<control_plane_api::billing::InMemoryBillingProvider>,
     pub publisher: Publisher,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
@@ -300,6 +301,7 @@ impl HarnessBuilder {
             test_name,
             pool,
             catalog_stats,
+            billing_provider: Arc::new(control_plane_api::billing::InMemoryBillingProvider::new()),
             publisher,
             builds_root,
             connectors,
@@ -873,12 +875,15 @@ impl TestHarness {
     /// Asssert that the alert for the given `id` has been resolved, and runs the notification task,
     /// returning any notifications that may have been sent.
     pub async fn assert_alert_resolved(&mut self, notification_task_id: models::Id) -> TestAlert {
-        let Some(alert) =
-            control_plane_api::alerts::fetch_alert_by_id(notification_task_id, &self.pool)
-                .await
-                .unwrap()
-        else {
-            panic!("no alert_history row found for notification_task_id: '{notification_task_id}'");
+        let Some(alert) = control_plane_api::alerts::fetch_alert_for_notification(
+            notification_task_id,
+            &self.pool,
+        )
+        .await
+        .unwrap() else {
+            panic!(
+                "no alert notification found for notification_task_id: '{notification_task_id}'"
+            );
         };
 
         assert!(
@@ -1145,11 +1150,12 @@ impl TestHarness {
                     snapshot_watch: self.snapshot_watch.clone(),
                 })
             }
-            // Without a billing provider, tenant controllers read payment
-            // methods from the `stripe.customers` mirror.
-            task_types::TENANT_CONTROLLER => Server::new().register(
-                crate::tenant_controller::TenantController::new(None, self.catalog_stats.clone()),
-            ),
+            task_types::TENANT_CONTROLLER => {
+                Server::new().register(crate::tenant_controller::TenantController::new(
+                    Some(self.billing_provider.clone()),
+                    self.catalog_stats.clone(),
+                ))
+            }
             task_types::ALERT_NOTIFICATIONS => Server::new().register(
                 crate::alerts::AlertNotifications::new(
                     "http://estuary.test/",

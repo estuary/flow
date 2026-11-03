@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            plan_kind AS \"plan_kind: PlanKind\",\n            collection_method AS \"collection_method: CollectionMethod\",\n            payment_provider AS \"payment_provider: billing_types::PaymentProvider\",\n            trial_start,\n            (trial_start + INTERVAL '1 month')::date AS trial_end,\n            data_tiers,\n            usage_tiers\n        FROM tenants\n        WHERE tenant = $1\n        ",
+  "query": "\n        SELECT\n            plan_kind AS \"plan_kind: PlanKind\",\n            collection_method AS \"collection_method: CollectionMethod\",\n            payment_provider AS \"payment_provider: billing_types::PaymentProvider\",\n            trial_start,\n            data_tiers,\n            usage_tiers\n        FROM tenants\n        WHERE tenant = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -83,12 +83,6 @@
       },
       {
         "ordinal": 4,
-        "name": "trial_end",
-        "type_info": "Date",
-        "origin": "Expression"
-      },
-      {
-        "ordinal": 5,
         "name": "data_tiers",
         "type_info": "Int4Array",
         "origin": {
@@ -99,7 +93,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "usage_tiers",
         "type_info": "Int4Array",
         "origin": {
@@ -120,10 +114,9 @@
       false,
       true,
       true,
-      null,
       false,
       false
     ]
   },
-  "hash": "dd2a75dd71231625fb69aeafba971a3eddda82b8d5c806c7a1cae9314e34b843"
+  "hash": "b32e9a0389e0a2036b7dca3aa17efd993d861e030b1c08cb81caf62d35160811"
 }

@@ -212,6 +212,13 @@ pub enum CollectionMethod {
     SendInvoice,
 }
 
+/// Exclusive end of a one-month trial, using the last day when the next month is shorter.
+pub fn trial_end(trial_start: chrono::NaiveDate) -> chrono::NaiveDate {
+    trial_start
+        .checked_add_months(chrono::Months::new(1))
+        .expect("trial end is within the representable range")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

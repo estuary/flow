@@ -16,10 +16,7 @@ use crate::{
 use anyhow::Context;
 use automations::{Action, Executor, TaskType};
 use control_plane_api::{alerts, controllers::Message, live_specs};
-use models::{
-    Id,
-    status::{AlertType, ControllerStatus},
-};
+use models::{Id, status::ControllerStatus};
 use serde::{Deserialize, Serialize};
 
 use super::{CONTROLLER_VERSION, ControllerState, NextRun, controller_update};
@@ -227,16 +224,11 @@ async fn evaluate_controller_alerts(
 ) -> anyhow::Result<Vec<alerts::AlertAction>> {
     // Start by fetching all of the _controller-managed_ open alerts for this
     // task. Tenant alerts are managed by tenant controllers.
-    let controller_alert_types = models::status::AlertType::all()
-        .into_iter()
-        .filter(|ty| !ty.is_tenant_alert())
-        .map(|ty| *ty)
-        .collect::<std::collections::HashSet<AlertType>>();
     let open_alerts = alerts::fetch_open_alerts_by_catalog_name(&[catalog_name], pool)
         .await
         .context("querying for open alerts")?
         .into_iter()
-        .filter(|alert| controller_alert_types.contains(&alert.alert_type))
+        .filter(|alert| !alert.alert_type.is_tenant_alert())
         .collect::<Vec<_>>();
 
     let current_alerts = if let Some(status) = alerts_status {
@@ -267,7 +259,7 @@ fn to_alert_view(
         results.push(AlertViewRow {
             catalog_name: catalog_name.to_string(),
             alert_type: *key,
-            base_arguments: Some(sqlx::types::Json(arguments)),
+            base_arguments: arguments,
             firing,
         });
     }
