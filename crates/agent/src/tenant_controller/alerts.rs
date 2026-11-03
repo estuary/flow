@@ -9,21 +9,12 @@ const TRIAL_ENDING_DAYS: i64 = 5;
 /// `free_trial_stalled` fires this many days after the trial ends.
 const TRIAL_STALLED_DAYS: i64 = 5;
 
-const ALERT_TYPES: [AlertType; 4] = [
-    AlertType::FreeTrial,
-    AlertType::FreeTrialEnding,
-    AlertType::FreeTrialStalled,
-    AlertType::MissingPaymentMethod,
-];
-
 /// Fires and resolves the tenant's alerts to match its state as of `now`.
 /// Each evaluation derives every alert from current state, so an evaluation
 /// that's early, late or repeated changes nothing.
 ///
-/// `customer` is the tenant's Stripe customer as retrieved by this poll, which
-/// retrieves it for every tenant that needs a payment method. It's `None` only
-/// without a billing provider, and then the payment method is read from the
-/// `stripe.customers` mirror.
+/// `customer` is the tenant's Stripe customer as retrieved by this poll. Without
+/// a billing provider, alerts that need payment-method state are left unchanged.
 pub async fn evaluate(
     status: &mut TaskStatus,
     pool: &sqlx::PgPool,
@@ -60,7 +51,11 @@ async fn do_evaluate(
     customer: Option<&anyhow::Result<Option<stripe::Customer>>>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<()> {
-    let names = ALERT_TYPES.map(|alert_type| catalog_name(&tenant.tenant, alert_type));
+    let names = AlertType::all()
+        .iter()
+        .filter(|alert_type| alert_type.is_tenant_alert())
+        .map(|alert_type| catalog_name(&tenant.tenant, *alert_type))
+        .collect::<Vec<_>>();
     let names = names.iter().map(String::as_str).collect::<Vec<_>>();
     // A live spec could share one of these names, so its alerts are excluded.
     let open_alerts: Vec<_> =
@@ -88,17 +83,12 @@ async fn do_evaluate(
         return Ok(());
     }
 
-    // A failed retrieval fails the evaluation, which is retried, rather than
-    // falling back to the `stripe.customers` mirror. The mirror lags Stripe,
-    // so it could undo a change that an earlier poll read from Stripe.
     let has_payment_info = match customer {
         Some(Ok(customer)) => customer
             .as_ref()
             .is_some_and(|customer| billing::default_payment_method_id(customer).is_some()),
         Some(Err(err)) => anyhow::bail!("{err:#}"),
-        None => fetch_mirrored_payment_method(pool, &tenant.tenant)
-            .await
-            .context("reading mirrored Stripe customer")?,
+        None => return Ok(()),
     };
 
     let rows = alert_rows(&tenant.tenant, tenant.trial_start, has_payment_info, now);
@@ -120,37 +110,8 @@ async fn do_evaluate(
     Ok(())
 }
 
-/// Whether the tenant's Stripe customer has a default payment method, as of
-/// the last sync of the `stripe.customers` CDC mirror.
-async fn fetch_mirrored_payment_method(pool: &sqlx::PgPool, tenant: &str) -> anyhow::Result<bool> {
-    let found = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS (
-            SELECT 1
-            FROM tenants t
-            JOIN stripe.customers c ON c.id = t.stripe_customer_id
-            WHERE t.tenant = $1
-              AND c."invoice_settings/default_payment_method" IS NOT NULL
-        ) AS "found!"
-        "#,
-        tenant,
-    )
-    .fetch_one(pool)
-    .await?;
-
-    Ok(found)
-}
-
 fn catalog_name(tenant: &str, alert_type: AlertType) -> String {
     format!("{tenant}alerts/{alert_type}")
-}
-
-/// The trial ends one calendar month after it starts, matching the trial credit
-/// range of `internal.billing_report_202308`.
-fn trial_end(trial_start: chrono::NaiveDate) -> chrono::NaiveDate {
-    trial_start
-        .checked_add_months(chrono::Months::new(1))
-        .expect("trial end is within the representable range")
 }
 
 fn midnight(date: chrono::NaiveDate) -> chrono::DateTime<chrono::Utc> {
@@ -168,7 +129,7 @@ fn alert_rows(
     has_payment_info: bool,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Vec<AlertViewRow> {
-    let trial_end = trial_start.map(trial_end);
+    let trial_end = trial_start.map(billing_types::trial_end);
 
     let (trial, ending, stalled) = match trial_start.zip(trial_end) {
         None => (false, false, false),
@@ -205,7 +166,7 @@ fn alert_rows(
     let row = |alert_type, firing| AlertViewRow {
         catalog_name: catalog_name(tenant, alert_type),
         alert_type,
-        base_arguments: Some(sqlx::types::Json(arguments.clone())),
+        base_arguments: arguments.clone(),
         firing,
     };
     let mut rows = vec![
@@ -232,7 +193,7 @@ fn next_evaluation(
         return None;
     }
     let boundaries = tenant.trial_start.into_iter().flat_map(|start| {
-        let end = midnight(trial_end(start));
+        let end = midnight(billing_types::trial_end(start));
         [
             midnight(start),
             end - chrono::Duration::days(TRIAL_ENDING_DAYS),
@@ -366,6 +327,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn card_state_and_plan_decide_alerts(pool: sqlx::PgPool) {
+        // Mirror data must not resolve alerts when live payment-method state is unavailable.
         sqlx::raw_sql(
             r#"
             insert into tenants (tenant, stripe_customer_id) values ('acmeCo/', 'cus_acme');
@@ -400,21 +362,32 @@ mod tests {
         drop(conn);
 
         let provider = InMemoryBillingProvider::new();
-        provider.add_customer(TENANT, "cus_acme", None);
-        let live_without_card = provider
+        provider.add_customer(TENANT, "cus_acme", Some("pm_live"));
+        let live_with_card = provider
             .retrieve_customer(&"cus_acme".parse().unwrap())
+            .await
+            .map(Some);
+        let live_without_card = provider
+            .update_customer_default_payment_method(&"cus_acme".parse().unwrap(), None)
             .await
             .map(Some);
         let failed_retrieval = Err(anyhow::anyhow!("Stripe is unavailable"));
 
         let self_serve = tenant(PlanKind::SelfServe, None);
         let contract = tenant(PlanKind::Contract, None);
+        let mut status = TaskStatus::default();
+        let now = at(1, 2, (0, 0, 0));
         let mut results = Vec::new();
         for (case, tenant, customer) in [
             (
-                "without a billing provider, reads the mirror",
+                "without a billing provider, leaves alerts unchanged",
                 &self_serve,
                 None,
+            ),
+            (
+                "live customer with a card",
+                &self_serve,
+                Some(&live_with_card),
             ),
             (
                 "live customer without a card",
@@ -426,10 +399,14 @@ mod tests {
                 &self_serve,
                 Some(&failed_retrieval),
             ),
+            (
+                "successful retrieval clears the failure",
+                &self_serve,
+                Some(&live_without_card),
+            ),
             ("contract closes its alerts silently", &contract, None),
         ] {
-            let mut status = TaskStatus::default();
-            evaluate(&mut status, &pool, tenant, customer, chrono::Utc::now())
+            let outcome = evaluate(&mut status, &pool, tenant, customer, now)
                 .await
                 .unwrap();
 
@@ -448,7 +425,8 @@ mod tests {
             .unwrap();
             results.push(serde_json::json!({
                 "case": case,
-                "failures": status.failures,
+                "status": status,
+                "waitSeconds": outcome.wait().map(|duration| duration.as_secs()),
                 "open": open,
                 "notificationTasks": notification_tasks,
             }));

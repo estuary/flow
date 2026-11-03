@@ -1,4 +1,5 @@
 use crate::integration_tests::harness::TestHarness;
+use control_plane_api::billing::BillingProvider;
 use models::status::AlertType;
 
 /// Runs through user onboarding, from signup, to free trial, to entering a
@@ -9,6 +10,9 @@ async fn test_tenant_alerts_happy_path() {
     let mut harness = TestHarness::init("new_user_onboarding").await;
 
     let _user_id = harness.setup_tenant("deer").await;
+    harness
+        .billing_provider
+        .add_customer("deer/", "cus_deer", None);
     let task_id: models::Id = sqlx::query_scalar!(
         r#"update tenants
         set stripe_customer_id = 'cus_deer'
@@ -73,7 +77,11 @@ async fn test_tenant_alerts_happy_path() {
         &trial_ending_alert.notifications[0].subject
     );
 
-    set_mirrored_payment_method(&mut harness, Some("pm_deer")).await;
+    harness
+        .billing_provider
+        .update_customer_default_payment_method(&"cus_deer".parse().unwrap(), Some("pm_deer"))
+        .await
+        .unwrap();
     run_tenant_controller(task_id, &mut harness).await;
     assert_eq!(
         open_alert_types(&harness).await,
@@ -108,7 +116,11 @@ async fn test_tenant_alerts_happy_path() {
         .assert_emails_sent(&[]);
 
     // Removing the payment method after the trial has ended stalls it.
-    set_mirrored_payment_method(&mut harness, None).await;
+    harness
+        .billing_provider
+        .update_customer_default_payment_method(&"cus_deer".parse().unwrap(), None)
+        .await
+        .unwrap();
     run_tenant_controller(task_id, &mut harness).await;
     assert_eq!(
         open_alert_types(&harness).await,
@@ -121,6 +133,67 @@ async fn test_tenant_alerts_happy_path() {
         )
         .await
         .assert_emails_sent(&["deer@new_user_onboarding.test"]);
+}
+
+#[tokio::test]
+async fn test_claimed_notification_after_silent_close() {
+    let mut harness = TestHarness::init("claimed_notification_after_silent_close").await;
+    harness.setup_tenant("acmeCo").await;
+    let controller_id: models::Id =
+        sqlx::query_scalar("select controller_task_id from tenants where tenant = 'acmeCo/'")
+            .fetch_one(&harness.pool)
+            .await
+            .unwrap();
+    run_tenant_controller(controller_id, &mut harness).await;
+
+    let server = automations::Server::new().register(
+        crate::alerts::AlertNotifications::new(
+            "http://estuary.test/",
+            harness.alert_sender.clone(),
+        )
+        .unwrap(),
+    );
+    let mut permit = std::sync::Arc::new(tokio::sync::Semaphore::new(1))
+        .acquire_owned()
+        .await
+        .unwrap();
+    let heartbeat_timeout = std::time::Duration::from_secs(10);
+    let mut tasks = automations::server::dequeue_tasks(
+        &mut permit,
+        &harness.pool,
+        &server,
+        &[automations::task_types::ALERT_NOTIFICATIONS.0],
+        heartbeat_timeout,
+    )
+    .await
+    .unwrap();
+    assert_eq!(tasks.len(), 1);
+    let task = tasks.pop().unwrap();
+    let alert_id = task.task.id;
+
+    // The claimed notifier has not read the alert when its task is deleted.
+    sqlx::query("update tenants set plan_kind = 'contract' where tenant = 'acmeCo/'")
+        .execute(&harness.pool)
+        .await
+        .unwrap();
+    run_tenant_controller(controller_id, &mut harness).await;
+    let err = automations::executors::poll_task(task, heartbeat_timeout)
+        .await
+        .expect_err("the deleted task cannot persist its outcome");
+    assert!(matches!(
+        err.downcast_ref::<sqlx::Error>(),
+        Some(sqlx::Error::RowNotFound)
+    ));
+    assert!(harness.alert_sender.take_sent().await.is_empty());
+
+    let state: (bool, bool) = sqlx::query_as(
+        "select resolved_at is not null, exists(select 1 from internal.tasks where task_id = $1) from alert_history where id = $1",
+    )
+    .bind(alert_id)
+    .fetch_one(&harness.pool)
+    .await
+    .unwrap();
+    assert_eq!(state, (true, false));
 }
 
 async fn run_tenant_controller(task_id: models::Id, harness: &mut TestHarness) {
@@ -144,18 +217,6 @@ async fn open_alert_types(harness: &TestHarness) -> Vec<AlertType> {
     .fetch_all(&harness.pool)
     .await
     .expect("failed to fetch open alerts")
-}
-
-async fn set_mirrored_payment_method(harness: &mut TestHarness, payment_method: Option<&str>) {
-    sqlx::query!(
-        r#"insert into stripe.customers (id, "invoice_settings/default_payment_method", flow_document)
-        values ('cus_deer', $1, '{}')
-        on conflict (id) do update set "invoice_settings/default_payment_method" = $1"#,
-        payment_method,
-    )
-    .execute(&harness.pool)
-    .await
-    .expect("failed to update stripe.customers");
 }
 
 async fn set_free_trial_start_date(

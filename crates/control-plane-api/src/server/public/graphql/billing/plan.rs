@@ -75,14 +75,11 @@ pub struct PlanRow {
     pub collection_method: CollectionMethod,
     pub payment_provider: Option<billing_types::PaymentProvider>,
     pub trial_start: Option<NaiveDate>,
-    pub trial_end: Option<NaiveDate>,
     pub data_tiers: Vec<i32>,
     pub usage_tiers: Vec<i32>,
 }
 
 pub async fn fetch_billing_plan(pool: &sqlx::PgPool, tenant: &str) -> anyhow::Result<BillingPlan> {
-    // The trial end uses Postgres date arithmetic so that it matches the trial
-    // credit range of `internal.billing_report_202308`.
     let row = sqlx::query_as!(
         PlanRow,
         r#"
@@ -91,7 +88,6 @@ pub async fn fetch_billing_plan(pool: &sqlx::PgPool, tenant: &str) -> anyhow::Re
             collection_method AS "collection_method: CollectionMethod",
             payment_provider AS "payment_provider: billing_types::PaymentProvider",
             trial_start,
-            (trial_start + INTERVAL '1 month')::date AS trial_end,
             data_tiers,
             usage_tiers
         FROM tenants
@@ -108,10 +104,10 @@ pub async fn fetch_billing_plan(pool: &sqlx::PgPool, tenant: &str) -> anyhow::Re
 pub fn billing_plan(row: PlanRow, today: NaiveDate) -> BillingPlan {
     match row.plan_kind {
         PlanKind::SelfServe => {
-            let trial = row
-                .trial_start
-                .zip(row.trial_end)
-                .map(|(start, end)| TrialPeriod { start, end });
+            let trial = row.trial_start.map(|start| TrialPeriod {
+                start,
+                end: billing_types::trial_end(start),
+            });
             let phase = match &trial {
                 Some(trial) if today >= trial.end => SelfServePhase::Paid,
                 Some(trial) if today >= trial.start => SelfServePhase::Trial,
@@ -177,7 +173,6 @@ mod tests {
             collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             payment_provider: Some(billing_types::PaymentProvider::Stripe),
             trial_start: None,
-            trial_end: None,
             data_tiers: vec![50],
             usage_tiers: vec![14, 4464, 7],
         }
@@ -190,10 +185,9 @@ mod tests {
     #[test]
     fn self_serve_phases() {
         let today = date("2026-10-14");
-        let phase = |start: &str, end: &str| {
+        let phase = |start: &str| {
             let row = PlanRow {
                 trial_start: Some(date(start)),
-                trial_end: Some(date(end)),
                 ..row(PlanKind::SelfServe)
             };
             let BillingPlan::SelfServe(plan) = billing_plan(row, today) else {
@@ -202,9 +196,9 @@ mod tests {
             plan.phase
         };
         insta::assert_debug_snapshot!([
-            ("future trial", phase("2026-11-01", "2026-12-01")),
-            ("trial starting today", phase("2026-10-14", "2026-11-14")),
-            ("trial ending today", phase("2026-09-14", "2026-10-14")),
+            ("future trial", phase("2026-11-01")),
+            ("trial starting today", phase("2026-10-14")),
+            ("trial ending today", phase("2026-09-14")),
         ]);
     }
 
