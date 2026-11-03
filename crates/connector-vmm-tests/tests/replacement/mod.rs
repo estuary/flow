@@ -63,18 +63,15 @@ fn start(
     let cases = serde_json::to_string(&[case(API, &d.a), case(SVC, &d.b)]).unwrap();
     let script = PROBE.replace("CASES", &serde_json::to_string(&cases).unwrap());
     let encoded = base64::engine::general_purpose::STANDARD.encode(script);
-    launcher::vmm_flags(
-        &root,
-        &[
-            "--resolver-upstream".to_string(),
-            d.nameserver.addr.to_string(),
-            "--as-root-exec".to_string(),
-            format!(
-                "{} -c \"import base64; exec(base64.b64decode('{encoded}'))\"",
-                run::PROBES[0]
-            ),
-        ],
-    );
+    let mut flags = vec![
+        "--resolver-upstream".to_string(),
+        d.nameserver.addr.to_string(),
+    ];
+    flags.extend(launcher::before_connector_init(&format!(
+        "{} -c \"import base64; exec(base64.b64decode('{encoded}'))\"",
+        run::PROBES[0]
+    )));
+    launcher::vmm_flags(&root, &flags);
 
     let (a, b) = (
         endpoint::accepted(&d.a).len(),

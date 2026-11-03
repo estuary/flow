@@ -45,7 +45,7 @@ while (($# > 0)); do
     --persistent-disk)
         fail "--persistent-disk is unsupported: the fake cannot mount a share inside ${ROOTFS}"
         ;;
-    --run-as-root | --as-root-exec | --debug | --resolver-upstream | --exec)
+    --debug | --resolver-upstream | --exec)
         fail "${flag} is test-only and needs the real VMM"
         ;;
     # check-launch has printed run's help.

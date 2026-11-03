@@ -91,27 +91,27 @@ pub struct Args {
     #[arg(long, value_name = "GUEST_PATH", value_parser = guest_path)]
     pub persistent_disk: Option<String>,
 
-    /// Test only: run the workload as guest root.
-    #[arg(long)]
-    pub run_as_root: bool,
-
-    /// Test only: run CMD under /bin/sh as guest root before privileges drop.
-    #[arg(long, value_name = "CMD")]
-    pub as_root_exec: Option<String>,
-
-    /// Test only: libkrun debug logging, VMM stage lines, the console tee and
-    /// the resolver's per-query decision log.
-    #[arg(long)]
+    // The test controls below parse only with the `test-controls` feature.
+    // Without it they keep their defaults, so the same code runs with them off.
+    /// libkrun debug logging, VMM stage lines, the console tee and the
+    /// resolver's per-query decision log.
+    #[cfg_attr(feature = "test-controls", arg(long))]
+    #[cfg_attr(not(feature = "test-controls"), arg(skip))]
     pub debug: bool,
 
-    /// Test only: the upstream the resolver forwards to, in place of the
-    /// nameserver in the VMM's own /etc/resolv.conf.
-    #[arg(long, value_name = "IP:PORT")]
+    /// The upstream the resolver forwards to, in place of the nameserver in
+    /// the VMM's own /etc/resolv.conf.
+    #[cfg_attr(feature = "test-controls", arg(long, value_name = "IP:PORT"))]
+    #[cfg_attr(not(feature = "test-controls"), arg(skip))]
     pub resolver_upstream: Option<SocketAddr>,
 
-    /// Test only: replace the default workload argv. Takes every remaining
-    /// argument, so it must come last.
-    #[arg(long, value_name = "ARGV", num_args = 1.., allow_hyphen_values = true)]
+    /// Replace the default workload argv. Takes every remaining argument, so
+    /// it must come last.
+    #[cfg_attr(
+        feature = "test-controls",
+        arg(long, value_name = "ARGV", num_args = 1.., allow_hyphen_values = true)
+    )]
+    #[cfg_attr(not(feature = "test-controls"), arg(skip))]
     pub exec: Option<Vec<String>>,
 }
 
@@ -205,8 +205,6 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
     let guest_argv = image::guest_argv(&image::Guest {
         connector_mount: GUEST_CONNECTOR_MOUNT,
         persistent_disk: args.persistent_disk.as_deref(),
-        run_as_root: args.run_as_root,
-        as_root_exec: args.as_root_exec.as_deref(),
         exec: args.exec.as_deref(),
         uid: image.uid,
         gid: image.gid,

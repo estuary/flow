@@ -42,6 +42,14 @@ ln ${GOBIN}/gazctl ${PACKAGE_DIR}/
 ln ${GOBIN}/flowctl-go ${PACKAGE_DIR}/
 ln $(which etcd) ${PACKAGE_DIR}/
 
+# A VMM built with the test-controls feature accepts --exec. Only the KVM
+# suite builds one, in its own target directory, but never ship it.
+vmm_help=$("${PACKAGE_DIR}/flow-connector-vmm" run --help)
+if [[ "${vmm_help}" == *--exec* ]]; then
+    echo "flow-connector-vmm accepts --exec: it was built with the test-controls feature" >&2
+    exit 1
+fi
+
 cp crates/flow-web/pkg/estuary-flow-web-*.tgz ${HOME}/flow-package/estuary-flow-web.tgz
 cp crates/data-plane-controller/entrypoint.sh ${PACKAGE_DIR}/data-plane-controller-entrypoint.sh
 cp crates/oidc-discovery-server/entrypoint.sh ${PACKAGE_DIR}/oidc-discovery-server-entrypoint.sh

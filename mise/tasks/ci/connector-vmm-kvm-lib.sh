@@ -179,7 +179,9 @@ release() {
             ;;
         # --ignore excuses only a container which is already gone.
         container) sudo -n podman rm -f --time 0 --ignore "${value}" >/dev/null || status=$? ;;
-        image) sudo -n podman image rm --ignore "${value}" >/dev/null || echo "Left image ${value}" >&2 ;;
+        # --no-prune: removing a derived image must not take an untagged parent,
+        # such as the loaded VMM image, which a later entry still uses.
+        image) sudo -n podman image rm --ignore --no-prune "${value}" >/dev/null || echo "Left image ${value}" >&2 ;;
         builder)
             remove_listed builder "${value}" docker buildx rm "${value}" >/dev/null \
                 || echo "Left buildx builder ${value}" >&2

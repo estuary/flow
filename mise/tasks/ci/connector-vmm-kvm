@@ -273,6 +273,37 @@ if [ "${PLATFORM}" = true ]; then
     exit "${status}"
 fi
 
+# The suite's VMM is the platform's image with one file changed: a VMM built
+# with the test-controls feature, in a target directory of its own so it never
+# replaces the release build ci:package would ship.
+echo "=== Building the test VMM image, with connector-vmm's test-controls feature ==="
+TEST_TARGET="${WORK}/test-controls-target"
+cargo build --locked --release -p connector-vmm --features test-controls --target-dir "${TEST_TARGET}" 9>&-
+mkdir -p "${RUN_DIR}/test-controls"
+cp "${TEST_TARGET}/release/flow-connector-vmm" "${RUN_DIR}/test-controls/"
+TEST_VMM_IMAGE="localhost/connector-vmm-test-controls:kvm-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+record image "${TEST_VMM_IMAGE}"
+printf 'FROM %s\nCOPY flow-connector-vmm /usr/local/bin/flow-connector-vmm\n' "${VMM_IMAGE}" \
+    | sudo -n podman build -q -t "${TEST_VMM_IMAGE}" -f - "${RUN_DIR}/test-controls" >/dev/null
+
+image_sha() {
+    sudo -n podman run --rm --network=none --entrypoint sha256sum "$1" "$2" | cut -d' ' -f1
+}
+GUEST_INIT_SHA=$(sha256sum <"${RUN_DIR}/package/amd64/flow-guest-init" | cut -d' ' -f1)
+PRODUCTION_SHA=$(sha256sum <"${RUN_DIR}/package/amd64/flow-connector-vmm" | cut -d' ' -f1)
+TEST_SHA=$(sha256sum <"${RUN_DIR}/test-controls/flow-connector-vmm" | cut -d' ' -f1)
+for image in "${VMM_IMAGE}" "${TEST_VMM_IMAGE}"; do
+    [ "$(image_sha "${image}" /flow-guest-init)" = "${GUEST_INIT_SHA}" ] \
+        || fail "${image}'s /flow-guest-init is not this run's build"
+done
+[ "$(image_sha "${VMM_IMAGE}" /usr/local/bin/flow-connector-vmm)" = "${PRODUCTION_SHA}" ] \
+    || fail "${VMM_IMAGE}'s flow-connector-vmm is not this run's release build"
+[ "$(image_sha "${TEST_VMM_IMAGE}" /usr/local/bin/flow-connector-vmm)" = "${TEST_SHA}" ] \
+    || fail "${TEST_VMM_IMAGE}'s flow-connector-vmm is not this run's test-controls build"
+[ "${PRODUCTION_SHA}" != "${TEST_SHA}" ] || fail "the test-controls build is the release build"
+echo "flow-guest-init ${GUEST_INIT_SHA}, in both images"
+echo "flow-connector-vmm ${PRODUCTION_SHA} in ${VMM_IMAGE}, ${TEST_SHA} in ${TEST_VMM_IMAGE}"
+
 echo "=== Building the fake VMM image ==="
 cp crates/connector-vmm/fake-entrypoint.sh "${RUN_DIR}/package/amd64/connector-vmm-fake-entrypoint.sh"
 FAKE_IMAGE="localhost/connector-vmm-fake:kvm-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
@@ -287,11 +318,15 @@ FIXTURE_HASH=$(cat "${FIXTURES}/guest.Containerfile" "${FIXTURES}/probes.py" | s
 GUEST_IMAGE="localhost/connector-vmm-test-guest:${FIXTURE_HASH}"
 record image "${GUEST_IMAGE}"
 sudo -n podman build -q -t "${GUEST_IMAGE}" -f "${FIXTURES}/guest.Containerfile" "${FIXTURES}" >/dev/null
+ROOT_GUEST_IMAGE="localhost/connector-vmm-test-guest-root:${FIXTURE_HASH}"
+record image "${ROOT_GUEST_IMAGE}"
+printf 'FROM %s\nUSER root\n' "${GUEST_IMAGE}" \
+    | sudo -n podman build -q -t "${ROOT_GUEST_IMAGE}" -f - "${FIXTURES}" >/dev/null
 
 if [ -n "${ROUTING_DEPLOYMENT}" ]; then
     echo "=== Static outbound routing through an isolated host Podman API socket ==="
     sudo -n python3 "${FIXTURES}/routing.py" --deployment "${ROUTING_DEPLOYMENT}" --resources "${ROOT}/resources" \
-        --vmm-image "${VMM_IMAGE}" \
+        --vmm-image "${TEST_VMM_IMAGE}" \
         --connector-init "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-connector-init"
 fi
 
@@ -326,8 +361,10 @@ sudo -n ip -n "${NETNS}" route add "${ENDPOINT_PEER}/32" dev "${PEER}"
 
 jq -n \
     --arg runDir "${RUN_DIR}" \
-    --arg vmmImage "${VMM_IMAGE}" \
+    --arg vmmImage "${TEST_VMM_IMAGE}" \
+    --arg productionVmmImage "${VMM_IMAGE}" \
     --arg guestImage "${GUEST_IMAGE}" \
+    --arg rootGuestImage "${ROOT_GUEST_IMAGE}" \
     --arg helloWorldImage "${HELLO_WORLD}" \
     --arg fakeImage "${FAKE_IMAGE}" \
     --arg derivePythonImage "${DERIVE_PYTHON}" \
@@ -335,7 +372,7 @@ jq -n \
     --arg endpointNetns "${NETNS}" \
     --arg endpointPeer "${ENDPOINT_PEER}" \
     --argjson decoys "$(printf '%s\n' "${DECOYS[@]}" | jq -R . | jq -s .)" \
-    '{$runDir, $vmmImage, $guestImage, $helloWorldImage, $fakeImage, $derivePythonImage, $connectorInit, endpoints: $ARGS.positional, $endpointNetns, $endpointPeer, $decoys}' \
+    '{$runDir, $vmmImage, $productionVmmImage, $guestImage, $rootGuestImage, $helloWorldImage, $fakeImage, $derivePythonImage, $connectorInit, endpoints: $ARGS.positional, $endpointNetns, $endpointPeer, $decoys}' \
     --args "${ENDPOINTS[@]}" | sudo -n tee "${ROOT}/run.json" >/dev/null
 
 status=0

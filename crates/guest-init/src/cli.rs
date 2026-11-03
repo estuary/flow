@@ -44,15 +44,6 @@ pub struct Args {
     #[arg(long, value_name = "GUEST_PATH", value_parser = guest_path)]
     pub persistent_disk: Option<String>,
 
-    /// Test only: run the workload as guest root instead of --uid, --gid and
-    /// --supplementary-gid.
-    #[arg(long)]
-    pub run_as_root: bool,
-
-    /// Test only: run CMD under /bin/sh as guest root before dropping privileges.
-    #[arg(long, value_name = "CMD")]
-    pub as_root_exec: Option<String>,
-
     /// The workload to become.
     #[arg(last = true, required = true, value_name = "ARGV")]
     pub argv: Vec<String>,
@@ -155,11 +146,7 @@ mod tests {
         vec![
             with(&[]),
             with(&["--persistent-disk", "/acmeCo/state"]),
-            with(&[
-                "--run-as-root",
-                "--as-root-exec",
-                "sysctl -w vm.drop_caches=3",
-            ]),
+            with(&["--as-root-exec", "sysctl -w vm.drop_caches=3"]),
             with(&[
                 "--supplementary-gid",
                 "1000",
@@ -168,7 +155,7 @@ mod tests {
                 "--supplementary-gid",
                 "1004",
             ]),
-            with(&["--run-as-root", "--supplementary-gid", "1002"]),
+            with(&["--run-as-root"]),
             with(&["--supplementary-gid", "1002,1004"]),
             with(&["--persistent-disk", "state"]),
             with(&["--persistent-disk", "/"]),
@@ -219,8 +206,7 @@ mod tests {
     fn describe(args: &super::Args) -> String {
         format!(
             "ok: guest_ip={}/{} gateway={} nameserver={} uid={} gid={} \
-             supplementary_gids={:?} connector_mount={} persistent_disk={:?} \
-             run_as_root={} as_root_exec={:?} argv={:?}\n",
+             supplementary_gids={:?} connector_mount={} persistent_disk={:?} argv={:?}\n",
             args.guest_ip.address,
             args.guest_ip.prefix_len,
             args.gateway,
@@ -230,8 +216,6 @@ mod tests {
             args.supplementary_gids,
             args.connector_mount,
             args.persistent_disk,
-            args.run_as_root,
-            args.as_root_exec,
             args.argv,
         )
     }

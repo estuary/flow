@@ -12,6 +12,11 @@ license.workspace = true
 name = "flow-connector-vmm"
 path = "src/main.rs"
 
+[features]
+# `run`'s --debug, --resolver-upstream and --exec, for the KVM suite's own
+# VMM image.
+test-controls = []
+
 [dependencies]
 egress = { path = "../egress" }
 
