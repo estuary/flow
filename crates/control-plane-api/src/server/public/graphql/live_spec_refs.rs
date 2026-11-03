@@ -77,6 +77,7 @@ impl LiveSpecRef {
     /// Returns the history of resolved alerts for this live spec. Alerts are
     /// returned in reverse chronological order based on the `firedAt`
     /// timestamp, and are paginated.
+    #[tracing::instrument(name = "LiveSpecRef.alertHistory", skip_all)]
     async fn alert_history(
         &self,
         ctx: &Context<'_>,
@@ -149,6 +150,7 @@ impl LiveSpecRef {
     }
 
     /// The complete history of publications of this spec.
+    #[tracing::instrument(name = "LiveSpecRef.publicationHistory", skip_all)]
     async fn publication_history(
         &self,
         ctx: &Context<'_>,

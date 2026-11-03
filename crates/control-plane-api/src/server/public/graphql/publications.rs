@@ -22,6 +22,7 @@ pub struct Publication {
 impl Publication {
     /// Errors that caused the publication to fail, once `status.type` is no
     /// longer `queued`.
+    #[tracing::instrument(name = "Publication.errors", skip_all)]
     async fn errors(
         &self,
         ctx: &async_graphql::Context<'_>,
@@ -38,6 +39,7 @@ impl Publication {
     /// Publication logs in timestamp order. Pagination is best effort, and
     /// logs may arrive after the publication completes. `first` controls
     /// page size and cannot exceed 1000 log lines.
+    #[tracing::instrument(name = "Publication.logs", skip_all)]
     async fn logs(
         &self,
         ctx: &async_graphql::Context<'_>,

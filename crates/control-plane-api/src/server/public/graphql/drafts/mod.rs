@@ -87,6 +87,7 @@ pub type DraftSpecConnection = connection::Connection<
 #[async_graphql::ComplexObject]
 impl Draft {
     /// Staged specifications, in catalog-name order.
+    #[tracing::instrument(name = "Draft.specs", skip_all)]
     async fn specs(
         &self,
         ctx: &Context<'_>,
@@ -171,6 +172,7 @@ impl Draft {
     /// Errors found while validating, testing, or publishing this draft.
     /// Staging and unstaging specifications do not clear these errors, so they
     /// may describe an earlier version of the draft.
+    #[tracing::instrument(name = "Draft.errors", skip_all)]
     async fn errors(
         &self,
         ctx: &Context<'_>,

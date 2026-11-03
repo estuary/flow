@@ -18,6 +18,7 @@ pub struct Discover {
 #[async_graphql::ComplexObject]
 impl Discover {
     /// Errors currently recorded on the associated draft.
+    #[tracing::instrument(name = "Discover.errors", skip_all)]
     async fn errors(
         &self,
         ctx: &async_graphql::Context<'_>,
@@ -30,6 +31,7 @@ impl Discover {
     /// Discovery logs in timestamp order. Pagination is best effort, and logs
     /// may arrive after discovery completes.
     /// `first` controls page size and cannot exceed 1000 log lines.
+    #[tracing::instrument(name = "Discover.logs", skip_all)]
     async fn logs(
         &self,
         ctx: &async_graphql::Context<'_>,

@@ -9,6 +9,7 @@ use async_graphql::{
     types::connection::{self, Connection},
 };
 use proto_gazette::broker;
+use tracing::Instrument as _;
 use validator::Validate;
 
 /// Result of testing storage health for a single data plane and store.
@@ -146,6 +147,7 @@ async fn run_all_health_checks(
             let handle = tokio::spawn({
                 let fragment_store = fragment_store.clone();
                 async move { check_store_health(client, fragment_store.to_url(&catalog_prefix)).await }
+                    .in_current_span()
             });
             handles.push((handle, data_plane_name, fragment_store));
         }

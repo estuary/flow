@@ -17,6 +17,7 @@ use async_graphql::{
 
 #[ComplexObject]
 impl Tenant {
+    #[tracing::instrument(name = "Tenant.billing", skip_all)]
     async fn billing(&self, ctx: &Context<'_>) -> Result<TenantBilling> {
         let env = ctx.data::<crate::Envelope>()?;
         verify_authorization(env, &self.name, models::authz::Capability::ViewBilling).await?;
@@ -39,6 +40,7 @@ impl TenantBilling {
 
 #[async_graphql::Object]
 impl TenantBilling {
+    #[tracing::instrument(name = "TenantBilling.contact", skip_all)]
     async fn contact(&self, ctx: &Context<'_>) -> Result<BillingContact> {
         let env = ctx.data::<crate::Envelope>()?;
         contact::fetch_billing_contact(&env.pg_pool, &self.tenant)
@@ -46,6 +48,7 @@ impl TenantBilling {
             .map_err(|err| async_graphql::Error::new(err.to_string()))
     }
 
+    #[tracing::instrument(name = "TenantBilling.plan", skip_all)]
     async fn plan(&self, ctx: &Context<'_>) -> Result<BillingPlan> {
         let env = ctx.data::<crate::Envelope>()?;
         plan::fetch_billing_plan(&env.pg_pool, &self.tenant)
@@ -53,6 +56,7 @@ impl TenantBilling {
             .map_err(|err| async_graphql::Error::new(err.to_string()))
     }
 
+    #[tracing::instrument(name = "TenantBilling.paymentMethods", skip_all)]
     async fn payment_methods(&self, ctx: &Context<'_>) -> Result<Vec<PaymentMethod>> {
         let loader = ctx.data::<DataLoader<CustomerDataLoader>>()?;
         let Some(customer) = loader.load_one(self.tenant.clone()).await? else {
@@ -66,6 +70,7 @@ impl TenantBilling {
         Ok(methods.iter().map(PaymentMethod::from).collect())
     }
 
+    #[tracing::instrument(name = "TenantBilling.primaryPaymentMethod", skip_all)]
     async fn primary_payment_method(&self, ctx: &Context<'_>) -> Result<Option<PaymentMethod>> {
         let loader = ctx.data::<DataLoader<CustomerDataLoader>>()?;
         let Some(customer) = loader.load_one(self.tenant.clone()).await? else {
@@ -84,6 +89,7 @@ impl TenantBilling {
         Ok(Some(PaymentMethod::from(&pm)))
     }
 
+    #[tracing::instrument(name = "TenantBilling.invoices", skip_all)]
     async fn invoices(
         &self,
         ctx: &Context<'_>,
