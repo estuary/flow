@@ -753,6 +753,8 @@ fn rpc_socket_rejects_other_users() {
     owner.started();
     let name = launcher::vmm_name(&root).expect("the launch created a network");
     let directory = format!("{}/{name}/sock", root.state_dir);
+    // Expose the test's ancestor so this still measures the socket directory.
+    run::sudo(&["chmod", "0711", &root.state_dir]);
 
     // Check the live socket from another UID, without inherited group access.
     // Stat the directory after dropping privileges so an inaccessible ancestor
@@ -781,8 +783,69 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         &directory,
     ]);
     assert_eq!(result.trim(), "permission denied");
+    run::sudo(&["chmod", "0700", &root.state_dir]);
     eprintln!("{}", served(&runtime, &root.state_dir, &name));
 
+    owner.end();
+    assert_eq!(
+        launcher::leftovers(&root, Some(&name)),
+        Vec::<String>::new()
+    );
+}
+
+/// Exact source paths remain unreadable to another host UID, even when the
+/// launch id and record location are known. The VMM still serves its connector.
+#[test]
+fn credential_mount_rejects_other_users() {
+    let (run, root, runtime) = setup();
+    // Keep ancestors traversable so denial must come from the production
+    // mount parent and state directory, independent of the suite's umask.
+    run::sudo(&["chmod", "0755", &root.tmp_dir]);
+    let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, false);
+    owner.started();
+    let name = launcher::vmm_name(&root).expect("the launch created a network");
+    let record_path = launcher::record(&root.state_dir, &name);
+    let record = std::fs::read_to_string(&record_path).unwrap();
+    let claim: serde_json::Value = serde_json::from_str(record.lines().next().unwrap()).unwrap();
+    let mount = claim["mount"].as_str().unwrap();
+    let credential = format!("{mount}/task-update.json");
+    // A Spec has no task credential; use an inert marker to test its filesystem boundary.
+    std::fs::write(&credential, "synthetic-task-update").unwrap();
+    std::fs::set_permissions(
+        &credential,
+        std::os::unix::fs::PermissionsExt::from_mode(0o444),
+    )
+    .unwrap();
+
+    let result = run::sudo(&[
+        "python3",
+        "-c",
+        r#"
+import os, stat, sys
+credential, record, state = sys.argv[1:]
+parent = os.path.dirname(os.path.dirname(credential))
+uid = os.stat(parent).st_uid
+assert stat.S_IMODE(os.stat(parent).st_mode) == 0o700
+assert stat.S_IMODE(os.stat(record).st_mode) == 0o600
+assert stat.S_IMODE(os.stat(state).st_mode) == 0o700
+assert open(credential).read() == "synthetic-task-update"
+os.setgroups([])
+os.setgid(65534)
+os.setuid(65534 if uid != 65534 else 65533)
+for path in [credential, record]:
+    try:
+        open(path).read()
+    except PermissionError:
+        print("permission denied")
+    else:
+        raise AssertionError("another UID read " + path)
+"#,
+        &credential,
+        &record_path,
+        &root.state_dir,
+    ]);
+    assert_eq!(result.trim(), "permission denied\npermission denied");
+    eprintln!("{}", served(&runtime, &root.state_dir, &name));
     owner.end();
     assert_eq!(
         launcher::leftovers(&root, Some(&name)),

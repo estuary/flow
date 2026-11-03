@@ -32,9 +32,12 @@ pub fn root() -> Root {
 
     let state_dir = format!("{dir}/state");
     let tmp_dir = format!("{dir}/tmp");
-    for dir in [&state_dir, &tmp_dir] {
-        std::fs::create_dir(dir).unwrap_or_else(|e| panic!("creating {dir}: {e}"));
-    }
+    std::os::unix::fs::DirBuilderExt::mode(&mut std::fs::DirBuilder::new(), 0o700)
+        .create(&state_dir)
+        .unwrap_or_else(|e| panic!("creating {state_dir}: {e}"));
+    std::os::unix::fs::DirBuilderExt::mode(&mut std::fs::DirBuilder::new(), 0o755)
+        .create(&tmp_dir)
+        .unwrap_or_else(|e| panic!("creating {tmp_dir}: {e}"));
     let podman = format!("{dir}/podman");
     for (fixture, path) in [
         ("podman.sh", podman.clone()),
@@ -62,12 +65,12 @@ pub fn mounts(root: &Root) -> String {
     let mounts = format!("{}/connector-mounts-{}", root.tmp_dir, unsafe {
         libc::geteuid()
     });
-    if let Err(err) = std::fs::DirBuilder::new().mode(0o711).create(&mounts)
+    if let Err(err) = std::fs::DirBuilder::new().mode(0o700).create(&mounts)
         && err.kind() != std::io::ErrorKind::AlreadyExists
     {
         panic!("creating {mounts}: {err}");
     }
-    std::fs::set_permissions(&mounts, std::os::unix::fs::PermissionsExt::from_mode(0o711))
+    std::fs::set_permissions(&mounts, std::os::unix::fs::PermissionsExt::from_mode(0o700))
         .unwrap_or_else(|e| panic!("setting the mode of {mounts}: {e}"));
     mounts
 }

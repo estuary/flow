@@ -1,0 +1,54 @@
+---
+source: crates/connector/src/vmm/launch.rs
+expression: outcomes
+---
+[
+    (
+        "0500",
+        Err(
+            "must have mode 0700, private to the launcher's user",
+        ),
+    ),
+    (
+        "0700",
+        Ok(
+            (),
+        ),
+    ),
+    (
+        "0711",
+        Err(
+            "must have mode 0700, private to the launcher's user",
+        ),
+    ),
+    (
+        "0750",
+        Err(
+            "must have mode 0700, private to the launcher's user",
+        ),
+    ),
+    (
+        "0755",
+        Err(
+            "must have mode 0700, private to the launcher's user",
+        ),
+    ),
+    (
+        "0770",
+        Err(
+            "is writable by a user other than its owner",
+        ),
+    ),
+    (
+        "0777",
+        Err(
+            "is writable by a user other than its owner",
+        ),
+    ),
+    (
+        "symlink",
+        Err(
+            "is not a directory, or is a link to one",
+        ),
+    ),
+]

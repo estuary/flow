@@ -454,24 +454,7 @@ fn connector_env(
 /// container. Writable areas (scratch space, recorded state) must arrive as
 /// nested mounts under it, never as a relaxation of this root.
 pub(crate) fn create_connector_mount() -> anyhow::Result<tempfile::TempDir> {
-    // Traversable by all, listable by none: a connector image commonly runs as
-    // an unprivileged image-defined UID, which must reach files it is told the
-    // name of without being able to enumerate the mount. Scope the parent to
-    // the host user so that users sharing a TMPDIR don't contend over ownership.
-    #[cfg(unix)]
-    let parent =
-        std::env::temp_dir().join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
-    #[cfg(not(unix))]
-    let parent = std::env::temp_dir().join("connector-mounts");
-    let mut builder = std::fs::DirBuilder::new();
-    builder.recursive(true);
-    // Avoid a writable-by-others window that concurrent VMM launches would refuse.
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o711);
-    builder
-        .create(&parent)
-        .context("creating connector mounts directory")?;
-    set_mount_mode(&parent, 0o711)?;
+    let parent = connector_mounts(&std::env::temp_dir())?;
 
     let dir = tempfile::Builder::new()
         .prefix("mount-")
@@ -480,6 +463,56 @@ pub(crate) fn create_connector_mount() -> anyhow::Result<tempfile::TempDir> {
     set_mount_mode(dir.path(), 0o711)?;
 
     Ok(dir)
+}
+
+/// The host ancestor is private to the launcher. Engines bind each child
+/// directory explicitly, so image-defined UIDs need no access to this ancestor.
+pub(crate) fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    #[cfg(unix)]
+    let parent = tmp.join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
+    #[cfg(not(unix))]
+    let parent = tmp.join("connector-mounts");
+
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    match builder.create(&parent) {
+        Ok(()) => (),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            #[cfg(unix)]
+            check_directory_owner(&parent, unsafe { libc::geteuid() })
+                .with_context(|| format!("connector mounts directory {}", parent.display()))?;
+        }
+        Err(err) => {
+            return Err(anyhow::Error::new(err).context(format!("creating {}", parent.display())));
+        }
+    }
+    set_mount_mode(&parent, 0o700)?;
+    Ok(parent)
+}
+
+/// Shared directories must not let another user plant launch resources.
+#[cfg(unix)]
+pub(crate) fn check_directory_owner(
+    path: &std::path::Path,
+    euid: u32,
+) -> anyhow::Result<std::fs::Metadata> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_dir() {
+        anyhow::bail!("is not a directory, or is a link to one");
+    }
+    if metadata.uid() != euid {
+        anyhow::bail!(
+            "is owned by uid {}, not this process's uid {euid}",
+            metadata.uid()
+        );
+    }
+    if metadata.mode() & 0o022 != 0 {
+        anyhow::bail!("is writable by a user other than its owner");
+    }
+    Ok(metadata)
 }
 
 pub(crate) fn set_mount_mode(path: &std::path::Path, mode: u32) -> anyhow::Result<()> {
@@ -819,6 +852,7 @@ mod test {
             let mode = |path: &std::path::Path| {
                 std::fs::metadata(path).unwrap().permissions().mode() & 0o777
             };
+            assert_eq!(mode(mount.path().parent().unwrap()), 0o700);
             assert_eq!(mode(mount.path()), 0o711);
             assert_eq!(mode(&path), 0o444);
         }

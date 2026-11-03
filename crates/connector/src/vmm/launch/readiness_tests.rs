@@ -689,6 +689,11 @@ where
         assert_eq!(made, 0, "{fifo}: {}", std::io::Error::last_os_error());
     }
     std::fs::create_dir(dir.path().join("state")).unwrap();
+    std::fs::set_permissions(
+        dir.path().join("state"),
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .unwrap();
 
     let (_crate, module) = module_path!().split_once("::").unwrap();
     let output = std::process::Command::new(std::env::current_exe().unwrap())

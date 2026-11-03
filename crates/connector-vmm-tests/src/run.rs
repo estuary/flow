@@ -216,7 +216,7 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
         "install",
         "-d",
         "-m",
-        "0711",
+        "0700",
         &format!("{ROOT}/connector-mounts-0"),
     ]);
     sudo(&["install", "-d", "-m", "0711", &connector_mount]);

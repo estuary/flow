@@ -149,6 +149,7 @@ fn engine_environment_child() {
     let engine = dir.join("engine").to_str().unwrap().to_string();
     let state = dir.join("state");
     std::fs::create_dir(&state).unwrap();
+    std::fs::set_permissions(&state, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
