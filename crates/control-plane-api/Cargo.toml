@@ -95,7 +95,10 @@ service-kit = { path = "../service-kit" }
 hmac = { workspace = true }
 insta = { workspace = true }
 md5 = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
+tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # We need to define a feature with this name in order to allow us to use the

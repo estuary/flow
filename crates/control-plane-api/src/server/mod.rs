@@ -16,10 +16,12 @@ pub mod public;
 pub mod snapshot;
 mod task_residency;
 mod task_update;
+mod telemetry;
 mod update_l2_reporting;
 
 pub use error::{ApiError, AuthZRetry};
 pub use snapshot::Snapshot;
+pub use telemetry::export_filter;
 
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.

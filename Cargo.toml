@@ -129,6 +129,9 @@ num-bigint = "0"
 num-format = "0"
 indicatif = "0"
 open = "3"
+opentelemetry = { version = "0.31", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.31.1", default-features = false, features = ["trace", "http-proto", "reqwest-blocking-client"] }
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "internal-logs"] }
 parquet = { version = "60", features = ["json"] }
 pathfinding = "4"
 pbjson = "0"
@@ -223,6 +226,7 @@ hyper-util = "0"
 tower = { version = "0", features = ["util"] }
 tower-http = { version = "0", features = ["cors", "trace"] }
 tracing = "0"
+tracing-opentelemetry = { version = "0.32", default-features = false }
 tracing-subscriber = { version = "0", features = [
     "time",
     "json",
