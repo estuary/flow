@@ -22,8 +22,7 @@ pub struct Args {
     #[arg(long, value_name = "A.B.C.D")]
     pub nameserver: Ipv4Addr,
 
-    /// The image's user, which owns uv's cache on the scratch disk and runs
-    /// the workload.
+    /// The image's user, which runs the workload.
     #[arg(long)]
     pub uid: u32,
 

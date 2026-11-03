@@ -9,9 +9,6 @@ use crate::sys::{self, Result};
 /// Must match the VMM's `SCRATCH_MOUNT_POINT`, a virtual directory in the
 /// read-only root.
 const SCRATCH: &str = "/scratch";
-/// Separate from `TMPDIR`: uv refuses projects inside its cache, and
-/// derive-python creates projects in `TMPDIR`.
-pub const UV_CACHE: &str = "/scratch/uv-cache";
 pub const TMP: &str = "/tmp";
 
 /// Scratch directories bound over the image's own temporary directories, so
@@ -33,9 +30,8 @@ const CONNECTOR_MOUNT: &str = "connector-mount";
 /// unlinked already and returns to the host filesystem when the VM dies.
 ///
 /// mkfs leaves the filesystem root owned by root, and it stays so. The
-/// workload owns uv's cache, and the temporary directories are shared and
-/// sticky, as a container's are.
-pub fn mount_scratch(uid: u32, gid: u32) -> Result<()> {
+/// temporary directories are shared and sticky, as a container's are.
+pub fn mount_scratch() -> Result<()> {
     check_mount_target(SCRATCH)?;
     sys::mount("/dev/vda", SCRATCH, "ext4", SCRATCH_FLAGS, "")?;
 
@@ -43,9 +39,7 @@ pub fn mount_scratch(uid: u32, gid: u32) -> Result<()> {
         make_dir(dir, 0o1777)?;
         bind(dir, target, SCRATCH_FLAGS)?;
     }
-    make_dir(UV_CACHE, 0o755)?;
-    std::os::unix::fs::chown(UV_CACHE, Some(uid), Some(gid))
-        .map_err(|e| format!("chown {UV_CACHE} to {uid}:{gid}: {e}"))
+    Ok(())
 }
 
 /// Copy `/etc` before generating files: the image root is read-only, and

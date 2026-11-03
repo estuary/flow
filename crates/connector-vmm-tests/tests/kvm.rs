@@ -741,6 +741,73 @@ fn image_environment() {
     run::podman(&["image", "rm", &image]);
 }
 
+/// The workload's `UV_CACHE_DIR` is its image's, or unset as in the image.
+/// `TMPDIR` is `/tmp` either way.
+#[test]
+fn image_uv_cache_dir() {
+    let run = run::load();
+    let tag = run::random_hex();
+    let context = run::fixture("");
+    let mut table = String::new();
+    // `FROM scratch` copies the guest image's files without its `Env`, from
+    // which no instruction can remove a variable.
+    for (name, containerfile) in [
+        (
+            "custom",
+            format!(
+                "FROM {}\nENV UV_CACHE_DIR=/var/tmp/acme-uv-cache\n",
+                run.guest_image
+            ),
+        ),
+        (
+            "absent",
+            format!(
+                "FROM scratch\nCOPY --from={} / /\nUSER nobody\n",
+                run.guest_image
+            ),
+        ),
+    ] {
+        let image = format!("localhost/connector-vmm-kvm-uv-cache:{tag}-{name}");
+        run::record("image", &image);
+        let built = run::sudo_output(
+            &[
+                "podman",
+                "build",
+                "-q",
+                "-t",
+                &image,
+                "-f",
+                "-",
+                &context.to_string_lossy(),
+            ],
+            Some(containerfile.as_bytes()),
+        );
+        assert!(
+            built.status.success(),
+            "building {image}: {}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+
+        let spec = run::Spec {
+            connector_image: image.clone(),
+            ..run::Spec::probes(&run, "none.json")
+        };
+        let (vmm, mut guest) = start(&run, spec);
+        let env = probe(&mut guest, "env", "env", serde_json::json!({}));
+        table.push_str(&format!(
+            "{name}: TMPDIR={} UV_CACHE_DIR={}\n",
+            env["TMPDIR"], env["UV_CACHE_DIR"]
+        ));
+        std::mem::drop(guest);
+        run::stop(vmm);
+        run::podman(&["image", "rm", &image]);
+    }
+    insta::assert_snapshot!(table, @r#"
+    custom: TMPDIR="/tmp" UV_CACHE_DIR="/var/tmp/acme-uv-cache"
+    absent: TMPDIR="/tmp" UV_CACHE_DIR=null
+    "#);
+}
+
 /// The default workload: connector-init from the connector mount,
 /// serving over vsock, answering a Spec RPC dialed unprivileged.
 #[test]
@@ -818,15 +885,20 @@ fn storage() {
     );
     let env = probe(&mut guest, "env", "env", serde_json::json!({}));
     assert_eq!(env["TMPDIR"], "/tmp", "TMPDIR: {env}");
-    assert_eq!(
-        env["UV_CACHE_DIR"], "/scratch/uv-cache",
-        "UV_CACHE_DIR: {env}"
+    // The image's own. mkdir fails if anything created it before the workload.
+    assert_eq!(env["UV_CACHE_DIR"], "/tmp/uv-cache", "UV_CACHE_DIR: {env}");
+    let mkdir = probe(
+        &mut guest,
+        "uv-cache-mkdir",
+        "exec",
+        serde_json::json!({"argv": ["/usr/bin/mkdir", "/tmp/uv-cache"]}),
     );
+    assert_eq!(mkdir, "exit:0", "the workload creates uv's cache");
 
     let mut written = 0;
     for (name, path) in [
         ("var-tmp-fill", "/var/tmp/fill"),
-        ("uv-cache-fill", "/scratch/uv-cache/fill"),
+        ("uv-cache-fill", "/tmp/uv-cache/fill"),
     ] {
         let fill = probe(
             &mut guest,
@@ -863,7 +935,7 @@ fn storage() {
 
     for (name, path) in [
         ("var-tmp-full", "/var/tmp/after"),
-        ("uv-cache-full", "/scratch/uv-cache/after"),
+        ("uv-cache-full", "/tmp/uv-cache/after"),
     ] {
         let write = probe(
             &mut guest,
