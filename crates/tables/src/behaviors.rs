@@ -1963,7 +1963,7 @@ mod test {
             }
             subject.capability_mask = Some(Capability::CatalogRead.into());
             for node in UserGrant::reachable_nodes(&role_grants, &user_grants, &subject) {
-                assert!(node.capabilities.is_subset(Capability::CatalogRead));
+                assert!(node.capabilities.is_subset(Capability::CatalogRead.into()));
             }
         }
         insta::assert_json_snapshot!(results, @r#"
