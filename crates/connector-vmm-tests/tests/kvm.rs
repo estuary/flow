@@ -995,6 +995,115 @@ fn read_only_root() {
     run::assert_framing(&vmm, true);
 }
 
+/// The workload starts in its image's `WorkingDir` as mounted in the guest, not
+/// in the image directory a guest mount covers. A `WorkingDir` that only the
+/// image had fails the launch.
+#[test]
+fn working_dir() {
+    let run = run::load();
+    let tag = run::random_hex();
+    let context = run::fixture("");
+    let build = |name: &str, working_dir: &str| {
+        let image = format!("localhost/connector-vmm-kvm-working-dir:{tag}-{name}");
+        run::record("image", &image);
+        let containerfile = format!(
+            "FROM {}\n\
+             USER root\n\
+             RUN ln -s /tmp /work && mkdir /tmp/project\n\
+             USER nobody\n\
+             WORKDIR {working_dir}\n",
+            run.guest_image
+        );
+        let built = run::sudo_output(
+            &[
+                "podman",
+                "build",
+                "-q",
+                "-t",
+                &image,
+                "-f",
+                "-",
+                &context.to_string_lossy(),
+            ],
+            Some(containerfile.as_bytes()),
+        );
+        assert!(
+            built.status.success(),
+            "building {image}: {}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        image
+    };
+
+    let mut table = String::new();
+    for (name, working_dir, mounted) in [
+        ("root", "/", "/"),
+        ("tmp", "/tmp", "/tmp"),
+        ("var-tmp", "/var/tmp", "/var/tmp"),
+        ("etc", "/etc", "/etc"),
+        ("work", "/work", "/tmp"),
+    ] {
+        let image = build(name, working_dir);
+        let spec = run::Spec {
+            connector_image: image.clone(),
+            ..run::Spec::probes(&run, "none.json")
+        };
+        let (vmm, mut guest) = start(&run, spec);
+        let same = probe(
+            &mut guest,
+            "same",
+            "same",
+            serde_json::json!({"a": ".", "b": mounted}),
+        );
+        let write = probe(
+            &mut guest,
+            "write",
+            "write",
+            serde_json::json!({"path": "acmeCo-working-dir", "data": "acmeCo"}),
+        );
+        table.push_str(&format!(
+            "{working_dir}: . and {mounted} are {same}, writing in . is {write}\n"
+        ));
+        std::mem::drop(guest);
+        run::stop(vmm);
+        run::podman(&["image", "rm", &image]);
+    }
+    insta::assert_snapshot!(table, @r#"
+    /: . and / are "same-file", writing in . is "error:EACCES"
+    /tmp: . and /tmp are "same-file", writing in . is "ok"
+    /var/tmp: . and /var/tmp are "same-file", writing in . is "ok"
+    /etc: . and /etc are "same-file", writing in . is "error:EROFS"
+    /work: . and /tmp are "same-file", writing in . is "ok"
+    "#);
+
+    let image = build("covered", "/tmp/project");
+    let spec = run::Spec {
+        connector_image: image.clone(),
+        ..run::Spec::probes(&run, "none.json")
+    };
+    let mut vmm = run::start(&run, spec);
+    let status = run::wait_exit(&mut vmm, READY);
+    let stderr = run::stderr_text(&vmm);
+    let reported: Vec<&str> = stderr
+        .lines()
+        .filter(|line| line.starts_with("flow-guest-init:"))
+        .collect();
+    assert_eq!(
+        (status.code(), reported),
+        (
+            Some(125),
+            vec![
+                "flow-guest-init: re-entering the working directory /tmp/project after mounting: \
+                 No such file or directory (os error 2)"
+            ]
+        ),
+        "a WorkingDir beneath the scratch mount"
+    );
+    run::assert_framing(&vmm, false);
+    run::stop(vmm);
+    run::podman(&["image", "rm", &image]);
+}
+
 /// The task's persistent disk over a plain host directory.
 #[test]
 fn persistent_disk() {
