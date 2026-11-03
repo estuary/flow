@@ -13,6 +13,6 @@ expression: rejected
   },
   {
     "after": "invalid",
-    "message": "input contains invalid characters"
+    "message": "premature end of input"
   }
 ]

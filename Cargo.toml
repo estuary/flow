@@ -205,6 +205,7 @@ time = { version = "0", features = [
 # Instead, use the async-process crate which encapsulates a work-around.
 tokio = { version = "1", features = [
     "fs",
+    "io-std",
     "io-util",
     "macros",
     "net",
