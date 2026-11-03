@@ -219,11 +219,10 @@ pub(crate) fn claim(state_dir: &str, name: &str, claim: &[u8]) -> std::io::Resul
         .read(true)
         .append(true)
         .custom_flags(libc::O_TMPFILE)
-        // Readable by any launcher sharing the state directory, which needs
-        // only to lock it.
-        .mode(0o644)
+        // Recovery is shared by launchers of the same host user.
+        .mode(0o600)
         .open(state_dir)?;
-    file.set_permissions(std::fs::Permissions::from_mode(0o644))?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     file.write_all(claim)?;
     file.lock()?;
     file.sync_all()?;
@@ -448,6 +447,11 @@ mod test {
 
         let mut held = super::claim(state_dir, NAME, &line).expect("claims");
         assert_eq!(
+            std::os::unix::fs::PermissionsExt::mode(&held.metadata().unwrap().permissions())
+                & 0o777,
+            0o600,
+        );
+        assert_eq!(
             super::claim(state_dir, NAME, &line).unwrap_err().kind(),
             std::io::ErrorKind::AlreadyExists,
         );
@@ -455,6 +459,9 @@ mod test {
 
         super::append(&mut held, &created_line(Dir::Mount)).unwrap();
         std::mem::drop(held);
+        // Recovery also accepts records written by older launchers.
+        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o644))
+            .unwrap();
 
         let (taken, content) = super::take(&path).unwrap().expect("its owner let go");
         assert!(parse(state_dir, NAME, &content).unwrap().created_mount);

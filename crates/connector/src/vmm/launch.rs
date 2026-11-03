@@ -167,21 +167,9 @@ async fn launch(
     } = input;
     let podman = vmm.podman.as_str();
 
-    match std::fs::metadata(&vmm.state_dir) {
-        Ok(metadata) if metadata.is_dir() => (),
-        Ok(_) => {
-            return Err(precondition(anyhow::anyhow!(
-                "CONNECTOR_VMM_STATE_DIR {} is not a directory",
-                vmm.state_dir
-            )));
-        }
-        Err(err) => {
-            return Err(precondition(
-                anyhow::Error::new(err)
-                    .context(format!("CONNECTOR_VMM_STATE_DIR {}", vmm.state_dir)),
-            ));
-        }
-    }
+    check_state_owner(std::path::Path::new(&vmm.state_dir))
+        .with_context(|| format!("CONNECTOR_VMM_STATE_DIR {}", vmm.state_dir))
+        .map_err(precondition)?;
 
     unless_abandoned(launched_tx, async {
         release::recover(podman, &vmm.state_dir).await;
@@ -572,56 +560,19 @@ fn precondition(err: anyhow::Error) -> anyhow::Error {
     proto_grpc::status_to_anyhow(tonic::Status::failed_precondition(format!("{err:#}")))
 }
 
-/// The directory of connector mounts of the shared contract, under TMPDIR.
-/// Each mount in it is bound read-only at its own path, and both are
-/// traversable by all and listable by none, because a connector image
-/// commonly runs as an unprivileged UID of its own choosing which must reach
-/// the files it's told the names of without enumerating them. It's scoped to
-/// this process's user, so that users sharing a TMPDIR don't contend over it.
 fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<String> {
-    use std::os::unix::fs::DirBuilderExt;
-
-    // SAFETY: geteuid takes nothing and cannot fail.
-    let euid = unsafe { libc::geteuid() };
-    let mounts = tmp.join(format!("connector-mounts-{euid}"));
-
-    // Other users may pre-create this name in a shared TMPDIR.
-    // Create it without a writable-by-others window for concurrent launches.
-    match std::fs::DirBuilder::new().mode(0o711).create(&mounts) {
-        Ok(()) => (),
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-            check_mounts_owner(&mounts, euid)
-                .with_context(|| format!("connector mounts directory {}", mounts.display()))?;
-        }
-        Err(err) => {
-            return Err(anyhow::Error::new(err).context(format!("creating {}", mounts.display())));
-        }
-    }
-    set_mode(&mounts, 0o711)?;
-
-    mounts
+    crate::protocol::connector_mounts(tmp)?
         .into_os_string()
         .into_string()
         .map_err(|mounts| anyhow::anyhow!("the connector mounts directory {mounts:?} is not UTF-8"))
 }
 
-/// The connector mounts directory is this process's own: a real directory, not
-/// a link, owned by this process's user, and writable by no one else.
-fn check_mounts_owner(path: &std::path::Path, euid: u32) -> anyhow::Result<()> {
+fn check_state_owner(path: &std::path::Path) -> anyhow::Result<()> {
     use std::os::unix::fs::MetadataExt;
 
-    let metadata = std::fs::symlink_metadata(path)?;
-    if !metadata.file_type().is_dir() {
-        anyhow::bail!("is not a directory, or is a link to one");
-    }
-    if metadata.uid() != euid {
-        anyhow::bail!(
-            "is owned by uid {}, not this process's uid {euid}",
-            metadata.uid()
-        );
-    }
-    if metadata.mode() & 0o022 != 0 {
-        anyhow::bail!("is writable by a user other than its owner");
+    let metadata = crate::protocol::check_directory_owner(path, unsafe { libc::geteuid() })?;
+    if metadata.mode() & 0o777 != 0o700 {
+        anyhow::bail!("must have mode 0700, private to the launcher's user");
     }
     Ok(())
 }
@@ -789,6 +740,29 @@ mod test {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
+    #[test]
+    fn state_directory_is_private() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut outcomes = Vec::new();
+        for mode in [0o500, 0o700, 0o711, 0o750, 0o755, 0o770, 0o777] {
+            std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(mode)).unwrap();
+            outcomes.push((
+                format!("{mode:04o}"),
+                super::check_state_owner(tmp.path()).map_err(|err| err.to_string()),
+            ));
+        }
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(tmp.path(), &link).unwrap();
+        outcomes.push((
+            "symlink".to_string(),
+            super::check_state_owner(&link).map_err(|err| err.to_string()),
+        ));
+        // SAFETY: geteuid takes nothing and cannot fail.
+        let other_uid = unsafe { libc::geteuid() } ^ 1;
+        assert!(crate::protocol::check_directory_owner(tmp.path(), other_uid).is_err());
+        insta::assert_debug_snapshot!(outcomes);
+    }
+
     /// Set fixture modes explicitly so cases do not depend on the umask.
     #[test]
     fn connector_mounts() {
@@ -844,9 +818,9 @@ mod test {
                 .replace(&name, "connector-mounts-$EUID");
         }
         insta::assert_snapshot!(table, @r"
-        nothing: taken; mode 711
-        a directory of mode 0700: taken; mode 711
-        a directory of mode 0755: taken; mode 711
+        nothing: taken; mode 700
+        a directory of mode 0700: taken; mode 700
+        a directory of mode 0755: taken; mode 700
         a directory of mode 0775: refused: connector mounts directory $TMPDIR/connector-mounts-$EUID: is writable by a user other than its owner; mode 775
         a directory of mode 0757: refused: connector mounts directory $TMPDIR/connector-mounts-$EUID: is writable by a user other than its owner; mode 757
         a link to a directory of mode 0711: refused: connector mounts directory $TMPDIR/connector-mounts-$EUID: is not a directory, or is a link to one; mode 711

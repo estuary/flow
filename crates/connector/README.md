@@ -77,6 +77,16 @@ It exists only under the V2 runtime; the V1 `runtime` crate is untouched.
   A connector tests for the files it wants.
 - Image connectors bind-mount the directory **read-only**. Future writable
   areas (scratch, persisted state) will be nested read-write mounts within it.
+- The host parent `$TMPDIR/connector-mounts-<euid>` is owned by the launcher
+  and mode 0700. Each child is mode 0711, with credentials mode 0444, so an
+  image-defined UID can read its explicit bind mount. Local connectors access
+  the child directly as the launcher UID. The engine must be able to bind
+  children beneath the private host parent.
+- Host paths are not secrets: bridge names, ownership records, engine argv,
+  container metadata and debug logs can disclose them. The private ancestor
+  denies other host UIDs access even with the exact path. It does not isolate
+  processes running as the launcher UID, host root, or users controlling the
+  engine. Workloads receive only their own directory through mount isolation.
 - An image mount additionally contains `flow-connector-init` (its entrypoint)
   and `image-inspect.json` (its `--image-inspect-json-path`).
 - `task-update.json` is present only where the `Service` holds a `TaskUpdate`
@@ -330,7 +340,7 @@ EOF or status. A client which does not drain responses may park the handler.
   made.
 
 - **A launch owns only what it proves it made, and its record says so.** The
-  record is written, `flock`ed and synced as an unnamed `O_TMPFILE`, then
+  record is written at mode 0600, `flock`ed and synced as an unnamed `O_TMPFILE`, then
   linked under its name, so it is never seen unlocked or empty, and its claim
   is exclusive. It is append-only JSON lines: a claim naming the id, a random
   owner token and the connector mount, then a line marking each directory
@@ -422,18 +432,17 @@ EOF or status. A client which does not drain responses may park the handler.
   `FailedPrecondition`, and a failed pull, network, run, readiness or dial an
   ordinary launch's error.
 
-- **A VMM's connector mount follows the shared contract.** It is
-  `mount-fv_<id>` in `$TMPDIR/connector-mounts-<euid>`, both mode 0711,
-  holding `flow-connector-init` (0555) and `image-inspect.json` (0444), bound
-  read-only at its own path into the container and at `/connector-mount` in
-  the guest, which `CONNECTOR_MOUNT` names. TMPDIR, like the state directory, must therefore be the
-  same path for this process and the engine. A `connector-mounts-<euid>`
-  which is a link, another user's, or writable by others is refused as
-  `FailedPrecondition`. Launches make it at 0711, which the umask can only
-  narrow. Ordinary launches use the same
-  connector mount contract. When task-update
-  credentials are configured, the launch writes and rotates `task-update.json`
-  there until teardown starts.
+- **A VMM's connector mount follows the shared contract.** Its mode-0711
+  `mount-fv_<id>` directory lives beneath the launcher's private mode-0700
+  `$TMPDIR/connector-mounts-<euid>` parent. The child is bound read-only at
+  its own path into the container and at `/connector-mount` in the guest,
+  which `CONNECTOR_MOUNT` names. TMPDIR must name the same directory for the
+  launcher and engine. The shared parent helper rejects links, another user's
+  directory and directories writable by others, then sets mode 0700.
+  When credentials are configured, the launch writes and rotates
+  `task-update.json` there until teardown starts. `STATE_DIR` must also be a
+  real directory owned by the launcher, mode 0700. Recovery uses the same UID
+  and record format across launcher restarts.
 
 - **VMM control uses `init.sock`; container networking uses declared TCP ports.**
   A VMM with declared ports reports its container IPv4 address and the image's

@@ -202,7 +202,7 @@ if [ "${PLATFORM}" = true ]; then
     # other's dead launches. The podman wrapper records resources for cleanup.
     record dir "${PLATFORM_DIR}"
     sudo -n install -d -o "$(id -u)" -g "$(id -g)" -m 0755 "${PLATFORM_DIR}"
-    mkdir "${PLATFORM_DIR}/state" "${PLATFORM_DIR}/tmp"
+    mkdir -m 0700 "${PLATFORM_DIR}/state" "${PLATFORM_DIR}/tmp"
     install -m 0755 "${FIXTURES}/podman.sh" "${PLATFORM_DIR}/podman"
 
     # Launchers prefer flow-connector-init beside their executable, then PATH.

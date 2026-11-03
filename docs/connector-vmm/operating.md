@@ -109,9 +109,13 @@ proxies and a wrapper's own settings still reach it.
 
 ## Paths, filesystems and permissions
 
-- **`CONNECTOR_VMM_STATE_DIR` must already exist** as a directory; the
-  launcher does not create it. It holds each launch's `fv_<16 hex>`
-  directory and `fv_<16 hex>.owner` record.
+- **`CONNECTOR_VMM_STATE_DIR` must already exist** as a real directory owned
+  by the launcher's UID, mode 0700. Links and other permissions are refused
+  before recovery or launch. The launcher does not create it. It holds each
+  launch's `fv_<16 hex>` directory and mode-0600 `fv_<16 hex>.owner` record.
+  Provision it outside any scratch tree cleared when the reactor starts.
+  Existing records remain recoverable by the same UID beneath this private
+  directory.
 - **A local filesystem with `flock` and `O_TMPFILE`.** Each launch proves the
   latter by opening and sizing an `O_TMPFILE` scratch disk in its own
   `scratch/` before going further. Make it persistent if records are to
@@ -121,23 +125,28 @@ proxies and a wrapper's own settings still reach it.
 - **Socket length.** `<STATE_DIR>/fv_<16 hex>/sock/init.sock` must fit a
   Unix socket address, so `STATE_DIR` is at most 72 bytes.
 - **Connector mounts** are made at `$TMPDIR/connector-mounts-<euid>/mount-fv_<id>`.
-  `TMPDIR` must not contain a comma.
+  The shared parent is owned by the launcher, mode 0700. Each child is 0711
+  and explicitly bound into its container, so image-defined UIDs can read it
+  without access to the host ancestor. Ordinary connectors use this same
+  private parent. `TMPDIR` must not contain a comma. All launchers sharing
+  that parent must use this permission contract; an older launcher can restore
+  its mode to 0711.
 - **Same paths for launcher and engine.** The engine binds `STATE_DIR`
   subdirectories and the connector mount into each container by host path,
   so both `STATE_DIR` and `TMPDIR` must name the same directories for the
   launcher and for podman.
 - **One user per `STATE_DIR`.** The launcher's UID creates `fv_<id>` (0711)
-  with `init/` (0700), `sock/` (0711) and `scratch/` (0700), and the mount
+  with `init/`, `sock/` and `scratch/` (all 0700), and the mount
   directories (0711) with `flow-connector-init` (0555) and
   `image-inspect.json` (0444). The VMM makes `init.sock` mode 0777 inside the
-  0711 `sock/`, which the launcher's UID dials. A launch under another UID
+  0700 `sock/`, which the launcher's UID dials. A launch under another UID
   cannot remove these, so recovery across users fails and is reported.
 - **The engine in the host's PID namespace.** podman records container PIDs as
   it sees them; launchers sharing a store must see the same PID numbering.
 
 ## Networks and engines
 
-Ordinary connectors are unchanged: they run under `DOCKER_CLI` (default
+Ordinary connectors run under `DOCKER_CLI` (default
 `docker`) on the reactor's configured network (`--flow.network`). VMM
 containers run under `CONNECTOR_VMM_PODMAN`, each alone on a bridge network of
 its own, `fv_<id>`, whose interface is `fvm<12 hex>`. They never join the
@@ -285,9 +294,14 @@ credentials, `task-update.json`.
   open about 5 seconds after the rename (5.05 s every time), and a file first
   created after a read was seen at the next one. Those are observations of
   virtiofs caching there, not a latency guarantee.
-- Replacement visibility was tested with synthetic files only. No producer
-  writes `task-update.json` for VMM launches yet; real credential production
-  and refresh are separate work.
+- With a task identity and configured `TaskUpdate`, ordinary and VMM launches
+  write the credential before startup and periodically replace it until
+  teardown. Task-less Spec calls and local preview have no credential.
+- Host paths may be visible in bridge names, ownership records, engine argv,
+  container metadata and debug logs. The private host ancestor protects the
+  source even when its exact path is known. Processes running as the launcher
+  UID, host root and users controlling the engine are trusted. A connector's
+  mount namespace exposes only its own child directory.
 
 ## Troubleshooting
 
@@ -301,7 +315,7 @@ credentials, `task-update.json`.
 | "the task declares egress.cidrs, which only private data planes accept" | `egress.cidrs` on a public data plane, which never accepts one. |
 | "connector Started with execution ..., but ... was requested" | The serving reactor ignored or changed the execution settings: it predates them. See [Rollout](#rollout). |
 | "CONNECTOR_VMM_STATE_DIR is required when CONNECTOR_VMM_IMAGE is set", or another variable named with its value | Configuration refused at service construction. |
-| "CONNECTOR_VMM_STATE_DIR ..." (FailedPrecondition) | The state directory is missing or not a directory. |
+| "CONNECTOR_VMM_STATE_DIR ..." (FailedPrecondition) | The state directory is missing, a link, owned by another UID, or not mode 0700. |
 | "opening an O_TMPFILE scratch disk in ..." or "sizing a scratch disk in ..." | The state directory's filesystem cannot hold the scratch disk. |
 | "VMM execution runs a static flow-connector-init beside this program or on its PATH" | No `flow-connector-init` found, or only dynamically linked ones, which the message lists. |
 | "the host's VMM network boundary did not verify, ..." | Tables absent, or from another build; the verifier's lines name each difference. |
@@ -363,7 +377,9 @@ the local integration tests:
   host's podman API service), whether creation fencing holds with it, and
   that the engine runs in the host's PID namespace.
 - That `STATE_DIR` and `TMPDIR` are the same paths in the reactor and on the
-  host, on a local, persistent filesystem with `flock` and `O_TMPFILE`.
+  host, on a local filesystem with `flock` and `O_TMPFILE`. Keep `STATE_DIR`
+  private to the launcher and persistent across reactor restarts. Reconcile
+  any startup scratch cleanup with VMM resource recovery before enabling it.
 - The reactor container's UID, capabilities, namespaces, seccomp and LSM
   profile, and where its credential files live.
 - The engine's own defaults: `containers.conf` environment (podman forwards
@@ -412,9 +428,9 @@ Other limits:
 - Removing four named secrets from engine subprocesses reduces copies of
   them; it neither removes secrets it does not name nor restrains whoever
   controls a rootful engine, which is root on the host.
-- Different UIDs alone do not protect a known 0444 file under 0711 paths:
-  another host UID can open it. Connector mounts rely on mount namespaces and
-  unreachable paths, not on file ownership.
+- Each connector receives its own read-only mount. On the host, the
+  launcher-owned 0700 ancestor blocks other UIDs even when the child path is
+  known. A process sharing the launcher UID can read its credentials.
 - The guest's root is read-only in podman and in libkrun, so no guest,
   not even one with a compromised kernel, writes podman's storage. Everything
   a guest writes to disk goes to its scratch disk (`/tmp`, `/var/tmp`,

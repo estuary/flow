@@ -52,7 +52,7 @@ connector-init over a guest's vsock connection.
   unit tests cover TTL retention, CNAME capacity, and reclamation with explicit
   expiry states; `kvm::egress_ttl` checks real kernel expiry.
 - `tests/launcher.rs`: launches through `connector::Service`, readiness,
-  socket access restricted to the launcher's UID, task egress, cancellation,
+  socket and credential-source access restricted to the launcher's UID, task egress, cancellation,
   ownership, and recovery after process death or a stalled container query,
   including labeled resources whose record is gone.
   Release state-machine tests in `connector` cover
