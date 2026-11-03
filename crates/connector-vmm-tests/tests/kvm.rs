@@ -415,6 +415,257 @@ fn image_user_through_linked_account_files() {
     run::podman(&["image", "rm", &image]);
 }
 
+/// No exec beneath the workload gains privilege from a setuid or setgid bit or
+/// a file capability, and an image whose user is root keeps root's privilege.
+///
+/// Guest root runs each program as the image's user under `--as-root-exec`,
+/// before flow-guest-init sets no_new_privs, to show what it grants without it.
+#[test]
+fn no_new_privileges() {
+    let run = run::load();
+    let tag = run::random_hex();
+    let user_image = format!("localhost/connector-vmm-kvm-no-new-privs:{tag}");
+    let root_image = format!("localhost/connector-vmm-kvm-no-new-privs-root:{tag}");
+    // Copies of cat, so each prints the credentials its own exec gave it. The
+    // image has no setcap, so the xattr is written as a v2 `vfs_cap_data`:
+    // CAP_NET_BIND_SERVICE, permitted and effective.
+    let containerfile = format!(
+        "FROM {} AS acmesvc\n\
+         USER root\n\
+         RUN echo 'acmesvc:x:4321:4321::/:/usr/sbin/nologin' >> /etc/passwd \
+         && echo 'acmesvc:x:4321:' >> /etc/group \
+         && echo 'acmeextra:x:4323:acmesvc' >> /etc/group \
+         && cp /usr/bin/cat /usr/local/bin/setuid-cat && chmod 4755 /usr/local/bin/setuid-cat \
+         && cp /usr/bin/cat /usr/local/bin/setgid-cat && chmod 2755 /usr/local/bin/setgid-cat \
+         && cp /usr/bin/cat /usr/local/bin/filecap-cat \
+         && /usr/local/bin/python -c 'import os, struct; os.setxattr(\"/usr/local/bin/filecap-cat\", \"security.capability\", struct.pack(\"<5I\", 0x02000001, 1 << 10, 0, 0, 0))'\n\
+         USER acmesvc\n\
+         FROM acmesvc AS root\n\
+         USER root\n",
+        run.guest_image
+    );
+    let context = run::fixture("");
+    for (image, target) in [(&user_image, "acmesvc"), (&root_image, "root")] {
+        run::record("image", image);
+        let built = run::sudo_output(
+            &[
+                "podman",
+                "build",
+                "-q",
+                "--target",
+                target,
+                "-t",
+                image,
+                "-f",
+                "-",
+                &context.to_string_lossy(),
+            ],
+            Some(containerfile.as_bytes()),
+        );
+        assert!(
+            built.status.success(),
+            "building {image}: {}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
+    let probes = run::PROBES.join(" ");
+    let ran = |name: &str, result: serde_json::Value| {
+        let stdout = result["stdout"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{name}: {result}"));
+        format!("{name}, exit {}:\n{}", result["exit"], credentials(stdout))
+    };
+    let read = |name: &str, result: serde_json::Value| {
+        let content = result["content"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{name}: {result}"));
+        credentials(content)
+    };
+
+    let programs = ["setuid-cat", "setgid-cat", "filecap-cat"];
+    let argv = |program: &str| {
+        serde_json::json!([format!("/usr/local/bin/{program}"), "/proc/self/status"])
+    };
+    let controls: Vec<String> = programs
+        .iter()
+        .map(|program| {
+            let request = serde_json::json!({
+                "probe": format!("control {program}"),
+                "op": "run",
+                "argv": argv(program),
+                "uid": 4321,
+                "gid": 4321,
+                "groups": [4321, 4323],
+            });
+            format!("'{request}'")
+        })
+        .collect();
+    let spec = run::Spec {
+        connector_image: user_image.clone(),
+        flags: vec![
+            "--as-root-exec".to_string(),
+            format!(
+                "for r in {}; do {probes} once \"$r\"; done",
+                controls.join(" ")
+            ),
+        ],
+        ..run::Spec::probes(&run, "none.json")
+    };
+    let (vmm, mut guest) = start(&run, spec);
+
+    let mut table = String::from("--as-root-exec, as acmesvc:\n");
+    for program in programs {
+        let name = format!("control {program}");
+        table.push_str(&ran(program, stderr_probe(&vmm, &name)));
+    }
+    let workload = probe(
+        &mut guest,
+        "workload",
+        "read",
+        serde_json::json!({"path": "/proc/self/status"}),
+    );
+    table.push_str("the workload, as acmesvc:\n");
+    table.push_str(&read("workload", workload));
+    for program in programs {
+        let result = probe(
+            &mut guest,
+            program,
+            "run",
+            serde_json::json!({"argv": argv(program)}),
+        );
+        table.push_str(&ran(program, result));
+    }
+    std::mem::drop(guest);
+    run::stop(vmm);
+
+    let control =
+        serde_json::json!({"probe": "control root", "op": "read", "path": "/proc/self/status"});
+    let spec = run::Spec {
+        connector_image: root_image.clone(),
+        flags: vec![
+            "--as-root-exec".to_string(),
+            format!("{probes} once '{control}'"),
+        ],
+        ..run::Spec::probes(&run, "none.json")
+    };
+    let (vmm, mut guest) = start(&run, spec);
+
+    table.push_str("--as-root-exec, as root:\n");
+    table.push_str(&read("control root", stderr_probe(&vmm, "control root")));
+    let workload = probe(
+        &mut guest,
+        "workload",
+        "read",
+        serde_json::json!({"path": "/proc/self/status"}),
+    );
+    table.push_str("the workload, as root:\n");
+    table.push_str(&read("workload", workload));
+    let cat = probe(
+        &mut guest,
+        "cat",
+        "run",
+        serde_json::json!({"argv": ["/usr/bin/cat", "/proc/self/status"]}),
+    );
+    table.push_str(&ran("cat", cat));
+    std::mem::drop(guest);
+    run::stop(vmm);
+    run::podman(&["image", "rm", &root_image, &user_image]);
+
+    insta::assert_snapshot!(table, @r"
+    --as-root-exec, as acmesvc:
+    setuid-cat, exit 0:
+    Uid: 4321 0 0 0
+    Gid: 4321 4321 4321 4321
+    Groups: 4321 4323
+    CapPrm: 000001ffffffffff
+    CapEff: 000001ffffffffff
+    NoNewPrivs: 0
+    setgid-cat, exit 0:
+    Uid: 4321 4321 4321 4321
+    Gid: 4321 0 0 0
+    Groups: 4321 4323
+    CapPrm: 0000000000000000
+    CapEff: 0000000000000000
+    NoNewPrivs: 0
+    filecap-cat, exit 0:
+    Uid: 4321 4321 4321 4321
+    Gid: 4321 4321 4321 4321
+    Groups: 4321 4323
+    CapPrm: 0000000000000400
+    CapEff: 0000000000000400
+    NoNewPrivs: 0
+    the workload, as acmesvc:
+    Uid: 4321 4321 4321 4321
+    Gid: 4321 4321 4321 4321
+    Groups: 4321 4323
+    CapPrm: 0000000000000000
+    CapEff: 0000000000000000
+    NoNewPrivs: 1
+    setuid-cat, exit 0:
+    Uid: 4321 4321 4321 4321
+    Gid: 4321 4321 4321 4321
+    Groups: 4321 4323
+    CapPrm: 0000000000000000
+    CapEff: 0000000000000000
+    NoNewPrivs: 1
+    setgid-cat, exit 0:
+    Uid: 4321 4321 4321 4321
+    Gid: 4321 4321 4321 4321
+    Groups: 4321 4323
+    CapPrm: 0000000000000000
+    CapEff: 0000000000000000
+    NoNewPrivs: 1
+    filecap-cat, exit 0:
+    Uid: 4321 4321 4321 4321
+    Gid: 4321 4321 4321 4321
+    Groups: 4321 4323
+    CapPrm: 0000000000000000
+    CapEff: 0000000000000000
+    NoNewPrivs: 1
+    --as-root-exec, as root:
+    Uid: 0 0 0 0
+    Gid: 0 0 0 0
+    Groups:
+    CapPrm: 000001ffffffffff
+    CapEff: 000001ffffffffff
+    NoNewPrivs: 0
+    the workload, as root:
+    Uid: 0 0 0 0
+    Gid: 0 0 0 0
+    Groups: 0
+    CapPrm: 000001ffffffffff
+    CapEff: 000001ffffffffff
+    NoNewPrivs: 1
+    cat, exit 0:
+    Uid: 0 0 0 0
+    Gid: 0 0 0 0
+    Groups: 0
+    CapPrm: 000001ffffffffff
+    CapEff: 000001ffffffffff
+    NoNewPrivs: 1
+    ");
+}
+
+/// The identity lines of a `/proc/<pid>/status`, with whitespace collapsed.
+fn credentials(status: &str) -> String {
+    status
+        .lines()
+        .filter(|line| {
+            [
+                "Uid:",
+                "Gid:",
+                "Groups:",
+                "CapPrm:",
+                "CapEff:",
+                "NoNewPrivs:",
+            ]
+            .iter()
+            .any(|field| line.starts_with(field))
+        })
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" ") + "\n")
+        .collect()
+}
+
 /// Environment defaults reach both diagnostics and the workload.
 #[test]
 fn image_environment() {

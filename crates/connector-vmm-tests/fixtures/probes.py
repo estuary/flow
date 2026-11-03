@@ -28,6 +28,7 @@ import os
 import random
 import socket
 import struct
+import subprocess
 import sys
 import time
 
@@ -364,6 +365,16 @@ def op_exec(r):
             os._exit(126 if error.errno in (errno.EACCES, errno.EPERM) else 127)
     _, status = os.waitpid(pid, 0)
     return "exit:%d" % os.waitstatus_to_exitcode(status)
+
+
+def op_run(r):
+    """`argv`'s exit code and stdout. With `uid`, guest root runs it as that
+    user, setting `groups`, then `gid`, then `uid` before the exec, as
+    flow-guest-init does for the workload."""
+    done = subprocess.run(r["argv"], capture_output=True, text=True,
+                          user=r.get("uid"), group=r.get("gid"),
+                          extra_groups=r.get("groups"))
+    return {"exit": done.returncode, "stdout": done.stdout}
 
 
 def op_env(r):
