@@ -538,6 +538,14 @@ mod test {
     use super::*;
     use crate::auth::list::AuthorizedPrefix;
 
+    // clap validates a subcommand's arguments only when that subcommand is
+    // parsed, and only under debug assertions. This test validates them all, so
+    // a misnamed argument ID fails here rather than in a user's invocation.
+    #[test]
+    fn cli_definition_is_valid() {
+        <Cli as clap::CommandFactory>::command().debug_assert();
+    }
+
     #[test]
     fn connector_network_is_global() {
         let default = Cli::try_parse_from(["flowctl", "raw", "spec", "--source", "flow.yaml"])
