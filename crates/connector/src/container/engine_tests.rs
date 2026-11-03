@@ -245,6 +245,7 @@ fn engine_environment_child() {
                 .to_string()
                 .contains("exited (exit status: 42) before flow-connector-init")
         );
+        assert_eq!(vmm.recover().await, 0);
     });
     assert_eq!(std::fs::read_dir(&state).unwrap().count(), 0);
     let mounts = dir.join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));

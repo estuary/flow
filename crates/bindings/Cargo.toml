@@ -14,6 +14,7 @@ crate-type = ["staticlib"]
 [dependencies]
 allocator = { path = "../allocator" }
 cgo = { path = "../cgo" }
+connector = { path = "../connector" }
 derive = { path = "../derive" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }

@@ -16,6 +16,11 @@ pub struct TaskServiceConfig {
     /// reactor its connector landed on.
     #[prost(message, optional, tag = "7")]
     pub process: ::core::option::Option<::proto_gazette::broker::ProcessSpec>,
+    /// Whether this service recovers what dead VMM launches left, for as long as
+    /// it runs. A reactor sets it on its one connector proxy service, which
+    /// outlives every shard's.
+    #[prost(bool, tag = "8")]
+    pub vmm_recovery: bool,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 /// It's a description of a document shuffle,

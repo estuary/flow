@@ -41,7 +41,7 @@ pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify, verify_connector};
 pub use router::{LOCAL_ISSUER, ServiceRouter};
 pub use service::{Service, TaskUpdate};
-pub use vmm::Vmm;
+pub use vmm::{Recovery as VmmRecovery, RecoveryMetrics as VmmRecoveryMetrics, Vmm};
 
 /// Build a connector router for tests and other offline callers which need no
 /// shared registry, never attach containers to a Docker network, and have no

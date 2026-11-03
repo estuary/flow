@@ -59,8 +59,18 @@ connector-init over a guest's vsock connection.
   expiry states; `kvm::egress_ttl` checks real kernel expiry.
 - `tests/launcher.rs`: launches through `connector::Service`, readiness,
   socket and credential-source access restricted to the launcher's UID, task egress, cancellation,
-  ownership, and recovery after process death or a stalled container query,
-  including labeled resources whose record is gone.
+  ownership, and recovery after process death, a destroyed runtime or a stalled container query,
+  including labeled resources whose record is gone. Recovery runs as single
+  passes (`connector::Vmm::recover`), in processes killed mid-pass, or as a
+  `connector::VmmRecovery` whose later passes, with no launch, catch late
+  creates and retry failures. Late ingress grants are created, and started,
+  apart through a rootful podman API service each test starts over the
+  host's store (`launcher::Api`), with recovery reaching it too, and the
+  service's own events order them. A create the service accepted, of a
+  launch's container or of its `--rm` boundary verify's, and holds on a POSIX
+  lock of a private store's containers (`/proc/locks` shows the service
+  waiting), outlives its killed client and its launch's release, and lands
+  for a later pass to remove.
   Release state-machine tests in `connector` cover
   failure combinations; the integration test checks actual command termination
   and recovery without asserting elapsed time.
@@ -93,7 +103,10 @@ image-volume removal before removing the image.
 `src/launcher.rs` and `fixtures/podman.sh` provide launcher control and fault
 injection; `launcher::before_connector_init` runs a test's script in the
 workload before connector-init. Recovery holds match the seeded orphans'
-tokens so a failed launch can release its own resources. `src/host.rs` reads
+tokens so a failed launch can release its own resources. `launcher::remote`
+has the wrapper drive an API service instead of podman itself; a test's own
+service stops with it, or after five idle minutes should the test die, and
+a private store's directories are on the resource list. `src/host.rs` reads
 kernel state; `src/guest.rs` talks to the stdlib Python probe server in
 `fixtures/probes.py`.
 

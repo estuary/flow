@@ -2,17 +2,20 @@
 //! whoever recovers it once its owner is dead: the same steps, under the
 //! record's lock.
 //!
-//! The container goes first, because nothing else is safe to remove while it
+//! The containers go first, because nothing else is safe to remove while one
 //! may run: its mount and state are bound into it, and its network holds it.
 //! An unknown container, from a query or removal which failed, stops the
-//! release there. Host ingress permissions go next; a failed revoke keeps the
+//! release there. Host ingress permissions go next. Their grant's container is
+//! among those already removed, so a start of it which podman has yet to serve
+//! fails, and cannot grant again after the revoke. A failed revoke keeps the
 //! network and record for retry. Then the network, rootfs volume, mount and state
 //! are each attempted whatever became of the others. The record goes last, once
 //! everything it names is gone; otherwise a later release can finish the job.
 //!
 //! A podman service may still create a resource after its release has removed
 //! the record. So `recover` also lists what carries its state directory's
-//! label, and removes each resource whose record is gone.
+//! label, and removes each resource whose record is gone. A grant's container
+//! is instead given a record of its own first (`release_grant`).
 
 use super::record::{self, Record};
 use anyhow::Context;
@@ -131,7 +134,7 @@ impl Release {
             (format!("ingress {}", record.token), &self.ingress),
             (format!("network {}", record.name), &self.networks),
             (format!("rootfs volume {}", record.name), &self.volumes),
-            (record.mount.clone(), &self.mount),
+            (record.mount.clone().unwrap_or_default(), &self.mount),
             (record.state.clone(), &self.state),
         ]
         .into_iter()
@@ -184,7 +187,18 @@ pub(crate) async fn release(
                     .ingress_image
                     .as_deref()
                     .expect("ingress has a VMM image");
-                let mut args = super::plan::host_boundary(image, "revoke", &[]);
+                // Named and labeled for the record, should podman create it
+                // and never start it.
+                let mut args = super::plan::host_boundary(
+                    image,
+                    "revoke",
+                    super::plan::Exited::Removed,
+                    &[
+                        format!("--name={}{}", record.name, record::REVOKE_SUFFIX),
+                        format!("--label={}={}", record::OWNER_LABEL, record.token),
+                        format!("--label={}={state_dir}", record::STATE_DIR_LABEL),
+                    ],
+                );
                 args.push(format!("--owner={}", record.token));
                 release.ingress = removed(
                     command(podman, &args.iter().map(String::as_str).collect::<Vec<_>>())
@@ -228,7 +242,13 @@ pub(crate) async fn release(
                 args.extend(names.iter().map(String::as_str));
                 release.volumes = removed(command(podman, &args).await.map(|_| ()));
             }
-            Action::RemoveMount => release.mount = removed(remove_dir(&record.mount)),
+            Action::RemoveMount => {
+                let mount = record
+                    .mount
+                    .as_deref()
+                    .expect("a record marks only a mount it names");
+                release.mount = removed(remove_dir(mount));
+            }
             Action::RemoveState => release.state = removed(remove_dir(&record.state)),
             Action::RemoveRecord => {
                 return record::remove(state_dir, path)
@@ -239,25 +259,38 @@ pub(crate) async fn release(
     }
 }
 
+/// What a recovery pass left, for a later pass or an operator.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Problem {
+    /// What went wrong, as it's logged.
+    pub message: &'static str,
+    /// The state directory, record or resource it concerns.
+    pub subject: String,
+    pub error: String,
+}
+
 /// Release every record in `state_dir` whose owner is dead, then remove what
-/// carries `state_dir`'s label but has no record. What this fails to release
-/// is reported to this process's log alone: it isn't the launching session's,
-/// and may not be its task's. If `state_dir` can't be read, nothing is removed.
-pub(crate) async fn recover(podman: &str, state_dir: &str) {
+/// carries `state_dir`'s label but has no record. Returns what remains to be
+/// retried or inspected, which `recovery` reports. If `state_dir` can't be
+/// read, nothing is removed.
+pub(crate) async fn recover(podman: &str, state_dir: &str) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    let unreadable = |err: std::io::Error| Problem {
+        message: "failed to read VMM ownership records",
+        subject: state_dir.to_string(),
+        error: err.to_string(),
+    };
     let entries = match std::fs::read_dir(state_dir) {
         Ok(entries) => entries,
-        Err(err) => {
-            tracing::error!(%state_dir, error = %err, "failed to read VMM ownership records");
-            return;
-        }
+        Err(err) => return vec![unreadable(err)],
     };
 
     for entry in entries {
         let file_name = match entry {
             Ok(entry) => entry.file_name(),
             Err(err) => {
-                tracing::error!(%state_dir, error = %err, "failed to read VMM ownership records");
-                return;
+                problems.push(unreadable(err));
+                return problems;
             }
         };
         let Some(name) = file_name.to_str().and_then(record::launch_name) else {
@@ -269,38 +302,42 @@ pub(crate) async fn recover(podman: &str, state_dir: &str) {
             Ok(Some(taken)) => taken,
             Ok(None) => continue,
             Err(err) => {
-                tracing::error!(record = %path, error = %err, "failed to open a VMM ownership record");
+                problems.push(Problem {
+                    message: "failed to open a VMM ownership record",
+                    subject: path,
+                    error: err.to_string(),
+                });
                 continue;
             }
         };
         let record = match record::parse(state_dir, name, &content) {
             Ok(record) => record,
             Err(err) => {
-                tracing::error!(
-                    record = %path,
-                    error = format!("{err:#}"),
-                    "a VMM ownership record is malformed, so nothing it names is released",
-                );
+                problems.push(Problem {
+                    message: "a VMM ownership record is malformed, so nothing it names is released",
+                    subject: path,
+                    error: format!("{err:#}"),
+                });
                 continue;
             }
         };
 
         match release(podman, state_dir, &path, &record).await {
             Ok(()) => tracing::info!(record = %path, "released the resources of a dead VMM launch"),
-            Err(failures) => {
-                for (resource, error) in failures {
-                    tracing::error!(
-                        record = %path,
-                        %resource,
-                        %error,
-                        "failed to release a resource of a dead VMM launch; its record is kept",
-                    );
-                }
-            }
+            Err(failures) => problems.extend(kept(&path, failures)),
         }
     }
 
-    remove_unrecorded(podman, state_dir).await;
+    remove_unrecorded(podman, state_dir, &mut problems).await;
+    problems
+}
+
+fn kept(path: &str, failures: Vec<(String, String)>) -> impl Iterator<Item = Problem> + '_ {
+    failures.into_iter().map(move |(resource, error)| Problem {
+        message: "failed to release a resource of a dead VMM launch; its record is kept",
+        subject: format!("{path}: {resource}"),
+        error,
+    })
 }
 
 /// Remove each container, network and volume carrying `state_dir`'s label
@@ -308,8 +345,10 @@ pub(crate) async fn recover(podman: &str, state_dir: &str) {
 /// So each kind is listed before its records are looked for, and a live
 /// launch's resource is then always found with its record. Containers go
 /// first, because their network and volume can't be removed while they exist.
-/// A failure is logged, and the next launch's recovery retries it.
-async fn remove_unrecorded(podman: &str, state_dir: &str) {
+/// Those of a launch's boundary verify and revoke grant nothing, so they are
+/// removed as they are; its ingress grant's is recorded first. A failure is
+/// left for the next pass to retry.
+async fn remove_unrecorded(podman: &str, state_dir: &str, problems: &mut Vec<Problem>) {
     let label = format!("label={}={state_dir}", record::STATE_DIR_LABEL);
     let kinds: [(&str, &[&str], &str, &[&str]); 3] = [
         (
@@ -333,27 +372,28 @@ async fn remove_unrecorded(podman: &str, state_dir: &str) {
         let listed = match command(podman, &args).await {
             Ok(stdout) => lines(&stdout),
             Err(err) => {
-                tracing::error!(
-                    %state_dir,
-                    kind,
-                    error = format!("{err:#}"),
-                    "failed to list VMM resources by their state directory",
-                );
+                problems.push(Problem {
+                    message: "failed to list VMM resources by their state directory",
+                    subject: format!("{kind}s labeled {state_dir}"),
+                    error: format!("{err:#}"),
+                });
                 continue;
             }
         };
 
         let (unrecorded, kept) = unrecorded(state_dir, listed);
         for (resource, why) in kept {
-            tracing::error!(
-                %state_dir,
-                kind,
-                %resource,
-                %why,
-                "a VMM resource has no record that can be looked for, so it is kept",
-            );
+            problems.push(Problem {
+                message: "a VMM resource has no record that can be looked for, so it is kept",
+                subject: format!("{kind} {resource}"),
+                error: why,
+            });
         }
         for resource in unrecorded {
+            if kind == "container" && resource.ends_with(record::INGRESS_SUFFIX) {
+                release_grant(podman, state_dir, &resource, problems).await;
+                continue;
+            }
             let mut args = remove.to_vec();
             args.push(&resource);
             let removed = match command(podman, &args).await {
@@ -371,16 +411,125 @@ async fn remove_unrecorded(podman: &str, state_dir: &str) {
                     %resource,
                     "removed a VMM resource whose record is gone",
                 ),
-                Err(err) => tracing::error!(
-                    %state_dir,
-                    kind,
-                    %resource,
-                    error = format!("{err:#}"),
-                    "failed to remove a VMM resource whose record is gone",
-                ),
+                Err(err) => problems.push(Problem {
+                    message: "failed to remove a VMM resource whose record is gone",
+                    subject: format!("{kind} {resource}"),
+                    error: format!("{err:#}"),
+                }),
             }
         }
     }
+}
+
+/// Release `container`, an ingress grant's, whose launch's record is gone.
+/// Its labels may be the only evidence of a grant, so they are written into a
+/// record of the launch's name first, claimed atomically and locked. Then the
+/// release removes the container, which fails any start podman has yet to
+/// serve, revokes the grant, and removes that record last. Whatever this
+/// leaves, a later pass releases from the record, as any other.
+async fn release_grant(
+    podman: &str,
+    state_dir: &str,
+    container: &str,
+    problems: &mut Vec<Problem>,
+) {
+    let name = record::resource_launch(container).expect("a grant is named for its launch");
+    let problem = |error: String| Problem {
+        message: "failed to record a VMM ingress grant whose record is gone, so it is kept",
+        subject: format!("container {container}"),
+        error,
+    };
+
+    let inspected = match command(podman, &["container", "inspect", container]).await {
+        Ok(inspection) => grant_claim(state_dir, name, container, &inspection),
+        Err(err) => match exists(podman, "container", container).await {
+            // Another pass recorded it, then removed it, first.
+            Ok(false) => return,
+            Ok(true) | Err(_) => Err(err),
+        },
+    };
+    let claim = match inspected {
+        Ok(claim) => claim,
+        Err(err) => {
+            problems.push(problem(format!("{err:#}")));
+            return;
+        }
+    };
+
+    let path = record::path(state_dir, name);
+    let _held = match record::claim(state_dir, name, &claim) {
+        Ok(held) => held,
+        // Another pass recorded it first, and releases it.
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => return,
+        Err(err) => {
+            problems.push(problem(format!("claiming {path}: {err}")));
+            return;
+        }
+    };
+    let record = record::parse(state_dir, name, &claim).expect("grant_claim's claim parses");
+    tracing::info!(record = %path, %container, "recorded a VMM ingress grant whose record was gone");
+
+    match release(podman, state_dir, &path, &record).await {
+        Ok(()) => tracing::info!(record = %path, "released the resources of a dead VMM launch"),
+        Err(failures) => problems.extend(kept(&path, failures)),
+    }
+}
+
+/// The claim which records grant `container` of launch `name` from its
+/// `podman container inspect`: the owner token it was granted under, and the
+/// ID of the image which granted it, and so can revoke it. The ID, unlike the
+/// name it was run by, can't since have been given to another image. Refused
+/// unless it carries `state_dir`'s label and its token is well-formed, so that
+/// only a grant of this state directory is ever recorded.
+fn grant_claim(
+    state_dir: &str,
+    name: &str,
+    container: &str,
+    inspection: &[u8],
+) -> anyhow::Result<Vec<u8>> {
+    #[derive(serde::Deserialize)]
+    struct Inspected {
+        #[serde(rename = "Name")]
+        name: String,
+        #[serde(rename = "Image")]
+        image: String,
+        #[serde(rename = "Config")]
+        config: Config,
+    }
+    #[derive(serde::Deserialize)]
+    struct Config {
+        #[serde(rename = "Labels", default)]
+        labels: Option<std::collections::BTreeMap<String, String>>,
+    }
+
+    let inspected: Vec<Inspected> =
+        serde_json::from_slice(inspection).context("parsing its inspection")?;
+    let [inspected] = &inspected[..] else {
+        anyhow::bail!("inspected as {} containers", inspected.len());
+    };
+    if inspected.name != container {
+        anyhow::bail!("inspected as container {:?}", inspected.name);
+    }
+    let labels = inspected.config.labels.clone().unwrap_or_default();
+    if labels.get(record::STATE_DIR_LABEL).map(String::as_str) != Some(state_dir) {
+        anyhow::bail!("is not labeled {}={state_dir}", record::STATE_DIR_LABEL);
+    }
+    let Some(token) = labels.get(record::OWNER_LABEL) else {
+        anyhow::bail!("has no {} label", record::OWNER_LABEL);
+    };
+    // Its image is an argument of the revoking `podman run`.
+    if inspected.image.len() != 64
+        || !inspected
+            .image
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        anyhow::bail!("was run from image ID {:?}", inspected.image);
+    }
+
+    let claim = record::claim_line(name, token, None, Some(&inspected.image));
+    record::parse(state_dir, name, &claim).context("recording it")?;
+    Ok(claim)
 }
 
 /// Return labeled resources with no record, plus name or record lookup failures.
@@ -485,7 +634,7 @@ mod test {
             &super::record::claim_line(
                 "fv_0123456789abcdef",
                 "00112233445566778899aabbccddeeff",
-                "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef",
+                Some("/tmp/connector-mounts-1000/mount-fv_0123456789abcdef"),
                 Some("vmm:local"),
             ),
         )
@@ -572,7 +721,7 @@ mod test {
             let record = super::record::Record {
                 name: "fv_0123456789abcdef".to_string(),
                 token: "00112233445566778899aabbccddeeff".to_string(),
-                mount: "/tmp/connector-mounts-1000/mount-fv_0123456789abcdef".to_string(),
+                mount: Some("/tmp/connector-mounts-1000/mount-fv_0123456789abcdef".to_string()),
                 state: "/var/lib/flow/connector-vmm/fv_0123456789abcdef".to_string(),
                 created_mount: *created_mount,
                 created_state: *created_state,
@@ -638,9 +787,14 @@ mod test {
         let listed: Vec<String> = [
             "fv_0123456789abcdef",
             "fv_0123456789abcdef-ingress",
+            "fv_0123456789abcdef-verify",
+            "fv_0123456789abcdef-revoke",
             "fv_fedcba9876543210",
             "fv_fedcba9876543210-ingress",
+            "fv_fedcba9876543210-verify",
+            "fv_fedcba9876543210-revoke",
             "fv_fedcba9876543210-grant",
+            "fv_fedcba9876543210-verify-ingress",
             "fv_0123456789ABCDEF",
             "fv_0123456789abcde",
             "quirky_turing",
@@ -668,6 +822,104 @@ mod test {
             table.push('\n');
         }
         insta::assert_snapshot!(table.replace(state_dir, "<state>"));
+    }
+
+    /// A grant's container is recorded from its labels and the ID of its
+    /// image, never by the name it was run by, and only if they show it's
+    /// this state directory's. Its record releases its containers, revokes
+    /// its grant, and owns no directory.
+    #[test]
+    fn grant_claims() {
+        const NAME: &str = "fv_0123456789abcdef";
+        const CONTAINER: &str = "fv_0123456789abcdef-ingress";
+        const TOKEN: &str = "00112233445566778899aabbccddeeff";
+        const IMAGE_ID: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let inspection = |name: &str, image_id: &str, labels: serde_json::Value| {
+            serde_json::to_vec(&serde_json::json!([{
+                "Name": name,
+                // Since moved to another image.
+                "ImageName": "ghcr.io/estuary/connector-vmm:dev",
+                "Image": image_id,
+                "Config": {"Labels": labels},
+            }]))
+            .unwrap()
+        };
+        let labels = |state_dir: &str, token: &str| {
+            serde_json::json!({
+                "dev.estuary.vmm-owner": token,
+                "dev.estuary.vmm-state-dir": state_dir,
+            })
+        };
+        let ours = labels("/state", TOKEN);
+
+        let cases: Vec<(&str, Vec<u8>)> = vec![
+            (
+                "this state directory's",
+                inspection(CONTAINER, IMAGE_ID, ours.clone()),
+            ),
+            (
+                "another state directory's",
+                inspection(CONTAINER, IMAGE_ID, labels("/other", TOKEN)),
+            ),
+            (
+                "a malformed token",
+                inspection(CONTAINER, IMAGE_ID, labels("/state", "0011")),
+            ),
+            (
+                "no owner",
+                inspection(
+                    CONTAINER,
+                    IMAGE_ID,
+                    serde_json::json!({"dev.estuary.vmm-state-dir": "/state"}),
+                ),
+            ),
+            (
+                "no labels",
+                inspection(CONTAINER, IMAGE_ID, serde_json::Value::Null),
+            ),
+            (
+                "another container",
+                inspection("fv_fedcba9876543210-ingress", IMAGE_ID, ours.clone()),
+            ),
+            ("no image ID", inspection(CONTAINER, "", ours.clone())),
+            (
+                "a short image ID",
+                inspection(CONTAINER, &IMAGE_ID[..12], ours.clone()),
+            ),
+            (
+                "a digest for an image ID",
+                inspection(CONTAINER, &format!("sha256:{IMAGE_ID}"), ours.clone()),
+            ),
+            (
+                "an upper-case image ID",
+                inspection(CONTAINER, &IMAGE_ID.to_uppercase(), ours.clone()),
+            ),
+            (
+                "an option for an image ID",
+                inspection(CONTAINER, "--privileged", ours.clone()),
+            ),
+            ("none", b"[]".to_vec()),
+            ("not JSON", b"Error: no such container".to_vec()),
+        ];
+
+        let mut table = String::new();
+        for (label, inspection) in cases {
+            let outcome = match super::grant_claim("/state", NAME, CONTAINER, &inspection) {
+                Ok(claim) => {
+                    let record = super::record::parse("/state", NAME, &claim).unwrap();
+                    let mut release = Release::new(&record);
+                    release.containers = Progress::Done;
+                    format!(
+                        "{}=> {record:?}\n=> {:?}, then {release:?}",
+                        String::from_utf8(claim).unwrap(),
+                        release.next(),
+                    )
+                }
+                Err(err) => format!("refused: {err:#}"),
+            };
+            table.push_str(&format!("# {label}\n{outcome}\n\n"));
+        }
+        insta::assert_snapshot!(table);
     }
 
     /// Advance Tokio's clock explicitly so each command's deadline is checked

@@ -10,8 +10,7 @@
 //! shard or publication is involved.
 
 use super::{
-    Evidence, Owner, PROBE, case, destinations, hold_rpc, launch, removed, router, served, setup,
-    vmm_at,
+    Evidence, Owner, PROBE, case, destinations, hold_rpc, recover, removed, served, setup, vmm_at,
 };
 use connector_vmm_tests::{endpoint, launcher, run};
 use std::os::unix::process::ExitStatusExt;
@@ -375,7 +374,7 @@ fn replacement_races_old_cleanup() {
         "after second generation's release",
     );
 
-    // A last launch of the task recovers what second generation left, beside third generation.
+    // A recovery pass releases what second generation left, beside third generation.
     let fresh = launcher::root();
     let last = launcher::Root {
         dir: fresh.dir,
@@ -383,15 +382,17 @@ fn replacement_races_old_cleanup() {
         state_dir: shared.state_dir.clone(),
         tmp_dir: shared.tmp_dir.clone(),
     };
-    launch(
-        &runtime,
-        &router(vmm_at(&last.podman, &last.state_dir, &run.vmm_image)),
-        &run.derive_python_image,
+    assert_eq!(
+        recover(
+            &runtime,
+            &vmm_at(&last.podman, &last.state_dir, &run.vmm_image)
+        ),
+        0
     );
     assert_eq!(launcher::remaining(&second.footprint), Vec::<String>::new());
     assert!(
         !names(&last, &second).is_empty(),
-        "the last launch released second generation"
+        "the pass released second generation"
     );
     assert_eq!(
         names(&last, &third),
@@ -399,7 +400,7 @@ fn replacement_races_old_cleanup() {
         "it never named third generation"
     );
     evidence.note(format!(
-        "last launch recovered second generation: {:?}; second generation footprint gone",
+        "a pass recovered second generation: {:?}; second generation footprint gone",
         names(&last, &second)
     ));
     check_live(

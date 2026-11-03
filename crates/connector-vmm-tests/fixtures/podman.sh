@@ -35,6 +35,11 @@ podman=(sudo -n podman)
 if [[ -n "${CONNECTOR_VMM_TESTS_HOST_PID:-}" ]]; then
     podman=(sudo -n systemd-run --quiet --pipe --wait --collect --service-type=exec -- podman)
 fi
+# Through a podman API service, as a launcher reaching the host's does: the
+# service orders each command's requests among every other client's.
+if [[ -e "${TEST}/remote" ]]; then
+    podman=(sudo -n podman --remote --url "$(<"${TEST}/remote")")
+fi
 
 step=
 case "${1:-} ${2:-}" in
@@ -78,10 +83,15 @@ case "${1:-} ${2:-}" in
 "ps "*)
     step=ps
     ;;
+"container inspect")
+    step=inspect
+    ;;
 "run "*)
-    if [[ $# -ge 2 && "${*: -2:1}" == boundary && "${*: -1}" == verify ]]; then
-        step=verify
-    fi
+    case " $* " in
+    *" boundary verify "*) step=verify ;;
+    *" boundary grant "*) step=grant ;;
+    *" boundary revoke "*) step=revoke ;;
+    esac
     ;;
 esac
 

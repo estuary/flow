@@ -137,8 +137,11 @@ It exists only under the V2 runtime; the V1 `runtime` crate is untouched.
 | `Vmm`, `Vmm::from_env` | VMM capability and configuration from `CONNECTOR_VMM_*` |
 | `vmm::vmm_for` | Admission decision for requested execution |
 | `vmm::plan::plan` | Pure plan of a VMM launch |
-| `vmm::launch::start` | VMM lifecycle, image admission, credential mount, and recovery |
-| `vmm::release::recover` | Releases resources whose durable owner is dead, and labeled resources whose record is gone |
+| `vmm::launch::start` | VMM lifecycle, image admission, and credential mount |
+| `Vmm::spawn_recovery`, `VmmRecovery` | A process's background recovery of its `STATE_DIR`, until dropped |
+| `Vmm::recover`, `Vmm::recovery_metrics` | One recovery pass now; the process's pass metrics |
+| `Vmm::drain_launches` | Bounded wait for this process's launches, teardown included |
+| `vmm::release::recover` | One pass: releases resources whose durable owner is dead, and labeled resources whose record is gone |
 | `vmm::check_spec_execution` | Keeps execution and egress fixed through every session request |
 | `TaskUpdate`                    | Signer and URLs by which a connector updates its config and secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
@@ -163,7 +166,8 @@ src/
 ├── vmm/plan.rs   # Pure launch planning
 ├── vmm/launch.rs # Claimed launch and credential lifecycle
 ├── vmm/record.rs # Durable ownership and locks
-├── vmm/release.rs# Resource release and recovery
+├── vmm/release.rs# Resource release, and one recovery pass
+├── vmm/recovery.rs # Recovery's schedule, reporting and metrics
 └── container.rs  # Docker/Podman pull, inspect/run capabilities, dial
 tests/
 ├── e2e.rs        # served streams: loopback gRPC, EndpointRouter, in-process
@@ -326,7 +330,7 @@ EOF or status. A client which does not drain responses may park the handler.
   elsewhere.
 
 - **A VMM launch runs as one task, which holds its ownership record.**
-  `vmm::launch` first releases what dead launches left (below), pulls and
+  `vmm::launch` pulls and
   inspects the image with `CONNECTOR_VMM_PODMAN` (skipping the pull of a
   `:local` tag, as ordinary launches do), and plans. It then claims its id by
   making `<STATE_DIR>/fv_<id>.owner` (a new id if it exists), makes the
@@ -348,12 +352,17 @@ EOF or status. A client which does not drain responses may park the handler.
   rootfs volume and container carry the token as their `dev.estuary.vmm-owner` label, which
   podman stores as it creates them, and are found by it and nothing else: a
   name never proves ownership. Each also carries its `STATE_DIR` as its
-  `dev.estuary.vmm-state-dir` label, and is named for the launch, as `fv_<id>`
-  or the ingress grant's `fv_<id>-ingress`. A directory that already exists is not marked,
-  and so never removed. A record which reads as anything other than what a
-  launch writes (another version, an id or mount of the wrong shape, a
-  repeated or unknown line) directs no removal at all, and is kept and
-  reported; a last line without its newline is an append that never finished.
+  `dev.estuary.vmm-state-dir` label, and is named for the launch, as `fv_<id>`.
+  So are the containers of its boundary runs: the ingress grant's
+  `fv_<id>-ingress`, and `fv_<id>-verify` and `fv_<id>-revoke`, which `--rm`
+  removes only if they start, and which a release names and labels from its
+  record. A directory that already exists is not marked,
+  and so never removed. Recovery also writes records, for grants (below):
+  a claim naming the token and the ID of the grant's image, and no mount,
+  which marks nothing. A record which reads as anything other than these (another
+  version, an id or mount of the wrong shape, a repeated or unknown line)
+  directs no removal at all, and is kept and reported; a last line without
+  its newline is an append that never finished.
 
 - **The record's lock is the owner's liveness, PIDs aside.** The kernel drops
   a `flock` with the last descriptor of its open file, however its process
@@ -361,15 +370,19 @@ EOF or status. A client which does not drain responses may park the handler.
   lock says nothing of the creates the owner asked for. A podman client
   survives its launcher's death, sudo's too, and the podman service finishes
   a request after its client has gone. So whoever takes the lock may release
-  a launch before its last create lands, and the next launch's recovery
-  removes what that create made (below). `STATE_DIR` must be a local
+  a launch before its last create lands, and a later recovery pass removes
+  what that create made (below). `STATE_DIR` must be a local
   filesystem with `flock` and `O_TMPFILE`, and persistent if records are to
   survive a reboot.
 
 - **Release is one state machine, for teardown and recovery alike.**
   `vmm::release` finds the containers labeled with the record's token and
   removes them by ID; if that query or removal fails, nothing else is touched,
-  since the mount, state and network may still be in use. Then networks by the
+  since the mount, state and network may still be in use. The ingress grant's
+  container is kept once it exits, so it is among them. Its grant is revoked
+  next, by its owner token: a start of the grant's container which podman has
+  yet to serve then fails, rather than grant again. A failed revoke keeps the
+  record. Then networks by the
   label, removed by name (podman 4.9 skips its in-use check when given an ID);
   then rootfs volumes by the same label, removed without force; then the marked
   mount and state. The record is removed, under its lock, only
@@ -387,30 +400,54 @@ EOF or status. A client which does not drain responses may park the handler.
   If the task is dropped instead, with its runtime, nothing runs: its lock goes,
   and its record is recovered.
 
-- **A stopped shard's or exited flowctl's VMM waits for recovery.** A reactor
-  stops a shard by dropping its task service, and that service's runtime with
-  it; flowctl exits once a preview's session stops. Either way the launch's
-  task is dropped rather than torn down. The VMM ends within seconds of its
-  RPC (connector-init's idle watchdog) and `--rm` removes its container,
-  whose bridge goes with it, but its network definition, state, record and
-  connector mount wait for the next launch beneath the same `STATE_DIR`.
-  A Validate or Spec, whose session ends before its runtime, is torn down by
-  its owner.
+- **A stopped shard's VMM waits for recovery.** A reactor stops a shard by
+  dropping its task service, and that service's runtime with it, so the
+  launch's task is dropped rather than torn down. The VMM ends within seconds
+  of its RPC (connector-init's idle watchdog) and `--rm` removes its
+  container, whose bridge goes with it, but its network definition, state,
+  record and connector mount wait for recovery. A Validate or Spec, whose
+  session ends before its runtime, is torn down by its owner. An exiting
+  flowctl waits up to 30 seconds for its own launches' teardowns
+  (`Vmm::drain_launches`); one killed, or past that, leaves them to recovery.
 
-- **Every VMM launch first recovers its state directory.** Before its own
-  claim, a launch tries the lock of every `fv_<16 hex>.owner` beneath
-  `STATE_DIR`, skipping those held, by a live owner or another releaser, and
-  releases the rest. It then lists the containers, networks and volumes
-  labeled with its `STATE_DIR`, and removes each whose launch's record is gone:
-  a podman service may create one after the release that removed its record.
-  Each kind is listed before its records are looked for. A launch claims its
-  record before its first create, so a live launch's resource always has its
-  record. A record of any content keeps its resources, and is not read.
-  Their failures go to tracing alone, not to the session,
-  whose task they are not. There is no other trigger: what a dead launch left
-  waits for the next VMM launch sharing its `STATE_DIR`. connector-init ends an
-  idle VMM within seconds of its last RPC, and `--rm` then removes its
-  container, so what usually waits is a network, mount, state and record.
+- **Recovery runs for the process lifetime.** `Vmm::spawn_recovery`
+  runs one pass at once, then another 30 seconds after each ends, so passes
+  never overlap, until its `VmmRecovery` is dropped, which abandons the pass
+  under way. A process runs one, from whatever lives as long as it does: a
+  reactor's connector proxy task service (`TaskServiceConfig.vmm_recovery`),
+  not a shard's, so it runs with no shards at all; and a VMM-capable flowctl
+  invocation, at best, until it exits. A pass first makes the checks of
+  `STATE_DIR` a launch makes, and touches nothing if they fail. It tries the
+  lock of every `fv_<16 hex>.owner` beneath `STATE_DIR`, skipping those
+  held, by a live owner or another releaser, and releases the rest. It then
+  lists the containers, networks and volumes labeled with its `STATE_DIR`,
+  and removes each whose launch's record is gone: a podman service may create
+  one after the release that removed its record. Each kind is listed before
+  its records are looked for. A launch claims its record before its first
+  create, so a live launch's resource always has its record. A record of any
+  content keeps its resources, and is not read. Processes sharing a
+  `STATE_DIR` each recover it; whichever takes a lock releases that record.
+
+- **A grant whose record is gone is recorded before it is removed.** A grant's
+  container may be created, and started, after the release of its launch has
+  revoked its token and removed its record; a remote `podman run` sends its
+  create and start apart. Its labels are then the grant's only evidence.
+  `release::release_grant` inspects it, checks its `STATE_DIR` label and
+  token, and claims a record of the launch's name naming that token and the
+  ID of the container's image, atomically and locked. The image ID preserves
+  revocation across tag updates. Release removes the container before
+  revoking permissions, so pending starts fail. It removes the record after
+  cleanup succeeds. A competing claimant leaves the grant to the record's
+  owner. Until recording succeeds, pruning must preserve the helper as the
+  grant's only evidence.
+
+- **Recovery reports to its process, and counts its problems.** What a pass
+  leaves (a resource it couldn't remove or list, a malformed record) goes to
+  tracing, not to any session: it may be no live task's. Each problem is
+  logged when first seen, then again only once ten minutes have passed while
+  it persists. `Vmm::recovery_metrics` counts failed passes, the problems the
+  last pass left, and when a pass last left none; a reactor exports them
+  (`go/bindings/metrics.go`). Neither fails a launch or a readiness check.
 
 - **Nothing without a record or the `STATE_DIR` label is touched.** `fv_*`
   containers, networks and state directories left by a launcher that wrote no

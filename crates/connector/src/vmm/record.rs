@@ -15,8 +15,11 @@
 //! line of its own. Nothing a record doesn't prove the launch made is
 //! ever removed on its say-so.
 //!
-//! Each also carries `STATE_DIR_LABEL` and is named for its launch, so
-//! `release::recover` can remove resources created after their record is gone.
+//! Each also carries `STATE_DIR_LABEL` and is named for its launch, as do the
+//! containers of its boundary runs, so `release::recover` can remove resources
+//! created after their record is gone. For an ingress grant's container, it
+//! first claims a record of its own, which names no mount (see
+//! `release::release_grant`).
 
 use anyhow::Context;
 use std::io::{Read, Write};
@@ -29,6 +32,11 @@ pub(crate) const OWNER_LABEL: &str = "dev.estuary.vmm-owner";
 pub(crate) const STATE_DIR_LABEL: &str = "dev.estuary.vmm-state-dir";
 /// Follows a launch's name in the name of its ingress grant's container.
 pub(crate) const INGRESS_SUFFIX: &str = "-ingress";
+/// Follows a launch's name in the name of its boundary verify's container,
+/// which grants nothing.
+pub(crate) const VERIFY_SUFFIX: &str = "-verify";
+/// Likewise, of its boundary revoke's.
+pub(crate) const REVOKE_SUFFIX: &str = "-revoke";
 
 const VERSION: u32 = 1;
 const SUFFIX: &str = ".owner";
@@ -39,7 +47,8 @@ struct Claim {
     version: u32,
     id: String,
     token: String,
-    mount: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mount: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     ingress_image: Option<String>,
 }
@@ -66,7 +75,8 @@ pub(crate) struct Record {
     pub name: String,
     /// 32 hex digits, the value of `OWNER_LABEL`.
     pub token: String,
-    pub mount: String,
+    /// The connector mount, which only a launch's own claim names.
+    pub mount: Option<String>,
     /// `<STATE_DIR>/fv_<id>`, beside the record.
     pub state: String,
     pub created_mount: bool,
@@ -81,14 +91,14 @@ pub(crate) fn path(state_dir: &str, name: &str) -> String {
 pub(crate) fn claim_line(
     name: &str,
     token: &str,
-    mount: &str,
+    mount: Option<&str>,
     ingress_image: Option<&str>,
 ) -> Vec<u8> {
     line(&Claim {
         version: VERSION,
         id: name.to_string(),
         token: token.to_string(),
-        mount: mount.to_string(),
+        mount: mount.map(str::to_string),
         ingress_image: ingress_image.map(str::to_string),
     })
 }
@@ -108,10 +118,13 @@ pub(crate) fn launch_name(file_name: &str) -> Option<&str> {
 }
 
 /// The launch which names a resource `resource`: `fv_<id>` is its network,
-/// rootfs volume or container, and `fv_<id>-ingress` its ingress grant's
-/// container.
+/// rootfs volume or container, and `fv_<id>-ingress`, `fv_<id>-verify` and
+/// `fv_<id>-revoke` the containers of its boundary runs.
 pub(crate) fn resource_launch(resource: &str) -> Option<&str> {
-    let name = resource.strip_suffix(INGRESS_SUFFIX).unwrap_or(resource);
+    let name = [INGRESS_SUFFIX, VERIFY_SUFFIX, REVOKE_SUFFIX]
+        .iter()
+        .find_map(|suffix| resource.strip_suffix(suffix))
+        .unwrap_or(resource);
     is_name(name).then_some(name)
 }
 
@@ -125,9 +138,10 @@ fn is_lower_hex(s: &str, len: usize) -> bool {
 }
 
 /// Read the record of launch `name` in `state_dir` from its `content`.
-/// Anything other than exactly what a launch writes is refused, so that a
-/// damaged record never directs a removal. A last line without its newline is
-/// an append its writer never finished, and is not read.
+/// Anything other than exactly what a launch, or `release::release_grant`,
+/// writes is refused, so that a damaged record never directs a removal. A
+/// last line without its newline is an append its writer never finished, and
+/// is not read.
 pub(crate) fn parse(state_dir: &str, name: &str, content: &[u8]) -> anyhow::Result<Record> {
     let complete = match content.iter().rposition(|b| *b == b'\n') {
         Some(end) => &content[..end],
@@ -154,8 +168,13 @@ pub(crate) fn parse(state_dir: &str, name: &str, content: &[u8]) -> anyhow::Resu
     if !is_lower_hex(&claim.token, 32) {
         anyhow::bail!("has a malformed owner token {:?}", claim.token);
     }
-    check_mount(&claim.mount, name)
-        .with_context(|| format!("names connector mount {:?}", claim.mount))?;
+    match (&claim.mount, &claim.ingress_image) {
+        (Some(mount), _) => {
+            check_mount(mount, name).with_context(|| format!("names connector mount {mount:?}"))?
+        }
+        (None, Some(_)) => (),
+        (None, None) => anyhow::bail!("names neither a connector mount nor an ingress grant"),
+    }
 
     let (mut created_mount, mut created_state) = (false, false);
     for (index, line) in lines.enumerate() {
@@ -168,6 +187,10 @@ pub(crate) fn parse(state_dir: &str, name: &str, content: &[u8]) -> anyhow::Resu
         if std::mem::replace(seen, true) {
             anyhow::bail!("marks {created:?} as created twice");
         }
+    }
+    // Only a launch marks directories, and its claim always names its mount.
+    if (created_mount || created_state) && claim.mount.is_none() {
+        anyhow::bail!("names no connector mount, yet marks a directory as created");
     }
 
     Ok(Record {
@@ -316,17 +339,25 @@ mod test {
 
     #[test]
     fn records() {
-        let claim = String::from_utf8(claim_line(NAME, TOKEN, MOUNT, None)).unwrap();
+        let claim = String::from_utf8(claim_line(NAME, TOKEN, Some(MOUNT), None)).unwrap();
         let mount = String::from_utf8(created_line(Dir::Mount)).unwrap();
         let state = String::from_utf8(created_line(Dir::State)).unwrap();
         let with_mount =
-            |mount: &str| String::from_utf8(claim_line(NAME, TOKEN, mount, None)).unwrap();
+            |mount: &str| String::from_utf8(claim_line(NAME, TOKEN, Some(mount), None)).unwrap();
+        let grant = String::from_utf8(claim_line(NAME, TOKEN, None, Some("vmm:local"))).unwrap();
 
         let cases: Vec<(&str, String)> = vec![
             ("just claimed", claim.clone()),
             (
                 "owns ingress",
-                String::from_utf8(claim_line(NAME, TOKEN, MOUNT, Some("vmm:local"))).unwrap(),
+                String::from_utf8(claim_line(NAME, TOKEN, Some(MOUNT), Some("vmm:local"))).unwrap(),
+            ),
+            ("a grant's, naming no mount", grant.clone()),
+            ("a grant's, marking its state", format!("{grant}{state}")),
+            ("a grant's, marking a mount", format!("{grant}{mount}")),
+            (
+                "neither a mount nor a grant",
+                String::from_utf8(claim_line(NAME, TOKEN, None, None)).unwrap(),
             ),
             ("with its mount", format!("{claim}{mount}")),
             ("with both directories", format!("{claim}{mount}{state}")),
@@ -443,7 +474,7 @@ mod test {
         let dir = tempfile::tempdir().unwrap();
         let state_dir = dir.path().to_str().unwrap();
         let path = super::path(state_dir, NAME);
-        let line = claim_line(NAME, TOKEN, MOUNT, None);
+        let line = claim_line(NAME, TOKEN, Some(MOUNT), None);
 
         let mut held = super::claim(state_dir, NAME, &line).expect("claims");
         assert_eq!(

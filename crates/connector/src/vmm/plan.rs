@@ -329,9 +329,12 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     };
     let mut ingress = Vec::new();
     if !ports.is_empty() || !cidrs.is_empty() {
+        // Kept once it exits: its labels may be the only record of a grant
+        // whose launch was released before podman created it.
         ingress = host_boundary(
             &vmm.image,
             "grant",
+            Exited::Kept,
             &[
                 format!("--name={name}{}", super::record::INGRESS_SUFFIX),
                 owner.clone(),
@@ -371,7 +374,17 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         ],
         ports,
         ingress,
-        verify: host_boundary(&vmm.image, "verify", &[]),
+        // Named and labeled, should podman create it and never start it.
+        verify: host_boundary(
+            &vmm.image,
+            "verify",
+            Exited::Removed,
+            &[
+                format!("--name={name}{}", super::record::VERIFY_SUFFIX),
+                owner.clone(),
+                state_dir_label.clone(),
+            ],
+        ),
         network: vec![
             "network".to_string(),
             "create".to_string(),
@@ -509,18 +522,32 @@ fn check_mount_value(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// What becomes of a boundary operation's container once it exits.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Exited {
+    Removed,
+    Kept,
+}
+
 /// Run a host-side boundary operation from the same image as the VMM, with
 /// `options` for podman's `run`.
-pub(super) fn host_boundary(image: &str, action: &str, options: &[String]) -> Vec<String> {
-    let mut args: Vec<String> = vec![
-        "run".into(),
-        "--rm".into(),
+pub(super) fn host_boundary(
+    image: &str,
+    action: &str,
+    exited: Exited,
+    options: &[String],
+) -> Vec<String> {
+    let mut args: Vec<String> = vec!["run".into()];
+    if exited == Exited::Removed {
+        args.push("--rm".into());
+    }
+    args.extend([
         "--network=host".into(),
         "--log-driver=none".into(),
         "--read-only".into(),
         "--cap-drop=all".into(),
         "--cap-add=CAP_NET_ADMIN".into(),
-    ];
+    ]);
     args.extend_from_slice(options);
     args.extend([image.into(), "boundary".into(), action.into()]);
     args
@@ -699,9 +726,19 @@ mod test {
                 plan.rootfs.iter().cloned().partition(launcher_only);
             assert_eq!(rootfs, reference::rootfs(&plan.name, IMAGE_ID));
             assert_eq!(added, [owner, state_dir]);
+            let (added, verify): (Vec<String>, Vec<String>) = plan
+                .verify
+                .iter()
+                .cloned()
+                .partition(|arg| launcher_only(arg) || arg.starts_with("--name="));
+            assert_eq!(verify, reference::boundary(&vmm.image, "host", "verify"));
             assert_eq!(
-                plan.verify,
-                reference::boundary(&vmm.image, "host", "verify")
+                added,
+                [
+                    format!("--name={}-verify", plan.name).as_str(),
+                    owner,
+                    state_dir
+                ]
             );
         }
     }

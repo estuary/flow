@@ -365,13 +365,16 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	// One V2 task service for every proxied connector of this reactor. Its
 	// `TaskName` labels only the service's own tracing — connectors are named
-	// by the requests which start them — and it hosts no shard.
+	// by the requests which start them — and it hosts no shard. It lives as
+	// long as the reactor, so it also recovers what dead VMM launches left,
+	// whether or not any shard runs here.
 	f.proxySvcV2, err = bindings.NewTaskServiceV2(
 		pr.TaskServiceConfig{
 			ContainerNetwork: config.Flow.Network,
 			TaskName:         "connector-proxy",
 			Plane:            config.Plane(),
 			Process:          f.localProcessSpec(),
+			VmmRecovery:      true,
 		},
 		func(log ops.Log) { ops.LogToLogrus(log, "connector-proxy") },
 	)
@@ -383,7 +386,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	// Drop the singleton on shutdown. Closing its client connection aborts any
 	// in-flight proxied RPCs first, so this doesn't wait on a long-running
-	// connector.
+	// connector. Nor does it wait on VMM recovery, whose pass it abandons.
 	args.Tasks.Queue("connector-proxy-v2", func() error {
 		<-args.Tasks.Context().Done()
 		f.proxySvcV2.Drop()

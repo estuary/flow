@@ -159,6 +159,30 @@ fn flowctl_command(
     command
 }
 
+/// What the stack's reactor serves at `/debug/metrics`. Its unit is
+/// `flow-reactor@<data plane>-<port>.service`, and its host
+/// `reactor-<data plane>.flow.localhost`.
+fn reactor_metrics(platform: &Platform) -> String {
+    let instance = platform
+        .reactor_unit
+        .strip_prefix("flow-reactor@")
+        .and_then(|unit| unit.strip_suffix(".service"))
+        .unwrap_or_else(|| panic!("a reactor unit, not {}", platform.reactor_unit));
+    let (data_plane, port) = instance.rsplit_once('-').expect("<data plane>-<port>");
+    let url = format!("https://reactor-{data_plane}.flow.localhost:{port}/debug/metrics");
+    let ca = std::env::var("SSL_CERT_FILE").expect("the task sets SSL_CERT_FILE");
+    let output = std::process::Command::new("curl")
+        .args(["-fsS", "--max-time", "30", "--cacert", &ca, &url])
+        .output()
+        .unwrap_or_else(|e| panic!("running curl {url}: {e}"));
+    assert!(
+        output.status.success(),
+        "curl {url}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("UTF-8 metrics")
+}
+
 fn create(path: &Path) -> std::fs::File {
     std::fs::File::create(path).unwrap_or_else(|e| panic!("creating {}: {e}", path.display()))
 }
@@ -322,30 +346,34 @@ fn a_python_derivation_through_the_platform() {
     assert_vmm_logs("preview", &preview.stderr);
     insta::assert_json_snapshot!("preview", documents(&preview.stdout));
 
-    // Validate awaits teardown. Preview exits without awaiting the session's
-    // connector, so its leftovers may need recovery by the next launch.
-    assert_eq!(
-        launcher::left(&root.state_dir, &root.tmp_dir, validated),
-        Vec::<String>::new()
+    // Validate awaits teardown. Preview's session ends with the command, and
+    // flowctl awaits its teardown before it exits.
+    for name in [validated, session] {
+        assert_eq!(
+            launcher::left(&root.state_dir, &root.tmp_dir, name),
+            Vec::<String>::new()
+        );
+    }
+    assert!(
+        !preview
+            .stderr
+            .contains("VMM teardowns did not finish before exit"),
+        "preview's teardowns finished"
     );
-    let session_left = launcher::left(&root.state_dir, &root.tmp_dir, session);
-    let session_record = launcher::record(&root.state_dir, session);
-    let session_token = launcher::path_exists(&session_record).then(|| {
-        assert!(!launcher::locked(&session_record), "preview has exited");
-        launcher::token(&session_record)
-    });
-    // Through the session's start: whatever of its teardown follows depends on
-    // how far it got before flowctl exited.
+    // Through the session's start, less recovery's listings, which the
+    // reactor's and flowctl's passes interleave.
     let session_start = calls
         .iter()
         .rposition(|call| call.starts_with("start --attach "))
         .expect("the session started");
-    insta::assert_snapshot!(
-        "preview_calls",
-        normalize_calls(&platform, &calls[..=session_start])
-    );
+    let launches: Vec<String> = calls[..=session_start]
+        .iter()
+        .filter(|call| !call.contains("--filter label=dev.estuary.vmm-state-dir="))
+        .cloned()
+        .collect();
+    insta::assert_snapshot!("preview_calls", normalize_calls(&platform, &launches));
     evidence.push(format!(
-        "preview: Validate {validated} released; session {session} left {session_left:?} at exit"
+        "preview: Validate {validated} and session {session} released before flowctl exited"
     ));
 
     // Publication: flowctl validates the derivation locally (its stderr), then
@@ -362,7 +390,7 @@ fn a_python_derivation_through_the_platform() {
             &run::fixture("platform/flow.yaml").to_string_lossy(),
             "--auto-approve",
         ],
-        // flowctl's own Validate logs its launch, and recovery, at info.
+        // flowctl's own Validate logs its launch at info.
         &[("RUST_LOG", "info")],
     );
     let local = started(&publish.stderr);
@@ -373,34 +401,6 @@ fn a_python_derivation_through_the_platform() {
     assert_eq!(publish.stderr.matches(EGRESS).count(), 1);
     assert_eq!(publish.stdout.matches(EGRESS).count(), 1);
     evidence.push(format!("publication: flowctl {local:?}, reactor {agent:?}"));
-
-    // flowctl's Validate was the first launch since, and released what the
-    // preview's session left before its own pull.
-    let calls = launcher::calls(&root)[before..].to_vec();
-    if let Some(token) = &session_token {
-        let pull = calls
-            .iter()
-            .position(|call| call.starts_with("pull "))
-            .expect("the publication's launches pull");
-        let recovered = format!("--filter label=dev.estuary.vmm-owner={token}");
-        assert!(
-            calls[..pull].iter().any(|call| call.contains(&recovered)),
-            "the next launch recovers the preview's session: {calls:#?}"
-        );
-        assert!(
-            publish.stderr.lines().any(|line| line
-                .contains("released the resources of a dead VMM launch")
-                && line.contains(session.as_str())),
-            "flowctl's Validate reports recovering {session}"
-        );
-        evidence.push(format!(
-            "preview session {session} recovered by the next launch"
-        ));
-    }
-    assert_eq!(
-        launcher::left(&root.state_dir, &root.tmp_dir, session),
-        Vec::<String>::new()
-    );
 
     let numbered = run::eventually("the derivation's documents", DERIVED, || {
         std::thread::sleep(Duration::from_secs(2));
@@ -470,8 +470,10 @@ fn a_python_derivation_through_the_platform() {
         numbered[0]["humanize"]
     ));
 
-    // Shard deletion drops the launch's runtime before teardown. Wait for its
-    // owner lock to go before testing recovery by a new launch.
+    // Shard deletion drops the launch's runtime before teardown. No launch
+    // follows, and this flowctl has no VMM capability, so recovers nothing:
+    // the reactor's own recovery releases what its sessions left.
+    let before = launcher::calls(&root).len();
     flowctl(
         &platform,
         "delete",
@@ -482,35 +484,75 @@ fn a_python_derivation_through_the_platform() {
             "acmeCo/vmm-python/",
             "--dangerous-auto-approve",
         ],
-        &[],
+        &[("CONNECTOR_VMM_IMAGE", "")],
     );
     let deadline = Instant::now() + RELEASED;
     for name in &opened {
-        let record = launcher::record(&root.state_dir, name);
         run::eventually(
-            &format!("{name}'s owner to be gone"),
+            &format!("the reactor's recovery to release {name}"),
             deadline.saturating_duration_since(Instant::now()),
-            || (!launcher::path_exists(&record) || !launcher::locked(&record)).then_some(()),
+            || {
+                launcher::left(&root.state_dir, &root.tmp_dir, name)
+                    .is_empty()
+                    .then_some(())
+            },
         );
     }
-    // Every other launch's owner awaited its teardown, or was recovered above.
+    let since = launcher::calls(&root)[before..].to_vec();
+    assert_eq!(launched(&since), Vec::<String>::new(), "with no launch");
+    // Every other launch's owner awaited its teardown.
     let launches = launched(&launcher::calls(&root));
-    for name in launches.iter().filter(|name| !opened.contains(*name)) {
+    for name in &launches {
         assert_eq!(
             launcher::left(&root.state_dir, &root.tmp_dir, name),
             Vec::<String>::new()
         );
     }
-    let dead: Vec<&String> = opened
-        .iter()
-        .filter(|name| !launcher::left(&root.state_dir, &root.tmp_dir, name).is_empty())
-        .collect();
+    evidence.push(format!(
+        "after deletion the reactor's recovery released its sessions {opened:?}, with no launch"
+    ));
+    let metrics = reactor_metrics(&platform);
+    let value = |name: &str| {
+        metrics
+            .lines()
+            .find_map(|line| line.strip_prefix(&format!("{name} ")))
+            .unwrap_or_else(|| panic!("the reactor exports {name}:\n{metrics}"))
+            .parse::<f64>()
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    assert!(value("flow_vmm_recovery_last_success_timestamp_seconds") > 0.0);
+    evidence.push(format!(
+        "the reactor's recovery metrics: {}",
+        metrics
+            .lines()
+            .filter(|line| line.starts_with("flow_vmm_recovery_"))
+            .collect::<Vec<_>>()
+            .join("; ")
+    ));
 
-    // One more launch, of the derivation's Spec, releases what they left
-    // before its own pull, and is itself released before flowctl exits.
-    let before = launcher::calls(&root).len();
-    let spec = flowctl(
+    // A Spec beneath a state directory of its own, holding a dead launch's
+    // record which owns nothing. No reactor recovers there: the invocation's
+    // own recovery releases it, and its launch is released before it exits.
+    let at = launcher::root();
+    let mounts = launcher::mounts(&at);
+    let dead = "fv_0000000000000001";
+    let token = "00000000000000000000000000000001";
+    std::fs::write(
+        launcher::record(&at.state_dir, dead),
+        format!(
+            "{}\n",
+            serde_json::json!({
+                "version": 1,
+                "id": dead,
+                "token": token,
+                "mount": format!("{mounts}/mount-{dead}"),
+            })
+        ),
+    )
+    .unwrap();
+    flowctl_in(
         &platform,
+        &at,
         "spec",
         &[
             "raw",
@@ -520,23 +562,28 @@ fn a_python_derivation_through_the_platform() {
             "--name",
             DERIVATION,
         ],
-        &[("RUST_LOG", "info")],
+        &[],
     );
-    let respecified = launched(&launcher::calls(&root)[before..]);
+    let calls = launcher::calls(&at);
+    let respecified = launched(&calls);
     let [respecified] = &respecified[..] else {
         panic!("one launch for the Spec: {respecified:?}");
     };
-    for name in &dead {
-        assert!(
-            spec.stderr.lines().any(|line| line
-                .contains("released the resources of a dead VMM launch")
-                && line.contains(name.as_str())),
-            "the Spec's launch reports recovering {name}"
+    assert!(
+        calls
+            .iter()
+            .any(|call| call.contains(&format!("vmm-owner={token}"))),
+        "flowctl's recovery released {dead}: {calls:#?}"
+    );
+    for name in [dead, respecified.as_str()] {
+        assert_eq!(
+            launcher::left(&at.state_dir, &at.tmp_dir, name),
+            Vec::<String>::new()
         );
     }
     evidence.push(format!(
-        "after deletion the reactor's sessions {dead:?} were left to recovery; \
-         the Spec's launch {respecified} released them"
+        "flowctl's own recovery released {dead}; its Spec's launch {respecified} was released \
+         before it exited"
     ));
 
     // A catalog which imports the derivation from a subdirectory. The

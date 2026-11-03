@@ -10,7 +10,7 @@ case "$1 ${2:-}" in
     if [ -e "$dir/inspection" ]; then cat "$dir/inspection"; exit 0; fi
     echo '[{"Id":"synthetic-image","Created":"2026-01-01T00:00:00Z","Config":{"Env":[],"Labels":{"FLOW_RUNTIME_PROTOCOL":"derive"}}}]'
     ;;
-"run --rm")
+"run "*)
     for arg; do
         case "$arg" in
         verify) exit 0 ;;

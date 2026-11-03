@@ -51,12 +51,37 @@ func (c *promCollector) Collect(ch chan<- prometheus.Metric) {
 
 var promCollectorInstance = &promCollector{}
 
+// Recovery metrics become visible once this process starts recovery.
+type vmmRecoveryCollector struct{}
+
+// Describe implements prometheus.Collector for vmmRecoveryCollector
+func (c *vmmRecoveryCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- vmmRecoveryFailedPassesDesc
+	ch <- vmmRecoveryPendingDesc
+	ch <- vmmRecoveryLastSuccessDesc
+}
+
+// Collect implements prometheus.Collector for vmmRecoveryCollector
+func (c *vmmRecoveryCollector) Collect(ch chan<- prometheus.Metric) {
+	var stats = C.get_vmm_recovery_stats()
+	if !stats.started {
+		return
+	}
+	ch <- prometheus.MustNewConstMetric(vmmRecoveryFailedPassesDesc,
+		prometheus.CounterValue, float64(stats.failed_passes_total))
+	ch <- prometheus.MustNewConstMetric(vmmRecoveryPendingDesc,
+		prometheus.GaugeValue, float64(stats.pending))
+	ch <- prometheus.MustNewConstMetric(vmmRecoveryLastSuccessDesc,
+		prometheus.GaugeValue, float64(stats.last_success_seconds))
+}
+
 var registration = sync.Once{}
 
 // RegisterPrometheusCollector initializes prometheus metric collection that's pulled from the rust
 // libbindings. Subsequent calls to this function will panic.
 func RegisterPrometheusCollector() {
 	prometheus.MustRegister(promCollectorInstance)
+	prometheus.MustRegister(&vmmRecoveryCollector{})
 }
 
 var (
@@ -104,6 +129,22 @@ var (
 	reallocOpsDesc = prometheus.NewDesc(
 		"flow_rust_mem_realloc_ops_total",
 		"Count of reallocation operations performed by Rust code",
+		nil, nil,
+	)
+
+	vmmRecoveryFailedPassesDesc = prometheus.NewDesc(
+		"flow_vmm_recovery_failed_passes_total",
+		"Count of VMM recovery passes which left a problem to retry or inspect",
+		nil, nil,
+	)
+	vmmRecoveryPendingDesc = prometheus.NewDesc(
+		"flow_vmm_recovery_pending",
+		"Problems the last VMM recovery pass left: resources, records or listings to retry, or to inspect",
+		nil, nil,
+	)
+	vmmRecoveryLastSuccessDesc = prometheus.NewDesc(
+		"flow_vmm_recovery_last_success_timestamp_seconds",
+		"When the last VMM recovery pass which left no problem ended, in Unix seconds, or zero if none has",
 		nil, nil,
 	)
 )
