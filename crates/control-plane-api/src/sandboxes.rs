@@ -151,24 +151,16 @@ pub async fn list_commands(
     client: &crate::sprites::Client,
     sandbox: &Sandbox,
 ) -> anyhow::Result<Vec<Command>> {
-    /// Prints one `[metadata, exit status or null]` JSON line per command with
-    /// metadata. Failed launches can leave directories without it. Rust
-    /// serializes the metadata, so newlines in a command stay escaped.
-    const LIST_COMMANDS: &str = r#"
-        for d in "$HOME"/.estuary/command/*; do
-            [ -f "$d/metadata.json" ] || continue
-            printf '['
-            cat "$d/metadata.json" || exit 1
-            printf ','
-            if [ -f "$d/exit" ]; then cat "$d/exit" || exit 1; else printf 'null'; fi
-            printf ']\n'
-        done
-    "#;
+    let script = format!(
+        r#"for d in "$HOME"/.estuary/command/*; do
+            {COMMAND_METADATA}
+        done"#
+    );
 
     let output = command_output(
         client,
         sandbox,
-        &["bash", "-c", LIST_COMMANDS],
+        &["bash", "-c", &script],
         std::time::Duration::from_secs(60),
     )
     .await
@@ -179,6 +171,46 @@ pub async fn list_commands(
         String::from_utf8_lossy(&output.stderr)
     );
     commands_from_metadata(&output.stdout)
+}
+
+/// Prints `[metadata, exit status or null]` JSON for directory `$d`.
+/// Skips directories without metadata, which failed launches can leave behind.
+const COMMAND_METADATA: &str = r#"
+    if [ -f "$d/metadata.json" ]; then
+        printf '['
+        cat "$d/metadata.json" || exit 1
+        printf ','
+        if [ -f "$d/exit" ]; then cat "$d/exit" || exit 1; else printf 'null'; fi
+        printf ']\n'
+    fi
+"#;
+
+pub async fn get_command(
+    client: &crate::sprites::Client,
+    sandbox: &Sandbox,
+    id: models::Id,
+) -> anyhow::Result<Option<Command>> {
+    let script = format!("d=\"$1\"\n{COMMAND_METADATA}");
+    let output = command_output(
+        client,
+        sandbox,
+        &[
+            "bash",
+            "-c",
+            &script,
+            "flow-get-command",
+            &format!("{SPRITE_HOME}/{COMMAND_DIR}/{id}"),
+        ],
+        std::time::Duration::from_secs(60),
+    )
+    .await
+    .context("looking up sandbox command")?;
+    anyhow::ensure!(
+        output.exit_code == 0,
+        "looking up sandbox command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(commands_from_metadata(&output.stdout)?.pop())
 }
 
 fn commands_from_metadata(data: &[u8]) -> anyhow::Result<Vec<Command>> {
@@ -554,4 +586,57 @@ pub async fn delete(
 
     tracing::info!(%sandbox.handle, %sandbox.id, "deleted sandbox");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn lookup_command_metadata() {
+        let sandbox = tempfile::tempdir().unwrap();
+        let id = models::Id::new([1; 8]);
+        let missing_id = models::Id::new([2; 8]);
+        let directory = sandbox.path().join(super::COMMAND_DIR).join(id.to_string());
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            directory.join("metadata.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "id": id,
+                "command": "echo hello",
+                "requested_at": "2026-11-03T00:00:00Z",
+                "exit_code": null,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(directory.join("exit"), "7\n").unwrap();
+
+        let script = format!("d=\"$1\"\n{}", super::COMMAND_METADATA);
+        let lookup = |id: models::Id| {
+            let output = std::process::Command::new("bash")
+                .args(["-c", &script, "flow-get-command"])
+                .arg(sandbox.path().join(super::COMMAND_DIR).join(id.to_string()))
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            super::commands_from_metadata(&output.stdout).unwrap().pop()
+        };
+        let outcomes = [("completed", lookup(id)), ("missing", lookup(missing_id))];
+        insta::assert_json_snapshot!(outcomes, @r#"
+        [
+          [
+            "completed",
+            {
+              "id": "0101010101010101",
+              "command": "echo hello",
+              "requested_at": "2026-11-03T00:00:00Z",
+              "exit_code": 7
+            }
+          ],
+          [
+            "missing",
+            null
+          ]
+        ]
+        "#);
+    }
 }
