@@ -256,11 +256,11 @@ impl SandboxesMutation {
         let event = crate::sandboxes::execute(&client, id, &sandbox, &command, stdin.as_deref())
             .await
             .map_err(|err| {
-                tracing::error!(?err, %sandbox.id, "failed to start sandbox command");
+                tracing::error!(?err, %sandbox.id, command_id = %id, "failed to start sandbox command");
                 async_graphql::Error::new(format!("failed to start command: {err:#}"))
             })?;
 
-        tracing::info!(%sandbox.id, %event.id, "started sandbox command");
+        tracing::info!(%sandbox.id, command_id = %event.id, "started sandbox command");
         Ok(event.into())
     }
 
