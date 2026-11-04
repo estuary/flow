@@ -19,9 +19,9 @@ argument group. Set `OAUTH_ISSUER`, `OAUTH_CONSENT_URL`, and
 The SDK reads the endpoint, headers, and batching settings from the standard
 `OTEL_*` variables.
 
-The deployment target is self-hosted Tempo. Its endpoint and authentication
-configuration are pending, so `deploy-agent-api.yaml` leaves export unconfigured.
-When enabling export, configure the endpoint and any required authentication, and
-keep Cloud Run CPU allocated between requests so background export can run.
+`deploy-agent-api.yaml` sets the trace endpoint from the GitHub configuration
+variable `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and binds authentication headers from
+the Secret Manager secret `OTEL_EXPORTER_OTLP_TRACES_HEADERS:latest`. Cloud Run
+keeps CPU allocated between requests so background export can run.
 
 Export is scoped to requests by `control_plane_api::server::export_filter`. An entry-point span, which declares `otel.kind`, is exported along with every span and event at INFO or above beneath it. Work outside a request, such as controllers and automations, is not exported.
