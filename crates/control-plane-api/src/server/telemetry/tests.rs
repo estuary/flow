@@ -307,6 +307,16 @@ async fn router_failures_nested_work_and_retry_keep_their_contract(pool: sqlx::P
             .collect::<Vec<_>>(),
         ["401", "400", "200", "200", "307"]
     );
+    // Every request but the first presents a token which verifies.
+    let caller = Some(user_id.to_string());
+    assert_eq!(
+        spans
+            .iter()
+            .filter(|span| span.name == "POST /api/graphql")
+            .map(|span| attribute(span, "enduser.id"))
+            .collect::<Vec<_>>(),
+        [None, caller.clone(), caller.clone(), caller.clone(), caller]
+    );
     let requests: Vec<_> = spans
         .iter()
         .filter(|span| span.name == "graphql.request")

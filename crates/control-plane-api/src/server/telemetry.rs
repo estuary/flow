@@ -36,6 +36,7 @@ pub(super) fn http_span(request: &axum::http::Request<axum::body::Body>) -> trac
         http.route = route,
         http.response.status_code = tracing::field::Empty,
         user_agent.original = user_agent,
+        enduser.id = tracing::field::Empty,
         otel.status_code = tracing::field::Empty,
     );
     // Cloud Run replaces a client's `traceparent` with Google's own context, so Estuary clients send theirs in this header instead.
