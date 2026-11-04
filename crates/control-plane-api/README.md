@@ -50,6 +50,12 @@ Authorization applies the minted capability and prefix masks through
 access restrictions, so restricted tokens use a nonexistent Postgres role to
 prevent PostgREST from accepting the token at all.
 
+`server/public/graphql/prefixes.rs` lists reachable catalog prefixes. Its
+`capabilities` field returns every named capability bundle fully covered by the
+effective bits at that prefix, including contained bundles. Token restrictions
+apply before bundles are selected. `userCapability` reports the legacy grant
+column independently.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.
