@@ -116,7 +116,9 @@ pub enum PaymentProvider {
 }
 
 /// Billing arrangement of the tenant: `tenants.plan_kind`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type,
+)]
 #[sqlx(type_name = "plan_kind_type", rename_all = "snake_case")]
 pub enum PlanKind {
     SelfServe,
