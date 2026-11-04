@@ -1866,6 +1866,7 @@ impl TestHarness {
             None,
             None,
             &jwt_secret,
+            None,
             self.pool.clone(),
             self.publisher.clone(),
             snapshot_watch.clone(),

@@ -396,6 +396,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         billing_provider,
         Some(catalog_stats),
         jwt_secret.as_bytes(),
+        telemetry::otlp_upstream()?,
         pg_pool.clone(),
         publisher.clone(),
         snapshot_watch.clone(),

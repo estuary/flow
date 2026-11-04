@@ -58,7 +58,10 @@ itertools = { workspace = true }
 jsonwebtoken = { workspace = true }
 lazy_static = { workspace = true }
 opentelemetry = { workspace = true }
+opentelemetry-proto = { workspace = true }
 opentelemetry_sdk = { workspace = true }
+percent-encoding = { workspace = true }
+prost = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
@@ -77,7 +80,7 @@ tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
-tower-http = { workspace = true }
+tower-http = { workspace = true, features = ["decompression-gzip"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -95,6 +98,7 @@ flow-client-next = { path = "../flow-client-next" }
 runtime-local = { path = "../runtime-local" }
 service-kit = { path = "../service-kit" }
 
+flate2 = { workspace = true }
 hmac = { workspace = true }
 insta = { workspace = true }
 md5 = { workspace = true }

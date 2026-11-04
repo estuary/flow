@@ -25,3 +25,5 @@ the Secret Manager secret `OTEL_EXPORTER_OTLP_TRACES_HEADERS:latest`. Cloud Run
 keeps CPU allocated between requests so background export can run.
 
 Export is scoped to requests by `control_plane_api::server::export_filter`. An entry-point span, which declares `otel.kind`, is exported along with every span and event at INFO or above beneath it. Work outside a request, such as controllers and automations, is not exported.
+
+`/otlp/v1/traces` forwards client exports to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` with `OTEL_EXPORTER_OTLP_TRACES_HEADERS`. It reads only these traces-specific variables, and returns 501 when the endpoint is unset.

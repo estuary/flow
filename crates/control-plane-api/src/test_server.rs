@@ -82,6 +82,7 @@ impl TestServer {
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
             None,
+            None,
             models::AlertConfig::default(),
         )
         .await
@@ -96,6 +97,7 @@ impl TestServer {
             pg_pool,
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            None,
             None,
             alert_config_defaults,
         )
@@ -114,6 +116,24 @@ impl TestServer {
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
             Some(catalog_stats),
+            None,
+            models::AlertConfig::default(),
+        )
+        .await
+    }
+
+    /// Starts a server which forwards `/otlp/v1/traces` to `otlp_upstream`.
+    pub async fn start_with_otlp_upstream(
+        pg_pool: sqlx::PgPool,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        otlp_upstream: crate::server::public::otlp::Upstream,
+    ) -> Self {
+        Self::start_with_config(
+            pg_pool,
+            snapshot,
+            Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            None,
+            Some(otlp_upstream),
             models::AlertConfig::default(),
         )
         .await
@@ -124,6 +144,7 @@ impl TestServer {
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
         billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
         catalog_stats: Option<Arc<catalog_stats::Client>>,
+        otlp_upstream: Option<crate::server::public::otlp::Upstream>,
         alert_config_defaults: models::AlertConfig,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -144,6 +165,7 @@ impl TestServer {
             billing_provider,
             catalog_stats,
             b"test-jwt-secret-for-integration-tests",
+            otlp_upstream,
             pg_pool.clone(),
             publisher,
             snapshot,

@@ -57,3 +57,18 @@ pub fn init(
 
     Ok(provider)
 }
+
+/// Client spans exported to `/otlp/v1/traces` are forwarded to the same endpoint, with the same headers, as agent-api's own spans.
+pub fn otlp_upstream() -> anyhow::Result<Option<control_plane_api::server::public::otlp::Upstream>>
+{
+    let Ok(endpoint) = std::env::var("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") else {
+        return Ok(None);
+    };
+    let endpoint = endpoint
+        .parse()
+        .context("invalid OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")?;
+    let headers = std::env::var("OTEL_EXPORTER_OTLP_TRACES_HEADERS").unwrap_or_default();
+    let upstream = control_plane_api::server::public::otlp::Upstream::new(endpoint, &headers)
+        .context("failed to configure OTLP trace forwarding")?;
+    Ok(Some(upstream))
+}

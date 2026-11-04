@@ -4,6 +4,7 @@ use std::sync::Arc;
 pub mod graphql;
 pub mod oauth;
 mod open_metrics;
+pub mod otlp;
 pub mod status;
 pub mod stripe_webhooks;
 pub mod token_exchange;
@@ -79,6 +80,16 @@ pub(crate) fn api_v1_router(
                 ),
         )
         .route("/graphiql", axum::routing::get(graphql::graphql_graphiql))
+        // OTLP/HTTP trace export from Estuary clients. Registered as a plain route because its body is protobuf rather than JSON.
+        .route(
+            "/otlp/v1/traces",
+            axum::routing::post(otlp::handle_post_traces).layer(
+                tower::ServiceBuilder::new()
+                    .layer(tower_http::decompression::RequestDecompressionLayer::new())
+                    // Applies to the decompressed body.
+                    .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)),
+            ),
+        )
         // Stripe webhook receiver. Registered as a plain route (not `.api_route`)
         // because it isn't part of our documented public API and authenticates
         // via a signed raw body rather than the usual JWT/JSON convention.

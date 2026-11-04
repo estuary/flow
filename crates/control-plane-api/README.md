@@ -65,6 +65,8 @@ Existing INFO-or-higher spans and events are exported under the request. The
 extension does not attach query documents, variables, or results. DataLoader
 batches inherit the HTTP span because loaders are created before GraphQL execution.
 
+`server/public/otlp.rs` serves `/otlp/v1/traces`, which forwards OTLP/HTTP trace exports from Estuary clients to agent-api's trace backend. Clients authenticate with their usual bearer token. Only `http/protobuf` is accepted, gzip bodies are decompressed, and the decompressed body is limited to 1 MiB. Before forwarding, a client's `enduser.*` and `user.*` attributes are dropped, and each span gets the verified user ID as `enduser.id`, which agent-api's own `http.server` spans also record. A 401 or 403 from the backend becomes a 502, since it rejected agent-api's credentials rather than the client's. This route starts no exported trace, so forwarding appears only in logs.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.
