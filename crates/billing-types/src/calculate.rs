@@ -88,12 +88,10 @@ pub(crate) fn calculate(
     let self_serve = terms.plan_kind == crate::PlanKind::SelfServe;
     let in_free_tier =
         |date: chrono::NaiveDate| self_serve && terms.trial_start.is_none_or(|start| date < start);
-    let trial = terms.trial_start.filter(|_| self_serve).map(|start| {
-        let end = start
-            .checked_add_months(chrono::Months::new(1))
-            .expect("stored trial start must allow a representable trial end");
-        start..end
-    });
+    let trial = terms
+        .trial_start
+        .filter(|_| self_serve)
+        .map(|start| start..crate::trial_end(start));
     let data_tiers = decode_tiers(&terms.data_tiers, "Data processing")?;
     let usage_tiers = decode_tiers(&terms.usage_tiers, "Task usage")?;
 
