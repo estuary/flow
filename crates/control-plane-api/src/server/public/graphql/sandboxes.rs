@@ -15,6 +15,25 @@ pub struct Sandbox {
 
 #[async_graphql::ComplexObject]
 impl Sandbox {
+    /// A command started in this sandbox, or null if it does not exist.
+    async fn command(
+        &self,
+        ctx: &Context<'_>,
+        id: models::Id,
+    ) -> async_graphql::Result<Option<Command>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let client = sprites_client(ctx)?;
+        let sandbox = resolve_sandbox(env, self.catalog_name.as_str()).await?;
+        let command = crate::sandboxes::get_command(&client, &sandbox, id)
+            .await
+            .map_err(|err| {
+                tracing::error!(?err, %sandbox.id, %id, "failed to look up sandbox command");
+                async_graphql::Error::new("failed to look up sandbox command")
+            })?;
+
+        Ok(command.map(Command::from))
+    }
+
     /// Commands started in this sandbox
     async fn commands(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<Vec<Command>>> {
         let env = ctx.data::<crate::Envelope>()?;
