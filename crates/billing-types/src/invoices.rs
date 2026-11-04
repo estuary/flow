@@ -43,7 +43,9 @@ pub async fn freeze(
 }
 
 /// Calculate invoices for the given tenants, or every tenant when
-/// `tenants` is `None`. An empty selection returns no invoices.
+/// `tenants` is `None`. A tenant is invoiced from the month it was created,
+/// and naming a tenant created after the month is an error.
+/// An empty selection returns no invoices.
 /// Results are ordered by tenant.
 /// Billing terms and adjustments share a PostgreSQL snapshot, taken before fetching usage.
 pub async fn generate(
@@ -105,8 +107,11 @@ async fn load_inputs(
     let terms = sqlx::query_as!(
         crate::BillingTerms,
         r#"SELECT tenant::text AS "tenant!", plan_kind AS "plan_kind: crate::PlanKind", data_tiers, usage_tiers, recurring_usd_cents, trial_start
-           FROM public.tenants WHERE $1::text[] IS NULL OR tenant::text = ANY($1) ORDER BY tenant::text"#,
+           FROM public.tenants
+           WHERE created_at < $2::timestamptz + interval '1 month' AND ($1::text[] IS NULL OR tenant::text = ANY($1))
+           ORDER BY tenant::text"#,
         tenants,
+        billed_month,
     )
     .fetch_all(&mut *tx)
     .await
@@ -120,7 +125,7 @@ async fn load_inputs(
             .collect();
         anyhow::ensure!(
             missing.is_empty(),
-            "unknown tenants: {}",
+            "unknown tenants, or tenants created after the billed month: {}",
             missing.into_iter().collect::<Vec<_>>().join(", ")
         );
     }

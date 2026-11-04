@@ -20,7 +20,8 @@ async fn freezes_once_and_retains_invoices_and_stripe_ids(pool: sqlx::PgPool) {
                 ('freezeRetainNew/', '2026-07-01T00:00:00Z', '{\"subtotal\":91}', 'in_prior_month');
          INSERT INTO tenants (tenant)
          SELECT ('freezeRetainMiddle' || n || '/')::public.catalog_tenant
-         FROM generate_series(1, 499) AS n;",
+         FROM generate_series(1, 499) AS n;
+         UPDATE tenants SET created_at = '2026-01-01';",
     ).execute(&pool).await.unwrap();
 
     assert_eq!(
@@ -73,6 +74,7 @@ async fn insertion_failure_rolls_back_the_whole_month(pool: sqlx::PgPool) {
          INSERT INTO tenants (tenant)
          SELECT ('freezeRollbackMiddle' || n || '/')::public.catalog_tenant
          FROM generate_series(1, 499) AS n;
+         UPDATE tenants SET created_at = '2026-01-01';
          INSERT INTO internal.billing_historicals (tenant, billed_month, report)
          VALUES ('freezeRollbackA/', '2026-07-01T00:00:00Z', '{\"subtotal\":11}');
          CREATE FUNCTION internal.reject_test_invoice() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -105,10 +107,12 @@ async fn insertion_failure_rolls_back_the_whole_month(pool: sqlx::PgPool) {
 
 #[sqlx::test(migrations = "../../supabase/migrations")]
 async fn stats_failure_does_not_freeze_any_invoices(pool: sqlx::PgPool) {
-    sqlx::query("INSERT INTO tenants (tenant) VALUES ('freezeReadFailure/')")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO tenants (tenant, created_at) VALUES ('freezeReadFailure/', '2026-01-01')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let client = catalog_stats::test_util::connect_emulator("nonexistent-instance").await;
     assert!(
         billing_types::invoices::freeze(&pool, &client, 2026, chrono::Month::August)
@@ -150,6 +154,7 @@ async fn late_calculation_failure_rolls_back_completed_batch(pool: sqlx::PgPool)
          INSERT INTO tenants (tenant)
          SELECT ('freezeCalculationMiddle' || n || '/')::public.catalog_tenant
          FROM generate_series(1, 499) AS n;
+         UPDATE tenants SET created_at = '2026-01-01';
          INSERT INTO internal.billing_adjustments (tenant, billed_month, usd_cents, authorizer)
          VALUES ('freezeCalculationZ/', '2026-08-01', 1, 'test');
          INSERT INTO internal.billing_historicals (tenant, billed_month, report, stripe_invoice_id)

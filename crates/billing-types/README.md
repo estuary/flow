@@ -13,7 +13,7 @@ this crate; `Invoice` carries the invoice JSON.
 
 `invoices::generate` reads billing terms and adjustments from PostgreSQL and daily
 tenant usage from Bigtable. It returns the calculated invoices without writing
-them to storage. PostgreSQL inputs are read in one snapshot, and the transaction
+them to storage. Tenants are invoiced from the month they were created. PostgreSQL inputs are read in one snapshot, and the transaction
 is released before reading Bigtable.
 
 `invoices::freeze` reads usage, calculates invoices, and inserts them in serial
