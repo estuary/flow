@@ -55,3 +55,9 @@ flowctl draft create
 flowctl draft author --source ~/estuary/flow/examples/citi-bike/flow.yaml
 flowctl draft publish
 ```
+
+### Tracing
+
+When you're logged in, flowctl exports a trace of each command to Estuary, made of spans for the command and its GraphQL requests. Spans include any error message, flowctl's version, your OS and architecture, and the source location and thread that recorded them. Log output is not exported. Set `OTEL_SDK_DISABLED=true` to turn this off.
+
+If `TRACEPARENT` is set, the command's trace continues from it.

@@ -60,6 +60,9 @@ lazy_static = { workspace = true }
 open = { workspace = true }               # used for opening URLs in the user's browser
 pbjson-types = { workspace = true }
 postgrest = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-proto = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
@@ -78,6 +81,7 @@ tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }

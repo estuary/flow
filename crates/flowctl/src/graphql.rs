@@ -77,11 +77,8 @@ where
     Response: serde::de::DeserializeOwned,
 {
     let mut builder = rest.post(path, request, access_token);
-    // A process which runs flowctl may pass its trace context in `TRACEPARENT`. agent-api continues the trace from this header, since Cloud Run replaces a standard `traceparent`.
-    if let Some(traceparent) = std::env::var("TRACEPARENT")
-        .ok()
-        .and_then(|value| reqwest::header::HeaderValue::from_str(&value).ok())
-    {
+    // agent-api continues the trace from this header, since Cloud Run replaces a standard `traceparent`.
+    if let Some(traceparent) = crate::telemetry::traceparent(&tracing::Span::current()) {
         builder = builder.header("x-estuary-traceparent", traceparent);
     }
     let response = builder.send().await?;
@@ -100,77 +97,44 @@ where
     }
 }
 
-#[tracing::instrument(level = tracing::Level::DEBUG, err, skip_all)]
 pub async fn post_graphql<Q: graphql_client::GraphQLQuery>(
     rest: &flow_client_next::rest::Client,
     access_token: Option<&str>,
     variables: Q::Variables,
 ) -> anyhow::Result<Q::ResponseData> {
     use itertools::Itertools;
+    use tracing::Instrument;
 
     let body = Q::build_query(variables);
-    let resp: graphql_client::Response<Q::ResponseData> =
-        agent_unary(rest, access_token, GRAPHQL_PATH, &body).await?;
+    // The span is named on creation, since tracing-opentelemetry ignores a later `otel.name`.
+    let span = tracing::info_span!(
+        "post_graphql",
+        otel.name = body.operation_name,
+        otel.kind = "client",
+        otel.status_code = tracing::field::Empty,
+        otel.status_description = tracing::field::Empty,
+    );
 
-    if let Some(errors) = resp.errors.filter(|e| !e.is_empty()) {
-        tracing::warn!(?errors, "graphql query response has errors");
+    let result = async {
+        let resp: graphql_client::Response<Q::ResponseData> =
+            agent_unary(rest, access_token, GRAPHQL_PATH, &body).await?;
 
-        anyhow::bail!("graphql query errors: [{}]", errors.iter().format(", "));
-    }
-    resp.data
-        .ok_or_else(|| anyhow::anyhow!("graphql query returned no data (also no errors)"))
-}
+        if let Some(errors) = resp.errors.filter(|e| !e.is_empty()) {
+            tracing::warn!(?errors, "graphql query response has errors");
 
-#[cfg(test)]
-mod test {
-    #[tokio::test]
-    async fn agent_unary_forwards_traceparent() {
-        let router = axum::Router::new().route(
-            "/api/graphql",
-            axum::routing::post(|headers: axum::http::HeaderMap| async move {
-                axum::Json(
-                    headers
-                        .get("x-estuary-traceparent")
-                        .map(|value| value.to_str().unwrap().to_owned()),
-                )
-            }),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let rest = flow_client_next::rest::Client::new(
-            &format!("http://{}", listener.local_addr().unwrap())
-                .parse()
-                .unwrap(),
-            "flowctl-test",
-        );
-        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-
-        let mut forwarded = Vec::new();
-        for traceparent in [
-            None,
-            Some("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"),
-            Some("not a\nheader value"),
-        ] {
-            // SAFETY: nextest runs each test in its own process, and this current-thread runtime is the only reader of the environment.
-            unsafe {
-                match traceparent {
-                    Some(value) => std::env::set_var("TRACEPARENT", value),
-                    None => std::env::remove_var("TRACEPARENT"),
-                }
-            }
-            let header: Option<String> =
-                super::agent_unary(&rest, None, super::GRAPHQL_PATH, &serde_json::json!({}))
-                    .await
-                    .unwrap();
-            forwarded.push(header);
+            anyhow::bail!("graphql query errors: [{}]", errors.iter().format(", "));
         }
-        insta::assert_debug_snapshot!(forwarded, @r#"
-        [
-            None,
-            Some(
-                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-            ),
-            None,
-        ]
-        "#);
+        resp.data
+            .ok_or_else(|| anyhow::anyhow!("graphql query returned no data (also no errors)"))
     }
+    .instrument(span.clone())
+    .await;
+
+    if let Err(err) = &result {
+        tracing::error!(parent: &span, error = %err);
+        // Exported spans exclude events, so the error is also recorded on the span itself.
+        span.record("otel.status_code", "ERROR");
+        span.record("otel.status_description", format!("{err:#}"));
+    }
+    result
 }

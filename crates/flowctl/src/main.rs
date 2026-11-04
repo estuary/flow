@@ -1,10 +1,13 @@
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches};
+use tracing::Instrument;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer, filter::LevelFilter};
 
 fn main() -> Result<(), anyhow::Error> {
-    let cli = flowctl::Cli::parse();
+    // Matches name the command's span.
+    let matches = flowctl::Cli::command().get_matches();
+    let cli = flowctl::Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit());
 
     // Required in order for libraries to use `rustls` for TLS.
     // See: https://docs.rs/rustls/latest/rustls/crypto/struct.CryptoProvider.html
@@ -24,6 +27,8 @@ fn main() -> Result<(), anyhow::Error> {
         .from_env_lossy();
 
     let fmt_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+    let telemetry = flowctl::telemetry::Target::default();
+    let (traces, tracer_provider) = flowctl::telemetry::layer(telemetry.clone());
 
     tracing_subscriber::registry()
         .with(fmt_layer.with_filter(service_kit::trace::layer_filter(
@@ -31,6 +36,7 @@ fn main() -> Result<(), anyhow::Error> {
             registry.clone(),
         )))
         .with(service_kit::event::layer(registry.clone()))
+        .with(traces)
         .init();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -38,8 +44,19 @@ fn main() -> Result<(), anyhow::Error> {
         .build()
         .expect("failed to start runtime");
 
-    let handle = runtime.spawn(async move { cli.run(registry).await });
+    let span = flowctl::telemetry::command_span(&matches);
+    let handle =
+        runtime.spawn(async move { cli.run(registry, telemetry).await }.instrument(span.clone()));
     let result = runtime.block_on(handle);
+
+    // Exported spans exclude events, so the error is recorded on the span itself.
+    if let Ok(Err(err)) = &result {
+        span.record("otel.status_code", "ERROR");
+        span.record("otel.status_description", format!("{err:#}"));
+    }
+    drop(span);
+    // Export the final batch. This happens on `runtime`, so it must precede the shutdown below.
+    let _ = tracer_provider.shutdown();
 
     // We must call `shutdown_background()` because otherwise an incomplete spawned future
     // could block indefinitely.

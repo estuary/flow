@@ -19,6 +19,7 @@ mod poll;
 pub mod raw;
 mod secret;
 mod shuffle_read;
+pub mod telemetry;
 mod version;
 
 use models::authorizations::ControlClaims;
@@ -210,7 +211,11 @@ impl CliContext {
 }
 
 impl Cli {
-    pub async fn run(&self, registry: service_kit::Registry) -> anyhow::Result<()> {
+    pub async fn run(
+        &self,
+        registry: service_kit::Registry,
+        telemetry: telemetry::Target,
+    ) -> anyhow::Result<()> {
         let config = config::Config::load(&self.profile)?;
         let output = self.output.clone();
 
@@ -277,6 +282,7 @@ impl Cli {
                 status.message()
             ),
         }
+        telemetry.set(rest.clone(), user_tokens_watch.clone());
 
         // Observe token rotations and persist them to config as they happen,
         // rather than only at process exit. Important for single-use refresh
