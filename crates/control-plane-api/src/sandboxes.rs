@@ -152,7 +152,7 @@ pub async fn list_commands(
     sandbox: &Sandbox,
 ) -> anyhow::Result<Vec<Command>> {
     let script = format!(
-        r#"for d in "$HOME"/.estuary/command/*; do
+        r#"for d in "{SPRITE_HOME}/{COMMAND_DIR}"/*; do
             {COMMAND_METADATA}
         done"#
     );
@@ -279,7 +279,7 @@ pub async fn execute(
     /// This approach also meets the requirement of excluding sensitive user data contained in the command i/o
     /// from the control plane database
     const COMMAND_WRAPPER: &str = r#"
-        d="$HOME/.estuary/command/$1"
+        d="$1"
         mkdir -p "$d" || exit 125
         # Keep user content out of the execute URL: JSON occupies one line, followed
         # by a NUL-terminated command and the remaining bytes as command stdin.
@@ -317,7 +317,8 @@ pub async fn execute(
     };
     let metadata = serde_json::to_string(&event).context("serializing command metadata")?;
     let command_id = event.id.to_string();
-    let argv = ["bash", "-c", COMMAND_WRAPPER, "flow-command", &command_id];
+    let command_dir = format!("{SPRITE_HOME}/{COMMAND_DIR}/{command_id}");
+    let argv = ["bash", "-c", COMMAND_WRAPPER, "flow-command", &command_dir];
     let input = format!("{metadata}\n{command}\0{}", stdin.unwrap_or_default());
 
     let session_id = launch(client, sandbox, &argv, Some(&input)).await?;
