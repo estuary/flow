@@ -1,7 +1,7 @@
 use async_graphql::extensions as ext;
 use tracing::Instrument as _;
 
-/// Traces each GraphQL request and its root fields.
+/// Traces GraphQL requests and root fields other than introspection fields.
 pub(super) struct Tracing;
 
 impl ext::ExtensionFactory for Tracing {

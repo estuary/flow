@@ -260,7 +260,7 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                         .into());
                     }
 
-                    // Identifies the caller on the request's `http.server` span, which declares this field.
+                    // The GraphQL HTTP span declares `enduser.id`.
                     tracing::Span::current()
                         .record("enduser.id", tracing::field::display(verified.claims().sub));
 

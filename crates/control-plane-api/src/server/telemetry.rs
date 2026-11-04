@@ -49,7 +49,7 @@ pub(super) fn http_span(request: &axum::http::Request<axum::body::Body>) -> trac
             std::collections::HashMap::from([("traceparent".to_owned(), value.to_owned())]);
         let parent = opentelemetry_sdk::propagation::TraceContextPropagator::new()
             .extract_with_context(&opentelemetry::Context::new(), &carrier);
-        // This fails only when trace export is not configured.
+        // Trace export is optional, so this may have no OpenTelemetry layer.
         let _ = span.set_parent(parent);
     }
     span

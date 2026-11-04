@@ -55,7 +55,7 @@ fn schema()
     .finish()
 }
 
-// Stands in for the HTTP span, which is the entry point that `export_filter` exports beneath.
+// Models the HTTP entry span required by `export_filter`.
 fn entry_span() -> tracing::Span {
     tracing::info_span!("http.server", otel.kind = "server")
 }

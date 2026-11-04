@@ -50,9 +50,20 @@ Authorization applies the minted capability and prefix masks through
 access restrictions, so restricted tokens use a nonexistent Postgres role to
 prevent PostgREST from accepting the token at all.
 
-`server/telemetry.rs` defines `export_filter`, which selects what agent-api exports (see the [agent README](../agent/README.md#tracing)). Its HTTP span is the entry point for the GraphQL route only. It records the matched route, method, response status, `User-Agent` (omitted when not text or over 512 bytes), and the caller's `enduser.id` once its token verifies. Authentication and body rejections happen inside it, so they are traced too. It continues a trace from the `x-estuary-traceparent` header, which carries a W3C `traceparent` value. Cloud Run replaces the standard `traceparent` header with Google's own context, so that header is ignored.
+`server/telemetry.rs` defines `export_filter` and the HTTP span for
+`/api/graphql`; see the [agent README](../agent/README.md#tracing) for export
+configuration. The span records the route, method, response status, verified caller
+ID, and original `User-Agent`. Authentication and body rejections are traced too.
+Clients continue traces through `x-estuary-traceparent`, which carries a W3C
+`traceparent` value; Cloud Run replaces the standard header.
 
-`server/public/graphql/telemetry.rs` adds a span for each GraphQL request and for each root field. The request span records the operation name, and each GraphQL error as an `exception` event with its message, `extensions.code`, and path. Nested resolvers which do their own I/O or authorization add spans with `#[tracing::instrument(name = "Type.field", skip_all)]`; their errors already appear on the request span. Existing INFO spans and events on the request path are exported as well. Query documents, variables, and results are not recorded. DataLoader batches run under the HTTP span, since loaders are built before execution starts.
+`server/public/graphql/telemetry.rs` traces GraphQL requests and root fields other
+than introspection fields. Request spans record operation names and GraphQL errors,
+including their messages, codes, and paths. Nested resolvers that perform I/O or
+authorization use `#[tracing::instrument(name = "Type.field", skip_all)]`.
+Existing INFO-or-higher spans and events are exported under the request. The
+extension does not attach query documents, variables, or results. DataLoader
+batches inherit the HTTP span because loaders are created before GraphQL execution.
 
 ## Development
 

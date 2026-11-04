@@ -9,7 +9,6 @@ pub fn init(
     let provider = if std::env::var_os("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").is_some()
         || std::env::var_os("OTEL_EXPORTER_OTLP_ENDPOINT").is_some()
     {
-        // The exporter reads its endpoint, headers, and timeout from the standard `OTEL_EXPORTER_OTLP_*` variables.
         let exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_http()
             .build()

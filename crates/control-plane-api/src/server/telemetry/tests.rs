@@ -351,7 +351,7 @@ async fn router_failures_nested_work_and_retry_keep_their_contract(pool: sqlx::P
         ),
     ]
     "#);
-    // Each span's parent, by name. Annotated nested resolvers sit under their root field.
+    // Annotated nested resolvers sit under their root field.
     let mut parents: Vec<_> = spans
         .iter()
         .map(|span| {
