@@ -80,15 +80,12 @@ where
     Request: serde::Serialize,
     Response: serde::de::DeserializeOwned,
 {
-    let mut builder = rest.post(path, request, access_token);
-    // A process which runs flowctl may pass its trace context in `TRACEPARENT`. agent-api continues the trace from this header, since Cloud Run replaces a standard `traceparent`.
-    if let Some(traceparent) = std::env::var("TRACEPARENT")
-        .ok()
-        .and_then(|value| reqwest::header::HeaderValue::from_str(&value).ok())
-    {
-        builder = builder.header("x-estuary-traceparent", traceparent);
-    }
-    let response = builder.send().await?;
+    // Cloud Run replaces the standard `traceparent`, so agent-api uses this header.
+    let response = rest
+        .post(path, request, access_token)
+        .header("x-estuary-traceparent", TRACEPARENT.clone())
+        .send()
+        .await?;
     let status = response.status();
 
     if status.is_success() {
@@ -125,10 +122,75 @@ pub async fn post_graphql<Q: graphql_client::GraphQLQuery>(
         .ok_or_else(|| anyhow::anyhow!("graphql query returned no data (also no errors)"))
 }
 
+// Resolved once per process, so that requests and client instances share one context.
+static TRACEPARENT: std::sync::LazyLock<reqwest::header::HeaderValue> =
+    std::sync::LazyLock::new(|| traceparent(std::env::var("TRACEPARENT").ok().as_deref()));
+
+fn traceparent(supplied: Option<&str>) -> reqwest::header::HeaderValue {
+    use opentelemetry::propagation::TextMapPropagator as _;
+    use opentelemetry::trace::TraceContextExt as _;
+
+    if let Some(supplied) = supplied {
+        // agent-api parses the header with this propagator, and starts an unrelated trace for each request when it fails.
+        let carrier =
+            std::collections::HashMap::from([("traceparent".to_owned(), supplied.to_owned())]);
+        let valid = opentelemetry_sdk::propagation::TraceContextPropagator::new()
+            .extract_with_context(&opentelemetry::Context::new(), &carrier)
+            .span()
+            .span_context()
+            .is_valid();
+
+        match reqwest::header::HeaderValue::from_str(supplied.trim()) {
+            Ok(header) if valid => return header,
+            _ => tracing::warn!(
+                supplied,
+                "ignoring a malformed TRACEPARENT and generating a trace context"
+            ),
+        }
+    }
+    let trace_id: std::num::NonZeroU128 = rand::random();
+    let parent_id: std::num::NonZeroU64 = rand::random();
+    format!("00-{trace_id:032x}-{parent_id:016x}-01")
+        .parse()
+        .unwrap()
+}
+
 #[cfg(test)]
 mod test {
+    #[test]
+    fn traceparent_uses_valid_supplied_values_and_generates_otherwise() {
+        let supplied = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        assert_eq!(super::traceparent(Some(supplied)), supplied);
+
+        for supplied in [
+            None,
+            Some("not a W3C context"),
+            Some("not a\nheader value"),
+            Some("00-00000000000000000000000000000000-00f067aa0ba902b7-01"),
+            Some("00-4BF92F3577B34DA6A3CE929D0E0E4736-00f067aa0ba902b7-01"),
+        ] {
+            let header = super::traceparent(supplied);
+            assert_ne!(Some(header.to_str().unwrap()), supplied);
+
+            let carrier = std::collections::HashMap::from([(
+                "traceparent".to_owned(),
+                header.to_str().unwrap().to_owned(),
+            )]);
+            let context = opentelemetry::propagation::TextMapPropagator::extract_with_context(
+                &opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+                &opentelemetry::Context::new(),
+                &carrier,
+            );
+            assert!(
+                opentelemetry::trace::TraceContextExt::span(&context)
+                    .span_context()
+                    .is_sampled()
+            );
+        }
+    }
+
     #[tokio::test]
-    async fn agent_unary_forwards_traceparent() {
+    async fn agent_unary_shares_traceparent_across_clients() {
         let router = axum::Router::new().route(
             "/api/graphql",
             axum::routing::post(|headers: axum::http::HeaderMap| async move {
@@ -140,41 +202,21 @@ mod test {
             }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let rest = flow_client_next::rest::Client::new(
-            &format!("http://{}", listener.local_addr().unwrap())
-                .parse()
-                .unwrap(),
-            "flowctl-test",
-        );
+        let url = format!("http://{}", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let clients = [
+            flow_client_next::rest::Client::new(&url, "flowctl-test"),
+            flow_client_next::rest::Client::new(&url, "flowctl-test"),
+        ];
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
 
-        let mut forwarded = Vec::new();
-        for traceparent in [
-            None,
-            Some("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"),
-            Some("not a\nheader value"),
-        ] {
-            // SAFETY: nextest runs each test in its own process, and this current-thread runtime is the only reader of the environment.
-            unsafe {
-                match traceparent {
-                    Some(value) => std::env::set_var("TRACEPARENT", value),
-                    None => std::env::remove_var("TRACEPARENT"),
-                }
-            }
-            let header: Option<String> =
-                super::agent_unary(&rest, None, super::GRAPHQL_PATH, &serde_json::json!({}))
+        for rest in [&clients[0], &clients[1], &clients[0]] {
+            let header: String =
+                super::agent_unary(rest, None, super::GRAPHQL_PATH, &serde_json::json!({}))
                     .await
                     .unwrap();
-            forwarded.push(header);
+            assert_eq!(header, super::TRACEPARENT.to_str().unwrap());
         }
-        insta::assert_debug_snapshot!(forwarded, @r#"
-        [
-            None,
-            Some(
-                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-            ),
-            None,
-        ]
-        "#);
     }
 }

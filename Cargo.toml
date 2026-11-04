@@ -132,6 +132,8 @@ num-bigint = "0"
 num-format = "0"
 indicatif = "0"
 open = "3"
+opentelemetry = { version = "0.31", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "internal-logs"] }
 parquet = { version = "60", features = ["json"] }
 pathfinding = "4"
 pbjson = "0"
