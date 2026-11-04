@@ -42,7 +42,9 @@ ln $(which etcd) ${PACKAGE_DIR}/
 # flowctl-go links the `bindings` staticlib, which has no embedded crate list.
 # An SBOM of its crates ships beside flowctl-go, and the image scan reads it.
 # cargo-cyclonedx writes one beside every workspace crate, so keep only bindings'.
+# Build dependencies aren't linked in, and the scan omits them for other binaries.
 cargo cyclonedx --quiet \
+    --no-build-deps \
     --manifest-path crates/bindings/Cargo.toml \
     --target ${ARCH}-unknown-linux-gnu \
     --format json \
