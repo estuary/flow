@@ -28,7 +28,8 @@ async fn generates_invoices_from_exact_daily_rollups(pool: sqlx::PgPool) {
     catalog_stats::test_util::delete_rows_with_prefix(&client, "billingempty/")
         .await
         .unwrap();
-    sqlx::query("INSERT INTO tenants (tenant, data_tiers, usage_tiers, recurring_usd_cents, trial_start) VALUES ('billingio/', ARRAY[50], ARRAY[14], 1000, '2026-08-02'), ('billingempty/', ARRAY[50], ARRAY[14], 500, NULL)")
+    // A tenant created on the month's last second is invoiced for that month.
+    sqlx::query("INSERT INTO tenants (tenant, data_tiers, usage_tiers, recurring_usd_cents, trial_start, created_at) VALUES ('billingio/', ARRAY[50], ARRAY[14], 1000, '2026-08-02', '2026-01-01'), ('billingempty/', ARRAY[50], ARRAY[14], 500, NULL, '2026-08-31T23:59:59Z')")
         .execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO internal.billing_adjustments (tenant, billed_month, usd_cents, authorizer, detail) VALUES ('billingio/', '2026-08-01T00:00:00Z', 123, 'test', 'adjustment'), ('billingio/', '2026-07-01T00:00:00Z', 999, 'test', 'other month')")
         .execute(&pool).await.unwrap();
@@ -99,10 +100,11 @@ async fn generates_invoices_from_exact_daily_rollups(pool: sqlx::PgPool) {
     assert_eq!(got[0].billed_prefix, "billingempty/");
     assert_eq!(got[0].recurring_fee, 500);
     assert!(got[0].daily_usage.is_empty());
-    sqlx::query(
-        "INSERT INTO tenants (tenant)
-         SELECT ('billinggap' || n || '/')::public.catalog_tenant
-         FROM generate_series(1, 499) AS n",
+    sqlx::raw_sql(
+        "INSERT INTO tenants (tenant, created_at)
+         SELECT ('billinggap' || n || '/')::public.catalog_tenant, '2026-01-01'
+         FROM generate_series(1, 499) AS n;
+         INSERT INTO tenants (tenant, created_at) VALUES ('billinglate/', '2026-09-01');",
     )
     .execute(&pool)
     .await
@@ -119,27 +121,27 @@ async fn generates_invoices_from_exact_daily_rollups(pool: sqlx::PgPool) {
         serde_json::to_value(all.last().unwrap()).unwrap(),
         serde_json::to_value(&got[1]).unwrap()
     );
-    assert!(
-        billing_types::invoices::generate(
-            &pool,
-            &client,
-            2026,
-            chrono::Month::August,
-            Some(&["missing/".into()])
-        )
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("missing/")
-    );
+    let error = billing_types::invoices::generate(
+        &pool,
+        &client,
+        2026,
+        chrono::Month::August,
+        Some(&["missing/".into(), "billinglate/".into()]),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("billinglate/, missing/"), "{error}");
 }
 
 #[sqlx::test(migrations = "../../supabase/migrations")]
 async fn propagates_bigtable_read_failure(pool: sqlx::PgPool) {
-    sqlx::query("INSERT INTO tenants (tenant) VALUES ('billingfailure/')")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO tenants (tenant, created_at) VALUES ('billingfailure/', '2026-01-01')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let client = catalog_stats::test_util::connect_emulator("nonexistent-instance").await;
     let result = billing_types::invoices::generate(
         &pool,
