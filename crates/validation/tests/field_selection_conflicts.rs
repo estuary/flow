@@ -31,6 +31,47 @@ test://example/catalog.yaml:
   materializations:
     the/materialization:
       onIncompatibleSchemaChange: disableBinding
+
+driver:
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
+"#,
+    );
+    insta::assert_debug_snapshot!((selections, errors));
+}
+
+#[test]
+fn test_trial_storage_disables_binding() {
+    let (selections, errors) = common::run_selection(
+        MODEL_YAML,
+        r#"
+driver:
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial, prefix: collection-data/ }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
+"#,
+    );
+    insta::assert_debug_snapshot!((selections, errors));
+}
+
+#[test]
+fn test_trial_storage_with_task_backfill() {
+    let (selections, errors) = common::run_selection(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      onIncompatibleSchemaChange: backfill
+
+driver:
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial, prefix: collection-data/ }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
 "#,
     );
     insta::assert_debug_snapshot!((selections, errors));

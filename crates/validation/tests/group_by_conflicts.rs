@@ -18,6 +18,12 @@ test://example/catalog.yaml:
     the/collection:
       # Expect we ignore the group-by key change, since we're resetting anyway.
       reset: true
+
+driver:
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial }]
+      recoveryStores: [{ provider: GCS, bucket: durable-recovery }]
 "#,
     );
     insta::assert_debug_snapshot!((selections, errors));
@@ -66,6 +72,69 @@ test://example/catalog.yaml:
 }
 
 #[test]
+fn test_trial_storage_disables_binding() {
+    let (selections, errors) = common::run_selection(
+        MODEL_YAML,
+        r#"
+driver:
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial, prefix: collection-data/ }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
+"#,
+    );
+    insta::assert_debug_snapshot!((selections, errors));
+}
+
+#[test]
+fn test_trial_storage_with_task_backfill() {
+    let (selections, errors) = common::run_selection(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      onIncompatibleSchemaChange: backfill
+
+driver:
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial, prefix: collection-data/ }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
+"#,
+    );
+    insta::assert_debug_snapshot!((selections, errors));
+}
+
+#[test]
+fn test_trial_storage_with_binding_backfill() {
+    let (selections, errors) = common::run_selection(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      onIncompatibleSchemaChange: disableTask
+      bindings:
+        - source: the/collection
+          resource:
+            _meta: { path: [a] }
+            table: a
+          fields:
+            recommended: 1
+          onIncompatibleSchemaChange: backfill
+
+driver:
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial, prefix: collection-data/ }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
+"#,
+    );
+    insta::assert_debug_snapshot!((selections, errors));
+}
+
+#[test]
 fn test_reenable_with_backfill() {
     // Backfilling a re-enabled binding allows the changed group-by.
     let (selections, errors) = common::run_selection(
@@ -74,7 +143,6 @@ fn test_reenable_with_backfill() {
 test://example/catalog.yaml:
   materializations:
     the/materialization:
-      onIncompatibleSchemaChange: disableBinding
       bindings:
         - source: the/collection
           resource:
@@ -95,6 +163,10 @@ driver:
           fields:
             recommended: 1
           disable: true
+  storageMappings:
+    the/:
+      stores: [{ provider: GCS, bucket: estuary-trial, prefix: collection-data/ }]
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
 "#,
     );
     insta::assert_debug_snapshot!((selections, errors));
@@ -161,4 +233,29 @@ test://example/catalog.yaml:
 "#,
     );
     insta::assert_debug_snapshot!((selections, errors));
+}
+
+#[test]
+fn test_durable_primary_with_trial_secondary() {
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+driver:
+  storageMappings:
+    the/:
+      stores:
+        - { provider: GCS, bucket: durable-primary }
+        - { provider: GCS, bucket: estuary-trial }
+      recoveryStores: [{ provider: GCS, bucket: estuary-trial }]
+"#,
+    );
+    assert!(outcome.errors.is_empty());
+    assert!(outcome.errors_draft.is_empty());
+    let built = &outcome.built_materializations[0];
+    let binding = &built.model.as_ref().unwrap().bindings[0];
+    insta::assert_debug_snapshot!((
+        binding.disable,
+        binding.backfill,
+        &built.auto_disabled_bindings
+    ));
 }

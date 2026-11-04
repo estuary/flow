@@ -381,3 +381,124 @@ async fn test_bindings_auto_disabled() {
     );
     assert!(harness.alert_sender.take_sent().await.is_empty());
 }
+
+#[tokio::test]
+async fn test_trial_storage_default_detail() {
+    let mut harness = TestHarness::init("trial_storage_default_detail").await;
+    let user_id = harness.setup_tenant("ravens").await;
+    // The derivation's input is durable; its own primary store selects the policy.
+    sqlx::query("insert into storage_mappings (catalog_prefix, spec) select 'ravens/durable/', jsonb_set(spec::jsonb, '{stores}', $1::jsonb)::json from storage_mappings where catalog_prefix = 'ravens/' on conflict (catalog_prefix) do update set spec = excluded.spec")
+        .bind(json!([{"provider": "GCS", "bucket": "durable-input"}]))
+        .execute(&harness.pool).await.unwrap();
+    sqlx::query("insert into storage_mappings (catalog_prefix, spec) select 'recovery/ravens/durable/', spec from storage_mappings where catalog_prefix = 'recovery/ravens/' on conflict (catalog_prefix) do update set spec = excluded.spec")
+        .execute(&harness.pool).await.unwrap();
+
+    let query = r#"query {
+        storageMappings(filter: {catalogPrefix: {startsWith: "ravens/"}}) {
+            edges { node { catalogPrefix fragmentStores { bucket isTrial } } }
+        }
+    }"#;
+    let initial_mappings: serde_json::Value = harness
+        .execute_graphql_query(user_id, query, &json!({}))
+        .await
+        .unwrap();
+    insta::assert_json_snapshot!("trial_store_mappings", initial_mappings);
+
+    let schema = json!({
+        "type": "object",
+        "properties": {"id": {"type": "string"}, "region": {"type": "string"}},
+        "required": ["id", "region"],
+    });
+    let mut task = materialization(
+        json!({"resource": {"table": "sightings"}, "source": "ravens/sightings"}),
+        0,
+    );
+    task["ravens/materialize"]["bindings"][1]["source"] = json!("ravens/durable/nests");
+    task["ravens/materialize"]
+        .as_object_mut()
+        .unwrap()
+        .remove("onIncompatibleSchemaChange");
+    let result = harness
+        .user_publication(
+            user_id,
+            "initial derived source",
+            draft_catalog(json!({
+                "collections": {
+                    "ravens/durable/nests": {"schema": schema, "key": ["/id"]},
+                    "ravens/sightings": {
+                        "schema": schema, "key": ["/id"],
+                        "derive": {
+                            "using": {"sqlite": {"migrations": []}},
+                            "transforms": [{
+                                "name": "fromNests",
+                                "source": "ravens/durable/nests",
+                                "shuffle": "any",
+                                "lambda": "select $id as id, $region as region;",
+                            }],
+                        },
+                    },
+                },
+                "materializations": task,
+            })),
+        )
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+    harness.run_pending_controllers(None).await;
+
+    // A materialization-only publication resolves the live collection's built storage.
+    sqlx::query("update storage_mappings set spec = jsonb_set(spec::jsonb, '{stores}', $1::jsonb)::json where catalog_prefix = 'ravens/'")
+        .bind(json!([
+            {"provider": "GCS", "bucket": "durable-primary"},
+            {"provider": "GCS", "bucket": "estuary-trial"}
+        ]))
+        .execute(&harness.pool).await.unwrap();
+    let changed_mappings: serde_json::Value = harness
+        .execute_graphql_query(user_id, query, &json!({}))
+        .await
+        .unwrap();
+    insta::assert_json_snapshot!("mixed_store_mappings", changed_mappings);
+    task["ravens/materialize"]["bindings"][0]["resource"]["_meta"] = json!({"path": ["sightings"]});
+    task["ravens/materialize"]["bindings"][0]["fields"] =
+        json!({"groupBy": ["region"], "recommended": true});
+    let result = harness
+        .user_publication(
+            user_id,
+            "change derived source group-by",
+            draft_catalog(json!({"materializations": task})),
+        )
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+    let state = harness.run_pending_controller("ravens/materialize").await;
+    let model = state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_materialization()
+        .unwrap();
+    assert!(model.bindings[0].disable);
+    assert_eq!(model.bindings[0].backfill, 0);
+    assert!(!model.bindings[1].disable);
+    let reports = &state
+        .current_status
+        .unwrap_materialization()
+        .auto_disabled_bindings;
+    insta::assert_json_snapshot!(reports, {"[].pub_id" => "[pub_id]"});
+    let alert = harness
+        .assert_alert_event("ravens/materialize", AlertType::BindingsAutoDisabled)
+        .await;
+    assert_eq!(
+        alert.alert.arguments.0["bindings"],
+        serde_json::to_value(reports).unwrap()
+    );
+    let body = &alert.notifications[0].body;
+    let detail_start = body.find("group-by key changed").unwrap();
+    let detail_end = body[detail_start..].find("</pre>").unwrap() + detail_start;
+    insta::assert_snapshot!(
+        "trial_storage_email_detail",
+        body[detail_start..detail_end]
+            .lines()
+            .map(str::trim)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
