@@ -38,6 +38,10 @@ and `FORBIDDEN` error extensions. Custom resolver checks can emit this error
 without using `verify_authorization`; snapshot retries remain `ApiError::AuthZRetry`.
 Resolvers that hide resource existence replace the denial before response formatting.
 
+`discovers::create` queues discovery with the capture's `autoDiscover.addNewBindings`
+policy. Without `autoDiscover`, new bindings default to disabled for live captures
+and enabled for new captures.
+
 `publications/submit.rs` authorizes and queues GraphQL publications with a hash
 of the expanded draft. The executor verifies it after expansion on every attempt,
 before applying runtime defaults. A null hash preserves PostgREST publication
