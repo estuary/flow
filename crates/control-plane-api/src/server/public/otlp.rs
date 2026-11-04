@@ -1,14 +1,14 @@
 //! Forwards OTLP/HTTP trace exports from Estuary clients to agent-api's trace backend.
 //!
 //! Clients authenticate with their usual bearer token, and agent-api holds the backend's credentials.
-//! Only `http/protobuf` is accepted. Each export is decoded so that its resources can be stamped with the client's verified identity.
+//! Only `http/protobuf` is accepted. Each span records the verified caller as `enduser.id`.
 
 use opentelemetry_proto::tonic::collector::trace::v1 as collector;
 use opentelemetry_proto::tonic::common::v1 as common;
 use prost::Message as _;
 use std::sync::Arc;
 
-/// The OTLP/HTTP traces endpoint which receives forwarded exports, and the headers which authenticate to it.
+/// Trace backend endpoint and authentication headers.
 pub struct Upstream {
     client: reqwest::Client,
     endpoint: url::Url,
@@ -90,7 +90,9 @@ pub(crate) async fn handle_post_traces(
         .unwrap())
 }
 
-/// Replaces a client's `enduser.*` and `user.*` attributes with the user ID of its verified token. The ID goes on each span as `enduser.id`, which agent-api records on its own spans, so one query matches spans from either source.
+/// Removes `enduser.*` and `user.*` from resource and span attributes, then sets
+/// each span's `enduser.id` to the verified caller's user ID. Agent-api records
+/// the same ID on its HTTP spans, so one query matches spans from either source.
 fn stamp(request: &mut collector::ExportTraceServiceRequest, claims: &crate::ControlClaims) {
     let enduser_id = common::KeyValue {
         key: "enduser.id".to_owned(),

@@ -45,7 +45,8 @@ pub struct App {
     pub catalog_stats: Option<Arc<catalog_stats::Client>>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
-    /// Trace backend for client spans exported to `/otlp/v1/traces`. `None` when unconfigured, in which case that route fails closed. See `server::public::otlp`.
+    /// Trace backend for client spans exported to `/otlp/v1/traces`.
+    /// When unset, authenticated exports return 501. See `server::public::otlp`.
     pub otlp_upstream: Option<public::otlp::Upstream>,
     pub pg_pool: sqlx::PgPool,
     pub publisher: crate::publications::Publisher,

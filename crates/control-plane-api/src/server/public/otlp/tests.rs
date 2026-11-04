@@ -22,7 +22,6 @@ fn upstream_parses_otel_headers() {
     assert!(super::Upstream::new(endpoint, "authorization").is_err());
 }
 
-/// Records exports which reach the trace backend, and answers each with `status`.
 #[derive(Default)]
 struct Backend {
     status: Mutex<u16>,

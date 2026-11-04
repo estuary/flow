@@ -122,7 +122,6 @@ impl TestServer {
         .await
     }
 
-    /// Starts a server which forwards `/otlp/v1/traces` to `otlp_upstream`.
     pub async fn start_with_otlp_upstream(
         pg_pool: sqlx::PgPool,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
