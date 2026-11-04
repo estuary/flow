@@ -123,6 +123,22 @@ async fn stats_failure_does_not_freeze_any_invoices(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrations = "../../supabase/migrations")]
+async fn refuses_a_month_that_has_not_ended(pool: sqlx::PgPool) {
+    use chrono::Datelike;
+
+    let client = catalog_stats::test_util::connect_emulator("estuary-local").await;
+    let today = chrono::Utc::now().date_naive();
+    let month = chrono::Month::try_from(today.month() as u8).unwrap();
+    let error = billing_types::invoices::freeze(&pool, &client, today.year(), month)
+        .await
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("can't be frozen before it ends"),
+        "{error}"
+    );
+}
+
+#[sqlx::test(migrations = "../../supabase/migrations")]
 async fn late_calculation_failure_rolls_back_completed_batch(pool: sqlx::PgPool) {
     let client = catalog_stats::test_util::connect_emulator("estuary-local").await;
     catalog_stats::test_util::delete_rows_with_prefix(&client, "freezeCalculation")
