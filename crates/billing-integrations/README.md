@@ -35,7 +35,7 @@ the statistics. Application profile and emulator options match the catalog
 stats API. Invoice JSON goes to stdout; diagnostics go to stderr.
 
 Freeze a month with `freeze-invoices --month 2026-08` and the same database and
-Bigtable settings. This recalculates invoices from current inputs, so amounts
+Bigtable settings, once the month has ended. This recalculates invoices from current inputs, so amounts
 can differ from an earlier `generate-invoices` run if usage or billing terms
 changed. The command selects all tenants and prints how many invoices were newly
 frozen.

@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 const STATS_READ_TENANTS: usize = 500;
 
 /// Recalculate and freeze one month's invoices for every tenant in batches.
+/// The month must have ended.
 /// Existing frozen invoices and their Stripe invoice IDs are retained.
 /// Returns the number of newly frozen invoices. All new invoices commit together;
 /// a failed read, calculation, or insertion rolls back earlier batches.
@@ -17,6 +18,13 @@ pub async fn freeze(
     month: chrono::Month,
 ) -> anyhow::Result<u64> {
     let period = crate::calculate::month_range(year, month)?;
+    // Later runs retain frozen invoices, so a month frozen early would keep
+    // its partial usage.
+    anyhow::ensure!(
+        period.end <= chrono::Utc::now().date_naive(),
+        "{year}-{:02} can't be frozen before it ends",
+        month.number_from_month()
+    );
     let billed_month = period.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
     let inputs = load_inputs(pool, billed_month, None).await?;
     let batches = invoice_batches(stats, &inputs, year, month, period);

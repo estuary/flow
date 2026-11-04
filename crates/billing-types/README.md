@@ -17,7 +17,7 @@ them to storage. PostgreSQL inputs are read in one snapshot, and the transaction
 is released before reading Bigtable.
 
 `invoices::freeze` reads usage, calculates invoices, and inserts them in serial
-batches of 500 tenants. One PostgreSQL transaction commits all new invoices;
+batches of 500 tenants. It refuses a month that hasn't ended. One PostgreSQL transaction commits all new invoices;
 a read, calculation, or insertion failure rolls back earlier batches. The write
 transaction stays open during subsequent Bigtable reads. Reruns retain invoices
 already frozen for that tenant and month, including their Stripe invoice IDs.
