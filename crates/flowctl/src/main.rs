@@ -5,7 +5,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer, filter::LevelFilter};
 
 fn main() -> Result<(), anyhow::Error> {
-    // Matches name the command's span.
     let matches = flowctl::Cli::command().get_matches();
     let cli = flowctl::Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit());
 
@@ -55,7 +54,7 @@ fn main() -> Result<(), anyhow::Error> {
         span.record("otel.status_description", format!("{err:#}"));
     }
     drop(span);
-    // Export the final batch. This happens on `runtime`, so it must precede the shutdown below.
+    // Attempt the final export before shutting down the runtime it uses.
     let _ = tracer_provider.shutdown();
 
     // We must call `shutdown_background()` because otherwise an incomplete spawned future

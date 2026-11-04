@@ -11,7 +11,7 @@ use std::sync::{Arc, OnceLock};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use tracing_subscriber::Layer as _;
 
-/// Bounds the delay that a final export adds to a command's exit.
+/// Timeout for each span export request.
 const EXPORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Where spans are exported. `Cli::run` sets it once it has resolved the agent URL and the user's tokens, which happens after tracing starts.
@@ -91,7 +91,9 @@ where
     (layer, provider)
 }
 
-/// Returns the span which covers a command, named for its subcommands, such as `flowctl catalog list`. A process which runs flowctl may pass its trace context in the standard `TRACEPARENT` and `TRACESTATE` environment variables. Otherwise, the span starts a new trace.
+/// Creates a span named for the command, such as `flowctl catalog list`.
+/// A valid `TRACEPARENT` supplies its parent; `TRACESTATE` supplies optional
+/// trace state. Otherwise it starts a new trace.
 pub fn command_span(matches: &clap::ArgMatches) -> tracing::Span {
     let mut name = String::from("flowctl");
     let mut matches = matches;

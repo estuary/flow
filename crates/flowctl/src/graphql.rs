@@ -106,7 +106,7 @@ pub async fn post_graphql<Q: graphql_client::GraphQLQuery>(
     use tracing::Instrument;
 
     let body = Q::build_query(variables);
-    // The span is named on creation, since tracing-opentelemetry ignores a later `otel.name`.
+    // Name the span on creation: tracing-opentelemetry ignores `otel.name` after the span starts.
     let span = tracing::info_span!(
         "post_graphql",
         otel.name = body.operation_name,
