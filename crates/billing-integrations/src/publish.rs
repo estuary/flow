@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use billing_types::{
-    BillingProvider, InvoiceMetadata, InvoiceType, PaymentProvider, StripeBillingProvider,
-    record_customer_id,
+    BillingProvider, InvoiceMetadata, InvoiceType, PaymentProvider, PlanKind,
+    StripeBillingProvider, record_customer_id,
 };
 use chrono::{Duration, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
@@ -96,6 +96,7 @@ enum InvoiceResult {
     FutureTrialStart,
     NoDataMoved,
     NoFullPipeline,
+    InternalTenant,
     AlreadyProcessed,
     Error,
 }
@@ -142,6 +143,7 @@ impl InvoiceResult {
             InvoiceResult::NoFullPipeline => {
                 "Skipping invoice for tenant without an active pipeline".to_string()
             }
+            InvoiceResult::InternalTenant => "Skipping invoice for internal tenant".to_string(),
             InvoiceResult::AlreadyProcessed => {
                 "Skipping invoice already processed in a previous billing run".to_string()
             }
@@ -198,6 +200,7 @@ pub(crate) struct Invoice {
     extra: Option<sqlx::types::Json<Option<Extra>>>,
     has_full_pipeline: bool,
     payment_provider: PaymentProvider,
+    plan_kind: PlanKind,
     tenant_trial_start: Option<NaiveDate>,
     pub(crate) stripe_invoice_id: Option<String>,
     stripe_customer_id: Option<String>,
@@ -303,7 +306,14 @@ impl Invoice {
             _ => {}
         };
 
-        if let InvoiceType::Final = self.invoice_type {
+        if self.plan_kind == PlanKind::Internal {
+            return Ok(InvoiceAction::Skip {
+                result: InvoiceResult::InternalTenant,
+            });
+        }
+
+        // Contract usage isn't credited, so contracts are invoiced regardless of `trial_start`.
+        if let (InvoiceType::Final, PlanKind::SelfServe) = (&self.invoice_type, self.plan_kind) {
             match self.tenant_trial_start {
                 Some(trial_start) if self.date_end < trial_start => {
                     return Ok(InvoiceAction::Skip {
@@ -363,7 +373,8 @@ impl Invoice {
                 .and_then(|i| i.default_payment_method.as_ref())
                 .is_some();
 
-            if !has_payment_method {
+            // Contracts are invoiced without a payment method on file.
+            if self.plan_kind == PlanKind::SelfServe && !has_payment_method {
                 if unwrapped_extra.processed_data_gb.unwrap_or_default() == 0.0 {
                     return Ok(InvoiceAction::Skip {
                         result: InvoiceResult::NoDataMoved,
@@ -806,6 +817,7 @@ pub(crate) async fn load_invoices(
             extra,
             coalesce(dataflow.has_full_pipeline, false) as has_full_pipeline,
             tenants.payment_provider,
+            tenants.plan_kind,
             tenants.trial_start as tenant_trial_start,
             invoices_ext.stripe_invoice_id,
             tenants.stripe_customer_id
@@ -1297,6 +1309,7 @@ mod tests {
             }))),
             has_full_pipeline: true,
             payment_provider: PaymentProvider::Stripe,
+            plan_kind: PlanKind::SelfServe,
             tenant_trial_start: Some("2020-01-01".parse().unwrap()),
             stripe_invoice_id: recorded.map(str::to_string),
             stripe_customer_id: Some(CUSTOMER_ID.to_string()),
@@ -1413,6 +1426,49 @@ mod tests {
         Final recreate=false: error: Recorded invoice in_recorded no longer exists in Stripe. Pass --recreate-existing to create a replacement.
         Final recreate=true: create: replacing None; customer cus_acme
         Final recreate=true: create: replacing Some("in_recorded"); customer cus_acme
+        "#);
+    }
+
+    #[tokio::test]
+    async fn skips_follow_plan_kind() {
+        // A usage bill of a tenant without a payment method or a full pipeline.
+        let unpaid = |plan_kind, tenant_trial_start| Invoice {
+            plan_kind,
+            tenant_trial_start,
+            has_full_pipeline: false,
+            ..bill(InvoiceType::Final, None)
+        };
+        let cases = [
+            unpaid(PlanKind::SelfServe, None),
+            unpaid(PlanKind::SelfServe, Some("2020-01-01".parse().unwrap())),
+            unpaid(PlanKind::Contract, None),
+            unpaid(PlanKind::Internal, None),
+            Invoice {
+                plan_kind: PlanKind::Internal,
+                ..bill(InvoiceType::Manual, None)
+            },
+        ];
+
+        let mut outcomes = Vec::new();
+        for bill in cases {
+            let (client, requests) = stripe_stub(vec![ok(customer())]).await;
+            let provider = StripeBillingProvider::from_client(client);
+            let action = bill.classify(&provider, false).await.unwrap();
+            outcomes.push(format!(
+                "{:?} {:?} trial={:?}: {} {:?}",
+                bill.plan_kind,
+                bill.invoice_type,
+                bill.tenant_trial_start,
+                describe(&action),
+                requests.lock().unwrap(),
+            ));
+        }
+        insta::assert_snapshot!(outcomes.join("\n"), @r#"
+        SelfServe Final trial=None: skip: Skipping usage invoice for tenant in free tier []
+        SelfServe Final trial=Some(2020-01-01): skip: Skipping invoice for tenant without an active pipeline ["GET /v1/customers/cus_acme"]
+        Contract Final trial=None: create: replacing None; customer cus_acme ["GET /v1/customers/cus_acme"]
+        Internal Final trial=None: skip: Skipping invoice for internal tenant []
+        Internal Manual trial=Some(2020-01-01): skip: Skipping invoice for internal tenant []
         "#);
     }
 
