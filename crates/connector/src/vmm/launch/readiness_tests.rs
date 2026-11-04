@@ -156,12 +156,15 @@ fn recovery_retries_failed_ingress_removal() {
     });
 }
 
+/// The built spec's port is granted though the image exposes none of it, and
+/// the port the image alone exposes is not.
 #[test]
 fn declared_ports_are_reported_and_permissions_released() {
     in_child(
         "declared_ports_are_reported_and_permissions_released",
         |mut h| async move {
-            std::fs::write(h.dir.join("inspection"), r#"[{"Id":"synthetic-image","Created":"2026-01-01T00:00:00Z","Config":{"Env":[],"Labels":{"FLOW_RUNTIME_PROTOCOL":"derive","dev.estuary.port-proto.8080":"http/1.1","dev.estuary.port-public.8080":"true"},"ExposedPorts":{"8080/tcp":{}}}}]"#).unwrap();
+            std::fs::write(h.dir.join("inspection"), r#"[{"Id":"synthetic-image","Created":"2026-01-01T00:00:00Z","Config":{"Env":[],"Labels":{"FLOW_RUNTIME_PROTOCOL":"derive","dev.estuary.port-proto.9090":"http/1.1","dev.estuary.port-public.9090":"true"},"ExposedPorts":{"9090/tcp":{}}}}]"#).unwrap();
+            h.ports = vec![8080];
             let report = launch(
                 &mut h,
                 Launch {
@@ -176,6 +179,7 @@ fn declared_ports_are_reported_and_permissions_released() {
             assert!(calls.contains("boundary grant --owner="));
             assert!(calls.contains("--port=8080"));
             assert!(calls.contains("--ingress-port=8080"));
+            assert!(!calls.contains("9090"));
             assert!(calls.contains("boundary revoke --owner="));
         },
     );
@@ -645,6 +649,8 @@ type Events = tokio::io::Lines<tokio::io::BufReader<tokio::net::unix::pipe::Rece
 struct Harness {
     dir: PathBuf,
     events: Events,
+    /// TCP ports of the launch's built spec.
+    ports: Vec<u32>,
 }
 
 type Started = anyhow::Result<(
@@ -678,7 +684,12 @@ where
                 .open_receiver(dir.join("events"))
                 .unwrap();
             let events = tokio::io::AsyncBufReadExt::lines(tokio::io::BufReader::new(events));
-            scenario(Harness { dir, events }).await
+            scenario(Harness {
+                dir,
+                events,
+                ports: Vec::new(),
+            })
+            .await
         });
         return;
     }
@@ -758,7 +769,7 @@ async fn launch(h: &mut Harness, Launch { stderr, peer, then }: Launch) -> Repor
         container_network: String::new(),
         execution: proto_flow::flow::ConnectorExecution {
             vmm: true,
-            egress: None,
+            egress: Some(Default::default()),
         },
         log_level: ops::LogLevel::Info,
         log_sink,
@@ -802,6 +813,7 @@ async fn launch(h: &mut Harness, Launch { stderr, peer, then }: Launch) -> Repor
         vmm,
         eligible,
         egress,
+        h.ports.clone(),
         IMAGE,
         &crate::EMPTY_SECRETS,
         None,
@@ -903,12 +915,13 @@ async fn launch(h: &mut Harness, Launch { stderr, peer, then }: Launch) -> Repor
         None => "cancelled".to_string(),
         Some(Err(err)) => format!("failed: {err:#}"),
         Some(Ok((container, channel, guard, _codec))) => {
-            if dir.join("inspection").exists() {
+            if !h.ports.is_empty() {
                 assert_eq!(container.ip_addr, "10.89.0.2");
+                // Reported as an ordinary container reports it, for validation.
                 assert_eq!(
-                    container.network_ports,
+                    container.advertised_ports,
                     vec![proto_flow::flow::NetworkPort {
-                        number: 8080,
+                        number: 9090,
                         protocol: "http/1.1".to_string(),
                         public: true,
                     }]

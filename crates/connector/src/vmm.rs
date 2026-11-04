@@ -45,7 +45,7 @@ const DISK_MIB: &str = "CONNECTOR_VMM_DISK_MIB";
 const MEMORY_OVERHEAD_MIB: &str = "CONNECTOR_VMM_MEMORY_OVERHEAD_MIB";
 
 /// Room for the uv cache, the virtual environment and TMPDIR of a Python
-/// derivation. The file is sparse, so the host pays for what the guest writes.
+/// connector's project. The file is sparse, so the host pays for what the guest writes.
 const DEFAULT_DISK_MIB: u64 = 2048;
 /// Container memory above guest RAM: the VMM's own allocations, its virtiofs
 /// servers, guest page tables, and page cache charged to the container.
@@ -248,7 +248,8 @@ fn digits(raw: &str, expected: &str) -> anyhow::Result<u64> {
 }
 
 /// A connector which may request VMM execution, by protocol and normalized
-/// image repository, and the hosts it may always reach.
+/// image repository, and the hosts which any egress it declares, unless
+/// empty, permits it.
 #[derive(Debug)]
 pub(crate) struct Eligible {
     pub task_type: ops::TaskType,
@@ -256,13 +257,27 @@ pub(crate) struct Eligible {
     pub egress_hosts: &'static [&'static str],
 }
 
-/// Python derivations are the initial workload, and install their
-/// dependencies from the package index at start.
-const ELIGIBLE: &[Eligible] = &[Eligible {
-    task_type: ops::TaskType::Derivation,
-    repository: "ghcr.io/estuary/derive-python",
-    egress_hosts: &["pypi.org", "files.pythonhosted.org"],
-}];
+/// Python's connectors install their projects' dependencies from the package
+/// index as they start.
+const PYPI: &[&str] = &["pypi.org", "files.pythonhosted.org"];
+
+const ELIGIBLE: &[Eligible] = &[
+    Eligible {
+        task_type: ops::TaskType::Capture,
+        repository: "ghcr.io/estuary/capture-python",
+        egress_hosts: PYPI,
+    },
+    Eligible {
+        task_type: ops::TaskType::Derivation,
+        repository: "ghcr.io/estuary/derive-python",
+        egress_hosts: PYPI,
+    },
+    Eligible {
+        task_type: ops::TaskType::Materialization,
+        repository: "ghcr.io/estuary/materialize-python",
+        egress_hosts: PYPI,
+    },
+];
 
 fn eligible(task_type: ops::TaskType, image: &str) -> Option<&'static Eligible> {
     let (repository, _tag) = models::split_image_tag(image);
@@ -280,7 +295,7 @@ pub(crate) enum Execution<'a> {
     Vmm {
         vmm: &'a Vmm,
         eligible: &'static Eligible,
-        egress: Option<TaskEgress>,
+        egress: TaskEgress,
     },
 }
 
@@ -300,10 +315,11 @@ pub(crate) struct TaskEgress {
 ///
 /// Every connector start is decided here, before any image is pulled or any
 /// connector is started. A request for VMM execution is either launched in a
-/// VMM or fails: it never falls back to an ordinary container. Declared
-/// egress is refused by any execution which cannot enforce it, its hosts and
-/// CIDRs are validated here, and CIDRs are refused on a public plane, so that
-/// a direct caller cannot skip any of these checks.
+/// VMM or fails: it never falls back to an ordinary container. A VMM request
+/// must declare egress. Declared egress is refused by any execution which
+/// cannot enforce it, its hosts and CIDRs are validated here, and CIDRs are
+/// refused on a public plane, so that a direct caller cannot skip any of
+/// these checks.
 pub(crate) fn vmm_for<'a>(
     vmm: Option<&'a Vmm>,
     plane: crate::Plane,
@@ -315,42 +331,41 @@ pub(crate) fn vmm_for<'a>(
     check_spec_execution(execution, spec_execution)?;
 
     if execution.egress.is_some() && !execution.vmm {
-        return Err(crate::invalid_argument(
+        return Err(refuse(tonic::Status::invalid_argument(
             "the task declares egress, which ordinary execution cannot enforce; \
-             egress is enforced only by VMM execution"
-                .to_string(),
-        ));
+             egress is enforced only by VMM execution",
+        )));
     }
     if !execution.vmm {
         return Ok(Execution::Ordinary);
     }
     let Some(image) = image else {
-        return Err(crate::invalid_argument(
-            "VMM execution requires an image connector".to_string(),
-        ));
+        return Err(refuse(tonic::Status::invalid_argument(
+            "VMM execution requires an image connector",
+        )));
     };
     let Some(eligible) = eligible(task_type, image) else {
-        return Err(crate::invalid_argument(format!(
+        return Err(refuse(tonic::Status::invalid_argument(format!(
             "connector image '{image}' is not eligible for VMM execution as a {}",
             task_type.as_str_name()
+        ))));
+    };
+    let Some(flow::connector_execution::Egress { hosts, cidrs }) = &execution.egress else {
+        return Err(refuse(tonic::Status::invalid_argument(
+            "the task requests VMM execution but declares no egress; a VMM task must \
+             declare `egress`, and `egress: {}` permits no external destination",
         )));
     };
     let Some(vmm) = vmm else {
-        return Err(proto_grpc::status_to_anyhow(
-            tonic::Status::failed_precondition("this data plane does not support VMM execution"),
-        ));
+        return Err(refuse(tonic::Status::failed_precondition(
+            "this data plane does not support VMM execution",
+        )));
     };
-    let egress = execution
-        .egress
-        .as_ref()
-        .map(|flow::connector_execution::Egress { hosts, cidrs }| {
-            anyhow::Ok(TaskEgress {
-                hosts: egress::hosts("task egress.hosts", hosts)?,
-                cidrs: crate::policy::egress_cidrs(plane, cidrs)?,
-            })
-        })
-        .transpose()
-        .map_err(|err| crate::invalid_argument(format!("{err:#}")))?;
+    let invalid = |err: anyhow::Error| refuse(tonic::Status::invalid_argument(format!("{err:#}")));
+    let egress = TaskEgress {
+        hosts: egress::hosts("task egress.hosts", hosts).map_err(invalid)?,
+        cidrs: crate::policy::egress_cidrs(plane, cidrs).map_err(invalid)?,
+    };
 
     Ok(Execution::Vmm {
         vmm,
@@ -368,11 +383,17 @@ pub(crate) fn check_spec_execution(
     if let Some(spec_execution) = spec_execution
         && spec_execution != execution
     {
-        return Err(crate::invalid_argument(format!(
+        return Err(refuse(tonic::Status::invalid_argument(format!(
             "Start.execution {execution:?} differs from the execution {spec_execution:?} of the task's built spec"
-        )));
+        ))));
     }
     Ok(())
+}
+
+/// Refuse the execution a request asks for, so that a client can tell the
+/// refusal from a failure of its connector.
+fn refuse(status: tonic::Status) -> anyhow::Error {
+    proto_grpc::status_to_anyhow(proto_grpc::connector::refuse_execution(status))
 }
 
 /// A capable service's configuration, with every default but a podman and a
@@ -638,25 +659,48 @@ mod test {
         }
     }
 
+    const CAPTURE: &str = "ghcr.io/estuary/capture-python:stable";
+    const DERIVE: &str = "ghcr.io/estuary/derive-python:stable";
+    const MATERIALIZE: &str = "ghcr.io/estuary/materialize-python:stable";
+
+    /// Which images may request VMM execution as which task type: an exact
+    /// repository, whatever its tag or digest, as its own type only.
     #[test]
     fn vmm_for_matrix() {
         let capable = super::fixture();
         let ordinary = execution(false, None);
-        let vmm = execution(true, None);
+        let vmm = execution(true, Some(&[]));
 
-        let images = [
-            Some("ghcr.io/estuary/derive-python:stable"),
-            Some("ghcr.io/estuary/derive-python:local"),
-            Some("ghcr.io/estuary/derive-python@sha256:0123abcd"),
-            Some("ghcr.io/estuary/derive-python:stable@sha256:0123abcd"),
-            Some("ghcr.io/estuary/derive-python"),
-            Some("ghcr.io/estuary/derive-typescript:stable"),
-            Some("ghcr.io/estuary/derive-python-extra:stable"),
-            Some("GHCR.IO/estuary/derive-python:stable"),
-            Some("example.com/estuary/derive-python:stable"),
-            Some("ghcr.io/estuary/source-hello-world:dev"),
-            None,
-        ];
+        let mut images: Vec<Option<String>> = Vec::new();
+        for repository in [
+            "ghcr.io/estuary/capture-python",
+            "ghcr.io/estuary/derive-python",
+            "ghcr.io/estuary/materialize-python",
+        ] {
+            for suffix in [
+                ":stable",
+                ":local",
+                ":dev",
+                "@sha256:0123abcd",
+                ":stable@sha256:0123abcd",
+                "",
+            ] {
+                images.push(Some(format!("{repository}{suffix}")));
+            }
+        }
+        images.extend(
+            [
+                "ghcr.io/estuary/derive-typescript:stable",
+                "ghcr.io/estuary/derive-python-extra:stable",
+                "ghcr.io/estuary/capture-python/extra:stable",
+                "GHCR.IO/estuary/derive-python:stable",
+                "example.com/estuary/materialize-python:stable",
+                "ghcr.io/estuary/source-hello-world:dev",
+            ]
+            .map(|image| Some(image.to_string())),
+        );
+        images.push(None);
+
         let task_types = [
             ops::TaskType::Capture,
             ops::TaskType::Derivation,
@@ -664,51 +708,48 @@ mod test {
         ];
 
         let mut rows = Vec::new();
-        for capability in [None, Some(&capable)] {
-            for task_type in task_types {
-                for image in images {
-                    for execution in [&ordinary, &vmm] {
-                        let outcome = outcome(vmm_for(
-                            capability,
-                            crate::Plane::Private,
-                            task_type,
-                            image,
-                            execution,
-                            None,
-                        ));
-                        if !execution.vmm {
-                            assert_eq!(outcome, "ordinary", "{task_type:?} {image:?}");
-                            continue;
-                        }
-                        rows.push(format!(
-                            "{capable:<7} {task_type:<15} {image:<53} => {outcome}",
-                            capable = if capability.is_some() { "capable" } else { "-" },
-                            task_type = task_type.as_str_name(),
-                            image = image.unwrap_or("<not an image>"),
-                        ));
+        for task_type in task_types {
+            for image in &images {
+                for execution in [&ordinary, &vmm] {
+                    let outcome = outcome(vmm_for(
+                        Some(&capable),
+                        crate::Plane::Private,
+                        task_type,
+                        image.as_deref(),
+                        execution,
+                        None,
+                    ));
+                    if !execution.vmm {
+                        assert_eq!(outcome, "ordinary", "{task_type:?} {image:?}");
+                        continue;
                     }
+                    rows.push(format!(
+                        "{task_type:<15} {image:<54} => {outcome}",
+                        task_type = task_type.as_str_name(),
+                        image = image.as_deref().unwrap_or("<not an image>"),
+                    ));
                 }
             }
         }
         insta::assert_snapshot!(rows.join("\n"));
     }
 
+    /// Every task type's own eligible image, on every plane, with and without
+    /// VMM capability, as ordinary or VMM execution, with egress missing,
+    /// empty, or declared. Public-plane refusal of ordinary Python is the
+    /// image policy's, which `policy::Image::check` decides after this.
     #[test]
     fn vmm_for_egress() {
         let capable = super::fixture();
-        let images = [
-            Some("ghcr.io/estuary/derive-python:stable"),
-            Some("ghcr.io/estuary/derive-typescript:stable"),
-            Some("ghcr.io/estuary/source-hello-world:dev"),
-            None,
-        ];
         let executions = [
-            ("ordinary, egress []", execution(false, Some(&[]))),
+            ("ordinary", execution(false, None)),
+            ("ordinary, egress {}", execution(false, Some(&[]))),
             (
                 "ordinary, egress [api]",
                 execution(false, Some(&["api.acmeco.example"])),
             ),
-            ("vmm, egress []", execution(true, Some(&[]))),
+            ("vmm, egress omitted", execution(true, None)),
+            ("vmm, egress {}", execution(true, Some(&[]))),
             (
                 "vmm, egress [API, *.svc, api]",
                 execution(
@@ -727,34 +768,81 @@ mod test {
         ];
 
         let mut rows = Vec::new();
-        for capability in [None, Some(&capable)] {
-            for image in images {
-                for (name, execution) in &executions {
-                    let outcome = match vmm_for(
-                        capability,
-                        crate::Plane::Private,
-                        ops::TaskType::Derivation,
-                        image,
-                        execution,
-                        None,
-                    ) {
-                        Ok(super::Execution::Vmm { egress, .. }) => {
-                            let hosts: Option<Vec<String>> = egress.map(|egress| {
-                                egress.hosts.iter().map(ToString::to_string).collect()
-                            });
-                            format!("vmm, task hosts {hosts:?}")
-                        }
-                        result => outcome(result),
-                    };
-                    rows.push(format!(
-                        "{capable:<7} {image:<40} {name:<29} => {outcome}",
-                        capable = if capability.is_some() { "capable" } else { "-" },
-                        image = image.unwrap_or("<not an image>"),
-                    ));
+        for plane in [
+            crate::Plane::Public,
+            crate::Plane::Private,
+            crate::Plane::Local,
+        ] {
+            for capability in [None, Some(&capable)] {
+                for (task_type, image) in [
+                    (ops::TaskType::Capture, CAPTURE),
+                    (ops::TaskType::Derivation, DERIVE),
+                    (ops::TaskType::Materialization, MATERIALIZE),
+                ] {
+                    for (name, execution) in &executions {
+                        let outcome = match vmm_for(
+                            capability,
+                            plane,
+                            task_type,
+                            Some(image),
+                            execution,
+                            None,
+                        ) {
+                            Ok(super::Execution::Vmm { egress, .. }) => {
+                                let hosts: Vec<String> =
+                                    egress.hosts.iter().map(ToString::to_string).collect();
+                                format!("vmm, task hosts {hosts:?}")
+                            }
+                            result => outcome(result),
+                        };
+                        rows.push(format!(
+                            "{plane:<7} {capable:<7} {task_type:<15} {name:<29} => {outcome}",
+                            plane = plane.as_str_name(),
+                            capable = if capability.is_some() { "capable" } else { "-" },
+                            task_type = task_type.as_str_name(),
+                        ));
+                    }
                 }
             }
         }
         insta::assert_snapshot!(rows.join("\n"));
+    }
+
+    /// Egress is refused, whatever the task's connector, by an execution
+    /// which cannot enforce it, and VMM execution is refused to whatever is
+    /// not an image.
+    #[test]
+    fn vmm_for_ineligible_endpoints() {
+        let capable = super::fixture();
+        let mut rows = Vec::new();
+        for image in [Some("ghcr.io/estuary/source-hello-world:dev"), None] {
+            for (name, execution) in [
+                ("ordinary, egress {}", execution(false, Some(&[]))),
+                ("vmm, egress omitted", execution(true, None)),
+                ("vmm, egress {}", execution(true, Some(&[]))),
+            ] {
+                rows.push(format!(
+                    "{image:<39} {name:<19} => {}",
+                    outcome(vmm_for(
+                        Some(&capable),
+                        crate::Plane::Private,
+                        ops::TaskType::Capture,
+                        image,
+                        &execution,
+                        None,
+                    )),
+                    image = image.unwrap_or("<not an image>"),
+                ));
+            }
+        }
+        insta::assert_snapshot!(rows.join("\n"), @r"
+        ghcr.io/estuary/source-hello-world:dev  ordinary, egress {} => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+        ghcr.io/estuary/source-hello-world:dev  vmm, egress omitted => InvalidArgument: connector image 'ghcr.io/estuary/source-hello-world:dev' is not eligible for VMM execution as a capture
+        ghcr.io/estuary/source-hello-world:dev  vmm, egress {}      => InvalidArgument: connector image 'ghcr.io/estuary/source-hello-world:dev' is not eligible for VMM execution as a capture
+        <not an image>                          ordinary, egress {} => InvalidArgument: the task declares egress, which ordinary execution cannot enforce; egress is enforced only by VMM execution
+        <not an image>                          vmm, egress omitted => InvalidArgument: VMM execution requires an image connector
+        <not an image>                          vmm, egress {}      => InvalidArgument: VMM execution requires an image connector
+        ");
     }
 
     /// Only a private or local plane accepts CIDRs, and every plane accepts
@@ -797,10 +885,7 @@ mod test {
                     &execution,
                     None,
                 ) {
-                    Ok(super::Execution::Vmm {
-                        egress: Some(egress),
-                        ..
-                    }) => {
+                    Ok(super::Execution::Vmm { egress, .. }) => {
                         let cidrs: Vec<String> =
                             egress.cidrs.iter().map(ToString::to_string).collect();
                         format!("vmm, task cidrs {cidrs:?}")

@@ -11,9 +11,10 @@ engine, and platform.
   tests at a time. Individual tests may launch several VMMs.
 - Append a test-name filter to run a subset. Filtered runs skip
   connector-init's separate vsock test.
-- `mise run ci:connector-vmm-kvm --platform` previews and publishes a Python
-  derivation on this checkout's local stack. The task starts and stops the
-  stack and refuses to start if it is already running.
+- `mise run ci:connector-vmm-kvm --platform` previews, publishes and runs
+  Python captures, derivations and materializations on this checkout's local
+  stack. The task starts and stops the stack and refuses to start if it is
+  already running.
 - `mise run ci:connector-vmm-kvm --routing-deployment /path/to/est-dry-dock`
   also runs the dual-NIC static outbound routing regression. The deployment
   checkout must contain `roles/common/templates/flow-vmm-routing.j2`.
@@ -58,7 +59,11 @@ connector-init over a guest's vsock connection.
   unit tests cover TTL retention, CNAME capacity, and reclamation with explicit
   expiry states; `kvm::egress_ttl` checks real kernel expiry.
 - `tests/launcher.rs`: launches through `connector::Service`, readiness,
-  socket and credential-source access restricted to the launcher's UID, task egress, cancellation,
+  socket and credential-source access restricted to the launcher's UID, task
+  egress (refused when omitted, nothing when empty, and the union of the
+  connector's, image's and task's hosts otherwise), Spec of each Python
+  connector built from this checkout, ingress of the built spec's ports and
+  not the image's, cancellation,
   ownership, and recovery after process death, a destroyed runtime or a stalled container query,
   including labeled resources whose record is gone. Recovery runs as single
   passes (`connector::Vmm::recover`), in processes killed mid-pass, or as a
@@ -76,9 +81,28 @@ connector-init over a guest's vsock connection.
   and recovery without asserting elapsed time.
 - `tests/replacement/`: an old generation's cleanup must leave its running
   replacement intact.
-- `tests/platform.rs`: preview, publication, derived documents, logs, and
-  cleanup through flowctl and the reactor, and `flowctl generate` placing a
-  nested catalog's generated files beside the derivation's specification.
+- `tests/platform.rs`: through flowctl and the reactor, with fixtures under
+  `fixtures/platform/`:
+  - the legacy `module` derivation, on the published `derive-python:stable`:
+    preview, publication, derived documents, logs, cleanup, and
+    `flowctl generate` placing a nested catalog's files beside the
+    derivation's specification;
+  - a capture project (`examples/capture-python`'s): local and control-plane
+    Discover, preview, publication, and its cursor resumed by a session
+    restarted after its VMM is killed, and by a later publication's;
+  - a derivation project which lists the `uv.lock` the test makes for it,
+    whose sessions install it frozen, and whose connector state survives a
+    killed VMM;
+  - a materialization project (`examples/materialize-python`'s) into that
+    example's API, served in a container and reached by a declared CIDR:
+    a multi-session preview with standard and delta updates, then live
+    greetings replayed into the idempotent API after a killed VMM;
+  - `flowctl generate --task` of each project, starters of each type, and the
+    legacy derivation from one catalog of nested projects. A task refused
+    its VMM, on a machine without VMM capability or for want of declared
+    egress, fails `generate` and `preview` without a launch.
+
+  Projects run this checkout's images, which the task builds as `:local`.
   The podman wrapper verifies each connector mount synchronously before
   container creation.
 - `tests/release.rs`, `tests/wrapper.rs`: resource cleanup and the podman

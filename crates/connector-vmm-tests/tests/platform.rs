@@ -1,7 +1,10 @@
-//! A Python derivation previewed and published through flowctl and the reactor, and its files
-//! generated from a nested catalog. Run only under
+//! Python tasks of every type previewed and published through flowctl and the
+//! reactor, and their files generated from nested catalogs. Run only under
 //! `mise run ci:connector-vmm-kvm --platform`, which configures the local stack
 //! and writes `platform.json`, one test at a time against that one stack.
+//!
+//! The legacy derivation runs the published `derive-python:stable`. Projects
+//! run this checkout's images, which the task builds as `:local`.
 
 use connector_vmm_tests::{launcher, run};
 use std::collections::{BTreeMap, BTreeSet};
@@ -39,6 +42,8 @@ struct Platform {
     connector_init: String,
     derive_python_image: String,
     reactor_unit: String,
+    /// This checkout's `examples/`, whose materialization API the tests serve.
+    examples: PathBuf,
 }
 
 fn load() -> Platform {
@@ -311,6 +316,12 @@ fn a_python_derivation_through_the_platform() {
     )
     .expect("configuring the wrapper's mount check");
     let mut evidence = Vec::new();
+    // Earlier tests share the wrapper's records, which this test's checks of
+    // every launch skip.
+    let first = launcher::calls(&root).len();
+    let first_mount = std::fs::read_to_string(format!("{}/checked-mounts", platform.dir))
+        .map(|checked| checked.lines().count())
+        .unwrap_or_default();
 
     let before = launcher::calls(&root).len();
     let preview = flowctl(
@@ -321,7 +332,7 @@ fn a_python_derivation_through_the_platform() {
             "preview-next",
             "--source",
             &run::fixture("platform/numbers.flow.yaml").to_string_lossy(),
-            "--name",
+            "--task",
             DERIVATION,
             "--fixture",
             &run::fixture("platform/greetings.ndjson").to_string_lossy(),
@@ -501,7 +512,7 @@ fn a_python_derivation_through_the_platform() {
     let since = launcher::calls(&root)[before..].to_vec();
     assert_eq!(launched(&since), Vec::<String>::new(), "with no launch");
     // Every other launch's owner awaited its teardown.
-    let launches = launched(&launcher::calls(&root));
+    let launches = launched(&launcher::calls(&root)[first..]);
     for name in &launches {
         assert_eq!(
             launcher::left(&root.state_dir, &root.tmp_dir, name),
@@ -559,7 +570,7 @@ fn a_python_derivation_through_the_platform() {
             "spec",
             "--source",
             &run::fixture("platform/numbers.flow.yaml").to_string_lossy(),
-            "--name",
+            "--task",
             DERIVATION,
         ],
         &[],
@@ -624,7 +635,7 @@ fn a_python_derivation_through_the_platform() {
         "generate: Validate {generated} placed its files beside the nested specification"
     ));
 
-    let launches = launched(&launcher::calls(&root));
+    let launches = launched(&launcher::calls(&root)[first..]);
     for name in &launches {
         assert_eq!(
             launcher::left(&root.state_dir, &root.tmp_dir, name),
@@ -636,13 +647,14 @@ fn a_python_derivation_through_the_platform() {
         .map(|entry| entry.expect("reading the state directory").path())
         .collect();
     assert!(state.is_empty(), "the state directory holds {state:?}");
-    let all = launcher::calls(&root);
+    let all = launcher::calls(&root)[first..].to_vec();
 
     let observed = std::fs::read_to_string(format!("{}/checked-mounts", platform.dir))
         .expect("reading the wrapper's mount checks");
     assert_eq!(
         observed
             .lines()
+            .skip(first_mount)
             .map(str::to_string)
             .collect::<BTreeSet<_>>(),
         launches.iter().cloned().collect(),
@@ -677,4 +689,819 @@ fn a_python_derivation_through_the_platform() {
     std::fs::write(platform.run_dir.join("platform.evidence"), &summary)
         .expect("writing the evidence summary");
     eprintln!("{summary}");
+}
+
+const CAPTURE: &str = "acmeCo/vmm-python/source-hello";
+const HOWDIES: &str = "acmeCo/vmm-python/howdies";
+const COUNTED: &str = "acmeCo/vmm-python/counted";
+const GREETINGS: &str = "acmeCo/vmm-python/greetings";
+const MATERIALIZATION: &str = "acmeCo/vmm-python/materialize-api";
+/// Any image with Python 3.14 serves the API: this one is already built.
+const API_IMAGE: &str = "ghcr.io/estuary/capture-python:local";
+
+/// Every launch's connector mount must hold the static connector-init.
+fn expect_connector_init(platform: &Platform) {
+    std::fs::write(
+        format!("{}/expected-connector-init", platform.dir),
+        &platform.connector_init,
+    )
+    .expect("configuring the wrapper's mount check");
+}
+
+/// Copy fixture directory `from` to `to`, without what a developer's own
+/// runs may have left in it.
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap_or_else(|e| panic!("creating {}: {e}", to.display()));
+    for entry in
+        std::fs::read_dir(from).unwrap_or_else(|e| panic!("reading {}: {e}", from.display()))
+    {
+        let entry = entry.expect("reading a directory entry");
+        let name = entry.file_name();
+        if ["flow_generated", ".venv", "__pycache__"].contains(&name.to_str().unwrap_or_default()) {
+            continue;
+        }
+        let (from, to) = (entry.path(), to.join(&name));
+        if from.is_dir() {
+            copy_tree(&from, &to);
+        } else {
+            std::fs::copy(&from, &to).unwrap_or_else(|e| panic!("copying {}: {e}", from.display()));
+        }
+    }
+}
+
+fn render(path: &Path, from: &str, to: &str) {
+    let content =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+    std::fs::write(path, content.replace(from, to))
+        .unwrap_or_else(|e| panic!("writing {}: {e}", path.display()));
+}
+
+/// The documents of `collection`, once its journal exists.
+fn read(platform: &Platform, name: &str, collection: &str) -> Option<Vec<serde_json::Value>> {
+    let read = flowctl_status(
+        platform,
+        name,
+        &["collections", "read", "--collection", collection],
+        &[],
+    );
+    read.status.success().then(|| documents(&read.stdout))
+}
+
+/// The running VMM containers of `task`, by name.
+fn running(task: &str) -> BTreeSet<String> {
+    run::podman(&[
+        "ps",
+        "--filter",
+        &format!("label=task-name={task}"),
+        "--format",
+        "{{.Names}}",
+    ])
+    .lines()
+    .map(str::trim)
+    .filter(|name| !name.is_empty())
+    .map(ToString::to_string)
+    .collect()
+}
+
+/// The task's logs, once they hold every line of `expected`.
+fn task_logs(platform: &Platform, name: &str, task: &str, expected: &[&str]) -> Output {
+    run::eventually(&format!("the logs of {task}"), DERIVED, || {
+        std::thread::sleep(Duration::from_secs(2));
+        let logs = flowctl_status(platform, name, &["logs", "--task", task], &[]);
+        (logs.status.success() && expected.iter().all(|line| logs.stdout.contains(line)))
+            .then_some(logs)
+    })
+}
+
+/// Delete every task of the tests' prefix, with a flowctl which has no VMM
+/// capability and so recovers nothing. The reactor's own recovery releases
+/// what its sessions left, and every launch so far is then gone.
+fn delete_and_release(platform: &Platform, name: &str) {
+    let root = root(platform);
+    let before = launcher::calls(&root).len();
+    flowctl(
+        platform,
+        name,
+        &[
+            "catalog",
+            "delete",
+            "--prefix",
+            "acmeCo/vmm-python/",
+            "--dangerous-auto-approve",
+        ],
+        &[("CONNECTOR_VMM_IMAGE", "")],
+    );
+    let deadline = Instant::now() + RELEASED;
+    for vmm in launched(&launcher::calls(&root)) {
+        run::eventually(
+            &format!("the release of {vmm}"),
+            deadline.saturating_duration_since(Instant::now()),
+            || {
+                launcher::left(&root.state_dir, &root.tmp_dir, &vmm)
+                    .is_empty()
+                    .then_some(())
+            },
+        );
+    }
+    assert_eq!(
+        launched(&launcher::calls(&root)[before..]),
+        Vec::<String>::new(),
+        "deletion launches nothing"
+    );
+}
+
+/// examples/materialize-python's API of keyed records, served in a container
+/// on a network of its own. A VMM reaches it by its address, as a CIDR the
+/// task declares.
+struct Api {
+    name: String,
+    network: String,
+    address: String,
+}
+
+impl Api {
+    fn start(platform: &Platform) -> Self {
+        let name = format!("vmm-api-{}", run::random_hex());
+        let network = name.clone();
+        run::record("network", &network);
+        run::podman(&["network", "create", &network]);
+        run::record("container", &name);
+        run::podman(&[
+            "run",
+            "--detach",
+            "--rm",
+            &format!("--name={name}"),
+            &format!("--network={network}"),
+            &format!(
+                "--mount=type=bind,source={},target=/api.py,readonly",
+                platform
+                    .examples
+                    .join("materialize-python/api.py")
+                    .display()
+            ),
+            "--entrypoint=python3",
+            API_IMAGE,
+            "/api.py",
+        ]);
+        let address = run::podman(&[
+            "inspect",
+            "--format",
+            "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+            &name,
+        ])
+        .trim()
+        .to_string();
+        Api {
+            name,
+            network,
+            address,
+        }
+    }
+
+    /// Every table's records, ordered by table and key.
+    fn dump(&self) -> String {
+        run::podman(&["exec", &self.name, "python3", "/api.py", "dump"])
+    }
+
+    /// The keys and messages of `table`'s greetings.
+    fn greetings(&self, table: &str) -> BTreeMap<String, String> {
+        self.dump()
+            .lines()
+            .filter_map(|line| {
+                let row: serde_json::Value = serde_json::from_str(line).expect("a dumped row");
+                (row[0] == table).then(|| {
+                    (
+                        row[1][0].as_str().expect("a timestamp key").to_string(),
+                        row[2]["message"].as_str().expect("a message").to_string(),
+                    )
+                })
+            })
+            .collect()
+    }
+}
+
+impl Drop for Api {
+    fn drop(&mut self) {
+        _ = run::sudo_output(&["podman", "rm", "--force", "--time=0", &self.name], None);
+        _ = run::sudo_output(&["podman", "network", "rm", &self.network], None);
+    }
+}
+
+/// A capture project, discovered locally and through the control plane,
+/// previewed, then published. A session whose VMM is killed is restarted, and
+/// resumes from the cursor its predecessor checkpointed, as does the session
+/// of a later publication: each captures only what follows the cursor.
+#[test]
+fn a_python_capture_through_the_platform() {
+    let platform = load();
+    let root = root(&platform);
+    expect_connector_init(&platform);
+    let project = platform.run_dir.join("capture");
+    copy_tree(&run::fixture("platform/capture"), &project);
+    let source = project.join("flow.yaml");
+    let source = source.to_string_lossy();
+
+    let discover = flowctl(
+        &platform,
+        "capture-raw-discover",
+        &["raw", "discover", "--source", &source, "--emit-raw"],
+        &[("RUST_LOG", "info")],
+    );
+    assert_eq!(started(&discover.stderr).len(), 1, "discovered in one VMM");
+    assert!(discover.stderr.contains(EGRESS));
+    assert!(
+        discover.stdout.contains("greetings"),
+        "{}",
+        tail(&discover.stdout, 40)
+    );
+
+    // Discovery by the control plane, through the reactor, rewrites the
+    // catalog it's given, so it gets a copy of its own. Its collection's
+    // schema opts in to being rewritten.
+    let discovered = platform.run_dir.join("capture-discovered");
+    copy_tree(&run::fixture("platform/capture"), &discovered);
+    render(
+        &discovered.join("greetings.schema.yaml"),
+        "$defs:\n",
+        "$defs:\n  \"flow://connector-schema\": {}\n",
+    );
+    let before = launcher::calls(&root).len();
+    flowctl(
+        &platform,
+        "capture-discover",
+        &[
+            "discover",
+            "--source",
+            &discovered.join("flow.yaml").to_string_lossy(),
+            "--capture",
+            CAPTURE,
+        ],
+        &[],
+    );
+    let calls = launcher::calls(&root)[before..].to_vec();
+    assert!(
+        calls.iter().any(|call| call.starts_with("create ")
+            && call.contains(&format!("--label=task-name={CAPTURE}"))),
+        "the reactor discovered in a VMM: {calls:#?}"
+    );
+
+    let preview = flowctl(
+        &platform,
+        "capture-preview",
+        &[
+            "preview",
+            "--source",
+            &source,
+            "--sessions",
+            "2",
+            "--timeout",
+            "600s",
+        ],
+        &[],
+    );
+    let expected = std::fs::read_to_string(project.join("expected.jsonl")).unwrap();
+    assert_eq!(preview.stdout, expected);
+
+    flowctl(
+        &platform,
+        "capture-publish",
+        &["catalog", "publish", "--source", &source, "--auto-approve"],
+        &[],
+    );
+    let howdies = |ids: std::ops::RangeInclusive<i64>| {
+        run::eventually("the captured documents", DERIVED, || {
+            std::thread::sleep(Duration::from_secs(2));
+            let docs = read(&platform, "howdies", HOWDIES)?;
+            ids.clone()
+                .all(|id| docs.iter().any(|doc| doc["id"] == id))
+                .then_some(docs)
+        })
+    };
+    howdies(1..=3);
+
+    let killed = running(CAPTURE);
+    assert_eq!(killed.len(), 1, "one session runs: {killed:?}");
+    for vmm in &killed {
+        run::podman(&["rm", "--force", vmm]);
+    }
+    run::eventually("the session's restart", DERIVED, || {
+        std::thread::sleep(Duration::from_secs(1));
+        let now = running(CAPTURE);
+        (!now.is_empty() && now.is_disjoint(&killed)).then_some(())
+    });
+    // The restarted session polls its binding as it opens. A session which
+    // lost the cursor would capture its greetings again, as duplicates.
+    std::thread::sleep(Duration::from_secs(30));
+
+    // A changed configuration captures only what follows the cursor.
+    render(
+        &project.join("flow.yaml"),
+        "greeting: Howdy",
+        "greeting: Hiya",
+    );
+    render(&project.join("flow.yaml"), "count: 3", "count: 5");
+    flowctl(
+        &platform,
+        "capture-republish",
+        &["catalog", "publish", "--source", &source, "--auto-approve"],
+        &[],
+    );
+    let docs = howdies(1..=5);
+    let mut captured: Vec<(i64, &str)> = docs
+        .iter()
+        .map(|doc| {
+            (
+                doc["id"].as_i64().unwrap(),
+                doc["message"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    captured.sort();
+    assert_eq!(
+        captured,
+        [
+            (1, "Howdy #1!"),
+            (2, "Howdy #2!"),
+            (3, "Howdy #3!"),
+            (4, "Hiya #4!"),
+            (5, "Hiya #5!"),
+        ],
+        "each greeting was captured once, after the cursor"
+    );
+
+    task_logs(
+        &platform,
+        "capture-logs",
+        CAPTURE,
+        &[EGRESS, "started connector container"],
+    );
+    delete_and_release(&platform, "capture-delete");
+}
+
+/// A derivation project which keeps a running count in its connector state,
+/// and lists the lock its user made. Validate checks the lock, and sessions
+/// install exactly what it pins, without resolving. A session whose VMM is
+/// killed is restarted, and the next restores the count: every derived
+/// document has its own count, without a gap.
+#[test]
+fn a_python_project_derivation_through_the_platform() {
+    let platform = load();
+    expect_connector_init(&platform);
+    let project = platform.run_dir.join("derive");
+    copy_tree(&run::fixture("platform/derive"), &project);
+    for file in ["greetings.flow.yaml", "hello-world.flow.yaml"] {
+        std::fs::copy(
+            run::fixture(&format!("platform/{file}")),
+            platform.run_dir.join(file),
+        )
+        .unwrap();
+    }
+    run::podman(&[
+        "run",
+        "--rm",
+        "--network=host",
+        "--user=root",
+        &format!("--volume={}:/project", project.display()),
+        "--workdir=/project",
+        "--entrypoint=uv",
+        API_IMAGE,
+        "lock",
+    ]);
+    render(
+        &project.join("flow.yaml"),
+        "            - counted/__init__.py\n",
+        "            - counted/__init__.py\n            - uv.lock\n",
+    );
+    let source = project.join("flow.yaml");
+
+    flowctl(
+        &platform,
+        "derive-publish",
+        &[
+            "catalog",
+            "publish",
+            "--source",
+            &source.to_string_lossy(),
+            "--auto-approve",
+        ],
+        &[],
+    );
+    let counted = |at_least: usize| {
+        run::eventually("the counted documents", DERIVED, || {
+            std::thread::sleep(Duration::from_secs(2));
+            read(&platform, "counted", COUNTED).filter(|docs| docs.len() >= at_least)
+        })
+    };
+    let first = counted(6).len();
+
+    let killed = running(COUNTED);
+    assert_eq!(killed.len(), 1, "one session runs: {killed:?}");
+    for vmm in &killed {
+        run::podman(&["rm", "--force", vmm]);
+    }
+    run::eventually("the session's restart", DERIVED, || {
+        std::thread::sleep(Duration::from_secs(1));
+        let now = running(COUNTED);
+        (!now.is_empty() && now.is_disjoint(&killed)).then_some(())
+    });
+    let docs = counted(first + 6);
+
+    // A count which began again would repeat; one which skipped would leave
+    // a gap.
+    let mut counts: Vec<i64> = docs
+        .iter()
+        .map(|doc| doc["count"].as_i64().unwrap())
+        .collect();
+    counts.sort();
+    let expected: Vec<i64> = (1..=counts.len() as i64).collect();
+    assert_eq!(counts, expected, "the count continued across the restart");
+
+    let logs = task_logs(
+        &platform,
+        "derive-logs",
+        COUNTED,
+        &[EGRESS, "started connector container", "Installed"],
+    );
+    let uv: Vec<String> = documents(&logs.stdout)
+        .iter()
+        .filter(|log| log["message"] == "ran uv")
+        .map(|log| {
+            log["fields"]["args"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+    assert!(
+        uv.iter()
+            .any(|args| args == r#"["sync", "--frozen", "--no-dev"]"#),
+        "{uv:?}"
+    );
+    assert!(
+        !uv.iter().any(|args| args == r#"["lock"]"#),
+        "a session resolved its locked project: {uv:?}"
+    );
+    delete_and_release(&platform, "derive-delete");
+}
+
+/// A materialization project into an API. Its preview loads, in later
+/// sessions, what earlier ones stored, with standard and delta updates. Its
+/// publication materializes live greetings, and a session whose VMM is
+/// killed is restarted and replays into the idempotent API, so that every
+/// greeting arrives in both tables.
+#[test]
+fn a_python_materialization_through_the_platform() {
+    let platform = load();
+    let root = root(&platform);
+    expect_connector_init(&platform);
+
+    let api = Api::start(&platform);
+    let project = platform.run_dir.join("materialize-preview");
+    copy_tree(&run::fixture("platform/materialize"), &project);
+    render(&project.join("flow.yaml"), "API_ADDRESS", &api.address);
+    for file in ["greetings.flow.yaml", "hello-world.flow.yaml"] {
+        std::fs::copy(
+            run::fixture(&format!("platform/{file}")),
+            platform.run_dir.join(file),
+        )
+        .unwrap();
+    }
+
+    let before = launcher::calls(&root).len();
+    let preview = flowctl(
+        &platform,
+        "materialize-preview",
+        &[
+            "preview",
+            "--source",
+            &project.join("flow.yaml").to_string_lossy(),
+            "--task",
+            MATERIALIZATION,
+            "--fixture",
+            &project.join("fixture.jsonl").to_string_lossy(),
+            "--sessions",
+            "2,1",
+            "--timeout",
+            "900s",
+            "--log-json",
+        ],
+        &[],
+    );
+    let egress = format!(
+        "VMM egress permits only these host names: pypi.org, files.pythonhosted.org \
+         (connector defaults); and any address within {}/32 (task egress.cidrs)",
+        api.address
+    );
+    assert!(
+        preview.stderr.contains(&egress),
+        "{}",
+        tail(&preview.stderr, 40)
+    );
+    let previewed = launched(&launcher::calls(&root)[before..]);
+    assert!(
+        previewed.len() >= 3,
+        "Validate, Apply and sessions: {previewed:?}"
+    );
+    let expected = std::fs::read_to_string(project.join("expected.jsonl")).unwrap();
+    assert_eq!(api.dump(), expected);
+    std::mem::drop(api);
+
+    let api = Api::start(&platform);
+    let project = platform.run_dir.join("materialize-publish");
+    copy_tree(&run::fixture("platform/materialize"), &project);
+    render(&project.join("flow.yaml"), "API_ADDRESS", &api.address);
+    flowctl(
+        &platform,
+        "materialize-publish",
+        &[
+            "catalog",
+            "publish",
+            "--source",
+            &project.join("flow.yaml").to_string_lossy(),
+            "--auto-approve",
+        ],
+        &[],
+    );
+    let both = |at_least: usize| {
+        run::eventually("greetings in both tables", DERIVED, || {
+            std::thread::sleep(Duration::from_secs(2));
+            let (standard, delta) = (api.greetings("greetings"), api.greetings("greetings_log"));
+            (standard.len() >= at_least && delta.len() >= at_least).then_some(standard.len())
+        })
+    };
+    let first = both(4);
+
+    let killed = running(MATERIALIZATION);
+    assert_eq!(killed.len(), 1, "one session runs: {killed:?}");
+    for vmm in &killed {
+        run::podman(&["rm", "--force", vmm]);
+    }
+    run::eventually("the session's restart", DERIVED, || {
+        std::thread::sleep(Duration::from_secs(1));
+        let now = running(MATERIALIZATION);
+        (!now.is_empty() && now.is_disjoint(&killed)).then_some(())
+    });
+    both(first + 4);
+
+    // Every greeting the collection held is eventually in both tables, as
+    // the collection has it.
+    let docs = read(&platform, "greetings", GREETINGS).expect("the collection exists");
+    let held: BTreeMap<String, String> = docs
+        .iter()
+        .map(|doc| {
+            (
+                doc["ts"].as_str().unwrap().to_string(),
+                doc["message"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    run::eventually("every greeting in both tables", DERIVED, || {
+        std::thread::sleep(Duration::from_secs(2));
+        [api.greetings("greetings"), api.greetings("greetings_log")]
+            .iter()
+            .all(|table| {
+                held.iter()
+                    .all(|(ts, message)| table.get(ts) == Some(message))
+            })
+            .then_some(())
+    });
+
+    task_logs(
+        &platform,
+        "materialize-logs",
+        MATERIALIZATION,
+        &[&egress, "started connector container"],
+    );
+    delete_and_release(&platform, "materialize-delete");
+    std::mem::drop(api);
+}
+
+/// The files `dir` holds, with a digest of each.
+fn digests(dir: &Path) -> BTreeMap<String, String> {
+    use std::hash::{Hash, Hasher};
+
+    files(dir)
+        .into_iter()
+        .map(|file| {
+            let content = std::fs::read(dir.join(&file)).unwrap();
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            content.hash(&mut hasher);
+            (file, format!("{:016x}", hasher.finish()))
+        })
+        .collect()
+}
+
+/// `flowctl generate --task` of every Python task in one catalog, which
+/// imports each project from a directory of its own: complete projects of
+/// each type, starters of each type whose listed files don't exist, and the
+/// legacy derivation. Each writes only its own task's files, beside its own
+/// specification, and changes no file which exists. A task refused its VMM,
+/// for want of capability or of declared egress, generates nothing, and fails.
+#[test]
+fn python_projects_generate_their_files() {
+    let platform = load();
+    let root = root(&platform);
+    expect_connector_init(&platform);
+
+    let catalog = platform.run_dir.join("generate-projects");
+    for project in ["capture", "derive", "materialize"] {
+        copy_tree(
+            &run::fixture(&format!("platform/{project}")),
+            &catalog.join(project),
+        );
+    }
+    // Validate doesn't call the API, and so needn't reach it.
+    render(
+        &catalog.join("materialize/flow.yaml"),
+        "API_ADDRESS",
+        "198.51.100.7",
+    );
+    for file in [
+        "greetings.flow.yaml",
+        "hello-world.flow.yaml",
+        "numbers.flow.yaml",
+        "numbers.py",
+    ] {
+        std::fs::copy(
+            run::fixture(&format!("platform/{file}")),
+            catalog.join(file),
+        )
+        .unwrap();
+    }
+    let starters = [
+        (
+            "starters/capture",
+            "acmeCo/vmm-python/source-new",
+            "captures:\n  acmeCo/vmm-python/source-new:\n    endpoint:\n      python:\n        files: [pyproject.toml, source-new/__init__.py]\n    vmm: true\n    egress: {}\n    bindings: []\n    shards:\n      flags:\n        enable-runtime-v2: \"true\"\n        custom-image-tag: local\n",
+        ),
+        (
+            "starters/derive",
+            "acmeCo/vmm-python/new-derived",
+            "import:\n  - ../../greetings.flow.yaml\ncollections:\n  acmeCo/vmm-python/new-derived:\n    schema: { type: object, properties: { ts: { type: string } }, required: [ts] }\n    key: [/ts]\n    derive:\n      using:\n        python:\n          files: [pyproject.toml, new-derived/__init__.py]\n      vmm: true\n      egress: {}\n      shards:\n        flags:\n          enable-runtime-v2: \"true\"\n          custom-image-tag: local\n      transforms:\n        - name: fromGreetings\n          source: { name: acmeCo/vmm-python/greetings }\n          shuffle: any\n",
+        ),
+        (
+            "starters/materialize",
+            "acmeCo/vmm-python/materialize-new",
+            "import:\n  - ../../greetings.flow.yaml\nmaterializations:\n  acmeCo/vmm-python/materialize-new:\n    endpoint:\n      python:\n        files: [pyproject.toml, materialize-new/__init__.py]\n    vmm: true\n    egress: {}\n    bindings:\n      - resource: { table: greetings }\n        source: acmeCo/vmm-python/greetings\n    shards:\n      flags:\n        enable-runtime-v2: \"true\"\n        custom-image-tag: local\n",
+        ),
+    ];
+    let mut imports = vec![
+        "numbers.flow.yaml".to_string(),
+        "capture/flow.yaml".to_string(),
+        "derive/flow.yaml".to_string(),
+        "materialize/flow.yaml".to_string(),
+    ];
+    for (dir, _task, spec) in &starters {
+        std::fs::create_dir_all(catalog.join(dir)).unwrap();
+        std::fs::write(catalog.join(dir).join("flow.yaml"), spec).unwrap();
+        imports.push(format!("{dir}/flow.yaml"));
+    }
+    std::fs::write(
+        catalog.join("flow.yaml"),
+        format!(
+            "import:\n{}",
+            imports
+                .iter()
+                .map(|i| format!("  - {i}\n"))
+                .collect::<String>()
+        ),
+    )
+    .unwrap();
+    let source = catalog.join("flow.yaml");
+    let source = source.to_string_lossy();
+
+    let tasks = [
+        DERIVATION,
+        CAPTURE,
+        COUNTED,
+        MATERIALIZATION,
+        starters[0].1,
+        starters[1].1,
+        starters[2].1,
+    ];
+    let mut generated = Vec::new();
+    for (index, task) in tasks.iter().enumerate() {
+        let before = digests(&catalog);
+        let calls = launcher::calls(&root).len();
+        flowctl(
+            &platform,
+            &format!("generate-{index}"),
+            &["generate", "--source", &source, "--task", task],
+            &[],
+        );
+        let after = digests(&catalog);
+        let changed: Vec<&String> = before
+            .iter()
+            .filter(|(file, digest)| after.get(*file) != Some(digest))
+            .map(|(file, _)| file)
+            .collect();
+        assert_eq!(
+            changed,
+            Vec::<&String>::new(),
+            "{task} changed existing files"
+        );
+        let written: Vec<&String> = after
+            .keys()
+            .filter(|file| !before.contains_key(*file))
+            .collect();
+        let launches = launched(&launcher::calls(&root)[calls..]);
+        assert_eq!(
+            launches.len(),
+            1,
+            "{task} validated in one VMM: {launches:?}"
+        );
+        generated.push(format!(
+            "# {task}\n{}",
+            written
+                .iter()
+                .map(|file| format!("{file}\n"))
+                .collect::<String>()
+        ));
+    }
+
+    // A task which requests a VMM this machine can't run, or which declares no
+    // egress, is refused before any launch. A starter generates nothing, and
+    // fails, as does a preview of the whole capture project.
+    const DECLARED: &str = "    egress:\n      hosts: [example.org]\n";
+    for (name, starter, env, declared, refusal) in [
+        (
+            "unavailable",
+            starters[0].2.to_string(),
+            &[("CONNECTOR_VMM_IMAGE", "")][..],
+            DECLARED,
+            "this data plane does not support VMM execution",
+        ),
+        (
+            "no-egress",
+            starters[0].2.replace("    egress: {}\n", ""),
+            &[][..],
+            "",
+            "the task requests VMM execution but declares no egress",
+        ),
+    ] {
+        let calls = launcher::calls(&root).len();
+
+        let dir = platform.run_dir.join(format!("generate-{name}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("flow.yaml"), starter).unwrap();
+        let generate = flowctl_status(
+            &platform,
+            &format!("generate-{name}"),
+            &[
+                "generate",
+                "--source",
+                &dir.join("flow.yaml").to_string_lossy(),
+            ],
+            env,
+        );
+        assert!(!generate.status.success(), "generate of {name} succeeded");
+        for expected in [
+            refusal,
+            "the task's connector was refused the execution it requests, so it generated no files",
+        ] {
+            assert!(
+                generate.stderr.contains(expected),
+                "{}",
+                tail(&generate.stderr, 40)
+            );
+        }
+        assert_eq!(files(&dir), ["flow.yaml"]);
+
+        let project = platform.run_dir.join(format!("preview-{name}"));
+        copy_tree(&run::fixture("platform/capture"), &project);
+        render(&project.join("flow.yaml"), DECLARED, declared);
+        let preview = flowctl_status(
+            &platform,
+            &format!("preview-{name}"),
+            &[
+                "preview",
+                "--source",
+                &project.join("flow.yaml").to_string_lossy(),
+                "--sessions",
+                "1",
+                "--timeout",
+                "60s",
+            ],
+            env,
+        );
+        assert!(!preview.status.success(), "preview of {name} succeeded");
+        assert!(
+            preview.stderr.contains(refusal),
+            "{}",
+            tail(&preview.stderr, 40)
+        );
+        assert_eq!(
+            launched(&launcher::calls(&root)[calls..]),
+            Vec::<String>::new(),
+            "{name} launched a VMM"
+        );
+    }
+
+    for vmm in launched(&launcher::calls(&root)) {
+        assert_eq!(
+            launcher::left(&root.state_dir, &root.tmp_dir, &vmm),
+            Vec::<String>::new()
+        );
+    }
+    insta::assert_snapshot!("generated_projects", generated.join("\n"));
 }

@@ -159,7 +159,7 @@ fn engine_environment_child() {
         container_network: String::new(),
         execution: proto_flow::flow::ConnectorExecution {
             vmm: true,
-            egress: None,
+            egress: Some(Default::default()),
         },
         log_level: ops::LogLevel::Warn,
         log_sink: crate::LogSink::tracing(),
@@ -213,6 +213,7 @@ fn engine_environment_child() {
                     mount: mount.path().to_owned(),
                     network: String::new(),
                     publish_ports: true,
+                    network_ports: Vec::new(),
                 },
                 |log| log,
             )
@@ -232,6 +233,7 @@ fn engine_environment_child() {
             vmm,
             eligible,
             egress,
+            Vec::new(),
             image,
             &crate::EMPTY_SECRETS,
             None,

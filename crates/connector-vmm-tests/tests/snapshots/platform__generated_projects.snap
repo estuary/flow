@@ -1,0 +1,32 @@
+---
+source: crates/connector-vmm-tests/tests/platform.rs
+expression: "generated.join(\"\\n\")"
+---
+# acmeCo/vmm-python/numbers
+flow_generated/python/acmeCo/__init__.py
+flow_generated/python/acmeCo/vmm-python/__init__.py
+flow_generated/python/acmeCo/vmm_python/numbers/__init__.py
+
+# acmeCo/vmm-python/source-hello
+capture/flow_generated/python/acmeCo/vmm_python/source_hello/__init__.py
+
+# acmeCo/vmm-python/counted
+derive/flow_generated/python/acmeCo/vmm_python/counted/__init__.py
+
+# acmeCo/vmm-python/materialize-api
+materialize/flow_generated/python/acmeCo/vmm_python/materialize_api/__init__.py
+
+# acmeCo/vmm-python/source-new
+starters/capture/flow_generated/python/acmeCo/vmm_python/source_new/__init__.py
+starters/capture/pyproject.toml
+starters/capture/source-new/__init__.py
+
+# acmeCo/vmm-python/new-derived
+starters/derive/flow_generated/python/acmeCo/vmm_python/new_derived/__init__.py
+starters/derive/new-derived/__init__.py
+starters/derive/pyproject.toml
+
+# acmeCo/vmm-python/materialize-new
+starters/materialize/flow_generated/python/acmeCo/vmm_python/materialize_new/__init__.py
+starters/materialize/materialize-new/__init__.py
+starters/materialize/pyproject.toml

@@ -211,9 +211,17 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
             eligible,
             egress,
         } => {
-            let (container, channel, guard, codec) =
-                crate::vmm::launch::start(ctx, vmm, eligible, egress, &image, secrets, build)
-                    .await?;
+            let (container, channel, guard, codec) = crate::vmm::launch::start(
+                ctx,
+                vmm,
+                eligible,
+                egress,
+                network_ports,
+                &image,
+                secrets,
+                build,
+            )
+            .await?;
             (container, channel, None, Some(guard), codec)
         }
     };

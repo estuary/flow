@@ -14,8 +14,10 @@ then every task requesting a VMM is refused there.
 
 `vmm` and `egress` sit beside each other in the task's model: within `derive`
 for a derivation, and at the top level of a capture or materialization,
-beside `endpoint`. Today only Python derivations can use them (see
-[Which tasks are eligible](#which-tasks-are-eligible)).
+beside `endpoint`. Today only Python captures, derivations and
+materializations can use `vmm` (see
+[Which tasks are eligible](#which-tasks-are-eligible)), and a task which uses
+it must also declare `egress`.
 
 ```yaml
 collections:
@@ -50,8 +52,9 @@ Selection is binary:
   accepted and normalized away.
 - `vmm: true`: every invocation of the task's connector runs in a VMM, or
   fails with an error. That covers Spec, Validate, Discover, Apply and Open,
-  so publication, preview and the running task all use it. There is no
-  automatic fallback to an ordinary container.
+  so publication, discovery, preview, `flowctl generate` and the running task
+  all use it. There is no automatic fallback to an ordinary container. The
+  task must declare `egress` (see [Declaring egress](#declaring-egress)).
 
 ## Which tasks are eligible
 
@@ -61,13 +64,21 @@ A task may request a VMM only when all of these hold:
   `enable-runtime-v2: "true"`. Publication refuses `vmm` on a task whose
   shards select V1: "requests VMM execution, which requires the V2 runtime,
   but its shards select the V1 runtime".
-- It is a derivation whose connector image is the repository
-  `ghcr.io/estuary/derive-python`, under any tag or digest. A `using: python`
-  derivation on V2 runs `ghcr.io/estuary/derive-python:stable`.
+- Its connector image is the Python connector of its own task type, by
+  repository, under any tag or digest:
 
-TypeScript and SQLite derivations, local connectors, and every capture and
-materialization image are refused: "connector image '...' is not eligible for
-VMM execution as a ...".
+  | Task | Repository | Model |
+  |---|---|---|
+  | capture | `ghcr.io/estuary/capture-python` | `endpoint: python` |
+  | derivation | `ghcr.io/estuary/derive-python` | `using: python`, a project or a legacy `module` |
+  | materialization | `ghcr.io/estuary/materialize-python` | `endpoint: python` |
+
+  A Python task runs its repository's `:stable` tag, or the tag its
+  `custom-image-tag` shard flag names.
+
+TypeScript and SQLite derivations, local connectors, every other image, and a
+Python image requested as another type of task are refused: "connector image
+'...' is not eligible for VMM execution as a ...".
 
 ## Data plane capability and task selection
 
@@ -89,9 +100,11 @@ to a plane without capability fails. A disabled task's connector is not
 called at publication, so it publishes, and is refused when it is next
 validated or started.
 
-Public data planes refuse ordinary Python derivations ("Python derivations may
-only run in private data-planes"). An eligible derivation requesting a VMM is
-the exception, on a public plane whose operator has enabled VMM execution.
+Public data planes refuse ordinary Python tasks of every type ("Python
+derivations may only run in private data-planes, or within a VMM
+(`vmm: true`)"). An eligible task requesting a VMM is the exception, on a public
+plane whose operator has enabled VMM execution. Private planes run Python
+tasks either way, as each task requests.
 
 ## Declaring egress
 
@@ -105,11 +118,15 @@ egress:
     - 10.20.0.0/16
 ```
 
+- Every task with `vmm: true` declares `egress`, on every plane. One which
+  omits it, or sets `egress: null`, is refused before its connector starts:
+  "the task requests VMM execution but declares no egress".
 - `hosts` and `cidrs` are each optional, and a missing list is an empty one.
-- `egress: null` is the same as omitting it.
-- `egress: {}`, or empty lists, is a declaration that adds nothing. It is not
-  deny-all: the connector's own and its image's hosts still apply, and it
-  still turns on filtering on a plane which would otherwise not filter.
+- `egress: {}`, or both lists empty, permits no external destination at all:
+  not even the connector's own or its image's hosts. A Python connector then
+  cannot install dependencies from the package index, so a project which
+  needs any fails as it installs them.
+- Any other declaration permits the union described below.
 - Repeats and differences of case are tolerated, and so are overlapping
   ranges.
 
@@ -124,9 +141,9 @@ field later.
 
 The hosts a VMM connector may reach are the union of three sources:
 
-1. **Connector defaults**, built in per eligible connector.
-   `derive-python`'s are `pypi.org` and `files.pythonhosted.org`, so
-   dependencies install.
+1. **Connector defaults**, built in per eligible connector. Each Python
+   connector's are `pypi.org` and `files.pythonhosted.org`, so dependencies
+   install.
 2. **Image declarations**: the image's `dev.estuary.egress-hosts` label, a
    JSON array of host names, for example
    `["api.acmeco.example", "*.cdn.acmeco.example"]`. A missing, blank or
@@ -135,14 +152,13 @@ The hosts a VMM connector may reach are the union of three sources:
 3. **Task additions**: `egress.hosts`, and every address within
    `egress.cidrs` (see [Address ranges](#address-ranges)).
 
-Whether that union applies depends on the plane and on whether the task
-declares egress:
+The declaration alone decides, on every plane:
 
-| Data plane | `egress` | The VMM connector may reach |
-|---|---|---|
-| public | omitted or `null` | connector defaults plus image declarations, by name |
-| private, or local | omitted or `null` | any public destination, by name or address |
-| any | declared, including `egress: {}` | connector defaults, image declarations and task additions, by name, and any address within `egress.cidrs` |
+| `egress` | The VMM connector may reach |
+|---|---|
+| omitted or `null` | nothing: the task is refused before its connector starts |
+| `{}`, or both lists empty | no external destination |
+| any other | connector defaults, image declarations and task additions, by name, and any address within `egress.cidrs` |
 
 On every plane, nothing a task declares lifts the platform's exclusions.
 Loopback, link-local (including every cloud's instance metadata service),
@@ -223,18 +239,27 @@ exclusions above still hold.
 
 ## Previewing locally
 
-`flowctl preview` runs a task's connectors on your own machine, as a local
-data plane. A task with `vmm: true` previews only on a machine configured for
-VMM execution as a reactor host would be (see [operating.md](operating.md));
-elsewhere it is refused with "this data plane does not support VMM
-execution". To preview the derivation's logic without one, omit both `vmm`
-and `egress` in a local copy: local planes run Python derivations ordinarily,
-with no egress enforcement.
+`flowctl preview`, `flowctl generate`, `flowctl raw spec` and `flowctl raw
+discover` run a task's connectors on your own machine, as a local data plane.
+A task with `vmm: true` runs there only on a machine configured for VMM
+execution as a reactor host would be (see [operating.md](operating.md));
+elsewhere each command fails with "this data plane does not support VMM
+execution". On any machine, a VMM task which declares no `egress` fails too.
+Either way, `flowctl generate` writes none of the task's files. To run
+the task's logic without one, omit both `vmm` and `egress` in a local copy:
+local planes run Python tasks ordinarily, with no egress enforcement.
 
-A local plane, like a private one, lets an undeclared task reach any public
-destination, so a local preview does not reproduce a public plane's filtering.
-Declare `egress` (even `egress: {}`) to preview with name filtering. A local
-plane accepts `egress.cidrs`, which a public plane refuses.
+A local plane holds a VMM task to its declared egress as every plane does. It
+accepts `egress.cidrs`, which a public plane refuses.
+
+## Network ports
+
+A VMM task is reachable on the ports of its built spec, and on no others. A
+Python task's are its `spec.networkPorts`, whether or not its image `EXPOSE`s
+them; a port its image exposes but its spec doesn't declare is unreachable.
+Apply and Open carry a built spec; Spec, Discover and Validate open no ports.
+The reactor's proxy reaches them at the VMM's address, and
+they are never published on the host's interfaces.
 
 ## What a VMM task logs
 
@@ -245,9 +270,9 @@ came from:
 VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example, *.cdn.acmeco.example (task egress.hosts); and any address within 10.20.0.0/16 (task egress.cidrs)
 ```
 
-or "VMM egress permits any public destination: the task declares no egress,
-and this data plane does not require one", followed by "started connector
-container" naming its `vmm`.
+or, for `egress: {}`, "VMM egress permits no external destination: the task
+declares empty egress", followed by "started connector container" naming its
+`vmm`.
 
 The VMM reports names it refused, at `warn`, once per name:
 

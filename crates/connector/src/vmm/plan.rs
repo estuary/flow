@@ -21,18 +21,12 @@ const EGRESS_HOSTS_LABEL: &str = "dev.estuary.egress-hosts";
 /// `sun_path` holds 108 bytes, its terminating NUL among them.
 const SOCKET_PATH_MAX: usize = 107;
 
-/// What a launch's guest may reach.
+/// What a launch's guest may reach: only these names, each with where it was
+/// first declared, and any address within the task's CIDRs.
 #[derive(Debug, PartialEq)]
-pub(crate) enum Egress {
-    /// Only these names, each with where it was first declared, and any
-    /// address within the task's CIDRs.
-    Names {
-        names: Vec<(egress::AllowedName, Source)>,
-        cidrs: Vec<ipnetwork::Ipv4Network>,
-    },
-    /// Any public destination: the task declares no egress, and its data
-    /// plane does not require one.
-    AnyPublic,
+pub(crate) struct Egress {
+    pub names: Vec<(egress::AllowedName, Source)>,
+    pub cidrs: Vec<ipnetwork::Ipv4Network>,
 }
 
 /// Where a permitted name was declared.
@@ -46,15 +40,12 @@ pub(crate) enum Source {
 
 impl std::fmt::Display for Egress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (names, cidrs) = match self {
-            Egress::AnyPublic => {
-                return f.write_str(
-                    "VMM egress permits any public destination: the task declares no \
-                     egress, and this data plane does not require one",
-                );
-            }
-            Egress::Names { names, cidrs } => (names, cidrs),
-        };
+        let Egress { names, cidrs } = self;
+        if names.is_empty() && cidrs.is_empty() {
+            return f.write_str(
+                "VMM egress permits no external destination: the task declares empty egress",
+            );
+        }
         if names.is_empty() {
             f.write_str("VMM egress permits no host names")?;
         } else {
@@ -114,8 +105,9 @@ pub(crate) struct Launch<'a> {
     pub plane: crate::Plane,
     pub task_name: &'a str,
     pub persistent_disk: Option<PersistentDisk<'a>>,
-    /// The task's declared egress, or None if it declares none.
-    pub egress: Option<&'a TaskEgress>,
+    pub egress: &'a TaskEgress,
+    /// TCP ports of the task's built spec, or none for a request lacking one.
+    pub ports: &'a [u32],
 }
 
 /// The task's persistent storage: a host directory, and where the guest
@@ -157,8 +149,8 @@ pub(crate) struct Plan {
     pub socket: String,
     /// What the connector mount must hold, with modes.
     pub mount_files: Vec<(String, u32)>,
-    /// TCP ports the image declares, at which the host reaches the guest
-    /// through the container's address.
+    /// TCP ports of the task's built spec, at which the host reaches the
+    /// guest through the container's address.
     pub ports: Vec<u32>,
     /// Arguments after `podman`, in the order they run. The container is
     /// started, once created, by its ID.
@@ -184,6 +176,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         task_name,
         persistent_disk,
         egress,
+        ports,
     } = launch;
 
     let image_inspection = connector_init::inspect::Image::parse_from_json_slice(inspection)?;
@@ -210,7 +203,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         .labels;
     let image_hosts = label_hosts(labels.get(EGRESS_HOSTS_LABEL).map(String::as_str))
         .with_context(|| format!("connector image '{image}'"))?;
-    let egress = plan_egress(eligible, &image_hosts, *egress, *plane);
+    let egress = plan_egress(eligible, &image_hosts, egress, *plane);
 
     let name = format!("fv_{id:016x}");
     let mount = format!("{connector_mounts}/mount-{name}");
@@ -312,21 +305,21 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         create.push(guest_path.to_string());
     }
 
-    let ports: Vec<u32> = inspected
-        .advertised_ports
+    // Connector-init's control port is never exposed to the host.
+    let ports: Vec<u32> = ports
         .iter()
-        .map(|port| port.number)
-        .filter(|port| *port != 49092)
+        .copied()
+        .filter(|port| *port != models::CONNECTOR_INIT_PORT as u32)
         .collect();
-    if ports.contains(&0) {
-        anyhow::bail!("connector image declares TCP port zero");
+    if let Some(port) = ports
+        .iter()
+        .find(|port| **port == 0 || **port > u16::MAX as u32)
+    {
+        anyhow::bail!("the task's built spec declares invalid TCP port {port}");
     }
     // The host boundary drops private destinations for every VMM, so the
     // task's CIDRs need a grant of their own beside the guest's policy.
-    let cidrs = match &egress {
-        Egress::Names { cidrs, .. } => cidrs.as_slice(),
-        Egress::AnyPublic => &[],
-    };
+    let cidrs = egress.cidrs.as_slice();
     let mut ingress = Vec::new();
     if !ports.is_empty() || !cidrs.is_empty() {
         // Kept once it exits: its labels may be the only record of a grant
@@ -357,13 +350,10 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         scratch: format!("{state}/scratch"),
         record: super::record::path(&vmm.state_dir, &name),
         token,
-        policy: match &egress {
-            Egress::Names { names, cidrs } => {
-                let names: Vec<egress::AllowedName> =
-                    names.iter().map(|(name, _)| name.clone()).collect();
-                egress::public_policy(&names, cidrs)
-            }
-            Egress::AnyPublic => egress::any_public_policy(),
+        policy: {
+            let names: Vec<egress::AllowedName> =
+                egress.names.iter().map(|(name, _)| name.clone()).collect();
+            egress::public_policy(&names, &egress.cidrs)
         },
         egress,
         policy_path: format!("{state}/init/policy.json"),
@@ -435,32 +425,30 @@ pub(super) fn check_state_dir(state_dir: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// What the guest may reach. A task which declares egress, or any task on a
-/// public data plane, is held to the hosts of `eligible`, the image's label
-/// and the task, in that order and without repeats, and to the task's CIDRs.
-/// Otherwise the data plane leaves its egress open to any public destination.
+/// What the guest may reach. Egress which declares no host and no CIDR
+/// permits nothing, not even the hosts of `eligible` or the image's label.
+/// Any other is held to the hosts of `eligible`, the image's label and the
+/// task, in that order and without repeats, and to the task's CIDRs.
 fn plan_egress(
     eligible: &Eligible,
     image_hosts: &[egress::AllowedName],
-    task: Option<&TaskEgress>,
+    task: &TaskEgress,
     plane: crate::Plane,
 ) -> Egress {
-    // Exhaustive, so that a new kind of plane must decide.
-    let undeclared_is_open = match plane {
-        crate::Plane::Public => false,
-        crate::Plane::Private | crate::Plane::Local => true,
-    };
-    if task.is_none() && undeclared_is_open {
-        return Egress::AnyPublic;
-    }
-    let (task_hosts, cidrs) = match task {
-        Some(TaskEgress { hosts, cidrs }) => (hosts.as_slice(), cidrs.clone()),
-        None => (&[][..], Vec::new()),
-    };
+    let TaskEgress {
+        hosts: task_hosts,
+        cidrs,
+    } = task;
     assert!(
-        cidrs.is_empty() || undeclared_is_open,
+        cidrs.is_empty() || plane != crate::Plane::Public,
         "vmm_for refuses CIDRs on a public plane"
     );
+    if task_hosts.is_empty() && cidrs.is_empty() {
+        return Egress {
+            names: Vec::new(),
+            cidrs: Vec::new(),
+        };
+    }
     let defaults: Vec<String> = eligible
         .egress_hosts
         .iter()
@@ -481,7 +469,10 @@ fn plan_egress(
             }
         }
     }
-    Egress::Names { names, cidrs }
+    Egress {
+        names,
+        cidrs: cidrs.clone(),
+    }
 }
 
 /// A missing, blank or empty label declares nothing.
@@ -605,6 +596,11 @@ mod test {
         .unwrap()
     }
 
+    /// A task's declared egress of one host, which every launch of these
+    /// tests declares unless it says otherwise.
+    static DECLARED: std::sync::LazyLock<crate::vmm::TaskEgress> =
+        std::sync::LazyLock::new(|| task_egress(&["task.acmeco.example"], &[]));
+
     fn launch<'a>(inspection: &'a [u8]) -> Launch<'a> {
         Launch {
             id: ID,
@@ -618,7 +614,8 @@ mod test {
             plane: crate::Plane::Public,
             task_name: "acmeCo/anvils/derivation",
             persistent_disk: None,
-            egress: None,
+            egress: &DECLARED,
+            ports: &[],
         }
     }
 
@@ -743,15 +740,61 @@ mod test {
         }
     }
 
+    /// Ingress is the built spec's ports, less connector-init's, and not
+    /// what the image exposes.
     #[test]
     fn declared_ingress() {
         let vmm = vmm(&[]);
         let inspection = inspection(
-            json!({"dev.estuary.port-public.8080": "true"}),
-            json!({"8080/tcp": {}, "9090/tcp": {}, "9000/udp": {}, "49092/tcp": {}}),
+            json!({"dev.estuary.port-public.7070": "true"}),
+            json!({"7070/tcp": {}, "9000/udp": {}}),
         );
-        let plan = super::plan(&vmm, &launch(&inspection)).unwrap();
+        let plan = super::plan(
+            &vmm,
+            &Launch {
+                ports: &[8080, 9090, 49092],
+                ..launch(&inspection)
+            },
+        )
+        .unwrap();
         insta::assert_snapshot!(describe(&plan));
+
+        let mut table = String::new();
+        for ports in [
+            &[][..],
+            &[8080],
+            &[49092],
+            &[1, 65535],
+            &[0],
+            &[8080, 65536],
+        ] {
+            let outcome = match super::plan(
+                &vmm,
+                &Launch {
+                    ports,
+                    ..launch(&inspection)
+                },
+            ) {
+                Ok(plan) => format!(
+                    "ports {:?}, grant {:?}",
+                    plan.ports,
+                    plan.ingress
+                        .iter()
+                        .filter(|arg| arg.starts_with("--port="))
+                        .collect::<Vec<_>>()
+                ),
+                Err(error) => format!("refused: {error:#}"),
+            };
+            table.push_str(&format!("{ports:?} => {outcome}\n"));
+        }
+        insta::assert_snapshot!(table, @r#"
+        [] => ports [], grant []
+        [8080] => ports [8080], grant ["--port=8080"]
+        [49092] => ports [], grant []
+        [1, 65535] => ports [1, 65535], grant ["--port=1", "--port=65535"]
+        [0] => refused: the task's built spec declares invalid TCP port 0
+        [8080, 65536] => refused: the task's built spec declares invalid TCP port 65536
+        "#);
     }
 
     /// Everything one plan holds, where the limits are spelled as an operator
@@ -776,7 +819,7 @@ mod test {
             &vmm,
             &Launch {
                 plane: crate::Plane::Local,
-                egress: Some(&task_egress),
+                egress: &task_egress,
                 ..launch(&inspection)
             },
         )
@@ -820,12 +863,11 @@ mod test {
         let declared = task_egress(hosts, &[]);
         let cidrs = task_egress(&[], &["0.0.0.0/0"]);
         let both = task_egress(hosts, &["10.0.0.0/8", "192.168.4.7/32"]);
-        let declarations: [(&str, Option<&crate::vmm::TaskEgress>); 5] = [
-            ("omitted", None),
-            ("empty", Some(&empty)),
-            ("hosts", Some(&declared)),
-            ("cidrs", Some(&cidrs)),
-            ("hosts and cidrs", Some(&both)),
+        let declarations: [(&str, &crate::vmm::TaskEgress); 4] = [
+            ("empty", &empty),
+            ("hosts", &declared),
+            ("cidrs", &cidrs),
+            ("hosts and cidrs", &both),
         ];
 
         let mut table = String::new();
@@ -839,9 +881,7 @@ mod test {
                 for (declaration, egress) in declarations {
                     // `vmm_for` refuses CIDRs on a public plane, so no
                     // public launch is planned with them.
-                    if plane == crate::Plane::Public
-                        && egress.is_some_and(|egress| !egress.cidrs.is_empty())
-                    {
+                    if plane == crate::Plane::Public && !egress.cidrs.is_empty() {
                         continue;
                     }
                     let plan = super::plan(

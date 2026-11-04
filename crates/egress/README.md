@@ -10,9 +10,9 @@ copy of these semantics: what a launcher writes is exactly what the VMM parses.
 ## Roadmap
 
 - `src/lib.rs`: `hosts` and `cidrs`, the rules for names and address ranges
-  wherever they are declared; `public_policy` and `any_public_policy`, the
-  documents a launcher writes; `parse` and `load`, the VMM's side, with every
-  refusal; `baseline` and `excluded`.
+  wherever they are declared; `public_policy`, the document a launcher
+  writes; `parse` and `load`, the VMM's side, with every refusal; `baseline`
+  and `excluded`.
 
 ## Host names
 
@@ -53,13 +53,12 @@ overlapping the baseline: the exclusions below win where they meet a range.
 }
 ```
 
-A launcher writes one of two shapes, everything else at its default.
+A launcher writes one shape, everything else at its default.
 `public_policy` writes `egress: public`, `allowedNames`, and `declaredCidrs`
 when the task declares any; empty lists admit no name and no range, and the
-resolver refuses each query. `any_public_policy` writes `egress: public` and
-`allowAll`: no name gate, and the baseline below still holds. The TTL bounds
-are carried at full shape, validated and snapshot-tested for the VMM and its
-test suites, but no launcher writes them.
+resolver refuses each query. `allowAll` and the TTL bounds are carried at full
+shape, validated and snapshot-tested for the VMM and its test suites, but no
+launcher writes them.
 
 ## Task egress
 
@@ -67,9 +66,12 @@ A task may declare `egress: {hosts: [...], cidrs: [...]}` beside `vmm`; see
 [`docs/connector-vmm/tasks.md`](../../docs/connector-vmm/tasks.md) for the
 user-facing description.
 
-- Declared hosts add to those of the connector and its image; they never
-  remove one. An empty or missing list adds nothing, and `egress: {}` is
-  still a declaration.
+- Every task which runs in a VMM declares egress; the connector service
+  refuses one which doesn't.
+- `egress: {}`, with neither hosts nor CIDRs, permits nothing: not even the
+  hosts of the connector and its image.
+- Any other declaration adds its hosts to those of the connector and its
+  image, and never removes one.
 - A name is a host, with no port, address or range: every port of it is
   reachable, at public addresses and within the task's CIDRs.
 - A CIDR admits every address within it, on any TCP or UDP port, whether or
@@ -81,9 +83,6 @@ user-facing description.
 - An execution which cannot enforce a declaration refuses the task, rather
   than run it unenforced. Only VMM execution enforces one today, and nothing
   infers `vmm` from `egress`.
-- A task which declares nothing is the data plane's to decide: a public plane
-  holds it to its connector's and image's hosts, and a private or local one
-  leaves it any public destination.
 
 ## Public destinations only, unless a CIDR is declared
 

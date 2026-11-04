@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct Egress {
     /// # Host names the connector may reach.
-    /// These add to the hosts the connector and its image already declare,
-    /// and an empty or missing list adds none. `api.acmeco.example` matches
+    /// These add to the hosts the connector and its image already declare.
+    /// When both `hosts` and `cidrs` are empty, the connector may reach no
+    /// external destination at all. `api.acmeco.example` matches
     /// only itself. `*.acmeco.example` matches every name beneath
     /// `acmeco.example`, at any depth, but not `acmeco.example` itself: list
     /// both to reach both. A wildcard may not cover a public suffix, such as

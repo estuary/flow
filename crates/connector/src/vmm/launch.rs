@@ -50,7 +50,9 @@ pub(crate) struct Guard {
 struct Input {
     vmm: Vmm,
     eligible: &'static Eligible,
-    egress: Option<TaskEgress>,
+    egress: TaskEgress,
+    /// TCP ports of the task's built spec.
+    ports: Vec<u32>,
     image: String,
     log_level: ops::LogLevel,
     log_sink: crate::LogSink,
@@ -95,7 +97,8 @@ pub(crate) async fn start(
     ctx: &crate::protocol::StartContext,
     vmm: &Vmm,
     eligible: &'static Eligible,
-    egress: Option<TaskEgress>,
+    egress: TaskEgress,
+    ports: Vec<u32>,
     image: &str,
     secrets: &std::collections::BTreeMap<String, String>,
     build: Option<&str>,
@@ -109,6 +112,7 @@ pub(crate) async fn start(
         vmm: vmm.clone(),
         eligible,
         egress,
+        ports,
         image: image.to_string(),
         log_level: ctx.log_level,
         log_sink: ctx.log_sink.clone(),
@@ -167,6 +171,7 @@ async fn launch(
         vmm,
         eligible,
         egress,
+        ports,
         image,
         log_level,
         log_sink,
@@ -240,7 +245,8 @@ async fn launch(
                 plane: *plane,
                 task_name,
                 persistent_disk: None,
-                egress: egress.as_ref(),
+                egress,
+                ports,
             },
         )
         .map_err(|err| crate::invalid_argument(format!("{err:#}")))?;
@@ -467,7 +473,7 @@ async fn run_vmm(
     };
     let container = runtime::Container {
         ip_addr,
-        network_ports: declarations.network_ports,
+        advertised_ports: declarations.advertised_ports,
         usage_rate: usage_rate.value,
         mapped_host_ports: Default::default(),
     };
@@ -561,8 +567,9 @@ async fn serving(channel: tonic::transport::Channel) -> anyhow::Result<()> {
     }
 }
 
+/// This host cannot run VMMs, so it refuses the VMM execution requested of it.
 fn precondition(err: anyhow::Error) -> anyhow::Error {
-    proto_grpc::status_to_anyhow(tonic::Status::failed_precondition(format!("{err:#}")))
+    super::refuse(tonic::Status::failed_precondition(format!("{err:#}")))
 }
 
 fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<String> {

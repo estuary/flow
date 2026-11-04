@@ -1,0 +1,14 @@
+["acmeCo/vmm-python/page-views", {"page": "/home", "views": 1}]
+["acmeCo/vmm-python/page-views", {"page": "/about", "views": 2}]
+["acmeCo/vmm-python/page-views", {"page": "/home", "views": 3}]
+["acmeCo/vmm-python/greetings", {"ts": "2026-11-04T00:00:01Z", "message": "Hello 1!"}]
+{"commit": true}
+["acmeCo/vmm-python/page-views", {"page": "/home", "views": 10}]
+["acmeCo/vmm-python/page-views", {"page": "/pricing", "views": 1}]
+["acmeCo/vmm-python/page-views", {"page": "/blog", "views": 4}]
+["acmeCo/vmm-python/greetings", {"ts": "2026-11-04T00:00:01Z", "message": "Hello again 1!"}]
+["acmeCo/vmm-python/greetings", {"ts": "2026-11-04T00:00:02Z", "message": "Hello 2!"}]
+{"commit": true}
+["acmeCo/vmm-python/page-views", {"page": "/about", "views": 5}]
+["acmeCo/vmm-python/page-views", {"page": "/pricing", "views": 2}]
+{"commit": true}

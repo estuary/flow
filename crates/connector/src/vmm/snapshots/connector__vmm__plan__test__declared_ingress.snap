@@ -18,10 +18,10 @@ socket: /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock/init.sock (62 bytes
 0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch
 
 ## egress
-VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults)
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); task.acmeco.example (task egress.hosts)
 
 ## /var/lib/flow/connector-vmm/fv_0123456789abcdef/init/policy.json
-{"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}
+{"allowedNames":["pypi.org","files.pythonhosted.org","task.acmeco.example"],"egress":"public"}
 
 ## connector mount
 0555 /tmp/connector-mounts-0/mount-fv_0123456789abcdef/flow-connector-init

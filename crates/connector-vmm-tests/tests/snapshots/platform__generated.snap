@@ -9,5 +9,3 @@ vmm-python/flow_generated/python/acmeCo/vmm_python/numbers/__init__.py
 vmm-python/greetings.flow.yaml
 vmm-python/numbers.flow.yaml
 vmm-python/numbers.py
-vmm-python/pyproject.toml
-vmm-python/pyrightconfig.json
