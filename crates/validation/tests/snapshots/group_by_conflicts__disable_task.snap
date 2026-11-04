@@ -65,6 +65,7 @@ expression: "(selections, errors)"
             [
                 "disabling materialization due to binding [\"a\"] group-by change from [\"f_one\"] to [\"f_one\", \"f_two\"] (onIncompatibleSchemaChange: disableTask)",
             ],
+            [],
         ),
     ],
     [],

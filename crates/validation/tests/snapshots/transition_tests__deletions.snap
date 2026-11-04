@@ -266,6 +266,7 @@ Outcome {
             expect_build_id: "1010101010101010",
             model: NULL,
             model_fixes: [],
+            auto_disabled_bindings: [],
             validated: NULL,
             spec: NULL,
             previous_spec: MaterializationSpec {

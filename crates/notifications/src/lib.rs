@@ -1,5 +1,6 @@
 mod auto_discover_failed;
 mod background_publication_failed;
+mod bindings_auto_disabled;
 mod data_movement_stalled;
 mod free_trial;
 mod free_trial_ending;
@@ -139,6 +140,7 @@ impl Renderer {
 
         auto_discover_failed::register_templates(&mut hb)?;
         background_publication_failed::register_templates(&mut hb)?;
+        bindings_auto_disabled::register_templates(&mut hb)?;
         data_movement_stalled::register_templates(&mut hb)?;
         free_trial::register_templates(&mut hb)?;
         free_trial_stalled::register_templates(&mut hb)?;
@@ -1017,6 +1019,60 @@ mod tests {
                 "spec_type": "capture",
                 "count": 42,
                 "disable_at": "2025-06-08",
+            }),
+            State::Resolved,
+        );
+    }
+
+    #[test]
+    fn test_bindings_auto_disabled_fired() {
+        let email = test_single_email(
+            AlertType::BindingsAutoDisabled,
+            "acmeCo/test/materialization",
+            json!({
+                "recipients": [user_a()],
+                "spec_type": "materialization",
+                "count": 2,
+                "error": "2 bindings disabled because of incompatible schema changes",
+                "bindings": [
+                    {
+                        "resource_path": ["public", "orders"],
+                        "collection": "acmeCo/test/orders",
+                        "reason": "incompatible_schema_change",
+                        "detail": "group-by key changed from [\"id\"] to [\"order_id\"]",
+                        "pub_id": "1a2b3c4d5e6f7a8b",
+                    },
+                    {
+                        "resource_path": ["customers"],
+                        "collection": "acmeCo/test/customers",
+                        "reason": "incompatible_schema_change",
+                        "detail": "conflict for field \"amount\": field is within the desired depth but connector cannot support this field without a backfill (field type changed)",
+                        "pub_id": "1a2b3c4d5e6f7a8b",
+                    },
+                ],
+            }),
+            State::Fired,
+        );
+
+        assert_email(
+            &email,
+            user_a(),
+            EXPECT_IDEMPOTENCY_KEY_FIRED,
+            "Estuary: bindings of materialization acmeCo/test/materialization have been automatically disabled",
+        );
+        insta::assert_snapshot!("bindings_auto_disabled_fired_body", email.body);
+    }
+
+    #[test]
+    fn test_bindings_auto_disabled_resolved() {
+        expect_no_email(
+            AlertType::BindingsAutoDisabled,
+            "acmeCo/test/materialization",
+            json!({
+                "recipients": [user_a()],
+                "spec_type": "materialization",
+                "count": 1,
+                "bindings": [],
             }),
             State::Resolved,
         );
