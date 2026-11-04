@@ -11,7 +11,7 @@ mod replacement;
 mod rpc;
 
 use connector_vmm_tests::{dns, endpoint, launcher, netns, run};
-use proto_flow::{connector as proto, derive, flow, ops};
+use proto_flow::{capture, connector as proto, derive, flow, materialize, ops};
 use std::io::BufRead;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -86,10 +86,12 @@ fn router_on(plane: connector::Plane, vmm: connector::Vmm) -> connector::Service
     connector::ServiceRouter::new(service, signer)
 }
 
+/// Every VMM task declares egress. Unless a test says otherwise it declares
+/// none at all, which permits no external destination.
 fn vmm_execution() -> flow::ConnectorExecution {
     flow::ConnectorExecution {
         vmm: true,
-        egress: None,
+        egress: Some(Default::default()),
     }
 }
 
@@ -166,16 +168,32 @@ fn open(
     tokio::sync::mpsc::Sender<proto::Request>,
     tokio::sync::mpsc::Receiver<tonic::Result<proto::Response>>,
 ) {
+    open_as(
+        runtime,
+        router,
+        ops::TaskType::Derivation,
+        proto_grpc::connector::SPEC_TASK_NAME,
+        request,
+    )
+}
+
+/// As `open`, as the task `task_name` of `task_type`.
+fn open_as(
+    runtime: &tokio::runtime::Runtime,
+    router: &connector::ServiceRouter,
+    task_type: ops::TaskType,
+    task_name: &str,
+    request: proto::Request,
+) -> (
+    tokio::sync::mpsc::Sender<proto::Request>,
+    tokio::sync::mpsc::Receiver<tonic::Result<proto::Response>>,
+) {
     use proto_grpc::connector::Router;
 
     let _entered = runtime.enter();
     let (request_tx, request_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
     request_tx.try_send(request).expect("the channel is empty");
-    let response_rx = router.open(
-        ops::TaskType::Derivation,
-        proto_grpc::connector::SPEC_TASK_NAME,
-        request_rx,
-    );
+    let response_rx = router.open(task_type, task_name, request_rx);
     (request_tx, response_rx)
 }
 
@@ -226,7 +244,7 @@ fn assert_started(started: &proto::response::Started) {
         container.ip_addr, "",
         "no address: the VMM has only its socket"
     );
-    assert!(container.network_ports.is_empty(), "no ports");
+    assert!(container.advertised_ports.is_empty(), "no ports");
 }
 
 /// `proto_grpc` hands back an Unknown status as a plain error.
@@ -320,8 +338,8 @@ fn owner_process() {
     } = serde_json::from_str(config.to_str().expect("UTF-8")).expect("an owner's configuration");
     let execution = flow::ConnectorExecution {
         vmm: true,
-        egress: egress.map(|hosts| flow::connector_execution::Egress {
-            hosts,
+        egress: Some(flow::connector_execution::Egress {
+            hosts: egress.unwrap_or_default(),
             cidrs: Vec::new(),
         }),
     };
@@ -955,6 +973,250 @@ fn spec_through_the_vmm() {
     );
 }
 
+/// A Spec of `image` as the Python connector of `task_type`, whose project
+/// is empty. A Python connector answers Spec from its task's declared spec,
+/// without staging or running the project.
+fn python_spec(task_type: ops::TaskType, image: &str) -> proto::Request {
+    let config_json = serde_json::json!({"image": image, "config": {"_python": {}}})
+        .to_string()
+        .into();
+    let kind = match task_type {
+        ops::TaskType::Capture => proto::request::Kind::Capture(capture::Request {
+            kind: Some(capture::request::Kind::Spec(capture::request::Spec {
+                connector_type: flow::capture_spec::ConnectorType::Image as i32,
+                config_json,
+            })),
+            ..Default::default()
+        }),
+        ops::TaskType::Derivation => proto::request::Kind::Derive(derive::Request {
+            kind: Some(derive::request::Kind::Spec(derive::request::Spec {
+                connector_type: flow::collection_spec::derivation::ConnectorType::Image as i32,
+                config_json,
+            })),
+            ..Default::default()
+        }),
+        ops::TaskType::Materialization => proto::request::Kind::Materialize(materialize::Request {
+            kind: Some(materialize::request::Kind::Spec(
+                materialize::request::Spec {
+                    connector_type: flow::materialization_spec::ConnectorType::Image as i32,
+                    config_json,
+                },
+            )),
+            ..Default::default()
+        }),
+        task_type => panic!("no Python connector of {task_type:?}"),
+    };
+    proto::Request {
+        start: Some(proto::request::Start {
+            execution: Some(vmm_execution()),
+            log_level: ops::log::Level::Info as i32,
+            ..Default::default()
+        }),
+        kind: Some(kind),
+    }
+}
+
+/// Each Python connector built from this checkout runs in a VMM, as its
+/// image's unprivileged user, and answers Spec with its egress denied: Spec
+/// runs no project code and installs nothing. Each launch is released.
+#[test]
+fn python_connectors_spec_through_the_vmm() {
+    let (run, root, runtime) = setup();
+    let router = router(vmm(&root, &run.vmm_image));
+
+    for (task_type, image) in [
+        (ops::TaskType::Capture, &run.capture_python_image),
+        (ops::TaskType::Derivation, &run.local_derive_python_image),
+        (
+            ops::TaskType::Materialization,
+            &run.materialize_python_image,
+        ),
+    ] {
+        let user = run::podman(&["image", "inspect", "--format", "{{.Config.User}}", image]);
+        assert_eq!(user.trim(), "nobody", "{image}'s user");
+
+        let logs = Logs::default();
+        let started = unary(&runtime, &router, &logs, python_spec(task_type, image))
+            .unwrap_or_else(|err| panic!("Spec of {image}: {err:#}\n{:#?}", logs.messages()));
+        assert_eq!(started.execution, Some(vmm_execution()), "{image}");
+        let schema = match started.spec {
+            Some(proto::response::started::Spec::Capture(spec)) => spec.config_schema_json,
+            Some(proto::response::started::Spec::Derive(spec)) => spec.config_schema_json,
+            Some(proto::response::started::Spec::Materialize(spec)) => spec.config_schema_json,
+            None => panic!("{image} Started without a Spec"),
+        };
+        assert!(!schema.is_empty(), "{image} has a config schema");
+        assert!(
+            logs.messages().iter().any(|logged| logged.ends_with(
+                "VMM egress permits no external destination: the task declares empty egress"
+            )),
+            "{image}: {:#?}",
+            logs.messages()
+        );
+    }
+    assert_eq!(launcher::leftovers(&root, None), Vec::<String>::new());
+}
+
+/// Listens on 8080 and 9090 in the guest, answering `ping` with `pong`.
+const LISTENER: &str = r#"
+import socket, threading
+def serve(port):
+    server = socket.create_server(("0.0.0.0", port))
+    while True:
+        conn, _ = server.accept()
+        with conn, conn.makefile("rb") as reader:
+            if reader.readline(16) == b"ping\n":
+                conn.sendall(b"pong\n")
+for port in (8080, 9090):
+    threading.Thread(target=serve, args=(port,)).start()
+"#;
+
+/// What a host client reads from `ip:port` after sending `ping`.
+fn ping(ip: std::net::Ipv4Addr, port: u16) -> std::io::Result<String> {
+    use std::io::{BufRead, Write};
+
+    let mut stream =
+        std::net::TcpStream::connect_timeout(&(ip, port).into(), Duration::from_secs(2))?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    stream.write_all(b"ping\n")?;
+    let mut line = String::new();
+    std::io::BufReader::new(stream).read_line(&mut line)?;
+    Ok(line)
+}
+
+/// Ingress is the built spec's ports, whatever the image exposes. A session
+/// whose built spec declares 8080, of an image which exposes only 9090, is
+/// reachable from the host at 8080 and not at 9090, though its guest listens
+/// on both. Its grant goes with the session.
+#[test]
+fn built_spec_ports_are_the_only_ingress() {
+    use base64::Engine;
+    const TASK: &str = "acmeCo/vmm-ingress/derivation";
+
+    let (run, root, runtime) = setup();
+    // An eligible repository, under a tag of this test's own, which no
+    // launch pulls.
+    let image = format!("ghcr.io/estuary/derive-python:vmm-{}", run::random_hex());
+    let context = format!("{}/exposing", root.dir);
+    std::fs::create_dir(&context).unwrap();
+    let containerfile = format!("{context}/Containerfile");
+    std::fs::write(
+        &containerfile,
+        format!("FROM {}\nEXPOSE 9090\n", run.derive_python_image),
+    )
+    .unwrap();
+    run::record("image", &image);
+    run::podman(&["build", "-q", "-t", &image, "-f", &containerfile, &context]);
+    std::fs::write(format!("{}/local-image", root.dir), &image).unwrap();
+
+    let encoded = base64::engine::general_purpose::STANDARD.encode(LISTENER);
+    launcher::gate_readiness_after(
+        &root,
+        &format!(
+            "({} -c \"import base64; exec(base64.b64decode('{encoded}'))\" &)",
+            run::PROBES[0]
+        ),
+    );
+    let router = router(vmm(&root, &run.vmm_image));
+    let request = proto::Request {
+        start: Some(proto::request::Start {
+            execution: Some(vmm_execution()),
+            log_level: ops::log::Level::Info as i32,
+            ..Default::default()
+        }),
+        kind: Some(proto::request::Kind::Derive(derive::Request {
+            kind: Some(derive::request::Kind::Open(Box::new(
+                derive::request::Open {
+                    collection: Some(flow::CollectionSpec {
+                        name: TASK.to_string(),
+                        derivation: Some(Box::new(flow::collection_spec::Derivation {
+                            connector_type: flow::collection_spec::derivation::ConnectorType::Image
+                                as i32,
+                            config_json: serde_json::json!({"image": image, "config": {}})
+                                .to_string()
+                                .into(),
+                            network_ports: vec![flow::NetworkPort {
+                                number: 8080,
+                                protocol: String::new(),
+                                public: false,
+                            }],
+                            execution: Some(vmm_execution()),
+                            shard_template: serde_json::from_value(serde_json::json!({
+                                "labels": {"labels": [
+                                    {"name": "estuary.dev/build", "value": "1122334455667788"}
+                                ]}
+                            }))
+                            .unwrap(),
+                            ..Default::default()
+                        })),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ))),
+            ..Default::default()
+        })),
+    };
+    let (request_tx, mut response_rx) =
+        open_as(&runtime, &router, ops::TaskType::Derivation, TASK, request);
+    held(&root, "readiness", &mut response_rx).unwrap_or_else(|err| panic!("{err}"));
+
+    let name = launcher::vmm_name(&root).expect("the launch created a network");
+    let ip: std::net::Ipv4Addr = run::podman(&[
+        "inspect",
+        "--format",
+        "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+        &name,
+    ])
+    .trim()
+    .parse()
+    .expect("the VMM's container has an IPv4 address");
+
+    // The guest's listener may still be starting. The launch's readiness
+    // wait, which the hold outlasts, ends its VMM after 60 seconds.
+    let pong = run::eventually(
+        "the declared port to answer",
+        Duration::from_secs(30),
+        || ping(ip, 8080).ok().filter(|line| line == "pong\n"),
+    );
+    assert_eq!(pong, "pong\n");
+    assert!(ping(ip, 9090).is_err(), "the image's own port admitted");
+
+    let calls = launcher::calls(&root);
+    let grant = calls
+        .iter()
+        .find(|call| call.contains("boundary grant"))
+        .expect("a grant of the declared port");
+    assert!(
+        grant.contains("--port=8080") && !grant.contains("9090"),
+        "{grant}"
+    );
+    let create = calls
+        .iter()
+        .find(|call| call.starts_with("create "))
+        .expect("the VMM's container");
+    assert!(
+        create.contains("--ingress-port=8080") && !create.contains("--ingress-port=9090"),
+        "{create}"
+    );
+
+    // Abandoned before readiness, as a client walking away.
+    std::mem::drop((request_tx, response_rx));
+    run::eventually("the session's release", RELEASED, || {
+        launcher::leftovers(&root, Some(&name))
+            .is_empty()
+            .then_some(())
+    });
+    assert!(
+        launcher::calls(&root)
+            .iter()
+            .any(|call| call.contains("boundary revoke --owner=")),
+        "the grant was revoked"
+    );
+    assert!(ping(ip, 8080).is_err(), "the port outlived its session");
+    run::podman(&["image", "rm", &image]);
+}
+
 /// Run as guest root before connector-init starts: for each name and port,
 /// resolve it through the guest's nameserver and connect, then write one log
 /// line saying what happened. `unresolved` is the VMM's resolver refusing the
@@ -984,13 +1246,15 @@ for name, port in json.loads(CASES):
     sys.stderr.flush()
 "#;
 
-/// The controlled destinations of one egress test: three public endpoints and
-/// the decoy, each listening, and a nameserver which answers for them.
+/// The controlled destinations of one egress test: three public endpoints,
+/// one standing in for the package index, and the decoy, each listening, and
+/// a nameserver which answers for them.
 struct Destinations {
     nameserver: dns::Nameserver,
     a: endpoint::Endpoint,
     b: endpoint::Endpoint,
     c: endpoint::Endpoint,
+    pypi: endpoint::Endpoint,
     decoy: endpoint::Endpoint,
 }
 
@@ -998,7 +1262,7 @@ struct Destinations {
 /// nameserver's. `leak.acmeco.example` answers only with the decoy, an
 /// address in an excluded range.
 fn destinations(run: &run::Run) -> Destinations {
-    let [a, b, c, ..] = run.endpoints[..] else {
+    let [a, b, c, pypi, ..] = run.endpoints[..] else {
         panic!("too few endpoints in run.json");
     };
     let decoy = run.decoys[0];
@@ -1013,6 +1277,8 @@ fn destinations(run: &run::Run) -> Destinations {
         (a, 0).into(),
     ));
     for (name, ip) in [
+        // A connector default, which `{}` egress does not permit.
+        ("pypi.org", pypi),
         ("api.acmeco.example", a),
         ("below.api.acmeco.example", a),
         ("other.acmeco.example", a),
@@ -1028,6 +1294,7 @@ fn destinations(run: &run::Run) -> Destinations {
         a: listen(a),
         b: listen(b),
         c: listen(c),
+        pypi: listen(pypi),
         decoy: listen(decoy),
     }
 }
@@ -1047,7 +1314,7 @@ struct Probed {
 fn probe_egress(
     (run, root, runtime): &(run::Run, launcher::Root, tokio::runtime::Runtime),
     plane: connector::Plane,
-    egress: Option<&[&str]>,
+    egress: &[&str],
     cases: &[(String, u16)],
     destinations: &Destinations,
 ) -> Probed {
@@ -1071,8 +1338,8 @@ fn probe_egress(
     launcher::vmm_flags(root, &flags);
     let execution = flow::ConnectorExecution {
         vmm: true,
-        egress: egress.map(|hosts| flow::connector_execution::Egress {
-            hosts: hosts.iter().map(ToString::to_string).collect(),
+        egress: Some(flow::connector_execution::Egress {
+            hosts: egress.iter().map(ToString::to_string).collect(),
             cidrs: Vec::new(),
         }),
     };
@@ -1160,8 +1427,8 @@ fn assert_logged(probed: &Probed, message: &str) {
     );
 }
 
-/// A public data plane holds a task to the hosts it declares beyond the
-/// connector's: an exact name and not its subdomains, every name beneath a
+/// A public data plane holds a task to the connector's hosts and those it
+/// declares: an exact name and not its subdomains, every name beneath a
 /// wildcard's base and not the base, and nothing which resolves to an
 /// excluded address, whatever the task declares.
 #[test]
@@ -1172,12 +1439,13 @@ fn task_egress_on_a_public_plane() {
     let probed = probe_egress(
         &launch,
         connector::Plane::Public,
-        Some(&[
+        &[
             "api.acmeco.example",
             "*.svc.acmeco.example",
             "leak.acmeco.example",
-        ]),
+        ],
         &[
+            case("pypi.org", &d.pypi),
             case("api.acmeco.example", &d.a),
             case("below.api.acmeco.example", &d.a),
             case("a.b.svc.acmeco.example", &d.b),
@@ -1197,6 +1465,7 @@ fn task_egress_on_a_public_plane() {
     assert_results(
         &probed,
         &[
+            ("pypi.org".to_string(), "connected"),
             ("api.acmeco.example".to_string(), "connected"),
             ("below.api.acmeco.example".to_string(), "unresolved"),
             ("a.b.svc.acmeco.example".to_string(), "connected"),
@@ -1207,6 +1476,7 @@ fn task_egress_on_a_public_plane() {
             (direct(&d.c).0, "unreachable"),
         ],
     );
+    assert_eq!(endpoint::accepted(&d.pypi), [run.endpoint_peer]);
     assert_eq!(endpoint::accepted(&d.a), [run.endpoint_peer]);
     assert_eq!(endpoint::accepted(&d.b), [run.endpoint_peer]);
     assert!(
@@ -1256,95 +1526,44 @@ fn task_egress_on_a_public_plane() {
     }
 }
 
+/// A VMM task which declares no egress is refused on every plane before
+/// anything is pulled or launched.
 #[test]
-fn undeclared_egress_on_a_public_plane() {
-    let launch = setup();
-    let (run, ..) = &launch;
-    let d = destinations(run);
-    let probed = probe_egress(
-        &launch,
+fn undeclared_egress_is_refused_before_a_launch() {
+    let (run, root, runtime) = setup();
+    for plane in [
         connector::Plane::Public,
-        None,
-        &[
-            case("api.acmeco.example", &d.a),
-            case("a.b.svc.acmeco.example", &d.b),
-            direct(&d.c),
-        ],
-        &d,
-    );
-
-    assert_eq!(
-        probed.policy,
-        r#"{"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}"#
-    );
-    assert_results(
-        &probed,
-        &[
-            ("api.acmeco.example".to_string(), "unresolved"),
-            ("a.b.svc.acmeco.example".to_string(), "unresolved"),
-            (direct(&d.c).0, "unreachable"),
-        ],
-    );
-    for endpoint in [&d.a, &d.b, &d.c] {
-        assert!(
-            endpoint::accepted(endpoint).is_empty(),
-            "{:?}",
-            endpoint::accepted(endpoint)
+        connector::Plane::Private,
+        connector::Plane::Local,
+    ] {
+        let router = router_on(plane, vmm(&root, &run.vmm_image));
+        let logs = Logs::default();
+        let request = spec_with(
+            &run.derive_python_image,
+            flow::ConnectorExecution {
+                vmm: true,
+                egress: None,
+            },
+        );
+        let err = unary(&runtime, &router, &logs, request).expect_err("refused");
+        assert_eq!(
+            status(&err),
+            (
+                tonic::Code::InvalidArgument,
+                "the task requests VMM execution but declares no egress; a VMM task must \
+                 declare `egress`, and `egress: {}` permits no external destination"
+                    .to_string()
+            ),
+            "{plane:?}"
         );
     }
-    assert_logged(
-        &probed,
-        "VMM egress permits only these host names: pypi.org, files.pythonhosted.org \
-         (connector defaults)",
-    );
+    assert_eq!(launcher::calls(&root), Vec::<String>::new());
+    assert_eq!(launcher::leftovers(&root, None), Vec::<String>::new());
 }
 
-#[test]
-fn undeclared_egress_on_a_private_plane() {
-    let launch = setup();
-    let (run, ..) = &launch;
-    let d = destinations(run);
-    let probed = probe_egress(
-        &launch,
-        connector::Plane::Private,
-        None,
-        &[
-            case("other.acmeco.example", &d.a),
-            case("leak.acmeco.example", &d.decoy),
-            direct(&d.decoy),
-            direct(&d.c),
-        ],
-        &d,
-    );
-
-    assert_eq!(probed.policy, r#"{"allowAll":true,"egress":"public"}"#);
-    assert_results(
-        &probed,
-        &[
-            ("other.acmeco.example".to_string(), "connected"),
-            ("leak.acmeco.example".to_string(), "unresolved"),
-            (direct(&d.decoy).0, "unreachable"),
-            (direct(&d.c).0, "connected"),
-        ],
-    );
-    assert_eq!(endpoint::accepted(&d.a), [run.endpoint_peer]);
-    assert_eq!(endpoint::accepted(&d.c), [run.endpoint_peer]);
-    assert!(
-        endpoint::accepted(&d.decoy).is_empty(),
-        "{:?}",
-        endpoint::accepted(&d.decoy)
-    );
-    assert_logged(
-        &probed,
-        "VMM egress permits any public destination: the task declares no egress, \
-         and this data plane does not require one",
-    );
-    assert_logged(
-        &probed,
-        "refused DNS name leak.acmeco.example, which resolved to an address that is not public",
-    );
-}
-
+/// Egress declaring no host and no CIDR permits nothing on a private plane,
+/// not even the connector's own package index: the resolver refuses every
+/// name without asking upstream, and no address is reachable.
 #[test]
 fn empty_egress_on_a_private_plane() {
     let launch = setup();
@@ -1353,36 +1572,46 @@ fn empty_egress_on_a_private_plane() {
     let probed = probe_egress(
         &launch,
         connector::Plane::Private,
-        Some(&[]),
-        &[case("other.acmeco.example", &d.a), direct(&d.c)],
+        &[],
+        &[
+            case("pypi.org", &d.pypi),
+            case("other.acmeco.example", &d.a),
+            direct(&d.c),
+        ],
         &d,
     );
 
-    assert_eq!(
-        probed.policy,
-        r#"{"allowedNames":["pypi.org","files.pythonhosted.org"],"egress":"public"}"#
-    );
+    assert_eq!(probed.policy, r#"{"allowedNames":[],"egress":"public"}"#);
     assert_results(
         &probed,
         &[
+            ("pypi.org".to_string(), "unresolved"),
             ("other.acmeco.example".to_string(), "unresolved"),
             (direct(&d.c).0, "unreachable"),
         ],
     );
-    assert!(
-        endpoint::accepted(&d.a).is_empty(),
-        "{:?}",
-        endpoint::accepted(&d.a)
-    );
-    assert!(
-        endpoint::accepted(&d.c).is_empty(),
-        "{:?}",
-        endpoint::accepted(&d.c)
+    for endpoint in [&d.pypi, &d.a, &d.c] {
+        assert!(
+            endpoint::accepted(endpoint).is_empty(),
+            "{:?}",
+            endpoint::accepted(endpoint)
+        );
+    }
+    let asked = dns::queries(&d.nameserver);
+    for name in ["pypi.org", "other.acmeco.example"] {
+        assert!(
+            !asked.iter().any(|asked| asked == name),
+            "{name} went upstream: {asked:?}"
+        );
+    }
+    assert_logged(
+        &probed,
+        "VMM egress permits no external destination: the task declares empty egress",
     );
     assert_logged(
         &probed,
-        "refused DNS name other.acmeco.example, which this connector's egress does not \
-         permit; a task may permit it in egress.hosts",
+        "refused DNS name pypi.org, which this connector's egress does not permit; a task \
+         may permit it in egress.hosts",
     );
 }
 

@@ -249,7 +249,7 @@ expression: "&schema"
         },
         "egress": {
           "title": "Egress this capture's connector is held to.",
-          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
+          "description": "Required with `vmm: true`. Empty egress (`{}`) permits no external\ndestination, not even the hosts of the connector and its image. Any\nother holds the connector to the hosts of its connector and image,\nplus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
           "$ref": "#/$defs/Egress"
         },
         "endpoint": {
@@ -297,7 +297,7 @@ expression: "&schema"
         },
         "vmm": {
           "title": "Run this capture's connector within a VMM.",
-          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only on the V2 runtime. A data plane which\ncannot run the connector within a VMM fails the invocation: it never\nfalls back to an ordinary container.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, only on the V2 runtime, and only with\ndeclared `egress`. A data plane which cannot run the connector within a\nVMM fails the invocation: it never falls back to an ordinary container.",
           "type": "boolean"
         }
       },
@@ -645,7 +645,7 @@ expression: "&schema"
       "properties": {
         "egress": {
           "title": "Egress this derivation's connector is held to.",
-          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
+          "description": "Required with `vmm: true`. Empty egress (`{}`) permits no external\ndestination, not even the hosts of the connector and its image. Any\nother holds the connector to the hosts of its connector and image,\nplus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
           "$ref": "#/$defs/Egress"
         },
         "redactSalt": {
@@ -689,7 +689,7 @@ expression: "&schema"
         },
         "vmm": {
           "title": "Run this derivation's connector within a VMM.",
-          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only on the V2 runtime. A data plane which\ncannot run the connector within a VMM fails the invocation: it never\nfalls back to an ordinary container.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, only on the V2 runtime, and only with\ndeclared `egress`. A data plane which cannot run the connector within a\nVMM fails the invocation: it never falls back to an ordinary container.",
           "type": "boolean"
         }
       },
@@ -877,7 +877,7 @@ expression: "&schema"
         },
         "hosts": {
           "title": "Host names the connector may reach.",
-          "description": "These add to the hosts the connector and its image already declare,\nand an empty or missing list adds none. `api.acmeco.example` matches\nonly itself. `*.acmeco.example` matches every name beneath\n`acmeco.example`, at any depth, but not `acmeco.example` itself: list\nboth to reach both. A wildcard may not cover a public suffix, such as\n`*.com`. Names are case-insensitive, have no trailing dot, and are\nwritten in punycode (`xn--`) where they are not ASCII.\n\nA permitted name is reachable on any port, but only at public\naddresses, or at addresses within `cidrs`. Loopback, link-local and\nother addresses which are not destinations, and TCP port 25, are never\nreachable.",
+          "description": "These add to the hosts the connector and its image already declare.\nWhen both `hosts` and `cidrs` are empty, the connector may reach no\nexternal destination at all. `api.acmeco.example` matches\nonly itself. `*.acmeco.example` matches every name beneath\n`acmeco.example`, at any depth, but not `acmeco.example` itself: list\nboth to reach both. A wildcard may not cover a public suffix, such as\n`*.com`. Names are case-insensitive, have no trailing dot, and are\nwritten in punycode (`xn--`) where they are not ASCII.\n\nA permitted name is reachable on any port, but only at public\naddresses, or at addresses within `cidrs`. Loopback, link-local and\nother addresses which are not destinations, and TCP port 25, are never\nreachable.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1145,7 +1145,7 @@ expression: "&schema"
         },
         "egress": {
           "title": "Egress this materialization's connector is held to.",
-          "description": "Declaring egress, even with no hosts, holds the connector to the hosts\nof its connector and image, plus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.\nWhen omitted, the data plane decides: a public data plane holds a VMM\nto its connector's and image's hosts, while a private data plane lets\nit reach any public destination.",
+          "description": "Required with `vmm: true`. Empty egress (`{}`) permits no external\ndestination, not even the hosts of the connector and its image. Any\nother holds the connector to the hosts of its connector and image,\nplus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
           "$ref": "#/$defs/Egress"
         },
         "endpoint": {
@@ -1222,7 +1222,7 @@ expression: "&schema"
         },
         "vmm": {
           "title": "Run this materialization's connector within a VMM.",
-          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only on the V2 runtime. A data plane which\ncannot run the connector within a VMM fails the invocation: it never\nfalls back to an ordinary container.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, only on the V2 runtime, and only with\ndeclared `egress`. A data plane which cannot run the connector within a\nVMM fails the invocation: it never falls back to an ordinary container.",
           "type": "boolean"
         }
       },

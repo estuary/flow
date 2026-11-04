@@ -1,0 +1,50 @@
+# examples/capture-python, as acmeCo's, run in a VMM.
+captures:
+  acmeCo/vmm-python/source-hello:
+    endpoint:
+      python:
+        files:
+          - pyproject.toml
+          - source-hello/__init__.py
+          - source-hello/api.py
+          - source-hello/models.py
+          - source-hello/resources.py
+          - source-hello/test_api.py
+        config:
+          greeting: Howdy
+          count: 3
+        spec:
+          configSchema:
+            type: object
+            properties:
+              greeting:
+                type: string
+                title: Greeting
+                description: Greeting of each captured document
+                default: Hello
+              count:
+                type: integer
+                title: Count
+                description: Number of greetings to capture
+                default: 10
+                minimum: 0
+    vmm: true
+    egress:
+      hosts: [example.org]
+    bindings:
+      - resource:
+          _meta:
+            path: [greetings]
+          interval: PT30S
+          name: greetings
+        target: acmeCo/vmm-python/howdies
+    shards:
+      flags:
+        enable-runtime-v2: "true"
+        # This checkout's capture-python, which ci:connector-vmm-kvm builds.
+        custom-image-tag: local
+
+collections:
+  acmeCo/vmm-python/howdies:
+    schema: greetings.schema.yaml
+    key: [/id]

@@ -199,7 +199,9 @@ to leave it running.
   These are the `network_ports` of the initial request's spec (Apply or Open),
   plus `flow-connector-init`. Requests lacking a built spec publish only
   `flow-connector-init`. Validation builds a spec's ports from the
-  `Started.container.advertised_ports` which its image `EXPOSE`s.
+  `Started.container.advertised_ports` which its image `EXPOSE`s, or from a
+  custom connector's `spec.networkPorts`. A VMM's ingress is the same built
+  spec's ports (below).
 
 - **Invalid later requests close connector input and terminate the session.**
 The handler owns request validation, so malformed input cannot disappear as a
@@ -235,16 +237,21 @@ EOF or status. A client which does not drain responses may park the handler.
   requested execution, the endpoint, the protocol, and the service's VMM
   capability, after endpoint extraction and before any image is pulled or
   process started, and returns the `Execution` the start's image connector
-  runs under. A VMM request must name an eligible image (by repository,
-  whatever its tag or digest: today only `ghcr.io/estuary/derive-python` as a
-  derivation), on a service with VMM capability. It is then launched in a VMM
-  or fails; it never falls back to an ordinary container. A local or
-  in-process endpoint cannot request it. A start whose execution declares
-  `egress` without a VMM is refused first, whatever its endpoint: only a VMM
-  enforces egress, and a declaration is never quietly dropped. A VMM start's
-  declared hosts and CIDRs are validated here too, before anything is pulled,
-  and `policy::egress_cidrs` refuses any CIDR on a public plane. Catalog
-  validation checks only their syntax: it does not know the plane.
+  runs under. A VMM request must name an eligible image of its own protocol,
+  by exact repository whatever its tag or digest: `capture-python`,
+  `derive-python` and `materialize-python` of `ghcr.io/estuary/`. It must
+  declare `egress`, and run on a service with VMM capability. It is then
+  launched in a VMM or fails; it never falls back to an ordinary container.
+  A local or in-process endpoint cannot request it. A start whose execution
+  declares `egress` without a VMM is refused first, whatever its endpoint:
+  only a VMM enforces egress, and a declaration is never quietly dropped. A
+  VMM start's declared hosts and CIDRs are validated here too, before
+  anything is pulled, and `policy::egress_cidrs` refuses any CIDR on a public
+  plane. Catalog validation checks only their syntax: it does not know the
+  plane. Each refusal here, and an unready host's (below), is marked by
+  `proto_grpc::connector::refuse_execution`. A connector's own error status
+  may have any code, so the mark is how a client such as `flowctl generate`
+  tells a refusal from it.
   `Started.execution` is set only once the VMM's connector-init is dialed and
   the Spec exchanged.
 
@@ -280,8 +287,8 @@ EOF or status. A client which does not drain responses may park the handler.
   suffixed `m` or `g`. The CPU limit is a decimal number of CPUs.
 
 - **A VMM connector reaches its own hosts, its image's, and its task's.**
-  Each eligible connector carries default hosts (Python's package index, for
-  `derive-python`), the image may add more as a JSON array of names in its
+  Each eligible connector carries default hosts (Python's package index), the
+  image may add more as a JSON array of names in its
   `dev.estuary.egress-hosts` label, and the task may add more in its
   execution's `egress.hosts`. `vmm::plan::Egress` is their union, in that
   order and without repeats, each name remembered with where it came from.
@@ -290,14 +297,12 @@ EOF or status. A client which does not drain responses may park the handler.
   [`crates/egress`](../egress/README.md), whose `public_policy` writes the
   VMM's `policy.json`. Ordinary launches never read the label.
 
-- **Whether a task is held to names at all is the plane's, unless it
-  declares egress.** A task which declares egress, even with no hosts, is
-  held to the union above on every plane. One which declares none is held to
-  it on a public plane, while a private or local plane writes
-  `egress::any_public_policy`: any public destination, by name or address,
-  but still never a destination the VMM's baseline excludes. The plane is the
-  service's own; nothing a task sends chooses it. Each launch logs which
-  applies, and every permitted name with its source, to the task's logs.
+- **Empty egress permits nothing, on every plane.** Egress declaring no
+  host and no CIDR (`egress: {}`) is planned as no names and no CIDRs, so the
+  VMM's resolver refuses every name and no address is reachable: not the
+  connector's defaults, nor its image's label. Any other declaration is held
+  to the union above. Each launch logs which applies, and every permitted
+  name with its source, to the task's logs.
 
 - **A task's CIDRs open private destinations, guest and host alike.** On a
   private or local plane, `egress.cidrs` is written into the policy as
@@ -319,8 +324,7 @@ EOF or status. A client which does not drain responses may park the handler.
   launches, and Podman 4.9 unmounts it even when removing a container that never
   started, breaking a sibling's pending OCI mount. Usage labels keep the
   requested image reference.
-  It refuses an image which exposes TCP ports, which nothing could reach. The
-  lines are those of `crates/connector-vmm-tests`'s `src/launch.rs` plus
+  The lines are those of `crates/connector-vmm-tests`'s `src/launch.rs` plus
   `--platform`, the usage labels, the owner label (below) and
   `--cgroup-parent`, which the reference leaves to a launcher, and with the
   configured limits as written. The plan `podman create`s the container the
@@ -481,10 +485,14 @@ EOF or status. A client which does not drain responses may park the handler.
   real directory owned by the launcher, mode 0700. Recovery uses the same UID
   and record format across launcher restarts.
 
-- **VMM control uses `init.sock`; container networking uses declared TCP ports.**
-  A VMM with declared ports reports its container IPv4 address and the image's
-  port declarations; one without reports no address. The host proxy dials that address; the VMM forwards to
-  the guest. Ports are not published on host interfaces. Host permissions are
+- **VMM control uses `init.sock`; container networking uses the built spec's TCP ports.**
+  A VMM's ingress is the `network_ports` of its initial request's built spec
+  (Apply or Open), less connector-init's, whatever its image exposes. A
+  request lacking a built spec (Spec, Discover, Validate) has none. A VMM with
+  ports reports its container IPv4 address, and the image's advertised ports
+  as an ordinary container does; one without reports no address. The host
+  proxy dials that address; the VMM forwards to the guest. Ports are not
+  published on host interfaces. Host permissions are
   keyed by the VMM bridge and declared port, owned by the launch token, and
   recorded with the VMM image used to revoke them during teardown or recovery.
   Ingress and its replies work independently of egress policy. Connector-init's
@@ -515,11 +523,11 @@ EOF or status. A client which does not drain responses may park the handler.
   while its first Spec is held, fails that Spec and is released.
 
 - **Image admission identifies images by repository.** The public-plane
-  refusal of Python derivations applies to every tag, digest, and bare
-  spelling of `ghcr.io/estuary/derive-python`, for ordinary launches. A VMM
-  launch admits Python through VMM eligibility, and applies the same image
-  declarations, usage-rate validation, and task-secret checks as ordinary
-  execution.
+  refusal of Python captures, derivations and materializations applies to
+  every tag, digest, and bare spelling of their repositories, for ordinary
+  launches. A VMM launch admits them through VMM eligibility, and applies the
+  same image declarations, usage-rate validation, and task-secret checks as
+  ordinary execution.
 
 - **A response-stream error is terminal.** Panics in the spawned handler are
 converted into a terminal gRPC status rather than appearing as clean EOF.

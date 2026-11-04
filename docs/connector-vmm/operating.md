@@ -56,9 +56,10 @@ whose podman runs in a PID namespace other than the host's.
   podman pulls it, with the engine's own registry credentials, the first time
   a boundary command or launch runs it. Check that the host's engine can pull
   the exact tag before activating.
-- **The connector image.** `using: python` derivations on V2 run
-  `ghcr.io/estuary/derive-python:stable`. The launcher pulls it with the VMM
-  engine (a `:local` tag is not pulled).
+- **The connector images.** Python tasks on V2 run
+  `ghcr.io/estuary/capture-python`, `derive-python` or `materialize-python`
+  at `:stable`, or at their `custom-image-tag` shard flag's tag. The launcher
+  pulls each with the VMM engine (a `:local` tag is not pulled).
 - **A static `flow-connector-init`**, found beside the launching program or on
   its `PATH`, is copied into every VMM's connector mount and run inside the
   guest, within the connector's image, which need not hold a compatible libc.
@@ -351,6 +352,7 @@ credentials, `task-update.json`.
 | "this data plane does not support VMM execution" | `CONNECTOR_VMM_IMAGE` is unset for the process which served the request. |
 | "connector image '...' is not eligible for VMM execution as a ..." | The task's image or type is not eligible (see [tasks.md](tasks.md#which-tasks-are-eligible)). |
 | "the task declares egress, which ordinary execution cannot enforce" | `egress` without `vmm: true`. Catalog validation reports it first, as "declares egress, which its connector's execution cannot enforce". |
+| "the task requests VMM execution but declares no egress" | `vmm: true` without `egress`. Declare the hosts the task needs, or `egress: {}` for none. |
 | "task egress.hosts ..." or "declares an invalid egress host" | An invalid host name; the message names the rule. |
 | "task egress.cidrs ..." or "declares an invalid egress CIDR" | An invalid address range; the message names the rule. |
 | "the task declares egress.cidrs, which only private data planes accept" | `egress.cidrs` on a public data plane, which never accepts one. |
@@ -367,8 +369,8 @@ credentials, `task-update.json`.
 Egress: each launch logs the egress it applies, with each name's source, and
 the VMM logs refused names at `warn`, at most 32 per VMM (see
 [tasks.md](tasks.md#what-a-vmm-task-logs)). A name expected to work and
-refused is either undeclared or resolving to a non-public address outside
-the task's `egress.cidrs`.
+refused is either undeclared, declared by a task whose `egress` is empty, or
+resolving to a non-public address outside the task's `egress.cidrs`.
 
 Recovery reports go to the reactor's own logs (tracing), not the task's. Its
 info lines show only where the connector proxy's log level admits them. Each

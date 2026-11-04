@@ -5,7 +5,7 @@ set -euo pipefail
 #USAGE arg "[filter]" help="Run only tests whose names match, of the suite or, with --platform, of the platform tests. The run is then partial; for the suite, connector-init's vsock test is skipped."
 #USAGE flag "--allow-missing-vsock-loopback" help="Let connector-init's vsock test skip where vsock_loopback cannot load. The suite's own guest still proves connector-init serving over vsock."
 #USAGE flag "--routing-deployment <path>" help="Also run the isolated dual-NIC static NAT regression using a checkout of estuary/est-dry-dock with VMM routing installed."
-#USAGE flag "--platform" help="Instead of the suite, start this checkout's stack with its reactor launching VMMs, preview and publish a Python derivation through flowctl and the reactor, and stop the stack. Refused while the stack is running."
+#USAGE flag "--platform" help="Instead of the suite, start this checkout's stack with its reactor launching VMMs, preview, publish and run Python captures, derivations and materializations through flowctl and the reactor, and stop the stack. Refused while the stack is running."
 
 # Must match `run::ROOT` in crates/connector-vmm-tests/src/run.rs.
 ROOT=/var/tmp/connector-vmm-kvm
@@ -17,6 +17,9 @@ BUILDX_CACHE="${WORK}/buildx-cache"
 TABLE=flow_vmm_boundary
 DERIVE_PYTHON=ghcr.io/estuary/derive-python:stable
 HELLO_WORLD=ghcr.io/estuary/source-hello-world:dev
+# This checkout's Python connectors, which specifications select with the
+# `custom-image-tag: local` shard flag. A `:local` tag is never pulled.
+PYTHON_CONNECTORS=(capture-python derive-python materialize-python)
 
 # The controlled endpoints: unused addresses in AS112-v4 (192.31.196.0/24),
 # which IANA marks globally reachable, so the unchanged ruleset treats them as
@@ -127,10 +130,11 @@ trap 'release || exit 1' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-echo "=== Building flow-connector-vmm, flow-guest-init and flow-connector-init ==="
+echo "=== Building flow-connector-vmm, flow-guest-init, flow-connector-init and the Python connectors ==="
 rustup target add x86_64-unknown-linux-musl >/dev/null
 cargo build --locked --release -p connector-vmm 9>&-
-cargo build --locked --release --target x86_64-unknown-linux-musl -p connector-init -p guest-init 9>&-
+cargo build --locked --release --target x86_64-unknown-linux-musl -p connector-init -p guest-init \
+    -p capture-python -p derive-python -p materialize-python 9>&-
 
 # The two files docker/connector-vmm.Dockerfile reads from a package directory.
 # Not ~/flow-package, which ci:package owns.
@@ -188,6 +192,16 @@ else
     record boundary "${VMM_IMAGE}"
     boundary "${VMM_IMAGE}" install
 fi
+
+# The suite and the platform both run them, in rootful podman's store.
+echo "=== Building this checkout's Python connector images ==="
+mkdir -p "${RUN_DIR}/python/amd64"
+for connector in "${PYTHON_CONNECTORS[@]}"; do
+    cp "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/${connector}" "${RUN_DIR}/python/amd64/"
+    record image "ghcr.io/estuary/${connector}:local"
+    sudo -n podman build -q --platform linux/amd64 --build-arg TARGETARCH=amd64 \
+        -t "ghcr.io/estuary/${connector}:local" -f "docker/${connector}.Dockerfile" "${RUN_DIR}/python" >/dev/null
+done
 
 if [ "${PLATFORM}" = true ]; then
     echo "=== The platform: stack '${FLOW_STACK_NAME}', its reactor launching VMMs ==="
@@ -247,7 +261,8 @@ if [ "${PLATFORM}" = true ]; then
         --arg connectorInit "${BIN}/flow-connector-init" \
         --arg derivePythonImage "${DERIVE_PYTHON}" \
         --arg reactorUnit "${REACTOR}" \
-        '{$runDir, $dir, $vmmImage, $flowctl, $connectorInit, $derivePythonImage, $reactorUnit}' \
+        --arg examples "${CHECKOUT}/examples" \
+        '{$runDir, $dir, $vmmImage, $flowctl, $connectorInit, $derivePythonImage, $reactorUnit, $examples}' \
         | sudo -n tee "${ROOT}/platform.json" >/dev/null
 
     if [ -n "${FILTER}" ]; then
@@ -368,11 +383,14 @@ jq -n \
     --arg helloWorldImage "${HELLO_WORLD}" \
     --arg fakeImage "${FAKE_IMAGE}" \
     --arg derivePythonImage "${DERIVE_PYTHON}" \
+    --arg capturePythonImage "ghcr.io/estuary/capture-python:local" \
+    --arg localDerivePythonImage "ghcr.io/estuary/derive-python:local" \
+    --arg materializePythonImage "ghcr.io/estuary/materialize-python:local" \
     --arg connectorInit "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-connector-init" \
     --arg endpointNetns "${NETNS}" \
     --arg endpointPeer "${ENDPOINT_PEER}" \
     --argjson decoys "$(printf '%s\n' "${DECOYS[@]}" | jq -R . | jq -s .)" \
-    '{$runDir, $vmmImage, $productionVmmImage, $guestImage, $rootGuestImage, $helloWorldImage, $fakeImage, $derivePythonImage, $connectorInit, endpoints: $ARGS.positional, $endpointNetns, $endpointPeer, $decoys}' \
+    '{$runDir, $vmmImage, $productionVmmImage, $guestImage, $rootGuestImage, $helloWorldImage, $fakeImage, $derivePythonImage, $capturePythonImage, $localDerivePythonImage, $materializePythonImage, $connectorInit, endpoints: $ARGS.positional, $endpointNetns, $endpointPeer, $decoys}' \
     --args "${ENDPOINTS[@]}" | sudo -n tee "${ROOT}/run.json" >/dev/null
 
 status=0

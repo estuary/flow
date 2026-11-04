@@ -38,8 +38,13 @@ pub struct Run {
     pub hello_world_image: String,
     /// `connector-vmm-fake`, built from this checkout.
     pub fake_image: String,
-    /// The one connector eligible for VMM execution, pulled by the task.
+    /// The published Python derivation connector, pulled by the task.
     pub derive_python_image: String,
+    /// The three connectors eligible for VMM execution, built by the task
+    /// from this checkout as `:local`, which no launch pulls.
+    pub capture_python_image: String,
+    pub local_derive_python_image: String,
+    pub materialize_python_image: String,
     pub connector_init: PathBuf,
     /// The controlled public addresses, inside `endpoint_netns`.
     pub endpoints: Vec<Ipv4Addr>,

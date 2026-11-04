@@ -377,7 +377,15 @@ fn gate_command() -> String {
 /// (replacing any others). `gate.py` keeps the guest's `GATE` line from the
 /// launcher, and marks the hold `readiness` with it.
 pub fn gate_readiness(root: &Root) {
-    vmm_flags(root, &before_connector_init(&gate_command()));
+    gate_readiness_after(root, ":");
+}
+
+/// As `gate_readiness`, once the workload's shell has run `script`.
+pub fn gate_readiness_after(root: &Root, script: &str) {
+    vmm_flags(
+        root,
+        &before_connector_init(&format!("{script}; {}", gate_command())),
+    );
     let path = format!("{}/gate-readiness", root.dir);
     std::fs::write(&path, GATE).unwrap_or_else(|e| panic!("creating {path}: {e}"));
 }

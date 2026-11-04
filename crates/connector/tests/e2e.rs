@@ -1073,56 +1073,52 @@ mod execution {
                 }],
             )
             .await;
-            rows.push(format!("{label}: {}", render_lines(responses).join(" | ")));
+            // A refusal of the requested execution says so, to its client.
+            let refused = responses.iter().any(|response| {
+                response
+                    .as_ref()
+                    .is_err_and(proto_grpc::connector::is_execution_refused)
+            });
+            rows.push(format!(
+                "{label}: {}{}",
+                render_lines(responses).join(" | "),
+                if refused { " (refused)" } else { "" }
+            ));
         }
         rows
     }
 
-    /// Every protocol refuses VMM execution of an ineligible connector, and of
-    /// any connector on a service without the capability, before starting it. An
-    /// eligible connector on a capable service is launched in a VMM, which here
-    /// fails at the fixture's state directory: never as an ordinary container.
+    const CAPTURE_PYTHON_IMAGE: &str = "ghcr.io/estuary/capture-python:stable";
+    const MATERIALIZE_PYTHON_IMAGE: &str = "ghcr.io/estuary/materialize-python:stable";
+
+    /// Every protocol refuses VMM execution of another protocol's Python image,
+    /// of its own without declared egress, and of any connector on a service
+    /// without the capability, before starting it. Its own image declaring
+    /// egress, on a capable service, is launched in a VMM, which here fails at
+    /// the fixture's state directory: never as an ordinary container.
     #[tokio::test]
     async fn vmm_requests_never_start_a_connector() {
-        let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
-        let config: bytes::Bytes = config.to_string().into();
-
         let mut rows = Vec::new();
-        for capable in [false, true] {
-            let (_service, router) = vmm_service(capable);
-            let requests = every_first_request(image_connector_type, &config, vmm_execution());
+        for image in [CAPTURE_PYTHON_IMAGE, PYTHON_IMAGE, MATERIALIZE_PYTHON_IMAGE] {
+            let config = serde_json::json!({"image": image, "config": {}});
+            let config: bytes::Bytes = config.to_string().into();
 
-            for row in drive_each(&router, start_with(vmm_execution()), requests).await {
-                rows.push(format!("capable={capable} {row}"));
+            for capable in [false, true] {
+                let (_service, router) = vmm_service(capable);
+                for (egress, execution) in [
+                    ("egress omitted", vmm_execution()),
+                    ("egress {}", egress_execution(true, &[])),
+                ] {
+                    let requests =
+                        every_first_request(image_connector_type, &config, execution.clone());
+
+                    for row in drive_each(&router, start_with(execution), requests).await {
+                        rows.push(format!("{image} capable={capable} {egress} {row}"));
+                    }
+                }
             }
         }
-
-        insta::assert_snapshot!(rows.join("\n"), @r#"
-    capable=false capture Spec: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
-    capable=false capture Discover: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
-    capable=false capture Validate: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
-    capable=false capture Apply: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
-    capable=false capture Open: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
-    capable=false derive Spec: Status(FailedPrecondition): this data plane does not support VMM execution
-    capable=false derive Validate: Status(FailedPrecondition): this data plane does not support VMM execution
-    capable=false derive Open: Status(FailedPrecondition): this data plane does not support VMM execution
-    capable=false materialize Spec: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
-    capable=false materialize Validate: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
-    capable=false materialize Apply: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
-    capable=false materialize Open: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
-    capable=true capture Spec: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
-    capable=true capture Discover: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
-    capable=true capture Validate: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
-    capable=true capture Apply: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
-    capable=true capture Open: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a capture
-    capable=true derive Spec: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
-    capable=true derive Validate: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
-    capable=true derive Open: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
-    capable=true materialize Spec: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
-    capable=true materialize Validate: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
-    capable=true materialize Apply: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
-    capable=true materialize Open: Status(InvalidArgument): connector image 'ghcr.io/estuary/derive-python:stable' is not eligible for VMM execution as a materialization
-    "#);
+        insta::assert_snapshot!(rows.join("\n"));
     }
 
     #[tokio::test]
@@ -1142,7 +1138,7 @@ mod execution {
         for row in &rows {
             assert!(
                 row.ends_with(
-                    ": Status(InvalidArgument): VMM execution requires an image connector"
+                    ": Status(InvalidArgument): VMM execution requires an image connector (refused)"
                 ),
                 "{row}"
             );
@@ -1215,16 +1211,16 @@ mod execution {
         }
 
         insta::assert_snapshot!(rows.join("\n"), @r"
-    start vmm=false spec vmm=true capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    start vmm=false spec vmm=true capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    start vmm=false spec vmm=true derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    start vmm=false spec vmm=true materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    start vmm=false spec vmm=true materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    start vmm=true spec vmm=false capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
-    start vmm=true spec vmm=false capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
-    start vmm=true spec vmm=false derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
-    start vmm=true spec vmm=false materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
-    start vmm=true spec vmm=false materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec
+    start vmm=false spec vmm=true capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec (refused)
+    start vmm=false spec vmm=true capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec (refused)
+    start vmm=false spec vmm=true derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec (refused)
+    start vmm=false spec vmm=true materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec (refused)
+    start vmm=false spec vmm=true materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: false, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec (refused)
+    start vmm=true spec vmm=false capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec (refused)
+    start vmm=true spec vmm=false capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec (refused)
+    start vmm=true spec vmm=false derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec (refused)
+    start vmm=true spec vmm=false materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec (refused)
+    start vmm=true spec vmm=false materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: false, egress: None } of the task's built spec (refused)
     ");
     }
 
@@ -1262,7 +1258,10 @@ mod execution {
 
                     assert_eq!(rows.len(), 12);
                     for row in &rows {
-                        assert!(row.ends_with(REFUSAL), "capable={capable} {row}");
+                        assert!(
+                            row.ends_with(&format!("{REFUSAL} (refused)")),
+                            "capable={capable} {row}"
+                        );
                     }
                 }
 
@@ -1317,21 +1316,21 @@ mod execution {
         }
 
         insta::assert_snapshot!(rows.join("\n"), @r#"
-    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
-    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
-    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
-    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
-    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec
-    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec
-    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
-    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
-    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
-    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
-    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec
+    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec (refused)
+    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec (refused)
+    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec (refused)
+    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec (refused)
+    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: None } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } of the task's built spec (refused)
+    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec (refused)
+    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec (refused)
+    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec (refused)
+    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec (refused)
+    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: None } of the task's built spec (refused)
+    capture Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec (refused)
+    capture Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec (refused)
+    derive Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec (refused)
+    materialize Apply: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec (refused)
+    materialize Open: Status(InvalidArgument): Start.execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["API.acmeco.example"], cidrs: [] }) } differs from the execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } of the task's built spec (refused)
     "#);
     }
 
@@ -1388,7 +1387,7 @@ mod execution {
             service,
             router.signer().clone(),
             vec![proto::Request {
-                start: Some(start_with(vmm_execution())),
+                start: Some(start_with(egress_execution(true, &[]))),
                 kind: Some(proto::request::Kind::Derive(derive::Request {
                     kind: Some(derive::request::Kind::Spec(derive::request::Spec {
                         connector_type: flow::collection_spec::derivation::ConnectorType::Image
@@ -1408,11 +1407,12 @@ mod execution {
     "#);
     }
 
-    /// The public-plane refusal of Python derivations is lifted for a VMM launch
-    /// alone: an ordinary start is refused before anything is pulled, while a
-    /// VMM start goes on to its launch, which fails here at the fixture's state
-    /// directory. A VMM start declaring egress CIDRs is refused before its
-    /// launch, by the plane the service was built with.
+    /// The public-plane refusal of each Python connector is lifted for a VMM
+    /// launch alone: an ordinary start is refused before anything is pulled,
+    /// and so is a VMM start without declared egress, while a VMM start
+    /// declaring egress goes on to its launch, which fails here at the
+    /// fixture's state directory. A VMM start declaring egress CIDRs is
+    /// refused before its launch, by the plane the service was built with.
     #[tokio::test]
     async fn public_python_runs_only_in_a_vmm() {
         let key: [u8; 32] = rand::random();
@@ -1434,7 +1434,6 @@ mod execution {
             tokens::jwt::EncodingKey::from_secret(&key),
         );
         let router = connector::ServiceRouter::new(service, signer);
-        let config = serde_json::json!({"image": PYTHON_IMAGE, "config": {}});
 
         let cidrs = Some(flow::ConnectorExecution {
             vmm: true,
@@ -1444,40 +1443,43 @@ mod execution {
             }),
         });
         let mut rows = Vec::new();
-        for execution in [None, vmm_execution(), cidrs] {
-            let responses = drive_router(
-                &router,
-                ops::TaskType::Derivation,
-                SPEC_TASK_NAME,
-                vec![proto::Request {
-                    start: Some(start_with(execution.clone())),
-                    kind: Some(proto::request::Kind::Derive(derive::Request {
-                        kind: Some(derive::request::Kind::Spec(derive::request::Spec {
-                            connector_type: flow::collection_spec::derivation::ConnectorType::Image
-                                as i32,
-                            config_json: config.to_string().into(),
-                        })),
-                        ..Default::default()
-                    })),
-                }],
-            )
-            .await;
-            let cidrs = execution
-                .as_ref()
-                .and_then(|execution| execution.egress.as_ref())
-                .map(|egress| format!(" cidrs={:?}", egress.cidrs))
-                .unwrap_or_default();
-            rows.push(format!(
-                "vmm={}{cidrs}: {}",
-                execution.is_some(),
-                render_lines(responses).join(" | ")
-            ));
+        for (protocol, image) in [
+            ("capture", CAPTURE_PYTHON_IMAGE),
+            ("derive", PYTHON_IMAGE),
+            ("materialize", MATERIALIZE_PYTHON_IMAGE),
+        ] {
+            let config = serde_json::json!({"image": image, "config": {}});
+            let config: bytes::Bytes = config.to_string().into();
+
+            for (name, execution) in [
+                ("ordinary", None),
+                ("vmm, egress omitted", vmm_execution()),
+                ("vmm, egress {}", egress_execution(true, &[])),
+                ("vmm, egress cidrs", cidrs.clone()),
+            ] {
+                let requests = every_first_request(image_connector_type, &config, None)
+                    .into_iter()
+                    .filter(|(label, ..)| label.strip_suffix(" Spec") == Some(protocol))
+                    .collect();
+                for row in drive_each(&router, start_with(execution), requests).await {
+                    rows.push(format!("{name}: {row}"));
+                }
+            }
         }
 
         insta::assert_snapshot!(rows.join("\n"), @r#"
-    vmm=false: Status(Unknown): Python derivations may only run in private data-planes
-    vmm=true: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
-    vmm=true cidrs=["10.0.0.0/8"]: Status(InvalidArgument): the task declares egress.cidrs, which only private data planes accept
+    ordinary: capture Spec: Status(Unknown): Python captures may only run in private data-planes, or within a VMM (`vmm: true`)
+    vmm, egress omitted: capture Spec: Status(InvalidArgument): the task requests VMM execution but declares no egress; a VMM task must declare `egress`, and `egress: {}` permits no external destination (refused)
+    vmm, egress {}: capture Spec: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2) (refused)
+    vmm, egress cidrs: capture Spec: Status(InvalidArgument): the task declares egress.cidrs, which only private data planes accept (refused)
+    ordinary: derive Spec: Status(Unknown): Python derivations may only run in private data-planes, or within a VMM (`vmm: true`)
+    vmm, egress omitted: derive Spec: Status(InvalidArgument): the task requests VMM execution but declares no egress; a VMM task must declare `egress`, and `egress: {}` permits no external destination (refused)
+    vmm, egress {}: derive Spec: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2) (refused)
+    vmm, egress cidrs: derive Spec: Status(InvalidArgument): the task declares egress.cidrs, which only private data planes accept (refused)
+    ordinary: materialize Spec: Status(Unknown): Python materializations may only run in private data-planes, or within a VMM (`vmm: true`)
+    vmm, egress omitted: materialize Spec: Status(InvalidArgument): the task requests VMM execution but declares no egress; a VMM task must declare `egress`, and `egress: {}` permits no external destination (refused)
+    vmm, egress {}: materialize Spec: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2) (refused)
+    vmm, egress cidrs: materialize Spec: Status(InvalidArgument): the task declares egress.cidrs, which only private data planes accept (refused)
     "#);
     }
 

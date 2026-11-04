@@ -1,6 +1,26 @@
 use proto_flow::{capture, connector, derive, materialize, ops};
 use tokio::sync::mpsc;
 
+/// Distinguishes execution refusals from connector errors, which may use
+/// the same status code. Later requests may also be refused if their built
+/// specs change the session's execution.
+const EXECUTION_REFUSED: &str = "connector-execution-refused";
+
+/// Mark `status` as the connector service's refusal of a requested execution.
+pub fn refuse_execution(mut status: tonic::Status) -> tonic::Status {
+    status.metadata_mut().insert(
+        EXECUTION_REFUSED,
+        tonic::metadata::MetadataValue::from_static("true"),
+    );
+    status
+}
+
+/// Whether `status` is a connector service's refusal of a requested
+/// execution (see [`refuse_execution`]).
+pub fn is_execution_refused(status: &tonic::Status) -> bool {
+    status.metadata().contains_key(EXECUTION_REFUSED)
+}
+
 /// Open `first` through `router`, sink logs until the connector reports
 /// `Started`, and return the sender, remaining response receiver, and `Started`.
 pub async fn start(
