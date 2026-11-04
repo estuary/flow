@@ -3,6 +3,7 @@ use anyhow::Context;
 #[derive(Debug, Clone)]
 pub(crate) struct BillingTerms {
     pub tenant: String,
+    pub plan_kind: crate::PlanKind,
     pub data_tiers: Vec<i32>,
     pub usage_tiers: Vec<i32>,
     pub recurring_usd_cents: i32,
@@ -82,7 +83,12 @@ pub(crate) fn calculate(
     adjustments: &[Adjustment],
 ) -> anyhow::Result<Invoice> {
     let period = month_range(year, month)?;
-    let trial = terms.trial_start.map(|start| {
+    // Only self-serve tenants get free-tier and trial credits.
+    // Contract and internal usage is priced at the tenant's tiers.
+    let self_serve = terms.plan_kind == crate::PlanKind::SelfServe;
+    let in_free_tier =
+        |date: chrono::NaiveDate| self_serve && terms.trial_start.is_none_or(|start| date < start);
+    let trial = terms.trial_start.filter(|_| self_serve).map(|start| {
         let end = start
             .checked_add_months(chrono::Months::new(1))
             .expect("stored trial start must allow a representable trial end");
@@ -119,7 +125,7 @@ pub(crate) fn calculate(
         .sum();
     let free_tier_credit: i64 = priced_days
         .iter()
-        .filter(|day| terms.trial_start.is_none_or(|start| day.date < start))
+        .filter(|day| in_free_tier(day.date))
         .map(daily_charge)
         .sum();
 
@@ -151,16 +157,13 @@ pub(crate) fn calculate(
                 -trial_credit,
             )
         });
-    let free_tier_item = terms
-        .trial_start
-        .is_none_or(|start| start > period.start)
-        .then(|| {
-            let description = match terms.trial_start {
-                Some(start) => format!("Free tier credit ending {}", start.pred_opt().unwrap()),
-                None => "Free tier credit".to_string(),
-            };
-            single_item(Some(description), -free_tier_credit)
-        });
+    let free_tier_item = in_free_tier(period.start).then(|| {
+        let description = match terms.trial_start {
+            Some(start) => format!("Free tier credit ending {}", start.pred_opt().unwrap()),
+            None => "Free tier credit".to_string(),
+        };
+        single_item(Some(description), -free_tier_credit)
+    });
     let line_items: Vec<_> = recurring
         .into_iter()
         .chain(data_items)
@@ -351,6 +354,7 @@ mod tests {
     fn tenant() -> BillingTerms {
         BillingTerms {
             tenant: "acmeCo/".to_string(),
+            plan_kind: crate::PlanKind::SelfServe,
             data_tiers: vec![50, 5, 20],
             usage_tiers: vec![15],
             recurring_usd_cents: 1000,
@@ -616,5 +620,74 @@ mod tests {
         let invoice = calculate(2022, chrono::Month::August, &terms, &usage, &[]).unwrap();
         assert_eq!(invoice.trial_credit, 4_000_000_000);
         assert_eq!(invoice.subtotal, 0);
+    }
+
+    #[test]
+    fn credits_apply_only_to_self_serve_tenants() {
+        use crate::PlanKind::{Contract, Internal, SelfServe};
+
+        // August 1 is before a trial starting August 15, and August 20 is within it.
+        let usage = [
+            DailyUsage {
+                date: date(1),
+                bytes_read: 2_000_000_000,
+                bytes_written: 0,
+                usage_seconds: 3600,
+            },
+            DailyUsage {
+                date: date(20),
+                bytes_read: 1_000_000_000,
+                bytes_written: 0,
+                usage_seconds: 0,
+            },
+        ];
+        let outcomes: Vec<_> = [
+            (SelfServe, None),
+            (SelfServe, Some(date(15))),
+            (Contract, None),
+            (Contract, Some(date(15))),
+            (Internal, None),
+        ]
+        .into_iter()
+        .map(|(plan_kind, trial_start)| {
+            let terms = BillingTerms {
+                plan_kind,
+                trial_start,
+                ..tenant()
+            };
+            let invoice = calculate(2022, chrono::Month::August, &terms, &usage, &[]).unwrap();
+            let credits: Vec<_> = invoice
+                .line_items
+                .into_iter()
+                .filter_map(|item| Some((item.description?, item.subtotal)))
+                .filter(|(description, _)| description.contains("credit"))
+                .collect();
+            (plan_kind, trial_start, credits, invoice.subtotal)
+        })
+        .collect();
+        let credit = |description: &str, cents| (description.to_string(), cents);
+        assert_eq!(
+            outcomes,
+            [
+                (
+                    SelfServe,
+                    None,
+                    vec![credit("Free tier credit", -165)],
+                    1000
+                ),
+                (
+                    SelfServe,
+                    Some(date(15)),
+                    vec![
+                        credit("Free trial credit (2022-08-15 - 2022-09-14)", -50),
+                        credit("Free tier credit ending 2022-08-14", -115),
+                    ],
+                    1000
+                ),
+                (Contract, None, vec![], 1165),
+                (Contract, Some(date(15)), vec![], 1165),
+                (Internal, None, vec![], 1165),
+            ]
+        );
     }
 }
