@@ -77,11 +77,8 @@ where
     Response: serde::de::DeserializeOwned,
 {
     let mut builder = rest.post(path, request, access_token);
-    // A process which runs flowctl may pass its trace context in `TRACEPARENT`. agent-api continues the trace from this header, since Cloud Run replaces a standard `traceparent`.
-    if let Some(traceparent) = std::env::var("TRACEPARENT")
-        .ok()
-        .and_then(|value| reqwest::header::HeaderValue::from_str(&value).ok())
-    {
+    // Cloud Run replaces the standard `traceparent`, so agent-api uses this header.
+    if let Some(traceparent) = traceparent(std::env::var("TRACEPARENT").ok().as_deref()) {
         builder = builder.header("x-estuary-traceparent", traceparent);
     }
     let response = builder.send().await?;
@@ -121,10 +118,54 @@ pub async fn post_graphql<Q: graphql_client::GraphQLQuery>(
         .ok_or_else(|| anyhow::anyhow!("graphql query returned no data (also no errors)"))
 }
 
+fn traceparent(supplied: Option<&str>) -> Option<reqwest::header::HeaderValue> {
+    if let Some(value) = supplied {
+        return reqwest::header::HeaderValue::from_str(value).ok();
+    }
+    // Share the generated context across requests and client instances in this process.
+    static GENERATED: std::sync::LazyLock<reqwest::header::HeaderValue> =
+        std::sync::LazyLock::new(|| {
+            let trace_id: std::num::NonZeroU128 = rand::random();
+            let parent_id: std::num::NonZeroU64 = rand::random();
+            format!("00-{trace_id:032x}-{parent_id:016x}-01")
+                .parse()
+                .unwrap()
+        });
+    Some(GENERATED.clone())
+}
+
 #[cfg(test)]
 mod test {
+    #[test]
+    fn traceparent_preserves_supplied_values() {
+        let supplied = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        assert_eq!(super::traceparent(Some(supplied)).unwrap(), supplied);
+        assert_eq!(
+            super::traceparent(Some("not a W3C context")).unwrap(),
+            "not a W3C context"
+        );
+        assert!(super::traceparent(Some("not a\nheader value")).is_none());
+    }
+
+    #[test]
+    fn generated_traceparent_is_valid_and_shared() {
+        let header = super::traceparent(None).unwrap();
+        let value = header.to_str().unwrap();
+        assert_eq!(value.len(), 55);
+        let parts: Vec<_> = value.split('-').collect();
+        assert_eq!((parts[0], parts[3]), ("00", "01"));
+        assert_eq!((parts[1].len(), parts[2].len()), (32, 16));
+        assert!(parts[1..=2].iter().all(|id| {
+            id.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }));
+        assert_ne!(u128::from_str_radix(parts[1], 16).unwrap(), 0);
+        assert_ne!(u64::from_str_radix(parts[2], 16).unwrap(), 0);
+        assert_eq!(header, super::traceparent(None).unwrap());
+    }
+
     #[tokio::test]
-    async fn agent_unary_forwards_traceparent() {
+    async fn agent_unary_shares_traceparent_across_clients() {
         let router = axum::Router::new().route(
             "/api/graphql",
             axum::routing::post(|headers: axum::http::HeaderMap| async move {
@@ -136,41 +177,23 @@ mod test {
             }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let rest = flow_client_next::rest::Client::new(
-            &format!("http://{}", listener.local_addr().unwrap())
-                .parse()
-                .unwrap(),
-            "flowctl-test",
-        );
+        let url = format!("http://{}", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let clients = [
+            flow_client_next::rest::Client::new(&url, "flowctl-test"),
+            flow_client_next::rest::Client::new(&url, "flowctl-test"),
+        ];
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
 
-        let mut forwarded = Vec::new();
-        for traceparent in [
-            None,
-            Some("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"),
-            Some("not a\nheader value"),
-        ] {
-            // SAFETY: nextest runs each test in its own process, and this current-thread runtime is the only reader of the environment.
-            unsafe {
-                match traceparent {
-                    Some(value) => std::env::set_var("TRACEPARENT", value),
-                    None => std::env::remove_var("TRACEPARENT"),
-                }
-            }
+        let expected = super::traceparent(std::env::var("TRACEPARENT").ok().as_deref())
+            .map(|header| header.to_str().unwrap().to_owned());
+        for rest in [&clients[0], &clients[1], &clients[0]] {
             let header: Option<String> =
-                super::agent_unary(&rest, None, super::GRAPHQL_PATH, &serde_json::json!({}))
+                super::agent_unary(rest, None, super::GRAPHQL_PATH, &serde_json::json!({}))
                     .await
                     .unwrap();
-            forwarded.push(header);
+            assert_eq!(header, expected);
         }
-        insta::assert_debug_snapshot!(forwarded, @r#"
-        [
-            None,
-            Some(
-                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-            ),
-            None,
-        ]
-        "#);
     }
 }
