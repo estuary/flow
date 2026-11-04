@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT tenant::text AS \"tenant!\", data_tiers, usage_tiers, recurring_usd_cents, trial_start\n           FROM public.tenants WHERE $1::text[] IS NULL OR tenant::text = ANY($1) ORDER BY tenant::text",
+  "query": "SELECT tenant::text AS \"tenant!\", plan_kind AS \"plan_kind: crate::PlanKind\", data_tiers, usage_tiers, recurring_usd_cents, trial_start\n           FROM public.tenants WHERE $1::text[] IS NULL OR tenant::text = ANY($1) ORDER BY tenant::text",
   "describe": {
     "columns": [
       {
@@ -11,6 +11,28 @@
       },
       {
         "ordinal": 1,
+        "name": "plan_kind: crate::PlanKind",
+        "type_info": {
+          "Custom": {
+            "name": "plan_kind_type",
+            "kind": {
+              "Enum": [
+                "self_serve",
+                "contract",
+                "internal"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "plan_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "data_tiers",
         "type_info": "Int4Array",
         "origin": {
@@ -21,7 +43,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "usage_tiers",
         "type_info": "Int4Array",
         "origin": {
@@ -32,7 +54,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "recurring_usd_cents",
         "type_info": "Int4",
         "origin": {
@@ -43,7 +65,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "trial_start",
         "type_info": "Date",
         "origin": {
@@ -64,8 +86,9 @@
       false,
       false,
       false,
+      false,
       true
     ]
   },
-  "hash": "f41139a231bb5d3b88415c18f50460aa116deb93134af3d362403604ffb94887"
+  "hash": "d9ea14c8d7c9dc0d164d079375699e306aaa917e220c0e21c30a17bac088a691"
 }

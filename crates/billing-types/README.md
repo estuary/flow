@@ -27,7 +27,8 @@ Calculation takes a year and `chrono::Month` to select a UTC calendar month.
 Charges use cumulative integer bytes and seconds rounded up to billable GB and
 hours, with amounts calculated in cents.
 Each day is allocated the change in cumulative tier price, so credits apply to
-usage in the applicable free or trial period. Usage fields also show fractional
+usage in the applicable free or trial period. Only `self_serve` tenants get
+free-tier and trial credits. Usage fields also show fractional
 GB and hours for display. Months with no usage still include recurring fees and
 adjustments.
 
