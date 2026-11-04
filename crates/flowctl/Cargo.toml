@@ -58,6 +58,8 @@ humantime = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 open = { workspace = true }               # used for opening URLs in the user's browser
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 pbjson-types = { workspace = true }
 postgrest = { workspace = true }
 prost = { workspace = true }

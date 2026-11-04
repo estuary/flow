@@ -55,3 +55,9 @@ flowctl draft create
 flowctl draft author --source ~/estuary/flow/examples/citi-bike/flow.yaml
 flowctl draft publish
 ```
+
+### Trace context
+
+GraphQL requests carry the `TRACEPARENT` environment value when it is a valid W3C trace context.
+Otherwise, flowctl generates one random trace context per invocation and shares it
+across its GraphQL requests, logging a warning if the supplied value was malformed.
