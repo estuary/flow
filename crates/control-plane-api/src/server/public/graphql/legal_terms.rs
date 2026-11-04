@@ -186,6 +186,18 @@ impl LegalTermsMutation {
             ));
         }
 
+        // TODO: Enable sandbox consent when sandboxes are ready for external use.
+        let terms_type: Option<LegalTermsType> =
+            sqlx::query_scalar("SELECT type FROM internal.legal_terms WHERE id = $1")
+                .bind(terms_id)
+                .fetch_optional(&env.pg_pool)
+                .await?;
+        if terms_type == Some(LegalTermsType::Sandbox) {
+            return Err(async_graphql::Error::new(
+                "Sandbox legal terms cannot be accepted at this time",
+            ));
+        }
+
         // Return eligible terms even when another request records consent first.
         let terms = sqlx::query_as::<_, LegalTerms>(
             "WITH terms AS (
