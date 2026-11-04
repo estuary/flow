@@ -269,7 +269,13 @@ async fn submission_selects_staged_or_live_capture(pool: sqlx::PgPool) {
         assert_eq!(after[field], before[field], "{field}");
     }
     // A staged entry takes precedence over the live capture.
-    stage_capture(&pool, draft_id, "aliceCo/in/capture-foo", MODEL).await;
+    stage_capture(
+        &pool,
+        draft_id,
+        "aliceCo/in/capture-foo",
+        &model_with(serde_json::json!({ "autoDiscover": { "addNewBindings": true } })),
+    )
+    .await;
     let staged = submit(
         &server,
         Some(&alice),
@@ -454,30 +460,41 @@ async fn logs_paginate_and_arrive_after_completion(pool: sqlx::PgPool) {
         scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
     )
 )]
-async fn update_only_follows_auto_discover(pool: sqlx::PgPool) {
+async fn update_only_follows_capture_policy(pool: sqlx::PgPool) {
     let _guard = test_server::init();
-    let (server, draft_id, alice, _) = setup(&pool).await;
-    for (name, fields, update_only) in [
-        ("aliceCo/absent-policy", serde_json::json!({}), false),
-        (
-            "aliceCo/null-policy",
-            serde_json::json!({ "autoDiscover": null }),
-            false,
-        ),
-        (
-            "aliceCo/empty-policy",
-            serde_json::json!({ "autoDiscover": {} }),
-            true,
-        ),
-        (
-            "aliceCo/enabled-policy",
-            serde_json::json!({ "autoDiscover": { "addNewBindings": true } }),
-            false,
-        ),
+    let (server, _, alice, _) = setup(&pool).await;
+    for (capture_name, existing) in [
+        ("aliceCo/new-capture", false),
+        ("aliceCo/in/capture-foo", true),
     ] {
-        stage_capture(&pool, draft_id, name, &model_with(fields)).await;
-        let response = submit(&server, Some(&alice), draft_id, name, None).await;
-        assert_eq!(queued(&pool, &response).await.1, update_only, "{name}");
+        for (policy, fields, update_only) in [
+            ("absent", serde_json::json!({}), existing),
+            (
+                "null",
+                serde_json::json!({ "autoDiscover": null }),
+                existing,
+            ),
+            ("empty", serde_json::json!({ "autoDiscover": {} }), true),
+            (
+                "disabled",
+                serde_json::json!({ "autoDiscover": { "addNewBindings": false } }),
+                true,
+            ),
+            (
+                "enabled",
+                serde_json::json!({ "autoDiscover": { "addNewBindings": true } }),
+                false,
+            ),
+        ] {
+            let draft_id = insert_draft(&pool, ALICE).await;
+            stage_capture(&pool, draft_id, capture_name, &model_with(fields)).await;
+            let response = submit(&server, Some(&alice), draft_id, capture_name, None).await;
+            assert_eq!(
+                queued(&pool, &response).await.1,
+                update_only,
+                "{capture_name}: {policy}",
+            );
+        }
     }
 }
 
