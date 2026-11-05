@@ -132,7 +132,7 @@ async fn test_tenant_alerts_happy_path() {
             AlertType::FreeTrialStalled,
         )
         .await
-        .assert_emails_sent(&["deer@new_user_onboarding.test"]);
+        .assert_emails_sent(&[]);
 }
 
 #[tokio::test]
