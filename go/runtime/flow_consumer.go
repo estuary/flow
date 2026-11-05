@@ -83,8 +83,13 @@ func (c *FlowConsumerConfig) Plane() pr.Plane {
 	// separated provider, region, and cluster number.
 	// * `aws-eu-west-1-c1.dp.estuary-data.com` is public
 	// * `f7002c61f85f2b5e.dp.estuary-data.com` is private
+	//
+	// The hash is formatted without zero-padding (see `create_data_plane`),
+	// so ~1/16 of private planes have fewer than 16 hex chars.
+	// We accept as few as 8. Fewer would require 8 leading zero nibbles,
+	// which is far less likely than a short all-hex public name.
 
-	if m, _ := regexp.Match("^[0-9a-f]{16}\\.", []byte(c.Flow.DataPlaneFQDN)); m {
+	if m, _ := regexp.Match("^[0-9a-f]{8,16}\\.", []byte(c.Flow.DataPlaneFQDN)); m {
 		return pr.Plane_PRIVATE
 	}
 	return pr.Plane_PUBLIC
