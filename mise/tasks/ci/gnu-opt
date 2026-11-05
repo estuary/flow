@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# `cargo auditable` embeds each binary's crate list, which image SBOM scanners
+# read. `bindings` is a staticlib, which carries none: ci:package writes its SBOM.
 FLOW_VERSION=$(git describe --dirty --tags) \
 SQLX_OFFLINE=true \
-cargo build \
+cargo auditable build \
     --locked \
     --release \
     -p agent \

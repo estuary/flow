@@ -40,6 +40,20 @@ ln ${GOBIN}/gazctl ${PACKAGE_DIR}/
 ln ${GOBIN}/flowctl-go ${PACKAGE_DIR}/
 ln $(which etcd) ${PACKAGE_DIR}/
 
+# flowctl-go links the `bindings` staticlib, which has no embedded crate list.
+# An SBOM of its crates ships beside flowctl-go, and the image scan reads it.
+# cargo-cyclonedx writes one beside every workspace crate, so keep only bindings'.
+# Build dependencies aren't linked in, and the scan omits them for other binaries.
+cargo cyclonedx --quiet \
+    --no-build-deps \
+    --manifest-path crates/bindings/Cargo.toml \
+    --target ${ARCH}-unknown-linux-gnu \
+    --format json \
+    --spec-version 1.5 \
+    --override-filename flowctl-go.cdx
+mv crates/bindings/flowctl-go.cdx.json ${PACKAGE_DIR}/
+find crates -name flowctl-go.cdx.json -delete
+
 cp crates/flow-web/pkg/estuary-flow-web-*.tgz ${HOME}/flow-package/estuary-flow-web.tgz
 cp crates/data-plane-controller/entrypoint.sh ${PACKAGE_DIR}/data-plane-controller-entrypoint.sh
 cp crates/oidc-discovery-server/entrypoint.sh ${PACKAGE_DIR}/oidc-discovery-server-entrypoint.sh

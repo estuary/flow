@@ -14,6 +14,8 @@ RUN apt update -y \
 ARG TARGETARCH
 COPY ${TARGETARCH}/flow-connector-init /usr/local/bin/
 COPY ${TARGETARCH}/flowctl-go /usr/local/bin/
+# Rust crates linked into flowctl-go, for the image's SBOM scan.
+COPY ${TARGETARCH}/flowctl-go.cdx.json /usr/local/share/sbom/
 COPY ${TARGETARCH}/runtime-sidecar /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
 

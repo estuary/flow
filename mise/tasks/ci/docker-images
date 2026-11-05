@@ -25,6 +25,10 @@ IFS=',' read -ra TAGS <<< "$(cat "${TAGS_FILE}")"
 if [[ "${PUSH}" == "true" ]]; then
     PLATFORMS='["linux/amd64", "linux/arm64"]'
     OUTPUT='["type=registry"]'
+    # BuildKit scans each built image and pushes the SBOM beside it. The
+    # provenance matches buildx's default. Listing it explicitly keeps it
+    # when BUILDX_NO_DEFAULT_ATTESTATIONS is set.
+    ATTEST='["type=provenance,mode=min", "type=sbom"]'
 else
     # For local builds, detect current architecture
     ARCH=$(uname -m)
@@ -37,6 +41,9 @@ else
         exit 1
     fi
     OUTPUT='["type=docker"]'
+    # No SBOM: with any attestation requested, buildx refuses to load the
+    # image into a daemon using the classic image store.
+    ATTEST='[]'
 fi
 
 # Ensure buildx builder exists and supports multi-arch
@@ -84,12 +91,14 @@ for DOCKERFILE in docker/*.Dockerfile; do
         --argjson tags "${IMAGE_TAGS}" \
         --argjson platforms "${PLATFORMS}" \
         --argjson output "${OUTPUT}" \
+        --argjson attest "${ATTEST}" \
         '.[$name] = {
             "dockerfile": $dockerfile,
             "context": $context,
             "tags": $tags,
             "platforms": $platforms,
-            "output": $output
+            "output": $output,
+            "attest": $attest
         }')
 done
 

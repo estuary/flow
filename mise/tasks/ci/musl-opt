@@ -3,8 +3,9 @@ set -euo pipefail
 
 rustup target add $(uname -m)-unknown-linux-musl
 
+# `cargo auditable` embeds each binary's crate list, which image SBOM scanners read.
 FLOW_VERSION=$(git describe --dirty --tags) \
-cargo build \
+cargo auditable build \
     --locked \
     --release \
     --target $(uname -m)-unknown-linux-musl \
