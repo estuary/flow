@@ -18,5 +18,8 @@ COPY ${TARGETARCH}/flowctl-go /usr/local/bin/
 COPY ${TARGETARCH}/flowctl-go.cdx.json /usr/local/share/sbom/
 COPY ${TARGETARCH}/runtime-sidecar /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
+# Smoke-test that our binaries load in this image (e.g. shared libraries resolve).
+RUN flowctl-go print-config >/dev/null \
+    && runtime-sidecar --help >/dev/null
 
 WORKDIR /tmp
