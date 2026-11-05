@@ -6,7 +6,14 @@ use futures::{FutureExt, StreamExt, future, future::BoxFuture};
 use proto_flow::derive;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::time::Instant;
+
+/// Interval between `LogEvent::DeriveHeartbeat` task-log lines. Checked on
+/// every loop iteration, and the actor tick wakes an idle loop, so a line may
+/// land up to one `ACTOR_TICK_INTERVAL` late.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(300);
 
 /// Read-side phase of the shard transaction, driven by leader `L:Load`s.
 /// The output-publishing drain is orthogonal: it runs as `drain_fut` while
@@ -42,6 +49,10 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
         Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, proto::Derive)>>>,
     // Output-combiner drain + publish future, when in flight.
     drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<P>>>>,
+    // Source documents read and derived documents written since `heartbeat_at`.
+    heartbeat_docs_read: u64,
+    heartbeat_docs_written: u64,
+    heartbeat_at: Instant,
     // Channel for sending to the leader.
     leader_tx: mpsc::UnboundedSender<proto::Derive>,
     // Per-session metrics counters.
@@ -87,6 +98,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             db: Some(db),
             db_persist_fut: None,
             drain_fut: None,
+            heartbeat_docs_read: 0,
+            heartbeat_docs_written: 0,
+            heartbeat_at: Instant::now(),
             leader_tx,
             metrics,
             logger,
@@ -137,8 +151,16 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let mut ticker = tokio::time::interval(crate::ACTOR_TICK_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        // The status API reports a task as "waiting on connector status" until
+        // it has one from the current build, so don't make it wait for the
+        // first heartbeat.
+        self.logger.event(crate::LogEvent::DeriveStarted {
+            task_name: &self.task.collection_name,
+        });
+
         loop {
             loop_count += 1;
+            self.maybe_heartbeat();
 
             let phase_kind = match &phase {
                 Phase::Idle { .. } => "idle",
@@ -169,6 +191,8 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     self.codec,
                     &mut self.connector_pending,
                 )? {
+                    // The queue was empty, so it now holds one C:Read per document read.
+                    self.heartbeat_docs_read += self.connector_pending.len() as u64;
                     phase = Phase::Scanning(scanner);
                 } else {
                     let (shuffle_reader, shuffle_remainders, active) = scanner.into_parts();
@@ -267,6 +291,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         "drain completed; sending L:Stored",
                     );
                     self.metrics.drains_completed.increment(1);
+                    self.heartbeat_docs_written += output.drained_docs;
 
                     _ = self.leader_tx.send(proto::Derive {
                         stored: Some(proto::derive::Stored {
@@ -290,7 +315,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 }
                 // Wait for capacity to send to the connector.
                 true = wake_connector_tx => {}
-                // Periodic tick ensures the iteration trace fires even when otherwise idle.
+                // Periodic tick ensures the iteration trace and heartbeat fire even when otherwise idle.
                 _ = ticker.tick() => {}
             }
         }
@@ -499,6 +524,23 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         }
 
         Ok((phase, false))
+    }
+
+    /// Log documents read and written since the last heartbeat, once
+    /// `HEARTBEAT_INTERVAL` has elapsed, and start the next window.
+    fn maybe_heartbeat(&mut self) {
+        let now = Instant::now();
+        let window = now.saturating_duration_since(self.heartbeat_at);
+        if window < HEARTBEAT_INTERVAL {
+            return;
+        }
+        self.logger.event(crate::LogEvent::DeriveHeartbeat {
+            task_name: &self.task.collection_name,
+            docs_read: std::mem::take(&mut self.heartbeat_docs_read),
+            docs_written: std::mem::take(&mut self.heartbeat_docs_written),
+            window,
+        });
+        self.heartbeat_at = now;
     }
 
     /// Drain this transaction's per-journal throttle samples from the publisher
@@ -796,6 +838,7 @@ mod tests {
         let db = crate::shard::RocksDB::open(None).await.unwrap();
         let shuffle_dir = tempfile::tempdir().unwrap();
         let shuffle_reader = shuffle::log::Reader::new(shuffle_dir.path(), 0);
+        let logger = crate::logger::RecordingLogger::default();
 
         let actor = Actor::new(
             connector_init::Codec::Proto,
@@ -804,7 +847,7 @@ mod tests {
             db,
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
-            crate::TracingLogger,
+            logger.clone(),
             crate::publish::RecordingPublisher::default(),
             task,
             inferred_shape,
@@ -911,6 +954,39 @@ mod tests {
         assert_eq!(stored.drained_docs_total, 1);
         // Preview publisher reports no commit.
         assert!(stored.publisher_commit.is_none());
+
+        // 4b) With the actor idle, its tick logs a heartbeat carrying the
+        // drained document, then a zero heartbeat for the next window. Each is
+        // a connector status for the task, following the one sent at startup.
+        tokio::time::pause();
+        let mut statuses = Vec::new();
+        for _ in 0..2 {
+            tokio::time::advance(HEARTBEAT_INTERVAL).await;
+            tokio::time::sleep(Duration::from_millis(1)).await; // Let the actor run.
+            statuses.extend(logger.logs.lock().unwrap().drain(..).filter_map(|log| {
+                let field = |k: &str| String::from_utf8_lossy(&log.fields_json_map[k]).into_owned();
+                if log.fields_json_map.get("eventType")?.as_ref() != b"\"connectorStatus\"" {
+                    return None;
+                }
+                Some(match log.fields_json_map.get("docsRead") {
+                    Some(_) => format!(
+                        "{} read {} wrote {}",
+                        field("eventTarget"),
+                        field("docsRead"),
+                        field("docsWritten")
+                    ),
+                    None => format!("{} {}", field("eventTarget"), log.message),
+                })
+            }));
+        }
+        assert_eq!(
+            statuses,
+            [
+                r#""test/derived" Derivation started"#,
+                r#""test/derived" read 0 wrote 1"#,
+                r#""test/derived" read 0 wrote 0"#,
+            ]
+        );
 
         // 5) L:StartCommit → C:StartCommit → C:StartedCommit → L:StartedCommit.
         leader_to_actor_tx
