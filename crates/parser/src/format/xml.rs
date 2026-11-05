@@ -172,6 +172,7 @@ impl XmlParser {
             single_names: HashSet::new(),
             repeated_names: HashSet::new(),
             warned_names: HashSet::new(),
+            names_changed: false,
         })
     }
 }
@@ -391,6 +392,9 @@ struct XmlIter<R: io::BufRead> {
     repeated_names: HashSet<String>,
     /// Names that occurred both once and repeatedly, which have already been logged.
     warned_names: HashSet<String>,
+    /// Whether a name was added to `single_names` or `repeated_names` since the last check for
+    /// inconsistent arrays. Without a new name there's nothing new to find.
+    names_changed: bool,
 }
 
 impl<R: io::BufRead> Iterator for XmlIter<R> {
@@ -600,17 +604,21 @@ impl<R: io::BufRead> XmlIter<R> {
                 continue;
             }
             // Element values are only ever strings or objects, so an array holds repetitions.
-            if value.is_array() {
-                self.repeated_names.insert(name.clone());
+            let added = if value.is_array() {
+                self.repeated_names.insert(name.clone())
             } else {
-                self.single_names.insert(name.clone());
-            }
+                self.single_names.insert(name.clone())
+            };
+            self.names_changed |= added;
         }
     }
 
     /// Logs elements that have so far occurred both once and repeatedly, and so are represented
     /// as an array in some places but not in others. Each name is logged once per file.
     fn warn_inconsistent_arrays(&mut self) {
+        if !std::mem::take(&mut self.names_changed) {
+            return;
+        }
         let mut names: Vec<String> = self
             .single_names
             .intersection(&self.repeated_names)
