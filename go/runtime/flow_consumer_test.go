@@ -30,6 +30,36 @@ func TestFlowConsumerConfig_Plane(t *testing.T) {
 			expectedPlane: pr.Plane_PRIVATE,
 		},
 		{
+			name:          "Private data plane with unpadded 15 hex char hash",
+			allowLocal:    false,
+			dataplaneFQDN: "9e571ae54b74e18.dp.estuary-data.com",
+			expectedPlane: pr.Plane_PRIVATE,
+		},
+		{
+			name:          "Private data plane with unpadded 8 hex char hash",
+			allowLocal:    false,
+			dataplaneFQDN: "9e571ae5.dp.estuary-data.com",
+			expectedPlane: pr.Plane_PRIVATE,
+		},
+		{
+			name:          "Public data plane with 7 hex chars is too short to be private",
+			allowLocal:    false,
+			dataplaneFQDN: "9e571ae.dp.estuary-data.com",
+			expectedPlane: pr.Plane_PUBLIC,
+		},
+		{
+			name:          "Public data plane with 17 hex chars is too long to be private",
+			allowLocal:    false,
+			dataplaneFQDN: "f7002c61f85f2b5e0.dp.estuary-data.com",
+			expectedPlane: pr.Plane_PUBLIC,
+		},
+		{
+			name:          "Public data plane of hex letters and hyphens",
+			allowLocal:    false,
+			dataplaneFQDN: "abcdef-dead-c1.dp.estuary-data.com",
+			expectedPlane: pr.Plane_PUBLIC,
+		},
+		{
 			name:          "Public data plane with human-readable FQDN",
 			allowLocal:    false,
 			dataplaneFQDN: "aws-eu-west-1-c1.dp.estuary-data.com",
