@@ -393,30 +393,23 @@ enum Capability {
 	admin
 }
 
-enum CapabilityBit {
-	CatalogRead
-	JournalRead
-	JournalAppend
-	SpecEdit
-	CreateGrant
-	DeleteGrant
-	ManageInviteLinks
-	ViewDataPlanePrivateNetworking
-	ModifyDataPlanePrivateNetworking
-	ViewBilling
-	EditBilling
-	QueryServiceAccounts
-	CreateServiceAccount
-	CreateApiKey
-	RevokeApiKey
-	ViewSecret
-	EditSecret
-	DecryptSecret
-	Delegate
-	Assume
-	CreateSandbox
-	ManageAlerts
-	ManageLegal
+"""
+A stable, named bundle of capability bits. Grants and token capability
+masks name bundles rather than bits, so bits may be added, split, or
+merged without changing stored grants or minted tokens.
+"""
+enum CapabilityBundle {
+	viewer
+	writer
+	editor
+	admin
+	billing
+	team_admin
+	manage_service_accounts
+	manage_data_plane
+	create_sandbox
+	delegate
+	assume
 }
 
 """
@@ -2372,9 +2365,9 @@ type PrefixRef {
 	"""
 	userCapability: Capability!
 	"""
-	Fine-grained capabilities the user has at this prefix.
+	Capability bundles fully covered by the user's effective permissions at this prefix.
 	"""
-	capabilities: [CapabilityBit!]!
+	capabilities: [CapabilityBundle!]!
 }
 
 type PrefixRefConnection {
