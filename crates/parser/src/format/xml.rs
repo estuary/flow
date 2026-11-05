@@ -12,9 +12,10 @@
 //! - All values are strings. Types are never inferred, since doing so would corrupt values such
 //!   as postal codes and identifiers with leading zeros.
 //! - Namespace prefixes are removed from element names, so `<ns:Item>` and `<Item>` are both
-//!   `Item`. Attribute names keep their prefixes, such as `@xsi:type`, because distinct
-//!   attributes like `type` and `xsi:type` can appear on the same element. Namespace
-//!   declarations are dropped.
+//!   `Item`. They're also removed from the names in `recordPath` and `arrayElements`, so that
+//!   those match the same elements. Attribute names keep their prefixes, such as `@xsi:type`,
+//!   because distinct attributes like `type` and `xsi:type` can appear on the same element.
+//!   Namespace declarations are dropped.
 //! - Leading and trailing whitespace is trimmed from text, except for whitespace within CDATA
 //!   sections or produced by character references. When text is interleaved with child elements
 //!   (mixed content), the text segments are joined with a single space.
@@ -158,7 +159,12 @@ impl XmlParser {
             skip_buf: Vec::new(),
             version: XmlVersion::Implicit1_0,
             record_path,
-            array_elements: self.config.array_elements.iter().cloned().collect(),
+            array_elements: self
+                .config
+                .array_elements
+                .iter()
+                .map(|name| local_name(name).to_string())
+                .collect(),
             outer: Vec::new(),
             stack: Vec::new(),
             record_start: 0,
@@ -179,7 +185,7 @@ fn parse_record_path(path: &str) -> Result<Vec<String>, XmlError> {
         .strip_prefix('/')
         .unwrap_or(trimmed)
         .split('/')
-        .map(str::to_string)
+        .map(|name| local_name(name).to_string())
         .collect();
 
     if names
@@ -189,6 +195,11 @@ fn parse_record_path(path: &str) -> Result<Vec<String>, XmlError> {
         return Err(XmlError::InvalidRecordPath(path.to_string()));
     }
     Ok(names)
+}
+
+/// Returns `name` without its namespace prefix, matching how element names are read from files.
+fn local_name(name: &str) -> &str {
+    name.split_once(':').map_or(name, |(_, local)| local)
 }
 
 /// Returns the input transcoded to UTF-8. The source encoding is determined by a byte order mark
@@ -423,7 +434,7 @@ impl<R: io::BufRead> XmlIter<R> {
             buf.clear();
             let event = match self.reader.read_event_into(buf) {
                 Ok(event) => event,
-                Err(err) => return Err(self.malformed(self.reader.error_position(), err)),
+                Err(err) => return Err(self.malformed(self.reader.buffer_position(), err)),
             };
 
             match event {
@@ -560,7 +571,7 @@ impl<R: io::BufRead> XmlIter<R> {
                     .reader
                     .read_to_end_into(start.name(), &mut self.skip_buf)
                 {
-                    return Err(self.malformed(self.reader.error_position(), err));
+                    return Err(self.malformed(self.reader.buffer_position(), err));
                 }
             }
             return Ok(false);
@@ -875,6 +886,21 @@ mod test {
     }
 
     #[test]
+    fn config_names_ignore_namespace_prefixes() {
+        let content = r#"<ns:Records xmlns:ns="urn:a">
+            <ns:Record><ns:Line>1</ns:Line></ns:Record>
+        </ns:Records>"#;
+        let config = XmlConfig {
+            record_path: Some("/ns:Records/ns:Record".to_string()),
+            array_elements: vec!["ns:Line".to_string()],
+        };
+        assert_eq!(
+            vec![json!({"Record": {"Line": ["1"]}})],
+            parse_with(config, content).unwrap()
+        );
+    }
+
+    #[test]
     fn attributes_in_different_namespaces_are_all_kept() {
         let doc = parse_one(
             r#"<Catalog xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ext="urn:acme:legacy">
@@ -971,6 +997,13 @@ mod test {
     fn mismatched_end_tag_is_an_error() {
         let err = parse_with(XmlConfig::default(), "<R><A>1</B></R>").unwrap_err();
         assert!(err.contains("malformed XML"), "{err}");
+    }
+
+    #[test]
+    fn invalid_utf8_error_reports_its_position() {
+        let content = b"<?xml version=\"1.0\" encoding=\"UTF-8\"?><R><B>caf\xFF</B></R>".to_vec();
+        let err = parse_with(XmlConfig::default(), content).unwrap_err();
+        assert!(err.contains("at byte 48"), "{err}");
     }
 
     #[test]

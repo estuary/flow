@@ -18,7 +18,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 pub struct XmlConfig {
     /// The path of the element to emit as a document, for example `/Orders/Order`.
     /// Each matching element becomes a separate document. If empty, the root element of
-    /// each file is emitted as a single document.
+    /// each file is emitted as a single document. Namespace prefixes are ignored, so
+    /// `/ns:Orders/ns:Order` is the same as `/Orders/Order`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(title = "Record Path", example = "/Orders/Order")]
     pub record_path: Option<String>,
@@ -26,6 +27,7 @@ pub struct XmlConfig {
     /// Names of elements that should always be represented as arrays, even when an element
     /// contains only a single occurrence of them. Use this for repeated elements, so that the
     /// shape of documents does not change depending on how many occurrences a file contains.
+    /// Namespace prefixes are ignored.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(title = "Array Elements")]
     pub array_elements: Vec<String>,

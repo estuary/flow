@@ -327,7 +327,7 @@ pub enum Format {
     /// record path, is emitted as a JSON document.
     #[serde(rename = "xml")]
     #[schemars(title = "XML")]
-    Xml(#[serde(default)] xml::XmlConfig),
+    Xml(xml::XmlConfig),
 
     /// Placeholders for files types that are unsupported at this time.
     #[schemars(skip)]

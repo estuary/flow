@@ -559,7 +559,7 @@ expression: schema
               "properties": {
                 "arrayElements": {
                   "title": "Array Elements",
-                  "description": "Names of elements that should always be represented as arrays, even when an element\ncontains only a single occurrence of them. Use this for repeated elements, so that the\nshape of documents does not change depending on how many occurrences a file contains.",
+                  "description": "Names of elements that should always be represented as arrays, even when an element\ncontains only a single occurrence of them. Use this for repeated elements, so that the\nshape of documents does not change depending on how many occurrences a file contains.\nNamespace prefixes are ignored.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -567,7 +567,7 @@ expression: schema
                 },
                 "recordPath": {
                   "title": "Record Path",
-                  "description": "The path of the element to emit as a document, for example `/Orders/Order`.\nEach matching element becomes a separate document. If empty, the root element of\neach file is emitted as a single document.",
+                  "description": "The path of the element to emit as a document, for example `/Orders/Order`.\nEach matching element becomes a separate document. If empty, the root element of\neach file is emitted as a single document. Namespace prefixes are ignored, so\n`/ns:Orders/ns:Order` is the same as `/Orders/Order`.",
                   "type": [
                     "string",
                     "null"
