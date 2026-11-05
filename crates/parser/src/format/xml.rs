@@ -156,7 +156,6 @@ impl XmlParser {
         Ok(XmlIter {
             reader,
             buf: Vec::new(),
-            skip_buf: Vec::new(),
             version: XmlVersion::Implicit1_0,
             record_path,
             array_elements: self
@@ -372,13 +371,11 @@ impl ElementBuilder {
 struct XmlIter<R: io::BufRead> {
     reader: Reader<R>,
     buf: Vec<u8>,
-    /// Separate buffer used when skipping over elements that are outside of any record.
-    skip_buf: Vec<u8>,
     version: XmlVersion,
     /// Path of the elements to emit as documents, or `None` to emit the root element.
     record_path: Option<Vec<String>>,
     array_elements: HashSet<String>,
-    /// Names of the currently open elements that enclose the current record.
+    /// Names of the currently open elements that are outside of any record.
     outer: Vec<String>,
     /// The currently open elements of the record that's being built. The first element is the
     /// record itself, and this is empty when we're not within a record.
@@ -439,12 +436,11 @@ impl<R: io::BufRead> XmlIter<R> {
 
             match event {
                 Event::Start(start) => {
-                    self.start_element(&start, false)?;
+                    self.start_element(&start)?;
                 }
                 Event::Empty(start) => {
-                    if self.start_element(&start, true)?
-                        && let Some(record) = self.end_element()
-                    {
+                    self.start_element(&start)?;
+                    if let Some(record) = self.end_element() {
                         return Ok(Some(record));
                     }
                 }
@@ -501,8 +497,8 @@ impl<R: io::BufRead> XmlIter<R> {
         }
     }
 
-    /// Text outside of any record is expected within an enclosing element that's being skipped
-    /// over (in `recordPath` mode). Outside of the root element, XML allows only whitespace, so
+    /// Text outside of any record is expected within elements that aren't part of a record (in
+    /// `recordPath` mode). Outside of the root element, XML allows only whitespace, so
     /// anything else means the file isn't XML: failing beats silently emitting no documents.
     fn check_outside_text(&self, text: &str) -> Result<(), XmlError> {
         if self.outer.is_empty() && !text.chars().all(is_xml_whitespace) {
@@ -526,9 +522,9 @@ impl<R: io::BufRead> XmlIter<R> {
         Ok(())
     }
 
-    /// Handles the start of an element. Returns false if the element was skipped entirely
-    /// because it can't contain any records, in which case there will be no matching end event.
-    fn start_element(&mut self, start: &BytesStart, is_empty: bool) -> Result<bool, XmlError> {
+    /// Handles the start of an element. Elements outside of any record are tracked in `outer`
+    /// until they end, so that `MAX_DEPTH` applies to them too.
+    fn start_element(&mut self, start: &BytesStart) -> Result<(), XmlError> {
         let name = start.local_name().as_ref().to_string();
 
         if self.outer.len() + self.stack.len() >= MAX_DEPTH {
@@ -544,7 +540,7 @@ impl<R: io::BufRead> XmlIter<R> {
             parent.text.end_run();
             let element = self.new_element(name, start)?;
             self.stack.push(element);
-            return Ok(true);
+            return Ok(());
         }
 
         self.outer.push(name);
@@ -552,31 +548,23 @@ impl<R: io::BufRead> XmlIter<R> {
             Some(path) => &self.outer == path,
             None => self.outer.len() == 1,
         };
-        let may_contain_record = match &self.record_path {
-            Some(path) => path.starts_with(&self.outer),
-            None => true,
-        };
 
         if is_record {
-            self.record_start = self.reader.buffer_position();
+            // The record is measured from its start tag, so that the tag's attributes count
+            // towards its size. An oversized tag is rejected before its attributes are built.
+            let tag_len = start.len() as u64;
+            self.record_start = self.reader.buffer_position() - tag_len;
+            if tag_len > MAX_RECORD_MB * 1024 * 1024 {
+                return Err(XmlError::RecordTooLarge {
+                    position: self.reader.buffer_position(),
+                    path: self.current_path(),
+                });
+            }
             let name = self.outer.pop().unwrap();
             let element = self.new_element(name, start)?;
             self.stack.push(element);
-        } else if !may_contain_record {
-            self.outer.pop();
-            // An empty element has no content or end tag to skip over.
-            if !is_empty {
-                self.skip_buf.clear();
-                if let Err(err) = self
-                    .reader
-                    .read_to_end_into(start.name(), &mut self.skip_buf)
-                {
-                    return Err(self.malformed(self.reader.buffer_position(), err));
-                }
-            }
-            return Ok(false);
         }
-        Ok(true)
+        Ok(())
     }
 
     /// Handles the end of an element, returning the completed record if this element was one.
@@ -1000,6 +988,26 @@ mod test {
     }
 
     #[test]
+    fn deep_nesting_outside_records_is_rejected() {
+        let depth = MAX_DEPTH + 1;
+        let content = format!(
+            "<R><Other>{}{}</Other><Rec>1</Rec></R>",
+            "<a>".repeat(depth),
+            "</a>".repeat(depth)
+        );
+        let err = parse_with(with_record_path("/R/Rec"), content).unwrap_err();
+        assert!(err.contains("nested more than"), "{err}");
+    }
+
+    #[test]
+    fn oversized_record_start_tag_is_rejected() {
+        let value = "x".repeat(MAX_RECORD_MB as usize * 1024 * 1024 + 1);
+        let content = format!("<R a=\"{value}\"/>");
+        let err = parse_with(XmlConfig::default(), content).unwrap_err();
+        assert!(err.contains("larger than the 64MB maximum"), "{err}");
+    }
+
+    #[test]
     fn invalid_utf8_error_reports_its_position() {
         let content = b"<?xml version=\"1.0\" encoding=\"UTF-8\"?><R><B>caf\xFF</B></R>".to_vec();
         let err = parse_with(XmlConfig::default(), content).unwrap_err();
@@ -1173,7 +1181,7 @@ mod test {
             );
         }
         // Whitespace, comments and processing instructions around the root are fine, in both
-        // modes, as is text within wrapper elements that a record path skips over.
+        // modes, as is text within wrapper elements that aren't part of a record.
         let content = "\n <?pi?> <!-- c --> <R>wrapper text<I>1</I></R> \n";
         assert_eq!(1, parse(content).len());
         assert_eq!(
