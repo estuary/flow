@@ -54,6 +54,10 @@ pub(crate) fn api_v1_router(
     });
 
     let graphql_schema = graphql::create_schema(alert_config_defaults);
+    // Render the SDL once: the schema is fixed for the life of the process,
+    // and its route is unauthenticated.
+    let graphql_sdl = axum::body::Bytes::from(graphql_schema.sdl());
+
     let router = aide::axum::ApiRouter::new()
         .api_route(
             "/api/v1/catalog/status",
@@ -64,11 +68,57 @@ pub(crate) fn api_v1_router(
             "/api/v1/metrics/{*prefix}",
             aide::axum::routing::get(open_metrics::handle_get_metrics),
         )
-        .route(
+        // GraphQL is documented by its SDL, not by OpenAPI. These entries only
+        // make GraphQL discoverable from the OpenAPI docs, and point to the SDL.
+        .api_route(
             "/api/graphql",
-            axum::routing::post(graphql::graphql_handler)
-                // Catalog models can exceed Axum's default 2 MiB request limit.
-                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+            aide::axum::routing::post_with(graphql::graphql_handler, |op| {
+                op.summary("Execute a GraphQL operation")
+                    .description(
+                        "Executes a GraphQL query or mutation. The schema is \
+                         served by `GET /api/graphql/schema`, and can be \
+                         explored at `/graphiql`. The status is 200 even when \
+                         the response has `errors`.",
+                    )
+                    .response_with::<200, axum::Json<serde_json::Map<String, serde_json::Value>>, _>(
+                        |res| {
+                            res.description(
+                                "A GraphQL response: `data` shaped by the operation, \
+                                 and any `errors`.",
+                            )
+                        },
+                    )
+            })
+            // Catalog models can exceed Axum's default 2 MiB request limit.
+            .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
+        .api_route(
+            "/api/graphql/schema",
+            aide::axum::routing::get_with(
+                move || {
+                    std::future::ready((
+                        [(
+                            axum::http::header::CONTENT_TYPE,
+                            "text/plain; charset=utf-8",
+                        )],
+                        graphql_sdl.clone(),
+                    ))
+                },
+                |op| {
+                    op.summary("Get the GraphQL schema")
+                        .description(
+                            "Returns the SDL of the schema executed by `POST /api/graphql`.",
+                        )
+                        .response_with::<200, String, _>(|res| res.description("GraphQL SDL"))
+                        // An empty requirement overrides the top-level `ApiKey`
+                        // requirement: no credentials are needed.
+                        .with(|mut op| {
+                            op.inner_mut().security =
+                                vec![aide::openapi::SecurityRequirement::default()];
+                            op
+                        })
+                },
+            ),
         )
         .route("/graphiql", axum::routing::get(graphql::graphql_graphiql))
         // Stripe webhook receiver. Registered as a plain route (not `.api_route`)

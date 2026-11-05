@@ -79,6 +79,10 @@ rewrites the file when it has drifted:
 mise exec -- cargo nextest run -p control-plane-api checked_in_sdl_is_current
 ```
 
+The server also serves its own SDL, unauthenticated, at `GET /api/graphql/schema`.
+The OpenAPI spec has entries for both GraphQL routes. They describe the HTTP
+envelope only, and defer to the SDL for types.
+
 ### Updating sqlx query cache
 
 After adding / modifying SQL queries, regenerate the checked-in sqlx query cache so that offline compilation works:
