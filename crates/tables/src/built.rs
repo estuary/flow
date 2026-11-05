@@ -243,6 +243,7 @@ impl BuiltRow for crate::BuiltMaterialization {
             expect_build_id,
             model,
             model_fixes,
+            auto_disabled_bindings: Vec::new(),
             validated,
             spec,
             previous_spec,
