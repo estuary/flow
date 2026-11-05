@@ -8,6 +8,9 @@ RUN apt update -y \
 
 ARG TARGETARCH
 COPY ${TARGETARCH}/gazette ${TARGETARCH}/gazctl /usr/local/bin/
+# Smoke-test that our binaries load in this image (e.g. shared libraries resolve).
+RUN gazette print-config >/dev/null \
+    && gazctl print-config >/dev/null
 
 # Run as the non-privileged "gazette" user.
 RUN useradd gazette --create-home --shell /usr/sbin/nologin
