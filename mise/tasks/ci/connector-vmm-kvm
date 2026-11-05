@@ -37,7 +37,10 @@ ENDPOINTS=(192.31.196.241 192.31.196.242 192.31.196.243 192.31.196.244 192.31.19
 # The host's end of the hop, and so the address endpoints see VMMs come from.
 ENDPOINT_PEER=192.31.196.254
 DECOY_FENCE=198.18.255.240/28
-DECOYS=(198.18.255.241 198.18.255.242)
+# Route a simulated Azure platform endpoint only into this lab.
+# ip route prints /32 destinations as bare addresses; the journal must match.
+AZURE_FENCE=168.63.129.16
+DECOYS=(198.18.255.241 198.18.255.242 168.63.129.16)
 
 FILTER="${usage_filter:-}"
 ALLOW_MISSING_VSOCK="${usage_allow_missing_vsock_loopback:-false}"
@@ -346,14 +349,14 @@ if [ -n "${ROUTING_DEPLOYMENT}" ]; then
 fi
 
 echo "=== Setting up the controlled endpoints in network namespace ${NETNS} ==="
-for fence in "${FENCE}" "${DECOY_FENCE}"; do
+for fence in "${FENCE}" "${DECOY_FENCE}" "${AZURE_FENCE}"; do
     [ -z "$(ip route show exact "${fence}")" ] || fail "a route for ${fence} already exists, and it is not this run's"
 done
 ! ip link show "${LINK}" >/dev/null 2>&1 || fail "link ${LINK} already exists, and it is not this run's"
 [ ! -e "/run/netns/${NETNS}" ] || fail "network namespace ${NETNS} already exists, and it is not this run's"
 # The fences go up before any address they guard, beneath the routes that
 # use them.
-for fence in "${FENCE}" "${DECOY_FENCE}"; do
+for fence in "${FENCE}" "${DECOY_FENCE}" "${AZURE_FENCE}"; do
     record route "blackhole ${fence} metric 4000"
     sudo -n ip route add blackhole "${fence}" metric 4000
 done
@@ -363,7 +366,7 @@ record link "${LINK}"
 sudo -n ip link add "${LINK}" type veth peer name "${PEER}" netns "${NETNS}"
 sudo -n ip addr add "${ENDPOINT_PEER}/32" dev "${LINK}"
 sudo -n ip link set "${LINK}" up
-for fence in "${FENCE}" "${DECOY_FENCE}"; do
+for fence in "${FENCE}" "${DECOY_FENCE}" "${AZURE_FENCE}"; do
     sudo -n ip route add "${fence}" dev "${LINK}" src "${ENDPOINT_PEER}" metric 100
 done
 sudo -n ip -n "${NETNS}" link set lo up

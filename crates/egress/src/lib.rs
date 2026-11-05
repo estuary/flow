@@ -5,13 +5,14 @@
 
 /// Destinations no host name reaches, before the VMM's own subnets are folded
 /// in. Every entry is a prefix IANA's IPv4 Special-Purpose Address Registry
-/// marks as not globally reachable, plus multicast, which is not a unicast
-/// destination at all. The crate README names each one.
+/// marks as not globally reachable, plus multicast and Azure's host-node
+/// virtual IP. The crate README names each one.
 const BASELINE: &[&str] = &[
     "0.0.0.0/8",
     "10.0.0.0/8",
     "100.64.0.0/10",
     "127.0.0.0/8",
+    "168.63.129.16/32",
     "169.254.0.0/16",
     "172.16.0.0/12",
     "192.0.0.0/24",

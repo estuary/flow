@@ -284,7 +284,13 @@ fn expected() -> Vec<serde_json::Value> {
     let elements = |prefixes: Vec<ipnetwork::Ipv4Network>| -> Vec<serde_json::Value> {
         prefixes
             .iter()
-            .map(|prefix| serde_json::json!({ "prefix": { "addr": prefix.ip().to_string(), "len": prefix.prefix() } }))
+            .map(|prefix| {
+                // nft lists a singleton interval as an address, without /32.
+                if prefix.prefix() == 32 {
+                    return serde_json::json!(prefix.ip().to_string());
+                }
+                serde_json::json!({ "prefix": { "addr": prefix.ip().to_string(), "len": prefix.prefix() } })
+            })
             .collect()
     };
     let set = |name: &str, prefixes: Vec<ipnetwork::Ipv4Network>| {

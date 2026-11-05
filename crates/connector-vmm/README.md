@@ -328,8 +328,8 @@ service, so the boundary is drawn at reachability rather than at a list of
 things worth protecting.
 
 `egress::baseline` is that boundary: every prefix IANA's IPv4 Special-Purpose
-Address Registry marks as not globally reachable, plus multicast (listed in
-[`crates/egress`](../egress/README.md)), plus the VMM's own interface subnets
+Address Registry marks as not globally reachable, plus multicast and Azure's
+host-node virtual IP (listed in [`crates/egress`](../egress/README.md)), plus the VMM's own interface subnets
 read at start. A declared CIDR lifts it where they meet, except for
 `egress::excluded`: the prefixes which are not routed destinations or hold the
 metadata service or the tap, plus the VMM's own subnets.

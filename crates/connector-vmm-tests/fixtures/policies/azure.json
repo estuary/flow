@@ -1,0 +1,1 @@
+{"egress":"public","allowedNames":["name.acmeco.example"],"declaredCidrs":["168.63.129.16/32"]}

@@ -93,8 +93,8 @@ service, so the boundary is drawn at reachability rather than at a list of
 things worth protecting.
 
 `baseline` is that boundary. It holds every prefix IANA's IPv4 Special-Purpose
-Address Registry marks as not globally reachable, plus multicast, plus the
-VMM's own interface subnets read at start. A declared CIDR lifts it where they
+Address Registry marks as not globally reachable, plus multicast, Azure's
+host-node virtual IP, and the VMM's own interface subnets read at start. A declared CIDR lifts it where they
 meet, except for `excluded`: the prefixes which are not a destination a
 network routes to, or which hold the metadata service or the tap, plus the
 VMM's own subnets.
@@ -105,6 +105,7 @@ VMM's own subnets.
 | `10.0.0.0/8` | private use (RFC 1918) | reachable |
 | `100.64.0.0/10` | shared address space, carrier NAT (RFC 6598) | reachable |
 | `127.0.0.0/8` | loopback | excluded |
+| `168.63.129.16/32` | [Azure platform virtual IP](https://learn.microsoft.com/en-us/azure/virtual-network/what-is-ip-address-168-63-129-16) (WireServer, DNS, DHCP, health probes) | reachable |
 | `169.254.0.0/16` | link local, and every cloud's instance metadata service | excluded |
 | `172.16.0.0/12` | private use (RFC 1918) | reachable |
 | `192.0.0.0/24` | IETF protocol assignments: DS-Lite, NAT64/DNS64 discovery | reachable |
