@@ -12,17 +12,13 @@ use std::path::Path;
 
 const MIB: u64 = 1024 * 1024;
 
-/// Options chosen so nothing is left for the guest to finish. Lazy inode-table
-/// init would otherwise have the guest's `ext4lazyinit` thread write into the
-/// sparse file after mount, growing the host's backing store unpredictably;
-/// `lazy_itable_init=0` makes mke2fs flag every group ITABLE_ZEROED up front
-/// instead. The journal is dropped outright, which also makes
-/// `lazy_journal_init` moot, and the reserved-block percentage is zeroed
-/// because there is no root-versus-user distinction in the guest.
+/// The new sparse file reads as zero throughout. Mark inode tables zeroed
+/// without writing them or leaving work for the guest's ext4lazyinit thread.
+/// Scratch needs neither a journal nor blocks reserved for root.
 const MKFS: &str = "mkfs.ext4";
 const MKFS_OPTIONS: &[&str] = &[
     "-E",
-    "lazy_itable_init=0",
+    "assume_storage_prezeroed=1",
     "-O",
     "^has_journal",
     "-m",

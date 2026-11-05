@@ -33,7 +33,7 @@ const CONNECTOR_MOUNT: &str = "connector-mount";
 /// temporary directories are shared and sticky, as a container's are.
 pub fn mount_scratch() -> Result<()> {
     check_mount_target(SCRATCH)?;
-    sys::mount("/dev/vda", SCRATCH, "ext4", SCRATCH_FLAGS, "")?;
+    sys::mount("/dev/vda", SCRATCH, "ext4", SCRATCH_FLAGS, "discard")?;
 
     for (dir, target) in TEMP_DIRS {
         make_dir(dir, 0o1777)?;
