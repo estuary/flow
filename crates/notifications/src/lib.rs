@@ -3,7 +3,6 @@ mod background_publication_failed;
 mod data_movement_stalled;
 mod free_trial;
 mod free_trial_ending;
-mod free_trial_stalled;
 mod missing_payment_method;
 mod shard_failed;
 mod task_auto_disabled_failing;
@@ -141,7 +140,6 @@ impl Renderer {
         background_publication_failed::register_templates(&mut hb)?;
         data_movement_stalled::register_templates(&mut hb)?;
         free_trial::register_templates(&mut hb)?;
-        free_trial_stalled::register_templates(&mut hb)?;
         free_trial_ending::register_templates(&mut hb)?;
         missing_payment_method::register_templates(&mut hb)?;
         shard_failed::register_templates(&mut hb)?;
@@ -712,8 +710,8 @@ mod tests {
     }
 
     #[test]
-    fn test_free_trial_stalled_fired() {
-        let email = test_single_email(
+    fn test_free_trial_stalled_fired_sends_no_email() {
+        expect_no_email(
             AlertType::FreeTrialStalled,
             "acmeCo/",
             json!({
@@ -724,19 +722,11 @@ mod tests {
             }),
             State::Fired,
         );
-
-        assert_email(
-            &email,
-            user_b(),
-            EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Free Tier Grace Period for acmeCo/: No CC 💳❌",
-        );
-        insta::assert_snapshot!("free_trial_stalled_fired_body", email.body);
     }
 
     #[test]
-    fn test_free_trial_stalled_resolved() {
-        let email = test_single_email(
+    fn test_free_trial_stalled_resolved_sends_no_email() {
+        expect_no_email(
             AlertType::FreeTrialStalled,
             "acmeCo/",
             json!({
@@ -747,14 +737,6 @@ mod tests {
             }),
             State::Resolved,
         );
-
-        assert_email(
-            &email,
-            user_a(),
-            EXPECT_IDEMPOTENCY_KEY_RESOLVED,
-            "Free Tier Grace Period for acmeCo/: CC Entered 💳✅",
-        );
-        insta::assert_snapshot!("free_trial_stalled_resolved_body", email.body);
     }
 
     #[test]
