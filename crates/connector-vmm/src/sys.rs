@@ -27,14 +27,14 @@ pub fn run(program: &str, args: &[&str], stdin: Option<&[u8]>) -> anyhow::Result
         .spawn()
         .map_err(|e| anyhow::anyhow!("running {program}: {e}"))?;
 
-    if let Some(stdin) = stdin {
-        child
+    let write = match stdin {
+        Some(stdin) => child
             .stdin
             .take()
             .expect("stdin was piped")
-            .write_all(stdin)
-            .map_err(|e| anyhow::anyhow!("writing to {program}: {e}"))?;
-    }
+            .write_all(stdin),
+        None => Ok(()),
+    };
     let output = child
         .wait_with_output()
         .map_err(|e| anyhow::anyhow!("waiting for {program}: {e}"))?;
@@ -44,6 +44,7 @@ pub fn run(program: &str, args: &[&str], stdin: Option<&[u8]>) -> anyhow::Result
     if !output.status.success() {
         anyhow::bail!("{program} {}: {}", args.join(" "), output.status);
     }
+    write.map_err(|e| anyhow::anyhow!("writing to {program}: {e}"))?;
     Ok(())
 }
 
@@ -130,6 +131,41 @@ ruleset:3:30-37: Error: syntax error, unexpected string, expecting priority
             .expect_err("a non-zero exit is a failure");
 
         insta::assert_snapshot!(format!("{error:#}"));
+    }
+
+    #[test]
+    fn early_exit_with_input_preserves_status() {
+        if std::env::var_os("FLOW_VMM_PIPE_REGRESSION").is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "sys::tests::early_exit_with_input_preserves_status",
+                    "--nocapture",
+                ])
+                .env("FLOW_VMM_PIPE_REGRESSION", "1")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            insta::assert_snapshot!(String::from_utf8(output.stderr).unwrap());
+            return;
+        }
+        // More than a pipe can hold: the write must meet the closed reader,
+        // regardless of whether the child exits before the first write.
+        let input = vec![0; 8 * 1024 * 1024];
+        let error = super::run(
+            "/bin/sh",
+            &["-c", "exec 0<&-; printf '  invalid ruleset\\n' >&2; exit 3"],
+            Some(&input),
+        )
+        .expect_err("the child failed");
+        assert!(error.to_string().contains("exit status: 3"), "{error:#}");
+
+        let error = super::run("/bin/sh", &["-c", "exec 0<&-; exit 0"], Some(&input))
+            .expect_err("the successful child did not consume its input");
+        assert!(
+            error.to_string().starts_with("writing to /bin/sh:"),
+            "{error:#}"
+        );
     }
 
     /// The path `nft -f -` takes: the ruleset arrives on stdin.
