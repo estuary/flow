@@ -18,6 +18,8 @@
 //!    remembered CNAME target, with `allowAll` off: `REFUSED`, nothing sent
 //!    upstream, nothing added to the set. With `declaredCidrs`, such an
 //!    unnamed question is still forwarded if it is `A`: its answer decides.
+//!    A truncated upstream answer returns `SERVFAIL` for every query type.
+//!    No partial answer authorizes addresses or remembers targets.
 //! 5. A type other than `A`: forwarded, and answered as the upstream answered.
 //!    It authorizes no address and remembers no target.
 //! 6. `A`: forwarded. One answer address the policy does not reach condemns
@@ -249,6 +251,8 @@ pub enum Outcome {
     Unsupported,
     /// A permitted name asked as a type other than `A`, authorizing nothing.
     Forwarded,
+    /// The UDP answer requires TCP, which this resolver does not support.
+    Truncated,
     EmptyAaaa,
     RefusedName,
     RefusedPrivate(Ipv4Addr),
@@ -267,6 +271,7 @@ impl std::fmt::Display for Decision {
         let outcome = match &self.outcome {
             Outcome::Unsupported => "unsupported".to_string(),
             Outcome::Forwarded => "forwarded".to_string(),
+            Outcome::Truncated => "servfail-truncated".to_string(),
             Outcome::EmptyAaaa => "aaaa-empty".to_string(),
             Outcome::RefusedName => "refused-name".to_string(),
             Outcome::RefusedPrivate(address) => format!("refused-private={address}"),
@@ -403,10 +408,6 @@ impl Resolver {
                 answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
             });
         }
-        if question.qtype != dns::TYPE_A {
-            return Ok(self.forwarded(query, header.id, &question, name, qtype));
-        }
-
         let mut response = match self.forward(query, header.id, &question) {
             Ok(response) => response,
             Err(reason) => {
@@ -416,6 +417,24 @@ impl Resolver {
                 });
             }
         };
+        // A truncated RRset cannot authorize its partial addresses or targets.
+        if dns::header(&response)
+            .expect("forward validated the header")
+            .flags
+            & dns::FLAG_TRUNCATED
+            != 0
+        {
+            return Ok(Handled {
+                decision: decision(name, qtype, Outcome::Truncated),
+                answer: Some(dns::respond(query, &question, dns::RCODE_SERVFAIL)),
+            });
+        }
+        if question.qtype != dns::TYPE_A {
+            return Ok(Handled {
+                decision: decision(name, qtype, Outcome::Forwarded),
+                answer: Some(response),
+            });
+        }
         let records = match dns::answer_records(&response) {
             Ok(records) => records,
             Err(error) => return Ok(dropped(name, qtype, &error)),
@@ -544,27 +563,6 @@ impl Resolver {
             });
         }
         (deletes, adds)
-    }
-
-    /// Forward a permitted query whose answer authorizes nothing.
-    fn forwarded(
-        &mut self,
-        query: &[u8],
-        id: u16,
-        question: &dns::Question,
-        name: String,
-        qtype: u16,
-    ) -> Handled {
-        match self.forward(query, id, question) {
-            Ok(response) => Handled {
-                decision: decision(name, qtype, Outcome::Forwarded),
-                answer: Some(response),
-            },
-            Err(reason) => Handled {
-                decision: decision(name, qtype, Outcome::Dropped(reason)),
-                answer: None,
-            },
-        }
     }
 
     /// `Err` is a reason to drop this one query. A fresh socket per query,
@@ -891,6 +889,89 @@ mod tests {
             }
         }
         insta::assert_snapshot!(table);
+    }
+
+    #[test]
+    fn large_udp_answers() {
+        let socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = socket.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut buffer = [0; 4096];
+            for count in [8, 24, 64] {
+                for edns in [false, true] {
+                    let (read, peer) = socket.recv_from(&mut buffer).unwrap();
+                    let query = &buffer[..read];
+                    let limit = if edns { 1232 } else { 512 };
+                    assert_eq!(query[11], u8::from(edns));
+                    let mut question = query[..dns::first_question(query).unwrap().end].to_vec();
+                    question[11] = 0;
+                    let records = vec![Rr::A("pypi.org", public(1), 300); count];
+                    let mut answer = respond(&question, &records);
+                    if answer.len() > limit {
+                        // A complete partial RRset is legal in a TC response.
+                        answer = respond(&question, &records[..1]);
+                        answer[2] |= 0x02;
+                    }
+                    socket.send_to(&answer, peer).unwrap();
+                }
+            }
+        });
+        let mut table = String::new();
+        for count in [8, 24, 64] {
+            for edns in [false, true] {
+                let recorder = Recorder::default();
+                let mut resolver = resolver(address, recorder.clone());
+                let mut query = query(1, "pypi.org", dns::TYPE_A);
+                if edns {
+                    query[11] = 1;
+                    // Root owner, OPT, UDP payload 1232, no flags or data.
+                    query.extend([0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0]);
+                }
+                let handled = resolver.handle(&query, Instant::now()).unwrap();
+                let answer = handled.answer.unwrap();
+                writeln!(
+                    table,
+                    "records={count} edns={edns} bytes={} rcode={} writes={} outcome={}",
+                    answer.len(),
+                    answer[3] & 15,
+                    recorder.calls().len(),
+                    handled.decision
+                )
+                .unwrap();
+            }
+        }
+        server.join().unwrap();
+        insta::assert_snapshot!(table);
+    }
+
+    #[test]
+    fn truncated_non_a_authorizes_nothing() {
+        let socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = socket.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut buffer = [0; 4096];
+            let (read, peer) = socket.recv_from(&mut buffer).unwrap();
+            let mut response = respond(
+                &buffer[..read],
+                &[
+                    Rr::Cname("pypi.org", "cdn.acmeco.example", 300),
+                    Rr::A("cdn.acmeco.example", public(1), 300),
+                ],
+            );
+            response[2] |= 2;
+            socket.send_to(&response, peer).unwrap();
+        });
+        let recorder = Recorder::default();
+        let mut resolver = resolver(address, recorder.clone());
+        let handled = resolver
+            .handle(&query(1, "pypi.org", TYPE_MX), Instant::now())
+            .unwrap();
+        assert!(matches!(handled.decision.outcome, Outcome::Truncated));
+        assert_eq!(handled.answer.unwrap()[3] & 15, dns::RCODE_SERVFAIL as u8);
+        assert!(resolver.addresses.is_empty());
+        assert!(resolver.targets.is_empty());
+        assert!(recorder.calls().is_empty());
+        server.join().unwrap();
     }
 
     /// What was asked of the set, and when it was acknowledged: no element

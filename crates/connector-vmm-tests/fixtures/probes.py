@@ -138,6 +138,9 @@ def op_query(r):
                         for label in r["name"].split(".")) + b"\x00"
     message = struct.pack("!HHHHHH", query_id, 0x0100, 1, 0, 0, 0) + question
     message += struct.pack("!HH", r.get("qtype", 1), 1)
+    if r.get("edns"):
+        message = message[:10] + struct.pack("!H", 1) + message[12:]
+        message += struct.pack("!BHHIH", 0, 41, r["edns"], 0, 0)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(r["timeout"])

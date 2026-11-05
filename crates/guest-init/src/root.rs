@@ -83,7 +83,7 @@ fn etc_files(nameserver: Ipv4Addr, guest_ip: Ipv4Addr, hostname: &str) -> (Strin
     if !hostname.is_empty() && hostname != "localhost" {
         hosts.push_str(&format!("{guest_ip} {hostname}\n"));
     }
-    (format!("nameserver {nameserver}\n"), hosts)
+    (format!("nameserver {nameserver}\noptions edns0\n"), hosts)
 }
 
 /// Directories, regular files and symlinks, each with its owner and mode.

@@ -24,6 +24,7 @@ pub struct Nameserver {
 struct Zone {
     records: HashMap<String, Vec<Record>>,
     queries: Vec<String>,
+    limit_udp: bool,
 }
 
 /// Serve on `socket`, bound on one of the controlled endpoints.
@@ -39,15 +40,35 @@ pub fn serve(socket: UdpSocket) -> Nameserver {
                 return;
             };
             let mut zone = shared.lock().unwrap();
-            let Some((name, reply)) = answer(&buffer[..read], &zone.records) else {
+            let Some((name, mut reply)) = answer(&buffer[..read], &zone.records) else {
                 continue;
             };
+            if zone.limit_udp {
+                let query = &buffer[..read];
+                let (_, end) = read_name(query, 12).unwrap();
+                let opt = query.get(end + 4..).unwrap();
+                let limit = if opt.len() == 11 && opt[..3] == [0, 0, 41] {
+                    usize::from(u16::from_be_bytes([opt[3], opt[4]])).max(512)
+                } else {
+                    512
+                };
+                if reply.len() > limit {
+                    reply.truncate(end + 4);
+                    reply[2] |= 2;
+                    reply[6..8].copy_from_slice(&0u16.to_be_bytes());
+                }
+            }
             zone.queries.push(name);
             drop(zone);
             let _ = socket.send_to(&reply, peer);
         }
     });
     Nameserver { addr, zone }
+}
+
+/// Model upstream truncation at the client's EDNS size, or 512 without EDNS.
+pub fn limit_udp(nameserver: &Nameserver) {
+    nameserver.zone.lock().unwrap().limit_udp = true;
 }
 
 /// Replace what `name` answers. Names are lowercase.

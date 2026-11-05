@@ -377,7 +377,14 @@ delete-and-add batches under one deadline for the whole call; `nftset::retry`
 handles elements expiring before the delete commits. The netlink module
 documents acknowledgment and timeout behavior observed in the kernel.
 
-DNS is UDP-only: the ruleset does not admit TCP retries for oversized answers.
+DNS is UDP-only. The guest's `resolv.conf` enables `options edns0`, and
+queries preserve the client's EDNS advertisement upstream. Complete UDP
+answers pass the query and address gates. A truncated answer returns
+`SERVFAIL`, without authorizing addresses or remembering CNAME targets,
+including for non-A queries. This avoids a TCP retry the firewall cannot
+serve. Large answers that require TCP are unsupported; EDNS does not remove
+that compatibility limit. General DNS compatibility requires TCP support
+([RFC 7766](https://www.rfc-editor.org/rfc/rfc7766.html#section-5)).
 
 A refused name is reported to the task, once per name, as a `warn` JSON log
 line on stderr, which the launcher's stderr pump hands on: refused for its name,
