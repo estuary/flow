@@ -260,6 +260,10 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                         .into());
                     }
 
+                    // The GraphQL HTTP span declares `enduser.id`.
+                    tracing::Span::current()
+                        .record("enduser.id", tracing::field::display(verified.claims().sub));
+
                     MaybeControlClaims::with_verified(verified)
                 }
                 None => MaybeControlClaims::with_unauthenticated(),

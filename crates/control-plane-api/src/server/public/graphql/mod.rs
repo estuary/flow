@@ -4,6 +4,7 @@
 use async_graphql::{EmptySubscription, Schema, types::connection};
 use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
+use tracing::Instrument as _;
 
 /// A `CursorType` that is just a RFC3339 UTC timestamp.
 /// Used by any paginated connection that cursors on `created_at` or similar.
@@ -52,6 +53,7 @@ mod secrets;
 mod service_accounts;
 pub mod status;
 mod storage_mappings;
+mod telemetry;
 mod tenant;
 
 pub(crate) use scalars::{Sensitive, UInt64};
@@ -147,6 +149,7 @@ pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchem
         EmptySubscription,
     )
     .data(alert_config_defaults)
+    .extension(telemetry::Tracing)
     .extension(authorization::AuthorizationErrors)
     .finish()
 }
@@ -167,32 +170,24 @@ pub(crate) async fn graphql_handler(
 ) -> axum::response::Response {
     let pg_pool = env.pg_pool.clone();
 
-    let mut request =
-        req.data(app.clone())
-            .data(env)
-            .data(async_graphql::dataloader::DataLoader::new(
-                PgDataLoader(pg_pool.clone()),
-                tokio::spawn,
-            ));
+    let mut request = req
+        .data(app.clone())
+        .data(env)
+        .data(request_data_loader(PgDataLoader(pg_pool.clone())));
 
     if let Some(ref billing_provider) = app.billing_provider {
         request = request
             .data(billing_provider.clone())
-            .data(async_graphql::dataloader::DataLoader::new(
-                billing::StripeInvoiceLoader(billing_provider.clone()),
-                tokio::spawn,
-            ))
-            .data(async_graphql::dataloader::DataLoader::new(
-                billing::ChargeDataLoader(billing_provider.clone()),
-                tokio::spawn,
-            ))
-            .data(async_graphql::dataloader::DataLoader::new(
-                billing::CustomerDataLoader {
-                    pg_pool: pg_pool.clone(),
-                    provider: billing_provider.clone(),
-                },
-                tokio::spawn,
-            ));
+            .data(request_data_loader(billing::StripeInvoiceLoader(
+                billing_provider.clone(),
+            )))
+            .data(request_data_loader(billing::ChargeDataLoader(
+                billing_provider.clone(),
+            )))
+            .data(request_data_loader(billing::CustomerDataLoader {
+                pg_pool: pg_pool.clone(),
+                provider: billing_provider.clone(),
+            }));
     }
 
     if let Some(ref catalog_stats) = app.catalog_stats {
@@ -215,6 +210,14 @@ pub(crate) async fn graphql_handler(
     }
 
     axum::Json(response).into_response()
+}
+
+fn request_data_loader<T>(loader: T) -> async_graphql::dataloader::DataLoader<T> {
+    // A batch belongs to the request, regardless of which resolver schedules it.
+    let parent = tracing::Span::current();
+    async_graphql::dataloader::DataLoader::new(loader, move |future| {
+        tokio::spawn(future.instrument(parent.clone()))
+    })
 }
 
 /// Returns an HTML page for the GraphiQL interface, which allows users to

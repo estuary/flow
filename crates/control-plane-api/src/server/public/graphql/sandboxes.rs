@@ -35,6 +35,7 @@ impl Sandbox {
     }
 
     /// Commands started in this sandbox
+    #[tracing::instrument(name = "Sandbox.commands", skip_all)]
     async fn commands(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<Vec<Command>>> {
         let env = ctx.data::<crate::Envelope>()?;
 

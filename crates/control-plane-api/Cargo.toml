@@ -57,6 +57,8 @@ humantime-serde = { workspace = true }
 itertools = { workspace = true }
 jsonwebtoken = { workspace = true }
 lazy_static = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
@@ -77,6 +79,7 @@ tonic = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 unicode-normalization = { workspace = true }
 unicode-security = { workspace = true }
@@ -95,6 +98,7 @@ service-kit = { path = "../service-kit" }
 hmac = { workspace = true }
 insta = { workspace = true }
 md5 = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
 

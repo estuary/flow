@@ -41,6 +41,7 @@ pub struct AlertConfigEntry {
 impl AlertConfigEntry {
     /// The fully-resolved effective config at this scope, merging all
     /// ancestor prefix layers and controller defaults.
+    #[tracing::instrument(name = "AlertConfigEntry.effective", skip_all)]
     async fn effective(&self, ctx: &Context<'_>) -> async_graphql::Result<EffectiveAlertConfig> {
         resolve_effective_alert_config(ctx, &self.catalog_prefix_or_name).await
     }

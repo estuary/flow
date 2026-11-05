@@ -139,6 +139,7 @@ impl LiveSpec {
 
     /// The fully-resolved effective alert config for this task, merging all
     /// ancestor prefix layers and controller defaults.
+    #[tracing::instrument(name = "LiveSpec.effectiveAlertConfig", skip_all)]
     async fn effective_alert_config(
         &self,
         ctx: &Context<'_>,

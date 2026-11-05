@@ -2,6 +2,8 @@
 // Links in the allocator crate, which sets the global allocator to jemalloc
 extern crate allocator;
 
+mod telemetry;
+
 use anyhow::Context;
 use axum::http;
 use clap::Parser;
@@ -200,17 +202,7 @@ fn main() -> Result<(), anyhow::Error> {
 
     let args = Args::parse();
 
-    // Use reasonable defaults for printing structured logs to stderr.
-    let builder = tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env());
-    if args.log_format == LogFormat::Json {
-        tracing::subscriber::set_global_default(builder.json().finish())
-            .expect("setting tracing default failed");
-    } else {
-        let no_color = matches!(std::env::var("NO_COLOR"), Ok(v) if v == "1");
-        tracing::subscriber::set_global_default(builder.with_ansi(!no_color).finish())
-            .expect("setting tracing default failed");
-    };
+    let telemetry = telemetry::init(args.log_format)?;
     tracing::info!(?args, "started!");
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -222,6 +214,12 @@ fn main() -> Result<(), anyhow::Error> {
 
     tracing::info!(?result, "main function completed, shutting down runtime");
     runtime.shutdown_timeout(std::time::Duration::from_secs(5));
+    // Flush spans which ended after the last periodic export.
+    if let Some(provider) = telemetry {
+        if let Err(err) = provider.shutdown() {
+            tracing::warn!(?err, "trace export shutdown did not complete");
+        }
+    }
     result?
 }
 

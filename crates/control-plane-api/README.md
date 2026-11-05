@@ -54,6 +54,21 @@ Authorization applies the minted capability and prefix masks through
 access restrictions, so restricted tokens use a nonexistent Postgres role to
 prevent PostgREST from accepting the token at all.
 
+`server/telemetry.rs` defines `export_filter` and the HTTP span for
+`/api/graphql`; see the [agent README](../agent/README.md#tracing) for export
+configuration. The span records the route, method, response status, verified caller
+ID, and original `User-Agent`. Authentication and body rejections are traced too.
+Clients continue traces through `x-estuary-traceparent`, which carries a W3C
+`traceparent` value; Cloud Run replaces the standard header.
+
+`server/public/graphql/telemetry.rs` traces GraphQL requests and root fields other
+than introspection fields. Request spans record operation names and GraphQL errors,
+including their messages, codes, and paths. Nested resolvers that perform I/O or
+authorization use `#[tracing::instrument(name = "Type.field", skip_all)]`.
+Existing INFO-or-higher spans and events are exported under the request. The
+extension does not attach query documents, variables, or results. DataLoader
+batches inherit the HTTP span because loaders are created before GraphQL execution.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.
