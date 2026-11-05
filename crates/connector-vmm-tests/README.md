@@ -58,6 +58,8 @@ connector-init over a guest's vsock connection.
   upstream truncation, raw queries, and the guest's libc resolver.
 - `kvm::azure_platform_egress`: DNS refusal and direct TCP/UDP exclusion,
   including after the VMM removes its rules, plus explicit `/32` and `/0` grants.
+- `kvm::scratch_reclaims`: negotiated DISCARD without FLUSH and host backing
+  blocks reclaimed after guest deletion, allowing retained ext4 metadata.
 - `tests/dns_answers/`, `tests/dns_capacity/`: refused answers and capacity
   overflow must not partially authorize addresses in the kernel. Resolver
   unit tests cover TTL retention, CNAME capacity, and reclamation with explicit

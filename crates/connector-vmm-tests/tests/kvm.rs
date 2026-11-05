@@ -969,10 +969,10 @@ fn production_guest() {
     NoNewPrivs: 1
     cwd "/tmp": "same-file"
     /dev/root / virtiofs rw,relatime 0 0
-    /dev/vda /scratch ext4 rw,nosuid,nodev,relatime 0 0
-    /dev/vda /tmp ext4 rw,nosuid,nodev,relatime 0 0
-    /dev/vda /var/tmp ext4 rw,nosuid,nodev,relatime 0 0
-    /dev/vda /etc ext4 ro,nosuid,nodev,relatime 0 0
+    /dev/vda /scratch ext4 rw,nosuid,nodev,relatime,discard 0 0
+    /dev/vda /tmp ext4 rw,nosuid,nodev,relatime,discard 0 0
+    /dev/vda /var/tmp ext4 rw,nosuid,nodev,relatime,discard 0 0
+    /dev/vda /etc ext4 ro,nosuid,nodev,relatime,discard 0 0
     connector-mount /connector-mount virtiofs ro,nosuid,nodev,relatime 0 0
     "#);
 }
@@ -1107,6 +1107,71 @@ fn dns_udp_sizes() {
         serde_json::json!({"name": "large.acmeco.example"}),
     );
     assert!(large.as_str().unwrap().starts_with("error:gai"), "{large}");
+}
+
+/// Discard returns data blocks while the VM still owns the backing inode.
+#[test]
+fn scratch_reclaims() {
+    let run = run::load();
+    let (vmm, mut guest) = start(&run, run::Spec::probes(&run, "none.json"));
+    let pid = run::pid(&vmm);
+    let features = probe(
+        &mut guest,
+        "block-features",
+        "read",
+        serde_json::json!({
+            "path": "/sys/block/vda/device/features"
+        }),
+    );
+    let features = features["content"].as_str().expect("virtio block features");
+    assert_eq!(
+        features.as_bytes()[9],
+        b'0',
+        "scratch must not advertise FLUSH: {features}"
+    );
+    assert_eq!(
+        features.as_bytes()[13],
+        b'1',
+        "scratch must advertise DISCARD: {features}"
+    );
+    let before = host::fd_inode(pid, 3).bytes;
+    let written = 128 * MIB;
+    assert_eq!(
+        probe(
+            &mut guest,
+            "fill",
+            "fill",
+            serde_json::json!({"path": "/tmp/reclaim", "mib": 128})
+        ),
+        serde_json::json!({"written": written, "stop": "done"})
+    );
+    let filled = host::fd_inode(pid, 3).bytes;
+    assert!(
+        filled >= before + written * 9 / 10,
+        "before={before} filled={filled}"
+    );
+    assert_eq!(
+        probe(
+            &mut guest,
+            "delete",
+            "exec",
+            serde_json::json!({
+                "argv": ["/usr/local/bin/python", "-c", "import os; os.unlink('/tmp/reclaim'); os.sync()"]
+            })
+        ),
+        "exit:0"
+    );
+    let after = host::fd_inode(pid, 3).bytes;
+    eprintln!("scratch allocated bytes: before={before} filled={filled} after={after}");
+    // ext4 retains metadata; only the large data allocation must be reclaimed.
+    assert!(
+        filled >= after + written * 9 / 10,
+        "filled={filled} after={after}"
+    );
+    assert!(
+        after < before + written / 10,
+        "before={before} after={after}"
+    );
 }
 
 #[test]

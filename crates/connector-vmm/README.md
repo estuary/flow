@@ -112,8 +112,17 @@ because libkrun applies `HOME` and `TERM` last-wins.
 | connector mount | ro | shared into the guest at `/connector-mount`, checked at startup. `crates/connector` is the authority for its contents and the environment contract; `image::krun_config` gives those variables precedence over the image's. |
 | `/rootfs` | ro | a private image-backed volume, mounted `readonly`, checked at startup and served read-only as the guest's root. |
 | `/sock` | rw | libkrun binds `init.sock` here. |
-| `/scratch-backing` | rw | holds the `O_TMPFILE` scratch, sized by `--disk-mib` and formatted ext4. `src/disk.rs` has the descriptor and format details. Reclaimed when the VM exits. |
+| `/scratch-backing` | rw | holds the `O_TMPFILE` scratch, sized by `--disk-mib` and formatted ext4. `src/disk.rs` has the descriptor and format details. Guest discard releases deleted data blocks; the file is reclaimed when the VM exits. |
 | `/persistent-disk` | rw | only with `--persistent-disk`. `guest-init` mounts it `nodev,nosuid,noexec` and does not chown it. |
+
+Scratch uses libkrun's `KRUN_SYNC_NONE`: guest flush requests need no host
+hardware durability because the disk dies with the VM. The newly truncated
+sparse file reads as zero, so `mkfs.ext4 -E assume_storage_prezeroed=1` marks
+inode tables initialized without writing zeros or scheduling guest lazy init.
+The guest mounts scratch with `discard`; libkrun's raw block backend punches
+holes in the backing file when ext4 frees data. Filesystem metadata remains
+allocated. These settings apply only to disposable scratch, never persistent
+storage.
 
 Those three are the entire writable set, because the launch line passes
 `--read-only-tmpfs=false`: podman's `/tmp`, `/run` and `/var/tmp` are read-only

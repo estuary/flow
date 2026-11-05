@@ -41,7 +41,8 @@ the workload and becoming it. The VMM injects it into the guest root at
   refuses `/`, and every share mount resolves its destination before mounting
   to reject dot components or image-provided symlinks that name `/`.
 - **The root arrives read-only.** The VMM enforces this outside the guest.
-  The sized, disposable scratch disk is mounted at `/scratch`, root-owned:
+  The sized, disposable scratch disk is mounted at `/scratch`, root-owned,
+  with `discard` to release host backing blocks when files are deleted:
   - `/tmp` and `/var/tmp` are bound from `/scratch/tmp` and `/scratch/var-tmp`
     (1777), for a workload that names them rather than `TMPDIR`. `TMPDIR` is
     `/tmp` whatever the image's `Env` says.

@@ -24,7 +24,7 @@ const LOG_LEVEL_DEBUG: u32 = 4;
 const LOG_STYLE_NEVER: u32 = 2;
 
 const DISK_FORMAT_RAW: u32 = 0;
-const SYNC_RELAXED: u32 = 1;
+const SYNC_NONE: u32 = 0;
 
 /// The calls `launch::enter` makes, in the order it makes them.
 ///
@@ -217,7 +217,7 @@ impl Krun for Dynamic {
     fn add_scratch_disk(&self, ctx: u32, id: &str, path: &str) -> anyhow::Result<()> {
         let (id_c, path_c) = (cstring(id)?, cstring(path)?);
         // SAFETY: both strings outlive the call. Writable, no direct IO, and
-        // relaxed sync: the disk is unlinked already and dies with the VM, so
+        // no sync: the disk is unlinked already and dies with the VM, so
         // there is nothing for a flush to make durable.
         check(&format!("krun_add_disk3({id})"), unsafe {
             (self.add_disk3)(
@@ -227,7 +227,7 @@ impl Krun for Dynamic {
                 DISK_FORMAT_RAW,
                 false,
                 false,
-                SYNC_RELAXED,
+                SYNC_NONE,
             )
         })?;
         Ok(())
