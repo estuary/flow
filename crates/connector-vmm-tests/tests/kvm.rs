@@ -1049,6 +1049,66 @@ fn production_refuses_test_controls() {
     ");
 }
 
+/// Real libc and raw clients see complete UDP answers or a prompt SERVFAIL.
+#[test]
+fn dns_udp_sizes() {
+    let run = run::load();
+    let nameserver = scripted(&run, run.endpoints[0]);
+    dns::limit_udp(&nameserver);
+    let address = run.endpoints[1];
+    for (name, count) in [
+        ("small.acmeco.example", 4),
+        ("medium.acmeco.example", 20),
+        ("large.acmeco.example", 256),
+    ] {
+        dns::set(&nameserver, name, vec![dns::Record::A(address, 300); count]);
+    }
+    let mut spec = run::Spec::probes(&run, "capacity.json");
+    spec.flags = upstream(&nameserver);
+    let (vmm, mut guest) = start(&run, spec);
+    for (name, edns, want) in [
+        ("large.acmeco.example", 1232, "rcode:2"),
+        ("medium.acmeco.example", 0, "rcode:2"),
+        ("small.acmeco.example", 0, "ok"),
+        ("medium.acmeco.example", 1232, "ok"),
+    ] {
+        let answer = probe(
+            &mut guest,
+            "size",
+            "query",
+            serde_json::json!({
+                "name": name, "nameserver": "192.0.2.1", "edns": edns, "timeout": 5
+            }),
+        );
+        assert_eq!(answer["status"], want, "{name} edns={edns}: {answer}");
+        if want == "rcode:2" {
+            assert!(
+                host::resolved(&vmm.name).is_empty(),
+                "truncation authorized an address"
+            );
+        }
+    }
+    for name in ["small.acmeco.example", "medium.acmeco.example"] {
+        assert_eq!(
+            probe(
+                &mut guest,
+                "libc",
+                "resolve",
+                serde_json::json!({"name": name})
+            ),
+            format!("ok:{address}"),
+            "libc {name}"
+        );
+    }
+    let large = probe(
+        &mut guest,
+        "libc-large",
+        "resolve",
+        serde_json::json!({"name": "large.acmeco.example"}),
+    );
+    assert!(large.as_str().unwrap().starts_with("error:gai"), "{large}");
+}
+
 #[test]
 fn azure_platform_egress() {
     let run = run::load();

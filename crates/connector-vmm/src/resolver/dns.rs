@@ -27,6 +27,7 @@ pub const RCODE_REFUSED: u16 = 5;
 
 const HEADER_LEN: usize = 12;
 pub const FLAG_RESPONSE: u16 = 0x8000;
+pub const FLAG_TRUNCATED: u16 = 0x0200;
 /// The opcode's four bits, all clear for a standard QUERY.
 pub const FLAGS_OPCODE: u16 = 0x7800;
 const FLAG_RECURSION_AVAILABLE: u16 = 0x0080;

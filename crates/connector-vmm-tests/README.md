@@ -54,6 +54,8 @@ connector-init over a guest's vsock connection.
   `spec_rpc_through_init_sock`, `production_guest` and
   `production_refuses_test_controls` run the packaged VMM image, with
   connector-init as the workload where they boot a guest.
+- `kvm::dns_udp_sizes`: classic UDP and EDNS size limits with controlled
+  upstream truncation, raw queries, and the guest's libc resolver.
 - `kvm::azure_platform_egress`: DNS refusal and direct TCP/UDP exclusion,
   including after the VMM removes its rules, plus explicit `/32` and `/0` grants.
 - `tests/dns_answers/`, `tests/dns_capacity/`: refused answers and capacity
