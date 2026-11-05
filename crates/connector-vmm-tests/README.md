@@ -54,6 +54,8 @@ connector-init over a guest's vsock connection.
   `spec_rpc_through_init_sock`, `production_guest` and
   `production_refuses_test_controls` run the packaged VMM image, with
   connector-init as the workload where they boot a guest.
+- `kvm::azure_platform_egress`: DNS refusal and direct TCP/UDP exclusion,
+  including after the VMM removes its rules, plus explicit `/32` and `/0` grants.
 - `tests/dns_answers/`, `tests/dns_capacity/`: refused answers and capacity
   overflow must not partially authorize addresses in the kernel. Resolver
   unit tests cover TTL retention, CNAME capacity, and reclamation with explicit
@@ -138,8 +140,9 @@ kernel state; `src/guest.rs` talks to the stdlib Python probe server in
 `src/netns.rs` and `fixtures/bind.py` bind sockets in the endpoint namespace.
 The endpoints use addresses under `192.31.196.240/28`, routed one hop from
 the host so host-isolation rules apply. Excluded decoys use
-`198.18.255.240/28`; a declared CIDR may reach them, as it would private
-space. Both ranges are blackholed beneath their test routes;
+`198.18.255.240/28` and the simulated Azure platform address
+`168.63.129.16/32`; a declared CIDR may reach them, as it would private
+space. All ranges are blackholed beneath their test routes;
 the namespace routes only back to the host.
 
 ## Resources and diagnostics

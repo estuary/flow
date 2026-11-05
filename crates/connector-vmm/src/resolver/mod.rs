@@ -682,6 +682,7 @@ fn dropped(name: String, qtype: u16, error: &anyhow::Error) -> Handled {
 #[cfg(test)]
 mod tests {
     use super::{Config, Decision, Handled, Outcome, Refusals, Resolver, dns, nftset};
+    use std::fmt::Write as _;
     use std::net::{Ipv4Addr, SocketAddr};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
@@ -862,6 +863,34 @@ mod tests {
             }
         });
         (address, received)
+    }
+
+    #[test]
+    fn azure_platform_address() {
+        let address = Ipv4Addr::new(168, 63, 129, 16);
+        let upstream = upstream(vec![(
+            ("pypi.org", dns::TYPE_A),
+            vec![Rr::A("pypi.org", address, 300)],
+        )]);
+        let mut table = String::new();
+        for cidrs in [vec![], vec!["168.63.129.16/32"], vec!["0.0.0.0/0"]] {
+            for named in [false, true] {
+                let policy = serde_json::json!({
+                    "egress": "public",
+                    "allowedNames": if named { vec!["pypi.org"] } else { vec![] },
+                    "declaredCidrs": cidrs,
+                })
+                .to_string();
+                let recorder = Recorder::default();
+                let mut resolver = resolver_under(&policy, upstream, recorder.clone());
+                let handled = resolver
+                    .handle(&query(1, "pypi.org", dns::TYPE_A), Instant::now())
+                    .unwrap();
+                writeln!(table, "cidrs={cidrs:?} named={named}: {}", handled.decision).unwrap();
+                assert!(recorder.calls().is_empty());
+            }
+        }
+        insta::assert_snapshot!(table);
     }
 
     /// What was asked of the set, and when it was acknowledged: no element

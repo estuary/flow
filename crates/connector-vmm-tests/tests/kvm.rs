@@ -1049,6 +1049,71 @@ fn production_refuses_test_controls() {
     ");
 }
 
+#[test]
+fn azure_platform_egress() {
+    let run = run::load();
+    let azure = Ipv4Addr::new(168, 63, 129, 16);
+    assert_eq!(
+        run.decoys[2], azure,
+        "the Azure endpoint is isolated in the lab"
+    );
+    let nameserver = scripted(&run, run.endpoints[0]);
+    let name = "name.acmeco.example";
+    dns::set(&nameserver, name, vec![dns::Record::A(azure, 300)]);
+    let endpoint = listen(&run, azure);
+    let datagrams = echo(&run, azure);
+    for (policy, cidrs) in [
+        ("capacity.json", vec![]),
+        ("azure.json", vec!["168.63.129.16/32"]),
+        ("every-address.json", vec!["0.0.0.0/0"]),
+    ] {
+        let mut spec = run::Spec::probes(&run, policy);
+        spec.flags = upstream(&nameserver);
+        let (vmm, mut guest) = start(&run, spec);
+        let _permissions = (!cidrs.is_empty()).then(|| run::ingress(&run, &vmm, &[], &cidrs));
+        assert_eq!(
+            query(&mut guest, "azure", name, 1)["status"],
+            if cidrs.is_empty() { "rcode:5" } else { "ok" }
+        );
+        assert!(
+            host::resolved(&vmm.name).is_empty(),
+            "Azure is never DNS-authorized"
+        );
+        for compromised in [false, true] {
+            if compromised {
+                flush(&vmm);
+                attacker_nat(&vmm);
+            }
+            assert_eq!(
+                tcp(
+                    &mut guest,
+                    "azure-tcp",
+                    azure,
+                    endpoint.addr.port(),
+                    BLOCKED
+                ),
+                if cidrs.is_empty() {
+                    "timeout"
+                } else {
+                    "connected"
+                },
+                "{policy} compromised={compromised}"
+            );
+            assert_eq!(
+                udp(
+                    &mut guest,
+                    "azure-udp",
+                    azure,
+                    datagrams.addr.port(),
+                    BLOCKED
+                ),
+                if cidrs.is_empty() { "timeout" } else { "pong" },
+                "{policy} compromised={compromised}"
+            );
+        }
+    }
+}
+
 /// Where the guest's bytes land, and that the cgroup holds.
 #[test]
 fn storage() {
