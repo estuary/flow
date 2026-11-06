@@ -2215,10 +2215,13 @@ type MutationRoot {
 	"""
 	Stage specifications in a draft the caller owns, replacing all staged
 	fields under each name. Omitted `expectPubId` and `detail` are cleared.
-	The batch is atomic; returns the distinct staged names in catalog-name order.
+	Remove `unstageNames` before staging replacements, atomically. Missing names
+	are ignored; a name in both inputs is replaced. This only removes draft
+	entries, never published specifications.
+	Returns the distinct staged names in catalog-name order.
 	Catalog edit permissions are checked when publishing.
 	"""
-	stageDraftSpecs(draftId: Id!, specs: [DraftSpecInput!]!): [Name!]!
+	stageDraftSpecs(draftId: Id!, specs: [DraftSpecInput!]!, unstageNames: [Name!]): [Name!]!
 	"""
 	Drop staged specifications from a draft the caller owns, and return the
 	names actually dropped, in catalog-name order. This un-stages a pending

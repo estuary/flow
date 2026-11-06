@@ -776,6 +776,126 @@ async fn stage_draft_specs(pool: sqlx::PgPool) {
         scripts("data_planes", "alice", "drafts")
     )
 )]
+async fn stage_draft_specs_with_unstage_names(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    let draft_id = id(0x80);
+    let created_at = ts("2024-03-01T00:00:00Z");
+    insert_draft(&pool, draft_id, ALICE, "rename", created_at).await;
+    sqlx::query(
+        "INSERT INTO draft_specs (draft_id, catalog_name, spec_type, spec) VALUES
+         ($1, 'aliceCo/old', 'materialization', '{}'),
+         ($1, 'aliceCo/overlap', 'materialization', '{}')",
+    )
+    .bind(draft_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let server = start(&pool).await;
+    let alice_token = token(&server, ALICE);
+    let bob_token = token(&server, BOB);
+    let query = r#"mutation Stage($draftId: Id!, $specs: [DraftSpecInput!]!, $unstageNames: [Name!]) {
+        stageDraftSpecs(draftId: $draftId, specs: $specs, unstageNames: $unstageNames)
+    }"#;
+    let mut request = serde_json::json!({
+        "query": query,
+        "variables": {
+            "draftId": draft_id,
+            "unstageNames": ["aliceCo/old", "aliceCo/old", "aliceCo/overlap", "aliceCo/missing"],
+            "specs": [
+                {"catalogName": "aliceCo/new", "catalogType": "materialization", "model": {}},
+                {"catalogName": "aliceCo/overlap", "catalogType": "materialization", "model": {"replaced": true}}
+            ]
+        }
+    });
+    // Ownership applies to removals as well as replacements.
+    let denied: serde_json::Value = server.graphql(&request, Some(&bob_token)).await;
+    assert!(!denied["errors"].is_null());
+    // A rejected replacement must leave all removal targets intact.
+    let mut invalid = request.clone();
+    invalid["variables"]["specs"][1]["model"] = serde_json::Value::Null;
+    let rejected: serde_json::Value = server.graphql(&invalid, Some(&alice_token)).await;
+    assert!(!rejected["errors"].is_null());
+    let before: Vec<String> = sqlx::query_scalar(
+        "SELECT catalog_name::text FROM draft_specs WHERE draft_id = $1 ORDER BY catalog_name",
+    )
+    .bind(draft_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    insta::assert_json_snapshot!(before, @r#"
+    [
+      "aliceCo/old",
+      "aliceCo/overlap"
+    ]
+    "#);
+
+    let renamed: serde_json::Value = server.graphql(&request, Some(&alice_token)).await;
+    insta::assert_json_snapshot!(renamed, @r#"
+    {
+      "data": {
+        "stageDraftSpecs": [
+          "aliceCo/new",
+          "aliceCo/overlap"
+        ]
+      }
+    }
+    "#);
+    let after: Vec<(String, String)> = sqlx::query_as(
+        "SELECT catalog_name::text, spec::text FROM draft_specs WHERE draft_id = $1 ORDER BY catalog_name",
+    )
+    .bind(draft_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    insta::assert_json_snapshot!(after, @r#"
+    [
+      [
+        "aliceCo/new",
+        "{}"
+      ],
+      [
+        "aliceCo/overlap",
+        "{\"replaced\":true}"
+      ]
+    ]
+    "#);
+
+    // Removal-only batches touch the draft and return no staged names.
+    sqlx::query("UPDATE drafts SET updated_at = $2 WHERE id = $1")
+        .bind(draft_id)
+        .bind(created_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+    request["variables"]["specs"] = serde_json::json!([]);
+    request["variables"]["unstageNames"] = serde_json::json!(["aliceCo/new", "aliceCo/overlap"]);
+    let removed: serde_json::Value = server.graphql(&request, Some(&alice_token)).await;
+    insta::assert_json_snapshot!(removed, @r#"
+    {
+      "data": {
+        "stageDraftSpecs": []
+      }
+    }
+    "#);
+    let (remaining, touched): (i64, bool) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM draft_specs WHERE draft_id = $1), updated_at > $2 FROM drafts WHERE id = $1",
+    )
+    .bind(draft_id)
+    .bind(created_at)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((remaining, touched), (0, true));
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts")
+    )
+)]
 async fn stage_draft_specs_body_limit(pool: sqlx::PgPool) {
     let _guard = test_server::init();
     let draft_id = id(0x80);
