@@ -1539,6 +1539,20 @@ input IdFilter {
 }
 
 """
+A schema inferred from the documents of a collection.
+"""
+type InferredSchema {
+	"""
+	The inferred JSON schema.
+	"""
+	schema: JSON!
+	"""
+	The md5 of the inferred schema.
+	"""
+	md5: String!
+}
+
+"""
 Status of the inferred schema
 """
 type InferredSchemaStatus {
@@ -1782,6 +1796,11 @@ type LiveSpec {
 	ancestor prefix layers and controller defaults.
 	"""
 	effectiveAlertConfig: EffectiveAlertConfig!
+	"""
+	The current inferred schema of this collection. Null if this spec is
+	not a collection, or if no schema has been inferred for it.
+	"""
+	inferredSchema: InferredSchema
 }
 
 """
