@@ -54,6 +54,11 @@ Authorization applies the minted capability and prefix masks through
 access restrictions, so restricted tokens use a nonexistent Postgres role to
 prevent PostgREST from accepting the token at all.
 
+`stageDraftSpecs` accepts optional `unstageNames` to remove draft entries before
+staging replacements in the same transaction. Names present in both inputs are
+replaced; absent removal targets are ignored. Its result contains only staged
+names. Published specifications are unchanged.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.

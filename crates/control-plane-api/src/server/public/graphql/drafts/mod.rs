@@ -315,13 +315,17 @@ impl DraftsMutation {
 
     /// Stage specifications in a draft the caller owns, replacing all staged
     /// fields under each name. Omitted `expectPubId` and `detail` are cleared.
-    /// The batch is atomic; returns the distinct staged names in catalog-name order.
+    /// Remove `unstageNames` before staging replacements, atomically. Missing names
+    /// are ignored; a name in both inputs is replaced. This only removes draft
+    /// entries, never published specifications.
+    /// Returns the distinct staged names in catalog-name order.
     /// Catalog edit permissions are checked when publishing.
     async fn stage_draft_specs(
         &self,
         ctx: &Context<'_>,
         draft_id: models::Id,
         specs: Vec<DraftSpecInput>,
+        unstage_names: Option<Vec<models::Name>>,
     ) -> async_graphql::Result<Vec<models::Name>> {
         let env = ctx.data::<crate::Envelope>()?;
         let user_id = env.claims()?.subject().user_id;
@@ -335,6 +339,14 @@ impl DraftsMutation {
             spec.validate()?;
         }
 
+        let unstage_names = unstage_names.unwrap_or_default();
+        let unstage_refs: Vec<_> = unstage_names.iter().map(|name| name.as_str()).collect();
+        let removed = if unstage_refs.is_empty() {
+            Vec::new()
+        } else {
+            crate::draft::delete_specs(draft_id, &unstage_refs, &mut txn).await?
+        };
+
         for spec in &specs {
             crate::draft::replace_spec(
                 draft_id,
@@ -347,7 +359,7 @@ impl DraftsMutation {
             )
             .await?;
         }
-        if !specs.is_empty() {
+        if !specs.is_empty() || !removed.is_empty() {
             crate::draft::touch(draft_id, &mut txn).await?;
         }
 
