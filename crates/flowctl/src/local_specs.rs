@@ -1,5 +1,5 @@
+use crate::graphql::*;
 use anyhow::Context;
-use futures::TryStreamExt;
 use proto_flow::flow;
 
 /// Load and validate sources and derivation connectors (only).
@@ -125,7 +125,7 @@ async fn validate(
     log_handler: impl ops::LogHandler,
 ) -> build::Output {
     let mut live = Resolver {
-        pg: ctx.pg.clone(),
+        rest: ctx.rest.clone(),
         access_token: ctx.access_token(),
     }
     .resolve(draft.all_catalog_names())
@@ -242,23 +242,37 @@ pub(crate) fn pick_policy(
     }
 }
 
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../control-plane-api/control-plane-api.graphql",
+    query_path = "src/local-specs-query.graphql",
+    extern_enums("CatalogType")
+)]
+struct ResolveLiveSpecs;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../control-plane-api/control-plane-api.graphql",
+    query_path = "src/local-specs-query.graphql"
+)]
+struct ResolveStorageMappings;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../control-plane-api/control-plane-api.graphql",
+    query_path = "src/local-specs-query.graphql"
+)]
+struct ResolveReadablePrefixes;
+
 pub struct Resolver {
-    pub pg: postgrest::Postgrest,
+    pub rest: flow_client_next::rest::Client,
     pub access_token: Option<String>,
 }
 
 impl Resolver {
     pub async fn resolve(&self, catalog_names: Vec<&str>) -> tables::LiveCatalog {
-        let result = futures::try_join!(
-            self.resolve_specs(&catalog_names),
-            self.resolve_inferred_schemas(&catalog_names),
-        );
-
-        match result {
-            Ok((mut live, inferred_schemas)) => {
-                live.inferred_schemas = inferred_schemas;
-                live
-            }
+        match self.resolve_specs(&catalog_names).await {
+            Ok(live) => live,
             Err(err) => {
                 let mut live = tables::LiveCatalog::default();
                 live.errors.push(tables::Error {
@@ -271,21 +285,12 @@ impl Resolver {
     }
 
     async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
-        use models::CatalogType;
-
         let mut live = build::no_op_live_catalog();
 
-        // If we're unauthenticated then return the placeholder LiveCatalog.
-        if self.access_token.is_none() {
+        // If we're unauthenticated, or there's nothing to resolve, then return
+        // the placeholder LiveCatalog.
+        if self.access_token.is_none() || catalog_names.is_empty() {
             return Ok(live);
-        }
-
-        // Query storage mappings from the tenants of `catalog_names`.
-        #[derive(serde::Deserialize)]
-        struct StorageMappingRow {
-            catalog_prefix: models::Prefix,
-            id: models::Id,
-            spec: models::StorageDef,
         }
 
         // Extract all unique slash-terminated prefixes from catalog names.
@@ -296,312 +301,251 @@ impl Resolver {
             let mut index = 0;
             while let Some(pos) = name[index..].find('/') {
                 index = index + pos + 1;
-                prefixes.push(&name[..index]);
+                prefixes.push(name[..index].to_string());
             }
         }
         prefixes.sort();
         prefixes.dedup();
 
-        let storage_mappings = chunk_names(&prefixes)
-            .into_iter()
-            .map(|prefixes| {
-                let builder = self
-                    .pg
-                    .from("storage_mappings")
-                    .select("catalog_prefix,id,spec")
-                    .in_("catalog_prefix", prefixes);
-                let access_token = self.access_token.clone();
-
-                async move {
-                    flow_client_next::postgrest::exec::<Vec<StorageMappingRow>>(
-                        builder,
-                        access_token.as_deref(),
-                    )
-                    .await
-                }
-            })
-            .collect::<futures::stream::FuturesUnordered<_>>()
-            .try_collect::<Vec<Vec<StorageMappingRow>>>()
+        // Skip names that the caller can't read. Validation treats them as
+        // missing, as it does deleted specs, whereas `liveSpecs` fails the
+        // whole request if any name is unauthorized. `prefixes` matches its
+        // filter exactly, so it returns just the grants covering these names.
+        let mut readable = Vec::new();
+        let mut after = None;
+        loop {
+            let vars = resolve_readable_prefixes::Variables {
+                prefixes: prefixes.clone(),
+                after: after.take(),
+            };
+            let grants = post_graphql::<ResolveReadablePrefixes>(
+                &self.rest,
+                self.access_token.as_deref(),
+                vars,
+            )
             .await
-            .context("failed to fetch storage mappings")?;
+            .context("failed to fetch authorized prefixes")?
+            .prefixes;
 
-        // Row-level security keeps `recovery/` mappings out of reach here,
-        // so local builds carry no recovery stores. Local builds also make no
-        // data-plane placement: that happens when a draft is published.
-        for row in storage_mappings.into_iter().flatten() {
-            if row.catalog_prefix.starts_with("recovery/") {
-                continue; // Does not actually happen in practice.
+            readable.extend(
+                grants
+                    .edges
+                    .into_iter()
+                    .filter(|edge| {
+                        edge.node.capabilities.iter().any(|bit| {
+                            matches!(bit, resolve_readable_prefixes::CapabilityBit::CatalogRead)
+                        })
+                    })
+                    .map(|edge| edge.node.prefix),
+            );
+            if !grants.page_info.has_next_page {
+                break;
             }
-            live.storage_mappings.insert_row(
-                &row.catalog_prefix,
-                row.id,
-                &row.spec.stores,
-                Vec::new(),
+            after = grants.page_info.end_cursor;
+            assert!(after.is_some(), "prefixes pageInfo missing endCursor");
+        }
+        let names: Vec<Name> = catalog_names
+            .iter()
+            .filter(|name| {
+                readable
+                    .iter()
+                    .any(|prefix| name.starts_with(prefix.as_str()))
+            })
+            .map(|name| Name::new(*name))
+            .collect();
+
+        // The API never returns `recovery/` mappings, so local builds carry no
+        // recovery stores. Local builds also make no data-plane placement:
+        // that happens when a draft is published.
+        let mut after = None;
+        loop {
+            let vars = resolve_storage_mappings::Variables {
+                prefixes: prefixes.clone(),
+                after: after.take(),
+            };
+            let mappings = post_graphql::<ResolveStorageMappings>(
+                &self.rest,
+                self.access_token.as_deref(),
+                vars,
+            )
+            .await
+            .context("failed to fetch storage mappings")?
+            .storage_mappings;
+
+            for edge in mappings.edges {
+                let stores = edge
+                    .node
+                    .fragment_stores
+                    .into_iter()
+                    .map(into_store)
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                live.storage_mappings.insert_row(
+                    &edge.node.catalog_prefix,
+                    models::Id::zero(), // Mapping IDs aren't exposed, and local builds don't use them.
+                    &stores,
+                    Vec::new(),
+                );
+            }
+            if !mappings.page_info.has_next_page {
+                break;
+            }
+            after = mappings.page_info.end_cursor;
+            assert!(
+                after.is_some(),
+                "storageMappings pageInfo missing endCursor"
             );
         }
 
-        #[derive(serde::Deserialize)]
-        struct LiveSpec {
-            id: models::Id,
-            catalog_name: String,
-            data_plane_id: models::Id,
-            spec_type: CatalogType,
-            #[serde(alias = "spec")]
-            model: models::RawValue,
-            built_spec: models::RawValue,
-            last_pub_id: models::Id,
-            last_build_id: models::Id,
-            dependency_hash: Option<String>,
+        if names.is_empty() {
+            return Ok(live);
         }
-
-        let rows = chunk_names(catalog_names)
-            .into_iter()
-            .map(|names| {
-                let builder = self
-                    .pg
-                    .from("live_specs_ext")
-                    .select("id,catalog_name,data_plane_id,spec_type,spec,built_spec,last_pub_id,last_build_id")
-                    .not("is", "spec_type", "null")
-                    .in_("catalog_name", names);
-                let access_token = self.access_token.clone();
-
-                async move {
-                    flow_client_next::postgrest::exec::<Vec<LiveSpec>>(
-                        builder,
-                        access_token.as_deref(),
-                    )
+        let mut after = None;
+        loop {
+            let vars = resolve_live_specs::Variables {
+                names: names.clone(),
+                after: after.take(),
+            };
+            let specs =
+                post_graphql::<ResolveLiveSpecs>(&self.rest, self.access_token.as_deref(), vars)
                     .await
-                }
-            })
-            .collect::<futures::stream::FuturesUnordered<_>>()
-            .try_collect::<Vec<Vec<LiveSpec>>>()
-            .await
-            .context("failed to fetch live specs")?;
+                    .context("failed to fetch live specs")?
+                    .live_specs;
 
-        for LiveSpec {
-            id,
-            catalog_name,
-            spec_type,
-            model,
-            built_spec,
-            last_pub_id,
-            last_build_id,
-            data_plane_id,
-            dependency_hash,
-        } in rows.into_iter().flat_map(|i| i.into_iter())
-        {
-            match spec_type {
-                CatalogType::Capture => live.captures.insert_row(
-                    models::Capture::new(catalog_name),
-                    id,
+            for edge in specs.edges {
+                // Deleted specs have a name but no live spec.
+                let Some(resolve_live_specs::SelectLiveSpec {
+                    live_spec_id: id,
+                    catalog_type: spec_type,
                     data_plane_id,
                     last_pub_id,
                     last_build_id,
-                    serde_json::from_str::<models::CaptureDef>(model.get())?,
-                    serde_json::from_str::<flow::CaptureSpec>(built_spec.get())?,
-                    dependency_hash,
-                ),
-                CatalogType::Collection => live.collections.insert_row(
-                    models::Collection::new(catalog_name),
-                    id,
-                    data_plane_id,
-                    last_pub_id,
-                    last_build_id,
-                    serde_json::from_str::<models::CollectionDef>(model.get())?,
-                    serde_json::from_str::<flow::CollectionSpec>(built_spec.get())?,
-                    dependency_hash,
-                ),
-                CatalogType::Materialization => live.materializations.insert_row(
-                    models::Materialization::new(catalog_name),
-                    id,
-                    data_plane_id,
-                    last_pub_id,
-                    last_build_id,
-                    serde_json::from_str::<models::MaterializationDef>(model.get())?,
-                    serde_json::from_str::<flow::MaterializationSpec>(built_spec.get())?,
-                    dependency_hash,
-                ),
-                CatalogType::Test => live.tests.insert_row(
-                    models::Test::new(catalog_name),
-                    id,
-                    last_pub_id,
-                    last_build_id,
-                    serde_json::from_str::<models::TestDef>(model.get())?,
-                    serde_json::from_str::<flow::TestSpec>(built_spec.get())?,
-                    dependency_hash,
-                ),
+                    model,
+                    built_spec,
+                    inferred_schema,
+                }) = edge.node.live_spec
+                else {
+                    continue;
+                };
+                let catalog_name = edge.node.catalog_name.to_string();
+                let model =
+                    model.with_context(|| format!("live spec {catalog_name} has no model"))?;
+                let built_spec = built_spec
+                    .with_context(|| format!("live spec {catalog_name} has no built spec"))?;
+
+                if let Some(inferred) = inferred_schema {
+                    live.inferred_schemas.insert_row(
+                        models::Collection::new(&catalog_name),
+                        models::Schema::new(inferred.schema),
+                        inferred.md5,
+                    );
+                }
+
+                match spec_type {
+                    CatalogType::Capture => live.captures.insert_row(
+                        models::Capture::new(catalog_name),
+                        id,
+                        data_plane_id,
+                        last_pub_id,
+                        last_build_id,
+                        serde_json::from_str::<models::CaptureDef>(model.get())?,
+                        serde_json::from_str::<flow::CaptureSpec>(built_spec.get())?,
+                        None,
+                    ),
+                    CatalogType::Collection => live.collections.insert_row(
+                        models::Collection::new(catalog_name),
+                        id,
+                        data_plane_id,
+                        last_pub_id,
+                        last_build_id,
+                        serde_json::from_str::<models::CollectionDef>(model.get())?,
+                        serde_json::from_str::<flow::CollectionSpec>(built_spec.get())?,
+                        None,
+                    ),
+                    CatalogType::Materialization => live.materializations.insert_row(
+                        models::Materialization::new(catalog_name),
+                        id,
+                        data_plane_id,
+                        last_pub_id,
+                        last_build_id,
+                        serde_json::from_str::<models::MaterializationDef>(model.get())?,
+                        serde_json::from_str::<flow::MaterializationSpec>(built_spec.get())?,
+                        None,
+                    ),
+                    CatalogType::Test => live.tests.insert_row(
+                        models::Test::new(catalog_name),
+                        id,
+                        last_pub_id,
+                        last_build_id,
+                        serde_json::from_str::<models::TestDef>(model.get())?,
+                        serde_json::from_str::<flow::TestSpec>(built_spec.get())?,
+                        None,
+                    ),
+                }
             }
+            if !specs.page_info.has_next_page {
+                break;
+            }
+            after = specs.page_info.end_cursor;
+            assert!(after.is_some(), "liveSpecs pageInfo missing endCursor");
         }
 
         Ok(live)
     }
-
-    async fn resolve_inferred_schemas(
-        &self,
-        catalog_names: &[&str],
-    ) -> anyhow::Result<tables::InferredSchemas> {
-        // If we're unauthenticated then return empty InferredSchemas rather than an error.
-        if self.access_token.is_none() {
-            return Ok(Default::default());
-        }
-
-        #[derive(serde::Deserialize, Clone)]
-        struct Row {
-            pub collection_name: models::Collection,
-            pub schema: models::Schema,
-            pub md5: String,
-        }
-
-        let rows = chunk_names(catalog_names)
-            .into_iter()
-            .map(|names| {
-                let builder = self
-                    .pg
-                    .from("inferred_schemas")
-                    .select("collection_name,schema,md5")
-                    .in_("collection_name", names);
-                let access_token = self.access_token.clone();
-
-                async move {
-                    flow_client_next::postgrest::exec::<Vec<Row>>(builder, access_token.as_deref())
-                        .await
-                }
-            })
-            .collect::<futures::stream::FuturesUnordered<_>>()
-            .try_collect::<Vec<Vec<Row>>>()
-            .await
-            .context("failed to fetch inferred schemas")?;
-
-        let mut inferred = tables::InferredSchemas::default();
-
-        for Row {
-            collection_name,
-            schema,
-            md5,
-        } in rows.into_iter().flat_map(|i| i.into_iter())
-        {
-            inferred.insert_row(collection_name, schema, md5);
-        }
-
-        Ok(inferred)
-    }
 }
 
-// PostgREST passes query predicates (like `column=in.(a,b,c)`) as URL query
-// parameters, so fetching a large set of catalog names in a single request can
-// produce a URL that exceeds a server or proxy length limit. We therefore split
-// fetches into chunks bounded by the encoded length of the names they contain,
-// which adapts to how long the names are: deeply-nested names (which
-// percent-encode each `/` to `%2F`) can be well over 100 characters each.
-//
-// Encoded-length budget, in characters, for the names within a single chunk.
-// Chosen so the overall URL stays comfortably below the ~2048 byte limit that
-// stricter proxies impose, after accounting for the scheme, host, and path.
-const API_FETCH_URL_BUDGET: usize = 1800;
+/// Map a fragment store, which flattens the fields of every provider,
+/// into the store model of its provider.
+fn into_store(
+    store: resolve_storage_mappings::SelectFragmentStore,
+) -> anyhow::Result<models::Store> {
+    use resolve_storage_mappings::FragmentStoreProvider as Provider;
 
-/// Estimate the percent-encoded length that `name` contributes to a URL query.
-/// Unreserved characters map to a single byte, and everything else (notably the
-/// `/` path separators within catalog names) expands to a three-byte `%XX`
-/// escape. This intentionally over-estimates rather than under-estimates.
-fn encoded_len(name: &str) -> usize {
-    name.bytes()
-        .map(|b| {
-            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
-                1
-            } else {
-                3
-            }
-        })
-        .sum()
-}
+    let resolve_storage_mappings::SelectFragmentStore {
+        provider,
+        prefix,
+        bucket,
+        region,
+        storage_account_name,
+        container_name,
+        account_tenant_id,
+        endpoint,
+    } = store;
 
-/// Split `names` into chunks whose combined encoded length stays within
-/// [`API_FETCH_URL_BUDGET`]. A name longer than the budget on its own still
-/// occupies a chunk by itself, as that's the best we can do without a different
-/// query mechanism.
-fn chunk_names<'a>(names: &[&'a str]) -> Vec<Vec<&'a str>> {
-    let mut chunks = Vec::new();
-    let mut chunk: Vec<&'a str> = Vec::new();
-    let mut chunk_len = 0;
+    let prefix = prefix.map(models::Prefix::new);
+    let bucket = bucket.context("fragment store has no bucket");
 
-    for &name in names {
-        let cost = encoded_len(name) + 3; // +3 for the `%2C` value separator.
-
-        if !chunk.is_empty() && chunk_len + cost > API_FETCH_URL_BUDGET {
-            chunks.push(std::mem::take(&mut chunk));
-            chunk_len = 0;
-        }
-        chunk.push(name);
-        chunk_len += cost;
-    }
-    if !chunk.is_empty() {
-        chunks.push(chunk);
-    }
-    chunks
+    Ok(match provider {
+        Provider::S3 => models::Store::S3(models::S3StorageConfig {
+            bucket: bucket?,
+            prefix,
+            region,
+        }),
+        Provider::GCS => models::Store::Gcs(models::GcsBucketAndPrefix {
+            bucket: bucket?,
+            prefix,
+        }),
+        Provider::AZURE => models::Store::Azure(models::AzureStorageConfig {
+            account_tenant_id: account_tenant_id.context("Azure store has no tenant ID")?,
+            storage_account_name: storage_account_name
+                .context("Azure store has no storage account")?,
+            container_name: container_name.context("Azure store has no container")?,
+            prefix,
+        }),
+        Provider::CUSTOM => models::Store::Custom(models::CustomStore {
+            bucket: bucket?,
+            endpoint: models::StorageEndpoint::new(
+                endpoint.context("custom store has no endpoint")?,
+            ),
+            prefix,
+        }),
+        Provider::Other(other) => anyhow::bail!("unknown fragment store provider {other}"),
+    })
 }
 
 #[cfg(test)]
 mod test {
-    use super::{API_FETCH_URL_BUDGET, chunk_names, encoded_len, select_task};
-
-    fn chunk_encoded_len(chunk: &[&str]) -> usize {
-        chunk.iter().map(|n| encoded_len(n) + 3).sum()
-    }
-
-    // Every chunk must fit within the budget, unless it holds a single name that
-    // is itself larger than the budget (which we can't split further).
-    fn assert_chunks_within_budget(chunks: &[Vec<&str>], expected_total: usize) {
-        for chunk in chunks {
-            assert!(
-                chunk_encoded_len(chunk) <= API_FETCH_URL_BUDGET || chunk.len() == 1,
-                "chunk of {} names exceeded budget at {} chars",
-                chunk.len(),
-                chunk_encoded_len(chunk),
-            );
-        }
-        assert_eq!(chunks.iter().map(Vec::len).sum::<usize>(), expected_total);
-    }
-
-    #[test]
-    fn short_names_pack_into_a_single_chunk() {
-        let names: Vec<String> = (0..60).map(|i| format!("acmeCo/c{i}")).collect();
-        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-
-        let chunks = chunk_names(&refs);
-        // 60 short names encode to well under the budget, so they all fit in one
-        // request.
-        assert_eq!(chunks.len(), 1);
-        assert_chunks_within_budget(&chunks, refs.len());
-    }
-
-    #[test]
-    fn long_names_split_below_the_url_budget() {
-        // Deeply-nested names, each of which percent-encodes to over 100 chars.
-        let names: Vec<String> = (0..40)
-            .map(|i| {
-                format!("acmeCo/prod/source/aurora_postgres/data/main_db/documents/table_{i:03}")
-            })
-            .collect();
-        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-
-        let chunks = chunk_names(&refs);
-        assert!(chunks.len() > 1, "long names should split into many chunks");
-        assert_chunks_within_budget(&chunks, refs.len());
-    }
-
-    #[test]
-    fn a_single_oversized_name_gets_its_own_chunk() {
-        let huge = "x/".repeat(API_FETCH_URL_BUDGET); // Far larger than the budget.
-        let refs = vec!["a", huge.as_str(), "b"];
-
-        let chunks = chunk_names(&refs);
-        assert_eq!(chunks, vec![vec!["a"], vec![huge.as_str()], vec!["b"]]);
-    }
-
-    #[test]
-    fn empty_input_yields_no_chunks() {
-        assert!(chunk_names(&[]).is_empty());
-    }
+    use super::select_task;
 
     #[test]
     fn select_task_disables_all_other_tasks() {
