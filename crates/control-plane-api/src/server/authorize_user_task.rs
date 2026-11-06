@@ -62,7 +62,7 @@ pub async fn authorize_user_task(
     }))
 }
 
-fn evaluate_authorization<'s>(
+pub(crate) fn evaluate_authorization<'s>(
     snapshot: &'s crate::Snapshot,
     claims: &crate::ControlClaims,
     task_name: &models::Name,
