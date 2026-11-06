@@ -1312,6 +1312,12 @@ async fn test_shard_failure_alert_and_retry_windows() {
             true,
         ),
     ] {
+        // These fixtures reuse a build ID; clear failure history from previous runs.
+        harness
+            .control_plane()
+            .delete_shard_failures(name.to_string(), models::Id::zero(), Utc::now())
+            .await
+            .unwrap();
         insert_capture_for_controller(&pool, name, TimeDelta::hours(1)).await;
         harness.upsert_alert_config(name, config).await;
         let state = harness.run_pending_controller(name).await;
