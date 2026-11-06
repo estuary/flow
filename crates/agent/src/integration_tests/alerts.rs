@@ -1218,7 +1218,7 @@ async fn test_shard_failed_enabled_false() {
     harness
         .upsert_alert_config(
             "foxes/",
-            serde_json::json!({ "shardFailed": { "enabled": false } }),
+            serde_json::json!({ "shardFailed": { "enabled": false, "condition": { "failures": 3 } } }),
         )
         .await;
 
@@ -1275,4 +1275,136 @@ async fn test_shard_failed_enabled_false() {
     harness
         .assert_alert_clear("foxes/capture", AlertType::ShardFailed)
         .await;
+}
+
+#[tokio::test]
+async fn test_shard_failure_alert_and_retry_windows() {
+    use crate::ControlPlane;
+    use models::status::activation::ShardFailure;
+
+    let mut harness = TestHarness::init("test_shard_failure_alert_and_retry_windows").await;
+    harness.setup_tenant("acme").await;
+    let pool = harness.pool.clone();
+
+    for (name, config, ages, expected_count, expected_alert, backoff) in [
+        (
+            "acme/default",
+            serde_json::json!({}),
+            vec![65, 130, 195, 260, 325, 390, 455, 540],
+            8,
+            Some(8),
+            false,
+        ),
+        (
+            "acme/short",
+            serde_json::json!({ "shardFailed": { "condition": { "failures": 2, "per": "30m" } } }),
+            vec![15, 45, 75, 180],
+            4,
+            Some(2),
+            true,
+        ),
+        (
+            "acme/disabled",
+            serde_json::json!({ "shardFailed": { "enabled": false, "condition": { "failures": 2, "per": "30m" } } }),
+            vec![15, 45, 75, 180],
+            4,
+            None,
+            true,
+        ),
+    ] {
+        insert_capture_for_controller(&pool, name, TimeDelta::hours(1)).await;
+        harness.upsert_alert_config(name, config).await;
+        let state = harness.run_pending_controller(name).await;
+        assert!(state.error.is_none(), "{name}: {:?}", state.error);
+        harness.control_plane().reset_activations();
+
+        let now = harness.control_plane().current_time();
+        let shard = super::shard_failures::shard_ref(state.last_build_id, name);
+        let failure = ShardFailure {
+            shard,
+            ts: now,
+            message: "a test error".to_string(),
+            fields: Default::default(),
+        };
+        let older_failures = ages
+            .into_iter()
+            .map(|minutes| ShardFailure {
+                ts: now - TimeDelta::minutes(minutes),
+                ..failure.clone()
+            })
+            .collect();
+        harness
+            .control_plane()
+            .insert_shard_failures(older_failures)
+            .await
+            .unwrap();
+
+        if !backoff {
+            // Seven failures in the alert window still retry immediately.
+            let state = harness.run_pending_controller(name).await;
+            assert!(state.error.is_none(), "{name}: {:?}", state.error);
+            assert!(
+                !state
+                    .current_status
+                    .alerts_status()
+                    .unwrap()
+                    .contains_key(&AlertType::ShardFailed)
+            );
+            harness.control_plane().assert_activated(
+                "before threshold",
+                name,
+                models::CatalogType::Capture,
+            );
+        }
+
+        harness
+            .control_plane()
+            .insert_shard_failures(vec![failure])
+            .await
+            .unwrap();
+        let state = harness.run_pending_controller(name).await;
+        assert!(state.error.is_none(), "{name}: {:?}", state.error);
+        let activation = state.current_status.activation_status().unwrap();
+        let failures = harness
+            .control_plane()
+            .get_shard_failures(name.to_string())
+            .await
+            .unwrap();
+        assert_eq!(expected_count, failures.len(), "{name}: retained failures");
+        assert_eq!(
+            expected_count as u32, activation.recent_failure_count,
+            "{name}"
+        );
+        let alert_count = state
+            .current_status
+            .alerts_status()
+            .unwrap()
+            .get(&AlertType::ShardFailed)
+            .map(|alert| alert.count);
+        assert_eq!(expected_alert, alert_count, "{name}: alert window count");
+
+        if backoff {
+            let retry_at = activation
+                .next_retry
+                .expect("four recent failures must back off");
+            assert!(
+                retry_at >= now + TimeDelta::minutes(8),
+                "{name}: {retry_at}"
+            );
+            assert!(
+                retry_at <= harness.control_plane().current_time() + TimeDelta::minutes(12),
+                "{name}: {retry_at}"
+            );
+            harness
+                .control_plane()
+                .assert_activations("waiting for retry", vec![]);
+        } else {
+            assert!(activation.next_retry.is_none());
+            harness.control_plane().assert_activated(
+                "alert without backoff",
+                name,
+                models::CatalogType::Capture,
+            );
+        }
+    }
 }

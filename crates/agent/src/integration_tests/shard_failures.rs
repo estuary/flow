@@ -14,6 +14,12 @@ use uuid::Uuid;
 async fn test_shard_failures_and_retries() {
     let mut harness = TestHarness::init("test_shard_failures_and_retries").await;
     let _user_id = harness.setup_tenant("pandas").await;
+    harness
+        .upsert_alert_config(
+            "pandas/",
+            serde_json::json!({ "shardFailed": { "condition": { "failures": 3 } } }),
+        )
+        .await;
 
     let draft = draft_catalog(serde_json::json!({
         "collections": {
@@ -829,7 +835,7 @@ async fn test_spec_deletion_cleans_up_alerts() {
     harness
         .upsert_alert_config(
             "foxes/",
-            serde_json::json!({ "shardFailed": { "enabled": true } }),
+            serde_json::json!({ "shardFailed": { "condition": { "failures": 3 } } }),
         )
         .await;
 

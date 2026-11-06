@@ -386,8 +386,8 @@ async fn trigger_shard_failed_alert(
     let state = harness.get_controller_state(catalog_name).await;
     let shard = shard_ref(state.last_build_id, catalog_name);
 
-    // Insert enough failures to trigger the alert (default threshold is 3)
-    for _ in 0..3 {
+    // Insert enough failures to trigger the default alert.
+    for _ in 0..8 {
         harness.fail_shard(&shard).await;
     }
 
