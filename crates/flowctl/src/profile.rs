@@ -4,7 +4,7 @@ use anyhow::Context;
 use models::authorizations::ControlClaims;
 use std::path::Path;
 
-/// List configuration profiles and show the active profile.
+/// List configuration profiles, and show or save the active profile.
 ///
 /// A profile is a `<name>.json` file in the flowctl config directory.
 /// `flowctl --profile <name> auth login` creates one.
@@ -22,13 +22,23 @@ pub enum Command {
     List,
     /// Show the active profile and where the choice came from.
     ///
-    /// The active profile is the first of:
-    /// the `--profile` flag, $FLOWCTL_PROFILE, and "default".
+    /// The active profile is the first of: the `--profile` flag,
+    /// $FLOWCTL_PROFILE, the profile saved by `flowctl profile use`, and "default".
     Current,
+    /// Save a profile as the active profile.
+    Use(Use),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct Use {
+    /// Name of an existing profile.
+    name: String,
 }
 
 const DEFAULT_PROFILE: &str = "default";
 const FLOWCTL_PROFILE: &str = "FLOWCTL_PROFILE";
+/// File in the config directory that holds the name saved by `profile use`.
+const ACTIVE_PROFILE_FILE: &str = "active-profile";
 
 /// What chose the active profile.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
@@ -36,6 +46,7 @@ const FLOWCTL_PROFILE: &str = "FLOWCTL_PROFILE";
 pub enum Source {
     Flag,
     Env,
+    Saved,
     Default,
 }
 
@@ -44,6 +55,7 @@ impl std::fmt::Display for Source {
         f.write_str(match self {
             Source::Flag => "--profile flag",
             Source::Env => "FLOWCTL_PROFILE environment variable",
+            Source::Saved => "saved by `flowctl profile use`",
             Source::Default => "default",
         })
     }
@@ -55,20 +67,27 @@ pub struct Active {
     pub source: Source,
 }
 
-/// Resolve the active profile from the `--profile` flag and $FLOWCTL_PROFILE.
-pub fn active(flag: Option<&str>) -> anyhow::Result<Active> {
-    // clap's `env` ignored an empty variable, and this keeps that behavior.
-    let env = std::env::var(FLOWCTL_PROFILE)
-        .ok()
-        .filter(|value| !value.is_empty());
-    Ok(resolve(flag, env.as_deref()))
+/// Resolve the active profile from the `--profile` flag, $FLOWCTL_PROFILE,
+/// and the name saved in the config directory `dir`.
+pub fn active(dir: &Path, flag: Option<&str>) -> anyhow::Result<Active> {
+    let saved = read_saved(dir)?;
+    Ok(resolve(flag, env_profile().as_deref(), saved.as_deref()))
 }
 
-fn resolve(flag: Option<&str>, env: Option<&str>) -> Active {
+fn env_profile() -> Option<String> {
+    // clap's `env` ignored an empty variable, and this keeps that behavior.
+    std::env::var(FLOWCTL_PROFILE)
+        .ok()
+        .filter(|value| !value.is_empty())
+}
+
+fn resolve(flag: Option<&str>, env: Option<&str>, saved: Option<&str>) -> Active {
     let (name, source) = if let Some(name) = flag {
         (name, Source::Flag)
     } else if let Some(name) = env {
         (name, Source::Env)
+    } else if let Some(name) = saved {
+        (name, Source::Saved)
     } else {
         (DEFAULT_PROFILE, Source::Default)
     };
@@ -78,10 +97,50 @@ fn resolve(flag: Option<&str>, env: Option<&str>) -> Active {
     }
 }
 
+/// The name saved by `profile use`, or None if no name is saved.
+fn read_saved(dir: &Path) -> anyhow::Result<Option<String>> {
+    let path = dir.join(ACTIVE_PROFILE_FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(name) => {
+            let name = name.trim();
+            Ok((!name.is_empty()).then(|| name.to_string()))
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+/// Rejects a name that is not a plain file name in the config directory,
+/// such as `../x`. `use` and `delete` build a path from the name.
+fn validate_name(name: &str) -> anyhow::Result<()> {
+    if name.is_empty() || name.starts_with('.') || name.contains(['/', '\\']) {
+        anyhow::bail!("invalid profile name {name:?}");
+    }
+    Ok(())
+}
+
+fn require_profile(dir: &Path, name: &str) -> anyhow::Result<()> {
+    validate_name(name)?;
+    if !dir.join(format!("{name}.json")).is_file() {
+        anyhow::bail!(
+            "profile {name:?} does not exist. Run `flowctl profile list` to see profiles, \
+            or `flowctl --profile {name} auth login` to create it"
+        );
+    }
+    Ok(())
+}
+
+fn save_active(dir: &Path, name: &str) -> anyhow::Result<()> {
+    require_profile(dir, name)?;
+    let path = dir.join(ACTIVE_PROFILE_FILE);
+    std::fs::write(&path, format!("{name}\n"))
+        .with_context(|| format!("writing {}", path.display()))
+}
+
 impl Profile {
     pub fn run(&self, flag: Option<&str>, output: &Output) -> anyhow::Result<()> {
         let dir = Config::config_dir()?;
-        let active = active(flag)?;
+        let active = active(&dir, flag)?;
 
         match &self.cmd {
             Command::List => {
@@ -89,6 +148,19 @@ impl Profile {
                 crate::output::print_all(output.output_type(), rows, ())
             }
             Command::Current => crate::output::print_all(output.output_type(), [active], ()),
+            Command::Use(Use { name }) => {
+                save_active(&dir, name)?;
+                println!("Active profile is now {name:?}.");
+
+                // Without this warning, `use` looks like it did nothing.
+                if let Some(env) = env_profile() {
+                    tracing::warn!(
+                        "FLOWCTL_PROFILE={env} is set and overrides the saved profile. \
+                        Unset it to use {name:?}."
+                    );
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -255,9 +327,10 @@ mod test {
     fn resolve_order() {
         insta::assert_debug_snapshot!(
             [
-                resolve(Some("flag"), Some("env")),
-                resolve(None, Some("env")),
-                resolve(None, None),
+                resolve(Some("flag"), Some("env"), Some("saved")),
+                resolve(None, Some("env"), Some("saved")),
+                resolve(None, None, Some("saved")),
+                resolve(None, None, None),
             ],
             @r#"
         [
@@ -268,6 +341,10 @@ mod test {
             Active {
                 name: "env",
                 source: Env,
+            },
+            Active {
+                name: "saved",
+                source: Saved,
             },
             Active {
                 name: "default",
@@ -374,6 +451,43 @@ mod test {
             },
         ]
         "#);
+    }
+
+    #[test]
+    fn use_saves_an_existing_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
+        write_profile(dir, "work", serde_json::json!({}));
+
+        assert_eq!(read_saved(dir).unwrap(), None);
+        save_active(dir, "work").unwrap();
+        assert_eq!(read_saved(dir).unwrap().as_deref(), Some("work"));
+
+        // The saved name is not a profile.
+        assert_eq!(profile_names(dir).unwrap(), vec!["work".to_string()]);
+    }
+
+    #[test]
+    fn use_rejects_missing_and_invalid_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
+        write_profile(dir, "work", serde_json::json!({}));
+
+        let errors: Vec<String> = ["missing", "", "../work", ".hidden", "a/b", "a\\b"]
+            .into_iter()
+            .map(|name| format!("{:#}", save_active(dir, name).unwrap_err()))
+            .collect();
+        insta::assert_debug_snapshot!(errors, @r#"
+        [
+            "profile \"missing\" does not exist. Run `flowctl profile list` to see profiles, or `flowctl --profile missing auth login` to create it",
+            "invalid profile name \"\"",
+            "invalid profile name \"../work\"",
+            "invalid profile name \".hidden\"",
+            "invalid profile name \"a/b\"",
+            "invalid profile name \"a\\\\b\"",
+        ]
+        "#);
+        assert_eq!(read_saved(dir).unwrap(), None);
     }
 
     #[test]

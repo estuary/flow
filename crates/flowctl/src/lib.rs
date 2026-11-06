@@ -35,7 +35,8 @@ pub struct Cli {
     /// completely optional. Use multiple profiles to track multiple accounts
     /// or development endpoints.
     ///
-    /// Defaults to $FLOWCTL_PROFILE, else "default".
+    /// Defaults to $FLOWCTL_PROFILE, else the profile saved by
+    /// `flowctl profile use`, else "default".
     /// See `flowctl profile current`.
     // `profile current` shows whether the flag or $FLOWCTL_PROFILE chose the
     // profile. clap's derive API cannot tell them apart, so `profile::active`
@@ -117,7 +118,7 @@ pub enum Command {
     Draft(draft::Draft),
     /// Read operational logs of your tasks (captures, derivations, and materializations).
     Logs(ops::Logs),
-    /// List configuration profiles and show the active profile.
+    /// List configuration profiles, and show or save the active profile.
     Profile(profile::Profile),
     /// Advanced, low-level, and experimental commands which are less common.
     Raw(raw::Advanced),
@@ -212,7 +213,8 @@ impl Cli {
         if let Command::Profile(profile) = &self.cmd {
             return profile.run(self.profile.as_deref(), &self.output);
         }
-        let profile = profile::active(self.profile.as_deref())?.name;
+        let profile =
+            profile::active(&config::Config::config_dir()?, self.profile.as_deref())?.name;
 
         let config = config::Config::load(&profile)?;
         let output = self.output.clone();

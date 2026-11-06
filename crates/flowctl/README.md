@@ -67,7 +67,9 @@ one.
 ```console
 flowctl profile list      # profiles and their accounts; * marks the active one
 flowctl profile current   # the active profile, and what chose it
+flowctl profile use work  # save `work` as the active profile
 ```
 
 The active profile is the first of: the `--profile` flag, `$FLOWCTL_PROFILE`,
-and `default`.
+the profile saved by `flowctl profile use`, and `default`. The saved name is in
+the file `active-profile` in the config directory.
