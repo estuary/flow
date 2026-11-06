@@ -14,6 +14,12 @@ use uuid::Uuid;
 async fn test_shard_failures_and_retries() {
     let mut harness = TestHarness::init("test_shard_failures_and_retries").await;
     let _user_id = harness.setup_tenant("pandas").await;
+    harness
+        .upsert_alert_config(
+            "pandas/",
+            serde_json::json!({ "shardFailed": { "condition": { "failures": 3 } } }),
+        )
+        .await;
 
     let draft = draft_catalog(serde_json::json!({
         "collections": {
@@ -502,22 +508,16 @@ async fn test_backoff_repeated_shard_failures(
     // Simulates passage of sufficient time for the alert to clear
     task_becomes_ok(harness, task_type, catalog_name).await;
 
-    // One more failure should result in backing off again
+    // Retry history has expired, so the next failure restarts immediately.
     harness.fail_shard(&shard).await;
     let after_fail = harness.run_pending_controller(catalog_name).await;
     harness
         .control_plane()
-        .assert_activations("after final failure", Vec::new());
+        .assert_activations("after final failure", vec![(catalog_name, Some(task_type))]);
     let activation = after_fail.current_status.activation_status().unwrap();
-    assert!(activation.next_retry.is_some());
+    assert!(activation.next_retry.is_none());
     assert_eq!(8, activation.recent_failure_count);
-    assert_status_summary(
-        harness,
-        catalog_name,
-        StatusSummaryType::Error,
-        "task shard failed",
-    )
-    .await;
+    assert_status_shards_pending(harness, catalog_name).await;
 
     // And the alert will start firing again because the previous shard failures
     // are still retained and count towards the alert threshold.
@@ -829,7 +829,7 @@ async fn test_spec_deletion_cleans_up_alerts() {
     harness
         .upsert_alert_config(
             "foxes/",
-            serde_json::json!({ "shardFailed": { "enabled": true } }),
+            serde_json::json!({ "shardFailed": { "condition": { "failures": 3 } } }),
         )
         .await;
 
