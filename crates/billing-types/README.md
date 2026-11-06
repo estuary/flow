@@ -1,6 +1,6 @@
 # Billing types
 
-Billing code shared by `agent`, `billing-integrations`, and `control-plane-api`. `lib.rs` and `stripe_helpers.rs` define Stripe metadata keys, invoice and payment provider types, and Stripe search helpers. `db.rs` records a tenant's Stripe customer ID.
+Billing code shared by `agent`, `billing-integrations`, and `control-plane-api`. `lib.rs` defines Stripe metadata keys and invoice and payment provider types. `provider.rs` defines the `BillingProvider` trait, which `stripe_impl.rs` implements with Stripe. `db.rs` records a tenant's Stripe customer ID.
 
 `trial_end` defines the calendar-month trial boundary used by tenant alerts and the
 GraphQL billing plan.

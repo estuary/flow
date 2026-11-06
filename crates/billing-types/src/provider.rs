@@ -1,8 +1,11 @@
+use std::collections::HashMap;
+
 /// `BillingProvider` is intentionally a narrow seam around outbound Stripe API
 /// calls. It is not meant to be a complete billing service boundary, which is
 /// why the interface still uses Stripe-native types. Database-backed billing
-/// reads live separately under `billing::db`, and resolution of a tenant's
-/// recorded customer ID, which combines both, lives under `billing::customer`.
+/// reads live separately under `control_plane_api::billing::db`, and the API's
+/// resolution of a tenant's recorded customer ID, which combines both, lives
+/// under `control_plane_api::billing::customer`.
 ///
 /// This trait exists for two reasons:
 /// 1. Keep the Stripe SDK wiring in one place.
@@ -16,13 +19,13 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         customer_id: &stripe::CustomerId,
     ) -> anyhow::Result<stripe::Customer>;
 
+    /// Create a customer named `tenant` with the caller's `metadata`. The implementation sets the tenant entry to `tenant`, replacing any caller value.
     async fn create_customer(
         &self,
         tenant: &str,
-        user_email: &str,
-        user_name: Option<&str>,
-        billing_name: Option<&str>,
+        email: Option<&str>,
         address: Option<stripe::Address>,
+        metadata: HashMap<String, String>,
     ) -> anyhow::Result<stripe::Customer>;
 
     async fn update_customer_default_payment_method(
@@ -39,7 +42,7 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
     /// Create a SetupIntent for `customer_id`, stamping `tenant` into the
     /// SetupIntent's metadata. The `setup_intent.succeeded` webhook echoes that
     /// metadata back, which is how the webhook handler recovers the tenant
-    /// without a second Stripe lookup (see `server::public::stripe_webhooks`).
+    /// without a second Stripe lookup (see `control_plane_api::server::public::stripe_webhooks`).
     async fn create_setup_intent(
         &self,
         customer_id: &stripe::CustomerId,

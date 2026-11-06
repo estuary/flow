@@ -156,7 +156,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid",
+ "uuid 1.29.0",
  "validation",
  "validator",
  "xxhash-rust",
@@ -353,7 +353,7 @@ dependencies = [
  "strum",
  "strum_macros",
  "thiserror 2.0.21",
- "uuid",
+ "uuid 1.29.0",
  "zstd 0.13.4",
 ]
 
@@ -575,7 +575,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -691,6 +691,7 @@ dependencies = [
  "smol_str",
  "thiserror 1.0.69",
  "tokio",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -878,7 +879,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "tracing",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -1355,6 +1356,7 @@ dependencies = [
  "comfy-table",
  "futures",
  "indicatif",
+ "insta",
  "itertools 0.15.0",
  "num-format",
  "serde",
@@ -1373,6 +1375,8 @@ dependencies = [
  "anyhow",
  "async-graphql",
  "async-stripe",
+ "async-trait",
+ "axum",
  "catalog-stats",
  "chrono",
  "futures",
@@ -2276,7 +2280,7 @@ dependencies = [
  "unicode-normalization",
  "unicode-security",
  "url",
- "uuid",
+ "uuid 1.29.0",
  "validation",
  "validator",
  "xxhash-rust",
@@ -2950,7 +2954,7 @@ dependencies = [
  "tuple",
  "unseal",
  "url",
- "uuid",
+ "uuid 1.29.0",
  "webpki",
 ]
 
@@ -3030,7 +3034,7 @@ dependencies = [
  "tracing",
  "tuple",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -3296,7 +3300,7 @@ dependencies = [
  "tracing",
  "tuple",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -3767,7 +3771,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid",
+ "uuid 1.29.0",
  "validation",
 ]
 
@@ -4013,7 +4017,7 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -5165,7 +5169,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -5242,7 +5246,7 @@ dependencies = [
  "lz4",
  "paste",
  "snap",
- "uuid",
+ "uuid 1.29.0",
  "zstd 0.13.4",
 ]
 
@@ -5738,7 +5742,7 @@ dependencies = [
  "time",
  "unicode-normalization",
  "url",
- "uuid",
+ "uuid 1.29.0",
  "validator",
 ]
 
@@ -5872,7 +5876,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -6008,7 +6012,7 @@ dependencies = [
  "tonic",
  "tracing",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -6262,7 +6266,7 @@ dependencies = [
  "unicode-bom",
  "unicode-normalization",
  "url",
- "uuid",
+ "uuid 1.29.0",
  "zip",
  "zstd 0.14.3",
 ]
@@ -6791,7 +6795,7 @@ dependencies = [
  "proto-build",
  "serde",
  "thiserror 2.0.21",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -6939,7 +6943,7 @@ dependencies = [
  "tonic",
  "tracing",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -7600,7 +7604,7 @@ dependencies = [
  "rend",
  "rkyv_derive",
  "tinyvec",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -7705,7 +7709,7 @@ dependencies = [
  "tracing-subscriber",
  "tuple",
  "unseal",
- "uuid",
+ "uuid 1.29.0",
  "xxhash-rust",
  "zeroize",
 ]
@@ -7858,7 +7862,7 @@ dependencies = [
  "tuple",
  "unseal",
  "url",
- "uuid",
+ "uuid 1.29.0",
  "xxhash-rust",
 ]
 
@@ -7906,7 +7910,7 @@ dependencies = [
  "sqlite-wasm-rs",
  "time",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -8483,7 +8487,7 @@ dependencies = [
  "tracing-subscriber",
  "tuple",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -8767,7 +8771,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -8834,7 +8838,7 @@ dependencies = [
  "sqlx-core",
  "thiserror 2.0.21",
  "tracing",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -8871,7 +8875,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.21",
  "tracing",
- "uuid",
+ "uuid 1.29.0",
  "whoami",
 ]
 
@@ -8898,7 +8902,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
@@ -9071,7 +9075,7 @@ dependencies = [
  "serde_json",
  "superslice",
  "url",
- "uuid",
+ "uuid 1.29.0",
  "xxhash-rust",
 ]
 
@@ -9915,6 +9919,15 @@ checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
 
 [[package]]
 name = "uuid"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
+dependencies = [
+ "getrandom 0.2.17",
+]
+
+[[package]]
+name = "uuid"
 version = "1.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
@@ -9946,7 +9959,7 @@ dependencies = [
  "serde_json",
  "uritemplate-next",
  "url",
- "uuid",
+ "uuid 1.29.0",
 ]
 
 [[package]]
