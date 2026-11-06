@@ -240,6 +240,105 @@ async fn test_disable_when_over_quota() {
     "###);
 }
 
+// A disabled derivation still counts as a collection, but must not hold a task
+// slot. The publication-time delta in `quotas.rs` reads `derive.shards.disable`
+// via `is_enabled()`, so the stored `tasks_used` count has to agree with it.
+#[tokio::test]
+async fn test_quota_disabled_derivation() {
+    let mut harness = TestHarness::init("test_quota_disabled_derivation").await;
+
+    let user_id = harness.setup_tenant("petrels").await;
+
+    sqlx::query(
+        "update tenants set tasks_quota = 2, collections_quota = 3 where tenant = 'petrels/';",
+    )
+    .execute(&harness.pool)
+    .await
+    .unwrap();
+
+    // One enabled capture and one disabled derivation. The derivation uses a
+    // collection slot but no task slot, leaving one of the two tasks free.
+    let setup_draft = draft_catalog(serde_json::json!({
+        "captures": {
+            "petrels/CaptureA": minimal_capture(false, &["petrels/CollectionA"]),
+        },
+        "collections": {
+            "petrels/CollectionA": minimal_collection(),
+            "petrels/DerivationDisabled": minimal_derivation(true, "petrels/CollectionA"),
+        },
+    }));
+    let setup_result = harness
+        .user_publication(user_id, "setup quota disabled derivation", setup_draft)
+        .await;
+    assert!(setup_result.status.is_success());
+
+    // Adding a second capture fits within the quota only if the disabled
+    // derivation is not counted as a task.
+    let draft = draft_catalog(serde_json::json!({
+        "captures": {
+            "petrels/CaptureB": minimal_capture(false, &["petrels/CollectionA"]),
+        }
+    }));
+    let result = harness
+        .user_publication(user_id, "add capture beside disabled derivation", draft)
+        .await;
+    assert!(
+        result.status.is_success(),
+        "expected publication to succeed, got {:?} with errors {:?}",
+        result.status,
+        result.errors
+    );
+
+    // Enabling the derivation now needs a third task slot, which exceeds the quota.
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "petrels/DerivationDisabled": minimal_derivation(false, "petrels/CollectionA"),
+        }
+    }));
+    let mut result = harness
+        .user_publication(user_id, "enable the derivation", draft)
+        .await;
+    result.publication_row_id = models::Id::zero();
+    result.pub_id = Some(models::Id::zero());
+
+    insta::assert_debug_snapshot!(result, @r###"
+    ScenarioResult {
+        publication_row_id: 0000000000000000,
+        pub_id: Some(
+            0000000000000000,
+        ),
+        status: JobStatus {
+            type: PublishFailed,
+            lock_failures: [],
+        },
+        errors: [
+            (
+                "flow://tenant-quotas/petrels/tasks",
+                "Request to add 1 task(s) would exceed tenant 'petrels/' quota of 2. 2 are currently in use. Reach out to Estuary Support to request an increased task limit for your tenant.",
+            ),
+        ],
+        live_specs: [],
+    }
+    "###);
+}
+
+fn minimal_derivation(disable: bool, source: &str) -> serde_json::Value {
+    serde_json::json!({
+        "schema": {
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" }
+            }
+        },
+        "key": ["/id"],
+        "derive": {
+            "using": { "typescript": { "module": "foo.ts" } },
+            "shards": { "disable": disable },
+            "transforms": [{ "source": source, "shuffle": "any", "name": "foo" }]
+        }
+    })
+}
+
 fn minimal_capture(disable: bool, targets: &[&str]) -> serde_json::Value {
     let bindings = targets
         .iter()
