@@ -35,6 +35,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+      # Release builds use the same VMM pairing identity as mise builds.
+      - name: Build identity
+        run: |-
+          source mise/tasks/build/identity-lib.sh
+          export_flow_build_identity .
+          echo "FLOW_BUILD_IDENTITY=${FLOW_BUILD_IDENTITY}" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
 
       # Linux build steps:

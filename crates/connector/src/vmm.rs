@@ -25,17 +25,28 @@ pub struct Vmm {
     pub state_dir: String,
     /// Size of each VMM's scratch disk.
     pub disk_mib: u64,
-    /// `CONNECTOR_MEMORY_LIMIT` in bytes, the container's cgroup cap.
-    pub memory_bytes: u64,
+    /// The container's memory cap and the guest RAM within it, or why
+    /// `CONNECTOR_MEMORY_LIMIT` cannot size a VMM. `vmm_for` refuses every
+    /// VMM start with the latter.
+    pub memory: Result<Memory, String>,
     /// `CONNECTOR_CPU_LIMIT`, the container's CPU quota, as an ordinary
     /// connector container is given it.
     pub cpu_limit: String,
-    /// Guest RAM: the memory limit less the VMM's own overhead.
-    pub guest_memory_mib: u32,
     /// Guest vCPUs: the CPU limit, rounded up.
     pub vcpus: u8,
     /// `CONNECTOR_CGROUP_PARENT`, likewise.
     pub cgroup_parent: Option<String>,
+    /// Launch a VMM image whose build is not paired with this launcher's
+    /// (`check_pairing`). For development only.
+    pub allow_unpaired_build: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Memory {
+    /// `CONNECTOR_MEMORY_LIMIT` in bytes, the container's cgroup cap.
+    pub bytes: u64,
+    /// Guest RAM: the cap's whole MiB less the VMM's own overhead.
+    pub guest_mib: u32,
 }
 
 const IMAGE: &str = "CONNECTOR_VMM_IMAGE";
@@ -43,6 +54,16 @@ const PODMAN: &str = "CONNECTOR_VMM_PODMAN";
 const STATE_DIR: &str = "CONNECTOR_VMM_STATE_DIR";
 const DISK_MIB: &str = "CONNECTOR_VMM_DISK_MIB";
 const MEMORY_OVERHEAD_MIB: &str = "CONNECTOR_VMM_MEMORY_OVERHEAD_MIB";
+const ALLOW_UNPAIRED_BUILD: &str = "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD";
+
+/// Source identity from `mise/tasks/build/identity-lib.sh`.
+/// Missing or empty identities are unidentified builds.
+pub const BUILD_IDENTITY: Option<&str> = option_env!("FLOW_BUILD_IDENTITY");
+
+/// Begins the line in which `flow-connector-vmm boundary verify` reports its
+/// own build, as `BUILD_IDENTITY` is, or `unidentified`. Must match its
+/// `REPORTED_BUILD`.
+const REPORTED_BUILD: &str = "flow-connector-vmm build ";
 
 /// Room for the uv cache, the virtual environment and TMPDIR of a Python
 /// connector's project. The file is sparse, so the host pays for what the guest writes.
@@ -54,9 +75,9 @@ const DEFAULT_MEMORY_OVERHEAD_MIB: u32 = 256;
 const MIB: u64 = 1 << 20;
 
 impl Vmm {
-    /// Read `CONNECTOR_VMM_IMAGE`; unset or empty means no VMM capability,
-    /// and nothing else is read. Otherwise read and check the remaining
-    /// settings, failing on any that is malformed.
+    /// Read `CONNECTOR_VMM_IMAGE`; unset or empty reads nothing else.
+    /// Malformed settings fail construction. Memory sizing errors are held
+    /// for VMM admission.
     pub fn from_env() -> anyhow::Result<Option<Self>> {
         Self::from_vars(|name| match std::env::var(name) {
             Err(std::env::VarError::NotPresent) => Ok(None),
@@ -92,6 +113,11 @@ impl Vmm {
                 overhead_mib(&raw).with_context(|| format!("{MEMORY_OVERHEAD_MIB} {raw:?}"))?
             }
         };
+        let allow_unpaired_build = match setting(ALLOW_UNPAIRED_BUILD)?.as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(raw) => anyhow::bail!("{ALLOW_UNPAIRED_BUILD} {raw:?}: expected true or false"),
+        };
 
         // Shared with ordinary connectors, so read as their launch reads them:
         // a set value is used as it is, empty or not.
@@ -101,13 +127,19 @@ impl Vmm {
             .unwrap_or_else(|| crate::container::DEFAULT_CPU_LIMIT.to_string());
         let cgroup_parent = var("CONNECTOR_CGROUP_PARENT")?;
 
-        let memory_bytes = memory_bytes(&memory_limit)
-            .with_context(|| format!("CONNECTOR_MEMORY_LIMIT {memory_limit:?}"))?;
-        let guest_memory_mib = guest_memory_mib(memory_bytes, overhead_mib).with_context(|| {
-            format!(
-                "CONNECTOR_MEMORY_LIMIT {memory_limit:?}, less {overhead_mib} MiB of VMM overhead"
-            )
-        })?;
+        // Ordinary connectors run under any limit their engine takes, so one
+        // which cannot size a VMM refuses VMM starts, and not this service.
+        let memory = memory_bytes(&memory_limit)
+            .with_context(|| format!("CONNECTOR_MEMORY_LIMIT {memory_limit:?}"))
+            .and_then(|bytes| {
+                let guest_mib = guest_memory_mib(bytes, overhead_mib).with_context(|| {
+                    format!(
+                        "CONNECTOR_MEMORY_LIMIT {memory_limit:?}, less {overhead_mib} MiB of VMM overhead"
+                    )
+                })?;
+                Ok(Memory { bytes, guest_mib })
+            })
+            .map_err(|err| format!("{err:#}"));
         let vcpus =
             vcpus(&cpu_limit).with_context(|| format!("CONNECTOR_CPU_LIMIT {cpu_limit:?}"))?;
 
@@ -116,11 +148,11 @@ impl Vmm {
             podman,
             state_dir,
             disk_mib,
-            memory_bytes,
+            memory,
             cpu_limit,
-            guest_memory_mib,
             vcpus,
             cgroup_parent,
+            allow_unpaired_build,
         }))
     }
 
@@ -154,6 +186,11 @@ impl Vmm {
 /// Bounding guest RAM to u32 MiB also keeps the container cap within
 /// podman's signed 64-bit `--memory` range.
 fn guest_memory_mib(bytes: u64, overhead_mib: u32) -> anyhow::Result<u32> {
+    if bytes == 0 {
+        anyhow::bail!(
+            "is no limit at all to the engine, and a VMM's guest RAM is sized within one"
+        );
+    }
     let guest = (bytes / MIB)
         .checked_sub(overhead_mib as u64)
         .filter(|guest| *guest > 0)
@@ -162,36 +199,124 @@ fn guest_memory_mib(bytes: u64, overhead_mib: u32) -> anyhow::Result<u32> {
         .map_err(|_| anyhow::anyhow!("leaves {guest} MiB of guest RAM, above {}", u32::MAX))
 }
 
-/// Parse once so the engine's memory cap and guest RAM use the same byte count.
-/// Fractional MiB and GiB are floored to whole bytes.
+/// Match decimal `RAMInBytes` inputs from docker/go-units v0.5.0 so the
+/// container cap and guest sizing agree. It splits at a space or after the
+/// last digit or dot, multiplies a float64 by the binary unit, and truncates.
+/// Hexadecimal floats are unsupported. Counts at least 2^63 are rejected
+/// because the engines convert them to a negative limit, read as unlimited.
 fn memory_bytes(limit: &str) -> anyhow::Result<u64> {
-    const EXPECTED: &str = "whole bytes, or a decimal number of at most nine fraction digits \
-                            suffixed m (MiB) or g (GiB), such as 1536m or 1.5g";
+    const EXPECTED: &str = "a decimal number as Go's ParseFloat reads one, then optionally a \
+                            unit: b, or k, m, g, t or p with an optional b or ib, in any case";
 
-    let (number, unit) = if let Some(number) = limit.strip_suffix('m') {
-        (number, MIB)
-    } else if let Some(number) = limit.strip_suffix('g') {
-        (number, 1 << 30)
-    } else {
-        (limit, 1)
+    let (number, unit) = match limit.split_once(' ') {
+        Some(split) => split,
+        None => {
+            let Some(last) = limit.rfind(|c: char| c.is_ascii_digit() || c == '.') else {
+                anyhow::bail!("expected {EXPECTED}");
+            };
+            limit.split_at(last + 1)
+        }
     };
-    let (whole, fraction) = number.split_once('.').unwrap_or((number, ""));
-    let whole = digits(whole, EXPECTED)?;
-
-    if number.contains('.') && (unit == 1 || fraction.is_empty() || fraction.len() > 9) {
+    let Some(number) = go_decimal(number) else {
         anyhow::bail!("expected {EXPECTED}");
+    };
+    if number < 0.0 {
+        anyhow::bail!("is negative");
     }
-    // Nine digits of a GiB fit u64 with room to spare.
-    let fraction = if fraction.is_empty() {
-        0
-    } else {
-        digits(fraction, EXPECTED)? * unit / 10u64.pow(fraction.len() as u32)
+
+    let power = match unit.to_ascii_lowercase().as_bytes() {
+        [] | [b'b'] => 0,
+        [prefix, rest @ ..] if matches!(rest, [] | [b'b'] | [b'i', b'b']) => match prefix {
+            b'k' => 1,
+            b'm' => 2,
+            b'g' => 3,
+            b't' => 4,
+            b'p' => 5,
+            _ => anyhow::bail!("expected {EXPECTED}"),
+        },
+        _ => anyhow::bail!("expected {EXPECTED}"),
     };
 
-    whole
-        .checked_mul(unit)
-        .and_then(|bytes| bytes.checked_add(fraction))
-        .context("is too large")
+    let bytes = number * (1u64 << (10 * power)) as f64;
+    // Infinity and NaN too, which ParseFloat reads from "inf" and "nan".
+    if !(bytes < 9223372036854775808.0) {
+        anyhow::bail!("is at least 2^63 bytes, which the engines wrap to no limit at all");
+    }
+    Ok(bytes as u64)
+}
+
+/// `number` as Go's `ParseFloat` reads a decimal float. Rust's float grammar
+/// is Go's but for Go's digit separators, each of which stands between two
+/// digits, and its hexadecimal form. Both round correctly.
+fn go_decimal(number: &str) -> Option<f64> {
+    let bytes = number.as_bytes();
+    let digit = |at: Option<usize>| {
+        at.and_then(|at| bytes.get(at))
+            .is_some_and(u8::is_ascii_digit)
+    };
+    for (at, byte) in bytes.iter().enumerate() {
+        if *byte == b'_' && !(digit(at.checked_sub(1)) && digit(Some(at + 1))) {
+            return None;
+        }
+    }
+    number.replace('_', "").parse().ok()
+}
+
+/// Whether a VMM image whose `boundary verify` printed `verified` is paired
+/// with a launcher built as `launcher` (`BUILD_IDENTITY`): both built from the
+/// same commit, neither from a modified tree. This catches a launcher and
+/// image built from different sources by accident; it does not prove them
+/// compatible. The error says why they are not paired.
+pub(crate) fn check_pairing(launcher: Option<&str>, verified: &[u8]) -> Result<(), String> {
+    let launcher = match launcher.and_then(source) {
+        None => {
+            return Err(format!(
+                "this launcher's build has no source identity ({launcher:?})"
+            ));
+        }
+        Some((commit, true)) => {
+            return Err(format!(
+                "this launcher was built from a tree modified from commit {commit}"
+            ));
+        }
+        Some((commit, false)) => commit,
+    };
+    let verified = String::from_utf8_lossy(verified);
+    let reported: Vec<&str> = verified
+        .lines()
+        .filter_map(|line| line.strip_prefix(REPORTED_BUILD))
+        .collect();
+    let image = match reported[..] {
+        [] => return Err("the image reports no build identity".to_string()),
+        [image] => image,
+        _ => return Err(format!("the image reports builds {reported:?}")),
+    };
+
+    match source(image) {
+        None => Err(format!(
+            "the image's build has no source identity ({image:?})"
+        )),
+        Some((commit, true)) => Err(format!(
+            "the image was built from a tree modified from commit {commit}"
+        )),
+        Some((commit, false)) if commit != launcher => Err(format!(
+            "the image was built from commit {commit}, and this launcher from commit {launcher}"
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
+/// A build identity's commit, and whether its tree was modified.
+fn source(identity: &str) -> Option<(&str, bool)> {
+    let (commit, dirty) = match identity.strip_suffix("-dirty") {
+        Some(commit) => (commit, true),
+        None => (identity, false),
+    };
+    let hex = commit.len() == 40
+        && commit
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    hex.then_some((commit, dirty))
 }
 
 /// Guest vCPUs for a CPU quota of `limit`: a decimal number of CPUs, rounded
@@ -316,7 +441,8 @@ pub(crate) struct TaskEgress {
 /// Every connector start is decided here, before any image is pulled or any
 /// connector is started. A request for VMM execution is either launched in a
 /// VMM or fails: it never falls back to an ordinary container. A VMM request
-/// must declare egress. Declared egress is refused by any execution which
+/// must declare egress, and is refused by a service whose memory limit cannot
+/// size a VMM. Declared egress is refused by any execution which
 /// cannot enforce it, its hosts and CIDRs are validated here, and CIDRs are
 /// refused on a public plane, so that a direct caller cannot skip any of
 /// these checks.
@@ -361,6 +487,11 @@ pub(crate) fn vmm_for<'a>(
             "this data plane does not support VMM execution",
         )));
     };
+    if let Err(err) = &vmm.memory {
+        return Err(refuse(tonic::Status::failed_precondition(format!(
+            "this data plane cannot size a VMM: {err}"
+        ))));
+    }
     let invalid = |err: anyhow::Error| refuse(tonic::Status::invalid_argument(format!("{err:#}")));
     let egress = TaskEgress {
         hosts: egress::hosts("task egress.hosts", hosts).map_err(invalid)?,
@@ -483,7 +614,7 @@ mod test {
                 &[BASE[0], BASE[1], "CONNECTOR_VMM_MEMORY_OVERHEAD_MIB=-1"],
             ),
             (
-                "an overhead consuming the whole limit",
+                "an overhead consuming the whole limit, which refuses VMM starts only",
                 &[BASE[0], BASE[1], "CONNECTOR_VMM_MEMORY_OVERHEAD_MIB=1024"],
             ),
             (
@@ -491,12 +622,44 @@ mod test {
                 &[BASE[0], BASE[1], "CONNECTOR_MEMORY_LIMIT=1.5g"],
             ),
             (
-                "a memory limit podman reads, outside the VMM's grammar",
-                &[BASE[0], BASE[1], "CONNECTOR_MEMORY_LIMIT=1G"],
+                "a memory limit with an upper-case unit",
+                &[BASE[0], BASE[1], "CONNECTOR_MEMORY_LIMIT=1536MiB"],
+            ),
+            (
+                "a memory limit of zero, which engines read as none",
+                &[BASE[0], BASE[1], "CONNECTOR_MEMORY_LIMIT=0"],
+            ),
+            (
+                "a memory limit beyond 32 bits of guest MiB",
+                &[BASE[0], BASE[1], "CONNECTOR_MEMORY_LIMIT=4294967552m"],
+            ),
+            (
+                "a memory limit with an exponent",
+                &[BASE[0], BASE[1], "CONNECTOR_MEMORY_LIMIT=1.5e3m"],
+            ),
+            (
+                "a memory limit the engines wrap to none",
+                &[BASE[0], BASE[1], "CONNECTOR_MEMORY_LIMIT=8192p"],
+            ),
+            (
+                "a hexadecimal memory limit, which the engines read",
+                &[BASE[0], BASE[1], "CONNECTOR_MEMORY_LIMIT=0x1p30"],
             ),
             (
                 "a malformed CPU limit",
                 &[BASE[0], BASE[1], "CONNECTOR_CPU_LIMIT=two"],
+            ),
+            (
+                "unpaired builds allowed",
+                &[BASE[0], BASE[1], "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=true"],
+            ),
+            (
+                "unpaired builds refused",
+                &[BASE[0], BASE[1], "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=false"],
+            ),
+            (
+                "a malformed allowance of unpaired builds",
+                &[BASE[0], BASE[1], "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=1"],
             ),
         ];
 
@@ -530,41 +693,128 @@ mod test {
         }
         let mut table = String::new();
 
+        // Each accepted value is what go-units v0.5.0 and its master return;
+        // rootful podman 4.9.3, which links v0.4.0, stores the common ones.
+        // Each refused spelling is refused by them, or wraps past 2^63.
         table.push_str("## memory bytes\n");
         for limit in [
             "1073741824",
             "1g",
+            "1G",
+            "1gb",
+            "1GB",
+            "1gib",
+            "1GiB",
             "1536m",
+            "1536M",
+            "1536mb",
+            "1536MiB",
             "1.5g",
+            "1.5GiB",
             "0.5m",
             "1.05g",
             "0.000000001g",
+            "0.0000000001m",
             "1.999999999m",
+            "0.3m",
+            "1.1g",
+            "1k",
+            "1KiB",
+            "1kb",
+            "1t",
+            "1p",
+            "1b",
+            "1B",
+            "1.5b",
+            "1.0b",
+            "1.9",
+            "1073741823.7",
+            "00001g",
+            "1.000000000000000000001g",
             "0",
-            "18446744073709551615",
+            "0g",
+            "0b",
+            "512 m",
+            "1.5 g",
+            "1 kib",
+            "1 b",
+            "1 ",
+            "1.5 ",
+            "8191p",
+            "8388607t",
+            "4194304.25g",
+            // Numbers which ParseFloat reads, and v0.4.0 did not.
+            ".5g",
+            "+.5g",
+            "+1g",
+            "1.g",
+            "5.g",
+            "1.",
+            "0.",
+            "00.5g",
+            "1e3m",
+            "1E+3m",
+            "1.e3m",
+            "5e-1g",
+            "1e3",
+            "1e3 m",
+            "1e-400",
+            "1_000m",
+            "1.5_5g",
+            "1e1_0",
+            "+1_0",
+            "-0",
+            "-0g",
+            // The engines wrap these to no limit.
+            "8192p",
+            "8388608t",
+            "9223372036854775807",
+            "9223372036854775807b",
             "17179869183.999999999g",
             "18446744073709551616",
-            "17179869184g",
-            "1G",
-            "1.5G",
-            "1gb",
-            "1GiB",
-            "1k",
-            "1t",
-            "512 m",
+            "inf b",
+            "infinity b",
+            "nan b",
+            // ParseFloat's hexadecimal floats, which only this refuses.
+            "0x1p30",
+            "0x1.8p1g",
+            // Refused by v0.5.0, though v0.4.0 parsed them.
+            "1Gi",
+            "1ki",
+            "1ib",
+            "1i",
+            "1 i",
+            // Refused by both.
+            "-1g",
+            "-.5g",
+            "-inf b",
+            "1e400",
+            "512  m",
             "1g ",
             " 1g",
-            "1e3m",
-            "1_000m",
-            "+1g",
-            "-1g",
-            ".5g",
-            "1.g",
-            "1.0000000001g",
-            "1073741823.7",
+            "1 2",
+            "1__000m",
+            "_1m",
+            "1_m",
+            "1_.5g",
+            "1._5g",
+            "1_e10",
+            "1e",
+            "1e+",
+            ".e1",
+            "b5",
             "0x40000000",
+            "1.5.5g",
             "1.5gg",
+            "1gbb",
+            "1kg",
+            "1x",
+            "1é",
             "g",
+            "b",
+            ".",
+            "inf",
+            "NaN",
             "",
         ] {
             table.push_str(&format!(
@@ -582,6 +832,7 @@ mod test {
             "0.1g",
             "257m",
             "256m",
+            "0",
             "4294967551m",
             "4294967552m",
             "18446744073709551615",
@@ -950,6 +1201,95 @@ mod test {
                     Some(spec),
                 ));
                 rows.push(format!("start {start_name} spec {spec_name} => {outcome}"));
+            }
+        }
+        insta::assert_snapshot!(rows.join("\n"));
+    }
+
+    /// A memory limit which cannot size a VMM refuses VMM starts at admission.
+    /// Ordinary starts of the same service run as ever.
+    #[test]
+    fn vmm_for_refuses_an_unsizable_memory_limit() {
+        let mut rows = Vec::new();
+        for limit in ["0", "256m", "4294967552m", "8192p", "0x1p30", "1e3m", "1g"] {
+            let vars = [
+                ("CONNECTOR_VMM_IMAGE", "ghcr.io/estuary/connector-vmm:dev"),
+                ("CONNECTOR_VMM_STATE_DIR", "/var/lib/flow/connector-vmm"),
+                ("CONNECTOR_MEMORY_LIMIT", limit),
+            ];
+            let vmm = Vmm::from_vars(|name| {
+                Ok(vars
+                    .iter()
+                    .find(|(var, _)| *var == name)
+                    .map(|(_, value)| value.to_string()))
+            })
+            .expect("the service is constructed")
+            .expect("capable");
+
+            for execution in [execution(false, None), execution(true, Some(&[]))] {
+                rows.push(format!(
+                    "{limit:<12} vmm {:<5} => {}",
+                    execution.vmm,
+                    outcome(vmm_for(
+                        Some(&vmm),
+                        crate::Plane::Private,
+                        ops::TaskType::Derivation,
+                        Some(DERIVE),
+                        &execution,
+                        None,
+                    ))
+                ));
+            }
+        }
+        insta::assert_snapshot!(rows.join("\n"));
+    }
+
+    /// Whether a launcher and the build its VMM image's verify reports are
+    /// paired: the same commit, from unmodified trees.
+    #[test]
+    fn pairing() {
+        const A: &str = "0123456789abcdef0123456789abcdef01234567";
+        const B: &str = "89abcdef0123456789abcdef0123456789abcdef";
+        let a_dirty = format!("{A}-dirty");
+        let reported = |identity: &str| format!("flow-connector-vmm build {identity}\n");
+
+        let launchers: [(&str, Option<&str>); 6] = [
+            ("clean A", Some(A)),
+            ("modified A", Some(&a_dirty)),
+            ("unidentified", None),
+            ("empty", Some("")),
+            ("malformed", Some("v0.6.3-45-gbfc779aa1ce")),
+            (
+                "upper-case A",
+                Some("0123456789ABCDEF0123456789ABCDEF01234567"),
+            ),
+        ];
+        let images: [(&str, String); 10] = [
+            ("clean A", reported(A)),
+            (
+                "clean A, after other output",
+                format!("listed\n{}", reported(A)),
+            ),
+            ("modified A", reported(&a_dirty)),
+            ("clean B", reported(B)),
+            ("unidentified", reported("unidentified")),
+            ("empty", reported("")),
+            ("a tag", reported("v0.6.3")),
+            ("nothing, as older images", String::new()),
+            ("A twice", format!("{}{}", reported(A), reported(A))),
+            ("A without its newline", reported(A).trim_end().to_string()),
+        ];
+
+        let mut rows = Vec::new();
+        for (launcher_name, launcher) in launchers {
+            for (image_name, verified) in &images {
+                let outcome = match super::check_pairing(launcher, verified.as_bytes()) {
+                    Ok(()) => "paired".to_string(),
+                    Err(reason) => format!("unpaired: {reason}"),
+                };
+                rows.push(format!(
+                    "launcher {launcher_name:<12} image {image_name:<27} => {outcome}"
+                ));
             }
         }
         insta::assert_snapshot!(rows.join("\n"));

@@ -60,6 +60,11 @@ connector-init over a guest's vsock connection.
   including after the VMM removes its rules, plus explicit `/32` and `/0` grants.
 - `kvm::scratch_reclaims`: negotiated DISCARD without FLUSH and host backing
   blocks reclaimed after guest deletion, allowing retained ext4 metadata.
+- `kvm::guest_users_files_and_storage`: under the VMM container's explicit
+  capabilities, a nonroot image user and root each read the image's mode
+  0600 and 0700 entries as the image permits, and create, chmod, set times
+  on, chown, rename and remove persistent-disk entries, which the host sees
+  owned by the guest's uid and gid.
 - `tests/dns_answers/`, `tests/dns_capacity/`: refused answers and capacity
   overflow must not partially authorize addresses in the kernel. Resolver
   unit tests cover TTL retention, CNAME capacity, and reclamation with explicit
@@ -82,6 +87,12 @@ connector-init over a guest's vsock connection.
   lock of a private store's containers (`/proc/locks` shows the service
   waiting), outlives its killed client and its launch's release, and lands
   for a later pass to remove.
+  `build_pairing` launches with pairing enforced: the run's own image only
+  if this checkout was unmodified, and images whose verify reports another
+  commit's build, or none, refused before any network. Other launcher tests
+  enforce pairing only on such a run, and allow unpaired images otherwise.
+  `recovery_revokes_with_an_unpaired_image` revokes a record's grant with
+  the image it names, without a verify.
   Release state-machine tests in `connector` cover
   failure combinations; the integration test checks actual command termination
   and recovery without asserting elapsed time.
@@ -113,6 +124,10 @@ connector-init over a guest's vsock connection.
   container creation.
 - `tests/release.rs`, `tests/wrapper.rs`: resource cleanup and the podman
   wrapper, tested against stand-in commands.
+- `tests/identity.rs`: `mise/tasks/build/identity-lib.sh` over git
+  repositories of its own: modified, untracked and ignored files, untracked
+  files and submodule changes which configuration hides from `git status`,
+  and no repository or commit, which leaves an inherited identity unused.
 
 ## Harness
 
@@ -121,7 +136,10 @@ verifies the host boundary, stages controlled endpoints, and writes the run
 configuration. It builds two VMM images which differ only in
 `flow-connector-vmm`: the packaged build, which `--platform` uses, and the
 suite's, built with connector-vmm's `test-controls` feature in a target
-directory of its own. It checks that both carry this run's `flow-guest-init`.
+directory of its own. It checks that both carry this run's `flow-guest-init`,
+and that they and the fake report this run's `FLOW_BUILD_IDENTITY` from
+`boundary verify`. A run from a modified checkout has `--platform`'s reactor
+and flowctl allow unpaired VMM images, since none could pair.
 Its companion `connector-vmm-kvm-lib.sh` tracks and releases
 resources. Cargo and tests run as the invoking user; privileged operations
 use `sudo -n`.
@@ -131,7 +149,9 @@ use `sudo -n`.
 Tests removing connector images use `run::stop` to check container and
 image-volume removal before removing the image.
 `src/launcher.rs` and `fixtures/podman.sh` provide launcher control and fault
-injection; `launcher::before_connector_init` runs a test's script in the
+injection. The wrapper adds `CAP_SYS_CHROOT`, which the fake's chroot needs
+and the launch line leaves out, to creates of the images the task lists in
+`fake-images`; `launcher::before_connector_init` runs a test's script in the
 workload before connector-init. Recovery holds match the seeded orphans'
 tokens so a failed launch can release its own resources. `launcher::remote`
 has the wrapper drive an API service instead of podman itself; a test's own

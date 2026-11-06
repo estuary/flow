@@ -36,6 +36,9 @@ struct Platform {
     /// the reactor and flowctl share.
     dir: String,
     vmm_image: String,
+    /// Whether the reactor and flowctl launch VMM images unpaired with their
+    /// build: only when this checkout is modified, so none could pair.
+    allow_unpaired_build: bool,
     /// Beside a static `flow-connector-init`, so flowctl's launches find it.
     flowctl: String,
     /// The static build every VMM must be handed in its connector mount.
@@ -159,6 +162,10 @@ fn flowctl_command(
         .env("CONNECTOR_VMM_IMAGE", &platform.vmm_image)
         .env("CONNECTOR_VMM_PODMAN", &at.podman)
         .env("CONNECTOR_VMM_STATE_DIR", &at.state_dir)
+        .env(
+            "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD",
+            platform.allow_unpaired_build.to_string(),
+        )
         .env("TMPDIR", &at.tmp_dir)
         .envs(env.iter().copied());
     command
@@ -231,9 +238,18 @@ fn launched(calls: &[String]) -> Vec<String> {
 /// `calls`, with what differs between runs replaced: each launch's id, token
 /// and container ID by its ordinal, and this run's directory and VMM image.
 fn normalize_calls(platform: &Platform, calls: &[String]) -> String {
+    // Launches resolve the VMM image to its ID, and run it by that.
+    let vmm_image_id = run::podman(&[
+        "image",
+        "inspect",
+        "--format",
+        "{{.Id}}",
+        &platform.vmm_image,
+    ]);
     let mut text = calls
         .join("\n")
         .replace(&platform.vmm_image, "<vmm image>")
+        .replace(vmm_image_id.trim(), "<vmm image id>")
         .replace(&platform.dir, "<platform>");
     text = regex::Regex::new(r"(--opt=image=)(?:sha256:)?[0-9a-f]{64}")
         .unwrap()
@@ -660,9 +676,17 @@ fn a_python_derivation_through_the_platform() {
         launches.iter().cloned().collect(),
         "every launch received the static connector-init"
     );
+    // Each launch runs the VMM image by the ID it resolved the name to.
+    let vmm_image_id = run::podman(&[
+        "image",
+        "inspect",
+        "--format",
+        "{{.Id}}",
+        &platform.vmm_image,
+    ]);
     for call in all.iter().filter(|call| call.starts_with("create ")) {
         assert!(
-            call.contains(&format!(" {} run ", platform.vmm_image)),
+            call.contains(&format!(" {} run ", vmm_image_id.trim())),
             "{call}"
         );
         assert!(call.contains("--label=dev.estuary.vmm-owner="), "{call}");

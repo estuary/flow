@@ -184,9 +184,9 @@ fn assert_launch(vmm: &run::Vmm, writable: &[&str]) {
         .lines()
         .find_map(|line| line.strip_prefix("CapEff:"))
         .map(str::trim);
-    // Podman's eleven defaults plus CAP_NET_ADMIN: no CAP_SYS_ADMIN, MKNOD,
-    // NET_RAW, DAC_READ_SEARCH or SYS_PTRACE.
-    assert_eq!(cap_eff, Some("00000000800415fb"), "CapEff of the VMM");
+    // Exactly the launch line's CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETGID,
+    // SETUID, NET_BIND_SERVICE and NET_ADMIN: none of podman's other defaults.
+    assert_eq!(cap_eff, Some("00000000000014db"), "CapEff of the VMM");
 
     let devices = run::inspect(
         &vmm.name,
@@ -1604,6 +1604,184 @@ fn persistent_disk() {
         "devices"
     );
     run::assert_framing(&vmm, true);
+}
+
+/// Operations of a guest on the image's restrictive files, and on the
+/// persistent disk at /state, each printed with its result or errno. The
+/// VMM's virtiofs server performs each on the host, in its own process.
+const FILE_OPERATIONS: &str = r#"
+import errno, os, struct
+
+def attempt(name, operation):
+    try:
+        result = operation()
+    except OSError as error:
+        result = errno.errorcode[error.errno]
+    print(f"{name}: {'ok' if result is None else result}")
+
+def read(path):
+    with open(path) as f:
+        return f.read()
+
+def write(path):
+    with open(path, "w") as f:
+        f.write("acmeCo")
+
+def owned(path):
+    st = os.stat(path)
+    return f"{st.st_mode & 0o7777:04o} {st.st_uid}:{st.st_gid}"
+
+attempt("read the user's 0600 file", lambda: read("/acmeCo/user-only"))
+attempt("read root's 0600 file", lambda: read("/acmeCo/root-only"))
+attempt("list the user's 0700 directory", lambda: os.listdir("/acmeCo/private"))
+attempt("read the user's 0600 file within it", lambda: read("/acmeCo/private/file"))
+attempt("create a file", lambda: write("/state/file"))
+attempt("its mode and owner", lambda: owned("/state/file"))
+attempt("chmod it 0640", lambda: os.chmod("/state/file", 0o640))
+attempt("set its times", lambda: os.utime("/state/file", (1000000000, 1000000000)))
+attempt("its mode, owner and mtime", lambda: f"{owned('/state/file')} {int(os.stat('/state/file').st_mtime)}")
+attempt("make a directory", lambda: os.mkdir("/state/dir"))
+attempt("chmod it 2775", lambda: os.chmod("/state/dir", 0o2775))
+attempt("its mode and owner", lambda: owned("/state/dir"))
+attempt("make a file within it", lambda: write("/state/dir/inner"))
+attempt("whose mode and owner", lambda: owned("/state/dir/inner"))
+attempt("chown the file to 1000:1000", lambda: os.chown("/state/file", 1000, 1000))
+attempt("rename it into the directory", lambda: os.rename("/state/file", "/state/dir/file"))
+attempt("its mode and owner", lambda: owned("/state/dir/file"))
+attempt("remove both", lambda: [os.unlink(f"/state/dir/{name}") for name in ("file", "inner")] and None)
+attempt("remove the directory", lambda: os.rmdir("/state/dir"))
+attempt("create a file the host reads", lambda: write("/state/kept"))
+# CAP_NET_BIND_SERVICE, permitted and effective, as a v2 `vfs_cap_data`.
+attempt("set a file capability on it", lambda: os.setxattr("/state/kept", "security.capability", struct.pack("<5I", 0x02000001, 1 << 10, 0, 0, 0)))
+"#;
+
+/// The VMM container's capabilities serve a nonroot image user and root
+/// alike: each reads what the image lets it, its restrictive files
+/// included, though the VMM's own virtiofs server opens them as host root.
+/// Each writes the persistent disk as itself, the server switching its
+/// thread to the guest's uid and gid for each create. Without
+/// `CAP_SETFCAP`, root sets no file capability there: the guest mounts the
+/// disk `nosuid`, which would ignore one anyway.
+#[test]
+fn guest_users_files_and_storage() {
+    let run = run::load();
+    // acmesvc's and root's files of modes 0600 and 0700 under /acmeCo.
+    let tag = run::random_hex();
+    let containerfile = format!(
+        "FROM {} AS acmesvc\n\
+         USER root\n\
+         RUN echo 'acmesvc:x:4321:4321::/:/usr/sbin/nologin' >> /etc/passwd \
+         && echo 'acmesvc:x:4321:' >> /etc/group \
+         && mkdir -m 0755 /acmeCo \
+         && printf user > /acmeCo/user-only && chown 4321:4321 /acmeCo/user-only \
+         && chmod 0600 /acmeCo/user-only \
+         && printf root > /acmeCo/root-only && chmod 0600 /acmeCo/root-only \
+         && mkdir -m 0700 /acmeCo/private && printf private > /acmeCo/private/file \
+         && chmod 0600 /acmeCo/private/file && chown -R 4321:4321 /acmeCo/private\n\
+         USER acmesvc\n\
+         FROM acmesvc AS root\n\
+         USER root\n",
+        run.guest_image
+    );
+    let context = run::fixture("");
+    let images = ["acmesvc", "root"].map(|target| {
+        let image = format!("localhost/connector-vmm-kvm-restrictive-{target}:{tag}");
+        run::record("image", &image);
+        let built = run::sudo_output(
+            &[
+                "podman",
+                "build",
+                "-q",
+                "--target",
+                target,
+                "-t",
+                &image,
+                "-f",
+                "-",
+                &context.to_string_lossy(),
+            ],
+            Some(containerfile.as_bytes()),
+        );
+        assert!(
+            built.status.success(),
+            "building {image}: {}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        (target, image)
+    });
+
+    let mut table = String::new();
+    for (user, image) in images {
+        let spec = run::Spec {
+            connector_image: image,
+            persistent_disk: Some("/state"),
+            ..run::Spec::probes(&run, "none.json")
+        };
+        let (vmm, mut guest) = start(&run, spec);
+        let ran = probe(
+            &mut guest,
+            "file-operations",
+            "run",
+            serde_json::json!({"argv": [run::PROBES[0], "-c", FILE_OPERATIONS]}),
+        );
+        assert_eq!(ran["exit"], 0, "{ran}");
+        let dir = vmm.persistent_dir.clone().expect("a persistent directory");
+        let kept = run::sudo(&["stat", "-c", "%a %u:%g %s", &format!("{dir}/kept")]);
+        table.push_str(&format!(
+            "# {user}\n{}on the host, kept: {}\n",
+            ran["stdout"].as_str().expect("stdout"),
+            kept.trim()
+        ));
+        run::assert_framing(&vmm, true);
+    }
+    insta::assert_snapshot!(table, @r"
+    # acmesvc
+    read the user's 0600 file: user
+    read root's 0600 file: EACCES
+    list the user's 0700 directory: ['file']
+    read the user's 0600 file within it: private
+    create a file: ok
+    its mode and owner: 0644 4321:4321
+    chmod it 0640: ok
+    set its times: ok
+    its mode, owner and mtime: 0640 4321:4321 1000000000
+    make a directory: ok
+    chmod it 2775: ok
+    its mode and owner: 2775 4321:4321
+    make a file within it: ok
+    whose mode and owner: 0644 4321:4321
+    chown the file to 1000:1000: EPERM
+    rename it into the directory: ok
+    its mode and owner: 0640 4321:4321
+    remove both: ok
+    remove the directory: ok
+    create a file the host reads: ok
+    set a file capability on it: EPERM
+    on the host, kept: 644 4321:4321 6
+    # root
+    read the user's 0600 file: user
+    read root's 0600 file: root
+    list the user's 0700 directory: ['file']
+    read the user's 0600 file within it: private
+    create a file: ok
+    its mode and owner: 0644 0:0
+    chmod it 0640: ok
+    set its times: ok
+    its mode, owner and mtime: 0640 0:0 1000000000
+    make a directory: ok
+    chmod it 2775: ok
+    its mode and owner: 2775 0:0
+    make a file within it: ok
+    whose mode and owner: 0644 0:0
+    chown the file to 1000:1000: ok
+    rename it into the directory: ok
+    its mode and owner: 0640 1000:1000
+    remove both: ok
+    remove the directory: ok
+    create a file the host reads: ok
+    set a file capability on it: EPERM
+    on the host, kept: 644 0:0 6
+    ");
 }
 
 /// What the guest can reach of the VMM besides its network.

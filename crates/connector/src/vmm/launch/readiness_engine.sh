@@ -7,13 +7,22 @@ printf '%s\n' "$*" >>"$dir/calls"
 case "$1 ${2:-}" in
 "pull "*) ;;
 "image inspect")
+    # The VMM image's ID, once pulled if a test has it missing.
+    if [ "${3:-}" = --format ]; then
+        if [ -e "$dir/vmm-missing" ]; then rm "$dir/vmm-missing"; exit 125; fi
+        echo 00000000000000000000000000000000000000000000000000000000000000aa
+        exit 0
+    fi
     if [ -e "$dir/inspection" ]; then cat "$dir/inspection"; exit 0; fi
     echo '[{"Id":"synthetic-image","Created":"2026-01-01T00:00:00Z","Config":{"Env":[],"Labels":{"FLOW_RUNTIME_PROTOCOL":"derive"}}}]'
     ;;
 "run "*)
     for arg; do
         case "$arg" in
-        verify) exit 0 ;;
+        verify)
+            if [ -e "$dir/verified" ]; then cat "$dir/verified"; fi
+            exit "$(cat "$dir/verify-status" 2>/dev/null || echo 0)"
+            ;;
         grant) touch "$dir/ingress"; exit 0 ;;
         revoke)
             [ ! -e "$dir/refuse-revoke" ] || exit 44

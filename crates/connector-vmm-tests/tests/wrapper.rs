@@ -185,6 +185,48 @@ fn controls_change_only_their_own_calls() {
     insta::assert_snapshot!(report(&setup));
 }
 
+/// Only a create of a listed fake image gains the fake's CAP_SYS_CHROOT, and
+/// the call recorded is the launcher's own.
+#[test]
+fn only_the_fakes_launches_may_chroot() {
+    let setup = setup();
+    std::fs::write(
+        setup.dir.join("fake-images"),
+        "localhost/fake:kvm\nfake-id\n",
+    )
+    .unwrap();
+    let as_fake = |args: &[&'static str]| -> Vec<&'static str> {
+        args.iter()
+            .map(|arg| {
+                if *arg == "sha256:0000" {
+                    "fake-id"
+                } else {
+                    *arg
+                }
+            })
+            .collect()
+    };
+    for args in [CREATE, &as_fake(CREATE), &as_fake(VERIFY)] {
+        call(&setup, args);
+    }
+    insta::assert_snapshot!(report(&setup), @r"
+    --- calls
+    create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
+    create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun fake-id run --policy /init/policy.json
+    run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN fake-id boundary verify
+    --- resources
+    container fv_0000000000000001
+    container fv_0000000000000001
+    --- ran
+    sudo -n podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
+    podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
+    sudo -n podman create --cap-add=CAP_SYS_CHROOT --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun fake-id run --policy /init/policy.json
+    podman create --cap-add=CAP_SYS_CHROOT --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun fake-id run --policy /init/policy.json
+    sudo -n podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN fake-id boundary verify
+    podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN fake-id boundary verify
+    ");
+}
+
 #[test]
 fn a_hold_catches_only_the_first_call() {
     let setup = setup();

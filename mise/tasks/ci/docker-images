@@ -3,7 +3,7 @@ set -euo pipefail
 
 #MISE description="Build and optionally push multi-arch Docker images"
 
-PACKAGE_DIR="${HOME}/flow-package"
+PACKAGE_DIR="${PACKAGE_DIR:-${HOME}/flow-package}"
 TAGS_FILE="${PACKAGE_DIR}/tags"
 PUSH="${PUSH:-false}"
 
@@ -50,7 +50,8 @@ fi
 
 # Generate bake JSON dynamically from Dockerfiles
 BAKE_FILE=$(mktemp)
-trap "rm -f ${BAKE_FILE}" EXIT
+METADATA_FILE=$(mktemp)
+trap "rm -f ${BAKE_FILE} ${METADATA_FILE}" EXIT
 
 # Build the targets object by iterating over Dockerfiles
 TARGETS_JSON="{}"
@@ -64,6 +65,12 @@ for DOCKERFILE in docker/*.Dockerfile; do
     connector-vmm | connector-vmm-fake) IMAGE_SUPPORTED='["linux/amd64"]' ;;
     *) IMAGE_SUPPORTED="${PLATFORMS}" ;;
     esac
+    # The VMM image is loaded, never pushed, by the bake: it is gated below,
+    # and only the image which passed is published.
+    IMAGE_OUTPUT="${OUTPUT}"
+    if [[ "${IMAGE_NAME}" == connector-vmm ]]; then
+        IMAGE_OUTPUT='["type=docker"]'
+    fi
     IMAGE_PLATFORMS=$(echo "${PLATFORMS}" | jq -c --argjson supported "${IMAGE_SUPPORTED}" \
         '[.[] | select(. as $platform | $supported | index($platform))]')
     if [[ "${IMAGE_PLATFORMS}" == "[]" ]]; then
@@ -95,7 +102,7 @@ for DOCKERFILE in docker/*.Dockerfile; do
         --arg context "${PACKAGE_DIR}" \
         --argjson tags "${IMAGE_TAGS}" \
         --argjson platforms "${IMAGE_PLATFORMS}" \
-        --argjson output "${OUTPUT}" \
+        --argjson output "${IMAGE_OUTPUT}" \
         '.[$name] = {
             "dockerfile": $dockerfile,
             "context": $context,
@@ -124,7 +131,31 @@ cat "${BAKE_FILE}"
 echo ""
 
 echo "=== Building images in parallel ==="
-docker buildx bake --allow=fs.read=${HOME}/flow-package -f "${BAKE_FILE}" "$@"
+docker buildx bake --allow=fs.read=${PACKAGE_DIR} --metadata-file "${METADATA_FILE}" -f "${BAKE_FILE}" "$@"
+
+# The VMM image the bake just loaded, if it built one, as the digests of its
+# config and manifest: the engine's image store IDs it by one or the other.
+VMM_BUILT=$(jq -r '."connector-vmm" // empty | [."containerimage.config.digest", ."containerimage.digest"] | map(select(.)) | join(" ")' "${METADATA_FILE}")
+if [[ -n "${VMM_BUILT}" ]]; then
+    VMM_ID=$(docker image inspect --format '{{.Id}}' "ghcr.io/estuary/connector-vmm:${TAGS[0]}")
+    [[ " ${VMM_BUILT} " == *" ${VMM_ID} "* ]] \
+        || { echo "Error: ghcr.io/estuary/connector-vmm:${TAGS[0]} is not the image the bake built" >&2; exit 1; }
+    "$(dirname "$0")/connector-vmm-gate" "${VMM_ID}"
+    # Launchers refuse an image whose build is not a clean commit's.
+    BUILD=$(docker run --rm --network=none --cap-drop=all --cap-add=CAP_NET_ADMIN "${VMM_ID}" \
+        boundary verify 2>/dev/null | grep '^flow-connector-vmm build ' || true)
+    echo "${VMM_ID}: ${BUILD}"
+    for TAG in "${TAGS[@]}"; do
+        VMM_TAG="ghcr.io/estuary/connector-vmm:${TAG}"
+        [[ "$(docker image inspect --format '{{.Id}}' "${VMM_TAG}")" == "${VMM_ID}" ]] \
+            || { echo "Error: ${VMM_TAG} is not the gated image ${VMM_ID}" >&2; exit 1; }
+        if [[ "${PUSH}" == "true" ]]; then
+            [[ "${BUILD}" =~ ^flow-connector-vmm\ build\ [0-9a-f]{40}$ ]] \
+                || { echo "Error: not publishing ${VMM_TAG}, whose build is not a clean commit's" >&2; exit 1; }
+            docker push --quiet "${VMM_TAG}"
+        fi
+    done
+fi
 
 echo ""
 echo "Done! Built images for tags: ${TAGS[*]}"

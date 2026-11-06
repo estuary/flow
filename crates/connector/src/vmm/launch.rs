@@ -1,7 +1,8 @@
 //! The IO of one VMM launch, from an admitted connector start to a dialed
 //! connector-init: pull and inspect the connector's image with the VMM's
 //! podman, claim the launch's ownership record, prepare its connector mount
-//! and `fv_<id>` state, verify the host boundary, create the VMM's network,
+//! and `fv_<id>` state, verify the host boundary and that the VMM image's
+//! build is paired with this launcher's, create the VMM's network,
 //! volume and container, start it, and dial `init.sock` until connector-init's
 //! health is SERVING. A launch recovers nothing of others': `recovery` does.
 //!
@@ -230,6 +231,12 @@ async fn launch(
         )
         .map_err(precondition)?;
     let connector_mounts = connector_mounts(&std::env::temp_dir()).map_err(precondition)?;
+    let vmm_image = unless_abandoned(launched_tx, async {
+        vmm_image_id(podman, &vmm.image, log_sink)
+            .await
+            .map_err(precondition)
+    })
+    .await?;
 
     for attempt in 1..=ATTEMPTS {
         let plan = plan::plan(
@@ -239,6 +246,7 @@ async fn launch(
                 token: rand::random(),
                 eligible,
                 image,
+                vmm_image: &vmm_image,
                 inspection: &inspection,
                 connector_mounts: &connector_mounts,
                 log_level: *log_level,
@@ -262,7 +270,7 @@ async fn launch(
                 .await;
         }
 
-        let ingress_image = (!plan.ingress.is_empty()).then_some(vmm.image.as_str());
+        let ingress_image = (!plan.ingress.is_empty()).then_some(vmm_image.as_str());
         let file = match record::claim(
             &vmm.state_dir,
             &plan.name,
@@ -317,10 +325,9 @@ async fn launch(
 
         // Uncached, immediately before the network it protects, and from the
         // VMM image whose tables the host's must equal.
-        unless_abandoned(launched_tx, async {
+        let verified = unless_abandoned(launched_tx, async {
             crate::container::engine_cmd(podman, &plan.verify)
                 .await
-                .map(|_stdout| ())
                 .map_err(|err| {
                     precondition(err.context(
                         "the host's VMM network boundary did not verify, \
@@ -329,6 +336,28 @@ async fn launch(
                 })
         })
         .await?;
+        // Verify reports the image's build. The override skips only this.
+        if let Err(reason) = super::check_pairing(super::BUILD_IDENTITY, &verified) {
+            let reason = format!(
+                "VMM image {} is not paired with this launcher's build: {reason}",
+                vmm.image
+            );
+            if !vmm.allow_unpaired_build {
+                return Err(precondition(anyhow::anyhow!(
+                    "{reason}; launchers run only the VMM image built from their own commit"
+                )));
+            }
+            tracing::warn!(%reason, "launching an unpaired VMM image, as CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD permits");
+            log_sink
+                .send(crate::build_log(
+                    ops::LogLevel::Warn,
+                    &format!(
+                        "{reason}; launching it as CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD permits"
+                    ),
+                    [],
+                ))
+                .await;
+        }
 
         if let Err(err) = crate::container::engine_cmd(podman, &plan.network).await {
             // Another owner's network or bridge may hold the name.
@@ -494,6 +523,34 @@ async fn run_vmm(
         channel,
         codec,
     })
+}
+
+/// The ID of the VMM image `image` names, pulling it only if it's missing, as
+/// `podman run` would. A launch verifies, grants and runs this one image, and
+/// records it for its grant's revoke: a tag moved meanwhile cannot pair one
+/// build and launch another.
+async fn vmm_image_id(
+    podman: &str,
+    image: &str,
+    log_sink: &crate::LogSink,
+) -> anyhow::Result<String> {
+    let args = ["image", "inspect", "--format", "{{.Id}}", image];
+    let id = match crate::container::engine_cmd(podman, &args).await {
+        Ok(id) => id,
+        Err(_missing) => {
+            crate::container::pull(podman, image, log_sink)
+                .await
+                .with_context(|| format!("pulling VMM image {image}"))?;
+            crate::container::engine_cmd(podman, &args)
+                .await
+                .with_context(|| format!("inspecting VMM image {image}"))?
+        }
+    };
+    let id = String::from_utf8_lossy(&id).trim().to_string();
+    if id.len() != 64 || !id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        anyhow::bail!("VMM image {image} inspected as ID {id:?}");
+    }
+    Ok(id)
 }
 
 /// Await `future` unless the start awaiting this launch is abandoned first.

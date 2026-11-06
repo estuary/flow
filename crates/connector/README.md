@@ -136,6 +136,7 @@ It exists only under the V2 runtime; the V1 `runtime` crate is untouched.
 | `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets, execution, VMM |
 | `Vmm`, `Vmm::from_env` | VMM capability and configuration from `CONNECTOR_VMM_*` |
 | `vmm::vmm_for` | Admission decision for requested execution |
+| `vmm::check_pairing`, `BUILD_IDENTITY` | Whether a VMM image's build, as its verify reports it, is this launcher's |
 | `vmm::plan::plan` | Pure plan of a VMM launch |
 | `vmm::launch::start` | VMM lifecycle, image admission, and credential mount |
 | `Vmm::spawn_recovery`, `VmmRecovery` | A process's background recovery of its `STATE_DIR`, until dropped |
@@ -265,10 +266,12 @@ EOF or status. A client which does not drain responses may park the handler.
   `CONNECTOR_VMM_STATE_DIR` is required: an absolute host path without a
   comma, at most 72 bytes so that `<dir>/fv_<16 hex>/sock/init.sock` fits a
   Unix socket address. `CONNECTOR_VMM_DISK_MIB` (2048),
-  `CONNECTOR_VMM_MEMORY_OVERHEAD_MIB` (256) and `CONNECTOR_VMM_PODMAN`
-  (`podman`, the rootful engine however this process reaches it) take
-  defaults. A malformed value fails service construction. Whether the host
-  can actually run a VMM is a question for each launch, not for configuration.
+  `CONNECTOR_VMM_MEMORY_OVERHEAD_MIB` (256), `CONNECTOR_VMM_PODMAN`
+  (`podman`, the rootful engine however this process reaches it) and
+  `CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD` (`false`) take defaults. A malformed
+  value fails service construction, except `CONNECTOR_MEMORY_LIMIT` (below).
+  Whether the host can actually run a VMM is a question for each launch, not
+  for configuration.
 
 - **Engine subprocesses omit platform authority.** `container::engine_command`
   removes `CONSUMER_AUTH_KEYS`, `BROKER_AUTH_KEYS`, `SOPS_AGE_KEY` and
@@ -283,8 +286,19 @@ EOF or status. A client which does not drain responses may park the handler.
   `CONNECTOR_MEMORY_LIMIT`, parsed once into bytes and passed as that decimal
   byte count; `--cpus` is `CONNECTOR_CPU_LIMIT`, verbatim. The guest is sized
   within them: RAM is the cap's whole MiB less the overhead, and vCPUs are the
-  CPU limit rounded up. The VMM path accepts whole bytes or a decimal number
-  suffixed `m` or `g`. The CPU limit is a decimal number of CPUs.
+  CPU limit rounded up. The CPU limit is a decimal number of CPUs.
+
+- **The memory limit is read as the engines read it.** `vmm::memory_bytes`
+  is docker/go-units' `RAMInBytes` at v0.5.0, which the Docker CLI and
+  podman link (its master reads the same spellings): any decimal Go's
+  `ParseFloat` reads, such as `.5g`, `+1g` or `1e3m`, and the byte count it
+  computes. It refuses hexadecimal floats, and counts the engines would wrap
+  past 2^63 into no limit. The VMM's podman gets that count, never the
+  spelling. Ordinary connectors run under any limit their engine takes. So a
+  limit which cannot size a VMM (one refused here, zero, which the engines
+  read as no limit, at most the overhead, or a guest above 32 bits of MiB) is
+  no configuration error: `vmm_for` refuses each VMM start with
+  `FailedPrecondition`, before anything is pulled.
 
 - **A VMM connector reaches its own hosts, its image's, and its task's.**
   Each eligible connector carries default hosts (Python's package index), the
@@ -336,10 +350,12 @@ EOF or status. A client which does not drain responses may park the handler.
 - **A VMM launch runs as one task, which holds its ownership record.**
   `vmm::launch` pulls and
   inspects the image with `CONNECTOR_VMM_PODMAN` (skipping the pull of a
-  `:local` tag, as ordinary launches do), and plans. It then claims its id by
+  `:local` tag, as ordinary launches do), resolves the VMM image's ID
+  (below), and plans. It then claims its id by
   making `<STATE_DIR>/fv_<id>.owner` (a new id if it exists), makes the
   connector mount and `fv_<id>` state directory, writes the planned files,
-  runs `boundary verify`, creates the network (a new id and record, at most
+  runs `boundary verify` and pairs the build it reports (below), creates the
+  network (a new id and record, at most
   three tries, if that fails), creates the rootfs volume and container, and
   starts it. Pulls,
   inspection, verification and the readiness dial race the start's
@@ -472,6 +488,32 @@ EOF or status. A client which does not drain responses may park the handler.
   this process's. A refused plan is `InvalidArgument`, an unready host
   `FailedPrecondition`, and a failed pull, network, run, readiness or dial an
   ordinary launch's error.
+
+- **A launch runs only the VMM image of its own build.** Each build mise
+  runs, and each of the local stack's, gets `FLOW_BUILD_IDENTITY` from
+  `mise/tasks/build/identity-lib.sh`: HEAD's commit, suffixed `-dirty` while
+  a tracked file or submodule differs from it, or a file git does not ignore
+  is untracked, whatever git's configuration hides from its status.
+  Outside a git checkout it is empty, whatever was inherited. The launcher
+  compiles it in as `BUILD_IDENTITY`. `flow-connector-vmm` compiles in its
+  own, and prints it from the `boundary verify` each launch runs.
+  `check_pairing` pairs them only if both name the same commit and neither is
+  dirty. A bare cargo build, an empty identity, or an image older than
+  pairing, has none.
+  An unpaired image is refused with `FailedPrecondition` once its verify
+  passes, before the network is created. This catches a launcher and image
+  built from different sources by accident; it does not prove them
+  compatible. `CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=true`, for development,
+  launches an unpaired image with a warning to the task's logs, and skips
+  nothing else: the verify still gates the launch. Recovery neither verifies
+  nor pairs: it revokes a grant with the image its record names.
+
+- **A launch runs one VMM image, by ID.** It resolves `CONNECTOR_VMM_IMAGE`
+  to an image ID once, before its first attempt, pulling the image only if
+  it's missing, as `podman run` would. Its verify, grant and container then
+  run that ID, and its record names it for the grant's revoke. So a tag
+  moved meanwhile cannot have one build pair and another run. Records which
+  name a tag, from launchers before this, are recovered with the tag.
 
 - **A VMM's connector mount follows the shared contract.** Its mode-0711
   `mount-fv_<id>` directory lives beneath the launcher's private mode-0700

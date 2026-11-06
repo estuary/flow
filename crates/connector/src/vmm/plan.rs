@@ -21,6 +21,32 @@ const EGRESS_HOSTS_LABEL: &str = "dev.estuary.egress-hosts";
 /// `sun_path` holds 108 bytes, its terminating NUL among them.
 const SOCKET_PATH_MAX: usize = 107;
 
+/// The VMM container's only capabilities: its `create` drops podman's
+/// defaults, and adds these. libkrun's virtiofs server runs in the VMM's
+/// process, as host root, so a guest's file operations on a share are the
+/// VMM's own. The guest's privileges, and guest-init's NO_NEW_PRIVS, are
+/// its kernel's affair, and grant nothing here.
+const CAPABILITIES: &[&str] = &[
+    // The server's chown, for a guest's on a writable share.
+    "CAP_CHOWN",
+    // The launcher's 0700 state directories, and image files whatever their
+    // mode, which the server opens for any guest user.
+    "CAP_DAC_OVERRIDE",
+    // The server's chmod and times, for a guest user on its own files.
+    "CAP_FOWNER",
+    // The server's chmod keeps the setgid bit a guest user sets.
+    "CAP_FSETID",
+    // The tap, its addresses and the VMM's nftables, including the
+    // resolver's sets.
+    "CAP_NET_ADMIN",
+    // The resolver's port 53.
+    "CAP_NET_BIND_SERVICE",
+    // The server creates a nonroot guest user's files as that user, and
+    // refuses them without these.
+    "CAP_SETGID",
+    "CAP_SETUID",
+];
+
 /// What a launch's guest may reach: only these names, each with where it was
 /// first declared, and any address within the task's CIDRs.
 #[derive(Debug, PartialEq)]
@@ -95,6 +121,8 @@ pub(crate) struct Launch<'a> {
     pub token: u128,
     pub eligible: &'static Eligible,
     pub image: &'a str,
+    /// The ID of the configured VMM image, which every line runs.
+    pub vmm_image: &'a str,
     /// `podman image inspect` of `image`, which the connector mount also
     /// carries as `image-inspect.json`.
     pub inspection: &'a [u8],
@@ -169,6 +197,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         token,
         eligible,
         image,
+        vmm_image,
         inspection,
         connector_mounts,
         log_level,
@@ -241,6 +270,10 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         crate::Plane::Local => ops::LogLevel::Info,
         crate::Plane::Public | crate::Plane::Private => ops::LogLevel::Warn,
     });
+    let memory = vmm
+        .memory
+        .as_ref()
+        .expect("vmm_for refuses a VMM which its memory limit cannot size");
 
     let mut create: Vec<String> = vec![
         "create".to_string(),
@@ -253,20 +286,23 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         "--read-only-tmpfs=false".to_string(),
         "--device=/dev/kvm".to_string(),
         "--device=/dev/net/tun".to_string(),
-        "--cap-add=CAP_NET_ADMIN".to_string(),
+        "--cap-drop=all".to_string(),
+    ];
+    create.extend(CAPABILITIES.iter().map(|cap| format!("--cap-add={cap}")));
+    create.extend([
         "--sysctl=net.ipv4.ip_forward=1".to_string(),
         "--sysctl=net.ipv4.conf.default.rp_filter=1".to_string(),
         // /proc/sys is read-only in the container, so the tap can only
         // inherit disabled IPv6 from here.
         "--sysctl=net.ipv6.conf.default.disable_ipv6=1".to_string(),
-        format!("--memory={}", vmm.memory_bytes),
+        format!("--memory={}", memory.bytes),
         format!("--cpus={}", vmm.cpu_limit),
         format!("--mount=type=volume,source={name},destination=/rootfs,readonly"),
         format!("--mount=type=bind,source={state}/init,target=/init,readonly"),
         format!("--mount=type=bind,source={mount},target={mount},readonly"),
         format!("--mount=type=bind,source={state}/sock,target=/sock"),
         format!("--mount=type=bind,source={state}/scratch,target=/scratch-backing"),
-    ];
+    ]);
     if let Some(PersistentDisk { host_dir, .. }) = persistent_disk {
         create.push(format!(
             "--mount=type=bind,source={host_dir},target=/persistent-disk"
@@ -287,14 +323,14 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         create.push(format!("--cgroup-parent={cgroup_parent}"));
     }
     create.extend([
-        vmm.image.clone(),
+        vmm_image.to_string(),
         "run".to_string(),
         "--policy".to_string(),
         "/init/policy.json".to_string(),
         "--connector-mount".to_string(),
         mount.clone(),
         "--memory-mib".to_string(),
-        vmm.guest_memory_mib.to_string(),
+        memory.guest_mib.to_string(),
         "--vcpus".to_string(),
         vmm.vcpus.to_string(),
         "--disk-mib".to_string(),
@@ -325,7 +361,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         // Kept once it exits: its labels may be the only record of a grant
         // whose launch was released before podman created it.
         ingress = host_boundary(
-            &vmm.image,
+            vmm_image,
             "grant",
             Exited::Kept,
             &[
@@ -366,7 +402,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         ingress,
         // Named and labeled, should podman create it and never start it.
         verify: host_boundary(
-            &vmm.image,
+            vmm_image,
             "verify",
             Exited::Removed,
             &[
@@ -552,6 +588,8 @@ mod test {
 
     const IMAGE: &str = "ghcr.io/estuary/derive-python:stable";
     const IMAGE_ID: &str = "sha256:0123abcd";
+    /// What `CONNECTOR_VMM_IMAGE` resolved to.
+    const VMM_IMAGE_ID: &str = "fedcba98765432100123456789abcdef00112233445566778899aabbccddeeff";
     const MOUNTS: &str = "/tmp/connector-mounts-0";
     const ID: u64 = 0x0123456789abcdef;
     const TOKEN: u128 = 0x00112233445566778899aabbccddeeff;
@@ -608,6 +646,7 @@ mod test {
             eligible: crate::vmm::eligible(ops::TaskType::Derivation, IMAGE)
                 .expect("derive-python is eligible"),
             image: IMAGE,
+            vmm_image: VMM_IMAGE_ID,
             inspection,
             connector_mounts: MOUNTS,
             log_level: ops::LogLevel::UndefinedLevel,
@@ -672,7 +711,7 @@ mod test {
                 network: &plan.name,
                 state_dir: &format!("/var/lib/flow/connector-vmm/{}", plan.name),
                 connector_mount: &plan.mount,
-                vmm_image: &vmm.image,
+                vmm_image: VMM_IMAGE_ID,
                 memory_mib: 1024,
                 vcpus: 2,
                 disk_mib: 4096,
@@ -728,7 +767,7 @@ mod test {
                 .iter()
                 .cloned()
                 .partition(|arg| launcher_only(arg) || arg.starts_with("--name="));
-            assert_eq!(verify, reference::boundary(&vmm.image, "host", "verify"));
+            assert_eq!(verify, reference::boundary(VMM_IMAGE_ID, "host", "verify"));
             assert_eq!(
                 added,
                 [
