@@ -55,3 +55,19 @@ flowctl draft create
 flowctl draft author --source ~/estuary/flow/examples/citi-bike/flow.yaml
 flowctl draft publish
 ```
+
+### Profiles
+
+A profile is a separate `flowctl` configuration, such as a second account or a
+development endpoint. Each profile is a `<name>.json` file in the flowctl
+config directory: `~/Library/Application Support/flowctl/` on macOS and
+`~/.config/flowctl/` on Linux. `flowctl --profile <name> auth login` creates
+one.
+
+```console
+flowctl profile list      # profiles and their accounts; * marks the active one
+flowctl profile current   # the active profile, and what chose it
+```
+
+The active profile is the first of: the `--profile` flag, `$FLOWCTL_PROFILE`,
+and `default`.

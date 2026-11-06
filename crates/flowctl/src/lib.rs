@@ -16,6 +16,7 @@ pub mod local_specs;
 mod ops;
 mod output;
 mod poll;
+mod profile;
 pub mod raw;
 mod secret;
 mod shuffle_read;
@@ -33,8 +34,14 @@ pub struct Cli {
     /// Profile are distinct configurations of the `flowctl` tool, and are
     /// completely optional. Use multiple profiles to track multiple accounts
     /// or development endpoints.
-    #[clap(long, default_value = "default", env = "FLOWCTL_PROFILE")]
-    profile: String,
+    ///
+    /// Defaults to $FLOWCTL_PROFILE, else "default".
+    /// See `flowctl profile current`.
+    // `profile current` shows whether the flag or $FLOWCTL_PROFILE chose the
+    // profile. clap's derive API cannot tell them apart, so `profile::active`
+    // reads the variable instead of clap's `env`.
+    #[clap(long)]
+    profile: Option<String>,
     /// Docker network used by locally-run connector images.
     #[clap(long = "network", global = true, default_value = "bridge")]
     connector_network: String,
@@ -110,6 +117,8 @@ pub enum Command {
     Draft(draft::Draft),
     /// Read operational logs of your tasks (captures, derivations, and materializations).
     Logs(ops::Logs),
+    /// List configuration profiles and show the active profile.
+    Profile(profile::Profile),
     /// Advanced, low-level, and experimental commands which are less common.
     Raw(raw::Advanced),
     /// Manage the secrets which your tasks draw credentials from.
@@ -163,25 +172,11 @@ impl CliContext {
         T: output::CliOutput,
         I: IntoIterator<Item = T>,
     {
-        match self.get_output_type() {
-            OutputType::Json => output::print_json(items),
-            OutputType::Yaml => output::print_yaml(items),
-            OutputType::Table => output::print_table(table_alt, items),
-        }
+        output::print_all(self.get_output_type(), items, table_alt)
     }
 
     fn get_output_type(&mut self) -> OutputType {
-        use crossterm::tty::IsTty;
-
-        if let Some(ty) = self.output.output {
-            ty
-        } else {
-            if std::io::stdout().is_tty() {
-                OutputType::Table
-            } else {
-                OutputType::Yaml
-            }
-        }
+        self.output.output_type()
     }
 
     /// The user's current access token from the live token watch, or None if
@@ -211,7 +206,15 @@ impl CliContext {
 
 impl Cli {
     pub async fn run(&self, registry: service_kit::Registry) -> anyhow::Result<()> {
-        let config = config::Config::load(&self.profile)?;
+        // Profile commands only read and write files in the config directory.
+        // Run them before the config load, the token refresh and the final
+        // `config.write`, so they work offline and do not create a profile.
+        if let Command::Profile(profile) = &self.cmd {
+            return profile.run(self.profile.as_deref(), &self.output);
+        }
+        let profile = profile::active(self.profile.as_deref())?.name;
+
+        let config = config::Config::load(&profile)?;
         let output = self.output.clone();
 
         let pg = config.build_pg();
@@ -269,7 +272,7 @@ impl Cli {
         let user_tokens_watch = user_tokens.clone().ready_owned().await;
         match user_tokens_watch.token().result() {
             Ok(tokens) if tokens.access_token.is_some() && !from_env => {
-                config::Config::persist_tokens(&self.profile, tokens)?;
+                config::Config::persist_tokens(&profile, tokens)?;
             }
             Ok(_) => {} // Anonymous, or env-provided: nothing to persist.
             Err(status) => anyhow::bail!(
@@ -287,7 +290,7 @@ impl Cli {
             None
         } else {
             Some(tokio::spawn(persist_token_rotations(
-                self.profile.clone(),
+                profile.clone(),
                 user_tokens_watch.clone(),
                 token_observer_stop.clone(),
             )))
@@ -331,6 +334,7 @@ impl Cli {
             Command::Preview(preview) => preview.run(&mut context).await,
             Command::Draft(draft) => draft.run(&mut context).await,
             Command::Logs(logs) => logs.run(&mut context).await,
+            Command::Profile(_) => unreachable!("profile commands run before config load"),
             Command::Raw(advanced) => advanced.run(&mut context).await,
             Command::Secrets(secrets) => secrets.run(&mut context).await,
         };
@@ -363,7 +367,7 @@ impl Cli {
             context.config.user_access_token = tokens.access_token;
             context.config.user_refresh_token = tokens.refresh_token;
         }
-        context.config.write(&self.profile)?;
+        context.config.write(&profile)?;
 
         Ok(())
     }

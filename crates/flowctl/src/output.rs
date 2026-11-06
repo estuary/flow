@@ -9,6 +9,35 @@ pub struct Output {
     pub output: Option<OutputType>,
 }
 
+impl Output {
+    /// The `--output` type, or a table on a terminal and YAML otherwise.
+    pub fn output_type(&self) -> OutputType {
+        use crossterm::tty::IsTty;
+
+        if let Some(ty) = self.output {
+            return ty;
+        }
+        if std::io::stdout().is_tty() {
+            OutputType::Table
+        } else {
+            OutputType::Yaml
+        }
+    }
+}
+
+/// Print `items` in the format of `ty`.
+pub fn print_all<I, T>(ty: OutputType, items: I, table_alt: T::TableAlt) -> anyhow::Result<()>
+where
+    T: CliOutput,
+    I: IntoIterator<Item = T>,
+{
+    match ty {
+        OutputType::Json => print_json(items),
+        OutputType::Yaml => print_yaml(items),
+        OutputType::Table => print_table(table_alt, items),
+    }
+}
+
 #[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq)]
 pub enum OutputType {
     /// Format output as compact JSON with items separated by newlines

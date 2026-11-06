@@ -93,8 +93,13 @@ impl Config {
     /// - $HOME/.config/flowctl/${profile}.json on linux
     /// - $HOME/Library/Application Support/flowctl/${profile}.json on macos
     pub fn load(profile: &str) -> anyhow::Result<Config> {
-        let config_file = Config::file_path(profile)?;
-        let mut config = match std::fs::read(&config_file) {
+        Config::load_file(&Config::file_path(profile)?)
+    }
+
+    /// Loads the config at `config_file`, or the default config if the file
+    /// does not exist.
+    pub(crate) fn load_file(config_file: &std::path::Path) -> anyhow::Result<Config> {
+        let mut config = match std::fs::read(config_file) {
             Ok(v) => {
                 let cfg = serde_json::from_slice(&v).with_context(|| {
                     format!(
@@ -109,7 +114,7 @@ impl Config {
                 // We don't use warn here, because it's likely that every new user
                 // would see that the very first time they run the CLI. But in other
                 // scenarios, this is likely to be very useful information.
-                tracing::info!(path = %config_file.display(), profile = %profile,
+                tracing::info!(path = %config_file.display(),
                     "no config file found at path, using default");
                 Config::default()
             }
@@ -216,7 +221,7 @@ impl Config {
         config.write(profile)
     }
 
-    fn config_dir() -> anyhow::Result<PathBuf> {
+    pub(crate) fn config_dir() -> anyhow::Result<PathBuf> {
         let path = dirs::config_dir()
             .context("couldn't determine user config directory")?
             .join("flowctl");
