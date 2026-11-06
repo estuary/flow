@@ -68,8 +68,10 @@ one.
 flowctl profile list      # profiles and their accounts; * marks the active one
 flowctl profile current   # the active profile, and what chose it
 flowctl profile use work  # save `work` as the active profile
+flowctl profile delete old  # delete a profile (asks first; --yes skips)
 ```
 
 The active profile is the first of: the `--profile` flag, `$FLOWCTL_PROFILE`,
 the profile saved by `flowctl profile use`, and `default`. The saved name is in
-the file `active-profile` in the config directory.
+the file `active-profile` in the config directory. `profile delete` refuses
+the active profile and the saved profile.

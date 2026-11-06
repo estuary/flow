@@ -27,6 +27,17 @@ pub enum Command {
     Current,
     /// Save a profile as the active profile.
     Use(Use),
+    /// Delete a profile. The active profile cannot be deleted.
+    Delete(Delete),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct Delete {
+    /// Name of the profile to delete.
+    name: String,
+    /// Delete without a confirmation prompt.
+    #[clap(long)]
+    yes: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -137,6 +148,43 @@ fn save_active(dir: &Path, name: &str) -> anyhow::Result<()> {
         .with_context(|| format!("writing {}", path.display()))
 }
 
+/// Returns the file of profile `name`, if flowctl may delete it.
+fn deletable(dir: &Path, name: &str, active: &Active) -> anyhow::Result<std::path::PathBuf> {
+    require_profile(dir, name)?;
+    if name == active.name {
+        anyhow::bail!(
+            "profile {name:?} is the active profile ({}). Switch to another profile first",
+            active.source
+        );
+    }
+    // A flag or $FLOWCTL_PROFILE can hide the saved profile. It becomes active
+    // again when they are unset, so it must still exist then.
+    if read_saved(dir)?.as_deref() == Some(name) {
+        anyhow::bail!(
+            "profile {name:?} is saved by `flowctl profile use`. \
+            Run `flowctl profile use` with another profile first"
+        );
+    }
+    Ok(dir.join(format!("{name}.json")))
+}
+
+fn confirm(prompt: &str) -> anyhow::Result<bool> {
+    use crossterm::tty::IsTty;
+    use std::io::Write;
+
+    if !std::io::stdin().is_tty() {
+        anyhow::bail!("cannot ask for confirmation without a terminal. Pass --yes to confirm");
+    }
+    print!("{prompt} [y/N] ");
+    std::io::stdout().flush()?;
+
+    let mut answer = String::new();
+    std::io::stdin()
+        .read_line(&mut answer)
+        .context("reading confirmation")?;
+    Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "YES"))
+}
+
 impl Profile {
     pub fn run(&self, flag: Option<&str>, output: &Output) -> anyhow::Result<()> {
         let dir = Config::config_dir()?;
@@ -159,6 +207,17 @@ impl Profile {
                         Unset it to use {name:?}."
                     );
                 }
+                Ok(())
+            }
+            Command::Delete(Delete { name, yes }) => {
+                let path = deletable(&dir, name, &active)?;
+                if !yes && !confirm(&format!("Delete profile {name:?}?"))? {
+                    println!("Profile {name:?} was not deleted.");
+                    return Ok(());
+                }
+                std::fs::remove_file(&path)
+                    .with_context(|| format!("deleting {}", path.display()))?;
+                println!("Deleted profile {name:?}.");
                 Ok(())
             }
         }
@@ -488,6 +547,35 @@ mod test {
         ]
         "#);
         assert_eq!(read_saved(dir).unwrap(), None);
+    }
+
+    #[test]
+    fn delete_checks() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
+        for name in ["default", "work", "saved"] {
+            write_profile(dir, name, serde_json::json!({}));
+        }
+        save_active(dir, "saved").unwrap();
+
+        // `--profile default` hides the saved profile.
+        let active = resolve(Some("default"), None, Some("saved"));
+        let results: Vec<String> = ["work", "default", "saved", "missing", "../work"]
+            .into_iter()
+            .map(|name| match deletable(dir, name, &active) {
+                Ok(path) => format!("ok: {}", path.strip_prefix(dir).unwrap().display()),
+                Err(err) => format!("{err:#}"),
+            })
+            .collect();
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            "ok: work.json",
+            "profile \"default\" is the active profile (--profile flag). Switch to another profile first",
+            "profile \"saved\" is saved by `flowctl profile use`. Run `flowctl profile use` with another profile first",
+            "profile \"missing\" does not exist. Run `flowctl profile list` to see profiles, or `flowctl --profile missing auth login` to create it",
+            "invalid profile name \"../work\"",
+        ]
+        "#);
     }
 
     #[test]
