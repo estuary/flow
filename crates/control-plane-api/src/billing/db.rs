@@ -27,7 +27,8 @@ pub struct InvoiceQuery {
     pub invoice_type_eq: Option<InvoiceType>,
 }
 
-#[derive(Debug, Clone)]
+/// Preview payloads are placeholders until the caller calculates the selected page.
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DbInvoiceRow {
     pub date_start: NaiveDate,
     pub date_end: NaiveDate,
@@ -39,8 +40,70 @@ pub struct DbInvoiceRow {
     pub stripe_invoice_id: Option<String>,
 }
 
-/// Forward pagination: fetch invoices older than `cursor` (or the newest
-/// invoices when `cursor` is `None`). Returned rows are ordered newest-first.
+// Preview payloads are placeholders; callers calculate them after pagination.
+const INVOICE_SOURCES: &str = r#"
+    ), invoices AS (
+        SELECT
+            date_trunc('month', (h.report ->> 'billed_month')::timestamptz)::date AS date_start,
+            (date_trunc('month', (h.report ->> 'billed_month')::timestamptz)
+                + interval '1 month' - interval '1 day')::date AS date_end,
+            h.tenant::text AS billed_prefix,
+            coalesce(nullif(h.report -> 'line_items', 'null'::jsonb), '[]'::jsonb) AS line_items,
+            coalesce(nullif(h.report -> 'subtotal', 'null'::jsonb), to_jsonb(0))::integer AS subtotal,
+            h.report AS extra,
+            'final'::text AS invoice_type,
+            h.stripe_invoice_id
+        FROM internal.billing_historicals h
+        WHERE h.tenant::text = (SELECT tenant FROM invoice_args)
+
+        UNION ALL
+
+        SELECT
+            invoice_month::date AS date_start,
+            (invoice_month + interval '1 month' - interval '1 day')::date AS date_end,
+            t.tenant::text AS billed_prefix,
+            '[]'::jsonb AS line_items,
+            0::integer AS subtotal,
+            'null'::jsonb AS extra,
+            'preview'::text AS invoice_type,
+            null::text AS stripe_invoice_id
+        FROM public.tenants t
+        JOIN LATERAL generate_series(
+            greatest('2023-08-01'::date, date_trunc('month', t.created_at)::date)::timestamptz,
+            date_trunc('month', now()::date::timestamptz),
+            interval '1 month'
+        ) invoice_month(invoice_month)
+        ON NOT EXISTS (
+            SELECT 1 FROM internal.billing_historicals h
+            WHERE h.tenant::text ^@ t.tenant::text
+              AND date_trunc('month', (h.report ->> 'billed_month')::timestamptz)::date = invoice_month.invoice_month
+        )
+        WHERE t.tenant::text = (SELECT tenant FROM invoice_args)
+
+        UNION ALL
+
+        SELECT
+            m.date_start,
+            m.date_end,
+            m.tenant::text AS billed_prefix,
+            jsonb_build_array(jsonb_build_object(
+                'description', m.description, 'count', 1,
+                'rate', m.usd_cents, 'subtotal', m.usd_cents
+            )) AS line_items,
+            m.usd_cents AS subtotal,
+            'null'::jsonb AS extra,
+            'manual'::text AS invoice_type,
+            m.stripe_invoice_id
+        FROM internal.manual_bills m
+        WHERE m.tenant::text = (SELECT tenant FROM invoice_args)
+    )
+    SELECT date_start, date_end, billed_prefix, line_items, subtotal, extra,
+           invoice_type, stripe_invoice_id
+    FROM invoices
+    WHERE true
+"#;
+
+/// Fetch invoices older than the cursor, newest first.
 pub async fn fetch_invoice_rows_forward(
     pool: &sqlx::PgPool,
     tenant: &str,
@@ -48,65 +111,10 @@ pub async fn fetch_invoice_rows_forward(
     cursor: Option<InvoiceCursor>,
     limit: Option<usize>,
 ) -> anyhow::Result<(Vec<DbInvoiceRow>, bool)> {
-    let query_limit = limit.map(|l| l as i64 + 1).unwrap_or(i64::MAX);
-    let cursor_date_end = cursor.map(|c| c.date_end);
-    let cursor_date_start = cursor.map(|c| c.date_start);
-    let cursor_invoice_type = cursor.map(|c| c.invoice_type);
-
-    let mut invoices = sqlx::query_as!(
-        DbInvoiceRow,
-        r#"
-        SELECT
-            date_start as "date_start!",
-            date_end as "date_end!",
-            billed_prefix as "billed_prefix!",
-            line_items as "line_items!: sqlx::types::Json<serde_json::Value>",
-            subtotal as "subtotal!",
-            extra as "extra!: sqlx::types::Json<serde_json::Value>",
-            invoice_type as "invoice_type!: InvoiceType",
-            stripe_invoice_id
-        FROM internal.invoices_ext
-        WHERE billed_prefix = $1
-          AND ($2::date IS NULL OR date_start > $2)
-          AND ($3::date IS NULL OR date_start < $3)
-          AND ($4::date IS NULL OR date_end > $4)
-          AND ($5::date IS NULL OR date_end < $5)
-          AND ($6::text IS NULL OR invoice_type::text = $6)
-          AND (
-            $7::date IS NULL
-            OR date_end < $7
-            OR (date_end = $7 AND date_start < $8)
-            OR (date_end = $7 AND date_start = $8 AND invoice_type::text > $9)
-          )
-        ORDER BY date_end DESC, date_start DESC, invoice_type ASC
-        LIMIT $10
-        "#,
-        tenant,
-        query.date_start_gt,
-        query.date_start_lt,
-        query.date_end_gt,
-        query.date_end_lt,
-        query.invoice_type_eq as Option<InvoiceType>,
-        cursor_date_end,
-        cursor_date_start,
-        cursor_invoice_type as Option<InvoiceType>,
-        query_limit,
-    )
-    .fetch_all(pool)
-    .await?;
-
-    // Query for one extra row so that its presence indicates more rows exist
-    // past this batch; truncate it before returning.
-    let has_more = limit.is_some_and(|l| invoices.len() > l);
-    if let Some(l) = limit {
-        invoices.truncate(l);
-    }
-    Ok((invoices, has_more))
+    fetch_invoice_rows(pool, tenant, query, cursor, limit, false).await
 }
 
-/// Backward pagination: fetch invoices newer than `cursor`. Returned rows are
-/// ordered newest-first (the query selects oldest-first to honor `limit`, then
-/// the result is reversed).
+/// Fetch invoices newer than the cursor, newest first.
 pub async fn fetch_invoice_rows_backward(
     pool: &sqlx::PgPool,
     tenant: &str,
@@ -114,57 +122,74 @@ pub async fn fetch_invoice_rows_backward(
     cursor: Option<InvoiceCursor>,
     limit: Option<usize>,
 ) -> anyhow::Result<(Vec<DbInvoiceRow>, bool)> {
+    fetch_invoice_rows(pool, tenant, query, cursor, limit, true).await
+}
+
+async fn fetch_invoice_rows(
+    pool: &sqlx::PgPool,
+    tenant: &str,
+    query: &InvoiceQuery,
+    cursor: Option<InvoiceCursor>,
+    limit: Option<usize>,
+    backward: bool,
+) -> anyhow::Result<(Vec<DbInvoiceRow>, bool)> {
+    let mut sql = sqlx::QueryBuilder::<sqlx::Postgres>::new("WITH invoice_args AS (SELECT ");
+    sql.push_bind(tenant)
+        .push("::text AS tenant")
+        .push(INVOICE_SOURCES);
+    if let Some(date) = query.date_start_gt {
+        sql.push(" AND date_start > ").push_bind(date);
+    }
+    if let Some(date) = query.date_start_lt {
+        sql.push(" AND date_start < ").push_bind(date);
+    }
+    if let Some(date) = query.date_end_gt {
+        sql.push(" AND date_end > ").push_bind(date);
+    }
+    if let Some(date) = query.date_end_lt {
+        sql.push(" AND date_end < ").push_bind(date);
+    }
+    if let Some(invoice_type) = query.invoice_type_eq {
+        sql.push(" AND invoice_type = ")
+            .push_bind(invoice_type.to_string());
+    }
+    if let Some(cursor) = cursor {
+        let (date_comparison, type_comparison) = if backward { (">", "<") } else { ("<", ">") };
+        sql.push(" AND (date_end ")
+            .push(date_comparison)
+            .push(" ")
+            .push_bind(cursor.date_end)
+            .push(" OR (date_end = ")
+            .push_bind(cursor.date_end)
+            .push(" AND date_start ")
+            .push(date_comparison)
+            .push(" ")
+            .push_bind(cursor.date_start)
+            .push(") OR (date_end = ")
+            .push_bind(cursor.date_end)
+            .push(" AND date_start = ")
+            .push_bind(cursor.date_start)
+            .push(" AND invoice_type ")
+            .push(type_comparison)
+            .push(" ")
+            .push_bind(cursor.invoice_type.to_string())
+            .push("))");
+    }
+    if backward {
+        sql.push(" ORDER BY date_end ASC, date_start ASC, invoice_type DESC");
+    } else {
+        sql.push(" ORDER BY date_end DESC, date_start DESC, invoice_type ASC");
+    }
     let query_limit = limit.map(|l| l as i64 + 1).unwrap_or(i64::MAX);
-    let cursor_date_end = cursor.map(|c| c.date_end);
-    let cursor_date_start = cursor.map(|c| c.date_start);
-    let cursor_invoice_type = cursor.map(|c| c.invoice_type);
+    sql.push(" LIMIT ").push_bind(query_limit);
 
-    let mut invoices = sqlx::query_as!(
-        DbInvoiceRow,
-        r#"
-        SELECT
-            date_start as "date_start!",
-            date_end as "date_end!",
-            billed_prefix as "billed_prefix!",
-            line_items as "line_items!: sqlx::types::Json<serde_json::Value>",
-            subtotal as "subtotal!",
-            extra as "extra!: sqlx::types::Json<serde_json::Value>",
-            invoice_type as "invoice_type!: InvoiceType",
-            stripe_invoice_id
-        FROM internal.invoices_ext
-        WHERE billed_prefix = $1
-          AND ($2::date IS NULL OR date_start > $2)
-          AND ($3::date IS NULL OR date_start < $3)
-          AND ($4::date IS NULL OR date_end > $4)
-          AND ($5::date IS NULL OR date_end < $5)
-          AND ($6::text IS NULL OR invoice_type::text = $6)
-          AND (
-            $7::date IS NULL
-            OR date_end > $7
-            OR (date_end = $7 AND date_start > $8)
-            OR (date_end = $7 AND date_start = $8 AND invoice_type::text < $9)
-          )
-        ORDER BY date_end ASC, date_start ASC, invoice_type DESC
-        LIMIT $10
-        "#,
-        tenant,
-        query.date_start_gt,
-        query.date_start_lt,
-        query.date_end_gt,
-        query.date_end_lt,
-        query.invoice_type_eq as Option<InvoiceType>,
-        cursor_date_end,
-        cursor_date_start,
-        cursor_invoice_type as Option<InvoiceType>,
-        query_limit,
-    )
-    .fetch_all(pool)
-    .await?;
-
+    let mut invoices = sql.build_query_as::<DbInvoiceRow>().fetch_all(pool).await?;
     let has_more = limit.is_some_and(|l| invoices.len() > l);
     if let Some(l) = limit {
         invoices.truncate(l);
     }
-    invoices.reverse();
+    if backward {
+        invoices.reverse();
+    }
     Ok((invoices, has_more))
 }

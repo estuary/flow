@@ -753,12 +753,36 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     billed_prefix as "billed_prefix!",
                     invoice_type as "invoice_type!: InvoiceType",
                     line_items as "line_items!: sqlx::types::Json<Vec<LineItem>>",
-                    subtotal::bigint as "subtotal!",
+                    subtotal as "subtotal!",
                     extra as "extra: sqlx::types::Json<Option<Extra>>",
                     coalesce(dataflow.has_full_pipeline, false) as "has_full_pipeline!",
                     tenants.payment_provider as "payment_provider!: PaymentProvider",
                     tenants.trial_start as tenant_trial_start
-                from internal.invoices_ext
+                from (
+                    select
+                        date_trunc('month', (report ->> 'billed_month')::timestamptz)::date as date_start,
+                        (date_trunc('month', (report ->> 'billed_month')::timestamptz)
+                            + interval '1 month' - interval '1 day')::date as date_end,
+                        tenant::text as billed_prefix,
+                        coalesce(nullif(report -> 'line_items', 'null'::jsonb), '[]'::jsonb) as line_items,
+                        coalesce(nullif(report -> 'subtotal', 'null'::jsonb), to_jsonb(0))::bigint as subtotal,
+                        report as extra,
+                        'final'::text as invoice_type
+                    from internal.billing_historicals
+                    union all
+                    select
+                        date_start,
+                        date_end,
+                        tenant::text,
+                        jsonb_build_array(jsonb_build_object(
+                            'description', description, 'count', 1,
+                            'rate', usd_cents, 'subtotal', usd_cents
+                        )),
+                        usd_cents,
+                        'null'::jsonb,
+                        'manual'::text
+                    from internal.manual_bills
+                ) as invoices
                 join tenants on tenants.tenant = billed_prefix
                 left join lateral(
                 	select
@@ -797,12 +821,36 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     billed_prefix as "billed_prefix!",
                     invoice_type as "invoice_type!: InvoiceType",
                     line_items as "line_items!: sqlx::types::Json<Vec<LineItem>>",
-                    subtotal::bigint as "subtotal!",
+                    subtotal as "subtotal!",
                     extra as "extra: sqlx::types::Json<Option<Extra>>",
                     coalesce(dataflow.has_full_pipeline, false) as "has_full_pipeline!",
                     tenants.payment_provider as "payment_provider!: PaymentProvider",
                     tenants.trial_start as tenant_trial_start
-                from internal.invoices_ext
+                from (
+                    select
+                        date_trunc('month', (report ->> 'billed_month')::timestamptz)::date as date_start,
+                        (date_trunc('month', (report ->> 'billed_month')::timestamptz)
+                            + interval '1 month' - interval '1 day')::date as date_end,
+                        tenant::text as billed_prefix,
+                        coalesce(nullif(report -> 'line_items', 'null'::jsonb), '[]'::jsonb) as line_items,
+                        coalesce(nullif(report -> 'subtotal', 'null'::jsonb), to_jsonb(0))::bigint as subtotal,
+                        report as extra,
+                        'final'::text as invoice_type
+                    from internal.billing_historicals
+                    union all
+                    select
+                        date_start,
+                        date_end,
+                        tenant::text,
+                        jsonb_build_array(jsonb_build_object(
+                            'description', description, 'count', 1,
+                            'rate', usd_cents, 'subtotal', usd_cents
+                        )),
+                        usd_cents,
+                        'null'::jsonb,
+                        'manual'::text
+                    from internal.manual_bills
+                ) as invoices
                 join tenants on tenants.tenant = billed_prefix
                 left join lateral(
                 	select
