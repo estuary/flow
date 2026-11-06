@@ -215,11 +215,12 @@ export FLOW_PLANE_BASE="$(( _se_base + 200 ))"
 export FLOW_DASHBOARD_ORIGIN="${_se_dashboard_origin}"
 export FLOW_SITE_URL="${_se_dashboard_origin}"
 export FLOW_PG_URL="postgresql://postgres:postgres@localhost:$(( _se_base + 11 ))/postgres"
-# sqlx's compile-time query macros connect to DATABASE_URL to verify queries;
-# point it at this checkout's Postgres. Without this the build falls back to the
+# The sqlx compile-time query macros connect to DATABASE_URL to verify queries;
+# point it at the Postgres of this checkout. Without this the build falls back to the
 # static port in .cargo/config.toml (a fixed default that no longer matches any
 # stack), so cargo build / cargo sqlx prepare fail with "Connection refused".
-# (Backticks are deliberately avoided: this heredoc is expanded, not quoted.)
+# (Backticks and apostrophes are avoided in this heredoc: it is expanded, not
+# quoted, and macOS /bin/bash 3.2 pairs apostrophes as quotes within command substitution.)
 export DATABASE_URL="postgresql://postgres:postgres@localhost:$(( _se_base + 11 ))/postgres"
 export FLOW_AGENT_URL="http://agent.flow.localhost:$(( _se_base + 20 ))"
 export FLOWCTL_PROFILE="${_se_name}"
@@ -227,16 +228,16 @@ export FLOW_SUPABASE_PROJECT_ID="${_se_name}"
 export FLOW_NETWORK="supabase_network_${_se_name}"
 export CARGO_TARGET_DIR="${HOME}/cargo-target/${_se_name}"
 export GOBIN="${HOME}/cargo-target/${_se_name}/go-bin"
-# Our librocksdb.a doesn't carry its snappy dependency. libbindings.a bundles
-# snappy, but gazette's store-rocksdb tests link librocksdb.a without it.
+# Our librocksdb.a does not carry its snappy dependency. libbindings.a bundles
+# snappy, but the gazette store-rocksdb tests link librocksdb.a without it.
 # Name the static archive: a bare -lsnappy resolves libsnappy.so, which then
-# becomes a runtime dependency of flowctl-go that our images don't ship.
+# becomes a runtime dependency of flowctl-go that our images do not ship.
 export CGO_LDFLAGS="-fuse-ld=mold -L ${HOME}/cargo-target/${_se_name}/debug -L ${_se_rocksdb_lib} -l:libsnappy.a"
 # Docs and the stack card advertise bare \`flowctl\` / \`flowctl-go\` — make this
-# stack's built binaries resolvable. This line serves direct-eval shells only:
+# stack-built binaries resolvable. This line serves direct-eval shells only:
 # mise does NOT propagate PATH changes from a sourced script, so mise.toml has
 # a matching \`_.path\` directive covering everything run through mise. Appended
-# (\${PATH} expands at eval time, preserving the caller's PATH), so system
+# (\${PATH} expands at eval time, preserving the PATH of the caller), so system
 # tools still win.
 export PATH="\${PATH}:${HOME}/cargo-target/${_se_name}/debug:${HOME}/cargo-target/${_se_name}/go-bin"
 EOF
