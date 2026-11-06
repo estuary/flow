@@ -957,3 +957,112 @@ async fn test_discover_merge_filters_unauthorized_collection() {
         result.draft
     );
 }
+
+#[tokio::test]
+async fn test_discover_task_completes_after_draft_deleted() {
+    let mut harness = TestHarness::init("test_discover_task_completes_after_draft_deleted").await;
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    let draft_id = harness
+        .create_draft(user_id, "deleted", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "squirrels/capture",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((spec_fixture(), Default::default())),
+        )
+        .await;
+
+    // Deleting the draft cascades to its `discovers` row, but not to its task.
+    delete_draft(&harness, draft_id).await;
+    let mut expect_tasks = task_ids(&harness).await;
+    assert!(expect_tasks.contains(&discover_id));
+    expect_tasks.retain(|id| *id != discover_id);
+
+    assert_eq!(
+        Some(discover_id),
+        harness
+            .run_automation_task(automations::task_types::DISCOVERS)
+            .await
+    );
+    assert_eq!(expect_tasks, task_ids(&harness).await);
+}
+
+#[tokio::test]
+async fn test_discover_task_fails_on_database_error() {
+    let mut harness = TestHarness::init("test_discover_task_fails_on_database_error").await;
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    let draft_id = harness
+        .create_draft(user_id, "failed", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "squirrels/capture",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((spec_fixture(), Default::default())),
+        )
+        .await;
+
+    // Hold an exclusive lock on `discovers`, and poll through a pool with a
+    // short lock timeout, so that the discover lookup fails with a database
+    // error rather than returning no row.
+    let mut locker = harness.pool.begin().await.unwrap();
+    sqlx::query("lock table discovers in access exclusive mode")
+        .execute(&mut *locker)
+        .await
+        .unwrap();
+    let timeout_pool = sqlx::PgPool::connect_lazy_with(
+        (*harness.pool.connect_options())
+            .clone()
+            .options([("lock_timeout", "100ms")]),
+    );
+
+    let executor = crate::DiscoverExecutor {
+        handler: harness.discover_handler.clone(),
+        snapshot_watch: harness.snapshot_watch.clone(),
+    };
+    let err = automations::executors::ObjSafe::poll(
+        &executor,
+        &timeout_pool,
+        discover_id,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect_err("expected the discover lookup to fail");
+    assert!(
+        format!("{err:#}").contains("lock timeout"),
+        "unexpected error: {err:#}"
+    );
+    locker.rollback().await.unwrap();
+}
+
+async fn delete_draft(harness: &TestHarness, draft_id: models::Id) {
+    sqlx::query!(
+        "delete from drafts where id = $1 returning 1 as \"must_exist: bool\"",
+        draft_id as models::Id,
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .expect("failed to delete draft");
+}
+
+async fn task_ids(harness: &TestHarness) -> Vec<models::Id> {
+    sqlx::query_scalar!(
+        r#"select task_id as "task_id: models::Id" from internal.tasks order by task_id"#
+    )
+    .fetch_all(&harness.pool)
+    .await
+    .expect("failed to query tasks")
+}
