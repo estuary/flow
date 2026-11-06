@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A batch of records, which are emitted as separate documents when a record path is configured. -->
+<Batch xmlns="urn:example:batch">
+  <Header>
+    <Count>3</Count>
+  </Header>
+  <Orders>
+    <Order id="1">
+      <Customer>Acme</Customer>
+      <Line sku="A-1" qty="2"/>
+    </Order>
+    <Order id="2">
+      <Customer>Example Co</Customer>
+      <Line sku="B-2" qty="1"/>
+      <Line sku="C-3" qty="5"/>
+    </Order>
+    <Order id="3">
+      <Customer><![CDATA[Acme & Sons <Wholesale>]]></Customer>
+    </Order>
+  </Orders>
+</Batch>
