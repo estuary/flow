@@ -55,3 +55,36 @@ flowctl draft create
 flowctl draft author --source ~/estuary/flow/examples/citi-bike/flow.yaml
 flowctl draft publish
 ```
+
+### Working with the GraphQL API directly
+
+`flowctl raw graphql` explores the control-plane GraphQL API and runs
+operations against it. The schema is read by introspection, so it always
+describes the API the active profile points at.
+
+```console
+# What can I call?
+flowctl raw graphql operations
+flowctl raw graphql operations mutation --search invite
+
+# What shape is this type?
+flowctl raw graphql describe InviteLink
+flowctl raw graphql types --kind input-object --search alert
+
+# The whole schema, as SDL.
+flowctl raw graphql schema
+```
+
+Run a query or mutation with `exec`. The document comes from an argument,
+from `--file`, or from stdin, and variables from `--variables` (a JSON
+object) or repeated `--var name=value` pairs:
+
+```console
+flowctl raw graphql exec 'query { alertTypes { alertType } }'
+
+flowctl raw graphql exec --var cap=read \
+  'query Q($cap: Capability!) { prefixes(by: {minCapability: $cap}) { edges { node { prefix } } } }'
+```
+
+The full response is printed as JSON, including its `errors`, and the
+command exits non-zero when the API reported any.
