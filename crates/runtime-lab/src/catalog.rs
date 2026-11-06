@@ -110,7 +110,7 @@ pub async fn build(
     let draft = surface_errors(draft.into_result())?;
 
     let live = flowctl::local_specs::Resolver {
-        pg: session.pg.clone(),
+        rest: session.rest.clone(),
         access_token: Some(session.access_token()?),
     }
     .resolve(draft.all_catalog_names())
