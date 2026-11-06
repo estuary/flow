@@ -495,7 +495,9 @@ EOF or status. A client which does not drain responses may park the handler.
   a tracked file or submodule differs from it, or a file git does not ignore
   is untracked, whatever git's configuration hides from its status.
   Outside a git checkout it is empty, whatever was inherited. The launcher
-  compiles it in as `BUILD_IDENTITY`. `flow-connector-vmm` compiles in its
+  compiles it in as `BUILD_IDENTITY`; `flowctl build-identity` and
+  `flowctl-go build-identity` print it as `REPORTED_IDENTITY`, which
+  `ci:package` checks. `flow-connector-vmm` compiles in its
   own, and prints it from the `boundary verify` each launch runs.
   `check_pairing` pairs them only if both name the same commit and neither is
   dirty. A bare cargo build, an empty identity, or an image older than

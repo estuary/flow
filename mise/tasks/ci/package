@@ -5,12 +5,19 @@ ARCH=$(uname -m)
 
 # Map ARCH to amd64 or arm64 (matching docker architecture names).
 if [[ "${ARCH}" == "x86_64" ]]; then
-    PACKAGE_DIR=${HOME}/flow-package/amd64/
+    PACKAGE_ARCH=amd64
 elif [[ "${ARCH}" == "aarch64" ]]; then
-    PACKAGE_DIR=${HOME}/flow-package/arm64/
+    PACKAGE_ARCH=arm64
 else
     echo "Unsupported architecture: ${ARCH}"
     exit 1
+fi
+PACKAGE_DIR=${HOME}/flow-package/${PACKAGE_ARCH}/
+
+# Detect source changes made by the builds before recording their artifacts.
+source "$(dirname "$0")/../build/identity-lib.sh"
+if [[ -n "${EXPECTED_COMMIT:-}" ]]; then
+    require_flow_build . "${EXPECTED_COMMIT}" || exit 1
 fi
 
 # Cleanup and re-create package directory.
@@ -65,8 +72,22 @@ if [[ "${vmm_help}" == *--exec* ]]; then
     exit 1
 fi
 
+# Launchers must pair with the VMM from this release's source commit.
+BUILD_RECORD="source $(flow_build_identity . || echo unidentified)"
+for launcher in flowctl flowctl-go; do
+    reported=$("${PACKAGE_DIR}/${launcher}" build-identity)
+    BUILD_RECORD+=$'\n'"${launcher} ${reported}"
+    if [[ -n "${EXPECTED_COMMIT:-}" && "${reported}" != "${EXPECTED_COMMIT}" ]]; then
+        echo "${launcher} was built as ${reported}, not the expected commit ${EXPECTED_COMMIT}" >&2
+        exit 1
+    fi
+done
+
 cp crates/flow-web/pkg/estuary-flow-web-*.tgz ${HOME}/flow-package/estuary-flow-web.tgz
 cp crates/data-plane-controller/entrypoint.sh ${PACKAGE_DIR}/data-plane-controller-entrypoint.sh
 cp crates/oidc-discovery-server/entrypoint.sh ${PACKAGE_DIR}/oidc-discovery-server-entrypoint.sh
 cp crates/agent/api-entrypoint.sh ${PACKAGE_DIR}/agent-api-entrypoint.sh
-cp crates/connector-vmm/fake-entrypoint.sh ${PACKAGE_DIR}/connector-vmm-fake-entrypoint.sh
+
+# ci:docker-images verifies these after transferring packages between jobs.
+printf '%s\n' "${BUILD_RECORD}" >${HOME}/flow-package/${PACKAGE_ARCH}.build
+(cd ${HOME}/flow-package && sha256sum ${PACKAGE_ARCH}/*) >${HOME}/flow-package/${PACKAGE_ARCH}.sha256

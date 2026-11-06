@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Build this checkout's production VMM image for linux/amd64, and gate it by image ID with ci:connector-vmm-gate (needs docker buildx, not KVM)"
+#USAGE flag "--dir <dir>" help="The directory, replaced, which stages the image's files and holds this run's log, the image build's log, and a report of the source, binaries and image. Defaults to the target directory."
+
+# Stage only the files the production image consumes. CI also verifies
+# that compilation leaves the expected source commit unchanged.
+DIR="${usage_dir:-${CARGO_TARGET_DIR:?run this task under mise}/connector-vmm-candidate}"
+TAG=localhost/connector-vmm-candidate
+BUILD="flow-connector-vmm build ${FLOW_BUILD_IDENTITY:-unidentified}"
+
+fail() {
+    echo "ci:connector-vmm-candidate: $*" >&2
+    exit 1
+}
+
+# Everything this run says is also kept, for a failure's artifacts.
+rm -rf "${DIR}"
+mkdir -p "${DIR}/package/amd64"
+exec > >(tee "${DIR}/candidate.log") 2>&1
+REPORT="${DIR}/report"
+echo "source ${FLOW_BUILD_IDENTITY:-unidentified}" >"${REPORT}"
+
+source "$(dirname "$0")/../build/identity-lib.sh"
+[ "$(uname -m)" = x86_64 ] || fail "the VMM image is linux/amd64 only, and this host is $(uname -m)"
+docker buildx version >/dev/null 2>&1 || fail "docker buildx is unavailable"
+if [ -n "${EXPECTED_COMMIT:-}" ]; then
+    require_flow_build . "${EXPECTED_COMMIT}" || fail "the checkout is not ${EXPECTED_COMMIT}, unchanged"
+    [ "${FLOW_BUILD_IDENTITY:-}" = "${EXPECTED_COMMIT}" ] \
+        || fail "this invocation's FLOW_BUILD_IDENTITY is '${FLOW_BUILD_IDENTITY:-}', not ${EXPECTED_COMMIT}"
+fi
+
+echo "=== Building flow-connector-vmm and flow-guest-init ==="
+rustup target add x86_64-unknown-linux-musl >/dev/null
+cargo build --locked --release -p connector-vmm
+cargo build --locked --release --target x86_64-unknown-linux-musl -p guest-init
+if [ -n "${EXPECTED_COMMIT:-}" ]; then
+    require_flow_build . "${EXPECTED_COMMIT}" || fail "the builds changed the checkout"
+fi
+
+cp "${CARGO_TARGET_DIR}/release/flow-connector-vmm" \
+    "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-guest-init" \
+    "${DIR}/package/amd64/"
+VMM_SHA=$(sha256sum <"${DIR}/package/amd64/flow-connector-vmm" | cut -d' ' -f1)
+GUEST_INIT_SHA=$(sha256sum <"${DIR}/package/amd64/flow-guest-init" | cut -d' ' -f1)
+echo "flow-connector-vmm ${VMM_SHA}" >>"${REPORT}"
+echo "flow-guest-init ${GUEST_INIT_SHA}" >>"${REPORT}"
+
+echo "=== Building the VMM image (log: ${DIR}/build.log) ==="
+if ! docker buildx build --progress=plain --platform linux/amd64 --load -t "${TAG}" \
+    --metadata-file "${DIR}/metadata.json" -f docker/connector-vmm.Dockerfile \
+    "${DIR}/package" >"${DIR}/build.log" 2>&1; then
+    tail -40 "${DIR}/build.log" >&2
+    fail "building the VMM image failed"
+fi
+# The engine's image store IDs the image by its config or manifest digest.
+BUILT=$(jq -r '[."containerimage.config.digest", ."containerimage.digest"] | map(select(.)) | join(" ")' "${DIR}/metadata.json")
+VMM_ID=$(docker image inspect --format '{{.Id}}' "${TAG}")
+[[ -n "${BUILT}" && " ${BUILT} " == *" ${VMM_ID} "* ]] || fail "${TAG} is ${VMM_ID}, not the image the build made (${BUILT:-none})"
+echo "image ${VMM_ID}" >>"${REPORT}"
+
+image_sha() {
+    docker run --rm --network=none --entrypoint sha256sum "${VMM_ID}" "$1" | cut -d' ' -f1
+}
+[ "$(image_sha /usr/local/bin/flow-connector-vmm)" = "${VMM_SHA}" ] || fail "${VMM_ID}'s flow-connector-vmm is not this build"
+[ "$(image_sha /flow-guest-init)" = "${GUEST_INIT_SHA}" ] || fail "${VMM_ID}'s /flow-guest-init is not this build"
+REPORTED=$(docker run --rm --network=none --cap-drop=all --cap-add=CAP_NET_ADMIN "${VMM_ID}" \
+    boundary verify 2>/dev/null | grep '^flow-connector-vmm build ' || true)
+echo "reported ${REPORTED}" >>"${REPORT}"
+[ "${REPORTED}" = "${BUILD}" ] || fail "${VMM_ID} reports '${REPORTED}', not this build's '${BUILD}'"
+
+echo "gate container ${CONNECTOR_VMM_GATE_NAME:-named by the gate}" >>"${REPORT}"
+"$(dirname "$0")/connector-vmm-gate" "${VMM_ID}"
+echo "gate passed" >>"${REPORT}"
+cat "${REPORT}"

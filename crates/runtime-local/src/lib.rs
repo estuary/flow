@@ -40,7 +40,7 @@ pub mod segments;
 pub mod services;
 pub mod shards;
 
-pub use connector::{Vmm, local_test_router};
+pub use connector::{REPORTED_IDENTITY, Vmm, local_test_router};
 use runtime_next::{LoggerFactory, PublisherFactory};
 
 /// The connector router of every local context: one

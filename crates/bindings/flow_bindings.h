@@ -133,6 +133,12 @@ typedef struct TaskServiceV2 {
   uintptr_t err_cap;
 } TaskServiceV2;
 
+/**
+ * `connector::REPORTED_IDENTITY`, NUL-terminated: the build this process's
+ * VMM launches pair with a VMM image's own.
+ */
+const char *connector_build_identity(void);
+
 struct Channel *extract_create(int32_t log_level, int32_t log_dest_fd);
 
 void extract_invoke1(struct Channel *ch, struct In1 i);

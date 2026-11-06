@@ -13,6 +13,8 @@ concurrency:
 
 env:
   SCCACHE_VERSION: v0.12.0
+  # Release launchers and the VMM must report the checked-out commit.
+  EXPECTED_COMMIT: ${{ github.sha }}
 
 jobs:
   platform-build:
@@ -57,6 +59,11 @@ jobs:
           version: ${{ env.SCCACHE_VERSION }}
       - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
       - run: echo "RUSTC_WRAPPER=$SCCACHE_PATH" >> $GITHUB_ENV
+
+      - name: Check the checkout is the expected commit
+        run: |
+          source mise/tasks/build/identity-lib.sh
+          require_flow_build . "${EXPECTED_COMMIT}"
 
       # These steps are kept in lockstep with task `ci:platform-build`
       - run: mise run build:rocksdb

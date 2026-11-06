@@ -35,10 +35,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-      # Release builds use the same VMM pairing identity as mise builds.
+      # Pair release launchers with the VMM from this clean commit.
       - name: Build identity
         run: |-
           source mise/tasks/build/identity-lib.sh
+          require_flow_build . "${GITHUB_SHA}"
           export_flow_build_identity .
           echo "FLOW_BUILD_IDENTITY=${FLOW_BUILD_IDENTITY}" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
@@ -50,7 +51,11 @@ jobs:
           CC: clang
           CXX: clang++
         run: |-
-          cargo build -p flowctl --release && mv target/release/flowctl ${ASSET_NAME}
+          cargo build -p flowctl --release
+          source mise/tasks/build/identity-lib.sh
+          require_flow_build . "${GITHUB_SHA}"
+          test "$(target/release/flowctl build-identity)" = "${GITHUB_SHA}"
+          mv target/release/flowctl ${ASSET_NAME}
 
       # Mac build steps:
       - name: Setup mac signing certificate
@@ -98,6 +103,10 @@ jobs:
           rustup target add x86_64-apple-darwin
           cargo build -p flowctl --release --target x86_64-apple-darwin
           cargo build -p flowctl --release --target aarch64-apple-darwin
+          source mise/tasks/build/identity-lib.sh
+          require_flow_build . "${GITHUB_SHA}"
+          # The runner's own architecture's build.
+          test "$(target/$(uname -m | sed s/arm64/aarch64/)-apple-darwin/release/flowctl build-identity)" = "${GITHUB_SHA}"
           lipo -create -output ${ASSET_NAME} target/x86_64-apple-darwin/release/flowctl target/aarch64-apple-darwin/release/flowctl
           /usr/bin/codesign --force -s "$MAC_CERTIFICATE_IDENTITY" "$ASSET_NAME" -v
 

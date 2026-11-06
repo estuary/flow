@@ -68,8 +68,75 @@ refused "verify after remove" "table is absent" "${vmm}" boundary verify
 exit "${failed}"
 '
 
+# A killed engine client may leave its container running. Use an exact name
+# for cleanup here and by the workflow if this script is killed outright.
+NAME="${CONNECTOR_VMM_GATE_NAME:-connector-vmm-gate-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')}"
+TIMEOUT="${CONNECTOR_VMM_GATE_TIMEOUT:-300}"
+
+# Whether the engine has a container of exactly NAME: status 0 if it does,
+# 1 if it does not, and 2 if it cannot say.
+listed() {
+    local names
+    names=$("${ENGINE[@]}" ps -a --filter "name=${NAME}" --format '{{.Names}}') || return 2
+    grep -qxF -- "${NAME}" <<<"${names}"
+}
+
+# Remove the container, unless it is already gone, as `run --rm` leaves it.
+remove() {
+    local attempt found
+    for attempt in 1 2 3 4; do
+        found=0
+        listed || found=$?
+        if [[ "${found}" -ne 0 || "${attempt}" -eq 4 ]]; then
+            break
+        fi
+        "${ENGINE[@]}" rm -f "${NAME}" >/dev/null 2>&1 || sleep 1
+    done
+    case "${found}" in
+    1) return 0 ;;
+    0) echo "ci:connector-vmm-gate: could not remove container ${NAME}" >&2 ;;
+    *) echo "ci:connector-vmm-gate: could not list containers, to remove ${NAME}" >&2 ;;
+    esac
+    return 1
+}
+
+# Exiting while the client may run: stop it, then remove what it ran.
+release() {
+    local status=$?
+    if [[ -n "${CLIENT}" ]]; then
+        kill "${CLIENT}" 2>/dev/null || true
+        wait "${CLIENT}" 2>/dev/null || true
+    fi
+    remove || status=1
+    exit "${status}"
+}
+
+found=0
+listed || found=$?
+case "${found}" in
+0) echo "ci:connector-vmm-gate: a container named ${NAME} exists, and is not this gate's" >&2 && exit 1 ;;
+2) echo "ci:connector-vmm-gate: could not list containers" >&2 && exit 1 ;;
+esac
+
 echo "=== Gating VMM image ${IMAGE}: boundary install, verify and tampering ==="
-"${ENGINE[@]}" run --rm --network=none --log-driver=none --read-only \
-    --cap-drop=all --cap-add=CAP_NET_ADMIN --entrypoint=/bin/bash "${IMAGE}" -c "${GATE}" \
-    || { echo "ci:connector-vmm-gate: ${IMAGE} failed its gate" >&2; exit 1; }
+CLIENT=
+trap release EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# In the background, so that a signal interrupts the wait at once.
+timeout --kill-after=10 "${TIMEOUT}" "${ENGINE[@]}" run --rm --name "${NAME}" --network=none \
+    --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN \
+    --entrypoint=/bin/bash "${IMAGE}" -c "${GATE}" &
+CLIENT=$!
+status=0
+wait "${CLIENT}" || status=$?
+trap - EXIT
+
+case "${status}" in
+0) ;;
+124) echo "ci:connector-vmm-gate: ${IMAGE}'s gate did not finish within ${TIMEOUT}s" >&2 ;;
+*) echo "ci:connector-vmm-gate: ${IMAGE} failed its gate" >&2 ;;
+esac
+remove || exit 1
+[[ "${status}" -eq 0 ]] || exit 1
 echo "ci:connector-vmm-gate: ${IMAGE} passed"

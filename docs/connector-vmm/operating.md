@@ -59,7 +59,12 @@ whose podman runs in a PID namespace other than the host's.
   pushed by the platform build from `master`, tagged as that build's version.
   The image pushed is the one `ci:connector-vmm-gate` passed: its boundary
   installed, verified and refused deliberate tampering in a container's own
-  network namespace, and its build is a clean commit's. podman pulls it, with
+  network namespace, and it reports the build of the commit the workflow
+  checked out. The other images publish before that gate runs. A pull request
+  which could change the image runs the same gate on an image it builds,
+  and publishes nothing. Neither proves the image runs a VM: that is the
+  developer-run KVM suite (see [below](#ordinary-tooling-stays-unprivileged)).
+  podman pulls it, with
   the engine's own registry credentials, the first time a boundary command or
   launch needs it. Each launch resolves the tag to an image ID once, and runs
   only that image. Check that the host's engine can pull the exact tag before
@@ -85,7 +90,10 @@ whose podman runs in a PID namespace other than the host's.
   checkout.
   Reactors, flowctl and `flow-connector-vmm` compile it in, and the VMM
   image's `boundary verify` prints its own (`flow-connector-vmm build
-  <identity>`). Before every launch, a launcher refuses the image unless both
+  <identity>`). `flowctl build-identity` and `flowctl-go build-identity`
+  print a launcher's. The platform build refuses to package a launcher, or
+  push a VMM image, which does not report the checked-out commit, or a tree
+  its builds changed; flowctl's release build checks its binary likewise. Before every launch, a launcher refuses the image unless both
   name the same commit and neither is dirty or unidentified (empty, a bare
   cargo build, or an image older than this check). So `CONNECTOR_VMM_IMAGE` must name the VMM image the platform build
   made from the reactor's own commit. This catches accidental mismatches; it
@@ -256,9 +264,14 @@ the checks such a move must pass.
 
 Builds, `mise run ci:nextest-run` and `mise run local:stack` need no KVM,
 sudo or rootful podman, and a local stack's reactor has no `CONNECTOR_VMM_*`.
-Privileged integration tests are opt-in: `mise run ci:connector-vmm-kvm`
-(the component suite) and `mise run ci:connector-vmm-kvm --platform` (a local stack whose
-reactor and flowctl launch VMMs). See
+Privileged integration tests are opt-in and developer-run, on a host with
+KVM: `mise run ci:connector-vmm-kvm` (the component suite) and
+`mise run ci:connector-vmm-kvm --platform` (a local stack whose reactor and
+flowctl launch Python captures, derivations and materializations in VMMs).
+No workflow runs them, and neither publication nor activation requires
+their results. Each builds its own images from the checkout, so neither
+tests a published image. `mise run ci:connector-vmm-candidate` gates the
+production image without KVM. See
 [`crates/connector-vmm-tests`](../../crates/connector-vmm-tests/README.md).
 
 ## Lifecycle and recovery

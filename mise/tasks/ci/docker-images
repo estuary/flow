@@ -7,6 +7,22 @@ PACKAGE_DIR="${PACKAGE_DIR:-${HOME}/flow-package}"
 TAGS_FILE="${PACKAGE_DIR}/tags"
 PUSH="${PUSH:-false}"
 
+# A publication builds exactly what this script configures: bake arguments
+# could change a target's output, platforms or context.
+if [[ "${PUSH}" == "true" && $# -gt 0 ]]; then
+    echo "Error: refusing custom bake arguments when pushing: $*" >&2
+    exit 1
+fi
+# Published launchers and the VMM must report the expected clean source commit.
+if [[ "${PUSH}" == "true" && -z "${EXPECTED_COMMIT:-}" ]]; then
+    echo "Error: pushing requires EXPECTED_COMMIT, the commit the package was built from" >&2
+    exit 1
+fi
+if [[ -n "${EXPECTED_COMMIT:-}" && ! "${EXPECTED_COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Error: EXPECTED_COMMIT '${EXPECTED_COMMIT}' is not a full commit ID" >&2
+    exit 1
+fi
+
 # Validate required files exist
 if [[ ! -f "${TAGS_FILE}" ]]; then
     echo "Error: Tags file not found at ${TAGS_FILE}" >&2
@@ -17,6 +33,29 @@ if [[ ! -d "${PACKAGE_DIR}/amd64" ]] && [[ ! -d "${PACKAGE_DIR}/arm64" ]]; then
     echo "Error: Missing architecture directories in ${PACKAGE_DIR}" >&2
     exit 1
 fi
+
+# For EXPECTED_COMMIT, each architecture's package must be exactly the files
+# ci:package recorded, from that commit's builds. A publication needs both.
+for PACKAGE_ARCH in amd64 arm64; do
+    if [[ -z "${EXPECTED_COMMIT:-}" ]] || [[ ! -d "${PACKAGE_DIR}/${PACKAGE_ARCH}" && "${PUSH}" != "true" ]]; then
+        continue
+    fi
+    SUMS="${PACKAGE_DIR}/${PACKAGE_ARCH}.sha256"
+    RECORD="${PACKAGE_DIR}/${PACKAGE_ARCH}.build"
+    [[ -f "${SUMS}" && -f "${RECORD}" ]] \
+        || { echo "Error: the ${PACKAGE_ARCH} package has no ${SUMS} and ${RECORD}; run ci:package" >&2; exit 1; }
+    (cd "${PACKAGE_DIR}" && sha256sum --check --strict --quiet "${SUMS}") \
+        || { echo "Error: the ${PACKAGE_ARCH} package differs from ${SUMS}" >&2; exit 1; }
+    UNLISTED=$(cd "${PACKAGE_DIR}" && comm -23 <(find "${PACKAGE_ARCH}" ! -type d | sort) <(cut -c67- "${SUMS}" | sort))
+    [[ -z "${UNLISTED}" ]] \
+        || { echo "Error: the ${PACKAGE_ARCH} package holds files ${SUMS} does not list: ${UNLISTED//$'\n'/ }" >&2; exit 1; }
+    if ! cmp -s "${RECORD}" <(printf '%s %s\n' source "${EXPECTED_COMMIT}" \
+        flowctl "${EXPECTED_COMMIT}" flowctl-go "${EXPECTED_COMMIT}"); then
+        echo "Error: the ${PACKAGE_ARCH} package was not built from ${EXPECTED_COMMIT}:" >&2
+        sed 's/^/  /' "${RECORD}" >&2
+        exit 1
+    fi
+done
 
 # Read comma-separated tags into array
 IFS=',' read -ra TAGS <<< "$(cat "${TAGS_FILE}")"
@@ -67,9 +106,10 @@ TARGET_NAMES=()
 for DOCKERFILE in docker/*.Dockerfile; do
     IMAGE_NAME=$(basename "${DOCKERFILE}" .Dockerfile)
 
-    # The VMM and its fake are amd64 only, matching the libkrun build and KVM suite.
+    # The real VMM is amd64-only; the fake is built by the KVM harness.
     case "${IMAGE_NAME}" in
-    connector-vmm | connector-vmm-fake) IMAGE_SUPPORTED='["linux/amd64"]' ;;
+    connector-vmm-fake) continue ;;
+    connector-vmm) IMAGE_SUPPORTED='["linux/amd64"]' ;;
     *) IMAGE_SUPPORTED="${PLATFORMS}" ;;
     esac
     # The VMM image is loaded, never pushed, by the bake: it is gated below,
@@ -145,28 +185,45 @@ echo ""
 echo "=== Building images in parallel ==="
 docker buildx bake --allow=fs.read=${PACKAGE_DIR} --metadata-file "${METADATA_FILE}" -f "${BAKE_FILE}" "$@"
 
-# The VMM image the bake just loaded, if it built one, as the digests of its
-# config and manifest: the engine's image store IDs it by one or the other.
+# Image stores identify loaded images by config or manifest digest.
+# Full builds and publications require VMM metadata; custom local bakes may omit it.
 VMM_BUILT=$(jq -r '."connector-vmm" // empty | [."containerimage.config.digest", ."containerimage.digest"] | map(select(.)) | join(" ")' "${METADATA_FILE}")
-if [[ -n "${VMM_BUILT}" ]]; then
+if [[ -z "${VMM_BUILT}" ]]; then
+    if [[ "${PUSH}" == "true" || ($# -eq 0 && " ${TARGET_NAMES[*]} " == *" connector-vmm "*) ]]; then
+        echo "Error: the bake's metadata names no connector-vmm image, so none can be gated" >&2
+        exit 1
+    fi
+    if [[ $# -gt 0 ]]; then
+        echo "This bake built no connector-vmm image, so none was gated"
+    fi
+else
     VMM_ID=$(docker image inspect --format '{{.Id}}' "ghcr.io/estuary/connector-vmm:${TAGS[0]}")
     [[ " ${VMM_BUILT} " == *" ${VMM_ID} "* ]] \
         || { echo "Error: ghcr.io/estuary/connector-vmm:${TAGS[0]} is not the image the bake built" >&2; exit 1; }
     "$(dirname "$0")/connector-vmm-gate" "${VMM_ID}"
-    # Launchers refuse an image whose build is not a clean commit's.
+    # Launchers refuse an image whose build is not their own clean commit's.
     BUILD=$(docker run --rm --network=none --cap-drop=all --cap-add=CAP_NET_ADMIN "${VMM_ID}" \
         boundary verify 2>/dev/null | grep '^flow-connector-vmm build ' || true)
     echo "${VMM_ID}: ${BUILD}"
-    for TAG in "${TAGS[@]}"; do
-        VMM_TAG="ghcr.io/estuary/connector-vmm:${TAG}"
-        [[ "$(docker image inspect --format '{{.Id}}' "${VMM_TAG}")" == "${VMM_ID}" ]] \
-            || { echo "Error: ${VMM_TAG} is not the gated image ${VMM_ID}" >&2; exit 1; }
-        if [[ "${PUSH}" == "true" ]]; then
-            [[ "${BUILD}" =~ ^flow-connector-vmm\ build\ [0-9a-f]{40}$ ]] \
-                || { echo "Error: not publishing ${VMM_TAG}, whose build is not a clean commit's" >&2; exit 1; }
-            docker push --quiet "${VMM_TAG}"
-        fi
+    if [[ -n "${EXPECTED_COMMIT:-}" && "${BUILD}" != "flow-connector-vmm build ${EXPECTED_COMMIT}" ]]; then
+        echo "Error: ${VMM_ID} reports '${BUILD}', not the expected commit ${EXPECTED_COMMIT}" >&2
+        exit 1
+    fi
+    # Every tag names the gated image before any is pushed, and again as it is.
+    require_gated() {
+        [[ "$(docker image inspect --format '{{.Id}}' "$1")" == "${VMM_ID}" ]] \
+            || { echo "Error: $1 is not the gated image ${VMM_ID}" >&2; exit 1; }
+    }
+    VMM_TAGS=("${TAGS[@]/#/ghcr.io/estuary/connector-vmm:}")
+    for VMM_TAG in "${VMM_TAGS[@]}"; do
+        require_gated "${VMM_TAG}"
     done
+    if [[ "${PUSH}" == "true" ]]; then
+        for VMM_TAG in "${VMM_TAGS[@]}"; do
+            require_gated "${VMM_TAG}"
+            docker push --quiet "${VMM_TAG}"
+        done
+    fi
 fi
 
 echo ""

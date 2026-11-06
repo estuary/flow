@@ -33,8 +33,13 @@ engine, and platform.
 The KVM task requires x86_64 Linux, `/dev/kvm`, passwordless sudo, rootful
 podman, Docker buildx, python3, `x86_64-linux-musl-gcc`, and conntrack. The
 platform test also requires the local stack's prerequisites and public
-network access. These integration tests are opt-in; GitHub Actions and
-`ci:platform-test` do not run them. Missing prerequisites fail the task.
+network access. These integration tests are opt-in and developer-run;
+GitHub Actions and `ci:platform-test` do not run them, and nothing requires
+their results. Missing prerequisites fail the task. The task builds its own
+images from this checkout, so it does not test a published image. A pull
+request's no-KVM gate of the production image is
+`ci:connector-vmm-candidate` (see
+[`crates/connector-vmm`](../connector-vmm/README.md#images)).
 
 `--allow-missing-vsock-loopback` permits connector-init's separate vsock test
 to skip when its kernel module cannot load. The KVM suite still exercises
@@ -124,6 +129,13 @@ connector-init over a guest's vsock connection.
   container creation.
 - `tests/release.rs`, `tests/wrapper.rs`: resource cleanup and the podman
   wrapper, tested against stand-in commands.
+- `tests/publish.rs`: `ci:docker-images`, `ci:connector-vmm-gate` and
+  `ci:package` against a stand-in docker and package binaries. The VMM
+  image is pushed by the ID its gate passed, after the other images, and
+  never after a refused package, gate, tag or reported build. The gate
+  removes its container on success, failure, timeout and cancellation.
+  `ci:package` refuses a test-controls VMM and a launcher or checkout that
+  is not the expected commit's.
 - `tests/identity.rs`: `mise/tasks/build/identity-lib.sh` over git
   repositories of its own: modified, untracked and ignored files, untracked
   files and submodule changes which configuration hides from `git status`,

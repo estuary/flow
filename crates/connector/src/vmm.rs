@@ -60,6 +60,12 @@ const ALLOW_UNPAIRED_BUILD: &str = "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD";
 /// Missing or empty identities are unidentified builds.
 pub const BUILD_IDENTITY: Option<&str> = option_env!("FLOW_BUILD_IDENTITY");
 
+/// Compiled launcher identity, or `unidentified` when missing or empty.
+pub const REPORTED_IDENTITY: &str = match BUILD_IDENTITY {
+    Some(identity) if !identity.is_empty() => identity,
+    _ => "unidentified",
+};
+
 /// Begins the line in which `flow-connector-vmm boundary verify` reports its
 /// own build, as `BUILD_IDENTITY` is, or `unidentified`. Must match its
 /// `REPORTED_BUILD`.
