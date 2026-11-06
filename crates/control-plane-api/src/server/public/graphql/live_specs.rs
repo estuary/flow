@@ -145,6 +145,59 @@ impl LiveSpec {
     ) -> async_graphql::Result<super::alert_configs::EffectiveAlertConfig> {
         super::alert_configs::resolve_effective_alert_config(ctx, &self.catalog_name).await
     }
+
+    /// The current inferred schema of this collection. Null if this spec is
+    /// not a collection, or if no schema has been inferred for it.
+    async fn inferred_schema(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Option<InferredSchema>> {
+        if self.catalog_type != CatalogType::Collection {
+            return Ok(None);
+        }
+        let loader = ctx.data::<dataloader::DataLoader<super::PgDataLoader>>()?;
+        let inferred = loader
+            .load_one(InferredSchemaKey(self.catalog_name.clone()))
+            .await?;
+        Ok(inferred)
+    }
+}
+
+/// A schema inferred from the documents of a collection.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct InferredSchema {
+    /// The inferred JSON schema.
+    pub schema: async_graphql::Json<async_graphql::Value>,
+    /// The md5 of the inferred schema.
+    pub md5: String,
+}
+
+/// Typed key for loading inferred schemas by collection name
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InferredSchemaKey(pub String);
+
+impl dataloader::Loader<InferredSchemaKey> for super::PgDataLoader {
+    type Value = InferredSchema;
+    type Error = async_graphql::Error;
+
+    async fn load(
+        &self,
+        keys: &[InferredSchemaKey],
+    ) -> Result<HashMap<InferredSchemaKey, Self::Value>, Self::Error> {
+        let names = keys.iter().map(|k| k.0.as_str()).collect::<Vec<_>>();
+        let rows = crate::live_specs::fetch_inferred_schemas(&names, &self.0).await?;
+
+        rows.into_iter()
+            .map(|row| {
+                let schema: async_graphql::Value = serde_json::from_str(row.schema.get())?;
+                let inferred = InferredSchema {
+                    schema: async_graphql::Json(schema),
+                    md5: row.md5,
+                };
+                Ok((InferredSchemaKey(row.collection_name), inferred))
+            })
+            .collect()
+    }
 }
 
 /// Typed key for loading live specs by catalog_name
@@ -325,6 +378,96 @@ mod tests {
                       "dataPlaneId": "111111fffe111111"
                     },
                     "userCapability": "admin"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_live_spec_inferred_schema(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        sqlx::query(
+            r#"insert into inferred_schemas (collection_name, schema, flow_document) values (
+                'aliceCo/data/foo',
+                '{"type":"object","properties":{"id":{"type":"string"}},"x-collection-generation-id":"0000000000001234"}',
+                '{}'
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, true).await)
+                .await;
+
+        let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        // A collection returns its inferred schema, and other spec types return null.
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { names: ["aliceCo/data/foo", "aliceCo/in/capture-foo"] }) {
+                            edges {
+                                node {
+                                    catalogName
+                                    liveSpec {
+                                        inferredSchema {
+                                            md5
+                                            schema
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                "#
+                }),
+                Some(&token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!(response,
+          @r#"
+        {
+          "data": {
+            "liveSpecs": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogName": "aliceCo/data/foo",
+                    "liveSpec": {
+                      "inferredSchema": {
+                        "md5": "219d799613d917d622f39126f4f249d3",
+                        "schema": {
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object",
+                          "x-collection-generation-id": "0000000000001234"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "node": {
+                    "catalogName": "aliceCo/in/capture-foo",
+                    "liveSpec": {
+                      "inferredSchema": null
+                    }
                   }
                 }
               ]
