@@ -52,6 +52,7 @@ mod secrets;
 mod service_accounts;
 pub mod status;
 mod storage_mappings;
+mod task_logs;
 mod tenant;
 
 pub(crate) use scalars::{Sensitive, UInt64};
@@ -118,6 +119,7 @@ pub struct QueryRoot(
     sandboxes::SandboxesQuery,
     discovers::DiscoversQuery,
     publications::PublicationsQuery,
+    task_logs::TaskLogsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.

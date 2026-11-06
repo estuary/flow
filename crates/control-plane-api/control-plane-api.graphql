@@ -2821,6 +2821,21 @@ type QueryRoot {
 	Returns the publication if the caller initiated it, and null otherwise.
 	"""
 	publication(id: Id!): Publication
+	"""
+	Scan the logs of a task, returning lines which match `filter`.
+	
+	Pass `last` (and optionally `before`) to scan backward from the
+	newest logs, or `first` (and optionally `after`) to scan forward.
+	Without either, returns the last 100 lines. Lines are always
+	returned in ascending log order.
+	
+	A scan stops upon matching the requested number of lines, upon
+	reading its `budget`, or upon passing a time bound of `filter`. It
+	may stop with fewer lines than requested, even zero, in which case
+	`hasPreviousPage` (backward) or `hasNextPage` (forward) tells whether
+	continuing the scan from `resumeCursor` may find more.
+	"""
+	taskLogs(task: String!, filter: TaskLogsFilter, budget: TaskLogsBudget, after: String, before: String, first: Int, last: Int): TaskLogLineConnection!
 }
 
 """
@@ -3456,6 +3471,127 @@ input StorageMappingsFilter {
 
 input StringFilter {
 	eq: String
+}
+
+enum TaskLogLevel {
+	ERROR
+	WARN
+	INFO
+	DEBUG
+	TRACE
+}
+
+type TaskLogLine {
+	ts: DateTime!
+	level: TaskLogLevel!
+	message: String!
+	fields: JSON
+	"""
+	UUID of the log document, which is unique to the line.
+	"""
+	uuid: String!
+}
+
+type TaskLogLineConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [TaskLogLineEdge!]!
+	"""
+	Cursor from which a scan continues in the same direction: pass it as
+	`before` to continue a backward scan, or as `after` to continue a
+	forward scan. A forward scan which stopped at the newest logs can be
+	continued later to read logs written since.
+	"""
+	resumeCursor: String!
+	"""
+	Approximate timestamp of the logs at `resumeCursor`,
+	for showing how far a scan has progressed.
+	"""
+	resumeTs: DateTime
+	stoppedBy: TaskLogsStop!
+	bytesRead: UInt64!
+	bytesDiscarded: UInt64!
+	elapsedMillis: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type TaskLogLineEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: TaskLogLine!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+Bounds of the work done by one request, which stops early with a
+`resumeCursor` once either is reached.
+"""
+input TaskLogsBudget {
+	"""
+	Maximum log bytes to read. Default 1GiB, maximum 4GiB.
+	"""
+	maxBytes: UInt64
+	"""
+	Maximum milliseconds to scan. Default 10s, maximum 30s.
+	"""
+	maxMillis: Int
+}
+
+"""
+Conditions which a log line must match. All present conditions must match.
+"""
+input TaskLogsFilter {
+	"""
+	Levels to match. Absent or empty matches every level.
+	"""
+	levels: [TaskLogLevel!]
+	"""
+	Inclusive lower bound of the line's timestamp.
+	"""
+	since: DateTime
+	"""
+	Exclusive upper bound of the line's timestamp.
+	"""
+	until: DateTime
+	"""
+	Case-insensitive text to find within the line's message or fields.
+	"""
+	text: String
+}
+
+enum TaskLogsStop {
+	"""
+	The requested number of lines matched.
+	"""
+	LINES
+	"""
+	The byte budget was read.
+	"""
+	BYTES
+	"""
+	The time budget elapsed.
+	"""
+	TIME
+	"""
+	The scan passed the `since` (backward) or `until` (forward) of its filter.
+	"""
+	BOUND
+	"""
+	A forward scan reached the newest logs,
+	or a backward scan reached the oldest retained logs.
+	"""
+	END
 }
 
 type Tenant {
