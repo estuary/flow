@@ -13,9 +13,10 @@ async function findOrCreateCustomer(tenant: string, user: User) {
     if (existing?.data?.length === 1) {
         console.log(`Found existing customer, reusing `);
         return existing.data[0];
-    } else if (existing?.data?.length || 0 > 1) {
-        console.log(`Found existing customer, reusing `);
-        // Should we bail?
+    } else if ((existing?.data?.length ?? 0) > 1) {
+        // Multiple customers for one tenant is an accounting anomaly. Keep
+        // reusing the first, but surface it so it can be consolidated.
+        console.warn(`billing: multiple stripe customers match tenant ${tenant}, reusing the first`);
         return existing.data[0];
     } else {
         console.log(`Unable to find customer, creating new`);
