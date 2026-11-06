@@ -30,6 +30,16 @@ when its name is reused.
 `sandboxCreate` requires CreateSandbox and an accepted sandbox agreement for
 the current tenant containing `catalogName`.
 
+`sandboxes::execute` traces command launch attempts with the command line,
+sandbox ID, user ID, command ID, and stdin byte count. The GraphQL resolver
+logs startup success or failure with the same command ID. Stdin contents and
+command output are excluded from these events. Callers should pass credentials
+through stdin because command lines are logged.
+`server/public/token_exchange.rs` traces restricted-token minting with the user,
+capability and prefix masks, and expiry, excluding the token value. Sandbox
+token injection through `sandboxExecute` is recorded as a command launch;
+there is no dedicated token-injection operation.
+
 GraphQL terminal authorization failures carry an
 `authorization::AuthorizationDenied` source with the required capability bit.
 Authorization denial messages omit the internal capability bit.

@@ -321,6 +321,16 @@ pub async fn execute(
     let argv = ["bash", "-c", COMMAND_WRAPPER, "flow-command", &command_dir];
     let input = format!("{metadata}\n{command}\0{}", stdin.unwrap_or_default());
 
+    // Stdin may carry credentials. Record the command before launch because a
+    // failed startup acknowledgement can still leave it running.
+    tracing::info!(
+        %sandbox.id,
+        %sandbox.user_id,
+        command_id = %id,
+        %command,
+        stdin_bytes = stdin.map_or(0, str::len),
+        "starting sandbox command"
+    );
     let session_id = launch(client, sandbox, &argv, Some(&input)).await?;
     // TODO: The command is already running here. If this write fails,
     // the caller gets an error and no command id, yet the command is listed
