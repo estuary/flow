@@ -64,7 +64,11 @@ printf '%s | secrets=%s configuration=%s\n' "$step" "$secrets" "$configuration" 
 case "$step" in
     "pull "*) ;;
     "image inspect")
-        echo '[{"Id":"synthetic-image","Created":"2026-01-01T00:00:00Z","Config":{"Env":[],"Labels":{"FLOW_RUNTIME_PROTOCOL":"derive"}}}]'
+        if [ "${3:-}" = --format ]; then
+            echo 00000000000000000000000000000000000000000000000000000000000000aa
+        else
+            echo '[{"Id":"synthetic-image","Created":"2026-01-01T00:00:00Z","Config":{"Env":[],"Labels":{"FLOW_RUNTIME_PROTOCOL":"derive"}}}]'
+        fi
         ;;
     "network create")
         for arg; do network=$arg; done
@@ -175,11 +179,15 @@ fn engine_environment_child() {
         podman: engine.clone(),
         state_dir: state.to_str().unwrap().to_string(),
         disk_mib: 1,
-        memory_bytes: 512 << 20,
+        memory: Ok(crate::vmm::Memory {
+            bytes: 512 << 20,
+            guest_mib: 256,
+        }),
         cpu_limit: "1".to_string(),
-        guest_memory_mib: 256,
         vcpus: 1,
         cgroup_parent: None,
+        // The inert engine's verify reports no build.
+        allow_unpaired_build: true,
     };
     let crate::vmm::Execution::Vmm {
         vmm,

@@ -127,7 +127,7 @@ flow-connector-vmm: Usage: flow-connector-vmm boundary <COMMAND>
 flow-connector-vmm:
 flow-connector-vmm: Commands:
 flow-connector-vmm:   install  Replace both tables in one transaction, then verify them. Fails, having installed them, if VMM bridges already existed while a table was absent: those VMMs ran without the boundary and must be replaced
-flow-connector-vmm:   verify   Exit zero only if both tables are exactly those this binary installs
+flow-connector-vmm:   verify   Exit zero only if both tables are exactly those this binary installs. Reports this binary's build on stdout first, whatever the tables
 flow-connector-vmm:   remove   Delete both tables. Refused while any VMM bridge exists
 flow-connector-vmm:   grant    Permit host-originated TCP connections to one launch's declared ports, and its forwarded traffic to its task's declared CIDRs
 flow-connector-vmm:   revoke   Remove only the permissions belonging to this owner token

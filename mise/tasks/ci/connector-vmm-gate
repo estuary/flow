@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Gate a built VMM image before it is published: its boundary installs, verifies, and refuses each tampering, in a container's own network namespace (needs no KVM, and never touches the host's tables)"
+#USAGE arg "<image>" help="The candidate VMM image, as the engine names it"
+
+# ci:docker-images runs this on the image it then publishes. The engine is
+# docker unless CONNECTOR_VMM_GATE_ENGINE names another, such as `sudo -n podman`.
+IMAGE="${usage_image:-${1:?usage: connector-vmm-gate IMAGE}}"
+read -ra ENGINE <<<"${CONNECTOR_VMM_GATE_ENGINE:-docker}"
+
+# The candidate's own nft must list what its binary installed. Tampering is
+# defined here independently of the binary, as in kvm::boundary_detects_tampering.
+# shellcheck disable=SC2016
+GATE='
+set -uo pipefail
+vmm=/usr/local/bin/flow-connector-vmm
+failed=0
+ok() {
+    local what=$1 out
+    shift
+    if ! out=$("$@" 2>&1); then
+        printf "FAILED %s: %s\n" "${what}" "${out}"
+        failed=1
+    fi
+}
+refused() {
+    local what=$1 says=$2 out status=0
+    shift 2
+    out=$("$@" 2>&1) || status=$?
+    if [[ "${status}" -ne 2 || "${out}" != *"${says}"* ]]; then
+        printf "FAILED %s: exit %s, not 2 naming %q: %s\n" "${what}" "${status}" "${says}" "${out}"
+        failed=1
+    fi
+}
+
+"${vmm}" boundary verify 2>/dev/null | grep "^flow-connector-vmm build "
+refused "verify before install" "table is absent" "${vmm}" boundary verify
+ok "install" "${vmm}" boundary install
+ok "a second install" "${vmm}" boundary install
+ok "verify" "${vmm}" boundary verify
+
+edits=(
+    "insert rule inet flow_vmm_boundary forward accept|inet forward, rule 0"
+    "flush chain inet flow_vmm_boundary input|inet input, rule 0"
+    "add table inet flow_vmm_boundary { flags dormant ; }|dormant"
+    "delete element inet flow_vmm_boundary baseline { 169.254.0.0/16 }|unexpected: {\"set\""
+    "chain inet flow_vmm_boundary input { policy drop ; }|\"policy\":\"drop\""
+    "delete table bridge flow_vmm_boundary|the bridge flow_vmm_boundary table is absent"
+)
+for edit in "${edits[@]}"; do
+    ok "${edit%%|*}" nft "${edit%%|*}"
+    refused "verify after ${edit%%|*}" "${edit#*|}" "${vmm}" boundary verify
+    ok "install after ${edit%%|*}" "${vmm}" boundary install
+    ok "verify after reinstalling over ${edit%%|*}" "${vmm}" boundary verify
+done
+
+link=fvm0123456789ab
+ok "adding VMM bridge ${link}" ip link add "${link}" type dummy
+refused "remove beside a VMM bridge" "${link}" "${vmm}" boundary remove
+ok "verify after a refused remove" "${vmm}" boundary verify
+ok "deleting a table" nft delete table inet flow_vmm_boundary
+refused "install over a gap" "${link}" "${vmm}" boundary install
+ok "verify after installing over a gap" "${vmm}" boundary verify
+ok "deleting VMM bridge ${link}" ip link del "${link}"
+ok "remove" "${vmm}" boundary remove
+refused "verify after remove" "table is absent" "${vmm}" boundary verify
+exit "${failed}"
+'
+
+echo "=== Gating VMM image ${IMAGE}: boundary install, verify and tampering ==="
+"${ENGINE[@]}" run --rm --network=none --log-driver=none --read-only \
+    --cap-drop=all --cap-add=CAP_NET_ADMIN --entrypoint=/bin/bash "${IMAGE}" -c "${GATE}" \
+    || { echo "ci:connector-vmm-gate: ${IMAGE} failed its gate" >&2; exit 1; }
+echo "ci:connector-vmm-gate: ${IMAGE} passed"

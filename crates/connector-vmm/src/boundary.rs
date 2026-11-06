@@ -46,6 +46,7 @@ pub enum Action {
     /// those VMMs ran without the boundary and must be replaced.
     Install,
     /// Exit zero only if both tables are exactly those this binary installs.
+    /// Reports this binary's build on stdout first, whatever the tables.
     Verify,
     /// Delete both tables. Refused while any VMM bridge exists.
     Remove,
@@ -75,7 +76,10 @@ pub enum Action {
 pub fn run(action: &Action) -> anyhow::Result<()> {
     match action {
         Action::Install => install(),
-        Action::Verify => verify(),
+        Action::Verify => {
+            println!("{}{}", crate::REPORTED_BUILD, crate::BUILD_IDENTITY);
+            verify()
+        }
         Action::Remove => remove(),
         Action::Grant {
             owner,

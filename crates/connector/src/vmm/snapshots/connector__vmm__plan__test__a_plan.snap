@@ -28,10 +28,10 @@ VMM egress permits only these host names: pypi.org, files.pythonhosted.org (conn
 0444 /tmp/connector-mounts-0/mount-fv_0123456789abcdef/image-inspect.json
 
 ## verify
-podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN --name=fv_0123456789abcdef-verify --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm ghcr.io/estuary/connector-vmm:dev boundary verify
+podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN --name=fv_0123456789abcdef-verify --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm fedcba98765432100123456789abcdef00112233445566778899aabbccddeeff boundary verify
 
 ## ingress
-run --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN --name=fv_0123456789abcdef-ingress --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm ghcr.io/estuary/connector-vmm:dev boundary grant --owner=00112233445566778899aabbccddeeff --bridge=fvm0123456789ab --cidr=10.0.0.0/8 --cidr=192.168.4.0/24
+run --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN --name=fv_0123456789abcdef-ingress --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm fedcba98765432100123456789abcdef00112233445566778899aabbccddeeff boundary grant --owner=00112233445566778899aabbccddeeff --bridge=fvm0123456789ab --cidr=10.0.0.0/8 --cidr=192.168.4.0/24
 
 ## network
 podman network create --driver=bridge --interface-name=fvm0123456789ab --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm fv_0123456789abcdef
@@ -49,7 +49,15 @@ podman create \
   --read-only-tmpfs=false \
   --device=/dev/kvm \
   --device=/dev/net/tun \
+  --cap-drop=all \
+  --cap-add=CAP_CHOWN \
+  --cap-add=CAP_DAC_OVERRIDE \
+  --cap-add=CAP_FOWNER \
+  --cap-add=CAP_FSETID \
   --cap-add=CAP_NET_ADMIN \
+  --cap-add=CAP_NET_BIND_SERVICE \
+  --cap-add=CAP_SETGID \
+  --cap-add=CAP_SETUID \
   --sysctl=net.ipv4.ip_forward=1 \
   --sysctl=net.ipv4.conf.default.rp_filter=1 \
   --sysctl=net.ipv6.conf.default.disable_ipv6=1 \
@@ -69,7 +77,7 @@ podman create \
   --label=task-type=derivation \
   --label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff \
   --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm \
-  ghcr.io/estuary/connector-vmm:dev \
+  fedcba98765432100123456789abcdef00112233445566778899aabbccddeeff \
   run \
   --policy \
   /init/policy.json \

@@ -129,9 +129,30 @@ Those three are the entire writable set, because the launch line passes
 too, as are `/dev` and `/dev/shm`. Device and proc interfaces are not storage
 and are not in that set - the only added devices are `/dev/kvm` and
 `/dev/net/tun`, and `/proc/sys` stays read-only, which is why
-`net::check_ipv6_disabled` reads a knob it cannot set. Capabilities are
-podman's default plus `CAP_NET_ADMIN`; the absence of `CAP_SYS_ADMIN` is what
-rules out a mount namespace or `pivot_root` in this process.
+`net::check_ipv6_disabled` reads a knob it cannot set. The absence of
+`CAP_SYS_ADMIN` is what rules out a mount namespace or `pivot_root` in this
+process.
+
+**Capabilities are explicit.** The launch line drops podman's defaults and
+adds only what this process uses, libkrun's virtiofs server among it. That
+server runs as host root and performs a guest's file operations itself.
+
+| capability | used for |
+|---|---|
+| `CAP_NET_ADMIN` | the tap, `ip` and `nft`, and the resolver's set updates |
+| `CAP_NET_BIND_SERVICE` | the resolver's port 53; podman leaves `ip_unprivileged_port_start` at 1024 |
+| `CAP_DAC_OVERRIDE` | the launcher's mode-0700 `/init`, `/sock` and `/scratch-backing`, and image files of any mode, which the server opens for any guest user |
+| `CAP_SETUID`, `CAP_SETGID` | the server creates a nonroot guest user's files on a writable share as that user, and refuses them without these |
+| `CAP_FOWNER` | the server's chmod and times on such a user's files |
+| `CAP_FSETID` | its chmod keeps a setgid bit such a user sets |
+| `CAP_CHOWN` | its chown, for a guest's |
+
+`CAP_KILL`, `CAP_SETPCAP`, `CAP_SYS_CHROOT` and `CAP_SETFCAP`, the rest of
+podman 4.9's defaults, are dropped. Nothing here uses the first three.
+Without the last, a root guest cannot set a file capability on its
+persistent disk, which it mounts `nosuid`. These are the VMM's host
+privileges. The guest's root and guest-init's `NO_NEW_PRIVS` are the guest
+kernel's, and confer none of them.
 
 **The guest's root is read-only outside the guest, twice.** podman mounts the
 image read-only, and libkrun's share of it refuses every write,
@@ -188,17 +209,37 @@ mount matrix.
 ## Images
 
 `ci:docker-images` builds both with the flow tags, for `linux/amd64` only.
+It loads `connector-vmm` rather than pushing it, runs `ci:connector-vmm-gate`
+on that image, and pushes the same image only once it passes and reports a
+clean commit's build. That push is `docker push` of the loaded image, not
+bake's, so the provenance attestation bake attaches to the images it pushes
+is not guaranteed for this one. The gate needs no KVM and leaves the host's tables
+alone: in a container's own network namespace, with only `CAP_NET_ADMIN`,
+the candidate's `boundary` installs, verifies, and refuses each tampering the
+gate makes with the candidate's own `nft`.
 
 `connector-vmm` is Fedora 43 with libkrun built from source, the guest kernel
 from Fedora's `libkrunfw`, and the commands `run` invokes before the VM (`ip`,
 `nft`, `mkfs.ext4`). `flow-guest-init` sits at `launch::GUEST_INIT`. The
 Dockerfile pins libkrun's commit and lockfile, and its version ARGs are also
-the `dev.estuary.libkrun` and `dev.estuary.libkrunfw` labels. Packaging
-constraints:
+the `dev.estuary.libkrun`, `dev.estuary.libkrunfw` and `dev.estuary.nftables`
+labels. Packaging constraints:
 
 - Fedora's updates repository keeps only the newest `libkrunfw`, so the image
   stops building once it moves past the pin. Moving the pin changes the guest
   kernel, and is meant to be deliberate.
+- `NFTABLES_VERSION` pins nft's upstream version, not Fedora's release of it.
+  dnf installs the newest release of that version: `1.1.3-6.fc43.1` from
+  updates when it was pinned, with `1.1.3-5.fc43` in Fedora 43's release
+  repository behind it, so the pin does not stop the build as libkrunfw's
+  does. `boundary verify` compares the tables as this nft lists them, so a
+  new version is a deliberate move: change the ARG and run
+  `mise run ci:connector-vmm-kvm`. Its verifies,
+  `boundary_detects_tampering` and `boundary_holds_across_reinstalls` must
+  pass with `boundary::expected` unchanged. A listing which spells the same
+  rule differently gets a normalization in `boundary::ours` for that spelling
+  alone, as Ubuntu's nft 1.0.9 has for `l4proto` 6, with its own listing
+  fixture; a rule which differs in meaning is a failure.
 - `flow-connector-vmm` is built on the Ubuntu runner and runs against Fedora's
   glibc, which must be at least as new.
 - Nothing in the image is written at runtime; the container root is read-only.
@@ -216,8 +257,11 @@ mount at `/connector-mount`, and socat bridges the socket to TCP port 19092,
 outside Linux's default automatic source-port range. The
 copy costs the image's size on the state directory's filesystem for each
 launch, and is given the owner of `/scratch-backing` so an unprivileged
-launcher can remove it. It needs none of the launch line's devices or
-capabilities. `boundary` is not faked: the image carries the real binary and
+launcher can remove it. It needs none of the launch line's devices, but
+its chroot needs `CAP_SYS_CHROOT`, which the launch line leaves out and the
+real VMM never uses: the suite's podman wrapper adds it to the fake's
+launches alone, as any engine wrapper running the fake must. `boundary` is
+not faked: the image carries the real binary and
 Ubuntu's `nft`, and the entrypoint runs it, so a launcher verifies with the
 fake exactly as it would with the real image. What it does not stand in for:
 
@@ -300,6 +344,13 @@ verify and the container starting would go unnoticed until the next verify.
 A verify and a VMM image come from the same build, so a host upgrades the
 tables and its launchers' VMM image together. Connection rates and distinct
 destinations are not limited.
+
+`verify` first prints `flow-connector-vmm build ` and this binary's build on
+stdout, whatever the tables: `FLOW_BUILD_IDENTITY` as
+`mise/tasks/build/identity-lib.sh` set it at compile time (HEAD's commit,
+suffixed `-dirty` for modified files or untracked source), or `unidentified`
+when it was unset or empty. A launcher pairs it with its own (`crates/connector`'s
+`check_pairing`).
 
 ## The policy
 

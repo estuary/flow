@@ -5,6 +5,10 @@
 ARG LIBKRUN_VERSION=1.19.4
 ARG LIBKRUN_COMMIT=728df8125077d0db44265f6e997c72b81b65c015
 ARG LIBKRUNFW_VERSION=5.6.2
+# The upstream version only: Fedora may rebuild it as a new release. Its nft
+# lists the host's tables for `boundary verify`, which compares that listing
+# with what this build installs, so moving it is a deliberate, tested change.
+ARG NFTABLES_VERSION=1.1.3
 
 FROM quay.io/fedora/fedora:43 AS libkrun
 ARG LIBKRUN_VERSION
@@ -32,10 +36,11 @@ RUN git clone --depth 1 --branch v${LIBKRUN_VERSION} https://github.com/containe
 FROM quay.io/fedora/fedora:43
 ARG LIBKRUN_VERSION
 ARG LIBKRUNFW_VERSION
+ARG NFTABLES_VERSION
 
 RUN dnf install -y --setopt=install_weak_deps=False \
         libkrunfw-${LIBKRUNFW_VERSION} \
-        nftables \
+        nftables-${NFTABLES_VERSION} \
         e2fsprogs \
         iproute \
  && dnf clean all
@@ -54,5 +59,6 @@ COPY ${TARGETARCH}/flow-guest-init /flow-guest-init
 
 LABEL dev.estuary.libkrun=${LIBKRUN_VERSION}
 LABEL dev.estuary.libkrunfw=${LIBKRUNFW_VERSION}
+LABEL dev.estuary.nftables=${NFTABLES_VERSION}
 
 ENTRYPOINT ["/usr/local/bin/flow-connector-vmm"]

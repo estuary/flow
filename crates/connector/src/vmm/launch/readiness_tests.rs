@@ -156,6 +156,208 @@ fn recovery_retries_failed_ingress_removal() {
     });
 }
 
+/// What `boundary verify` of an image built from a commit which is never
+/// this launcher's prints.
+const OTHER_BUILD: &str =
+    "listed\nflow-connector-vmm build 0000000000000000000000000000000000000000\n";
+
+/// A VMM image whose build is not this launcher's is refused once verify
+/// reports it, before any network, and the launch releases what it made.
+/// Recovery, which revokes with a record's image, never verifies or pairs.
+#[test]
+fn an_unpaired_image_is_refused_before_its_network() {
+    in_child(
+        "an_unpaired_image_is_refused_before_its_network",
+        |mut h| async move {
+            h.allow_unpaired_build = false;
+            std::fs::write(h.dir.join("verified"), OTHER_BUILD).unwrap();
+            let (outcome, logs) = refused(&h).await;
+            assert!(
+            outcome.starts_with("failed (FailedPrecondition): VMM image synthetic-vmm is not paired with this launcher's build: "),
+            "{outcome}"
+        );
+            assert!(
+                !logs.iter().any(|log| log.contains("not paired")),
+                "refused, not warned: {logs:?}"
+            );
+            let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+            assert!(calls.contains(" boundary verify\n"), "{calls}");
+            assert!(!calls.contains("network create"), "{calls}");
+
+            let state = h.dir.join("state");
+            let state = state.to_str().unwrap();
+            let name = "fv_0123456789abcdef";
+            let token = "00112233445566778899aabbccddeeff";
+            let line = crate::vmm::record::claim_line(name, token, None, Some("unpaired-vmm:old"));
+            drop(crate::vmm::record::claim(state, name, &line).unwrap());
+            std::fs::write(h.dir.join("ingress"), "").unwrap();
+            std::fs::remove_file(h.dir.join("calls")).unwrap();
+            let engine = h.dir.join("engine");
+            let problems = crate::vmm::release::recover(engine.to_str().unwrap(), state).await;
+            assert_eq!(problems, []);
+            assert!(!h.dir.join("ingress").exists());
+            let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+            assert!(
+                calls.contains("unpaired-vmm:old boundary revoke --owner="),
+                "{calls}"
+            );
+            assert!(!calls.contains("verify"), "{calls}");
+        },
+    );
+}
+
+/// The override skips pairing alone: an unpaired image launches, with a
+/// warning to the task, and an image whose verify fails is still refused.
+#[test]
+fn the_override_skips_only_pairing() {
+    in_child("the_override_skips_only_pairing", |mut h| async move {
+        std::fs::write(h.dir.join("verified"), OTHER_BUILD).unwrap();
+        std::fs::write(h.dir.join("verify-status"), "1").unwrap();
+        let (outcome, _logs) = refused(&h).await;
+        assert!(
+            outcome.starts_with(
+                "failed (FailedPrecondition): the host's VMM network boundary did not verify"
+            ),
+            "{outcome}"
+        );
+
+        std::fs::remove_file(h.dir.join("verify-status")).unwrap();
+        let report = launch(
+            &mut h,
+            Launch {
+                stderr: "",
+                peer: Peer::Serving,
+                then: Then::Await,
+            },
+        )
+        .await;
+        assert_eq!(render(&report), format!("{ANSWERED}\n"));
+        let warned = "VMM image synthetic-vmm is not paired with this launcher's build: ";
+        assert!(
+            report.logs.iter().any(|log| log.starts_with(warned)
+                && log.ends_with("; launching it as CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD permits")),
+            "{:#?}",
+            report.logs
+        );
+    });
+}
+
+/// A launch resolves its VMM image once, pulling it only if it's missing,
+/// and verifies, grants and runs that image by ID, whatever its tag names
+/// meanwhile.
+#[test]
+fn the_vmm_image_is_one_image_throughout() {
+    in_child(
+        "the_vmm_image_is_one_image_throughout",
+        |mut h| async move {
+            std::fs::write(h.dir.join("vmm-missing"), "").unwrap();
+            // As `declared_ports_are_reported_and_permissions_released`, for a grant.
+            std::fs::write(h.dir.join("inspection"), r#"[{"Id":"synthetic-image","Created":"2026-01-01T00:00:00Z","Config":{"Env":[],"Labels":{"FLOW_RUNTIME_PROTOCOL":"derive","dev.estuary.port-proto.9090":"http/1.1","dev.estuary.port-public.9090":"true"},"ExposedPorts":{"9090/tcp":{}}}}]"#).unwrap();
+            h.ports = vec![8080];
+            let report = launch(
+                &mut h,
+                Launch {
+                    stderr: "",
+                    peer: Peer::Serving,
+                    then: Then::Await,
+                },
+            )
+            .await;
+            assert_eq!(render(&report), format!("{ANSWERED}\n"));
+
+            let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+            let id = "00000000000000000000000000000000000000000000000000000000000000aa";
+            let vmm: Vec<String> = calls
+                .lines()
+                .filter(|call| call.contains("synthetic-vmm") || call.contains(id))
+                .map(|call| {
+                    let words: Vec<&str> = call.split(' ').collect();
+                    match words.iter().position(|word| *word == id) {
+                        Some(at) => {
+                            words[..2].join(" ")
+                                + " ... "
+                                + &words[at..(at + 3).min(words.len())].join(" ")
+                        }
+                        None => call.to_string(),
+                    }
+                })
+                .collect();
+            insta::assert_snapshot!(vmm.join("\n"), @r"
+        image inspect --format {{.Id}} synthetic-vmm
+        pull synthetic-vmm --quiet --platform=linux/amd64
+        image inspect --format {{.Id}} synthetic-vmm
+        run --rm ... 00000000000000000000000000000000000000000000000000000000000000aa boundary verify
+        run --network=host ... 00000000000000000000000000000000000000000000000000000000000000aa boundary grant
+        create --rm ... 00000000000000000000000000000000000000000000000000000000000000aa run --policy
+        run --rm ... 00000000000000000000000000000000000000000000000000000000000000aa boundary revoke
+        ");
+        },
+    );
+}
+
+/// Start a launch refused before its VMM is attached, and wait for its
+/// teardown. Returns its outcome, with its status code, and its task logs.
+async fn refused(h: &Harness) -> (String, Vec<String>) {
+    let Prepared {
+        ctx,
+        config,
+        logs,
+        read_through,
+    } = prepare(h);
+    let crate::vmm::Execution::Vmm {
+        vmm,
+        eligible,
+        egress,
+    } = crate::vmm::vmm_for(
+        Some(&config),
+        ctx.plane,
+        ops::TaskType::Derivation,
+        Some(IMAGE),
+        &ctx.execution,
+        None,
+    )
+    .unwrap()
+    else {
+        panic!("the synthetic derivation must select VMM execution");
+    };
+    let outcome = match super::start(
+        &ctx,
+        vmm,
+        eligible,
+        egress,
+        Vec::new(),
+        IMAGE,
+        &crate::EMPTY_SECRETS,
+        None,
+    )
+    .await
+    {
+        Ok(_) => panic!("the launch was not refused"),
+        Err(err) => match err.downcast_ref::<proto_grpc::StatusError>() {
+            Some(status) => format!("failed ({:?}): {}", status.0.code(), status.0.message()),
+            None => format!("failed: {err:#}"),
+        },
+    };
+    std::mem::drop(ctx);
+    _ = tokio::time::timeout(RELEASED, read_through)
+        .await
+        .expect("the launch's teardown ends within RELEASED");
+    let logs = logs.await.unwrap();
+
+    let state = std::fs::read_dir(h.dir.join("state")).unwrap().count();
+    assert_eq!(state, 0, "the launch released its state and record");
+    // SAFETY: geteuid takes nothing and cannot fail.
+    let mounts = h
+        .dir
+        .join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
+    assert_eq!(
+        std::fs::read_dir(mounts).unwrap().count(),
+        0,
+        "and its mount"
+    );
+    (outcome, logs)
+}
+
 /// The built spec's port is granted though the image exposes none of it, and
 /// the port the image alone exposes is not.
 #[test]
@@ -634,6 +836,8 @@ struct Report {
     /// What ended the engine's attached VMM: `exit` or `rm`.
     ended: String,
     left: Vec<String>,
+    /// The messages of the task's logs.
+    logs: Vec<String>,
 }
 
 fn render(Report { outcome, left, .. }: &Report) -> String {
@@ -651,6 +855,8 @@ struct Harness {
     events: Events,
     /// TCP ports of the launch's built spec.
     ports: Vec<u32>,
+    /// The scripted verify reports no build unless a test scripts one.
+    allow_unpaired_build: bool,
 }
 
 type Started = anyhow::Result<(
@@ -688,6 +894,7 @@ where
                 dir,
                 events,
                 ports: Vec::new(),
+                allow_unpaired_build: true,
             })
             .await
         });
@@ -757,40 +964,12 @@ async fn launch(h: &mut Harness, Launch { stderr, peer, then }: Launch) -> Repor
         }
     }
 
-    let (response_tx, mut response_rx) = tokio::sync::mpsc::channel(64);
-    let (log_sink, read_through) = crate::LogSink::response(response_tx);
-    // Drained, so that the pump never waits on a full channel.
-    let logs = tokio::spawn(async move {
-        while let Some(response) = response_rx.recv().await {
-            response.unwrap();
-        }
-    });
-    let ctx = crate::protocol::StartContext {
-        container_network: String::new(),
-        execution: proto_flow::flow::ConnectorExecution {
-            vmm: true,
-            egress: Some(Default::default()),
-        },
-        log_level: ops::LogLevel::Info,
-        log_sink,
-        plane: crate::Plane::Local,
-        process: None,
-        task_name: "acmeCo/readiness".to_string(),
-        vmm: None,
-        secret_resolver: std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
-        task_update: None,
-    };
-    let config = crate::Vmm {
-        image: "synthetic-vmm".to_string(),
-        podman: dir.join("engine").to_str().unwrap().to_string(),
-        state_dir: dir.join("state").to_str().unwrap().to_string(),
-        disk_mib: 1,
-        memory_bytes: 512 << 20,
-        cpu_limit: "1".to_string(),
-        guest_memory_mib: 256,
-        vcpus: 1,
-        cgroup_parent: None,
-    };
+    let Prepared {
+        ctx,
+        config,
+        logs,
+        read_through,
+    } = prepare(h);
     let crate::vmm::Execution::Vmm {
         vmm,
         eligible,
@@ -962,7 +1141,7 @@ async fn launch(h: &mut Harness, Launch { stderr, peer, then }: Launch) -> Repor
         .await
         .expect("the launch's teardown ends within RELEASED");
     eprintln!("readiness: teardown took {:?}", begun.elapsed());
-    logs.await.unwrap();
+    let logs = logs.await.unwrap();
     stop_peers(peer_tasks).await;
     std::mem::drop(release);
 
@@ -982,6 +1161,66 @@ async fn launch(h: &mut Harness, Launch { stderr, peer, then }: Launch) -> Repor
             .map(|left| elide(left))
             .collect(),
         ended,
+        logs,
+    }
+}
+
+/// A launch's start context and VMM configuration, the task draining its
+/// logs, which returns their messages, and its read-through signal.
+struct Prepared {
+    ctx: crate::protocol::StartContext,
+    config: crate::Vmm,
+    logs: tokio::task::JoinHandle<Vec<String>>,
+    read_through: tokio::sync::oneshot::Receiver<()>,
+}
+
+fn prepare(h: &Harness) -> Prepared {
+    let (response_tx, mut response_rx) = tokio::sync::mpsc::channel(64);
+    let (log_sink, read_through) = crate::LogSink::response(response_tx);
+    // Drained, so that the pump never waits on a full channel.
+    let logs = tokio::spawn(async move {
+        let mut messages = Vec::new();
+        while let Some(response) = response_rx.recv().await {
+            if let Some(proto_flow::connector::response::Kind::Log(log)) = response.unwrap().kind {
+                messages.push(log.message);
+            }
+        }
+        messages
+    });
+    let ctx = crate::protocol::StartContext {
+        container_network: String::new(),
+        execution: proto_flow::flow::ConnectorExecution {
+            vmm: true,
+            egress: Some(Default::default()),
+        },
+        log_level: ops::LogLevel::Info,
+        log_sink,
+        plane: crate::Plane::Local,
+        process: None,
+        task_name: "acmeCo/readiness".to_string(),
+        vmm: None,
+        secret_resolver: std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        task_update: None,
+    };
+    let config = crate::Vmm {
+        image: "synthetic-vmm".to_string(),
+        podman: h.dir.join("engine").to_str().unwrap().to_string(),
+        state_dir: h.dir.join("state").to_str().unwrap().to_string(),
+        disk_mib: 1,
+        memory: Ok(crate::vmm::Memory {
+            bytes: 512 << 20,
+            guest_mib: 256,
+        }),
+        cpu_limit: "1".to_string(),
+        vcpus: 1,
+        cgroup_parent: None,
+        allow_unpaired_build: h.allow_unpaired_build,
+    };
+    Prepared {
+        ctx,
+        config,
+        logs,
+        read_through,
     }
 }
 

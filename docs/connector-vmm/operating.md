@@ -35,7 +35,11 @@ Required:
   engine. `flow-connector-vmm` checks KVM before it starts libkrun.
 - **Rootful podman** as the VMM engine, in the host's PID namespace. VMM
   containers need rootful semantics: image-backed volumes, devices,
-  `CAP_NET_ADMIN`, sysctls and bridge networking.
+  capabilities, sysctls and bridge networking. Each VMM container drops
+  podman's default capabilities and gets `CAP_CHOWN`, `CAP_DAC_OVERRIDE`,
+  `CAP_FOWNER`, `CAP_FSETID`, `CAP_NET_ADMIN`, `CAP_NET_BIND_SERVICE`,
+  `CAP_SETGID` and `CAP_SETUID`; [`crates/connector-vmm`](../../crates/connector-vmm/README.md#disks-and-shares)
+  says what each is for.
 - **nftables** in the host kernel with the `inet` and `bridge` families, for
   the [host boundary](#the-host-boundary).
 - **`openat2`** (Linux 5.6), allowed by the engine's seccomp profile, as
@@ -53,9 +57,13 @@ whose podman runs in a PID namespace other than the host's.
 - **The VMM image**, `ghcr.io/estuary/connector-vmm`, is built from
   `docker/connector-vmm.Dockerfile` by `ci:docker-images` for amd64 only, and
   pushed by the platform build from `master`, tagged as that build's version.
-  podman pulls it, with the engine's own registry credentials, the first time
-  a boundary command or launch runs it. Check that the host's engine can pull
-  the exact tag before activating.
+  The image pushed is the one `ci:connector-vmm-gate` passed: its boundary
+  installed, verified and refused deliberate tampering in a container's own
+  network namespace, and its build is a clean commit's. podman pulls it, with
+  the engine's own registry credentials, the first time a boundary command or
+  launch needs it. Each launch resolves the tag to an image ID once, and runs
+  only that image. Check that the host's engine can pull the exact tag before
+  activating.
 - **The connector images.** Python tasks on V2 run
   `ghcr.io/estuary/capture-python`, `derive-python` or `materialize-python`
   at `:stable`, or at their `custom-image-tag` shard flag's tag. The launcher
@@ -70,6 +78,22 @@ whose podman runs in a PID namespace other than the host's.
   compares the host's tables with exactly what that image's `install` writes,
   so tables and image are upgraded together (see
   [Upgrading](#upgrading-the-boundary-and-image)).
+- **The launcher and the VMM image are one build.** Every build mise runs,
+  and the local stack's, embeds `FLOW_BUILD_IDENTITY`: the checkout's HEAD
+  commit, suffixed `-dirty` while a tracked file or submodule differs from
+  it, or a file git does not ignore is untracked, and empty outside a git
+  checkout.
+  Reactors, flowctl and `flow-connector-vmm` compile it in, and the VMM
+  image's `boundary verify` prints its own (`flow-connector-vmm build
+  <identity>`). Before every launch, a launcher refuses the image unless both
+  name the same commit and neither is dirty or unidentified (empty, a bare
+  cargo build, or an image older than this check). So `CONNECTOR_VMM_IMAGE` must name the VMM image the platform build
+  made from the reactor's own commit. This catches accidental mismatches; it
+  is not a compatibility proof. `CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=true`
+  skips this check alone, for development, logging a warning to each task it
+  launches; the boundary verify and every other check still apply. Recovery
+  of earlier launches neither verifies nor pairs: it revokes with the image
+  each record names.
 
 ## Configuration
 
@@ -84,13 +108,14 @@ commands. Read once, when a service is constructed.
 | `CONNECTOR_VMM_PODMAN` | `podman` | the program run for every VMM engine command |
 | `CONNECTOR_VMM_DISK_MIB` | `2048` | digits, 1 to 8796093022207 (the scratch disk, sparse) |
 | `CONNECTOR_VMM_MEMORY_OVERHEAD_MIB` | `256` | digits, 1 to 4294967295 |
+| `CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD` | `false` | `true` or `false`. For development only: `true` launches a VMM image whose build is not the launcher's (see [Images and binaries](#images-and-binaries)) |
 
 An empty `CONNECTOR_VMM_*` value means unset. These are shared with ordinary
 connectors and read as they read them:
 
 | Variable | Default | In a VMM |
 |---|---|---|
-| `CONNECTOR_MEMORY_LIMIT` | `1g` | the container's `--memory`, as the decimal byte count it is read as. Guest RAM is its whole MiB less the overhead, which must leave more than zero and fit 32 bits. Whole bytes (digits), or a number of MiB or GiB suffixed lowercase `m` or `g`, which may have up to nine fraction digits; a fraction is floored to whole bytes. Other spellings podman takes, such as `1G`, `1gb`, `512k`, `1e3m` or `512 m`, are refused, as is a fraction without `m` or `g`. |
+| `CONNECTOR_MEMORY_LIMIT` | `1g` | the container's `--memory`, as the decimal byte count the engines read it as. Guest RAM is its whole MiB less the overhead, which must leave more than zero and fit 32 bits. Read as docker/go-units v0.5.0's `RAMInBytes` reads it, as the Docker CLI and podman do: a decimal number Go's `ParseFloat` reads (such as `1.5`, `.5`, `+1` or `1e3`), then, optionally after one space, a unit: `b`, or `k`, `m`, `g`, `t` or `p` (powers of 1024) with an optional `b` or `ib`, in any case, such as `1536m`, `1.5G` or `2GiB`. A fraction is truncated to whole bytes. Hexadecimal floats, which `ParseFloat` also reads, are refused, as are counts of 2^63 bytes or more, which the engines wrap to no limit. Ubuntu's podman 4.9 links go-units v0.4.0, which refuses some of these spellings, but the VMM's podman only ever gets the byte count. |
 | `CONNECTOR_CPU_LIMIT` | `2` | the container's `--cpus`, verbatim. Guest vCPUs are its value rounded up, 1 to 255. A decimal number with at most nine fraction digits: forms podman also takes, such as `.5` or `1e0`, are refused. |
 | `CONNECTOR_CGROUP_PARENT` | unset | the container's `--cgroup-parent` |
 
@@ -98,10 +123,15 @@ For example, `1g` and `2` give a 768 MiB, 2-vCPU guest in a 1 GiB, 2-CPU
 container; `1.5g` gives 1280 MiB of guest RAM; a CPU limit of `1.5` gives
 2 vCPUs within a 1.5-CPU quota.
 
-**A malformed value fails service construction.** A reactor builds its
-connector proxy's service at startup, so it fails to start, and its ordinary
-tasks with it; flowctl fails at startup. Whether the host can actually run a
-VMM is checked at each launch, not here.
+**A malformed value fails service construction**, except
+`CONNECTOR_MEMORY_LIMIT`. A reactor builds its connector proxy's service at
+startup, so it fails to start, and its ordinary tasks with it; flowctl fails
+at startup. A memory limit which cannot size a VMM (a spelling refused
+above, `0`, which the engines read as no limit, one at most the overhead, or
+one leaving more than 32 bits of guest MiB) refuses each VMM start instead,
+with "this data plane cannot size a VMM", while ordinary tasks run under it.
+Whether the host can actually run a VMM is checked at each launch, not
+here.
 
 `CONNECTOR_VMM_PODMAN` is run with the launcher's environment, less
 `CONSUMER_AUTH_KEYS`, `BROKER_AUTH_KEYS`, `SOPS_AGE_KEY` and `FLOW_AUTH_TOKEN`.
@@ -210,6 +240,17 @@ image installs. When a build changes the tables, change the host's tables and
 the launchers' `CONNECTOR_VMM_IMAGE` together: in between, a launch whose
 image disagrees with the host's tables is refused rather than run.
 Reinstalling identical tables under traffic was measured to drop nothing.
+
+Every reactor upgrade is a VMM image upgrade too: a reactor launches only
+the image of its own build. Deploy each reactor with `CONNECTOR_VMM_IMAGE`
+naming its own build's image; one left on another image refuses VMM starts
+until it is. Keep an older image in the engine's store while records name
+it: recovery revokes their grants with it, by an ID no pull restores.
+
+The image pins the upstream versions of libkrun, libkrunfw and nftables.
+Moving nftables changes how `verify` reads the host's tables;
+[`crates/connector-vmm`](../../crates/connector-vmm/README.md#images) has
+the checks such a move must pass.
 
 ## Ordinary tooling stays unprivileged
 
@@ -363,6 +404,9 @@ credentials, `task-update.json`.
 | "opening an O_TMPFILE scratch disk in ..." or "sizing a scratch disk in ..." | The state directory's filesystem cannot hold the scratch disk. |
 | "VMM execution runs a static flow-connector-init beside this program or on its PATH" | No `flow-connector-init` found, or only dynamically linked ones, which the message lists. |
 | "the host's VMM network boundary did not verify, ..." | Tables absent, or from another build; the verifier's lines name each difference. |
+| "pulling VMM image ..." or "inspecting VMM image ..." (FailedPrecondition) | The engine has no `CONNECTOR_VMM_IMAGE` and cannot pull it, or cannot name its ID. |
+| "VMM image ... is not paired with this launcher's build: ..." | `CONNECTOR_VMM_IMAGE` is not the image of this launcher's build: another commit's image, or a launcher or image built from a modified tree, without mise, or before pairing. The rest of the message says which. |
+| "this data plane cannot size a VMM: CONNECTOR_MEMORY_LIMIT ..." | The memory limit cannot size a VMM's guest (see [Configuration](#configuration)). Ordinary tasks are unaffected. |
 | "flow-connector-vmm: KVM is unavailable to this VMM: ..." then "the VMM exited (exit status: 2) before flow-connector-init answered its health check" | `/dev/kvm` missing or unusable in the VMM container. |
 | "the VMM exited (exit status: 0) before flow-connector-init answered its health check" | Possible cause: connector-init's idle watchdog ended the guest because no connector RPC reached it within 5 seconds of its start. Check debug logs for connector-init's start and exit times. |
 | "timeout waiting for the VMM to become ready" | No readiness within 60 seconds. |
@@ -462,7 +506,10 @@ the local integration tests:
 - A crash and restart of the production reactor, whose recovery then
   releases what it left with no launch, and its recovery metrics scraped.
 - That the plane's `CONNECTOR_MEMORY_LIMIT` fits the
-  [VMM grammar](#configuration) before enabling `CONNECTOR_VMM_IMAGE`.
+  [VMM grammar](#configuration) and sizes a guest, else VMM starts are
+  refused.
+- That each reactor's `CONNECTOR_VMM_IMAGE` names the VMM image of its own
+  build, and `CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD` is unset.
 
 **Rolling back.** Before any reactor returns to a build without this support,
 stop VMM-selected requests from reaching it: disable or delete the plane's VMM
@@ -485,11 +532,11 @@ Connection rates and distinct destinations are not limited.
 
 What was measured of a VMM's authority, locally: the VMM process runs as host
 UID 0 in the host's user namespace, with private PID, mount, network, IPC,
-UTS and cgroup namespaces, podman's default capabilities plus
-`CAP_NET_ADMIN`, a seccomp filter and the engine's default AppArmor profile.
-Probes with those credentials did not reach the launcher's (synthetic)
-signing keys, a host-only file, a sibling VMM's mounts or the engine's
-management sockets. That is evidence about one host's arrangement, not a
+UTS and cgroup namespaces, the capabilities above, a seccomp filter and the
+engine's default AppArmor profile. Probes made with podman's default
+capabilities plus `CAP_NET_ADMIN`, a superset of these, did not reach the
+launcher's (synthetic) signing keys, a host-only file, a sibling VMM's mounts
+or the engine's management sockets. That is evidence about one host's arrangement, not a
 guarantee against
 escape: any further flaw in namespaces, the OCI runtime, KVM, virtiofs or the
 kernel has root consequences on the host.

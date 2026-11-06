@@ -1007,11 +1007,14 @@ mod execution {
             podman: "/nonexistent/connector-vmm-tests/podman".to_string(),
             state_dir: "/nonexistent/connector-vmm-tests/state".to_string(),
             disk_mib: 2048,
-            memory_bytes: 1 << 30,
+            memory: Ok(connector::VmmMemory {
+                bytes: 1 << 30,
+                guest_mib: 768,
+            }),
             cpu_limit: "2".to_string(),
-            guest_memory_mib: 768,
             vcpus: 2,
             cgroup_parent: None,
+            allow_unpaired_build: false,
         }
     }
 

@@ -61,6 +61,19 @@ pub fn boundary(vmm_image: &str, network: &str, action: &str) -> Vec<String> {
 /// servers and guest page tables. The launcher's default.
 pub const MEMORY_OVERHEAD_MIB: u32 = 256;
 
+/// The VMM container's only capabilities: the run line drops podman's
+/// defaults, and adds these. `crates/connector`'s plan says what each is for.
+pub const CAPABILITIES: &[&str] = &[
+    "CAP_CHOWN",
+    "CAP_DAC_OVERRIDE",
+    "CAP_FOWNER",
+    "CAP_FSETID",
+    "CAP_NET_ADMIN",
+    "CAP_NET_BIND_SERVICE",
+    "CAP_SETGID",
+    "CAP_SETUID",
+];
+
 pub struct Launch<'a> {
     /// `fv_<16 hex>`.
     pub name: &'a str,
@@ -105,7 +118,11 @@ pub fn reference(launch: &Launch) -> Vec<String> {
         "--read-only-tmpfs=false".to_string(),
         "--device=/dev/kvm".to_string(),
         "--device=/dev/net/tun".to_string(),
-        "--cap-add=CAP_NET_ADMIN".to_string(),
+        "--cap-drop=all".to_string(),
+    ]
+    .into();
+    argv.extend(CAPABILITIES.iter().map(|cap| format!("--cap-add={cap}")));
+    argv.extend([
         "--sysctl=net.ipv4.ip_forward=1".to_string(),
         "--sysctl=net.ipv4.conf.default.rp_filter=1".to_string(),
         // /proc/sys is read-only in the container, so the tap can only
@@ -118,8 +135,7 @@ pub fn reference(launch: &Launch) -> Vec<String> {
         format!("--mount=type=bind,source={mount},target={mount},readonly"),
         format!("--mount=type=bind,source={state_dir}/sock,target=/sock"),
         format!("--mount=type=bind,source={state_dir}/scratch,target=/scratch-backing"),
-    ]
-    .into();
+    ]);
 
     if let Some((host_dir, _)) = persistent_disk {
         argv.push(format!(

@@ -247,6 +247,14 @@ EOF
 # as the ambient environment. When executed, it harmlessly sets the subshell.
 eval "${_se_out}"
 
+# The source of whatever this invocation builds. Computed afresh for each mise
+# invocation and never printed for `eval`: a shell would keep it while edits
+# made it wrong.
+source "$(dirname "${BASH_SOURCE[0]}")/../build/identity-lib.sh"
+if ! ${_se_executed}; then
+    export_flow_build_identity "${_se_root}"
+fi
+
 # Announce the first allocation for this checkout (one stderr line; the happy
 # path — an already-registered checkout — stays silent).
 if [ "${_se_new}" = "1" ]; then

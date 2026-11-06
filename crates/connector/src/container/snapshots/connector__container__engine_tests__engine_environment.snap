@@ -6,6 +6,7 @@ create --rm | secrets=absent configuration=preserved
 fail  | secrets=absent configuration=preserved
 image inspect | secrets=absent configuration=preserved
 image inspect | secrets=absent configuration=preserved
+image inspect | secrets=absent configuration=preserved
 network create | secrets=absent configuration=preserved
 network ls | secrets=absent configuration=preserved
 network ls | secrets=absent configuration=preserved

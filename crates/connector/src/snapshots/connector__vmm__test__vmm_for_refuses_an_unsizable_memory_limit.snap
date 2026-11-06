@@ -1,0 +1,18 @@
+---
+source: crates/connector/src/vmm.rs
+expression: "rows.join(\"\\n\")"
+---
+0            vmm false => ordinary
+0            vmm true  => FailedPrecondition: this data plane cannot size a VMM: CONNECTOR_MEMORY_LIMIT "0", less 256 MiB of VMM overhead: is no limit at all to the engine, and a VMM's guest RAM is sized within one
+256m         vmm false => ordinary
+256m         vmm true  => FailedPrecondition: this data plane cannot size a VMM: CONNECTOR_MEMORY_LIMIT "256m", less 256 MiB of VMM overhead: leaves no guest RAM
+4294967552m  vmm false => ordinary
+4294967552m  vmm true  => FailedPrecondition: this data plane cannot size a VMM: CONNECTOR_MEMORY_LIMIT "4294967552m", less 256 MiB of VMM overhead: leaves 4294967296 MiB of guest RAM, above 4294967295
+8192p        vmm false => ordinary
+8192p        vmm true  => FailedPrecondition: this data plane cannot size a VMM: CONNECTOR_MEMORY_LIMIT "8192p": is at least 2^63 bytes, which the engines wrap to no limit at all
+0x1p30       vmm false => ordinary
+0x1p30       vmm true  => FailedPrecondition: this data plane cannot size a VMM: CONNECTOR_MEMORY_LIMIT "0x1p30": expected a decimal number as Go's ParseFloat reads one, then optionally a unit: b, or k, m, g, t or p with an optional b or ib, in any case
+1e3m         vmm false => ordinary
+1e3m         vmm true  => vmm, eligible as ghcr.io/estuary/derive-python
+1g           vmm false => ordinary
+1g           vmm true  => vmm, eligible as ghcr.io/estuary/derive-python
