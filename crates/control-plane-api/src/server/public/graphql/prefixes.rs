@@ -155,7 +155,6 @@ mod tests {
                                 node {
                                     prefix
                                     userCapability
-                                    capabilities
                                 }
                             }
                         }
@@ -174,83 +173,20 @@ mod tests {
               "edges": [
                 {
                   "node": {
-                    "capabilities": [
-                      "viewer",
-                      "writer",
-                      "editor",
-                      "admin",
-                      "billing",
-                      "team_admin",
-                      "manage_service_accounts",
-                      "manage_data_plane",
-                      "create_sandbox",
-                      "delegate"
-                    ],
                     "prefix": "aliceCo/",
                     "userCapability": "admin"
                   }
                 },
                 {
                   "node": {
-                    "capabilities": [
-                      "viewer",
-                      "writer"
-                    ],
                     "prefix": "aliceCo/data/",
                     "userCapability": "write"
                   }
                 },
                 {
                   "node": {
-                    "capabilities": [
-                      "viewer"
-                    ],
                     "prefix": "ops/dp/public/",
                     "userCapability": "read"
-                  }
-                }
-              ]
-            }
-          }
-        }
-        "#);
-
-        // Editor covers only part of Viewer, so the restricted result must not
-        // advertise Viewer or the unrestricted Admin grant.
-        let restricted_token = server.make_restricted_access_token(
-            uuid::Uuid::from_bytes([0x11; 16]),
-            None,
-            Some(vec!["editor".to_string()]),
-            None,
-        );
-        let response: serde_json::Value = server
-            .graphql(
-                &serde_json::json!({
-                    "query": r#"
-                    query {
-                        prefixes(by: { minCapability: none }, filter: { prefix: { in: ["aliceCo/"] } }) {
-                            edges { node { prefix capabilities userCapability } }
-                        }
-                    }
-                    "#
-                }),
-                Some(&restricted_token),
-            )
-            .await;
-
-        insta::assert_json_snapshot!(response, @r#"
-        {
-          "data": {
-            "prefixes": {
-              "edges": [
-                {
-                  "node": {
-                    "capabilities": [
-                      "editor",
-                      "delegate"
-                    ],
-                    "prefix": "aliceCo/",
-                    "userCapability": "admin"
                   }
                 }
               ]
