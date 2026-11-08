@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 63
 expression: tables
 ---
 DraftCatalog {
@@ -9,6 +8,7 @@ DraftCatalog {
             materialization: materialization/dekaf/indirect,
             scope: test://example/catalog.yaml#/materializations/materialization~1dekaf~1indirect,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "dekaf": {
@@ -32,6 +32,7 @@ DraftCatalog {
             materialization: materialization/dekaf/inline,
             scope: test://example/catalog.yaml#/materializations/materialization~1dekaf~1inline,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "dekaf": {

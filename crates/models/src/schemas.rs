@@ -391,7 +391,7 @@ mod test {
     #[test]
     fn test_relaxation() {
         let fixture = Schema::new(RawValue::from_str(include_str!("fixture.schema.json")).unwrap());
-        insta::assert_json_snapshot!(fixture.to_relaxed_schema().unwrap().to_value())
+        insta::assert_json_snapshot!(fixture.to_relaxed_schema().unwrap().to_value());
     }
 
     #[test]

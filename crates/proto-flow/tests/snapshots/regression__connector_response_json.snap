@@ -1,0 +1,10 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(ex_connector_response())
+---
+{
+  "started": {
+    "codec": "PROTO",
+    "derive": {}
+  }
+}

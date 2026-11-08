@@ -35,7 +35,12 @@
             "source": "ops/rollups/L1/BASE_NAME/catalog-stats",
             "shuffle": "any"
           }
-        ]
+        ],
+        "shards": {
+          "flags": {
+            "enable-runtime-v2": "true"
+          }
+        }
       }
     },
     "ops.us-central1.v1/events/L2": {
@@ -65,7 +70,12 @@
             "shuffle": "any",
             "lambda": "select json($flow_document);\n"
           }
-        ]
+        ],
+        "shards": {
+          "flags": {
+            "enable-runtime-v2": "true"
+          }
+        }
       }
     },
     "ops.us-central1.v1/inferred-schemas/L2": {
@@ -88,7 +98,12 @@
             },
             "lambda": "select json($flow_document);"
           }
-        ]
+        ],
+        "shards": {
+          "flags": {
+            "enable-runtime-v2": "true"
+          }
+        }
       }
     },
     "ops/rollups/L2/catalog-stats": {
@@ -121,7 +136,12 @@
               ]
             }
           }
-        ]
+        ],
+        "shards": {
+          "flags": {
+            "enable-runtime-v2": "true"
+          }
+        }
       }
     }
   }

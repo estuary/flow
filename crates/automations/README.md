@@ -57,8 +57,21 @@ Registered task types in `task_types` module:
 - `PUBLICATIONS` - Processes catalog publications
 - `DISCOVERS` - Runs connector discovery jobs
 - `EVOLUTIONS` - Handles schema evolution tasks
-- `APPLIED_DIRECTIVES` - Processes applied directives
 - `CONNECTOR_TAGS` - Manages connector tag updates
+- `DATA_PLANE_MIGRATION` - Migrates tasks between data planes
+- `ALERT_NOTIFICATIONS` - Sends notifications as alerts fire and resolve
+- `TENANT_ALERT_EVALS` - Retired: tenant controllers evaluate tenant alerts
+- `DATA_MOVEMENT_ALERT_EVALS` - Evaluates `data_movement_stalled` alerts
+- `TENANT_CONTROLLER` - Reconciles a tenant's billing contact with Stripe, raises its quotas once it has a payment method or doesn't need one, checks daily whether to start its free trial, and fires its trial and payment method alerts
+- `DATA_PLANE_CONTROLLER_DEV` - Second data-plane-controller deployment
+
+Task types are the only axis on which the dequeue partitions work, so they
+double as the mechanism for splitting one executor across two deployments:
+register the same executor under a second type, have each deployment register
+just one of them, and move a task between deployments by updating its
+`task_type`. `DATA_PLANE_CONTROLLER_DEV` exists for exactly this. Do not
+confuse it with the hazard the `task_types` doc comment warns about, which is
+two *different* executors sharing a single type.
 
 ## Server and Runtime
 

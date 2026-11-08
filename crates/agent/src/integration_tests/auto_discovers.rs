@@ -116,7 +116,6 @@ async fn test_auto_discovers_add_new_bindings() {
     };
 
     harness
-        .discover_handler
         .connectors
         .mock_discover("marmots/capture", Ok((spec_fixture(), discovered)));
     harness.set_auto_discover_due("marmots/capture").await;
@@ -130,7 +129,7 @@ async fn test_auto_discovers_add_new_bindings() {
         .as_capture()
         .unwrap();
     // Expect to see the new bindings added
-    insta::assert_json_snapshot!(model.bindings, @r###"
+    insta::assert_json_snapshot!(model.bindings, @r#"
     [
       {
         "resource": {
@@ -140,13 +139,13 @@ async fn test_auto_discovers_add_new_bindings() {
       },
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"id\": \"moss\", \"extra\": \"stuff\" }"
+          "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"moss\"]},\"extra\":\"stuff\",\"id\":\"moss\"}"
         },
         "disable": true,
         "target": "marmots/moss"
       }
     ]
-    "###);
+    "#);
     // Expect that the moss collection was not created because the binding is disabled
     harness.assert_live_spec_hard_deleted("marmots/moss").await;
 
@@ -227,7 +226,6 @@ async fn test_auto_discovers_add_new_bindings() {
         ],
     };
     harness
-        .discover_handler
         .connectors
         .mock_discover("marmots/capture", Ok((spec_fixture(), discovered)));
 
@@ -341,6 +339,7 @@ async fn test_auto_discovers_add_new_bindings() {
         capture: models::Capture::new("marmots/capture"),
         scope: tables::synthetic_scope("capture", "marmots/capture"),
         expect_pub_id: None,
+        data_plane_id: models::Id::zero(),
         model: Some(model),
         is_touch: false,
     });
@@ -372,7 +371,6 @@ async fn test_auto_discovers_add_new_bindings() {
         ],
     };
     harness
-        .discover_handler
         .connectors
         .mock_discover("marmots/capture", Ok((spec_fixture(), discovered)));
 
@@ -439,13 +437,13 @@ async fn test_auto_discovers_add_new_bindings() {
         }
       ],
       [
-        "auto-discover changes (1 added, 0 modified, 1 removed)\nUpdated 'marmots/capture':\nupdated resource /_meta of 1 bindings",
+        "auto-discover changes (1 added, 0 modified, 1 removed)",
         {
           "type": "success"
         }
       ],
       [
-        "auto-discover changes (1 added, 0 modified, 0 removed, 1 added (disabled))\nUpdated 'marmots/capture':\nupdated resource /_meta of 1 bindings",
+        "auto-discover changes (1 added, 0 modified, 0 removed, 1 added (disabled))",
         {
           "type": "success"
         }
@@ -525,7 +523,6 @@ async fn test_auto_discovers_no_evolution() {
     };
     harness.set_auto_discover_due("mules/capture").await;
     harness
-        .discover_handler
         .connectors
         .mock_discover("mules/capture", Ok((spec_fixture(), discovered_diff_key)));
     harness.run_pending_controller("mules/capture").await;
@@ -664,7 +661,6 @@ async fn test_auto_discovers_no_evolution() {
     // Now simulate the discovered key going back to normal and assert that it succeeds
     harness.set_auto_discover_due("mules/capture").await;
     harness
-        .discover_handler
         .connectors
         .mock_discover("mules/capture", Ok((spec_fixture(), discovered)));
     harness.run_pending_controller("mules/capture").await;
@@ -879,7 +875,6 @@ async fn test_auto_discovers_update_only() {
         ],
     };
     harness
-        .discover_handler
         .connectors
         .mock_discover("pikas/capture", Ok((spec_fixture(), discovered)));
 
@@ -931,7 +926,7 @@ async fn test_auto_discovers_update_only() {
     assert!(last_success.publish_result.is_none());
 
     // Now simulate a discover error, and expect to see the error status reported.
-    harness.discover_handler.connectors.mock_discover(
+    harness.connectors.mock_discover(
         "pikas/capture",
         Err("a simulated discover error".to_string()),
     );
@@ -1062,7 +1057,6 @@ async fn test_auto_discovers_update_only() {
         ],
     };
     harness
-        .discover_handler
         .connectors
         .mock_discover("pikas/capture", Ok((spec_fixture(), discovered)));
     harness.control_plane().fail_next_build(
@@ -1156,7 +1150,6 @@ async fn test_auto_discovers_update_only() {
         ],
     };
     harness
-        .discover_handler
         .connectors
         .mock_discover("pikas/capture", Ok((spec_fixture(), discovered)));
     harness.set_auto_discover_due("pikas/capture").await;
@@ -1265,4 +1258,76 @@ fn document_schema(version: usize) -> serde_json::Value {
         },
         "required": ["id", "squeaks"]
     })
+}
+
+#[tokio::test]
+async fn test_auto_discovers_without_connector_tag() {
+    let mut harness = TestHarness::init("test_auto_discovers_without_connector_tag").await;
+    let user_id = harness.setup_tenant("voles").await;
+
+    // `source/test:untagged` has no `connector_tags` row.
+    let init_draft = draft_catalog(json!({
+        "captures": {
+            "voles/capture": {
+                "autoDiscover": { "addNewBindings": true },
+                "endpoint": {
+                    "connector": { "image": "source/test:untagged", "config": {} }
+                },
+                "bindings": []
+            }
+        }
+    }));
+    let result = harness
+        .user_publication(user_id, "initial publication", init_draft)
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+
+    harness.run_pending_controllers(None).await;
+
+    // Auto-discover is scheduled on the default interval.
+    let capture_state = harness.get_controller_state("voles/capture").await;
+    let next_at = capture_state
+        .current_status
+        .unwrap_capture()
+        .auto_discover
+        .as_ref()
+        .and_then(|status| status.next_at)
+        .expect("auto-discover is scheduled");
+    assert_eq!(
+        chrono::Duration::hours(2),
+        next_at - capture_state.created_at
+    );
+
+    // A connector which declares no resource path pointers discovers
+    // bindings which carry their own resource paths.
+    let spec = proto_flow::capture::response::Spec {
+        resource_path_pointers: Vec::new(),
+        ..spec_fixture()
+    };
+    let discovered = Discovered {
+        bindings: vec![Binding {
+            recommended_name: "tunnels".to_string(),
+            resource_config_json: r#"{"id": "tunnels"}"#.to_string().into(),
+            document_schema_json: document_schema(1).to_string().into(),
+            key: vec!["/id".to_string()],
+            disable: false,
+            resource_path: vec!["tunnels".to_string()],
+            is_fallback_key: false,
+        }],
+    };
+    harness
+        .connectors
+        .mock_discover("voles/capture", Ok((spec, discovered)));
+    harness.set_auto_discover_due("voles/capture").await;
+    harness.run_pending_controller("voles/capture").await;
+
+    let capture_state = harness.get_controller_state("voles/capture").await;
+    let model = capture_state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_capture()
+        .unwrap();
+    assert_eq!(1, model.bindings.len());
+    assert_eq!("voles/tunnels", model.bindings[0].target.as_str());
 }

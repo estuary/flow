@@ -68,8 +68,10 @@ pub async fn snapshot(pg_pool: sqlx::PgPool, gate: bool) -> Arc<dyn tokens::Watc
 }
 
 pub struct TestServer {
+    pub app: Arc<crate::App>,
     pub addr: std::net::SocketAddr,
     pub encoding_key: tokens::jwt::EncodingKey,
+    pub decoding_keys: Vec<tokens::jwt::DecodingKey>,
     _shutdown_tx: tokio::sync::oneshot::Sender<()>,
 }
 
@@ -79,6 +81,7 @@ impl TestServer {
             pg_pool,
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            None,
             models::AlertConfig::default(),
         )
         .await
@@ -93,7 +96,25 @@ impl TestServer {
             pg_pool,
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            None,
             alert_config_defaults,
+        )
+        .await
+    }
+
+    /// Starts a server wired to a BigTable catalog stats client, for the tests
+    /// that exercise the `catalogStats` query against the emulator.
+    pub async fn start_with_catalog_stats(
+        pg_pool: sqlx::PgPool,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        catalog_stats: Arc<catalog_stats::Client>,
+    ) -> Self {
+        Self::start_with_config(
+            pg_pool,
+            snapshot,
+            Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            Some(catalog_stats),
+            models::AlertConfig::default(),
         )
         .await
     }
@@ -102,6 +123,7 @@ impl TestServer {
         pg_pool: sqlx::PgPool,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
         billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+        catalog_stats: Option<Arc<catalog_stats::Client>>,
         alert_config_defaults: models::AlertConfig,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -111,7 +133,6 @@ impl TestServer {
         // Build an invalid Publisher that will blow up if used.
         let publisher = crate::publications::Publisher::new(
             &url::Url::parse("file:///invalid").unwrap(),
-            &"invalid",
             &logs_tx,
             pg_pool.clone(),
             models::IdGenerator::new(0),
@@ -121,13 +142,16 @@ impl TestServer {
         let app = Arc::new(crate::App::new(
             models::IdGenerator::new(0),
             billing_provider,
+            catalog_stats,
             b"test-jwt-secret-for-integration-tests",
             pg_pool.clone(),
             publisher,
             snapshot,
+            None,
             Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();
+        let decoding_keys = app.control_plane_jwt_decode_keys.clone();
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -135,7 +159,8 @@ impl TestServer {
         let addr = listener.local_addr().expect("failed to get local addr");
 
         let router =
-            crate::server::build_router(app, &[addr.to_string()], alert_config_defaults).unwrap();
+            crate::server::build_router(app.clone(), &[addr.to_string()], alert_config_defaults)
+                .unwrap();
 
         tokio::spawn(async move {
             axum::serve(listener, router)
@@ -147,8 +172,10 @@ impl TestServer {
         });
 
         TestServer {
+            app,
             addr,
             encoding_key,
+            decoding_keys,
             _shutdown_tx: shutdown_tx,
         }
     }
@@ -161,22 +188,51 @@ impl TestServer {
     /// Create a valid access token for a test user.
     /// The token includes all required claims for the server's JWT validation.
     pub fn make_access_token(&self, user_id: uuid::Uuid, email: Option<&str>) -> String {
+        self.make_restricted_access_token(user_id, email, None, None)
+    }
+
+    /// Like `make_access_token`, with optional capability and prefix
+    /// restrictions. Unlike a token from the real mint, it keeps the
+    /// `authenticated` role, so it exercises restriction enforcement in
+    /// isolation from the PostgREST-rejecting role.
+    pub fn make_restricted_access_token(
+        &self,
+        user_id: uuid::Uuid,
+        email: Option<&str>,
+        capability_mask: Option<Vec<String>>,
+        prefix_mask: Option<Vec<String>>,
+    ) -> String {
         let now = tokens::now();
-        let claims = models::authorizations::ControlClaims {
+        self.sign_claims(&models::authorizations::ControlClaims {
             iat: now.timestamp() as u64,
             exp: (now + chrono::Duration::hours(1)).timestamp() as u64,
             sub: user_id,
             role: "authenticated".to_string(),
             aud: "authenticated".to_string(),
             email: email.map(String::from),
-        };
+            capability_mask,
+            prefix_mask,
+        })
+    }
 
-        jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
-            &claims,
-            &self.encoding_key,
-        )
-        .expect("failed to encode JWT")
+    /// Sign arbitrary claims with the server's key. Tests use this to forge
+    /// bearers that the `make_access_token*` helpers deliberately never
+    /// produce, such as a non-`authenticated` Postgres role or an unusual
+    /// expiry.
+    pub fn sign_claims(&self, claims: &models::authorizations::ControlClaims) -> String {
+        jsonwebtoken::encode(&jsonwebtoken::Header::default(), claims, &self.encoding_key)
+            .expect("failed to encode JWT")
+    }
+
+    /// Verify an access token the server minted, using the same keys the
+    /// server verifies bearers with, and return its claims. Panics on a bad
+    /// signature or expired token, since a test holding such a token has
+    /// already failed.
+    pub fn verify_access_token(&self, token: &str) -> crate::ControlClaims {
+        tokens::jwt::verify::<crate::ControlClaims>(token.as_bytes(), 0, &self.decoding_keys)
+            .expect("server-minted access token must verify")
+            .claims()
+            .clone()
     }
 
     /// Create a fixed user token PendingWatch (immutable).
@@ -232,6 +288,7 @@ struct NoopBuilder;
 impl crate::publications::builds::Builder for NoopBuilder {
     async fn build(
         &self,
+        _snapshot: &crate::Snapshot,
         _builds_root: &url::Url,
         _draft: tables::DraftCatalog,
         _live: tables::LiveCatalog,
@@ -240,7 +297,6 @@ impl crate::publications::builds::Builder for NoopBuilder {
         _tmpdir: &std::path::Path,
         _logs_tx: crate::logs::Tx,
         _logs_token: sqlx::types::Uuid,
-        _explicit_plane_name: Option<&str>,
     ) -> anyhow::Result<build::Output> {
         panic!("NoopBuilder::build called in test - this should not happen for authorization tests")
     }
@@ -280,4 +336,75 @@ pub fn snapshot_of_grants(
     snapshot.user_grants = user_grants;
     snapshot.role_grants = role_grants;
     snapshot
+}
+
+/// The HMAC key every data-plane of the `data_planes` fixture signs with:
+/// its "c2VjcmV0", base64-decoded.
+pub const FIXTURE_HMAC_KEY: &[u8] = b"secret";
+
+/// Mint the data-plane-signed token which the reactor-facing routes verify.
+///
+/// The key is a parameter rather than looked up from `iss`, so that a case can
+/// deliberately sign with the wrong plane's key. `sub` is advisory on every
+/// route that reads one, and is simply the task name.
+pub fn data_plane_token<S: AsRef<str>>(
+    iss: &str,
+    hmac_key: &[u8],
+    cap: u32,
+    labels: impl IntoIterator<Item = (S, S)>,
+    sub: &str,
+) -> String {
+    let now = tokens::now().timestamp() as u64;
+
+    let claims = proto_gazette::Claims {
+        iat: now,
+        exp: now + 100,
+        cap,
+        iss: iss.to_string(),
+        sel: proto_gazette::LabelSelector {
+            include: Some(labels::build_set(labels)),
+            exclude: None,
+        },
+        sub: sub.to_string(),
+    };
+    tokens::jwt::sign(&claims, &tokens::jwt::EncodingKey::from_secret(hmac_key)).unwrap()
+}
+
+/// A stand-in for what config-encryption's `/secret/encrypt` returns. Only the
+/// fields the control plane reads are real, and `value` is ciphertext that
+/// nothing in this crate can decrypt.
+pub fn wrapped(name: &str, ciphertext: &str, last_modified: &str) -> serde_json::Value {
+    serde_json::json!({
+        "name": name,
+        "value": format!("ENC[AES256_GCM,data:{ciphertext},type:str]"),
+        "sops": {
+            "lastmodified": last_modified,
+            "mac": format!("ENC[AES256_GCM,data:mac-{ciphertext}]"),
+            "encrypted_regex": "^value$",
+            "version": "3.11.0",
+        },
+    })
+}
+
+/// Reduce a secret-bearing response to a snapshot-able summary.
+///
+/// Errors are a bare status message rather than JSON, so only a success is
+/// parsed. The wrapped document itself is elided: its content is opaque
+/// ciphertext, and only its presence is what a route decides.
+pub async fn summarize_secret(response: reqwest::Response) -> String {
+    let status = response.status().as_u16();
+    let body = response.text().await.unwrap();
+
+    if status != 200 {
+        return format!("{status} {body}");
+    }
+    let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+    match body.get("document") {
+        Some(_) => format!(
+            "200 secretId={}",
+            body["secretId"].as_str().unwrap_or("<missing>")
+        ),
+        None => format!("200 retryMillis={}", body["retryMillis"]),
+    }
 }

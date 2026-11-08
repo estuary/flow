@@ -1,0 +1,101 @@
+---
+source: crates/control-plane-api/src/server/public/open_metrics.rs
+expression: body
+---
+# HELP logged_warnings_total Total log lines at level WARN, by task
+# TYPE logged_warnings_total counter
+logged_warnings_total{task="aliceCo/ctest-open-metrics/in/capture"} 1
+# HELP logged_errors_total Total log lines at level ERROR, by task
+# TYPE logged_errors_total counter
+logged_errors_total{task="aliceCo/ctest-open-metrics/out/materialize"} 2
+# HELP logged_failures_total Total log lines indicating task failure, by task
+# TYPE logged_failures_total counter
+# HELP txn_count_total Total number of transactions processed by this task, by task
+# TYPE txn_count_total counter
+txn_count_total{task="aliceCo/ctest-open-metrics/in/capture"} 4
+# HELP read_by_me_bytes_total Total number of collection bytes read by this task, by task
+# TYPE read_by_me_bytes_total counter
+read_by_me_bytes_total{task="aliceCo/ctest-open-metrics/out/materialize"} 180
+# HELP read_by_me_docs_total Total number of collection documents read by this task, by task
+# TYPE read_by_me_docs_total counter
+read_by_me_docs_total{task="aliceCo/ctest-open-metrics/out/materialize"} 2
+# HELP written_by_me_bytes_total Total number of collection bytes written by this task, by task
+# TYPE written_by_me_bytes_total counter
+written_by_me_bytes_total{task="aliceCo/ctest-open-metrics/in/capture"} 180
+# HELP written_by_me_docs_total Total number of collection documents written by this task, by task
+# TYPE written_by_me_docs_total counter
+written_by_me_docs_total{task="aliceCo/ctest-open-metrics/in/capture"} 2
+# HELP usage_seconds_total Total number of billable seconds of connector usage time, by task
+# TYPE usage_seconds_total counter
+usage_seconds_total{task="aliceCo/ctest-open-metrics/in/capture"} 3600
+usage_seconds_total{task="aliceCo/ctest-open-metrics/out/materialize"} 1800
+# HELP read_from_me_bytes_total Total number of collection bytes read from this source, by collection
+# TYPE read_from_me_bytes_total counter
+read_from_me_bytes_total{collection="aliceCo/ctest-open-metrics/data/events"} 270
+# HELP read_from_me_docs_total Total number of collection documents read from this source, by collection
+# TYPE read_from_me_docs_total counter
+read_from_me_docs_total{collection="aliceCo/ctest-open-metrics/data/events"} 3
+# HELP written_to_me_bytes_total Total number of collection bytes written to this target, by collection
+# TYPE written_to_me_bytes_total counter
+written_to_me_bytes_total{collection="aliceCo/ctest-open-metrics/data/events"} 180
+# HELP written_to_me_docs_total Total number of collection documents written to this target, by collection
+# TYPE written_to_me_docs_total counter
+written_to_me_docs_total{collection="aliceCo/ctest-open-metrics/data/events"} 2
+# HELP captured_last_published_at_time_seconds Publication timestamp of the most recently captured document, given as seconds since the unix epoch, by task and target collection
+# TYPE captured_last_published_at_time_seconds gauge
+captured_last_published_at_time_seconds{task="aliceCo/ctest-open-metrics/in/capture",collection="aliceCo/ctest-open-metrics/data/events"} 1778000000
+# HELP captured_in_bytes_total Total number of pre-combine bytes captured by the connector, by task and target collection
+# TYPE captured_in_bytes_total counter
+captured_in_bytes_total{task="aliceCo/ctest-open-metrics/in/capture",collection="aliceCo/ctest-open-metrics/data/events"} 200
+# HELP captured_in_docs_total Total number of pre-combine documents captured by the connector, by task and target collection
+# TYPE captured_in_docs_total counter
+captured_in_docs_total{task="aliceCo/ctest-open-metrics/in/capture",collection="aliceCo/ctest-open-metrics/data/events"} 2
+# HELP captured_out_bytes_total Total number of post-combine bytes captured by the connector, by task and target collection
+# TYPE captured_out_bytes_total counter
+captured_out_bytes_total{task="aliceCo/ctest-open-metrics/in/capture",collection="aliceCo/ctest-open-metrics/data/events"} 180
+# HELP captured_out_docs_total Total number of post-combine documents captured by the connector, by task and target collection
+# TYPE captured_out_docs_total counter
+captured_out_docs_total{task="aliceCo/ctest-open-metrics/in/capture",collection="aliceCo/ctest-open-metrics/data/events"} 2
+# HELP derived_last_published_at_time_seconds Publication timestamp of the most recently derived document, given as seconds since the unix epoch, by task
+# TYPE derived_last_published_at_time_seconds gauge
+# HELP derived_last_source_published_at_time_seconds Publication timestamp of the most recent source collection document that was processed by the derivation, given as seconds since the unix epoch
+# TYPE derived_last_source_published_at_time_seconds gauge
+# HELP derived_bytes_behind Bytes behind of the source journals for this transform, by task, source collection, and transform
+# TYPE derived_bytes_behind gauge
+# HELP derived_in_bytes_total Total number of pre-reduce bytes read from the source collection, by task, source collection, and transform
+# TYPE derived_in_bytes_total counter
+# HELP derived_in_docs_total Total number of pre-reduce documents read from the source collection, by task, source collection, and transform
+# TYPE derived_in_docs_total counter
+# HELP derived_out_bytes_total Total number of post-combine bytes published by derivation transforms, by task
+# TYPE derived_out_bytes_total counter
+# HELP derived_out_docs_total Total number of post-combine documents published by derivation transforms, by task
+# TYPE derived_out_docs_total counter
+# HELP derived_yield_bytes_total Total number of pre-combine bytes published by derivation transforms, by task
+# TYPE derived_yield_bytes_total counter
+# HELP derived_yield_docs_total Total number of pre-combine documents published by derivation transforms, by task
+# TYPE derived_yield_docs_total counter
+# HELP materialized_last_source_published_at_time_seconds Publication timestamp of the most recent source collection document that was materialized, given as seconds since the unix epoch
+# TYPE materialized_last_source_published_at_time_seconds gauge
+materialized_last_source_published_at_time_seconds{task="aliceCo/ctest-open-metrics/out/materialize",collection="aliceCo/ctest-open-metrics/data/events"} 1778000000
+# HELP materialized_bytes_behind Bytes behind of the source journals for this binding, by task and source collection
+# TYPE materialized_bytes_behind gauge
+materialized_bytes_behind{task="aliceCo/ctest-open-metrics/out/materialize",collection="aliceCo/ctest-open-metrics/data/events"} 42
+# HELP materialized_in_bytes_total Total number of pre-reduce bytes read from the source collection, by task and source collection
+# TYPE materialized_in_bytes_total counter
+materialized_in_bytes_total{task="aliceCo/ctest-open-metrics/out/materialize",collection="aliceCo/ctest-open-metrics/data/events"} 180
+# HELP materialized_in_docs_total Total number of pre-reduce documents read from the source collection, by task and source collection
+# TYPE materialized_in_docs_total counter
+materialized_in_docs_total{task="aliceCo/ctest-open-metrics/out/materialize",collection="aliceCo/ctest-open-metrics/data/events"} 2
+# HELP materialized_load_bytes_total Total number of pre-reduce bytes loaded from the target, by task and source collection
+# TYPE materialized_load_bytes_total counter
+materialized_load_bytes_total{task="aliceCo/ctest-open-metrics/out/materialize",collection="aliceCo/ctest-open-metrics/data/events"} 90
+# HELP materialized_load_docs_total Total number of pre-reduce documents loaded from the target, by task and source collection
+# TYPE materialized_load_docs_total counter
+materialized_load_docs_total{task="aliceCo/ctest-open-metrics/out/materialize",collection="aliceCo/ctest-open-metrics/data/events"} 1
+# HELP materialized_out_bytes_total Total number of post-reduce bytes stored to the target, by task and source collection
+# TYPE materialized_out_bytes_total counter
+materialized_out_bytes_total{task="aliceCo/ctest-open-metrics/out/materialize",collection="aliceCo/ctest-open-metrics/data/events"} 270
+# HELP materialized_out_docs_total Total number of post-reduce documents stored to the target, by task and source collection
+# TYPE materialized_out_docs_total counter
+materialized_out_docs_total{task="aliceCo/ctest-open-metrics/out/materialize",collection="aliceCo/ctest-open-metrics/data/events"} 3
+# EOF

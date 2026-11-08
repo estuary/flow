@@ -11,11 +11,17 @@ Estuary is built with:
 - **Rust** (primary language)
   - Third-party sources under `~/.cargo/registry/src/`
 - **Go** - integration glue with the Gazette consumer framework
+  - Gazette itself is under `go/gazette/` (see its CLAUDE.md), within the
+    repository's single Go module
   - Third-party sources under `~/go/pkg/mod/`
 - **Protobuf** - communication between control plane, data planes, and connectors
 - **Supabase** - migrations are under `supabase/migrations/`
   - pgTAP tests under `supabase/tests/`
-- **Docs** - external user-facing product documentation under `site/` (Docusaurus)
+- **Docs** - not in this repo. The docs source that used to be under `site/`
+  moved to the `estuary/docs` repo: pages from `site/docs/` are in `content/`,
+  and `site/src/` is in `src/`. Connector reference pages moved to
+  `estuary/connectors` under `docs/reference/Connectors/`. Never add files under
+  `site/`: nothing builds or serves it.
 
 ## Essential Commands
 
@@ -24,6 +30,9 @@ Estuary is built with:
 Use regular `cargo` and `go` tools to build crates. Run tests via the `mise`
 tasks below, which declare their own prerequisites (submodules, Supabase,
 gazette, BigTable).
+
+Stop a local stack before running `control-plane-api` crate tests (some tests
+race the stack over DB tables), and at the completion of a QA run.
 
 ```bash
 # Rust tests. NOT `cargo test`, which ignores the `serial-db-tests` group in
@@ -108,7 +117,7 @@ is called a "tenant".
 - **Data-plane controller**: provisions data planes
 
 ### Data-plane components
-- **Gazette**: brokers serve the journals that back collections
+- **Gazette** (`go/gazette/`): brokers serve the journals that back collections
 - **Reactors**: runtime written to Gazette consumer framework;
   executes tasks and runs connectors as sidecars over gRPC
 - **Etcd**: config for gazette and reactors
@@ -162,6 +171,30 @@ Keep READMEs current - update with code changes.
   Indirection has cost (hard to read): each routine must buy us something.
 - Decompose IO and POD processing into separate routines where possible.
   Routines should gravitate towards IO or processing, and not mix both.
+
+### Comments and Prose
+
+- When making changes, document and discuss behavior as it now exists, not
+  as it used to. Avoid comparative arguments or rationalizations against
+  behavior we no longer have.
+- When updating an existing comment, seek to remove as much as you add.
+  Avoid repeating background context that should live in a README or closer
+  to another component.
+- Include only facts the point needs. A true but irrelevant fact implies a
+  connection that isn't there, so leave it out or move it where it matters.
+- Prefer short sentences that each make one claim. Break up stacked relative
+  clauses and appositives ("the window is that of the Log which has released
+  the least") into plain statements ("the Log furthest behind sets the limit").
+- Present an argument (liveness, ordering, safety) as steps: state the claim,
+  then give each step in its own sentence, and a new paragraph when the
+  argument turns. Cite the routine or type that backs each step
+  (`buffer::next_merge`), so a reader can check it.
+- Seek explicit buy-in from the user before inventing new terminology or
+  concepts.
+- When one effect causes another, describe the chain in order.
+  Don’t list related mechanisms as independent sources or cases.
+- When editing a comment, check each claim against the code it cites.
+  Rewording is when stale or incomplete claims are cheapest to catch.
 
 ### Testing
 - Prefer snapshots over fine-grain assertions (`insta` / `cupaloy`)

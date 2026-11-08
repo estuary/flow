@@ -35,7 +35,7 @@ $ flowctl raw test --source https://raw.githubusercontent.com/estuary/flow/maste
 
 ## Examples
 
-- [bank/](../site/docs/concepts/bank/) is the example from the [Derivations Concepts documentation](https://docs.estuary.dev/concepts/derivations/)
+- [acmebank/](acmebank/) is the example from the [Implementing Derivations for AcmeBank tutorial](https://docs.estuary.dev/getting-started/tutorials/derivations_acmebank/).
 - [citi-bike/](citi-bike/) is a comprehensive example using Citi Bike system data.
 - [stock-stats/](stock-stats/) models per-day market security statistics that update with ticks.
 - [temp-sensors/](temp-sensors/) shows how to do some basic aggregations, like min, max, and average.

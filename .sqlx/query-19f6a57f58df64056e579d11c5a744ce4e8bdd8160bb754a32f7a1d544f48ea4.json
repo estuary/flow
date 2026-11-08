@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT protocol AS \"protocol!\" FROM connector_tags\n               WHERE connector_id = $1 AND protocol IS NOT NULL ORDER BY protocol",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "protocol!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "connector_tags",
+            "name": "protocol"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "19f6a57f58df64056e579d11c5a744ce4e8bdd8160bb754a32f7a1d544f48ea4"
+}

@@ -18,6 +18,14 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/gazette/allocator"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	"github.com/estuary/flow/go/gazette/keyspace"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
@@ -28,14 +36,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/keyspace"
-	"go.gazette.dev/core/message"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
@@ -49,6 +49,7 @@ type taskService interface {
 
 type taskBase[TaskSpec pf.Task] struct {
 	container    atomic.Pointer[pr.Container]            // Current Container of this shard, or nil.
+	networkPorts atomic.Pointer[[]*pf.NetworkPort]       // Network ports of the current term's TaskSpec.
 	extractFn    func(*sql.DB, string) (TaskSpec, error) // Extracts a TaskSpec from a build DB.
 	host         *FlowConsumer                           // Host Consumer application of the shard.
 	opsCancel    context.CancelFunc                      // Cancels ops.Publisher context.
@@ -111,7 +112,7 @@ func newTaskBase[TaskSpec pf.Task](
 		return nil, fmt.Errorf("creating task service: %w", err)
 	}
 
-	return &taskBase[TaskSpec]{
+	var base = &taskBase[TaskSpec]{
 		container:    atomic.Pointer[pr.Container]{},
 		extractFn:    extractFn,
 		host:         host,
@@ -120,7 +121,10 @@ func newTaskBase[TaskSpec pf.Task](
 		recorder:     recorder,
 		svc:          svc,
 		term:         *term,
-	}, nil
+	}
+	base.storeNetworkPorts()
+
+	return base, nil
 }
 
 // newTaskBaseV2 mirrors newTaskBase but instantiates the runtime-next
@@ -151,6 +155,7 @@ func newTaskBaseV2[TaskSpec pf.Task](
 			ContainerNetwork: host.config.Flow.Network,
 			TaskName:         term.labels.TaskName,
 			Plane:            host.config.Plane(),
+			Process:          host.localProcessSpec(),
 		},
 		opsPublisher.PublishLog,
 	)
@@ -169,6 +174,7 @@ func newTaskBaseV2[TaskSpec pf.Task](
 		svc:          svc,
 		term:         *term,
 	}
+	base.storeNetworkPorts()
 
 	// V2 shards bypass Gazette's consumer transaction loop, which is what
 	// stores periodic primary FSMHints of V1 shards. Stand in for it here, as
@@ -197,12 +203,20 @@ func (t *taskBase[TaskSpec]) initTerm(shard consumer.Shard) error {
 	t.term.cancel()
 	t.term = *next
 	t.termCount += 1
+	t.storeNetworkPorts()
 
 	return nil
 }
 
-func (t *taskBase[TaskSpec]) ProxyHook() (*pr.Container, ops.Publisher) {
-	return t.container.Load(), t.opsPublisher
+// storeNetworkPorts publishes the current term's network ports to ProxyHook,
+// which is called concurrently with term transitions.
+func (t *taskBase[TaskSpec]) storeNetworkPorts() {
+	var ports = t.term.taskSpec.TaskNetworkPorts()
+	t.networkPorts.Store(&ports)
+}
+
+func (t *taskBase[TaskSpec]) ProxyHook() (*pr.Container, []*pf.NetworkPort, ops.Publisher) {
+	return t.container.Load(), *t.networkPorts.Load(), t.opsPublisher
 }
 
 func (t *taskBase[TaskSpec]) drop() {

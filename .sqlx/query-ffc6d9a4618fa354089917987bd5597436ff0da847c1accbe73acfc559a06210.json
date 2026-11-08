@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO internal.billing_historicals (tenant, billed_month, report) SELECT tenant::public.catalog_tenant, $3, report FROM unnest($1::text[], $2::jsonb[]) AS invoices(tenant, report) ON CONFLICT (tenant, billed_month) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "JsonbArray",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ffc6d9a4618fa354089917987bd5597436ff0da847c1accbe73acfc559a06210"
+}

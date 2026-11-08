@@ -12,15 +12,15 @@ import (
 	"sync"
 
 	"github.com/estuary/flow/go/flow/keyhash"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/message"
 )
 
 var createdPartitionsCounters = promauto.NewCounterVec(prometheus.CounterOpts{

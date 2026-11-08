@@ -22,4 +22,4 @@ pub mod store;
 
 // The crate's external contract: everything else is `pub` only for white-box
 // access by this crate's own `tests/`.
-pub use run::{LogHandler, Options, TestOutcome, TestResults, TestStatus, run_tests};
+pub use run::{LogHandler, Options, TestOutcome, TestResults, TestStatus, Timeouts, run_tests};

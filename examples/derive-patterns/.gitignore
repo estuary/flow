@@ -1,0 +1,3 @@
+# Types which `flowctl generate` writes from the Python derivations' collections.
+flow_generated/
+.venv/

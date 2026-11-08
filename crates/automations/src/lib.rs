@@ -36,17 +36,25 @@ pub mod task_types {
     pub const PUBLICATIONS: TaskType = TaskType(3);
     pub const DISCOVERS: TaskType = TaskType(4);
     pub const EVOLUTIONS: TaskType = TaskType(5);
-    pub const APPLIED_DIRECTIVES: TaskType = TaskType(6);
     pub const CONNECTOR_TAGS: TaskType = TaskType(7);
     pub const DATA_PLANE_MIGRATION: TaskType = TaskType(8);
     /// Sends notifications when alerts are fired or resolved
     pub const ALERT_NOTIFICATIONS: TaskType = TaskType(9);
-    /// Evaluates tenant-related alerts
+    /// Retired: tenant controllers evaluate tenant alerts
     pub const TENANT_ALERT_EVALS: TaskType = TaskType(10);
     /// Evaluates data_movement_stalled alerts
     pub const DATA_MOVEMENT_ALERT_EVALS: TaskType = TaskType(11);
-    /// Per-tenant controller that reconciles billing contact with Stripe
+    /// Per-tenant controller that reconciles billing contact with Stripe,
+    /// raises the tenant's quotas once it has a payment method or doesn't need
+    /// one, starts free trials, and fires trial and payment method alerts
     pub const TENANT_CONTROLLER: TaskType = TaskType(12);
+    /// Second deployment of the data-plane-controller, which serves only the
+    /// data-planes explicitly assigned to it. This is the *same* executor as
+    /// DATA_PLANE_CONTROLLER registered under a second type: each deployment
+    /// registers one of the two, and the dequeue predicate divides the
+    /// data-planes between them. Note this is the inverse of the hazard called
+    /// out above, which is two *different* executors sharing one task type.
+    pub const DATA_PLANE_CONTROLLER_DEV: TaskType = TaskType(13);
 }
 
 /// Outcome of an `Executor::poll()` for a given task, which encloses

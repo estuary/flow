@@ -1,61 +1,91 @@
 use anyhow::Context;
-use futures::{FutureExt, TryStreamExt};
+use futures::TryStreamExt;
 use proto_flow::flow;
-use tables::CatalogResolver;
 
 /// Load and validate sources and derivation connectors (only).
 /// Capture and materialization connectors are not validated.
 pub(crate) async fn load_and_validate(
     ctx: &crate::CliContext,
     source: &str,
-) -> anyhow::Result<(
-    tables::DraftCatalog,
-    tables::LiveCatalog,
-    tables::Validations,
-)> {
+) -> anyhow::Result<build::Output> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let (draft, live, built) =
-        validate(ctx, true, false, true, draft, "", ops::tracing_log_handler).await;
-    Ok((draft, live, surface_errors(built.into_result())?))
+    let output = validate(ctx, true, false, true, draft, ops::tracing_log_handler).await;
+    surface_errors(output.into_result())
 }
 
-/// Load and validate sources and all connectors.
-pub(crate) async fn load_and_validate_full(
+/// Load and validate sources, and the connector of one task.
+/// Returns the name of the task selected by `select_task`.
+pub(crate) async fn load_and_validate_task(
     ctx: &crate::CliContext,
     source: &str,
-    network: &str,
-    log_handler: impl runtime::LogHandler,
-) -> anyhow::Result<(
-    tables::DraftCatalog,
-    tables::LiveCatalog,
-    tables::Validations,
-)> {
+    task: Option<&str>,
+    log_handler: impl ops::LogHandler,
+) -> anyhow::Result<(String, build::Output)> {
     let source = build::arg_source_to_url(source, false)?;
-    let sources = surface_errors(load(&source).await.into_result())?;
-    let (draft, live, built) =
-        validate(ctx, false, false, false, sources, network, log_handler).await;
-    Ok((draft, live, surface_errors(built.into_result())?))
+    let mut sources = surface_errors(load(&source).await.into_result())?;
+    let task = select_task(&mut sources, task)?;
+    let output = validate(ctx, false, false, false, sources, log_handler).await;
+    Ok((task, surface_errors(output.into_result())?))
 }
 
-/// Generate connector files by validating sources with derivation connectors.
+/// Select the task named `task`, or else the draft's only task.
+/// Every other task is disabled, so that validation doesn't run its connector.
+/// A connector Validate may reach out to its endpoint, and a user who means
+/// one task shouldn't wait on, or see errors from, all the others.
+pub(crate) fn select_task(
+    draft: &mut tables::DraftCatalog,
+    task: Option<&str>,
+) -> anyhow::Result<String> {
+    let captures = draft.captures.iter_mut().filter_map(|row| {
+        let model = row.model.as_mut()?;
+        Some((row.capture.as_str(), &mut model.shards))
+    });
+    let derivations = draft.collections.iter_mut().filter_map(|row| {
+        let derive = row.model.as_mut()?.derive.as_mut()?;
+        Some((row.collection.as_str(), &mut derive.shards))
+    });
+    let materializations = draft.materializations.iter_mut().filter_map(|row| {
+        let model = row.model.as_mut()?;
+        Some((row.materialization.as_str(), &mut model.shards))
+    });
+    let mut tasks: Vec<(&str, &mut models::ShardTemplate)> = captures
+        .chain(derivations)
+        .chain(materializations)
+        .collect();
+
+    let task = match (task, tasks.as_slice()) {
+        (Some(task), _) => task.to_string(),
+        (None, [(only, _)]) => only.to_string(),
+        (None, []) => anyhow::bail!(
+            "sourced specification files do not contain any tasks (captures, derivations, or materializations)"
+        ),
+        (None, _) => anyhow::bail!(
+            "sourced specification files contain multiple tasks. Use --task to identify a specific one"
+        ),
+    };
+    if !tasks.iter().any(|(name, _)| *name == task) {
+        anyhow::bail!("could not find capture, derivation, or materialization {task}");
+    }
+    for (name, shards) in tasks.iter_mut() {
+        if *name != task {
+            shards.disable = true;
+        }
+    }
+    Ok(task)
+}
+
+/// Generate connector files by validating sources with all connectors.
+/// Callers disable tasks which shouldn't be validated (see `select_task`).
 pub(crate) async fn generate_files(
     ctx: &crate::CliContext,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
-    let (mut draft, _live, built) = validate(
-        ctx,
-        true,
-        false,
-        true,
-        sources,
-        "",
-        ops::tracing_log_handler,
-    )
-    .await;
+    let build::Output {
+        mut draft, built, ..
+    } = validate(ctx, false, false, false, sources, ops::tracing_log_handler).await;
 
-    let project_root = build::project_root(&draft.fetches[0].resource);
-    build::generate_files(&project_root, &built)?;
+    build::generate_files(&draft.fetches[0].resource, &built)?;
 
     draft.errors = draft
         .errors
@@ -92,16 +122,8 @@ async fn validate(
     noop_derivations: bool,
     noop_materializations: bool,
     draft: tables::DraftCatalog,
-    network: &str,
-    log_handler: impl runtime::LogHandler,
-) -> (
-    tables::DraftCatalog,
-    tables::LiveCatalog,
-    tables::Validations,
-) {
-    let source = &draft.fetches[0].resource.clone();
-    let project_root = build::project_root(source);
-
+    log_handler: impl ops::LogHandler,
+) -> build::Output {
     let mut live = Resolver {
         pg: ctx.pg.clone(),
         access_token: ctx.access_token(),
@@ -119,12 +141,11 @@ async fn validate(
         build::local(
             models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
             models::Id::new([0xff; 8]), // Must be larger than all real last_build_id's.
-            network,
+            ctx.local_connector_router(),
             log_handler,
             noop_captures,
             noop_derivations,
             noop_materializations,
-            &project_root,
             draft,
             live,
         )
@@ -144,8 +165,7 @@ async fn validate(
         tracing::debug!(db_path=%db_path.to_string_lossy(), "wrote debugging database");
     }
 
-    let (draft, live, built) = output.into_parts();
-    (draft, live, built)
+    output
 }
 
 pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Result<T> {
@@ -161,23 +181,26 @@ pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Re
 }
 
 // Indirect specifications so that larger configurations, etc become reference
-// resources, then write them out if they're under the project root.
+// resources, then write them out (see `write_resources`). Nothing is written if
+// tasks conflict over the content of a resource.
 pub(crate) fn indirect_and_write_resources(
     mut draft: tables::DraftCatalog,
 ) -> anyhow::Result<tables::DraftCatalog> {
     ::sources::indirect_large_files(&mut draft, 1 << 9);
-    write_resources(draft)
+    write_resources(surface_errors(draft.into_result())?)
 }
 
+// Write out the local resources of `draft` which are underneath the directory
+// of its root source (see `build::write_files`). Every catalog is rebuilt from
+// its models, which drops its comments and formatting, so a catalog outside
+// that directory, such as one imported by a `../` path, is left as it is.
 pub(crate) fn write_resources(
     mut draft: tables::DraftCatalog,
 ) -> anyhow::Result<tables::DraftCatalog> {
-    let source = &draft.fetches[0].resource.clone();
-    let project_root = build::project_root(source);
     ::sources::rebuild_catalog_resources(&mut draft);
 
     build::write_files(
-        &project_root,
+        &draft.fetches[0].resource,
         draft
             .resources
             .iter()
@@ -219,47 +242,38 @@ pub(crate) fn pick_policy(
     }
 }
 
-pub(crate) struct Resolver {
+pub struct Resolver {
     pub pg: postgrest::Postgrest,
     pub access_token: Option<String>,
 }
 
-impl tables::CatalogResolver for Resolver {
-    fn resolve<'a>(
-        &'a self,
-        catalog_names: Vec<&'a str>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = tables::LiveCatalog> + Send + 'a>> {
-        async move {
-            let result = futures::try_join!(
-                self.resolve_specs(&catalog_names),
-                self.resolve_inferred_schemas(&catalog_names),
-            );
+impl Resolver {
+    pub async fn resolve(&self, catalog_names: Vec<&str>) -> tables::LiveCatalog {
+        let result = futures::try_join!(
+            self.resolve_specs(&catalog_names),
+            self.resolve_inferred_schemas(&catalog_names),
+        );
 
-            match result {
-                Ok((mut live, inferred_schemas)) => {
-                    live.inferred_schemas = inferred_schemas;
-                    live
-                }
-                Err(err) => {
-                    let mut live = tables::LiveCatalog::default();
-                    live.errors.push(tables::Error {
-                        scope: url::Url::parse("flow://control").unwrap(),
-                        error: err,
-                    });
-                    live
-                }
+        match result {
+            Ok((mut live, inferred_schemas)) => {
+                live.inferred_schemas = inferred_schemas;
+                live
+            }
+            Err(err) => {
+                let mut live = tables::LiveCatalog::default();
+                live.errors.push(tables::Error {
+                    scope: url::Url::parse("flow://control").unwrap(),
+                    error: err,
+                });
+                live
             }
         }
-        .boxed()
     }
-}
 
-impl Resolver {
     async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
         use models::CatalogType;
 
-        // Use NoOpCatalogResolver to prime with a catch-all storage mapping.
-        let mut live = build::NoOpCatalogResolver.resolve(Vec::new()).await;
+        let mut live = build::no_op_live_catalog();
 
         // If we're unauthenticated then return the placeholder LiveCatalog.
         if self.access_token.is_none() {
@@ -311,55 +325,18 @@ impl Resolver {
             .await
             .context("failed to fetch storage mappings")?;
 
+        // Row-level security keeps `recovery/` mappings out of reach here,
+        // so local builds carry no recovery stores. Local builds also make no
+        // data-plane placement: that happens when a draft is published.
         for row in storage_mappings.into_iter().flatten() {
-            // TODO(johnny): The PostgREST API does not surface recovery/ mappings.
-            // Work around for now, by synthesizing them. This should switch to GraphQL.
             if row.catalog_prefix.starts_with("recovery/") {
                 continue; // Does not actually happen in practice.
             }
-
             live.storage_mappings.insert_row(
                 &row.catalog_prefix,
                 row.id,
                 &row.spec.stores,
-                &row.spec.data_planes,
-            );
-            live.storage_mappings.insert_row(
-                models::Prefix::new(format!("recovery/{}", row.catalog_prefix)),
-                models::Id::zero(),
                 Vec::new(),
-                Vec::new(),
-            );
-        }
-
-        // Query all data planes.
-        #[derive(serde::Deserialize)]
-        struct DataPlaneRow {
-            id: models::Id,
-            data_plane_name: String,
-        }
-
-        let data_planes = flow_client_next::postgrest::exec::<Vec<DataPlaneRow>>(
-            self.pg.from("data_planes").select("id,data_plane_name"),
-            self.access_token.as_deref(),
-        )
-        .await
-        .context("failed to fetch data planes")?;
-
-        for row in data_planes {
-            live.data_planes.insert_row(
-                row.id,
-                row.data_plane_name,
-                String::new(),                 // data_plane_fqdn
-                false,                         // closed
-                Vec::new(),                    // hmac_keys
-                models::RawValue::default(),   // encrypted_hmac_keys
-                models::Collection::default(), // ops_logs_name
-                models::Collection::default(), // ops_stats_name
-                String::new(),                 // broker_address
-                String::new(),                 // reactor_address
-                None,                          // dekaf_address
-                None,                          // dekaf_registry_address
             );
         }
 
@@ -565,7 +542,7 @@ fn chunk_names<'a>(names: &[&'a str]) -> Vec<Vec<&'a str>> {
 
 #[cfg(test)]
 mod test {
-    use super::{API_FETCH_URL_BUDGET, chunk_names, encoded_len};
+    use super::{API_FETCH_URL_BUDGET, chunk_names, encoded_len, select_task};
 
     fn chunk_encoded_len(chunk: &[&str]) -> usize {
         chunk.iter().map(|n| encoded_len(n) + 3).sum()
@@ -624,5 +601,106 @@ mod test {
     #[test]
     fn empty_input_yields_no_chunks() {
         assert!(chunk_names(&[]).is_empty());
+    }
+
+    #[test]
+    fn select_task_disables_all_other_tasks() {
+        let fixture = || -> tables::DraftCatalog {
+            let catalog: models::Catalog = serde_json::from_value(serde_json::json!({
+                "captures": {
+                    "acmeCo/capture-one": {
+                        "endpoint": {"connector": {"image": "an/image", "config": {}}},
+                        "bindings": [],
+                    },
+                    "acmeCo/capture-two": {
+                        "endpoint": {"connector": {"image": "an/image", "config": {}}},
+                        "bindings": [],
+                    },
+                },
+                "collections": {
+                    "acmeCo/derived": {
+                        "schema": {"type": "object"},
+                        "key": ["/id"],
+                        "derive": {"using": {"sqlite": {}}, "transforms": []},
+                    },
+                    "acmeCo/plain": {"schema": {"type": "object"}, "key": ["/id"]},
+                },
+                "materializations": {
+                    "acmeCo/materialize": {
+                        "endpoint": {"connector": {"image": "an/image", "config": {}}},
+                        "bindings": [],
+                    },
+                },
+            }))
+            .unwrap();
+            catalog.into()
+        };
+        let disabled = |draft: &tables::DraftCatalog| -> Vec<(String, bool)> {
+            let captures = draft.captures.iter().map(|row| {
+                let model = row.model.as_ref().unwrap();
+                (row.capture.to_string(), model.shards.disable)
+            });
+            let derivations = draft.collections.iter().filter_map(|row| {
+                let derive = row.model.as_ref()?.derive.as_ref()?;
+                Some((row.collection.to_string(), derive.shards.disable))
+            });
+            let materializations = draft.materializations.iter().map(|row| {
+                let model = row.model.as_ref().unwrap();
+                (row.materialization.to_string(), model.shards.disable)
+            });
+            captures
+                .chain(derivations)
+                .chain(materializations)
+                .collect()
+        };
+
+        let mut draft = fixture();
+        let task = select_task(&mut draft, Some("acmeCo/derived")).unwrap();
+        insta::assert_debug_snapshot!((task, disabled(&draft)), @r#"
+        (
+            "acmeCo/derived",
+            [
+                (
+                    "acmeCo/capture-one",
+                    true,
+                ),
+                (
+                    "acmeCo/capture-two",
+                    true,
+                ),
+                (
+                    "acmeCo/derived",
+                    false,
+                ),
+                (
+                    "acmeCo/materialize",
+                    true,
+                ),
+            ],
+        )
+        "#);
+
+        let mut draft = fixture();
+        insta::assert_snapshot!(select_task(&mut draft, None).unwrap_err(), @"sourced specification files contain multiple tasks. Use --task to identify a specific one");
+        insta::assert_snapshot!(select_task(&mut draft, Some("acmeCo/plain")).unwrap_err(), @"could not find capture, derivation, or materialization acmeCo/plain");
+
+        let mut draft = fixture();
+        draft.captures.clear();
+        draft.collections.clear();
+        let task = select_task(&mut draft, None).unwrap();
+        insta::assert_debug_snapshot!((task, disabled(&draft)), @r#"
+        (
+            "acmeCo/materialize",
+            [
+                (
+                    "acmeCo/materialize",
+                    false,
+                ),
+            ],
+        )
+        "#);
+
+        draft.materializations.clear();
+        insta::assert_snapshot!(select_task(&mut draft, None).unwrap_err(), @"sourced specification files do not contain any tasks (captures, derivations, or materializations)");
     }
 }

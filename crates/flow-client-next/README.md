@@ -1,6 +1,6 @@
 # flow-client-next
 
-Client library for Estuary Flow control-plane APIs with auto-refreshing authentication.
+Client library for Estuary control-plane APIs with auto-refreshing authentication.
 
 This crate is a replacement for `flow-client`. Dependent crates should use
 `use flow_client_next as flow_client;` to ease the transition.
@@ -45,7 +45,14 @@ The two `SecretDecrypt` workflows are the exception: they address
 config-encryption rather than the control-plane, and must be driven by
 `tokens::fetch_once` rather than a Watch, which would retain and periodically
 re-fetch plaintext. Both extract their response through the module's
-`extract_secret_decryption()`.
+`extract_secret_decryption()`. A present JSON `null` is a successful secret
+value; only an omitted `value` field means no value was returned.
+
+The crate-root `secret_resolver` module wraps that pair behind one
+`SecretResolver` trait, which is what callers pair with `unseal::resolve` to
+turn a task's `secrets` stanza into plaintext. `Task` signs as a data plane,
+`User` as the current user, and `NoOp` fails every secret for local contexts
+holding no control-plane credentials.
 
 ## Building Gazette Clients
 

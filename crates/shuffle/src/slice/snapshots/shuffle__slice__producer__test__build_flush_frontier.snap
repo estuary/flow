@@ -14,7 +14,6 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
-            binding_gap_floors: {},
             unresolved_hints: 0,
         },
         [],
@@ -36,6 +35,8 @@ expression: snap
                     ],
                     bytes_read_delta: 800,
                     bytes_behind_delta: -300,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/B",
@@ -50,6 +51,8 @@ expression: snap
                     ],
                     bytes_read_delta: 1200,
                     bytes_behind_delta: 5000,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -59,7 +62,6 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
-            binding_gap_floors: {},
             unresolved_hints: 0,
         },
         [
@@ -70,7 +72,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 32ns),
@@ -92,7 +93,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -114,7 +114,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {},
                 unreported: {},
                 read_offset: 123,
@@ -142,6 +141,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/C",
@@ -156,6 +157,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -165,7 +168,6 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
-            binding_gap_floors: {},
             unresolved_hints: 2,
         },
         [],
@@ -187,6 +189,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -196,7 +200,6 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
-            binding_gap_floors: {},
             unresolved_hints: 0,
         },
         [
@@ -207,7 +210,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -229,7 +231,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {},
                 unreported: {},
                 read_offset: 0,
@@ -257,6 +258,8 @@ expression: snap
                     ],
                     bytes_read_delta: 500,
                     bytes_behind_delta: 500,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/B",
@@ -277,6 +280,8 @@ expression: snap
                     ],
                     bytes_read_delta: 2000,
                     bytes_behind_delta: 2000,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/C",
@@ -291,6 +296,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -300,7 +307,6 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
-            binding_gap_floors: {},
             unresolved_hints: 2,
         },
         [
@@ -311,7 +317,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -333,7 +338,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 32ns),
@@ -372,6 +376,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/X",
@@ -386,6 +392,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/X",
@@ -400,6 +408,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -409,7 +419,6 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
-            binding_gap_floors: {},
             unresolved_hints: 1,
         },
         [
@@ -420,7 +429,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -442,7 +450,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 8ns),
@@ -476,6 +483,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -485,7 +494,6 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
-            binding_gap_floors: {},
             unresolved_hints: 1,
         },
         [],
@@ -507,6 +515,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -516,7 +526,6 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
-            binding_gap_floors: {},
             unresolved_hints: 1,
         },
         [
@@ -527,7 +536,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 8ns),
@@ -573,6 +581,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
                 JournalFrontier {
                     journal: "journal/B",
@@ -587,6 +597,8 @@ expression: snap
                     ],
                     bytes_read_delta: 0,
                     bytes_behind_delta: 0,
+                    gap_floor: Clock(0s 0ns),
+                    prune_floor: Clock(0s 0ns),
                 },
             ],
             flushed_lsn: [
@@ -596,7 +608,6 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
-            binding_gap_floors: {},
             unresolved_hints: 1,
         },
         [
@@ -607,7 +618,6 @@ expression: snap
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
                 pending_gap: false,
-                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 0ns),

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT sensitive FROM tenants WHERE tenant = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sensitive",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "sensitive"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5d6a65fd641cddad0a953ac085b7b41e06440c6fa5d9d0a849cd6f3537110200"
+}

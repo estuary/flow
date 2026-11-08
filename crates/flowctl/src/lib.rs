@@ -5,25 +5,26 @@ mod alerts;
 mod auth;
 mod catalog;
 mod collection;
-mod config;
+pub mod config;
 mod dataplane;
 mod discover;
 mod draft;
 mod generate;
 mod graphql;
-mod local_specs;
+mod local_connector;
+pub mod local_specs;
 mod ops;
 mod output;
 mod poll;
 pub mod raw;
+mod secret;
 mod shuffle_read;
 mod version;
 
 use models::authorizations::ControlClaims;
 use output::{Output, OutputType};
-use poll::poll_while_queued;
 
-/// A command-line tool for working with Estuary Flow.
+/// A command-line tool for working with Estuary.
 #[derive(Debug, Parser)]
 #[command(author, about, version, next_display_order = None)]
 pub struct Cli {
@@ -34,6 +35,9 @@ pub struct Cli {
     /// or development endpoints.
     #[clap(long, default_value = "default", env = "FLOWCTL_PROFILE")]
     profile: String,
+    /// Docker network used by locally-run connector images.
+    #[clap(long = "network", global = true, default_value = "bridge")]
+    connector_network: String,
 
     #[clap(subcommand)]
     cmd: Command,
@@ -63,16 +67,15 @@ pub enum Command {
     /// submitting the job to the control plane which runs it on a data-plane.
     /// The discovered bindings are then written to your local Flow catalog files.
     Discover(discover::Discover),
-    /// Generate derivation project files and implementation stubs.
+    /// Generate connector project files and implementation stubs.
     ///
-    /// Generate walks your local Flow catalog source file and its imports
-    /// to gather collections, derivations, and associated JSON schemas.
-    /// Your derivations generate associated project files and supplemental
-    /// type implementations which are then written into your project directory,
-    /// which is the top-level directory having a flow.yaml or flow.json file.
-    ///
-    /// You then edit the generated stubs in your preferred editor to fill
-    /// out implementations for your derivation transform lambdas.
+    /// Generate loads your local Flow catalog source file and its imports,
+    /// and selects the capture, derivation, or materialization given by --task.
+    /// It writes stubs for the task's missing endpoint and resource configs.
+    /// It then validates the task with its connector, which may connect to its
+    /// endpoint. Any project files and supplemental type implementations
+    /// the connector generates are written into the task's project directory,
+    /// which is the directory of the specification file that defines it.
     Generate(generate::Generate),
     /// Locally run and preview a capture, derivation, or materialization.
     ///
@@ -109,6 +112,14 @@ pub enum Command {
     Logs(ops::Logs),
     /// Advanced, low-level, and experimental commands which are less common.
     Raw(raw::Advanced),
+    /// Manage the secrets which your tasks draw credentials from.
+    ///
+    /// A secret is a named catalog entity which lives apart from the
+    /// specifications that use it: a task names its secrets in a `secrets`
+    /// stanza, and the runtime resolves them as it starts. The value itself
+    /// is never part of a published specification.
+    #[clap(name = "secret", alias = "secrets")]
+    Secrets(secret::Secrets),
 }
 
 pub struct CliContext {
@@ -125,11 +136,28 @@ pub struct CliContext {
     config: config::Config,
     /// Selected output format (table / JSON / YAML) for command results.
     output: output::Output,
-    /// Tracks in-flight work units; cloned into preview-next connector drivers.
+    /// Tracks in-flight work units across local connector services and runtimes.
     registry: service_kit::Registry,
+    /// Shared router for all locally-run connectors in this invocation.
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
 }
 
 impl CliContext {
+    /// Client of the profile's config-encryption service, which wraps and
+    /// unwraps secrets.
+    pub(crate) fn config_encryption_client(&self) -> flow_client_next::rest::Client {
+        flow_client_next::rest::Client {
+            base_url: self.config.get_config_encryption_url().clone(),
+            http_client: self.rest.http_client.clone(),
+        }
+    }
+
+    pub(crate) fn local_connector_router(
+        &self,
+    ) -> std::sync::Arc<dyn proto_grpc::connector::Router> {
+        self.connector_router.clone()
+    }
+
     fn write_all<I, T>(&mut self, items: I, table_alt: T::TableAlt) -> anyhow::Result<()>
     where
         T: output::CliOutput,
@@ -265,6 +293,19 @@ impl Cli {
             )))
         };
 
+        // Locally-run connectors decrypt secrets under the user's authority.
+        let connector_router = runtime_local::local_router(
+            self.connector_network.clone(),
+            registry.clone(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::User::new(
+                flow_client_next::rest::Client {
+                    base_url: config.get_config_encryption_url().clone(),
+                    http_client: rest.http_client.clone(),
+                },
+                user_tokens.clone(),
+            )),
+        );
+
         let mut context = CliContext {
             pg,
             rest,
@@ -273,6 +314,7 @@ impl Cli {
             config,
             output,
             registry,
+            connector_router,
         };
 
         // Version check runs concurrently with the command
@@ -290,6 +332,7 @@ impl Cli {
             Command::Draft(draft) => draft.run(&mut context).await,
             Command::Logs(logs) => logs.run(&mut context).await,
             Command::Raw(advanced) => advanced.run(&mut context).await,
+            Command::Secrets(secrets) => secrets.run(&mut context).await,
         };
 
         // Print before `result?` so the warning is visible even when the command fails
@@ -494,6 +537,33 @@ fn filter_default_prefixes(
 mod test {
     use super::*;
     use crate::auth::list::AuthorizedPrefix;
+
+    // clap validates a subcommand's arguments only when that subcommand is
+    // parsed, and only under debug assertions. This test validates them all, so
+    // a misnamed argument ID fails here rather than in a user's invocation.
+    #[test]
+    fn cli_definition_is_valid() {
+        <Cli as clap::CommandFactory>::command().debug_assert();
+    }
+
+    #[test]
+    fn connector_network_is_global() {
+        let default = Cli::try_parse_from(["flowctl", "raw", "spec", "--source", "flow.yaml"])
+            .expect("default connector network parses");
+        assert_eq!(default.connector_network, "bridge");
+
+        let configured = Cli::try_parse_from([
+            "flowctl",
+            "raw",
+            "spec",
+            "--source",
+            "flow.yaml",
+            "--network",
+            "host",
+        ])
+        .expect("global network option parses after a nested command");
+        assert_eq!(configured.connector_network, "host");
+    }
 
     #[test]
     fn test_filter_default_prefixes() {

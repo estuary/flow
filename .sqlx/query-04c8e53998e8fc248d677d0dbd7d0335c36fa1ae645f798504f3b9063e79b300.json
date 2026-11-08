@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        update public.tenants\n        set stripe_customer_id = coalesce(stripe_customer_id, $2)\n        where tenant = $1\n        returning stripe_customer_id as \"stripe_customer_id!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stripe_customer_id!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "stripe_customer_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "04c8e53998e8fc248d677d0dbd7d0335c36fa1ae645f798504f3b9063e79b300"
+}

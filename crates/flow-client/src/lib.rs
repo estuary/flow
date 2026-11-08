@@ -3,7 +3,7 @@ use base64::Engine;
 
 pub mod client;
 pub use client::{
-    Client, fetch_task_authorization, fetch_user_collection_authorization,
+    AgentError, Client, fetch_task_authorization, fetch_user_collection_authorization,
     fetch_user_prefix_authorization, fetch_user_task_authorization,
 };
 

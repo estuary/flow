@@ -10,7 +10,7 @@ def test_with_restart(request, snapshot):
             "preview-next",
             "--source",
             request.config.rootdir + "/examples/derive-patterns/join-outer.flow.yaml",
-            "--name",
+            "--task",
             "patterns/outer-join",
             "--fixture",
             request.config.rootdir + "/tests/preview/ints-strings-fixture.ndjson",

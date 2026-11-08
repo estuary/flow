@@ -1,0 +1,10 @@
+---
+source: crates/python-connector/src/pydantic/mapper.rs
+expression: "errors.join(\"\\n\")"
+---
+property "value": invalid `x-python-type` 5: it must be a dotted path of a module and a type, such as "datetime.datetime"
+property "value": invalid `x-python-type` "Decimal": it must be a dotted path of a module and a type, such as "datetime.datetime"
+property "value": invalid `x-python-type` "decimal.": it must be a dotted path of a module and a type, such as "datetime.datetime"
+property "value": invalid `x-python-type` "decimal..Decimal": it must be a dotted path of a module and a type, such as "datetime.datetime"
+property "value": invalid `x-python-type` "decimal.Decimal | None": it must be a dotted path of a module and a type, such as "datetime.datetime"
+property "value": invalid `x-python-type` "class.Foo": it must be a dotted path of a module and a type, such as "datetime.datetime"

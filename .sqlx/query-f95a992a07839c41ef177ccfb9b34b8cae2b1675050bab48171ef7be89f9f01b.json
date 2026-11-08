@@ -6,42 +6,85 @@
       {
         "ordinal": 0,
         "name": "id: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "connector_tags",
+            "name": "id"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "image_tag",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "connector_tags",
+            "name": "image_tag"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "protocol: ConnectorProto",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "connector_tags",
+            "name": "protocol"
+          }
+        }
       },
       {
         "ordinal": 3,
         "name": "documentation_url",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "connector_tags",
+            "name": "documentation_url"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "endpoint_spec_schema: JsonRawValue",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "connector_tags",
+            "name": "endpoint_spec_schema"
+          }
+        }
       },
       {
         "ordinal": 5,
         "name": "resource_spec_schema: JsonRawValue",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "connector_tags",
+            "name": "resource_spec_schema"
+          }
+        }
       },
       {
         "ordinal": 6,
         "name": "disable_backfill",
-        "type_info": "Bool"
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "connector_tags",
+            "name": "disable_backfill"
+          }
+        }
       },
       {
         "ordinal": 7,
         "name": "default_capture_interval",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": "Expression"
       }
     ],
     "parameters": {

@@ -96,24 +96,7 @@ impl Format {
                 time::OffsetDateTime::parse(val, &time::format_description::well_known::Rfc3339)
                     .is_ok()
             }
-            Self::Time => {
-                // [first] will choose the first matching format to parse the value
-                // see https://time-rs.github.io/book/api/format-description.html for more info
-                let full_format = time::macros::format_description!(
-                    version = 2,
-                    "[first
-                    [[hour]:[minute]:[second][optional [.[subsecond]]]Z]
-                    [[hour]:[minute]:[second][optional [.[subsecond]]]z]
-                    [[hour]:[minute]:[second][optional [.[subsecond]]][offset_hour]:[offset_minute]]
-                    ]"
-                );
-
-                time::Time::parse(
-                    val,
-                    &time::format_description::FormatItem::First(full_format),
-                )
-                .is_ok()
-            }
+            Self::Time => is_rfc3339_full_time(val.as_bytes()),
             Self::Email => addr::parse_email_address(val).is_ok(),
             Self::Hostname => addr::parse_domain_name(val).is_ok(),
             // The rules/test cases for these are absolutely bonkers
@@ -201,6 +184,78 @@ impl Format {
     }
 }
 
+/// Validates RFC3339 `full-time`, which is what JSON Schema's `time` format
+/// defers to. This is hand-rolled rather than deferred to `time` because the
+/// grammar is fixed-width and trivial to check directly, and because `time`
+/// rejects leap seconds outright.
+///
+/// ```text
+/// full-time      = partial-time time-offset
+/// partial-time   = time-hour ":" time-minute ":" time-second [time-secfrac]
+/// time-secfrac   = "." 1*DIGIT
+/// time-offset    = "Z" / time-numoffset
+/// time-numoffset = ("+" / "-") time-hour ":" time-minute
+/// ```
+fn is_rfc3339_full_time(b: &[u8]) -> bool {
+    // The shortest `full-time` is "hh:mm:ssZ".
+    if b.len() < 9 || b[2] != b':' || b[5] != b':' {
+        return false;
+    }
+    let (Some(hour), Some(minute), Some(second)) = (
+        two_digits(&b[0..2]),
+        two_digits(&b[3..5]),
+        two_digits(&b[6..8]),
+    ) else {
+        return false;
+    };
+    // `time-second` is 00-60: 60 is a leap second, checked against UTC below.
+    if hour > 23 || minute > 59 || second > 60 {
+        return false;
+    }
+
+    let mut rest = &b[8..];
+
+    if let [b'.', frac @ ..] = rest {
+        let digits = frac.iter().take_while(|c| c.is_ascii_digit()).count();
+        if digits == 0 {
+            return false;
+        }
+        rest = &frac[digits..];
+    }
+
+    // Minutes east of UTC.
+    let offset = match rest {
+        [b'Z' | b'z'] => 0,
+        [sign @ (b'+' | b'-'), offset @ ..] => {
+            if offset.len() != 5 || offset[2] != b':' {
+                return false;
+            }
+            let (Some(hour), Some(minute)) = (two_digits(&offset[0..2]), two_digits(&offset[3..5]))
+            else {
+                return false;
+            };
+            if hour > 23 || minute > 59 {
+                return false;
+            }
+            let magnitude = (hour * 60 + minute) as i32;
+
+            if *sign == b'-' { -magnitude } else { magnitude }
+        }
+        _ => return false,
+    };
+
+    // A leap second is inserted only at 23:59:60 UTC, so it's valid just when
+    // this local time maps onto that instant.
+    second != 60 || ((hour * 60 + minute) as i32 - offset).rem_euclid(24 * 60) == 23 * 60 + 59
+}
+
+fn two_digits(b: &[u8]) -> Option<u32> {
+    let [high @ b'0'..=b'9', low @ b'0'..=b'9'] = b else {
+        return None;
+    };
+    Some(((high - b'0') * 10 + (low - b'0')) as u32)
+}
+
 #[cfg(test)]
 mod test {
     use super::Format;
@@ -234,6 +289,30 @@ mod test {
             ("time", "10:31:25.123-00:10", true),
             ("time", "10:31:25-00:10", true),
             ("time", "10:31:25+00:10", true),
+            ("time", "10:31:25+23:59", true),
+            ("time", "10:31:25+24:00", false), // `time-numoffset` hour is 00-23.
+            ("time", "10:31:25-24:00", false),
+            ("time", "10:31:25.123+24:00", false),
+            ("time", "10:31:25+01:60", false),
+            ("time", "10:31:25", false), // Offset is required.
+            ("time", "10:31:25.5", false),
+            ("time", "10:31:25.Z", false), // `time-secfrac` needs a digit.
+            ("time", "1:31:25Z", false),   // Components are two digits.
+            ("time", "10:31:25Z+00:30", false),
+            ("time", "24:00:00Z", false),
+            ("time", "10:60:00Z", false),
+            ("time", "10:31:61Z", false),
+            // A leap second is valid only at 23:59:60 UTC.
+            ("time", "23:59:60Z", true),
+            ("time", "23:59:60+00:00", true),
+            ("time", "01:29:60+01:30", true),
+            ("time", "23:29:60+23:30", true),
+            ("time", "15:59:60-08:00", true),
+            ("time", "00:29:60-23:30", true),
+            ("time", "22:59:60Z", false),
+            ("time", "23:58:60Z", false),
+            ("time", "23:59:60+01:00", false),
+            ("time", "23:59:60-00:30", false),
             ("email", "john@doe.com", true),
             ("email", "john at doe.com", false),
             ("hostname", "hostname.com", true),

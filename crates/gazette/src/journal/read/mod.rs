@@ -6,9 +6,15 @@ use proto_gazette::broker;
 mod lines;
 pub use lines::{LinesBatch, ReadLines};
 
+/// Bounds how long a fragment store may serve nothing: first while connecting
+/// and awaiting response headers, and then while reading the response body.
+const FRAGMENT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 // TODO(johnny): Replace usages of ReadJsonLines with ReadLines.
 mod json_lines;
 pub use json_lines::{ReadJsonLine, ReadJsonLines};
+
+mod snappy;
 
 impl Client {
     /// Invoke the Gazette journal Read API.
@@ -20,6 +26,7 @@ impl Client {
     ) -> impl futures::Stream<Item = crate::RetryResult<broker::ReadResponse>> + Send + 'static
     {
         coroutines::coroutine(move |mut co| async move {
+            let metadata_only = req.metadata_only;
             let mut attempt = 0;
             let mut write_head = i64::MAX;
             let metrics = Metrics::new(&req.journal);
@@ -37,9 +44,16 @@ impl Client {
                 }
 
                 let err = match self
-                    .read_some(&mut co, metrics.clone(), &mut req, &mut write_head)
+                    .read_some(
+                        &mut co,
+                        metrics.clone(),
+                        &mut req,
+                        &mut write_head,
+                        metadata_only,
+                    )
                     .await
                 {
+                    Ok(()) if metadata_only => return,
                     Ok(()) => {
                         attempt = 0;
 
@@ -79,6 +93,7 @@ impl Client {
         metrics: Metrics,
         req: &mut broker::ReadRequest,
         write_head: &mut i64,
+        metadata_only: bool,
     ) -> crate::Result<()> {
         let mut client = self
             .subclient(&mut req.header, router::Mode::Replica)
@@ -88,16 +103,19 @@ impl Client {
         req.metadata_only = true;
 
         let mut stream = client.read(req.clone()).await?.into_inner();
-        let mut metadata = stream.try_next().await?.ok_or(Error::UnexpectedEof)?;
+        let metadata = stream.try_next().await?.ok_or(Error::UnexpectedEof)?;
         let _eof = stream.try_next().await?; // Broker sends EOF.
-        std::mem::drop(stream);
+
+        // The `client` Channel may be a different broker than the content read
+        // `client` below. Drop to avoid pinning it for the life of this RPC.
+        std::mem::drop((stream, client));
 
         tracing::trace!(req=?ops::DebugJson(&req), meta=?ops::DebugJson(&metadata), "fetched read metadata");
 
         // Use routing topology from the metadata response for subsequent
         // requests, dispatching to a broker that serves this journal rather
         // than the default broker we initially dialed for the metadata request.
-        req.header = metadata.header.take();
+        req.header = metadata.header.clone();
 
         // OFFSET_NOT_YET_AVAILABLE means there's no content at our requested
         // offset. The broker reports, via `metadata.offset`, the offset it
@@ -105,54 +123,50 @@ impl Client {
         // *fast-forwarded* offset when fragments were skipped because they fall
         // before `begin_mod_time` or sit beyond a hole in the offset space. When
         // that resolved offset equals the write head, the read is definitively
-        // caught up: there's no content between it and the head. Yield the
-        // metadata so the caller observes `offset` and `write_head`, then return.
-        // Setting both `*write_head` and `req.offset` to the write head causes
-        // the outer read() loop to exit for non-blocking reads.
-        if metadata.status() == broker::Status::OffsetNotYetAvailable
-            && metadata.offset == metadata.write_head
-        {
-            *write_head = metadata.write_head;
-            req.offset = metadata.write_head;
+        // caught up: there's no content between it and the head.
+        let status = metadata.status();
+        let caught_up = status == broker::Status::OffsetNotYetAvailable
+            && metadata.offset == metadata.write_head;
 
-            () = co.yield_(Ok(metadata)).await;
-            metrics.tick(req.offset, *write_head);
-
-            return Ok(());
-        } else if metadata.status() != broker::Status::Ok {
-            // Note: we used to fall through and retry below on !Ok. That was
-            // subtly wrong, because we may have a transient error here that
-            // resolves before the Read RPC below, where that RPC then fails
-            // with an OffsetNotYetAvailable not having our above handling.
-            return Err(Error::BrokerStatus(metadata.status()));
+        if status != broker::Status::Ok && !caught_up {
+            return Err(Error::BrokerStatus(status));
         }
 
         // Can we directly read the fragment from cloud storage?
-        if let (broker::Status::Ok, false, Some(fragment)) = (
-            metadata.status(),
-            metadata.fragment_url.is_empty() || metadata.fragment_url.starts_with("file://"),
-            &metadata.fragment,
-        ) {
+        let is_file_url = metadata.fragment_url.starts_with("file://");
+        let direct = match &metadata.fragment {
+            Some(fragment) if !metadata.fragment_url.is_empty() && !is_file_url => {
+                Some((fragment.clone(), metadata.fragment_url.clone()))
+            }
+            _ => None,
+        };
+
+        // The read is complete with its metadata response if it's caught up,
+        // if it's metadata-only, or if a fragment hole fast-forwarded it to or
+        // past a bounded read's `end_offset`.
+        let complete = caught_up
+            || metadata_only
+            || (req.end_offset != 0 && metadata.offset >= req.end_offset);
+
+        // Yield the metadata so the caller observes the resolved `offset` and
+        // `write_head` (and the fragment of a direct read). For a complete
+        // non-blocking read, `req.offset == *write_head` or reaching
+        // `end_offset` causes the outer read() loop to exit.
+        if complete || direct.is_some() {
             if req.offset != metadata.offset {
                 tracing::info!(req.journal, req.offset, metadata.offset, "offset jump");
                 req.offset = metadata.offset;
             }
             *write_head = metadata.write_head;
 
-            // A fragment hole may have fast-forwarded `req.offset` to or past a
-            // bounded read's `end_offset`. The requested range is then fully
-            // covered; yield the metadata (so the caller observes the resolved
-            // offset) and terminate.
-            if req.end_offset != 0 && req.offset >= req.end_offset {
-                () = co.yield_(Ok(metadata)).await;
-                metrics.tick(req.offset, *write_head);
-                return Ok(());
-            }
-
-            let (fragment, fragment_url) = (fragment.clone(), metadata.fragment_url.clone());
             () = co.yield_(Ok(metadata)).await;
             metrics.tick(req.offset, *write_head);
+        }
+        if complete {
+            return Ok(());
+        }
 
+        if let Some((fragment, fragment_url)) = direct {
             return read_fragment_url(
                 co,
                 metrics,
@@ -171,7 +185,7 @@ impl Client {
         // we must ask the broker to proxy. With `do_not_proxy=true` and no
         // open spool file, `serveRead` short-circuits after sending only the
         // fragment metadata, EOFs the stream, and the outer loop spins.
-        if metadata.fragment_url.starts_with("file://") {
+        if is_file_url {
             req.do_not_proxy = false;
         }
 
@@ -213,7 +227,10 @@ impl Client {
                     metrics.tick(req.offset, *write_head);
                 }
                 // All other statuses end the stream, and are handled by the caller.
-                (status, _, _) => return Err(Error::BrokerStatus(status)),
+                (status, _, _) => {
+                    let _eof = stream.try_next().await; // Broker sends EOF.
+                    return Err(Error::BrokerStatus(status));
+                }
             }
         }
 
@@ -242,9 +259,9 @@ async fn read_fragment_url(
         _ => {}
     }
 
-    let response = get
-        .send()
+    let response = tokio::time::timeout(FRAGMENT_IDLE_TIMEOUT, get.send())
         .await
+        .map_err(|_| Error::FragmentTimeout(FRAGMENT_IDLE_TIMEOUT))?
         .and_then(reqwest::Response::error_for_status)
         .map_err(Error::FetchFragment)?;
 
@@ -271,9 +288,10 @@ async fn read_fragment_url(
             let decoder = async_compression::futures::bufread::ZstdDecoder::new(raw_reader);
             read_fragment_url_body(co, metrics, fragment, decoder, req, write_head).await
         }
-        broker::CompressionCodec::Snappy => Err(Error::Protocol(
-            "snappy compression is not yet implemented by this client",
-        )),
+        broker::CompressionCodec::Snappy => {
+            let decoder = snappy::decode(raw_reader);
+            read_fragment_url_body(co, metrics, fragment, decoder, req, write_head).await
+        }
         broker::CompressionCodec::Invalid => {
             Err(Error::Protocol("invalid compression codec for fragment"))
         }
@@ -309,7 +327,27 @@ async fn read_fragment_url_body(
         i64::MAX
     };
 
-    while let Some(mut content) = r.try_next().await.map_err(Error::ReadFragment)? {
+    let mut idle = std::pin::pin!(tokio::time::sleep(FRAGMENT_IDLE_TIMEOUT));
+    let mut progressed = false;
+
+    loop {
+        let next = tokio::select! {
+            biased; // Prefer ready content over timeout.
+            next = r.try_next() => next.map_err(Error::ReadFragment)?,
+            () = &mut idle => {
+                if !progressed {
+                    return Err(Error::FragmentTimeout(FRAGMENT_IDLE_TIMEOUT));
+                }
+                progressed = false;
+                idle.as_mut().reset(tokio::time::Instant::now() + FRAGMENT_IDLE_TIMEOUT);
+                continue;
+            }
+        };
+        let Some(mut content) = next else {
+            break;
+        };
+        progressed = true;
+
         let mut content_len = content.len() as i64;
 
         if discard >= content_len {
@@ -390,5 +428,57 @@ impl Metrics {
     fn tick(&self, offset: i64, write_head: i64) {
         self.offset.set(offset as f64);
         self.remainder.set((write_head - offset) as f64);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use futures::{FutureExt, StreamExt};
+
+    #[tokio::test(start_paused = true)]
+    async fn test_fragment_idle_timeout() {
+        let (tx, rx) = futures::channel::mpsc::unbounded();
+        let send = |b: &'static [u8]| tx.unbounded_send(Ok(bytes::Bytes::from_static(b))).unwrap();
+
+        let stream = coroutines::coroutine(move |mut co| async move {
+            let (fragment, mut req) = Default::default();
+            let metrics = Metrics::new("a/journal");
+            let body = rx.into_async_read();
+
+            if let Err(err) =
+                read_fragment_url_body(&mut co, metrics, fragment, body, &mut req, 0).await
+            {
+                () = co.yield_(Err(err.with_attempt(0))).await;
+            }
+        });
+        let mut stream = std::pin::pin!(stream);
+        let content = |item: Option<crate::RetryResult<broker::ReadResponse>>| {
+            let resp = item.unwrap().unwrap();
+            (resp.offset, resp.content)
+        };
+
+        // The consumer polls and finds nothing ready, which starts a wait.
+        // A chunk then arrives, but the consumer takes longer than the timeout
+        // to poll again. The ready chunk is taken, though no content
+        // preceded it.
+        assert!(stream.next().now_or_never().is_none());
+        send(b"hello");
+        tokio::time::sleep(FRAGMENT_IDLE_TIMEOUT * 2).await;
+        assert_eq!(content(stream.next().await), (0, "hello".into()));
+
+        // Content arriving mid-period re-arms the timer when it fires.
+        let (next, ()) = tokio::join!(stream.next(), async {
+            tokio::time::sleep(FRAGMENT_IDLE_TIMEOUT / 2).await;
+            send(b"!");
+        });
+        assert_eq!(content(next), (5, "!".into()));
+
+        // The store then holds the body open without serving it, and times out
+        // one to two periods after its last content.
+        let last_content = tokio::time::Instant::now();
+        let err = stream.next().await.unwrap().unwrap_err().inner;
+        assert!(matches!(err, Error::FragmentTimeout(_)) && err.is_transient());
+        assert_eq!(last_content.elapsed(), FRAGMENT_IDLE_TIMEOUT * 3 / 2);
     }
 }

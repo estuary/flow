@@ -34,8 +34,11 @@ expression: proto_catalogue(ex_capture_responses())
                                                        0000004d
 
 // validated
-|1a0e0a0c 0a04736f 6d650a04 70617468| ......some..path 00000000
-                                                       00000010
+|1a3b0a0c 0a04736f 6d650a04 70617468| .;....some..path 00000000
+|122b0a1c 66696c65 3a2f2f2f 70726f6a| .+..file:///proj 00000010
+|6563742f 726f6f74 2f75762e 6c6f636b| ect/root/uv.lock 00000020
+|120b7665 7273696f 6e203d20 31|       ..version = 1    00000030
+                                                       0000003d
 
 // applied
 |222a0a10 49206469 6420736f 6d652073| "*..I did some s 00000000

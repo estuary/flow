@@ -2,7 +2,9 @@ use serde_json::value::RawValue;
 use std::collections::BTreeMap;
 
 pub mod capture;
+pub mod connector;
 pub mod derive;
+pub mod disk;
 pub mod flow;
 mod internal;
 pub mod linked;
@@ -91,6 +93,11 @@ pub fn as_timestamp(ts: std::time::SystemTime) -> Timestamp {
     }
 }
 
+/// Inverse of [`as_timestamp`].
+pub fn from_timestamp(ts: Timestamp) -> std::time::SystemTime {
+    std::time::UNIX_EPOCH + std::time::Duration::new(ts.seconds as u64, ts.nanos as u32)
+}
+
 impl ops::log::Level {
     /// Return this Level if it's not UndefinedLevel, or else return `or`.
     pub fn or(self, or: Self) -> Self {
@@ -110,6 +117,10 @@ pub use proto_gazette::consumer::checkpoint as runtime_checkpoint;
 mod serde_capture {
     use crate::capture::*;
     include!("capture.serde.rs");
+}
+mod serde_connector {
+    use crate::connector::*;
+    include!("connector.serde.rs");
 }
 mod serde_derive {
     use crate::derive::*;
@@ -153,4 +164,7 @@ pub mod capability {
     /// LEAD gives the bearer a capability to use the runtime's Leader API,
     /// driving a derivation or materialization task's transactions.
     pub const LEAD: u32 = 1 << 20;
+    /// TASK_UPDATE gives the bearer a capability to update a task
+    /// through the `/task/set-secret` and `/task/update-config` routes.
+    pub const TASK_UPDATE: u32 = 1 << 21;
 }

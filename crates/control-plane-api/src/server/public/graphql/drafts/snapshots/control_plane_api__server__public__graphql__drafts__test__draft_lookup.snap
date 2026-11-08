@@ -1,0 +1,22 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: "&responses[..2]"
+---
+[
+  {
+    "data": {
+      "draft": {
+        "createdAt": "2024-01-01T00:00:00+00:00",
+        "detail": "owned",
+        "id": "0000000000000010",
+        "numSpecs": 2,
+        "updatedAt": "2024-01-01T00:00:00+00:00"
+      }
+    }
+  },
+  {
+    "data": {
+      "draft": null
+    }
+  }
+]

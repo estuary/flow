@@ -308,6 +308,7 @@ mod test {
             collection: models::Collection::new("test/c2"),
             scope: crate::synthetic_scope(models::CatalogType::Collection, "test/c2"),
             expect_pub_id: None,
+            data_plane_id: models::Id::zero(),
             model: Some(models::CollectionDef::example()),
             is_touch: false,
         });

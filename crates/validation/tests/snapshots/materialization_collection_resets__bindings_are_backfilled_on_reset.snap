@@ -104,6 +104,7 @@ expression: outcome.built_materializations
                     ],
                 },
             ],
+            generated_files: {},
         },
         spec: MaterializationSpec {
             name: "testing/materialize",
@@ -732,6 +733,16 @@ expression: outcome.built_materializations
             sync_schedule_json: b"",
             linked_collections: [],
             secrets: {},
+            connector_spec: Some(
+                ConnectorSpec {
+                    protocol: 0,
+                    config_schema_json: b"{\"type\":\"object\"}",
+                    resource_config_schema_json: b"{\"properties\":{\"schema\":{\"type\":\"string\",\"x-schema-name\":true},\"target\":{\"type\":\"string\",\"x-collection-name\":true}},\"required\":[\"target\"],\"type\":\"object\"}",
+                    documentation_url: "",
+                    oauth2: None,
+                    resource_path_pointers: [],
+                },
+            ),
         },
         previous_spec: MaterializationSpec {
             name: "testing/materialize",
@@ -858,6 +869,7 @@ expression: outcome.built_materializations
             sync_schedule_json: b"",
             linked_collections: [],
             secrets: {},
+            connector_spec: None,
         },
         is_touch: 0,
         dependency_hash: eea0c2493934ba84,

@@ -6,32 +6,68 @@
       {
         "ordinal": 0,
         "name": "live_spec_id: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "id"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "catalog_name!: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "catalog_name"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "last_pub_id: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "last_pub_id"
+          }
+        }
       },
       {
         "ordinal": 3,
         "name": "last_build_id: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "last_build_id"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "live_spec: TextJson<Box<RawValue>>",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "spec"
+          }
+        }
       },
       {
         "ordinal": 5,
         "name": "built_spec: TextJson<Box<RawValue>>",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "built_spec"
+          }
+        }
       },
       {
         "ordinal": 6,
@@ -48,62 +84,134 @@
               ]
             }
           }
+        },
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "spec_type"
+          }
         }
       },
       {
         "ordinal": 7,
         "name": "live_dependency_hash",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "dependency_hash"
+          }
+        }
       },
       {
         "ordinal": 8,
         "name": "created_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "created_at"
+          }
+        }
       },
       {
         "ordinal": 9,
         "name": "live_spec_updated_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "updated_at"
+          }
+        }
       },
       {
         "ordinal": 10,
         "name": "controller_version: i32",
-        "type_info": "Int4"
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "controller_version"
+          }
+        }
       },
       {
         "ordinal": 11,
         "name": "controller_updated_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "updated_at"
+          }
+        }
       },
       {
         "ordinal": 12,
         "name": "logs_token",
-        "type_info": "Uuid"
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "logs_token"
+          }
+        }
       },
       {
         "ordinal": 13,
         "name": "status: TextJson<Box<RawValue>>",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "status"
+          }
+        }
       },
       {
         "ordinal": 14,
         "name": "failures",
-        "type_info": "Int4"
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "failures"
+          }
+        }
       },
       {
         "ordinal": 15,
         "name": "error",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "error"
+          }
+        }
       },
       {
         "ordinal": 16,
         "name": "data_plane_id: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "data_plane_id"
+          }
+        }
       },
       {
         "ordinal": 17,
         "name": "data_plane_name?: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "data_planes",
+            "name": "data_plane_name"
+          }
+        }
       }
     ],
     "parameters": {

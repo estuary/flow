@@ -1,0 +1,5 @@
+mutation CreatePublicationMutation($draftId: Id!, $dryRun: Boolean!, $defaultDataPlane: String, $detail: String) {
+    createPublication(draftId: $draftId, dryRun: $dryRun, defaultDataPlane: $defaultDataPlane, detail: $detail) {
+        id
+    }
+}

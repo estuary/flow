@@ -240,6 +240,8 @@ test://example/int-halve:
               # Shuffle key is fully covered by logical partition fields.
               key: [/len, /partitionString]
             backfill: 4
+            # Negative priorities are allowed, and read after the default of zero.
+            priority: -1
 
 test://example/int-halve.ts: |
   another typescript placeholder
@@ -396,9 +398,7 @@ driver:
   storageMappings:
     testing/:
       stores: [{ provider: S3, bucket: data-bucket }]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
-    recovery/testing/:
-      stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
+      recoveryStores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
     not-matched/:
       stores:
         [
@@ -410,7 +410,6 @@ driver:
             account_tenant_id: mozzarella,
           },
         ]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
 
 test://example/array-key.schema:
   # This schema models array additionalItems which provably exist,

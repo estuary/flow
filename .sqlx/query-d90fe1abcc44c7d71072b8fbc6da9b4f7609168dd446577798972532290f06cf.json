@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT billing_emails, billing_name, billing_address\n        FROM tenants\n        WHERE tenant = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "billing_emails",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "billing_emails"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "billing_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "billing_name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "billing_address",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "billing_address"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "d90fe1abcc44c7d71072b8fbc6da9b4f7609168dd446577798972532290f06cf"
+}

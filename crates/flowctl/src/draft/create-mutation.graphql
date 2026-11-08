@@ -1,0 +1,6 @@
+mutation CreateDraftMutation($detail: String) {
+    createDraft(detail: $detail) {
+        id
+        createdAt
+    }
+}

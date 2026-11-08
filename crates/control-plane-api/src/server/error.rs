@@ -102,13 +102,18 @@ impl From<sqlx::Error> for ApiError {
     }
 }
 
+impl From<crate::envelope::Rejection> for ApiError {
+    fn from(rejection: crate::envelope::Rejection) -> Self {
+        match rejection {
+            crate::envelope::Rejection::Status(status) => Self::Status(status),
+            other => Self::Status(tonic::Status::invalid_argument(other.to_string())),
+        }
+    }
+}
+
 impl From<anyhow::Error> for ApiError {
     fn from(error: anyhow::Error) -> Self {
-        let status = match error.downcast::<tonic::Status>() {
-            Ok(status) => status,
-            Err(err) => tonic::Status::unknown(format!("{err:#}")),
-        };
-        ApiError::Status(status)
+        ApiError::Status(proto_grpc::anyhow_to_status(error))
     }
 }
 

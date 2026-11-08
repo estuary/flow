@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"flag"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"testing"
@@ -117,6 +118,37 @@ func BenchmarkTuplePacking(b *testing.B) {
 			tuple := bm.tuple
 			for i := 0; i < b.N; i++ {
 				_ = tuple.Pack()
+			}
+		})
+	}
+}
+
+func TestIntegerRoundTrip(t *testing.T) {
+	var cases = []interface{}{
+		int64(0), int64(1), int64(-1), int64(255), int64(-255), int64(256), int64(-256),
+		int64(65535), int64(-65536), int64(1) << 40, -(int64(1) << 40),
+		int64(math.MaxInt64), int64(math.MinInt64 + 1), uint64(math.MaxUint64), uint64(1) << 63,
+	}
+	for i := 0; i < 1000; i++ {
+		cases = append(cases, src.Int63()>>uint(src.Intn(63)), -(src.Int63() >> uint(src.Intn(63))))
+	}
+	for _, c := range cases {
+		unpacked, err := Unpack(Tuple{c}.Pack())
+		if err != nil {
+			t.Fatalf("unpacking %v: %s", c, err)
+		}
+		if unpacked[0] != c {
+			t.Errorf("round trip of %v (%T) gave %v (%T)", c, c, unpacked[0], unpacked[0])
+		}
+	}
+}
+
+func BenchmarkTupleUnpacking(b *testing.B) {
+	for _, bm := range testCases {
+		b.Run(bm.name, func(b *testing.B) {
+			packed := bm.tuple.Pack()
+			for i := 0; i < b.N; i++ {
+				_, _ = Unpack(packed)
 			}
 		})
 	}

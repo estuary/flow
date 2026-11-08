@@ -392,6 +392,7 @@ async fn test_dependencies_and_controllers() {
         collection: models::Collection::new("owls/hoots"),
         scope: tables::synthetic_scope(models::CatalogType::Collection, "owls/hoots"),
         expect_pub_id: None,
+        data_plane_id: models::Id::zero(),
         model: Some(live_hoots.model.clone()),
         is_touch: false,
     });
@@ -505,6 +506,7 @@ async fn test_dependencies_and_controllers() {
         collection: models::Collection::new("owls/hoots"),
         scope: tables::synthetic_scope(models::CatalogType::Collection, "owls/hoots"),
         expect_pub_id: None,
+        data_plane_id: models::Id::zero(),
         model: Some(live_hoots.model.clone()),
         is_touch: false,
     });

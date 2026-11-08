@@ -2,8 +2,26 @@ mod auth;
 pub use auth::{Authenticator, Authorized, Authorizer, Signer};
 
 pub mod capture;
+pub mod connector {
+    include!("connector.rs");
+
+    #[cfg(feature = "connector_client")]
+    mod client;
+    #[cfg(feature = "connector_client")]
+    mod identity;
+    #[cfg(feature = "connector_client")]
+    mod router;
+
+    #[cfg(feature = "connector_client")]
+    pub use client::*;
+    #[cfg(feature = "connector_client")]
+    pub use identity::*;
+    #[cfg(feature = "connector_client")]
+    pub use router::*;
+}
 pub mod consumer;
 pub mod derive;
+pub mod disk;
 pub mod flow;
 pub mod materialize;
 mod protocol;
@@ -12,12 +30,12 @@ pub mod shuffle;
 
 mod status;
 pub use status::{
-    MAX_STATUS_MESSAGE_LEN, Verify, anyhow_to_status, bound_status, bounded_unknown_status,
-    catch_panic, status_to_anyhow, verify,
+    MAX_STATUS_MESSAGE_LEN, StatusError, Verify, anyhow_to_status, bound_status,
+    bounded_unknown_status, catch_panic, status_to_anyhow, verify, verify_connector,
 };
 
 mod dial;
-pub use dial::dial_channel;
+pub use dial::{CHANNEL_CACHE_MAX_AGE, dial_channel};
 
 /// Standard buffer depth of asynchronous protocol pipelines.
 ///

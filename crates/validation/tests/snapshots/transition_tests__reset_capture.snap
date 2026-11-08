@@ -36,6 +36,7 @@ expression: outcome.built_captures
                     ],
                 },
             ],
+            generated_files: {},
         },
         spec: CaptureSpec {
             name: "the/capture",
@@ -525,6 +526,16 @@ expression: outcome.built_captures
             created_at: "2025-05-07",
             linked_collections: [],
             secrets: {},
+            connector_spec: Some(
+                ConnectorSpec {
+                    protocol: 0,
+                    config_schema_json: b"{\"type\":\"object\"}",
+                    resource_config_schema_json: b"{\"properties\":{\"schema\":{\"type\":\"string\"},\"source\":{\"type\":\"string\"}},\"required\":[\"source\"],\"type\":\"object\"}",
+                    documentation_url: "",
+                    oauth2: None,
+                    resource_path_pointers: [],
+                },
+            ),
         },
         previous_spec: CaptureSpec {
             name: "the/capture",
@@ -601,6 +612,7 @@ expression: outcome.built_captures
             created_at: "",
             linked_collections: [],
             secrets: {},
+            connector_spec: None,
         },
         is_touch: 0,
         dependency_hash: 5b38dc32c776e2b2,

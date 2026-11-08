@@ -1,6 +1,28 @@
 use enumset::{EnumSet, EnumSetType};
 use serde::{Deserialize, Serialize};
 
+/// The subject of an authorization check: whose grants to evaluate and any
+/// restrictions on their use.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Subject {
+    pub user_id: uuid::Uuid,
+    pub capability_mask: Option<CapabilitySet>,
+    /// Limits the user's reachable authority to the union of these prefixes.
+    /// None is unrestricted; an empty list denies all access.
+    pub prefix_mask: Option<Vec<String>>,
+}
+
+impl Subject {
+    /// Creates a Subject covering the entirety of a user's grants, with no additional restrictions.
+    pub fn unrestricted(user_id: uuid::Uuid) -> Self {
+        Self {
+            user_id,
+            capability_mask: None,
+            prefix_mask: None,
+        }
+    }
+}
+
 /// A set of fine-grained authorization capabilities. Used throughout the
 /// authorization BFS and at authorization-check call sites.
 pub type CapabilitySet = EnumSet<Capability>;
@@ -18,7 +40,7 @@ pub enum Capability {
     SpecEdit,
     CreateGrant,
     DeleteGrant,
-    CreateInviteLink,
+    ManageInviteLinks,
     // `ViewDataPlanePrivateNetworking` permits reading per-data-plane
     // private-networking configuration (such as the `private_links`
     // column).
@@ -46,6 +68,9 @@ pub enum Capability {
     DecryptSecret,
     Delegate,
     Assume,
+    CreateSandbox,
+    ManageAlerts,
+    ManageLegal,
 }
 
 impl std::fmt::Display for Capability {
@@ -54,7 +79,22 @@ impl std::fmt::Display for Capability {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// A stable, named bundle of capability bits. Grants and token capability
+/// masks name bundles rather than bits, so bits may be added, split, or
+/// merged without changing stored grants or minted tokens.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    strum::VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(
     feature = "sqlx-support",
@@ -70,6 +110,7 @@ pub enum CapabilityBundle {
     TeamAdmin,
     ManageServiceAccounts,
     ManageDataPlane,
+    CreateSandbox,
     Delegate,
     Assume,
 }
@@ -139,6 +180,8 @@ impl CapabilityBundle {
                     | Self::TeamAdmin.capabilities()
                     | Self::Billing.capabilities()
                     | Self::ManageDataPlane.capabilities()
+                    | ManageLegal
+                    | CreateSandbox
             }
             Self::Billing => ViewBilling | EditBilling,
             Self::ManageServiceAccounts => {
@@ -147,7 +190,8 @@ impl CapabilityBundle {
             Self::TeamAdmin => {
                 CreateGrant
                     | DeleteGrant
-                    | CreateInviteLink
+                    | ManageInviteLinks
+                    | ManageAlerts
                     | Self::ManageServiceAccounts.capabilities()
             }
             Self::ManageDataPlane => {
@@ -155,6 +199,7 @@ impl CapabilityBundle {
             }
             Self::Delegate => Delegate.into(),
             Self::Assume => Assume.into(),
+            Self::CreateSandbox => CreateSandbox.into(),
         }
     }
 }

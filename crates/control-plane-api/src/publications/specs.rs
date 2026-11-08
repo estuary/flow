@@ -2,13 +2,12 @@ use super::{LockFailure, UncommittedBuild};
 use crate::draft;
 use crate::publications::db::{self, LiveRevision, LiveSpecUpdate};
 use anyhow::Context;
-use itertools::Itertools;
 use models::Capability;
-use models::{Id, ModelDef, SourceType, TargetNaming, split_image_tag};
+use models::{Id, ModelDef, split_image_tag};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use tables::{BuiltRow, DraftRow, utils};
+use tables::BuiltRow;
 
 pub async fn persist_updates(
     uncommitted: &UncommittedBuild,
@@ -280,148 +279,6 @@ async fn update_live_specs(
     }
 
     Ok(lock_failures)
-}
-
-pub async fn check_connector_annotations(
-    draft: &tables::DraftCatalog,
-    pool: &sqlx::PgPool,
-) -> anyhow::Result<tables::Errors> {
-    let mut errors = tables::Errors::default();
-
-    for materialization in draft.materializations.iter() {
-        let Some(model) = materialization.model() else {
-            continue;
-        };
-        let Some(image) = model.connector_image() else {
-            continue;
-        };
-        let (image_name, image_tag) = split_image_tag(&image);
-
-        // Skip materializations that have neither sourceCapture nor targetNaming.
-        if model.source.is_none() && model.target_naming.is_none() {
-            continue;
-        }
-
-        // We need the connector's resource config schema to validate x-schema-name support.
-        // This requires a connector_tags row. Missing rows should only occur for test
-        // connector tags, hence the technical error message.
-        let Some(connector_spec) =
-            crate::connector_tags::fetch_connector_spec(&image_name, &image_tag, pool).await?
-        else {
-            errors.insert(tables::Error {
-                scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
-                error: anyhow::anyhow!("materializations with a sourceCapture or targetNaming only work for known connector tags. {image} is not known to the control plane"),
-            });
-            continue;
-        };
-        let resource_config_schema = connector_spec.resource_config_schema;
-        let resource_spec_pointers = utils::pointer_for_schema(resource_config_schema.0.get())?;
-
-        // Blanket check: TargetNamingStrategy requires x-schema-name support.
-        if model.target_naming.is_some() && resource_spec_pointers.x_schema_name.is_none() {
-            errors.insert(tables::Error {
-                scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
-                error: anyhow::anyhow!("targetNaming requires the connector '{image_name}' to support x-schema-name in its resource config"),
-            });
-        }
-
-        if let Some(SourceType::Configured(source_capture_def)) = &model.source {
-            if source_capture_def.delta_updates && resource_spec_pointers.x_delta_updates.is_none()
-            {
-                errors.insert(tables::Error {
-                    scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
-                    error: anyhow::anyhow!("sourceCapture.deltaUpdates set but the connector '{image_name}' does not support delta updates"),
-                });
-            }
-
-            // TODO(js): Remove this check once we finish the target naming migration
-            if source_capture_def.target_naming == TargetNaming::WithSchema
-                && resource_spec_pointers.x_schema_name.is_none()
-            {
-                errors.insert(tables::Error {
-                    scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
-                    error: anyhow::anyhow!("sourceCapture.targetSchema set but the connector '{image_name}' does not support resource schemas"),
-                });
-            }
-        }
-    }
-    Ok(errors)
-}
-
-pub async fn check_connector_images(
-    draft: &tables::DraftCatalog,
-    pool: &sqlx::PgPool,
-) -> anyhow::Result<tables::Errors> {
-    let mut by_image: BTreeMap<String, bool> = BTreeMap::new();
-    let mut errors = tables::Errors::default();
-
-    for capture in draft.captures.iter() {
-        let Some(err) = check_connector_image(
-            capture.capture.as_str(),
-            capture.model(),
-            &mut by_image,
-            pool,
-        )
-        .await?
-        else {
-            continue;
-        };
-        errors.insert(err);
-    }
-    for collection in draft.collections.iter() {
-        let Some(err) = check_connector_image(
-            collection.collection.as_str(),
-            collection.model(),
-            &mut by_image,
-            pool,
-        )
-        .await?
-        else {
-            continue;
-        };
-        errors.insert(err);
-    }
-    for materialization in draft.materializations.iter() {
-        let Some(err) = check_connector_image(
-            materialization.materialization.as_str(),
-            materialization.model(),
-            &mut by_image,
-            pool,
-        )
-        .await?
-        else {
-            continue;
-        };
-        errors.insert(err);
-    }
-    Ok(errors)
-}
-
-async fn check_connector_image(
-    catalog_name: &str,
-    model: Option<&impl ModelDef>,
-    cached: &mut BTreeMap<String, bool>,
-    pool: &sqlx::PgPool,
-) -> anyhow::Result<Option<tables::Error>> {
-    let Some(model) = model else {
-        return Ok(None);
-    };
-    let Some(image) = model.connector_image() else {
-        return Ok(None);
-    };
-    let (image_name, _) = split_image_tag(&image);
-    if !cached.contains_key(&image_name) {
-        let exists = crate::connector_tags::does_connector_exist(&image_name, pool).await?;
-        cached.insert(image_name.clone(), exists);
-    }
-    if !cached[&image_name] {
-        Ok(Some(tables::Error {
-            scope: tables::synthetic_scope(model.catalog_type(), catalog_name),
-            error: anyhow::anyhow!("Forbidden connector image '{image_name}'"),
-        }))
-    } else {
-        Ok(None)
-    }
 }
 
 fn image_and_tag<M: ModelDef>(model: Option<&M>) -> (Option<String>, Option<String>) {
@@ -727,14 +584,19 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
     names
 }
 
+pub struct ResolvedLiveCatalog {
+    pub live: tables::LiveCatalog,
+    /// Ordered data-plane names of each of `live.storage_mappings`.
+    pub mapping_planes: BTreeMap<models::Prefix, Vec<String>>,
+}
+
 pub async fn resolve_live_specs(
-    user_id: Uuid,
+    subject: &models::authz::Subject,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
     verify_user_authz: bool,
-    explicit_plane_name: Option<&str>,
-) -> anyhow::Result<tables::LiveCatalog> {
+) -> anyhow::Result<ResolvedLiveCatalog> {
     // We're expecting to get a row for each catalog name that's either drafted or
     // referenced by a drafted spec, even if the live spec does not exist.
     // Note that `all_catalog_names` returns a sorted and deduplicated list of catalog names.
@@ -773,9 +635,6 @@ pub async fn resolve_live_specs(
     // Start by making an easy way to lookup whether each row was drafted or not.
     let drafted_names = draft.all_spec_names().collect::<HashSet<_>>();
 
-    // Gather IDs of data-planes in use by live specs.
-    let mut data_plane_ids = Vec::new();
-
     // AuthZ errors will be pushed to the live catalog
     let mut live = tables::LiveCatalog::default();
     for spec_row in rows {
@@ -788,11 +647,12 @@ pub async fn resolve_live_specs(
             let (catalog_type, reads_from, writes_to) = spec_meta(draft, catalog_name);
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
-            // If the spec is included in the draft, then the user must have admin capability to it.
+            // If the spec is included in the draft, then the user must have `SpecEdit` to it.
             if verify_user_authz
-                && !matches!(
-                    snapshot.user_capability(user_id, catalog_name),
-                    Some(Capability::Admin)
+                && !snapshot.is_user_authorized(
+                    subject,
+                    catalog_name,
+                    models::authz::Capability::SpecEdit,
                 )
             {
                 snapshot.request_refresh();
@@ -854,14 +714,16 @@ pub async fn resolve_live_specs(
         // access capability to them as long as they are not drafted.
         } else if !ops_collection_names.contains(&spec_row.catalog_name) {
             // This is a live spec that is not included in the draft.
-            // The user needs read capability to it because it was referenced by one of the specs
-            // in their draft. Note that the _user_ does not need `Capability::Write` as long as
+            // The user needs `CatalogRead` to it because it was referenced by one of the specs
+            // in their draft. Note that the _user_ does not need write access as long as
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
             if verify_user_authz
-                && !snapshot
-                    .user_capability(user_id, &spec_row.catalog_name)
-                    .is_some_and(|c| c >= Capability::Read)
+                && !snapshot.is_user_authorized(
+                    subject,
+                    &spec_row.catalog_name,
+                    models::authz::Capability::CatalogRead,
+                )
             {
                 snapshot.request_refresh();
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
@@ -899,8 +761,6 @@ pub async fn resolve_live_specs(
             )
             .with_context(|| format!("adding live spec for {:?}", spec_row.catalog_name))?;
         }
-
-        data_plane_ids.push(spec_row.data_plane_id);
     }
 
     // Note that we don't need storage mappings for live specs, only the drafted ones.
@@ -912,89 +772,56 @@ pub async fn resolve_live_specs(
     tenant_names.dedup();
 
     let storage_rows = db::resolve_storage_mappings(tenant_names, db).await?;
-    for row in storage_rows {
-        let store: models::StorageDef = match serde_json::from_value(row.spec) {
-            Ok(s) => s,
-            Err(err) => {
-                live.errors.push(tables::Error {
-                    scope: tables::synthetic_scope("storageMapping", &row.catalog_prefix),
-                    error: anyhow::Error::from(err).context("deserializing storage mapping spec"),
-                });
-                continue;
-            }
-        };
-        live.storage_mappings.insert(tables::StorageMapping {
-            control_id: row.id.into(),
-            catalog_prefix: models::Prefix::new(row.catalog_prefix),
-            stores: store.stores,
-            data_planes: store.data_planes,
-        });
-    }
-
-    // Fetch data planes that are referenced by live specs (`data_plane_ids`),
-    // or by storage mappings (`data_plane_names`), or by `explicit_plane_name`.
-    let data_plane_names: Vec<&str> = live
-        .storage_mappings
-        .iter()
-        .flat_map(|m| m.data_planes.iter().map(String::as_str))
-        .chain(explicit_plane_name.into_iter())
-        .sorted()
-        .dedup()
-        .collect();
-
-    data_plane_ids.sort();
-    data_plane_ids.dedup();
-
-    // Data-plane name read authorization is evaluated in-process against the
-    // pinned Snapshot, as discovers do. A denied name is excluded exactly as
-    // a missing one, so that authorization does not leak the existence of
-    // unauthorized planes. The filter is deliberately unconditional,
-    // independent of `verify_user_authz`: the system user's controller
-    // publications pass through it identically.
-    // Planes referenced by id require no check: they come from
-    // live-spec rows which resolution above already admitted — user-authorized,
-    // or deliberately exempt (injected ops collections, and publications with
-    // `verify_user_authz: false`).
-    let (authorized_names, denied_names): (Vec<&str>, Vec<&str>) = data_plane_names
-        .into_iter()
-        .partition(|name| snapshot.is_user_authorized(user_id, name, Capability::Read));
-    if !denied_names.is_empty() {
-        snapshot.request_refresh();
-        tracing::warn!(?denied_names, "excluding unauthorized data-plane names");
-    }
-
-    live.data_planes = sqlx::query_as!(
-        tables::DataPlane,
-        r#"
-        SELECT
-            d.id AS "control_id: Id",
-            d.data_plane_name,
-            d.closed,
-            d.hmac_keys,
-            d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
-            d.data_plane_fqdn,
-            d.broker_address,
-            d.reactor_address,
-            d.dekaf_address,
-            d.dekaf_registry_address,
-            d.ops_logs_name AS "ops_logs_name: models::Collection",
-            d.ops_stats_name AS "ops_stats_name: models::Collection"
-        FROM data_planes d
-        WHERE
-            d.id IN (SELECT id FROM UNNEST($1::flowid[]) AS t(id)) OR
-            d.data_plane_name IN (SELECT name FROM UNNEST($2::text[]) AS t(name))
-        "#,
-        &data_plane_ids as &[Id],
-        &authorized_names as &[&str],
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .collect();
+    let (storage_mappings, mapping_planes) = join_storage_mappings(storage_rows)?;
+    live.storage_mappings = storage_mappings;
 
     resolve_inferred_schemas(draft, &mut live, db).await?;
 
-    Ok(live)
+    Ok(ResolvedLiveCatalog {
+        live,
+        mapping_planes,
+    })
+}
+
+/// Build `tables::StorageMappings` from fetched `storage_mappings` rows, where
+/// each row pairs the partition and recovery stores of a prefix. Also returns
+/// the ordered data-plane names of each mapping, which are used for placement.
+///
+/// A spec which doesn't deserialize, or a mapping without its `recovery/` twin,
+/// is an internal error: both are control-plane invariants which users can't
+/// provoke.
+fn join_storage_mappings(
+    rows: Vec<db::StorageRow>,
+) -> anyhow::Result<(
+    tables::StorageMappings,
+    BTreeMap<models::Prefix, Vec<String>>,
+)> {
+    let mut mappings = tables::StorageMappings::default();
+    let mut mapping_planes = BTreeMap::new();
+
+    for db::StorageRow {
+        id,
+        catalog_prefix,
+        spec,
+        recovery_spec,
+    } in rows
+    {
+        let spec: models::StorageDef = serde_json::from_value(spec)
+            .with_context(|| format!("deserializing storage mapping {catalog_prefix}"))?;
+        let recovery_spec = recovery_spec.ok_or_else(|| {
+            anyhow::anyhow!(
+                "storage mapping {catalog_prefix} has no paired recovery/{catalog_prefix} mapping"
+            )
+        })?;
+        let recovery: models::StorageDef = serde_json::from_value(recovery_spec)
+            .with_context(|| format!("deserializing storage mapping recovery/{catalog_prefix}"))?;
+        let prefix = models::Prefix::new(catalog_prefix);
+
+        mappings.insert_row(&prefix, id, spec.stores, recovery.stores);
+        mapping_planes.insert(prefix, spec.data_planes);
+    }
+
+    Ok((mappings, mapping_planes))
 }
 
 /// Returns an option because `catalog_name` is from a drafted spec, and we've yet to
@@ -1173,5 +1000,75 @@ mod test {
                 panic!("expected success for example: {example}, but got error: {error:?}");
             }
         }
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn test_resolve_and_join_storage_mappings(pool: sqlx::PgPool) {
+        sqlx::query(
+            r#"
+            insert into storage_mappings (id, catalog_prefix, spec) values
+              ('00:00:00:00:00:00:00:01', 'aliceCo/', '{"stores":[{"provider":"S3","bucket":"alice"}]}'),
+              ('00:00:00:00:00:00:00:02', 'recovery/aliceCo/', '{"stores":[{"provider":"S3","bucket":"alice"}]}'),
+              ('00:00:00:00:00:00:00:03', 'bobCo/', '{"stores":[{"provider":"S3","bucket":"bob","prefix":"collection-data/"}],"data_planes":["ops/dp/public/one"]}'),
+              ('00:00:00:00:00:00:00:04', 'recovery/bobCo/', '{"stores":[{"provider":"S3","bucket":"bob"}]}'),
+              ('00:00:00:00:00:00:00:05', 'daveCo/', '{"stores":[{"provider":"S3","bucket":"dave"}]}'),
+              ('00:00:00:00:00:00:00:06', 'recovery/orphanCo/', '{"stores":[{"provider":"S3","bucket":"orphan"}]}'),
+              ('00:00:00:00:00:00:00:07', 'carolCo/', '{"stores":[{"provider":"S3","bucket":"carol"}]}'),
+              ('00:00:00:00:00:00:00:08', 'recovery/carolCo/', '{"stores":42}');
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // A drafted `recovery/...` name yields a `recovery/` tenant, which must
+        // not select the recovery mappings of other tenants.
+        let rows = db::resolve_storage_mappings(vec!["bobCo/", "recovery/"], &pool)
+            .await
+            .unwrap();
+        insta::assert_debug_snapshot!(join_storage_mappings(rows).unwrap(), @r#"
+        (
+            [
+                StorageMapping {
+                    catalog_prefix: bobCo/,
+                    control_id: "0000000000000003",
+                    stores: [
+                      {
+                        "provider": "S3",
+                        "bucket": "bob",
+                        "prefix": "collection-data/",
+                        "region": null
+                      }
+                    ],
+                    recovery_stores: [
+                      {
+                        "provider": "S3",
+                        "bucket": "bob",
+                        "prefix": null,
+                        "region": null
+                      }
+                    ],
+                },
+            ],
+            {
+                Prefix(
+                    "bobCo/",
+                ): [
+                    "ops/dp/public/one",
+                ],
+            },
+        )
+        "#);
+
+        let rows = db::resolve_storage_mappings(vec!["carolCo/"], &pool)
+            .await
+            .unwrap();
+        insta::assert_snapshot!(format!("{:#}", join_storage_mappings(rows).unwrap_err()), @"deserializing storage mapping recovery/carolCo/: invalid type: integer `42`, expected a sequence");
+
+        // A mapping without its `recovery/` twin is an error.
+        let rows = db::resolve_storage_mappings(vec!["daveCo/"], &pool)
+            .await
+            .unwrap();
+        insta::assert_snapshot!(format!("{:#}", join_storage_mappings(rows).unwrap_err()), @"storage mapping daveCo/ has no paired recovery/daveCo/ mapping");
     }
 }

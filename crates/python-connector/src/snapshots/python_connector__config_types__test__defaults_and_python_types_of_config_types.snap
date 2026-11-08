@@ -1,0 +1,26 @@
+---
+source: crates/python-connector/src/config_types.rs
+expression: "render(Some(serde_json::json!({\n    \"type\": \"object\", \"properties\":\n    {\n        \"greeting\":\n        {\"type\": \"string\", \"default\": \"Hello\", \"description\":\n            \"Greeting of each document\"}, \"count\":\n        {\"type\": \"integer\", \"default\": 10, \"minimum\": 0}, \"interval\":\n        {\"type\": \"string\", \"format\": \"duration\", \"default\": \"PT1H\",\n            \"x-python-type\": \"datetime.timedelta\"}, \"start_date\":\n        {\"type\": \"string\", \"format\": \"date-time\", \"x-python-type\":\n            \"datetime.datetime\"}, \"end_date\":\n        {\"type\": \"string\", \"format\": \"date-time\"}, \"tags\":\n        {\"type\": \"array\", \"items\": {\"type\": \"string\"}, \"default\": [\"a\", \"b\"]},\n        \"bad_default\": {\"type\": \"integer\", \"default\": \"not an integer\"},\n        \"credentials\":\n        {\n            \"type\": \"object\", \"properties\":\n            {\n                \"client_id\": {\"type\": \"string\"}, \"client_secret\":\n                {\"type\": \"string\", \"secret\": true},\n            }, \"required\": [\"client_id\", \"client_secret\"],\n        },\n    }, \"required\": [\"credentials\"],\n})))"
+---
+# Generated for the endpoint configuration of `spec.configSchema`.
+import datetime as _datetime
+
+
+class EndpointConfig(_pydantic.BaseModel):
+    class Credentials(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        client_id: str
+        client_secret: str
+
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    bad_default: _typing.Optional[int] = None
+    count: int = 10
+    credentials: "Credentials"
+    end_date: _typing.Optional[str] = None
+    greeting: str = "Hello"
+    """Greeting of each document"""
+    interval: _datetime.timedelta = _pydantic.Field(default="PT1H", validate_default=True)
+    start_date: _typing.Optional[_datetime.datetime] = None
+    tags: list[str] = _pydantic.Field(default=["a", "b"], validate_default=True)

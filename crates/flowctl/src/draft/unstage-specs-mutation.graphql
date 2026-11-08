@@ -1,0 +1,3 @@
+mutation UnstageDraftSpecsMutation($draftId: Id!, $catalogNames: [Name!]!) {
+    unstageDraftSpecs(draftId: $draftId, catalogNames: $catalogNames)
+}

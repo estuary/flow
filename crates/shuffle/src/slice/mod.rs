@@ -1,12 +1,14 @@
 use proto_gazette::{broker, uuid};
 
 mod actor;
+mod blocking;
 mod handler;
 mod heap;
 mod listing;
 mod producer;
 pub mod read;
 mod replay;
+mod rounds;
 pub mod routing;
 mod state;
 
@@ -44,7 +46,7 @@ pub type CausalHints =
 pub(crate) struct Metrics {
     /// Total bytes read from journals, accumulated from each progress flush.
     bytes_read: metrics::Counter,
-    /// Total flush cycles started (broadcast Flush to Log shards).
+    /// Total flush cycles started.
     flushes: metrics::Counter,
     /// Total journal reads started over the session lifetime.
     reads_started: metrics::Counter,
@@ -52,25 +54,26 @@ pub(crate) struct Metrics {
     reads_stopped: metrics::Counter,
     /// Number of active reads currently tailing their journal write head.
     tailing_reads: metrics::Gauge,
-    /// Number of reads currently pending AND non-tailing: parked awaiting broker
-    /// I/O while behind their write head, head-of-line-blocking the heap drain.
+    /// Number of reads currently pending AND non-tailing: awaiting broker I/O
+    /// while behind their write head, head-of-line-blocking the heap drain
+    /// (and through the position of its Barriers, the merge of every Log).
     stalled_reads: metrics::Gauge,
     /// Replays triggered (a gapped producer's first newer CONTINUE or ACK).
     /// `replays_started - replays_stopped` is the in-flight count.
     replays_started: metrics::Counter,
     /// Replays that have either completed or failed.
     replays_stopped: metrics::Counter,
-    /// Unix time (seconds) of the last document dequeued from the ready-read
+    /// Unix time (seconds) of the last document consumed from the ready-read
     /// heap, indexed by cohort: how far this shard's shuffled read has
-    /// progressed in source published-at time. `time() - gauge` in PromQL is
-    /// the shard's read lag, and max - min across sibling shards' series is
-    /// their skew. Clocks are only comparable within a cohort (bindings of
-    /// differing priority or read delay legitimately diverge), hence the label.
+    /// progressed in source published-at time. Clocks are only comparable
+    /// within a cohort, hence the label.
     last_source_published_at: Vec<metrics::Gauge>,
+    /// Total rounds sent to Log shards.
+    rounds: metrics::Counter,
 }
 
 impl Metrics {
-    fn new(shard_id: &str, num_cohorts: usize) -> Self {
+    fn new(shard_id: &str, priority: i32, num_cohorts: usize) -> Self {
         static DESCRIBE: std::sync::Once = std::sync::Once::new();
         DESCRIBE.call_once(|| {
             metrics::describe_counter!(
@@ -116,28 +119,35 @@ impl Metrics {
             metrics::describe_gauge!(
                 "shuffle_slice_last_source_published_at_time_seconds",
                 metrics::Unit::Seconds,
-                "unix time of the last document dequeued from the ready-read heap, by cohort",
+                "unix time of the last document consumed from the ready-read heap, by cohort",
+            );
+            metrics::describe_counter!(
+                "shuffle_slice_rounds",
+                metrics::Unit::Count,
+                "rounds sent to Log shards",
             );
         });
 
         Self {
-            bytes_read: metrics::counter!("shuffle_slice_bytes_read", "shard_id" => shard_id.to_string()),
-            flushes: metrics::counter!("shuffle_slice_flushes", "shard_id" => shard_id.to_string()),
-            reads_started: metrics::counter!("shuffle_slice_reads_started", "shard_id" => shard_id.to_string()),
-            reads_stopped: metrics::counter!("shuffle_slice_reads_stopped", "shard_id" => shard_id.to_string()),
-            tailing_reads: metrics::gauge!("shuffle_slice_tailing_reads", "shard_id" => shard_id.to_string()),
-            stalled_reads: metrics::gauge!("shuffle_slice_stalled_reads", "shard_id" => shard_id.to_string()),
-            replays_started: metrics::counter!("shuffle_slice_replays_started", "shard_id" => shard_id.to_string()),
-            replays_stopped: metrics::counter!("shuffle_slice_replays_stopped", "shard_id" => shard_id.to_string()),
+            bytes_read: metrics::counter!("shuffle_slice_bytes_read", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            flushes: metrics::counter!("shuffle_slice_flushes", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            reads_started: metrics::counter!("shuffle_slice_reads_started", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            reads_stopped: metrics::counter!("shuffle_slice_reads_stopped", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            tailing_reads: metrics::gauge!("shuffle_slice_tailing_reads", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            stalled_reads: metrics::gauge!("shuffle_slice_stalled_reads", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            replays_started: metrics::counter!("shuffle_slice_replays_started", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
+            replays_stopped: metrics::counter!("shuffle_slice_replays_stopped", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
             last_source_published_at: (0..num_cohorts)
                 .map(|cohort| {
                     metrics::gauge!(
                         "shuffle_slice_last_source_published_at_time_seconds",
                         "shard_id" => shard_id.to_string(),
+                        "priority" => priority.to_string(),
                         "cohort" => cohort.to_string(),
                     )
                 })
                 .collect(),
+            rounds: metrics::counter!("shuffle_slice_rounds", "shard_id" => shard_id.to_string(), "priority" => priority.to_string()),
         }
     }
 }

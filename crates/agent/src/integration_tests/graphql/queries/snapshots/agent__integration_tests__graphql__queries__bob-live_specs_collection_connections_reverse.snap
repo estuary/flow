@@ -20,7 +20,7 @@ expression: bob_result
                 }
               ],
               "pageInfo": {
-                "hasNextPage": false,
+                "hasNextPage": true,
                 "hasPreviousPage": false
               }
             },

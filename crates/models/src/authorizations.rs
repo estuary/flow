@@ -1,6 +1,8 @@
 use std::cmp::max;
 use validator::Validate;
 
+use crate::authz;
+
 /// ControlClaims are claims encoded within control-plane access tokens.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ControlClaims {
@@ -20,9 +22,60 @@ pub struct ControlClaims {
     // Authorized user email, if known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    // Capability bundles limiting which granted capabilities the token may use.
+    // Omitted or null means no mask; an empty list means identity only.
+    // Bundles are unioned, and unknown names are ignored so that tokens minted
+    // by a newer service still verify. Only capability bits are masked; a
+    // grant's legacy `capability` value is not attenuated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_mask: Option<Vec<String>>,
+    /// Limits the user's reachable authority to the union of these prefixes.
+    /// Omitted or null is unrestricted; an empty list denies all access.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix_mask: Option<Vec<String>>,
 }
 
 impl ControlClaims {
+    /// Empty masks still restrict access; only absent masks are unrestricted.
+    pub fn is_restricted(&self) -> bool {
+        self.capability_mask.is_some() || self.prefix_mask.is_some()
+    }
+
+    /// Converts these claims into the authorization subject used by grant evaluation.
+    pub fn subject(&self) -> crate::authz::Subject {
+        use serde::{Deserialize, de::value};
+        crate::authz::Subject {
+            user_id: self.sub,
+            prefix_mask: self.prefix_mask.as_ref().map(|prefixes| {
+                let mut prefixes: Vec<String> = prefixes
+                    .iter()
+                    .map(|prefix| {
+                        let mut prefix = prefix.clone();
+                        if !prefix.ends_with('/') {
+                            prefix.push('/');
+                        }
+                        prefix
+                    })
+                    .collect();
+                // Remove duplicates and child prefixes if their ancestor is in the list
+                prefixes.sort_unstable();
+                prefixes.dedup_by(|prefix, previous| prefix.starts_with(previous.as_str()));
+                prefixes
+            }),
+            capability_mask: self.capability_mask.as_ref().map(|mask| {
+                mask.iter()
+                    .filter_map(|name| {
+                        authz::CapabilityBundle::deserialize(
+                            value::StrDeserializer::<value::Error>::new(name),
+                        )
+                        .ok()
+                    })
+                    .map(|bundle| bundle.capabilities())
+                    .fold(authz::CapabilitySet::empty(), |set, bits| set | bits)
+            }),
+        }
+    }
+
     pub fn time_remaining(&self) -> time::Duration {
         let now = time::OffsetDateTime::now_utc();
         let exp = time::OffsetDateTime::from_unix_timestamp(self.exp as i64).unwrap();
@@ -237,7 +290,7 @@ pub struct UserDecryptAuthorizationRequest {
 pub struct DecryptAuthorization {
     /// # The sops-wrapped document of the secret.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub document: Option<crate::RawValue>,
+    pub document: Option<serde_json::Value>,
     /// # Lifecycle identity of the disclosed document.
     /// Every change to a secret mints a new `secretId`, and ids are
     /// time-ordered, so comparing two observations tells you which is newer.
@@ -255,8 +308,12 @@ pub struct DecryptAuthorization {
 #[serde(rename_all = "camelCase")]
 pub struct SecretDecryption {
     /// # Decrypted value of the secret.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub value: Option<crate::RawValue>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_secret_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub value: Option<serde_json::Value>,
     /// # Lifecycle identity of the decrypted document.
     /// Every change to a secret mints a new `secretId`, and ids are
     /// time-ordered, so comparing two observations tells you which is newer.
@@ -266,6 +323,15 @@ pub struct SecretDecryption {
     /// Non-zero if and only if `value` is not set. It is passed through from
     /// the control-plane, which alone decides when a denial becomes terminal.
     pub retry_millis: u64,
+}
+
+fn deserialize_secret_value<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // Only an absent field means no value (via serde's default). A present
+    // JSON null is a valid secret and must survive the transport as Some(Null).
+    <serde_json::Value as serde::Deserialize>::deserialize(deserializer).map(Some)
 }
 
 impl std::fmt::Debug for SecretDecryption {
@@ -311,6 +377,291 @@ pub struct DekafAuthResponse {
     pub redirect_dekaf_registry_address: Option<String>,
 }
 
+/// TaskSetSecretRequest asks the control-plane to store a wrapped secret
+/// document on behalf of the task named by `token`, which is how a connector
+/// rotates a credential it manages.
+#[derive(
+    Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema, validator::Validate,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSetSecretRequest {
+    /// # Catalog name of the secret to set (a sibling of the task).
+    #[validate(nested)]
+    pub name: crate::Name,
+    /// # The sops-wrapped document to store.
+    pub document: serde_json::Value,
+    /// # JWT token signed by the requesting data-plane.
+    /// It carries TASK_UPDATE and names the task in its selector.
+    pub token: String,
+}
+
+/// TaskSetSecret is the outcome of [`TaskSetSecretRequest`].
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSetSecret {
+    /// # Lifecycle identity of the secret's post-set document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_id: Option<crate::Id>,
+    /// # Whether the document changed.
+    /// False when the provided document was structurally identical to the
+    /// stored one, in which case `secretId` is the id the secret already had.
+    pub changed: bool,
+    /// # Number of milliseconds to wait before retrying the request.
+    /// Non-zero if and only if `secretId` is not set.
+    pub retry_millis: u64,
+}
+
+/// TaskUpdateConfigRequest asks the control-plane to record a new endpoint
+/// configuration and `secrets` stanza for the task named by `token`.
+#[derive(
+    Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema, validator::Validate,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskUpdateConfigRequest {
+    /// # Complete plaintext endpoint configuration.
+    pub config: crate::RawValue,
+    /// # Complete `secrets` stanza: secret catalog names to JSON pointers.
+    pub secrets: std::collections::BTreeMap<crate::Secret, crate::JsonPointer>,
+    /// # Message presented to users, which may use Markdown formatting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// # JWT token signed by the requesting data-plane.
+    /// It carries TASK_UPDATE, names the task in its selector, and
+    /// must name the build the task is currently running.
+    pub token: String,
+}
+
+/// TaskUpdateConfig is the outcome of [`TaskUpdateConfigRequest`]: the update
+/// was recorded, and the task's controller has been woken to publish it.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskUpdateConfig {
+    /// # Number of milliseconds to wait before retrying the request.
+    /// Non-zero if and only if the update was not recorded.
+    pub retry_millis: u64,
+}
+
 const fn capability_read() -> crate::Capability {
     crate::Capability::Read
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::authz::{Capability, CapabilityBundle, CapabilitySet, Subject};
+
+    #[test]
+    fn restricted_token_masks() {
+        let mut results = Vec::new();
+        for capability_mask in [None, Some(vec![]), Some(vec!["viewer"])] {
+            for prefix_mask in [None, Some(vec![]), Some(vec!["acmeCo/"])] {
+                let claims: ControlClaims = serde_json::from_value(serde_json::json!({
+                    "aud": "authenticated", "iat": 0, "exp": 0,
+                    "sub": uuid::Uuid::nil(), "role": "authenticated",
+                    "capability_mask": capability_mask, "prefix_mask": prefix_mask,
+                }))
+                .unwrap();
+                results.push(claims.is_restricted());
+            }
+        }
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+        ]
+        "#);
+    }
+
+    #[test]
+    fn prefix_mask_from_token_payload() {
+        let mut payload = serde_json::json!({
+            "aud": "authenticated", "iat": 1700000000, "exp": 1700003600,
+            "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a", "role": "authenticated",
+        });
+        assert!(
+            serde_json::from_value::<ControlClaims>(payload.clone())
+                .unwrap()
+                .subject()
+                .prefix_mask
+                .is_none()
+        );
+        let mut results = Vec::new();
+        for prefix_mask in [
+            serde_json::Value::Null,
+            serde_json::json!([]),
+            serde_json::json!([""]),
+            serde_json::json!(["acmeCo/team", "otherCo/", "acmeCo/team/"]),
+            serde_json::json!(["acmeCo/team/", "acmeCo/", "acmeCo/team/"]),
+            serde_json::json!([
+                "acmeCo/teammate/",
+                "acmeCo/team/nested/",
+                "acmeCo/team",
+                "acmeCo/team/"
+            ]),
+        ] {
+            payload["prefix_mask"] = prefix_mask;
+            let claims: ControlClaims = serde_json::from_value(payload.clone()).unwrap();
+            results.push(claims.subject().prefix_mask.clone());
+            let round_trip: ControlClaims =
+                serde_json::from_value(serde_json::to_value(&claims).unwrap()).unwrap();
+            assert_eq!(round_trip.subject(), claims.subject());
+        }
+        insta::assert_json_snapshot!(results, @r#"
+        [
+          null,
+          [],
+          [
+            "/"
+          ],
+          [
+            "acmeCo/team/",
+            "otherCo/"
+          ],
+          [
+            "acmeCo/"
+          ],
+          [
+            "acmeCo/team/",
+            "acmeCo/teammate/"
+          ]
+        ]
+        "#);
+        for malformed in [
+            serde_json::json!("acmeCo/"),
+            serde_json::json!(42),
+            serde_json::json!([null]),
+            serde_json::json!([42]),
+        ] {
+            payload["prefix_mask"] = malformed;
+            assert!(serde_json::from_value::<ControlClaims>(payload.clone()).is_err());
+        }
+    }
+
+    #[test]
+    fn subject_from_deserialized_token_payload() {
+        let user_id = uuid::Uuid::parse_str("d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a").unwrap();
+        let viewer = CapabilityBundle::Viewer.capabilities();
+
+        let cases: &[(&str, Option<CapabilitySet>)] = &[
+            // No claim at all: unmasked.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "email": "user@example.com"
+                }"#,
+                None,
+            ),
+            // Explicit null is equivalent to omission.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": null
+                }"#,
+                None,
+            ),
+            // Empty list: masked to nothing.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": []
+                }"#,
+                Some(CapabilitySet::empty()),
+            ),
+            // Known bundles are unioned; unknown names from a newer minter
+            // are ignored rather than failing deserialization.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": ["viewer", "delegate", "future_bundle"]
+                }"#,
+                Some(viewer | Capability::Delegate),
+            ),
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": ["create_sandbox"]
+                }"#,
+                Some(Capability::CreateSandbox.into()),
+            ),
+            // Unrelated claims that we don't model are tolerated.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "session_id": "6c0e1f2a-3b4c-4d5e-8f60-718293a4b5c6",
+                    "app_metadata": {"provider": "google"},
+                    "capability_mask": ["team_admin"]
+                }"#,
+                Some(CapabilityBundle::TeamAdmin.capabilities()),
+            ),
+            // Verifying deduplication
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "session_id": "6c0e1f2a-3b4c-4d5e-8f60-718293a4b5c6",
+                    "app_metadata": {"provider": "google"},
+                    "capability_mask": ["team_admin", "team_admin"]
+                }"#,
+                Some(CapabilityBundle::TeamAdmin.capabilities()),
+            ),
+        ];
+
+        for (payload, expected_mask) in cases {
+            let claims: ControlClaims = serde_json::from_str(payload).unwrap();
+            assert_eq!(
+                claims.subject(),
+                Subject {
+                    user_id,
+                    capability_mask: *expected_mask,
+                    prefix_mask: None,
+                },
+                "{payload}"
+            );
+        }
+
+        // A mask that isn't a list of strings is a malformed token.
+        let malformed = r#"{
+            "aud": "authenticated",
+            "iat": 1700000000,
+            "exp": 1700003600,
+            "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+            "role": "authenticated",
+            "capability_mask": "viewer"
+        }"#;
+        assert!(serde_json::from_str::<ControlClaims>(malformed).is_err());
+    }
 }

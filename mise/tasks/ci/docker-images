@@ -25,6 +25,10 @@ IFS=',' read -ra TAGS <<< "$(cat "${TAGS_FILE}")"
 if [[ "${PUSH}" == "true" ]]; then
     PLATFORMS='["linux/amd64", "linux/arm64"]'
     OUTPUT='["type=registry"]'
+    # BuildKit scans each built image and pushes the SBOM beside it. The
+    # provenance matches buildx's default. Listing it explicitly keeps it
+    # when BUILDX_NO_DEFAULT_ATTESTATIONS is set.
+    ATTEST='["type=provenance,mode=min", "type=sbom"]'
 else
     # For local builds, detect current architecture
     ARCH=$(uname -m)
@@ -37,6 +41,9 @@ else
         exit 1
     fi
     OUTPUT='["type=docker"]'
+    # No SBOM: with any attestation requested, buildx refuses to load the
+    # image into a daemon using the classic image store.
+    ATTEST='[]'
 fi
 
 # Ensure buildx builder exists and supports multi-arch
@@ -63,10 +70,10 @@ for DOCKERFILE in docker/*.Dockerfile; do
     # Per-image tags begin with the version tags from ${TAGS_FILE}.
     IMAGE_TAG_NAMES=("${TAGS[@]}")
 
-    # The V2 derivation runtime maps built-in TypeScript/Python derivations
-    # to the `:stable` image, while the legacy V1 runtime keeps using a frozen `:dev`
-    # image (no longer rebuilt here). Publish `:stable` for these two connectors.
-    if [[ "${IMAGE_NAME}" == "derive-python" || "${IMAGE_NAME}" == "derive-typescript" ]]; then
+    # Custom connectors resolve to the `:stable` image, while legacy
+    # V1 derivations keep using a frozen `:dev` image (no longer rebuilt here).
+    # Publish `:stable` for these.
+    if [[ "${IMAGE_NAME}" == "capture-python" || "${IMAGE_NAME}" == "derive-python" || "${IMAGE_NAME}" == "derive-typescript" || "${IMAGE_NAME}" == "materialize-python" ]]; then
         IMAGE_TAG_NAMES+=("stable")
     fi
 
@@ -84,12 +91,14 @@ for DOCKERFILE in docker/*.Dockerfile; do
         --argjson tags "${IMAGE_TAGS}" \
         --argjson platforms "${PLATFORMS}" \
         --argjson output "${OUTPUT}" \
+        --argjson attest "${ATTEST}" \
         '.[$name] = {
             "dockerfile": $dockerfile,
             "context": $context,
             "tags": $tags,
             "platforms": $platforms,
-            "output": $output
+            "output": $output,
+            "attest": $attest
         }')
 done
 

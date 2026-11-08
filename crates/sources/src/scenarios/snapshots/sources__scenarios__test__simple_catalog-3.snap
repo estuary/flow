@@ -8,6 +8,7 @@ DraftCatalog {
             collection: a/collection,
             scope: test://example/catalog.yaml#/collections/a~1collection,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": "collection.schema.yaml",
               "key": [

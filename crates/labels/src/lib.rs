@@ -8,6 +8,7 @@ use proto_gazette::broker::{Label, LabelSelector, LabelSet};
 pub const BUILD: &str = "estuary.dev/build";
 pub const COLLECTION: &str = "estuary.dev/collection";
 pub const CORDON: &str = "estuary.dev/cordon";
+pub const DISK_REPLAY_FROM: &str = "estuary.dev/disk-replay-from";
 pub const FIELD_PREFIX: &str = "estuary.dev/field/";
 pub const FLAG_PREFIX: &str = "estuary.dev/flag/";
 // Flag which enables the V2 task runtime.
@@ -45,8 +46,12 @@ pub const PORT_PUBLIC_PREFIX: &str = "estuary.dev/port-public/";
 // Authorization labels. These appear only in the label selector of an
 // authorization request or response, and never on a JournalSpec or ShardSpec.
 pub const SECRET_NAME: &str = "estuary.dev/secret-name";
+// Attests the image repository (tag and digest stripped) of the connector on
+// whose behalf a secret is being decrypted. Absent for local and in-process
+// connectors, which have no image and may use sibling secrets only.
+pub const IMAGE_REPO: &str = "estuary.dev/image-repo";
 
-// A used subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.
+// A used subset of Gazette labels, defined in github.com/estuary/flow/go/gazette/labels/labels.go.
 pub const CONTENT_TYPE: &str = "content-type";
 pub const CONTENT_TYPE_JSON_LINES: &str = "application/x-ndjson";
 pub const CONTENT_TYPE_RECOVERY_LOG: &str = "application/x-gazette-recoverylog";
@@ -193,11 +198,11 @@ pub fn is_data_plane_label(label: &str) -> bool {
     }
     match label {
         // Labels the data-plane runtime applies to live journals/shards — key,
-        // r-clock, and shard splits, cordoning, and the backfill truncation
-        // boundary — which activation and partition splits must preserve rather
-        // than rebuild away.
-        CORDON | KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END | SPLIT_SOURCE | SPLIT_TARGET
-        | TRUNCATED_AT => true,
+        // r-clock, and shard splits, cordoning, the backfill truncation boundary,
+        // and a disk journal's recovery floor — which activation and partition
+        // splits must preserve rather than rebuild away.
+        CORDON | DISK_REPLAY_FROM | KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END
+        | SPLIT_SOURCE | SPLIT_TARGET | TRUNCATED_AT => true,
         _ => false,
     }
 }
@@ -267,7 +272,7 @@ pub fn maybe_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
 }
 
 /// Returns whether `set` is matched by `selector`, faithfully porting gazette's
-/// `LabelSelector.Matches` (`go.gazette.dev/core/broker/protocol`):
+/// `LabelSelector.Matches` (`github.com/estuary/flow/go/gazette/broker/protocol`):
 /// an excluded label matching any of `set` is a non-match; otherwise every
 /// included label must match. A name present in `set` but not the selector is
 /// ignored, and a selector value matches when it is empty (wildcard), exactly

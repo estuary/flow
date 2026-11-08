@@ -30,6 +30,32 @@ pub fn walk_name(
     }
 }
 
+/// Check that a user-provided `ptr` is a well-formed JSON pointer: empty, or
+/// `/`-prefixed tokens matching the `models::JsonPointer` pattern.
+pub fn walk_ptr(ptr: &str) -> Result<(), Error> {
+    // Checked ahead of the pattern, because an unmatched prefix is more
+    // usefully reported as the missing slash it is.
+    if !ptr.is_empty() && !ptr.starts_with('/') {
+        return Err(Error::PtrMissingLeadingSlash {
+            ptr: ptr.to_string(),
+        });
+    }
+
+    let (start, stop) = models::JsonPointer::regex()
+        .find(ptr)
+        .map(|m| (m.start(), m.end()))
+        .unwrap_or((0, 0));
+    let unmatched = [&ptr[..start], &ptr[stop..]].concat();
+
+    if !unmatched.is_empty() {
+        return Err(Error::PtrRegexUnmatched {
+            ptr: ptr.to_string(),
+            unmatched,
+        });
+    }
+    Ok(())
+}
+
 pub fn walk_duplicates<'a, I>(i: I, errors: &mut tables::Errors)
 where
     I: Iterator<Item = (&'static str, &'a str, Scope<'a>)> + 'a,

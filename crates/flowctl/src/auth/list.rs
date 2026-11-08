@@ -3,7 +3,7 @@ use anyhow::Context;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/auth/list-authorized-prefixes.graphql",
     response_derives = "Serialize,Clone",
     extern_enums("Capability")

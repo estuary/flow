@@ -118,6 +118,11 @@ pub struct JournalFrontier {
     /// Sorted and unique on `producer`.
     #[prost(message, repeated, tag = "6")]
     pub producers: ::prost::alloc::vec::Vec<ProducerFrontier>,
+    /// Gap floor of this journal: a clock below which its causal hints are
+    /// unreachable, raised by a byte gap at read start. Zero if none.
+    /// An entry with a gap floor may have no producers.
+    #[prost(fixed64, tag = "7")]
+    pub gap_floor: u64,
 }
 /// Frontier is a complete frontier (or frontier delta) of journal progress.
 /// Entries are sorted and unique on (journal name, binding).
@@ -138,9 +143,6 @@ pub struct Frontier {
     /// or NextCheckpoint sequence. Empty otherwise.
     #[prost(message, repeated, tag = "4")]
     pub latest_backfill_complete: ::prost::alloc::vec::Vec<frontier::BackfillComplete>,
-    /// Gap floors, sorted and unique on binding.
-    #[prost(message, repeated, tag = "5")]
-    pub binding_gap_floors: ::prost::alloc::vec::Vec<frontier::BindingGapFloor>,
 }
 /// Nested message and enum types in `Frontier`.
 pub mod frontier {
@@ -163,17 +165,6 @@ pub mod frontier {
         #[prost(uint32, tag = "1")]
         pub binding: u32,
         /// Truncation boundary of the completed backfill: the backfill's begin clock.
-        #[prost(fixed64, tag = "2")]
-        pub clock: u64,
-    }
-    /// BindingGapFloor is a binding's gap floor: a clock below which its causal
-    /// hints are unreachable, raised by a byte gap at read start.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct BindingGapFloor {
-        /// Binding index within this task version.
-        #[prost(uint32, tag = "1")]
-        pub binding: u32,
-        /// Gap floor clock of this binding.
         #[prost(fixed64, tag = "2")]
         pub clock: u64,
     }
@@ -272,7 +263,11 @@ pub mod session_response {
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Opened {}
 }
-/// SliceRequest is sent by the Session to each shard's Slice RPC.
+/// SliceRequest is sent by the Session to each Slice RPC.
+///
+/// A Session opens a Slice RPC for each (shard, priority): each distinct
+/// priority of the task's bindings, at each shard. A Slice reads only journals
+/// of bindings having its priority.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SliceRequest {
     #[prost(message, optional, tag = "1")]
@@ -305,6 +300,9 @@ pub mod slice_request {
         /// Index of this shard within the shards list.
         #[prost(uint32, tag = "4")]
         pub shard_index: u32,
+        /// Priority of this Slice: the priority of every binding it reads.
+        #[prost(int32, tag = "5")]
+        pub priority: i32,
     }
     /// Start is sent after all Slices have responded Opened and the Session has
     /// received the resume checkpoint frontier from the Coordinator.
@@ -336,7 +334,7 @@ pub mod slice_request {
     }
     /// Progress asks the Slice to report its frontier of queued progress.
     /// The Session maintains exactly one Progress/Progressed cycle in-flight per Slice.
-    /// The Slice responds once at least one Flush/Flushed cycle has completed
+    /// The Slice responds once at least one flush cycle has completed
     /// since its last Progressed response. If queued progress is already
     /// available, the response is immediate.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
@@ -399,14 +397,24 @@ pub mod slice_response {
     }
 }
 /// LogRequest is sent by Slices to each shard's Log.
+/// The first is an Open. All that follow are a round: zero or more Appends,
+/// closed by a Barrier. Every round goes to every Log.
+///
+/// Slices are flow-controlled by the archived bytes of documents they consume,
+/// whether or not those documents are appended. Each round's Barrier carries the
+/// round's consumed archived bytes as its quota, which is the same at every Log,
+/// and a Log releases a Barrier's quota (LogResponse.Acked) as it merges the
+/// Barrier. A Slice consumes no further than a window of quota which some Log
+/// hasn't released. The Slice (alone) sizes and enforces its window.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LogRequest {
     #[prost(message, optional, tag = "1")]
     pub open: ::core::option::Option<log_request::Open>,
-    #[prost(message, optional, tag = "2")]
-    pub append: ::core::option::Option<log_request::Append>,
+    /// Appends of the round, in the order of the Slice's merge over read journals.
+    #[prost(message, repeated, tag = "2")]
+    pub appends: ::prost::alloc::vec::Vec<log_request::Append>,
     #[prost(message, optional, tag = "3")]
-    pub flush: ::core::option::Option<log_request::Flush>,
+    pub barrier: ::core::option::Option<log_request::Barrier>,
 }
 /// Nested message and enum types in `LogRequest`.
 pub mod log_request {
@@ -428,9 +436,20 @@ pub mod log_request {
         /// Index of the target Log shard within the session's shard list.
         #[prost(uint32, tag = "4")]
         pub log_shard_index: u32,
+        /// Priority of the source Slice.
+        #[prost(int32, tag = "5")]
+        pub priority: i32,
+        /// Priorities of the session: the distinct priorities of the
+        /// task's bindings, in descending order. The Log awaits a Slice of each
+        /// (shard, priority), and every Slice must send the same priorities.
+        #[prost(int32, repeated, tag = "6")]
+        pub priorities: ::prost::alloc::vec::Vec<i32>,
     }
-    /// Append sends a document to be written to the log.
-    /// The Log actor merges across Slice streams, ordering by (priority, clock).
+    /// Append is a document to be merged into the written log.
+    /// The Log actor merges across Slice streams, ordering by
+    /// (priority, adjusted clock), where priority is that of the Slice.
+    /// Journal names are delta-encoded against the Slice's preceding Append to
+    /// this Log, across and within rounds.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Append {
         /// Number of bytes to truncate from the preceding name.
@@ -443,9 +462,6 @@ pub mod log_request {
         /// Binding index for this document.
         #[prost(uint32, tag = "3")]
         pub binding: u32,
-        /// Priority of this binding.
-        #[prost(uint32, tag = "4")]
-        pub priority: u32,
         /// Read delay of the binding, as a uuid::Clock duration.
         /// The Log actor applies adjusted_clock = clock + read_delay for merge ordering.
         /// Zero (the common case) means no delay.
@@ -473,13 +489,45 @@ pub mod log_request {
         #[prost(uint32, tag = "11")]
         pub source_byte_length: u32,
     }
-    /// Flush requests a durability barrier.
+    /// Barrier closes a round, and is queued behind its Appends.
+    ///
+    /// Logs merge Appends and Barriers in (priority DESC, adjusted_clock ASC)
+    /// order, where a Slice's merge position is its priority and its next queued
+    /// Append or Barrier. A Slice with nothing queued gates the merge at the
+    /// position of its last Barrier, and the Log awaits its next round, unless
+    /// that Barrier was caught up. Until its first round, a Slice is presumed not
+    /// caught up at position zero: nothing of its priority or lower may merge
+    /// without first hearing from it. A Slice of lower priority therefore merges
+    /// only once every higher-priority Slice is caught up and drained.
+    ///
+    /// As a Barrier merges, the Log releases its quota and its flush request, if any.
+    /// A Slice's progress is thus reported only once the merge has passed the
+    /// position through which it was consumed, whether or not the Slice appended.
+    ///
+    /// A Slice may send Appends which fall below a prior Barrier, such as when
+    /// a source producer's clock regresses, or a gapped producer replays. Their
+    /// order of merge is best-effort. However, a Barrier never falls below an
+    /// Append the Slice has already sent, which Logs verify (a property required
+    /// for the liveness of their merge).
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Flush {
-        /// Cycle number for correlating Flush with Flushed response.
-        /// Allows pipelining if we later want multiple in-flight flushes.
+    pub struct Barrier {
+        /// If non-zero, requests a log flush of this cycle. The Log responds with a
+        /// Flushed of the cycle once this Barrier has merged, and the Appends of
+        /// this and all prior rounds of the Slice are durable.
         #[prost(uint64, tag = "1")]
-        pub cycle: u64,
+        pub flush_cycle: u64,
+        /// Adjusted clock (clock + read_delay) through which the Slice has consumed:
+        /// the greatest of any document it has dequeued, appended or not.
+        #[prost(fixed64, tag = "2")]
+        pub adjusted_clock: u64,
+        /// Archived bytes of the documents the Slice dequeued in this round.
+        #[prost(uint64, tag = "3")]
+        pub quota: u64,
+        /// Whether the Slice has no document due: all of its reads are tailing, or
+        /// have stopped at the recovery frontier, or its next document awaits its
+        /// read delay. A caught-up Slice with nothing queued doesn't gate the merge.
+        #[prost(bool, tag = "4")]
+        pub caught_up: bool,
     }
 }
 /// LogResponse is sent by the Log actor back to each Slice.
@@ -489,6 +537,8 @@ pub struct LogResponse {
     pub opened: ::core::option::Option<log_response::Opened>,
     #[prost(message, optional, tag = "2")]
     pub flushed: ::core::option::Option<log_response::Flushed>,
+    #[prost(message, optional, tag = "3")]
+    pub acked: ::core::option::Option<log_response::Acked>,
 }
 /// Nested message and enum types in `LogResponse`.
 pub mod log_response {
@@ -501,7 +551,7 @@ pub mod log_response {
     /// report ProgressDelta to the Session.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Flushed {
-        /// Cycle number from the corresponding Flush request.
+        /// Cycle number of the Barrier which requested this flush.
         #[prost(uint64, tag = "1")]
         pub cycle: u64,
         /// Log head position after all preceding appends are durable.
@@ -509,5 +559,13 @@ pub mod log_response {
         /// documents appended before this flush.
         #[prost(uint64, tag = "2")]
         pub flushed_lsn: u64,
+    }
+    /// Acked releases the Slice's window of quota.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Acked {
+        /// Cumulative quota of the Slice's Barriers which the Log has merged since
+        /// the RPC opened. It never decreases.
+        #[prost(uint64, tag = "1")]
+        pub quota: u64,
     }
 }

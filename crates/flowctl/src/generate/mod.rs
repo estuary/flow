@@ -1,8 +1,8 @@
-use crate::local_specs;
+use crate::{local_connector, local_specs};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
-use proto_flow::{capture, derive, flow, materialize};
+use proto_flow::{capture, derive, materialize};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -10,21 +10,26 @@ pub struct Generate {
     /// Path or URL to a Flow specification file to generate development files for.
     #[clap(long)]
     source: String,
+    /// Name of the task to generate files for within the Flow specification file.
+    /// Required if there are multiple tasks in --source specifications.
+    #[clap(long)]
+    task: Option<String>,
 }
 
 impl Generate {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         let source = build::arg_source_to_url(&self.source, false)?;
-        let project_root = build::project_root(&source);
 
         let mut draft = local_specs::load(&source).await;
         sources::inline_draft_catalog(&mut draft);
+        let task = local_specs::select_task(&mut draft, self.task.as_deref())?;
+        let connector_router = ctx.local_connector_router();
 
         // Find config URLs we were unable to load and generate stubs for each.
         let (stubs, errors): (
             Vec<(url::Url, models::RawValue, doc::Shape)>,
             Vec<(url::Url, anyhow::Error)>,
-        ) = generate_missing_configs(&mut draft)
+        ) = generate_missing_configs(&mut draft, &task, &*connector_router)
             .await
             .partition_result();
 
@@ -42,14 +47,14 @@ impl Generate {
             })
             .collect();
 
-        build::write_files(&project_root, files)?;
+        build::write_files(&source, files)?;
 
         let () = local_specs::generate_files(ctx, draft).await?;
         Ok(())
     }
 }
 
-// Generates stubs for all missing connector configuration files,
+// Generates stubs for all missing connector configuration files of `task`,
 // returning tuples of:
 // * The missing config file URL.
 // * It's generated stub document.
@@ -57,6 +62,8 @@ impl Generate {
 // Or, if generation fails, then return the error and its scope.
 async fn generate_missing_configs(
     draft: &tables::DraftCatalog,
+    task: &str,
+    connector_router: &dyn proto_grpc::connector::Router,
 ) -> impl Iterator<Item = Result<(url::Url, models::RawValue, doc::Shape), (url::Url, anyhow::Error)>>
 {
     let tables::DraftCatalog {
@@ -66,33 +73,44 @@ async fn generate_missing_configs(
         ..
     } = draft;
 
-    let captures = captures.iter().map(|capture| {
-        async move {
-            match generate_missing_capture_configs(capture).await {
-                Ok(ok) => Ok(ok),
-                Err(error) => Err((capture.scope.clone(), error)),
+    let captures = captures
+        .iter()
+        .filter(|c| c.capture.as_str() == task)
+        .map(|capture| {
+            async move {
+                match generate_missing_capture_configs(capture, connector_router).await {
+                    Ok(ok) => Ok(ok),
+                    Err(error) => Err((capture.scope.clone(), error)),
+                }
             }
-        }
-        .boxed()
-    });
-    let collections = collections.iter().map(|collection| {
-        async move {
-            match generate_missing_collection_configs(collection).await {
-                Ok(ok) => Ok(ok),
-                Err(error) => Err((collection.scope.clone(), error)),
+            .boxed()
+        });
+    let collections = collections
+        .iter()
+        .filter(|c| c.collection.as_str() == task)
+        .map(|collection| {
+            async move {
+                match generate_missing_collection_configs(collection, connector_router).await {
+                    Ok(ok) => Ok(ok),
+                    Err(error) => Err((collection.scope.clone(), error)),
+                }
             }
-        }
-        .boxed()
-    });
-    let materializations = materializations.iter().map(|materialization| {
-        async move {
-            match generate_missing_materialization_configs(materialization).await {
-                Ok(ok) => Ok(ok),
-                Err(error) => Err((materialization.scope.clone(), error)),
+            .boxed()
+        });
+    let materializations = materializations
+        .iter()
+        .filter(|m| m.materialization.as_str() == task)
+        .map(|materialization| {
+            async move {
+                match generate_missing_materialization_configs(materialization, connector_router)
+                    .await
+                {
+                    Ok(ok) => Ok(ok),
+                    Err(error) => Err((materialization.scope.clone(), error)),
+                }
             }
-        }
-        .boxed()
-    });
+            .boxed()
+        });
 
     let results = captures
         .chain(collections)
@@ -106,44 +124,35 @@ async fn generate_missing_configs(
 
 async fn generate_missing_capture_configs(
     capture: &tables::DraftCapture,
+    connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftCapture {
-        capture,
-        model: Some(models::CaptureDef {
-            endpoint, bindings, ..
-        }),
+        model:
+            Some(models::CaptureDef {
+                endpoint,
+                bindings,
+                shards,
+                ..
+            }),
         ..
     } = capture
     else {
         return Ok(Vec::new());
     };
 
-    let (spec, missing_config_url) = match endpoint {
-        models::CaptureEndpoint::Connector(config) => (
-            capture::request::Spec {
-                connector_type: flow::capture_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
-        models::CaptureEndpoint::Local(config) => (
-            capture::request::Spec {
-                connector_type: flow::capture_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
+    let config = match endpoint {
+        models::CaptureEndpoint::Connector(config) => &config.config,
+        models::CaptureEndpoint::Local(config) => &config.config,
+        models::CaptureEndpoint::Python(python) => &python.config,
     };
+    let missing_config_url = missing_url(config);
+    let spec = validation::capture_spec_request(endpoint, shards);
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings
         .iter()
         .filter_map(
             |models::CaptureBinding {
                  resource, target, ..
-             }| {
-                serde_json::from_str(resource.get())
-                    .ok()
-                    .map(|u| (u, target.clone()))
-            },
+             }| { missing_url(resource).map(|u| (u, target.clone())) },
         )
         .collect();
 
@@ -151,27 +160,12 @@ async fn generate_missing_capture_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let response = runtime::Runtime::new(
-        runtime::Plane::Local,
-        String::new(), // Default network.
-        ops::tracing_log_handler,
-        None,
-        format!("spec/{capture}"),
-    )
-    .unary_capture(capture::Request {
-        kind: Some(capture::request::Kind::Spec(spec)),
-        ..Default::default()
-    })
-    .await?;
-
-    let Some(capture::response::Kind::Spec(spec)) = response.kind else {
-        anyhow::bail!("connector didn't send expected Spec response");
-    };
+    let spec = local_connector::spec_capture(connector_router, None, spec).await?;
     let capture::response::Spec {
         config_schema_json,
         resource_config_schema_json,
         ..
-    } = *spec;
+    } = spec;
 
     stub_missing_configs(
         &config_schema_json,
@@ -183,9 +177,9 @@ async fn generate_missing_capture_configs(
 
 async fn generate_missing_collection_configs(
     collection: &tables::DraftCollection,
+    connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftCollection {
-        collection,
         model: Some(models::CollectionDef { derive, .. }),
         ..
     } = collection
@@ -194,28 +188,24 @@ async fn generate_missing_collection_configs(
     };
 
     let Some(models::Derivation {
-        using, transforms, ..
+        using,
+        transforms,
+        shards,
+        ..
     }) = derive
     else {
         return Ok(Vec::new()); // Not a derivation.
     };
 
-    let (spec, missing_config_url) = match using {
-        models::DeriveUsing::Connector(config) => (
-            derive::request::Spec {
-                connector_type: flow::collection_spec::derivation::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
-        models::DeriveUsing::Local(config) => (
-            derive::request::Spec {
-                connector_type: flow::collection_spec::derivation::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
-        // TypeScript, Python, and SQLite always generate their own configs.
+    let missing_config_url = match using {
+        models::DeriveUsing::Connector(config) => missing_url(&config.config),
+        models::DeriveUsing::Local(config) => missing_url(&config.config),
+        models::DeriveUsing::Python(models::DeriveUsingPython {
+            module: None,
+            config,
+            ..
+        }) => missing_url(config),
+        // TypeScript, SQLite, and a legacy Python module generate their own configs.
         // Other connectors may as well, and they'll override those generated here.
         models::DeriveUsing::Sqlite(_)
         | models::DeriveUsing::Typescript(_)
@@ -223,12 +213,11 @@ async fn generate_missing_collection_configs(
             return Ok(Vec::new());
         }
     };
+    let spec = validation::derive_spec_request(using, shards);
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = transforms
         .iter()
         .filter_map(|models::TransformDef { lambda, source, .. }| {
-            serde_json::from_str(lambda.get())
-                .ok()
-                .map(|u| (u, source.collection().clone()))
+            missing_url(lambda).map(|u| (u, source.collection().clone()))
         })
         .collect();
 
@@ -236,27 +225,12 @@ async fn generate_missing_collection_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let response = runtime::Runtime::new(
-        runtime::Plane::Local,
-        String::new(), // Default network.
-        ops::tracing_log_handler,
-        None,
-        format!("spec/{collection}"),
-    )
-    .unary_derive(derive::Request {
-        kind: Some(derive::request::Kind::Spec(spec)),
-        ..Default::default()
-    })
-    .await?;
-
-    let Some(derive::response::Kind::Spec(spec)) = response.kind else {
-        anyhow::bail!("connector didn't send expected Spec response");
-    };
+    let spec = local_connector::spec_derive(connector_router, None, spec).await?;
     let derive::response::Spec {
         config_schema_json,
         resource_config_schema_json,
         ..
-    } = *spec;
+    } = spec;
 
     stub_missing_configs(
         &config_schema_json,
@@ -268,51 +242,36 @@ async fn generate_missing_collection_configs(
 
 async fn generate_missing_materialization_configs(
     materialization: &tables::DraftMaterialization,
+    connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftMaterialization {
-        materialization,
-        model: Some(models::MaterializationDef {
-            endpoint, bindings, ..
-        }),
+        model:
+            Some(models::MaterializationDef {
+                endpoint,
+                bindings,
+                shards,
+                ..
+            }),
         ..
     } = materialization
     else {
         return Ok(Vec::new());
     };
 
-    let (spec, missing_config_url) = match endpoint {
-        models::MaterializationEndpoint::Connector(config) => (
-            materialize::request::Spec {
-                connector_type: flow::materialization_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
-        models::MaterializationEndpoint::Local(config) => (
-            materialize::request::Spec {
-                connector_type: flow::materialization_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
-        models::MaterializationEndpoint::Dekaf(config) => (
-            materialize::request::Spec {
-                connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
+    let config = match endpoint {
+        models::MaterializationEndpoint::Connector(config) => &config.config,
+        models::MaterializationEndpoint::Local(config) => &config.config,
+        models::MaterializationEndpoint::Dekaf(config) => &config.config,
+        models::MaterializationEndpoint::Python(python) => &python.config,
     };
+    let missing_config_url = missing_url(config);
+    let spec = validation::materialization_spec_request(endpoint, shards);
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings
         .iter()
         .filter_map(
             |models::MaterializationBinding {
                  resource, source, ..
-             }| {
-                serde_json::from_str(resource.get())
-                    .ok()
-                    .map(|u| (u, source.collection().clone()))
-            },
+             }| { missing_url(resource).map(|u| (u, source.collection().clone())) },
         )
         .collect();
 
@@ -320,27 +279,12 @@ async fn generate_missing_materialization_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let response = runtime::Runtime::new(
-        runtime::Plane::Local,
-        String::new(), // Default network.
-        ops::tracing_log_handler,
-        None,
-        format!("spec/{materialization}"),
-    )
-    .unary_materialize(materialize::Request {
-        kind: Some(materialize::request::Kind::Spec(spec)),
-        ..Default::default()
-    })
-    .await?;
-
-    let Some(materialize::response::Kind::Spec(spec)) = response.kind else {
-        anyhow::bail!("connector didn't send expected Spec response");
-    };
+    let spec = local_connector::spec_materialize(connector_router, None, spec).await?;
     let materialize::response::Spec {
         config_schema_json,
         resource_config_schema_json,
         ..
-    } = *spec;
+    } = spec;
 
     stub_missing_configs(
         &config_schema_json,
@@ -348,6 +292,14 @@ async fn generate_missing_materialization_configs(
         missing_config_url,
         missing_resource_urls,
     )
+}
+
+/// URL of a missing config: inlining leaves an import which couldn't be loaded
+/// as the absolute URL it would have loaded. Only a value which `sources`
+/// treats as an import qualifies, so other strings which happen to parse as
+/// URLs aren't mistaken for files to write.
+fn missing_url(config: &models::RawValue) -> Option<url::Url> {
+    url::Url::parse(config.as_import_url()?).ok()
 }
 
 fn stub_missing_configs(

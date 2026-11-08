@@ -8,6 +8,7 @@ DraftCatalog {
             collection: test/collection,
             scope: test://example/catalog.yaml#/collections/test~1collection,
             expect_pub_id: "0011223344556677",
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
               "key": [
@@ -31,6 +32,7 @@ DraftCatalog {
             collection: test/collection-no-schema,
             scope: test://example/catalog.yaml#/collections/test~1collection-no-schema,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "key": [
                 "/key"
@@ -42,6 +44,7 @@ DraftCatalog {
             collection: test/collection-with-write-and-inferred-read,
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-inferred-read,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "writeSchema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
               "readSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection-with-write-and-inferred-read/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
@@ -56,6 +59,7 @@ DraftCatalog {
             collection: test/collection-with-write-and-read,
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "writeSchema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
               "readSchema": {"$defs":{"__flowInline1":{"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"}},"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection-with-write-and-read/readSchema","$ref":"schema.json#/properties/a"},
@@ -70,6 +74,7 @@ DraftCatalog {
             collection: test/collection/with-journals,
             scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"__flowInline1":{"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"}},"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection~1with-journals/schema","$ref":"schema.json#foobar"},
               "key": [

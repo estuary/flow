@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/mutations.rs
+expression: invalid_email_response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 37,
+          "line": 5
+        }
+      ],
+      "message": "Failed to parse \"String\": invalid email",
+      "path": [
+        "setBillingContact"
+      ]
+    }
+  ]
+}

@@ -17,7 +17,7 @@
 //!
 //! #[derive(graphql_client::GraphqlQuery)]
 //! #[graphql(
-//!   schema_path = "../flow-client/control-plane-api.graphql",
+//!   schema_path = "../control-plane-api/control-plane-api.graphql",
 //!   query_path = "src/path/to/your/query.graphql",
 //! )]
 //! pub struct MyQuery;
@@ -26,8 +26,10 @@
 //! But most queries will also need a few other attributes, not all of which are well documented.
 //! Other important attributes are:
 //!
-//! - `extern_enums("CatalogType", "AlertType", ...)`: Any enums that are returned by your query will named in
+//! - `extern_enums("CatalogType", "Capability", ...)`: Any enums that are returned by your query will named in
 //!   this attribute in order for them to have the proper types in the query resonse.
+//!   A released flowctl fails to deserialize a value which its extern enum doesn't have, so enums which
+//!   gain values over time (like `AlertType`) map to a string type instead.
 //! - `response_derives`, `variables_derives`: A string with a comma-separated list of derives for either the response
 //!   or variables struct. For example `response_derives = "Debug,Serialize"`
 //!
@@ -60,6 +62,10 @@ pub type JSON = models::RawValue;
 pub type UUID = uuid::Uuid;
 
 pub(crate) const GRAPHQL_PATH: &str = "/api/graphql";
+
+/// SDL of the control-plane GraphQL schema which flowctl's queries are compiled against.
+pub(crate) const GRAPHQL_SCHEMA: &str =
+    include_str!("../../control-plane-api/control-plane-api.graphql");
 
 /// Perform a unary POST to the control-plane agent API and deserialize its JSON
 /// response. This is the flow-client-next equivalent of the former

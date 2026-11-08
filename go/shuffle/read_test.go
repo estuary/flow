@@ -9,14 +9,16 @@ import (
 	"testing"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/brokertest"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/etcdtest"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
+	"github.com/gogo/protobuf/types"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/brokertest"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/etcdtest"
 )
 
 func TestReadBuilding(t *testing.T) {
@@ -249,8 +251,9 @@ func TestReadHeaping(t *testing.T) {
 			{Clock: 2003},
 			{Clock: 1004},
 			{Clock: 1005},
-			{Clock: 1},
 			{Clock: 2},
+			{Clock: 3},
+			{Clock: 1},
 		},
 	}
 	var h readHeap
@@ -258,11 +261,14 @@ func TestReadHeaping(t *testing.T) {
 	// priority: 1 reads have earlier clocks, which would ordinarily be preferred,
 	// but are withheld due to their lower priority.
 	// priority: 2 reads have later clocks but are read first due to their higher priority.
+	// The priority: -1 read has the earliest clock of all, but is withheld until
+	// every read of a default or greater priority is drained.
 
 	// Push reads in a mixed order.
 	for _, r := range []*read{
 		{resp: pr.IndexedShuffleResponse{Index: 3, ShuffleResponse: resp}, priority: 2, readDelay: 1000},
 		{resp: pr.IndexedShuffleResponse{Index: 7, ShuffleResponse: resp}, priority: 1, readDelay: 0},
+		{resp: pr.IndexedShuffleResponse{Index: 8, ShuffleResponse: resp}, priority: -1, readDelay: 0},
 		{resp: pr.IndexedShuffleResponse{Index: 1, ShuffleResponse: resp}, priority: 2, readDelay: 2000},
 		{resp: pr.IndexedShuffleResponse{Index: 0, ShuffleResponse: resp}, priority: 2, readDelay: 1000},
 		{resp: pr.IndexedShuffleResponse{Index: 6, ShuffleResponse: resp}, priority: 1, readDelay: 0},
@@ -274,7 +280,7 @@ func TestReadHeaping(t *testing.T) {
 	}
 
 	// Expect to pop reads in Index order, after adjusting for priority & readDelay.
-	for ind := 0; ind != 8; ind++ {
+	for ind := 0; ind != 9; ind++ {
 		require.Equal(t, ind, heap.Pop(&h).(*read).resp.Index)
 	}
 	require.Empty(t, h)
@@ -461,6 +467,21 @@ func TestHRWRegression(t *testing.T) {
 	require.Equal(t, 1, pickHRW(h, ring, 1, 4))
 	require.Equal(t, 2, pickHRW(h, ring, 2, 4))
 	require.Equal(t, 2, pickHRW(h, ring, 2, 3))
+}
+
+func TestNotBeforeAfterKeepsSubSecondPrecision(t *testing.T) {
+	var ts = &types.Timestamp{Seconds: 1791881704, Nanos: 420384000}
+	var before, after = notBeforeAfter(ts, ts)
+
+	var want = time.Unix(1791881704, 420384000).UTC()
+	require.Equal(t, want, before.AsTime().UTC())
+	require.Equal(t, want, after.AsTime().UTC())
+
+	// Mirrors the subscriber filter: clock >= notBefore passes.
+	var justBefore = message.NewClock(time.Unix(1791881704, 420383000))
+	var atBound = message.NewClock(time.Unix(1791881704, 420384000))
+	require.True(t, justBefore < before)
+	require.True(t, atBound >= before)
 }
 
 func TestShuffleMemberOrdering(t *testing.T) {

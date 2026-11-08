@@ -1,0 +1,64 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: "staged[\"data\"][\"draft\"][\"specs\"][\"edges\"]"
+---
+[
+  {
+    "cursor": "aliceCo/data/foo",
+    "node": {
+      "catalogName": "aliceCo/data/foo",
+      "catalogType": "capture",
+      "detail": "replacement detail",
+      "expectPubId": "0000000000000000",
+      "isUnchanged": false,
+      "lastPubId": "000000fffe000002",
+      "model": {
+        "changed": true
+      },
+      "updatedAt": "[ts]"
+    }
+  },
+  {
+    "cursor": "aliceCo/explicit-null",
+    "node": {
+      "catalogName": "aliceCo/explicit-null",
+      "catalogType": "test",
+      "detail": null,
+      "expectPubId": null,
+      "isUnchanged": false,
+      "lastPubId": null,
+      "model": {
+        "steps": []
+      },
+      "updatedAt": "[ts]"
+    }
+  },
+  {
+    "cursor": "aliceCo/in/capture-foo",
+    "node": {
+      "catalogName": "aliceCo/in/capture-foo",
+      "catalogType": null,
+      "detail": "catalog deletion",
+      "expectPubId": "0000000000000000",
+      "isUnchanged": false,
+      "lastPubId": "000000fffe000002",
+      "model": null,
+      "updatedAt": "[ts]"
+    }
+  },
+  {
+    "cursor": "aliceCo/new",
+    "node": {
+      "catalogName": "aliceCo/new",
+      "catalogType": "test",
+      "detail": null,
+      "expectPubId": null,
+      "isUnchanged": false,
+      "lastPubId": null,
+      "model": {
+        "steps": []
+      },
+      "updatedAt": "[ts]"
+    }
+  }
+]

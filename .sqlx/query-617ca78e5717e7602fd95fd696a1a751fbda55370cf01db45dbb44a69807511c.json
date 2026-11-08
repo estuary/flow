@@ -6,22 +6,36 @@
       {
         "ordinal": 0,
         "name": "catalog_name",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "catalog_name"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "with_model!: bool",
-        "type_info": "Bool"
+        "type_info": "Bool",
+        "origin": "Expression"
       },
       {
         "ordinal": 2,
         "name": "with_built!: bool",
-        "type_info": "Bool"
+        "type_info": "Bool",
+        "origin": "Expression"
       },
       {
         "ordinal": 3,
         "name": "live_spec_id: models::Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "id"
+          }
+        }
       },
       {
         "ordinal": 4,
@@ -38,62 +52,114 @@
               ]
             }
           }
+        },
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "spec_type"
+          }
         }
       },
       {
         "ordinal": 5,
         "name": "model: crate::TextJson<async_graphql::Value>",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": "Expression"
       },
       {
         "ordinal": 6,
         "name": "last_build_id: models::Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "last_build_id"
+          }
+        }
       },
       {
         "ordinal": 7,
         "name": "last_pub_id: models::Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "last_pub_id"
+          }
+        }
       },
       {
         "ordinal": 8,
         "name": "data_plane_id: models::Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "data_plane_id"
+          }
+        }
       },
       {
         "ordinal": 9,
         "name": "created_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "created_at"
+          }
+        }
       },
       {
         "ordinal": 10,
         "name": "updated_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "updated_at"
+          }
+        }
       },
       {
         "ordinal": 11,
         "name": "built_spec: crate::TextJson<async_graphql::Value>",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": "Expression"
       },
       {
         "ordinal": 12,
         "name": "is_disabled!: bool",
-        "type_info": "Bool"
+        "type_info": "Bool",
+        "origin": "Expression"
       },
       {
         "ordinal": 13,
         "name": "reads_from?: Vec<String>",
-        "type_info": "TextArray"
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "reads_from"
+          }
+        }
       },
       {
         "ordinal": 14,
         "name": "writes_to?: Vec<String>",
-        "type_info": "TextArray"
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "writes_to"
+          }
+        }
       },
       {
         "ordinal": 15,
         "name": "source_capture?: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": "Expression"
       },
       {
         "ordinal": 16,
@@ -112,7 +178,8 @@
               }
             }
           }
-        }
+        },
+        "origin": "Expression"
       },
       {
         "ordinal": 17,
@@ -131,7 +198,8 @@
               }
             }
           }
-        }
+        },
+        "origin": "Expression"
       }
     ],
     "parameters": {

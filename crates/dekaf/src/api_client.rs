@@ -423,20 +423,26 @@ impl KafkaApiClient {
     pub async fn connect(broker_urls: &[String], auth: KafkaClientAuth) -> anyhow::Result<Self> {
         tracing::debug!("Attempting to establish new connection");
 
+        // Keep the last attempt's error as the cause, so that callers can see
+        // why it failed (for example, a SASL authentication error code).
+        let mut last_error = None;
+
         for url in broker_urls {
             match Self::try_connect(url, auth.clone()).await {
                 Ok(client) => return Ok(client),
                 Err(e) => {
                     let error = e.context(format!("Failed to connect to {}", url));
                     tracing::warn!(?error, "Connection attempt failed");
+                    last_error = Some(error);
                 }
             }
         }
 
-        anyhow::bail!(
+        let error = last_error.unwrap_or_else(|| anyhow::anyhow!("no broker URLs were given"));
+        Err(error.context(format!(
             "Failed to connect to any Kafka brokers. Attempted {} brokers",
             broker_urls.len()
-        )
+        )))
     }
 
     /// Attempt to open a connection to a specific broker address

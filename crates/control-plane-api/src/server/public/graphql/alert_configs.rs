@@ -128,7 +128,7 @@ impl AlertConfigsQuery {
             super::authorized_prefixes::filtered_authorized_prefixes(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                claims.sub,
+                &claims.subject(),
                 models::Capability::Read,
                 filter.and_then(|f| f.catalog_prefix_or_name),
                 "filter.catalogPrefixOrName",

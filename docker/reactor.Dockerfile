@@ -5,7 +5,6 @@ RUN apt update -y \
         ca-certificates \
         podman \
         curl \
-        jq \
         netavark \
         podman \
         slirp4netns \
@@ -14,8 +13,14 @@ RUN apt update -y \
 
 ARG TARGETARCH
 COPY ${TARGETARCH}/flow-connector-init /usr/local/bin/
+COPY ${TARGETARCH}/flow-disk-daemon /usr/local/bin/
 COPY ${TARGETARCH}/flowctl-go /usr/local/bin/
+# Rust crates linked into flowctl-go, for the image's SBOM scan.
+COPY ${TARGETARCH}/flowctl-go.cdx.json /usr/local/share/sbom/
 COPY ${TARGETARCH}/runtime-sidecar /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
+# Smoke-test that our binaries load in this image (e.g. shared libraries resolve).
+RUN flowctl-go print-config >/dev/null \
+    && runtime-sidecar --help >/dev/null
 
 WORKDIR /tmp

@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 8
 expression: outcome
 ---
 Outcome {
@@ -42,6 +43,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "testing/db-cdc",
@@ -512,6 +514,16 @@ Outcome {
                 created_at: "2029-06-12",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: Some(
+                    ConnectorSpec {
+                        protocol: 0,
+                        config_schema_json: b"{\"type\":\"object\"}",
+                        resource_config_schema_json: b"{\"properties\":{\"schema\":{\"type\":\"string\"},\"source\":{\"type\":\"string\"}},\"required\":[\"source\"],\"type\":\"object\"}",
+                        documentation_url: "",
+                        oauth2: None,
+                        resource_path_pointers: [],
+                    },
+                ),
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -560,6 +572,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "testing/s3-source",
@@ -1294,6 +1307,16 @@ Outcome {
                 created_at: "2029-06-12",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: Some(
+                    ConnectorSpec {
+                        protocol: 0,
+                        config_schema_json: b"{\"type\":\"object\"}",
+                        resource_config_schema_json: b"{\"properties\":{\"schema\":{\"type\":\"string\"},\"source\":{\"type\":\"string\"}},\"required\":[\"source\"],\"type\":\"object\"}",
+                        documentation_url: "",
+                        oauth2: None,
+                        resource_path_pointers: [],
+                    },
+                ),
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -2578,6 +2601,16 @@ Outcome {
                         redact_salt: b"]\x17ga.}\xf9R\x1b\x99(N\xd4x/\x8f",
                         linked_collections: [],
                         secrets: {},
+                        connector_spec: Some(
+                            ConnectorSpec {
+                                protocol: 0,
+                                config_schema_json: b"{\"type\":\"object\"}",
+                                resource_config_schema_json: b"true",
+                                documentation_url: "",
+                                oauth2: None,
+                                resource_path_pointers: [],
+                            },
+                        ),
                     },
                 ),
             },
@@ -2658,6 +2691,7 @@ Outcome {
                         "/partitionString"
                       ]
                     },
+                    "priority": -1,
                     "backfill": 4
                   }
                 ]
@@ -4133,7 +4167,7 @@ Outcome {
                                         ),
                                     },
                                 ),
-                                priority: 0,
+                                priority: -1,
                                 read_delay_seconds: 0,
                                 shuffle_key: [
                                     "/len",
@@ -4279,6 +4313,7 @@ Outcome {
                         redact_salt: b"~\x93\x06)\x01Cy\x95\xdao\\\x96UcV\xd2",
                         linked_collections: [],
                         secrets: {},
+                        connector_spec: None,
                     },
                 ),
             },
@@ -5040,6 +5075,7 @@ Outcome {
                         redact_salt: b"i\t\x0f\xba\xd7\xf7\x80\r\xf9\xebpu\0i\xd6\xd5",
                         linked_collections: [],
                         secrets: {},
+                        connector_spec: None,
                     },
                 ),
             },
@@ -6500,6 +6536,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "testing/db-views",
@@ -6975,6 +7012,16 @@ Outcome {
                 sync_schedule_json: b"",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: Some(
+                    ConnectorSpec {
+                        protocol: 0,
+                        config_schema_json: b"{\"type\":\"object\"}",
+                        resource_config_schema_json: b"{\"properties\":{\"schema\":{\"type\":\"string\",\"x-schema-name\":true},\"target\":{\"type\":\"string\",\"x-collection-name\":true}},\"required\":[\"target\"],\"type\":\"object\"}",
+                        documentation_url: "",
+                        oauth2: None,
+                        resource_path_pointers: [],
+                    },
+                ),
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -7154,6 +7201,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "testing/webhook/deliveries",
@@ -8193,6 +8241,16 @@ Outcome {
                 sync_schedule_json: b"",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: Some(
+                    ConnectorSpec {
+                        protocol: 0,
+                        config_schema_json: b"{\"type\":\"object\"}",
+                        resource_config_schema_json: b"{\"properties\":{\"schema\":{\"type\":\"string\",\"x-schema-name\":true},\"target\":{\"type\":\"string\",\"x-collection-name\":true}},\"required\":[\"target\"],\"type\":\"object\"}",
+                        documentation_url: "",
+                        oauth2: None,
+                        resource_path_pointers: [],
+                    },
+                ),
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -8326,6 +8384,7 @@ Outcome {
             capture: testing/db-cdc,
             scope: test://example/int-string-captures#/captures/testing~1db-cdc,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "endpoint": {
                 "connector": {
@@ -8351,6 +8410,7 @@ Outcome {
             capture: testing/s3-source,
             scope: test://example/int-string-captures#/captures/testing~1s3-source,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "endpoint": {
                 "connector": {
@@ -8378,6 +8438,7 @@ Outcome {
             collection: testing/array-key,
             scope: test://example/array-key#/collections/testing~1array-key,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$id":"test://example/array-key.schema","properties":{"arr":{"items":{"properties":{"aKey":{"type":"integer"}},"required":["aKey"],"type":"object"},"minItems":5,"type":"array"}},"required":["arr"],"type":"object"},
               "key": [
@@ -8393,6 +8454,7 @@ Outcome {
             collection: testing/from-array-key,
             scope: test://example/from-array-key#/collections/testing~1from-array-key,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$id":"test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema","properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"},
               "key": [
@@ -8441,6 +8503,7 @@ Outcome {
             collection: testing/int-halve,
             scope: test://example/int-halve#/collections/testing~1int-halve,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
               "key": [
@@ -8507,6 +8570,7 @@ Outcome {
                         "/partitionString"
                       ]
                     },
+                    "priority": -1,
                     "backfill": 4
                   }
                 ]
@@ -8518,6 +8582,7 @@ Outcome {
             collection: testing/int-reverse,
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "key": [
@@ -8549,6 +8614,7 @@ Outcome {
             collection: testing/int-string,
             scope: test://example/int-string#/collections/testing~1int-string,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "key": [
@@ -8568,6 +8634,7 @@ Outcome {
             collection: testing/int-string-ref-write-schema,
             scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-ref-write-schema/readSchema","$ref":"flow://write-schema","properties":{"addedProp":{"type":"string"}}},
@@ -8581,6 +8648,7 @@ Outcome {
             collection: testing/int-string-rw,
             scope: test://example/int-string#/collections/testing~1int-string-rw,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
@@ -8603,6 +8671,7 @@ Outcome {
             collection: testing/int-string.v2,
             scope: test://example/int-string#/collections/testing~1int-string.v2,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"}},"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"},
               "key": [
@@ -8789,6 +8858,7 @@ Outcome {
             materialization: testing/db-views,
             scope: test://example/db-views#/materializations/testing~1db-views,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "endpoint": {
                 "connector": {
@@ -8816,6 +8886,7 @@ Outcome {
             materialization: testing/webhook/deliveries,
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "endpoint": {
                 "connector": {
@@ -8909,7 +8980,7 @@ Outcome {
             resource: test://example/int-halve,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-halve":{"derive":{"transforms":[{"name":"halveIntString","shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","notAfter":"2019-03-06T09:30:02Z","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}}},{"backfill":4,"name":"halveSelf","shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}],"using":{"typescript":{"module":"int-halve.ts"}}},"journals":{"fragments":{"flushInterval":"15m","length":100}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
+            content_dom: {"collections":{"testing/int-halve":{"derive":{"transforms":[{"name":"halveIntString","shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","notAfter":"2019-03-06T09:30:02Z","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}}},{"backfill":4,"name":"halveSelf","priority":-1,"shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}],"using":{"typescript":{"module":"int-halve.ts"}}},"journals":{"fragments":{"flushInterval":"15m","length":100}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
         },
         Resource {
             resource: test://example/int-halve.ts,

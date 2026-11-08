@@ -33,8 +33,7 @@ pub fn jf(
         binding,
         journal: journal.into(),
         producers,
-        bytes_read_delta: 0,
-        bytes_behind_delta: 0,
+        ..Default::default()
     }
 }
 
@@ -51,6 +50,7 @@ pub fn jf_with_bytes(
         producers,
         bytes_read_delta,
         bytes_behind_delta,
+        ..Default::default()
     }
 }
 

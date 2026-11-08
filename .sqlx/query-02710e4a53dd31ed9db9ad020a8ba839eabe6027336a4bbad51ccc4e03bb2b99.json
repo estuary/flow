@@ -18,12 +18,24 @@
               ]
             }
           }
+        },
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "spec_type"
+          }
         }
       },
       {
         "ordinal": 1,
         "name": "built_spec!: sqlx::types::Json<models::RawValue>",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "built_spec"
+          }
+        }
       }
     ],
     "parameters": {

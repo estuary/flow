@@ -1,0 +1,120 @@
+$defs:
+  PublicOrders:
+    $anchor: PublicOrders
+    properties:
+      amount:
+        description: '(source type: non-nullable numeric)'
+        format: number
+        type: string
+      customer_id:
+        description: '(source type: non-nullable int8)'
+        type: integer
+      order_id:
+        description: '(source type: non-nullable int4)'
+        type: integer
+      placed_at:
+        description: '(source type: non-nullable timestamptz)'
+        format: date-time
+        type: string
+      quantity:
+        description: '(source type: non-nullable int4)'
+        type: integer
+      shipped_on:
+        description: '(source type: date)'
+        format: date
+        type:
+        - string
+        - 'null'
+      sku:
+        description: '(source type: non-nullable text)'
+        type: string
+      status:
+        description: '(source type: non-nullable varchar(16))'
+        maxLength: 16
+        type: string
+      tracking:
+        description: '(source type: uuid)'
+        format: uuid
+        type:
+        - string
+        - 'null'
+      unit_price:
+        description: '(source type: non-nullable float8)'
+        format: number
+        type:
+        - number
+        - string
+      warehouse_id:
+        description: '(source type: non-nullable int2)'
+        type: integer
+    required:
+    - customer_id
+    - order_id
+    type: object
+allOf:
+- else:
+    reduce:
+      strategy: merge
+  if:
+    properties:
+      _meta:
+        properties:
+          op:
+            const: d
+  properties:
+    _meta:
+      properties:
+        before:
+          $ref: '#PublicOrders'
+          description: Record state immediately before this change was applied.
+          reduce:
+            strategy: firstWriteWins
+        op:
+          description: 'Change operation type: ''c'' Create/Insert, ''u'' Update, ''d'' Delete.'
+          enum:
+          - c
+          - d
+          - u
+        source:
+          properties:
+            loc:
+              description: Location of this WAL event as [last Commit.EndLSN; event LSN; current Begin.FinalLSN].
+              items:
+                type: integer
+              maxItems: 3
+              minItems: 3
+              type: array
+            schema:
+              description: Database schema (namespace) of the event.
+              type: string
+            snapshot:
+              description: Snapshot is true if the record was produced from an initial table backfill and unset if produced from the replication log.
+              type: boolean
+            table:
+              description: Database table of the event.
+              type: string
+            ts_ms:
+              description: Unix timestamp (in millis) at which this event was recorded by the database.
+              type: integer
+            txid:
+              description: The 32-bit transaction ID assigned by Postgres to the commit which produced this change.
+              type: integer
+          required:
+          - schema
+          - table
+          - loc
+          type: object
+      reduce:
+        strategy: merge
+      required:
+      - op
+      - source
+      type: object
+  required:
+  - _meta
+  then:
+    reduce:
+      delete: true
+      strategy: merge
+- $ref: '#PublicOrders'
+x-infer-schema: true

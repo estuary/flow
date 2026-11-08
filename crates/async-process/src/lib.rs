@@ -1,18 +1,16 @@
 pub use std::process::{Command, Output, Stdio};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-#[cfg(unix)]
-use std::os::fd::OwnedFd as OwnedImpl;
-#[cfg(windows)]
-use std::os::fd::OwnedHandle as OwnedImpl;
+#[cfg(not(unix))]
+compile_error!("async-process supports only unix targets");
 
 pub struct Child {
     pid: libc::pid_t,
     status: Status,
 
-    pub stdin: Option<ChildStdio>,
-    pub stdout: Option<ChildStdio>,
-    pub stderr: Option<ChildStdio>,
+    pub stdin: Option<ChildStdin>,
+    pub stdout: Option<ChildOutput>,
+    pub stderr: Option<ChildOutput>,
 }
 
 /// State machine for reaping the child process.
@@ -32,13 +30,23 @@ enum Status {
     Abandoned,
 }
 
-pub type ChildStdio = tokio::fs::File;
+/// A child's stdin pipe.
+///
+/// Child pipes are non-blocking and driven by the IO driver of the runtime
+/// that was current at `Child::from`, and must be polled while it's alive.
+///
+/// `flush` and `shutdown` are no-ops, as writes go directly to the pipe.
+/// Dropping a `ChildStdin` is what closes it, sending EOF to the child.
+pub type ChildStdin = tokio::net::unix::pipe::Sender;
+
+/// A child's stdout or stderr pipe. See [`ChildStdin`].
+pub type ChildOutput = tokio::net::unix::pipe::Receiver;
 
 impl From<std::process::Child> for Child {
     fn from(mut inner: std::process::Child) -> Self {
-        let stdin = map_stdio(inner.stdin.take());
-        let stdout = map_stdio(inner.stdout.take());
-        let stderr = map_stdio(inner.stderr.take());
+        let stdin = map_stdin(inner.stdin.take());
+        let stdout = map_output(inner.stdout.take());
+        let stderr = map_output(inner.stderr.take());
 
         let pid = inner.id() as libc::pid_t;
         let status = Status::Reaping(tokio::runtime::Handle::current().spawn_blocking(move || {
@@ -198,13 +206,12 @@ pub async fn input_output(cmd: &mut Command, input: &[u8]) -> std::io::Result<Ou
     })
 }
 
-fn map_stdio<F>(f: Option<F>) -> Option<ChildStdio>
-where
-    F: Into<OwnedImpl>,
-{
-    let f: Option<OwnedImpl> = f.map(Into::into);
-    let f: Option<std::fs::File> = f.map(Into::into);
-    f.map(Into::into)
+fn map_stdin(f: Option<std::process::ChildStdin>) -> Option<ChildStdin> {
+    Some(ChildStdin::from_owned_fd(f?.into()).expect("piped child stdin is a pipe"))
+}
+
+fn map_output<F: Into<std::os::fd::OwnedFd>>(f: Option<F>) -> Option<ChildOutput> {
+    Some(ChildOutput::from_owned_fd(f?.into()).expect("piped child output is a pipe"))
 }
 
 #[cfg(test)]

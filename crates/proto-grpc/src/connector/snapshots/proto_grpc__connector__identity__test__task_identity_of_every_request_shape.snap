@@ -1,0 +1,21 @@
+---
+source: crates/proto-grpc/src/connector/identity.rs
+expression: outcomes
+---
+[
+    "capture <spec>",
+    "capture acmeCo/capture",
+    "capture acmeCo/capture",
+    "capture acmeCo/capture",
+    "capture acmeCo/capture",
+    "derivation <spec>",
+    "derivation acmeCo/derivation",
+    "derivation acmeCo/derivation",
+    "materialization <spec>",
+    "materialization acmeCo/materialization",
+    "materialization acmeCo/materialization",
+    "materialization acmeCo/materialization",
+    "InvalidArgument: Capture protocol error (expected a valid first request) from client: {}",
+    "InvalidArgument: `apply` missing required `materialization`",
+    "InvalidArgument: `<spec>` is reserved for Spec requests and cannot name a task",
+]

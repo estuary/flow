@@ -6,7 +6,13 @@
       {
         "ordinal": 0,
         "name": "published_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "publication_specs",
+            "name": "published_at"
+          }
+        }
       }
     ],
     "parameters": {

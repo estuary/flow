@@ -1,0 +1,7 @@
+---
+source: crates/catalog-tests/tests/timeouts.rs
+expression: render(&results)
+---
+acmeCo/test/1-first: failed: driver.read: transaction of derivation acmeCo/hangs timed out after 200ms
+acmeCo/test/2-second: not run: a session timed out during test acmeCo/test/1-first
+acmeCo/test/3-third: not run: a session timed out during test acmeCo/test/1-first

@@ -1,0 +1,45 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: responses
+---
+[
+  {
+    "data": {
+      "publication": {
+        "pubId": "0707070707070707",
+        "status": {
+          "lockFailures": [],
+          "type": "success"
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "publication": {
+        "pubId": "0808080808080808",
+        "status": {
+          "lockFailures": [],
+          "type": "success"
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "publication": {
+        "pubId": null,
+        "status": {
+          "lockFailures": [
+            {
+              "actual": "0202020202020202",
+              "catalogName": "aliceCo/data/foo",
+              "expected": "0101010101010101"
+            }
+          ],
+          "type": "buildIdLockFailure"
+        }
+      }
+    }
+  }
+]

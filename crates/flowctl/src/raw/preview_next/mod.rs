@@ -23,8 +23,8 @@ pub struct Preview {
     source: String,
     /// Name of the task to preview within the Flow specification file.
     /// Required if there are multiple tasks in --source specifications.
-    #[clap(long)]
-    name: Option<String>,
+    #[clap(long, alias = "name")]
+    task: Option<String>,
     /// Number of synthetic shards to drive in parallel. Default 1.
     /// For captures, N shards fan out as N independent connector instances.
     /// Many connectors ignore the key range and will duplicate output;
@@ -65,7 +65,10 @@ pub struct Preview {
     sessions: Option<Vec<isize>>,
     /// Path to a transactions fixture to feed in place of live collection data.
     /// Newline-delimited JSON: documents `["collection/name", {...}]` separated
-    /// by `{"commit": true}` transaction markers. Fixtures are only for
+    /// by `{"commit": true}` transaction markers. A materialization fixture may
+    /// also mark a collection's backfill with `{"backfillBegin": "collection/name"}`
+    /// and `{"backfillComplete": "collection/name"}`, which are delivered in the
+    /// `Flush` of their transaction. Fixtures are only for
     /// derivations and materializations. Under `--shards N`, fixture documents
     /// are hash-routed to shards by their collection key, mirroring live
     /// shuffled reads.
@@ -76,6 +79,12 @@ pub struct Preview {
     /// session which stops gracefully at stream EOF.
     #[clap(long)]
     fixture: Option<String>,
+    /// Validate streamed fixture documents against their collection schemas,
+    /// as the shuffle does for journal reads. `--fixture-validate=false` flags
+    /// every document of a FIFO or stdin fixture valid unchecked, for fixtures
+    /// known to be valid such as generated benchmark data.
+    #[clap(long, default_value_t = true, action = clap::ArgAction::Set)]
+    fixture_validate: bool,
     /// Artificial delay between transactions, simulating back-pressure and
     /// encouraging reductions. The delay raises the task's minimum transaction
     /// duration, so each transaction batches at least `delay` of live input.
@@ -83,9 +92,6 @@ pub struct Preview {
     /// fixed by the fixture's own commit markers).
     #[clap(long)]
     delay: Option<humantime::Duration>,
-    /// Docker network to run connector images.
-    #[clap(long, default_value = "bridge")]
-    network: String,
     /// Initial JSON connector state to seed the run with.
     /// When developing a connector, you may want to use --initial-state to pass
     /// in crafted state configurations you expect the connector to resume from.
@@ -134,13 +140,13 @@ impl Preview {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         let Self {
             source,
-            name,
+            task,
             shards,
             timeout,
             sessions,
             fixture,
+            fixture_validate,
             delay,
-            network,
             initial_state,
             output_state,
             output_apply,
@@ -186,11 +192,15 @@ impl Preview {
             ),
         };
 
-        let (_sources, _live, validations) =
-            local_specs::load_and_validate_full(ctx, source_url.as_str(), network, log_handler)
-                .await?;
+        let (task, build::Output { built, .. }) = local_specs::load_and_validate_task(
+            ctx,
+            source_url.as_str(),
+            task.as_deref(),
+            log_handler,
+        )
+        .await?;
 
-        let task = resolve_task(&validations, name.as_deref())?;
+        let task = resolve_task(&built, &task);
 
         let timeout = timeout.map(|i| i.into());
 
@@ -214,7 +224,6 @@ impl Preview {
         };
 
         let stop_token = tokio_util::sync::CancellationToken::new();
-
         let result: anyhow::Result<()> = match task {
             TaskSpec::Capture(mut spec) => {
                 anyhow::ensure!(
@@ -225,7 +234,7 @@ impl Preview {
                     runtime_local::set_min_txn_duration(spec.shard_template.as_mut(), delay);
                 }
                 let run = services::Run::start_capture(
-                    network.clone(),
+                    ctx.local_connector_router(),
                     *shards,
                     *debug_port,
                     ctx.registry.clone(),
@@ -246,7 +255,7 @@ impl Preview {
                 let mut frontier_tx = None;
                 let registry = ctx.registry.clone();
                 let run = services::Run::start_with_shuffle_leader(
-                    network.clone(),
+                    ctx.local_connector_router(),
                     *shards,
                     *debug_port,
                     registry.clone(),
@@ -277,6 +286,7 @@ impl Preview {
                             task: Some(shuffle::proto::task::Task::Materialization(spec.clone())),
                         },
                         fixture,
+                        *fixture_validate,
                         delay,
                         session_targets,
                         &stop_token,
@@ -300,7 +310,7 @@ impl Preview {
                 let mut frontier_tx = None;
                 let registry = ctx.registry.clone();
                 let run = services::Run::start_with_shuffle_leader(
-                    network.clone(),
+                    ctx.local_connector_router(),
                     *shards,
                     *debug_port,
                     registry.clone(),
@@ -333,6 +343,7 @@ impl Preview {
                             task: Some(shuffle::proto::task::Task::Derivation(spec.clone())),
                         },
                         fixture,
+                        *fixture_validate,
                         delay,
                         session_targets,
                         &stop_token,
@@ -391,6 +402,7 @@ fn prepare_sessions<S>(
     shard_template: impl FnOnce(&mut S) -> Option<&mut proto_gazette::consumer::ShardSpec>,
     build_task: impl FnOnce(&S) -> shuffle::proto::Task,
     fixture: Option<&str>,
+    fixture_validate: bool,
     delay: Option<std::time::Duration>,
     session_targets: Vec<u32>,
     stop_token: &tokio_util::sync::CancellationToken,
@@ -426,6 +438,7 @@ fn prepare_sessions<S>(
             std::path::Path::new(&run.shuffle_log_dir),
             run.n_shards,
             fixture::StreamLimits::default(),
+            fixture_validate,
             frontier_tx,
             session_stop.clone(),
             hold.clone(),
@@ -609,68 +622,26 @@ where
     }
 }
 
-fn resolve_task(validations: &tables::Validations, name: Option<&str>) -> anyhow::Result<TaskSpec> {
-    let derivations_count = validations
+/// Resolve the built spec of `task`, which `local_specs::select_task` found
+/// and validation then built without errors.
+fn resolve_task(validations: &tables::Validations, task: &str) -> TaskSpec {
+    if let Some(row) = validations
+        .built_captures
+        .get_key(&models::Capture::new(task))
+    {
+        return TaskSpec::Capture(row.spec.clone().unwrap());
+    }
+    if let Some(row) = validations
+        .built_materializations
+        .get_key(&models::Materialization::new(task))
+    {
+        return TaskSpec::Materialization(row.spec.clone().unwrap());
+    }
+    let row = validations
         .built_collections
-        .iter()
-        .filter(|c| {
-            c.spec
-                .as_ref()
-                .map(|s| s.derivation.is_some())
-                .unwrap_or_default()
-        })
-        .count();
-    let num_tasks = validations.built_captures.len()
-        + validations.built_materializations.len()
-        + derivations_count;
-
-    if num_tasks == 0 {
-        anyhow::bail!(
-            "sourced specification files do not contain any tasks (captures, derivations, or materializations)",
-        );
-    }
-    if num_tasks > 1 && name.is_none() {
-        anyhow::bail!(
-            "sourced specification files contain multiple tasks; use --name to identify the task",
-        );
-    }
-
-    for row in validations.built_captures.iter() {
-        if let Some(target) = name {
-            if row.capture.as_str() != target {
-                continue;
-            }
-        }
-        let Some(spec) = &row.spec else { continue };
-        return Ok(TaskSpec::Capture(spec.clone()));
-    }
-
-    for row in validations.built_materializations.iter() {
-        if let Some(target) = name {
-            if row.materialization.as_str() != target {
-                continue;
-            }
-        }
-        let Some(spec) = &row.spec else { continue };
-        return Ok(TaskSpec::Materialization(spec.clone()));
-    }
-
-    for row in validations.built_collections.iter() {
-        if let Some(target) = name {
-            if row.collection.as_str() != target {
-                continue;
-            }
-        }
-        let Some(spec) = &row.spec else { continue };
-        if spec.derivation.is_some() {
-            return Ok(TaskSpec::Derivation(spec.clone()));
-        }
-    }
-
-    if let Some(target) = name {
-        anyhow::bail!("could not find capture, materialization, or derivation {target}");
-    }
-    anyhow::bail!("no capture, materialization, or derivation found in source");
+        .get_key(&models::Collection::new(task))
+        .unwrap();
+    TaskSpec::Derivation(row.spec.clone().unwrap())
 }
 
 #[cfg(test)]

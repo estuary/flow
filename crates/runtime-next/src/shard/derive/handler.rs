@@ -65,6 +65,10 @@ where
     let shard_producer = crate::new_producer();
     let leader_producer = crate::new_producer();
 
+    // The inferred document shape is held only in memory and accumulates
+    // across every session of this Shard stream, until the collection is reset.
+    let mut inferred_shape: Option<doc::Shape> = None;
+
     let verify = crate::verify("Derive", "Join", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
@@ -80,6 +84,7 @@ where
                     shard_producer,
                     leader_producer,
                     report_final_state,
+                    &mut inferred_shape,
                 )
                 .await?;
             }
@@ -105,6 +110,7 @@ async fn serve_session<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     shard_producer: proto_gazette::uuid::Producer,
     leader_producer: proto_gazette::uuid::Producer,
     report_final_state: bool,
+    inferred_shape: &mut Option<doc::Shape>,
 ) -> anyhow::Result<crate::shard::RocksDB>
 where
     R: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
@@ -120,6 +126,7 @@ where
         shard_producer,
         leader_producer,
         report_final_state,
+        inferred_shape,
         handler,
     )
     .instrument(span)
@@ -135,6 +142,7 @@ async fn serve_session_inner<R, P: crate::PublisherFactory, L: crate::LoggerFact
     shard_producer: proto_gazette::uuid::Producer,
     leader_producer: proto_gazette::uuid::Producer,
     report_final_state: bool,
+    inferred_shape: &mut Option<doc::Shape>,
     mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<crate::shard::RocksDB>
 where
@@ -152,6 +160,7 @@ where
 
     let labeling = labeling.as_ref().context("missing shard labeling")?.clone();
     let log_level = labeling.log_level();
+    let max_pinned_segments = crate::shard::max_pinned_segments(&labeling);
     let shard_id = shard_id.clone();
     let shard_index = join.shard_index;
     let shuffle_directory = join.shuffle_directory.clone();
@@ -205,7 +214,6 @@ where
         publisher,
         shuffle_reader,
         task,
-        write_shape,
     } = startup::run(
         controller_rx,
         controller_tx,
@@ -226,6 +234,10 @@ where
 
     handler.set_phase("running");
 
+    // Restore the inferred shape accumulated by prior sessions, and stow the
+    // session's final shape back when it ends.
+    let shape = task.shape_by_generation(inferred_shape.take());
+
     let result = super::actor::Actor::new(
         codec,
         connector_tx,
@@ -236,20 +248,22 @@ where
         logger,
         publisher,
         std::sync::Arc::new(task),
-        write_shape,
+        shape,
     )
     .serve(
         accumulator,
         &mut connector_rx,
         controller_rx,
         &mut leader_rx,
+        max_pinned_segments,
         shuffle_reader,
     )
     .await;
 
     let db = match result {
-        Ok(db) => {
+        Ok((db, shape)) => {
             handler.finish_ok();
+            *inferred_shape = Some(shape);
             db
         }
         Err(err) => {
@@ -273,14 +287,19 @@ mod test {
 
     #[tokio::test]
     async fn stop_awaiting_join_leaves_the_session_loop_serving() {
-        let service = crate::shard::Service::new(
-            crate::Plane::Local,
+        let registry = service_kit::Registry::new();
+        let (_connector_svc, connector_router) = ::connector::Service::new_local(
             String::new(),
+            registry.clone(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        );
+        let service = crate::shard::Service::new(
+            std::sync::Arc::new(connector_router),
             None,
             "test/task".to_string(),
             crate::publish::RecordingPublisherFactory,
             crate::TracingLoggerFactory,
-            service_kit::Registry::new(),
+            registry,
             None,
         );
 

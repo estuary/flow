@@ -4,30 +4,28 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/gazette/allocator"
+	"github.com/estuary/flow/go/gazette/auth"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	"github.com/estuary/flow/go/gazette/mainboilerplate/runconsumer"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/network"
-	"github.com/estuary/flow/go/protocols/capture"
-	"github.com/estuary/flow/go/protocols/derive"
+	pcn "github.com/estuary/flow/go/protocols/connector"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/protocols/ops"
-	"github.com/estuary/flow/go/protocols/runtime"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
-	"go.gazette.dev/core/auth"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/mainboilerplate/runconsumer"
-	"go.gazette.dev/core/message"
-	"google.golang.org/grpc"
 )
 
 // FlowConsumerConfig configures the Flow consumer application.
@@ -40,7 +38,7 @@ type FlowConsumerConfig struct {
 		Dashboard     pb.Endpoint `long:"dashboard" env:"DASHBOARD" description:"Address of the Estuary dashboard"`
 		DataPlaneFQDN string      `long:"data-plane-fqdn" env:"DATA_PLANE_FQDN" description:"Fully-qualified domain name of the data-plane to which this reactor belongs"`
 		Network       string      `long:"network" env:"NETWORK" description:"The Docker network that connector containers are given access to. Defaults to the bridge network"`
-		ProxyRuntimes int         `long:"proxy-runtimes" default:"2" description:"The number of proxy connector runtimes that may run concurrently"`
+		ProxyRuntimes int         `long:"proxy-runtimes" default:"2" description:"Deprecated and ignored. Connectors are proxied through the connector.Connector service"`
 		SidecarPort   uint16      `long:"sidecar-port" env:"SIDECAR_PORT" description:"Port of the runtime-sidecar co-located on every reactor machine (fleet-wide, fixed). Required when any task uses the runtime-v2 feature flag."`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
@@ -85,14 +83,19 @@ func (c *FlowConsumerConfig) Plane() pr.Plane {
 	// separated provider, region, and cluster number.
 	// * `aws-eu-west-1-c1.dp.estuary-data.com` is public
 	// * `f7002c61f85f2b5e.dp.estuary-data.com` is private
+	//
+	// The hash is formatted without zero-padding (see `create_data_plane`),
+	// so ~1/16 of private planes have fewer than 16 hex chars.
+	// We accept as few as 8. Fewer would require 8 leading zero nibbles,
+	// which is far less likely than a short all-hex public name.
 
-	if m, _ := regexp.Match("^[0-9a-f]{16}\\.", []byte(c.Flow.DataPlaneFQDN)); m {
+	if m, _ := regexp.Match("^[0-9a-f]{8,16}\\.", []byte(c.Flow.DataPlaneFQDN)); m {
 		return pr.Plane_PRIVATE
 	}
 	return pr.Plane_PUBLIC
 }
 
-// FlowConsumer implements the Estuary Flow Consumer.
+// FlowConsumer implements the Estuary Consumer.
 type FlowConsumer struct {
 	// Configuration of this FlowConsumer.
 	config *FlowConsumerConfig
@@ -111,6 +114,33 @@ type FlowConsumer struct {
 	opsContext context.Context
 	// Network listener tap.
 	tap *network.Tap
+	// This reactor's advertised gRPC endpoint.
+	address pb.Endpoint
+	// Singleton V2 task service backing `connectorProxyV2`. Its connectors are
+	// named by their requests, so it hosts no task of its own.
+	proxySvcV2 *bindings.TaskServiceV2
+}
+
+// localProcessSpec describes this reactor process: its allocator member ID and
+// the endpoint peers dial it on. It's reported as
+// `connector.Response.Started.process`, telling a caller which reactor its
+// proxied connector landed on.
+//
+// The ID is read from `State.LocalKey` — `<root>/members/<zone>#<suffix>`, per
+// `allocator.MemberKey` — rather than from the member's Etcd announcement,
+// because this is also called during InitApplication, before the allocator has
+// announced us.
+func (f *FlowConsumer) localProcessSpec() *pb.ProcessSpec {
+	var spec = &pb.ProcessSpec{Endpoint: f.address}
+	var key = f.service.State.LocalKey
+
+	if i := strings.LastIndex(key, allocator.MembersPrefix); i != -1 {
+		var member = key[i+len(allocator.MembersPrefix):]
+		if j := strings.Index(member, allocator.Sep); j != -1 {
+			spec.Id = pb.ProcessSpec_ID{Zone: member[:j], Suffix: member[j+len(allocator.Sep):]}
+		}
+	}
+	return spec
 }
 
 // application is the interface implemented by Flow shard task stores.
@@ -127,9 +157,9 @@ type application interface {
 	ReplayRange(_ consumer.Shard, _ pb.Journal, begin, end pb.Offset) message.Iterator
 	ReadThrough(pb.Offsets) (pb.Offsets, error)
 
-	// ProxyHook exposes a current Container and ops.Publisher
-	// for use by network.ProxyServer.
-	ProxyHook() (*pr.Container, ops.Publisher)
+	// ProxyHook exposes a current Container, the network ports of the
+	// current task spec, and an ops.Publisher for use by network.ProxyServer.
+	ProxyHook() (*pr.Container, []*pf.NetworkPort, ops.Publisher)
 }
 
 var _ consumer.Application = (*FlowConsumer)(nil)
@@ -309,6 +339,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	f.config = &config
 	f.service = args.Service
+	f.address = args.Server.Endpoint()
 	f.builds = builds
 	f.timepoint.Now = flow.NewTimepoint(time.Now())
 	f.opsContext = args.Context
@@ -337,16 +368,32 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	pf.RegisterNetworkProxyServer(args.Server.GRPCServer,
 		pf.NewVerifiedNetworkProxyServer(&network.ProxyServer{Resolver: args.Service.Resolver}, f.service.Verifier))
 
-	var connectorProxy = &connectorProxy{
-		address:   args.Server.Endpoint(),
-		host:      f,
-		runtimes:  make(map[string]*grpc.ClientConn),
-		semaphore: make(chan struct{}, config.Flow.ProxyRuntimes),
+	// One V2 task service for every proxied connector of this reactor. Its
+	// `TaskName` labels only the service's own tracing — connectors are named
+	// by the requests which start them — and it hosts no shard.
+	f.proxySvcV2, err = bindings.NewTaskServiceV2(
+		pr.TaskServiceConfig{
+			ContainerNetwork: config.Flow.Network,
+			TaskName:         "connector-proxy",
+			Plane:            config.Plane(),
+			Process:          f.localProcessSpec(),
+		},
+		func(log ops.Log) { ops.LogToLogrus(log, "connector-proxy") },
+	)
+	if err != nil {
+		return fmt.Errorf("creating V2 connector proxy task service: %w", err)
 	}
-	runtime.RegisterConnectorProxyServer(args.Server.GRPCServer, connectorProxy)
-	capture.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
-	derive.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
-	materialize.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
+	pcn.RegisterConnectorServer(args.Server.GRPCServer,
+		&connectorProxyV2{conn: f.proxySvcV2.Conn()})
+
+	// Drop the singleton on shutdown. Closing its client connection aborts any
+	// in-flight proxied RPCs first, so this doesn't wait on a long-running
+	// connector.
+	args.Tasks.Queue("connector-proxy-v2", func() error {
+		<-args.Tasks.Context().Done()
+		f.proxySvcV2.Drop()
+		return nil
+	})
 
 	networkProxy, err := network.NewFrontend(
 		f.tap,

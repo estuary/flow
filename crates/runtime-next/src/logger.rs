@@ -115,29 +115,6 @@ pub enum LogEvent<'a> {
         binding: Option<usize>,
         schema: &'a schemars::Schema,
     },
-
-    /// A connector container started and is dialed. Lower-level network /
-    /// codec detail is logged separately at debug by `container::start`.
-    #[non_exhaustive]
-    ContainerStarted {
-        image: &'a str,
-        container: &'a proto::Container,
-    },
-
-    /// A connector container is being torn down (its [`Guard`] was dropped at
-    /// session end or on error).
-    ///
-    /// [`Guard`]: crate::container::Guard
-    #[non_exhaustive]
-    ContainerStopped { image: &'a str },
-
-    /// A transient image-pull failure that will be retried.
-    #[non_exhaustive]
-    ImagePullRetry {
-        image: &'a str,
-        attempt: u32,
-        error: &'a str,
-    },
 }
 
 impl<'a> LogEvent<'a> {
@@ -214,31 +191,6 @@ impl<'a> LogEvent<'a> {
                 }
                 fields.push(("schema", json_field(schema)));
                 (ops::LogLevel::Info, "inferred schema updated")
-            }
-            LogEvent::ContainerStarted {
-                image, container, ..
-            } => {
-                fields.push(("image", json_field(image)));
-                fields.push(("container", json_field(container)));
-                (ops::LogLevel::Info, "started connector container")
-            }
-            LogEvent::ContainerStopped { image, .. } => {
-                fields.push(("image", json_field(image)));
-                (ops::LogLevel::Debug, "stopped connector container")
-            }
-            LogEvent::ImagePullRetry {
-                image,
-                attempt,
-                error,
-                ..
-            } => {
-                fields.push(("image", json_field(image)));
-                fields.push(("attempt", json_field(attempt)));
-                fields.push(("error", json_field(error)));
-                (
-                    ops::LogLevel::Warn,
-                    "transient error pulling image (will retry)",
-                )
             }
         };
 
@@ -421,12 +373,6 @@ mod test {
         };
         let schema: schemars::Schema =
             serde_json::from_value(serde_json::json!({"type": "object"})).unwrap();
-        let container = proto::Container {
-            ip_addr: "10.0.0.2".to_string(),
-            ..Default::default()
-        };
-        let image = "ghcr.io/estuary/source-hello-world:dev";
-
         let logs: Vec<serde_json::Value> = [
             LogEvent::Persist { persist: &persist },
             LogEvent::Applied {
@@ -445,16 +391,6 @@ mod test {
                 collection_name: "acmeCo/collection",
                 binding: None,
                 schema: &schema,
-            },
-            LogEvent::ContainerStarted {
-                image,
-                container: &container,
-            },
-            LogEvent::ContainerStopped { image },
-            LogEvent::ImagePullRetry {
-                image,
-                attempt: 2,
-                error: "TLS handshake timeout",
             },
         ]
         .iter()
@@ -516,32 +452,6 @@ mod test {
             },
             "level": "info",
             "message": "inferred schema updated"
-          },
-          {
-            "fields": {
-              "container": {
-                "ipAddr": "10.0.0.2"
-              },
-              "image": "ghcr.io/estuary/source-hello-world:dev"
-            },
-            "level": "info",
-            "message": "started connector container"
-          },
-          {
-            "fields": {
-              "image": "ghcr.io/estuary/source-hello-world:dev"
-            },
-            "level": "debug",
-            "message": "stopped connector container"
-          },
-          {
-            "fields": {
-              "attempt": 2,
-              "error": "TLS handshake timeout",
-              "image": "ghcr.io/estuary/source-hello-world:dev"
-            },
-            "level": "warn",
-            "message": "transient error pulling image (will retry)"
           }
         ]
         "#);

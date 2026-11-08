@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"testing"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	"github.com/estuary/flow/go/labels"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 func TestParseSNI(t *testing.T) {

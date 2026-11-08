@@ -1,6 +1,6 @@
 use prost::Message;
 use proto_flow::flow::SerPolicy;
-use proto_flow::{capture, derive, flow, flow::inference, materialize, ops};
+use proto_flow::{capture, connector, derive, flow, flow::inference, materialize, ops};
 use proto_gazette::{broker, consumer};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -115,10 +115,10 @@ fn ex_label_selector() -> broker::LabelSelector {
 
 fn ex_secrets() -> std::collections::BTreeMap<String, String> {
     [
-        ("".to_string(), "acmeCo/whole-config".to_string()),
+        ("acmeCo/whole-config".to_string(), "".to_string()),
         (
-            "/credentials/password".to_string(),
             "acmeCo/password".to_string(),
+            "/credentials/password".to_string(),
         ),
     ]
     .into()
@@ -211,6 +211,17 @@ fn ex_collection_spec() -> flow::CollectionSpec {
     }
 }
 
+fn ex_connector_spec(resource_path_pointers: &[&str]) -> flow::ConnectorSpec {
+    flow::ConnectorSpec {
+        protocol: 3032023,
+        config_schema_json: json!({"type": "object"}).to_string().into(),
+        resource_config_schema_json: json!({"type": "object", "properties": {"table": {"type": "string", "x-collection-name": true}}}).to_string().into(),
+        documentation_url: "https://example/docs".to_string(),
+        oauth2: Some(ex_oauth2()),
+        resource_path_pointers: resource_path_pointers.iter().map(|p| p.to_string()).collect(),
+    }
+}
+
 fn ex_capture_spec() -> flow::CaptureSpec {
     flow::CaptureSpec {
         name: "acmeCo/capture".to_string(),
@@ -233,6 +244,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
         created_at: "2025-07-09".to_string(),
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
+        connector_spec: Some(Box::new(ex_connector_spec(&["/schema", "/table"]))),
     }
 }
 
@@ -276,6 +288,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
         redact_salt: b"test-derivation-salt".to_vec().into(),
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
+        connector_spec: Some(Box::new(ex_connector_spec(&[]))),
     }));
 
     spec
@@ -338,6 +351,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         sync_schedule_json: json!({"baseInterval": "4h", "timezone": "America/New_York", "windows": [{"interval": "30m", "start": "09:00", "end": "17:00"}]}).to_string().into(),
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
+        connector_spec: Some(Box::new(ex_connector_spec(&[]))),
     }
 }
 
@@ -377,6 +391,20 @@ fn ex_connector_state() -> flow::ConnectorState {
     flow::ConnectorState {
         updated_json: json!({"state":"update"}).to_string().into(),
         merge_patch: true,
+    }
+}
+
+fn ex_connector_response() -> connector::Response {
+    connector::Response {
+        kind: Some(connector::response::Kind::Started(
+            connector::response::Started {
+                codec: connector::response::started::Codec::Proto as i32,
+                spec: Some(connector::response::started::Spec::Derive(Box::new(
+                    derive::response::Spec::default(),
+                ))),
+                ..Default::default()
+            },
+        )),
     }
 }
 
@@ -475,6 +503,7 @@ fn ex_capture_requests() -> Vec<(&'static str, capture::Request)> {
             last_version: "11:22:33:44".to_string(),
             linked_collections: Vec::new(),
             secrets: ex_secrets(),
+            project_root: "file:///project/root".to_string(),
         })),
         Kind::Apply(Box::new(capture::request::Apply {
             capture: Some(ex_capture_spec()),
@@ -564,6 +593,11 @@ fn ex_capture_responses() -> Vec<(&'static str, capture::Response)> {
             bindings: vec![capture::response::validated::Binding {
                 resource_path: vec!["some".to_string(), "path".to_string()],
             }],
+            generated_files: [(
+                "file:///project/root/uv.lock".to_string(),
+                "version = 1".to_string(),
+            )]
+            .into(),
         }),
         Kind::Applied(capture::response::Applied {
             action_description: "I did some stuff".to_string(),
@@ -831,6 +865,7 @@ fn ex_materialize_requests() -> Vec<(&'static str, materialize::Request)> {
             last_version: "00:11:22:33".to_string(),
             linked_collections: Vec::new(),
             secrets: ex_secrets(),
+            project_root: "file:///project/root".to_string(),
         })),
         Kind::Apply(Box::new(materialize::request::Apply {
             materialization: Some(ex_materialization_spec()),
@@ -972,6 +1007,11 @@ fn ex_materialize_responses() -> Vec<(&'static str, materialize::Response)> {
                     array_truncate_after: 1000,
                 }),
             }],
+            generated_files: [(
+                "file:///project/root/uv.lock".to_string(),
+                "version = 1".to_string(),
+            )]
+            .into(),
         }),
         Kind::Applied(materialize::response::Applied {
             action_description: "I did some stuff".to_string(),
@@ -1356,6 +1396,16 @@ fn test_collection_spec_json() {
 }
 
 #[test]
+fn test_connector_response_json() {
+    insta::assert_snapshot!(json_test(ex_connector_response()));
+}
+
+#[test]
+fn test_connector_response_proto() {
+    insta::assert_snapshot!(proto_test(ex_connector_response()));
+}
+
+#[test]
 fn test_collection_spec_proto() {
     let msg = ex_collection_spec();
     insta::assert_snapshot!(proto_test(msg));
@@ -1395,6 +1445,40 @@ fn test_materialization_spec_json() {
 fn test_materialization_spec_proto() {
     let msg = ex_materialization_spec();
     insta::assert_snapshot!(proto_test(msg));
+}
+
+// `priority` was widened from `uint32` to `int32` so that a binding or
+// transform can be de-prioritized with respect to the default priority of
+// zero. `int32` (not `sint32`) leaves the encoding of non-negative values
+// byte-identical to the prior `uint32` encoding, so a new reader understands
+// an old writer's built spec and vice versa.
+#[test]
+fn test_negative_priority_round_trips() {
+    let binding = |priority| flow::materialization_spec::Binding {
+        priority,
+        ..Default::default()
+    };
+    let transform = |priority| flow::collection_spec::derivation::Transform {
+        priority,
+        ..Default::default()
+    };
+
+    for priority in [i32::MIN, -100, -1, 0, 1, 40, i32::MAX] {
+        _ = json_test(binding(priority));
+        _ = proto_test(binding(priority));
+        _ = json_test(transform(priority));
+        _ = proto_test(transform(priority));
+    }
+
+    // Tag 9 as a varint (0x48), then the plain varint 40.
+    assert_eq!(binding(40).encode_to_vec(), [0x48, 40]);
+    // Negative values are the ten-byte, sign-extended varint of `int32`.
+    assert_eq!(
+        binding(-1).encode_to_vec(),
+        [
+            0x48, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
+        ]
+    );
 }
 
 #[test]
@@ -1596,6 +1680,8 @@ fn test_struct_sizes() {
         materialize::response::Flushed,
         materialize::response::StartedCommit,
         materialize::response::Acknowledged,
+        connector::Request,
+        connector::Response,
         flow::CollectionSpec,
         flow::collection_spec::Derivation,
         flow::collection_spec::derivation::Transform,

@@ -1,0 +1,57 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/from-array-key#/collections/testing~1from-array-key/derive/using/python/files,
+        error: derivation testing/from-array-key uses `files`, which requires the V2 task runtime: set `enable-runtime-v2: "true"` under its `shards.flags`,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/using/python/files,
+        error: list `pyproject.toml` and `int-halve/__init__.py` in `files`: they're this task's manifest and entry point,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/using/python/config,
+        error: `config` cannot have the property `_python`, which is reserved by the connector,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/using/python/config,
+        error: `config` cannot be sealed with `sops`: use a plaintext configuration with a `secrets` stanza instead,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/dependencies,
+        error: `dependencies` is no longer supported: declare them in a `pyproject.toml` listed in `files`,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files,
+        error: derivation testing/int-reverse uses `files`, which requires the V2 task runtime: set `enable-runtime-v2: "true"` under its `shards.flags`,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/..~1escape.py,
+        error: file ../escape.py must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components, and can't be under `.venv/` or `flow_generated/`,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/.venv~1lib.py,
+        error: file .venv/lib.py must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components, and can't be under `.venv/` or `flow_generated/`,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/flow_generated~1sneaky.py,
+        error: file flow_generated/sneaky.py must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components, and can't be under `.venv/` or `flow_generated/`,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/files/lib~1~1double.py,
+        error: file lib//double.py must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components, and can't be under `.venv/` or `flow_generated/`,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/config,
+        error: `config` must be an object,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/python/spec/configSchema,
+        error: at test://example/int-reverse?ptr=/collections/testing~1int-reverse/derive/using/python/spec/configSchema#/properties/a/pattern: regex parse error:
+            (
+            ^
+        error: unclosed group,
+    },
+]

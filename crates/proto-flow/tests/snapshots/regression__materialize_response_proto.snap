@@ -1,5 +1,6 @@
 ---
 source: crates/proto-flow/tests/regression.rs
+assertion_line: 1587
 expression: proto_catalogue(ex_materialize_responses())
 ---
 // spec
@@ -26,7 +27,7 @@ expression: proto_catalogue(ex_materialize_responses())
                                                        00000133
 
 // validated
-|129b010a 98011204 736f6d65 12047061| ........some..pa 00000000
+|12c8010a 98011204 736f6d65 12047061| ........some..pa 00000000
 |74681801 220a0880 800410e8 0718e807| th.."........... 00000010
 |2801323b 0a0d666c 6f775f64 6f63756d| (.2;..flow_docum 00000020
 |656e7412 2a10021a 26746865 20726f6f| ent.*...&the roo 00000030
@@ -35,8 +36,11 @@ expression: proto_catalogue(ex_materialize_responses())
 |3d0a0d66 6c6f775f 646f6375 6d656e74| =..flow_document 00000060
 |122c1006 1a286578 69737469 6e672063| .,...(existing c 00000070
 |6f6c756d 6e206861 7320616e 20696e63| olumn has an inc 00000080
-|6f6d7061 7469626c 65207479 7065|     ompatible type   00000090
-                                                       0000009e
+|6f6d7061 7469626c 65207479 7065122b| ompatible type.+ 00000090
+|0a1c6669 6c653a2f 2f2f7072 6f6a6563| ..file:///projec 000000a0
+|742f726f 6f742f75 762e6c6f 636b120b| t/root/uv.lock.. 000000b0
+|76657273 696f6e20 3d2031|            version = 1      000000c0
+                                                       000000cb
 
 // applied
 |1a2a0a10 49206469 6420736f 6d652073| .*..I did some s 00000000

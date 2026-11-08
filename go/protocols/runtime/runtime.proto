@@ -32,6 +32,10 @@ message TaskServiceConfig {
   string uds_path          = 3;
   string container_network = 4;
   Plane  plane             = 6;
+  // This process: its ID and the reactor's advertised gRPC endpoint. Reported
+  // as `connector.Response.Started.process`, telling a proxied caller which
+  // reactor its connector landed on.
+  protocol.ProcessSpec process = 7;
 }
 
 // ShuffleRequest is the request message of a Shuffle RPC.
@@ -51,7 +55,7 @@ message TaskServiceConfig {
 message ShuffleRequest {
   // Journal to be shuffled.
   string journal = 1
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal" ];
   // Is this a reply of the journal's content? We separate ongoing vs replayed
   // reads of a journal's content into distinct rings.
   bool replay = 2;
@@ -60,10 +64,10 @@ message ShuffleRequest {
 
   // Offset to begin reading the journal from.
   int64 offset = 4
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   // Offset to stop reading the journal at, or zero if unbounded.
   int64 end_offset = 5
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   // Ranges of responsibility which are unique to this reader,
   // against which document shuffle outcomes are matched to determine
   // read eligibility.
@@ -71,7 +75,7 @@ message ShuffleRequest {
 
   // Coordinator is the Shard ID which is responsible for reads of this journal.
   string coordinator = 7
-  [ (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/consumer/protocol.ShardID" ];
   // Resolution header of the |shuffle.coordinator| shard.
   protocol.Header resolution = 8;
 
@@ -103,11 +107,11 @@ message ShuffleResponse {
   string terminal_error = 3;
   // Offset which was read through to produce this ShuffleResponse.
   int64 read_through = 4
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   // WriteHead of the journal as reported by the broker, as of the creation of
   // this ShuffleResponse.
   int64 write_head = 5
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   // Memory arena of this message.
   bytes arena = 6 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
   // Shuffled documents, each encoded in the 'application/json'
@@ -117,7 +121,7 @@ message ShuffleResponse {
   // For a document at index i, its offsets are [ offsets[2*i], offsets[2*i+1]
   // ).
   repeated int64 offsets = 8
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   // UUIDParts of each document.
   repeated flow.UUIDParts uuid_parts = 9 [ (gogoproto.nullable) = false ];
   // Packed, embedded encoding of the shuffle key into a byte string.
@@ -148,9 +152,10 @@ message Container {
   // If this IP is accessible (it may not be, in contexts like Docker Desktop for Mac),
   // then it is *only* accessible from the hosting server.
   string ip_addr = 1;
-  // Network ports which are available for this container.
-  repeated flow.NetworkPort network_ports = 2;
-  // Mapping of ports from `network_ports` to a corresponding "host-ip:port" address,
+  // Network ports which the container's image advertises.
+  // Validation builds them into the task spec's `network_ports`.
+  repeated flow.NetworkPort advertised_ports = 2;
+  // Mapping of published ports to a corresponding "host-ip:port" address,
   // as either IPv4 or IPv6, through which the port can be accessed. If empty,
   // then the container `ip_addr` should be used directly.
   map<uint32, string> mapped_host_ports = 3;
@@ -313,32 +318,6 @@ message CombineResponse {
 
 service Combiner {
   rpc Combine(stream CombineRequest) returns (stream CombineResponse);
-}
-
-message ConnectorProxyRequest {
-  // No requests are sent by the client in a ProxyConnectors RPC. However:
-  // * The client should leave its stream open while the proxy is in use.
-  // * Then, it sends EOF to begin a graceful stop of the proxy.
-  // * The response stream will EOF only after all logs have been yielded.
-}
-
-message ConnectorProxyResponse {
-  // Address to dial for invoking connector RPCs.
-  // Sent with the first response.
-  string address = 1
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Endpoint" ];
-
-  // Proxy ID to be attached as metadata key "proxy-id" to connector RPCs.
-  // Sent with the first response.
-  string proxy_id = 2;
-
-  // Log emitted by connectors invoked using `proxy_id`.
-  // All messages following the first are logs.
-  ops.Log log = 3;
-}
-
-service ConnectorProxy {
-  rpc ProxyConnectors(stream ConnectorProxyRequest) returns (stream ConnectorProxyResponse);
 }
 
 // =====================================================================
@@ -552,6 +531,9 @@ message Recover {
   // resolve a BackfillComplete's truncated_at. Resolved from "AB:{state_key}"
   // keys by the scan.
   map<uint32, fixed64> active_backfills = 11;
+  // Gap floors, keyed by binding index: each the maximum `gap_floor` of any
+  // journal of the binding. Resolved from "GF:{state_key}" keys by the scan.
+  map<uint32, fixed64> gap_floors = 12;
 }
 
 // Persist is sent by the leader to shard zero when state must be durably
@@ -632,6 +614,11 @@ message Persist {
     // Effect: Delete "AB:{state_key}" (state_key resolved by the encoder).
     uint32 complete_binding = 19;
   }
+  // Gap floors, keyed by binding index: each the maximum `gap_floor` of any
+  // journal of the binding, cumulative over the session. Only bindings whose
+  // floor rose since the prior Persist are present.
+  // Effect: Put fixed64-LE under "GF:{state_key}" (state_key resolved by the encoder).
+  map<uint32, fixed64> gap_floors = 20;
 }
 
 // ActiveBackfillBegin records a binding's backfill begin clock — its
@@ -743,6 +730,7 @@ message Synced {
 }
 
 // Stop is sent Controller → Shard → Leader to request graceful shutdown.
+// A shard may also originate Stop to shed resources held by its session.
 message Stop {}
 
 // Stopped confirms the session has shut down. The leader sends Stopped

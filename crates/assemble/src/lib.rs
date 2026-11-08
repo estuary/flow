@@ -589,14 +589,14 @@ pub fn encode_state_key(resource_path: &[impl AsRef<str>], backfill: u32) -> Str
 
 /// secrets maps a task's model `secrets` stanza into the representation carried
 /// by its built spec and by the Validate / Discover requests of its connector:
-/// a JSON pointer into the endpoint configuration, mapped to the catalog name
-/// of the secret which the runtime resolves and merge-patches at that location.
+/// a catalog secret name mapped to the JSON pointer where the runtime resolves
+/// and merge-patches it into the endpoint configuration.
 pub fn secrets(
-    stanza: &std::collections::BTreeMap<models::JsonPointer, models::Secret>,
+    stanza: &std::collections::BTreeMap<models::Secret, models::JsonPointer>,
 ) -> std::collections::BTreeMap<String, String> {
     stanza
         .iter()
-        .map(|(pointer, secret)| (pointer.to_string(), secret.to_string()))
+        .map(|(secret, pointer)| (secret.to_string(), pointer.to_string()))
         .collect()
 }
 
@@ -615,7 +615,7 @@ pub fn compression_codec(t: models::CompressionCodec) -> broker::CompressionCode
 pub fn pb_datetime(t: &time::OffsetDateTime) -> pbjson_types::Timestamp {
     pbjson_types::Timestamp {
         seconds: t.unix_timestamp() as i64,
-        nanos: 0, // Deliberately truncated.
+        nanos: t.nanosecond() as i32,
     }
 }
 
@@ -787,6 +787,18 @@ mod test {
         assert_eq!(
             super::extract_generation_id_suffix("capture/some/task/name"),
             models::Id::zero()
+        );
+    }
+
+    #[test]
+    fn pb_datetime_keeps_sub_second_precision() {
+        let t = time::OffsetDateTime::from_unix_timestamp_nanos(1_791_881_704_420_384_000).unwrap();
+        assert_eq!(
+            super::pb_datetime(&t),
+            pbjson_types::Timestamp {
+                seconds: 1_791_881_704,
+                nanos: 420_384_000,
+            }
         );
     }
 }

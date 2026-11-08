@@ -33,7 +33,6 @@ pub async fn update_l2_reporting(
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::ApiError> {
     let claims = env.claims()?;
-    let user_id = claims.sub;
 
     let policy_result = super::evaluate_names_authorization(
         env.snapshot(),
@@ -105,7 +104,6 @@ pub async fn update_l2_reporting(
     let models::Derivation {
         transforms: l2_stats_new_transforms,
         using: l2_stats_new_using,
-        shards: l2_stats_new_shards,
         ..
     } = &mut l2_stats_new
         .model
@@ -277,11 +275,6 @@ export class Derivation extends Types.IDerivation {"#
     *l2_stats_new_module_raw =
         models::RawValue::from_value(&serde_json::json!(l2_stats_new_module));
 
-    l2_stats_new_shards.flags.insert(
-        models::Token::new(models::ENABLE_RUNTIME_V2),
-        models::Token::new("true"),
-    );
-
     let draft = tables::DraftCatalog {
         collections: tables::DraftCollections::from_iter([
             l2_inferred,
@@ -294,7 +287,7 @@ export class Derivation extends Types.IDerivation {"#
 
     let logs_token = uuid::Uuid::new_v4();
     let publication = DraftPublication {
-        user_id,
+        subject: claims.subject(),
         logs_token,
         draft,
         dry_run,
@@ -407,10 +400,7 @@ mod test {
 
         let text = response.text().await.unwrap();
         assert!(
-            text.contains(
-                "alice@example.com is not authorized to access prefix or name 'ops/' \
-                 with required capability admin"
-            ),
+            text.contains("alice@example.com is not authorized to access prefix or name 'ops/'"),
             "unexpected denial body: {text}"
         );
     }

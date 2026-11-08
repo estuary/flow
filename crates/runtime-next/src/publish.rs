@@ -111,9 +111,9 @@ pub trait PublisherFactory: Clone + Send + Sync + 'static {
     type Publisher: Publisher;
 
     /// Open a [`Publisher`] for the given task targets. `collection_specs`
-    /// are the distinct collections this task writes (empty for a leader's
-    /// stats-only publisher), and `binding_targets` maps each task binding to
-    /// its collection. `stats_journal` is the fixed ops-stats target.
+    /// are the distinct collections this task writes, and `binding_targets`
+    /// maps each task binding to its collection (empty for a leader's
+    /// stats-only publisher). `stats_journal` is the fixed ops-stats target.
     /// `authz_subject` and `producer` identify the publisher.
     fn open(
         &self,

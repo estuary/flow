@@ -111,13 +111,15 @@ message Request {
     // `projections[*].is_primary_key` to match, so same name != same spec.
     repeated flow.CollectionSpec linked_collections = 7
         [ (gogoproto.nullable) = false ];
-    // Secrets of this materialization, mapping a JSON pointer within `config_json`
-    // to the catalog name of a secret which the runtime resolves and merges
+    // Secrets of this materialization, mapping a catalog secret name to its JSON
+    // pointer within `config_json`. The runtime resolves and merges each secret
     // into that location, as an RFC 7396 merge patch, before handing the
-    // configuration to the connector. Entries are applied in lexicographic
-    // pointer order. Empty if this materialization uses no secrets, or if
-    // `config_json` is instead sops-encrypted.
+    // configuration to the connector.
     map<string, string> secrets = 8;
+    // URL of the directory of this task's specification, without a trailing
+    // slash. The connector must locate each file it generates underneath this
+    // URL, and return them with Response.Validated.generated_files.
+    string project_root = 9;
   }
   Validate validate = 2;
 
@@ -179,11 +181,9 @@ message Request {
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "state"
     ];
-    // Sealed (encrypted) endpoint configuration of this materialization.
-    // This is the SOPS-encrypted document from which the runtime derived the
-    // decrypted `materialization.config_json`, including any `sops` metadata stanza.
-    // Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
-    // overlay fields without re-encrypting the configuration.
+    // Endpoint configuration of this materialization exactly as published,
+    // before whole-document unsealing or secrets-stanza injection. Connectors
+    // may reuse it as the non-secret baseline of a `configUpdate`.
     bytes sealed_config_json = 5 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "sealedConfig"
@@ -497,6 +497,12 @@ message Response {
       // Next tag: 7
     }
     repeated Binding bindings = 1;
+    // Generated files returned by the connector.
+    // Keys are absolute URLs of the generated resource, and values are its
+    // generated file content.
+    //
+    // Each key must be underneath Request.Validate.project_root.
+    map<string, string> generated_files = 2;
   }
   Validated validated = 2;
 

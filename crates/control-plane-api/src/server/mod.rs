@@ -14,6 +14,8 @@ mod create_data_plane;
 mod error;
 pub mod public;
 pub mod snapshot;
+mod task_residency;
+mod task_update;
 mod update_l2_reporting;
 
 pub use error::{ApiError, AuthZRetry};
@@ -35,13 +37,19 @@ pub enum Rejection {
 
 /// App is the wired application state of the control-plane API.
 pub struct App {
-    pub _id_generator: std::sync::Mutex<models::IdGenerator>,
+    pub oauth: Option<Arc<public::oauth::Config>>,
+    pub id_generator: std::sync::Mutex<models::IdGenerator>,
     pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+    pub catalog_stats: Option<Arc<catalog_stats::Client>>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
     pub pg_pool: sqlx::PgPool,
     pub publisher: crate::publications::Publisher,
     pub snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+    /// Client for the Fly.io Sprites API, which backs GraphQL sandboxes.
+    /// `None` when unconfigured, in which case the sandbox mutations fail
+    /// closed. See `server::public::graphql::sandboxes`.
+    pub sprites: Option<Arc<crate::sprites::Client>>,
     /// Signing secret for verifying inbound Stripe webhook deliveries. `None`
     /// when unconfigured, in which case the webhook endpoint fails closed rather
     /// than trusting any request. See `server::public::stripe_webhooks`.
@@ -52,20 +60,25 @@ impl App {
     pub fn new(
         id_generator: models::IdGenerator,
         billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+        catalog_stats: Option<Arc<catalog_stats::Client>>,
         jwt_secret: &[u8],
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        sprites: Option<Arc<crate::sprites::Client>>,
         stripe_webhook_secret: Option<String>,
     ) -> Self {
         Self {
-            _id_generator: std::sync::Mutex::new(id_generator),
+            oauth: None,
+            id_generator: std::sync::Mutex::new(id_generator),
             billing_provider,
+            catalog_stats,
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
             pg_pool,
             publisher,
             snapshot,
+            sprites,
             stripe_webhook_secret,
         }
     }
@@ -111,12 +124,11 @@ pub fn evaluate_names_authorization<'r, Iter, S, C>(
 where
     Iter: IntoIterator<Item = S>,
     S: AsRef<str> + std::fmt::Display,
-    C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
+    C: Into<models::authz::CapabilitySet> + Copy,
 {
+    let subject = claims.subject();
     let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
+        email: user_email, ..
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
@@ -124,43 +136,16 @@ where
         if !tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            *user_id,
+            &subject,
             prefix_or_name.as_ref(),
             min_capability,
         ) {
             return Err(tonic::Status::permission_denied(format!(
-                "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
+                "{user_email} is not authorized to access prefix or name '{prefix_or_name}'",
             )));
         }
     }
     Ok((None, ()))
-}
-
-/// Looks up the user's authorization grants for each item in
-/// `prefixes_or_names`, and calls the provided `attach` function with each
-/// item and its capability. The `Some` results are returned in a vec.
-pub fn attach_user_capabilities<I, F, T>(
-    snapshot: &Snapshot,
-    claims: &crate::ControlClaims,
-    prefixes_or_names: I,
-    mut attach: F,
-) -> Vec<T>
-where
-    I: IntoIterator<Item = String>,
-    F: FnMut(String, Option<models::Capability>) -> Option<T>,
-{
-    prefixes_or_names
-        .into_iter()
-        .flat_map(|prefix| {
-            let capability = tables::UserGrant::get_user_capability(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                claims.sub,
-                &prefix,
-            );
-            attach(prefix, capability)
-        })
-        .collect()
 }
 
 /// Build the agent's API router.
@@ -228,6 +213,8 @@ pub fn build_router(
             "/authorize/user/task",
             post(authorize_user_task::authorize_user_task).options(preflight_handler),
         )
+        .route("/task/set-secret", post(task_update::task_set_secret))
+        .route("/task/update-config", post(task_update::task_update_config))
         .route(
             "/admin/create-data-plane",
             post(create_data_plane::create_data_plane),
@@ -237,6 +224,11 @@ pub fn build_router(
             post(update_l2_reporting::update_l2_reporting),
         )
         .merge(public_api_router)
+        .merge(if app.oauth.is_some() {
+            public::oauth::router()
+        } else {
+            axum::Router::new()
+        })
         .layer(
             tower_http::trace::TraceLayer::new_for_http()
                 .on_failure(tower_http::trace::DefaultOnFailure::new().level(tracing::Level::INFO)),
@@ -285,6 +277,32 @@ impl axum::response::IntoResponse for Rejection {
     }
 }
 
+/// Returns whether `user_id` is a service-account identity.
+///
+/// Service-account credentials are administered through createApiKey /
+/// revokeApiKey. The self-service refresh-token mutations and the
+/// restricted-token mint reject a service-account caller: a valid key could
+/// otherwise mint replacement or derived credentials for its own account —
+/// sidestepping the CreateApiKey gate and the admin-chosen expiry — or revoke
+/// keys outside the admin-facing flow.
+pub(crate) async fn is_service_account(
+    pg_pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+) -> sqlx::Result<bool> {
+    let is_service_account = sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM internal.service_accounts WHERE user_id = $1
+        ) AS "is_service_account!"
+        "#,
+        user_id,
+    )
+    .fetch_one(pg_pool)
+    .await?;
+
+    Ok(is_service_account)
+}
+
 pub async fn exchange_refresh_token(
     pg_pool: &sqlx::PgPool,
     refresh_token: &str,
@@ -314,6 +332,7 @@ pub async fn exchange_refresh_token(
 /// Returns an `Unverified` wrapper to make clear the claims have not been verified.
 fn parse_untrusted_data_plane_claims(
     token: &str,
+    required_capability: u32,
 ) -> tonic::Result<tokens::jwt::Unverified<proto_gazette::Claims>> {
     let unverified = tokens::jwt::parse_unverified::<proto_gazette::Claims>(token.as_bytes())?;
     let claims = unverified.claims();
@@ -330,47 +349,18 @@ fn parse_untrusted_data_plane_claims(
             "missing required JWT `iss` claim (data-plane FQDN)",
         ));
     }
-    if claims.cap & proto_flow::capability::AUTHORIZE == 0 {
-        return Err(tonic::Status::unauthenticated(
-            "missing required AUTHORIZE capability",
-        ));
+    if claims.cap & required_capability != required_capability {
+        let required_capability = match required_capability {
+            proto_flow::capability::AUTHORIZE => "AUTHORIZE".to_string(),
+            proto_flow::capability::TASK_UPDATE => "TASK_UPDATE".to_string(),
+            other => format!("{other:#x}"),
+        };
+        return Err(tonic::Status::unauthenticated(format!(
+            "missing required {required_capability} capability"
+        )));
     }
 
     Ok(unverified)
-}
-
-/// Read the wrapped document of `name` from the DB, for a caller already
-/// authorized to have it. Note `/authorize/task/decrypt-secret` also implements
-/// a variant of this query which performs additional storage-mapping AuthZ,
-/// for Discover / Validate cases of novel tasks.
-async fn fetch_secret(
-    pg_pool: &sqlx::PgPool,
-    name: &models::Name,
-) -> Result<models::authorizations::DecryptAuthorization, ApiError> {
-    let row = sqlx::query!(
-        r#"
-        SELECT
-            document AS "document!: models::RawValue",
-            id AS "secret_id!: models::Id"
-        FROM internal.secrets
-        WHERE catalog_name = $1::text::catalog_name
-        "#,
-        name.as_str(),
-    )
-    .fetch_optional(pg_pool)
-    .await?;
-
-    // Absence is terminal: unlike a grant, a secret is read at its current
-    // value, so a later read cannot turn this answer around.
-    let Some(row) = row else {
-        return Err(tonic::Status::not_found(format!("secret '{name}' does not exist")).into());
-    };
-
-    Ok(models::authorizations::DecryptAuthorization {
-        document: Some(row.document),
-        secret_id: Some(row.secret_id),
-        retry_millis: 0,
-    })
 }
 
 fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
@@ -421,6 +411,8 @@ mod tests {
             role: "authenticated".to_string(),
             aud: "authenticated".to_string(),
             email: Some("user@example.test".to_string()),
+            capability_mask: None,
+            prefix_mask: None,
         }
     }
 
@@ -444,8 +436,18 @@ mod tests {
         assert_eq!(status.code(), tonic::Code::PermissionDenied);
         assert_eq!(
             status.message(),
-            "user@example.test is not authorized to access prefix or name 'ops/' with required capability admin"
+            "user@example.test is not authorized to access prefix or name 'ops/'"
         );
+
+        // Capability bits stay internal even when the caller checks one directly.
+        let bit_denial = evaluate_names_authorization(
+            &snapshot,
+            &claims(user),
+            models::authz::Capability::EditBilling,
+            ["ops/"],
+        )
+        .unwrap_err();
+        assert_eq!(bit_denial.message(), status.message());
 
         // A read grant to `ops/` is not admin.
         let snapshot = snapshot_of_grants(&[(user, "ops/", Read)], &[]);

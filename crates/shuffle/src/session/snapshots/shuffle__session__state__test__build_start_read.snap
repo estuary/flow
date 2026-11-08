@@ -38,7 +38,7 @@ expression: "&[start_read_f, start_read_f2, start_read_g]"
             ProducerFrontier {
                 producer: 72057594037927936,
                 last_commit: 1955086864000000000,
-                hinted_commit: 1955086880000000000,
+                hinted_commit: 0,
                 offset: -500,
             },
         ],
@@ -74,7 +74,14 @@ expression: "&[start_read_f, start_read_f2, start_read_g]"
         create_revision: 1,
         mod_revision: 1,
         route: None,
-        checkpoint: [],
+        checkpoint: [
+            ProducerFrontier {
+                producer: 72057594037927936,
+                last_commit: 1955086896000000000,
+                hinted_commit: 0,
+                offset: -900,
+            },
+        ],
     },
     StartRead {
         binding: 0,

@@ -1,0 +1,44 @@
+---
+source: crates/derive-python/src/project/codegen/mod.rs
+expression: starter_output
+---
+"""Derivation patterns/sums.
+
+The platform runs the `Derivation` class which this directory exports. It must
+directly subclass the generated `IDerivation`: as `class Derivation(IDerivation)`,
+or `class Derivation(IDerivation[MyConfig, MyResourceConfig, MyState])` to parse
+its configurations and state into types of its own. Modules of this directory
+import one another relatively (`from .helpers import ...`).
+
+Each transform has a `transform_{name}` method, named for the transform,
+which yields the documents it derives from each read. This starter publishes
+nothing.
+"""
+import typing
+from collections.abc import AsyncIterator
+from patterns.sums import Document, EndpointConfig, IDerivation, Request, ResourceConfig, Response
+
+
+class Derivation(IDerivation):
+    def __init__(self, config: EndpointConfig):
+        self.config = config
+
+    @classmethod
+    async def open(
+        cls, open: Request.Open[EndpointConfig, ResourceConfig, dict[str, typing.Any]]
+    ) -> tuple[typing.Self, Response.Opened]:
+        # `EndpointConfig` is generated from the derivation's `spec.configSchema`,
+        # and `ResourceConfig` from its `spec.resourceConfigSchema`.
+        return cls(open.collection.derivation.config), Response.Opened()
+
+    async def transform_from_ints(self, read: Request.ReadFromInts) -> AsyncIterator[Document]:
+        # Yield each `Document` derived from `read.doc`, such as
+        # `yield Document(...)`. This starter publishes nothing.
+        if False:
+            yield
+
+    async def transform_process_strings(self, read: Request.ReadProcessStrings) -> AsyncIterator[Document]:
+        # Yield each `Document` derived from `read.doc`, such as
+        # `yield Document(...)`. This starter publishes nothing.
+        if False:
+            yield

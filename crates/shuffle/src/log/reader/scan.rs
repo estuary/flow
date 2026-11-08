@@ -56,6 +56,21 @@ pub struct Remainder {
     producers: Box<[uuid::Producer]>,
 }
 
+/// Count distinct segments pinned by log-ordered remainders.
+/// Blocks from each segment must share one `Arc`, as provided by `Reader`.
+pub fn pinned_segments(remainders: &VecDeque<Remainder>) -> usize {
+    let mut count = 0;
+    let mut prior: Option<&std::sync::Arc<Segment>> = None;
+
+    for Remainder { segment, .. } in remainders {
+        if !prior.is_some_and(|prior| std::sync::Arc::ptr_eq(prior, segment)) {
+            count += 1;
+        }
+        prior = Some(segment);
+    }
+    count
+}
+
 /// Iterator over committed entries within a single block.
 ///
 /// Created by `FrontierScan::scan_block()`.
@@ -562,6 +577,52 @@ mod test {
 
         let (_, _, remainders) = scan.into_parts();
         assert!(remainders.is_empty());
+    }
+
+    #[test]
+    fn test_pinned_segments_counts_distinct_segments() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut writer = log::Writer::new(dir.path(), 0).unwrap();
+        write_block(&mut writer, &[("j/one", 1, 0, 10)]);
+        write_block(&mut writer, &[("j/one", 1, 0, 20)]);
+
+        let frontier = make_frontier(
+            &[log::Lsn::new(1, 1)],
+            vec![jf("j/one", 0, vec![pf_raw(5, 100)])],
+        );
+        let reader = Reader::new(dir.path(), 0);
+        let scan = FrontierScan::new(frontier, reader, VecDeque::new()).unwrap();
+        let (_entries, scan) = collect_entries(scan);
+        let (_, _, remainders) = scan.into_parts();
+
+        assert_eq!(remainders.len(), 2);
+        assert_eq!(
+            pinned_segments(&remainders),
+            1,
+            "both remainder blocks share one segment file"
+        );
+
+        // A zero segment threshold rolls a segment after every block.
+        let dir = tempfile::tempdir().unwrap();
+        let mut writer = log::Writer::with_thresholds(dir.path(), 0, usize::MAX, 0).unwrap();
+        write_block(&mut writer, &[("j/one", 1, 0, 10)]);
+        write_block(&mut writer, &[("j/one", 1, 0, 20)]);
+
+        let frontier = make_frontier(
+            &[log::Lsn::new(2, 0)],
+            vec![jf("j/one", 0, vec![pf_raw(5, 100)])],
+        );
+        let reader = Reader::new(dir.path(), 0);
+        let scan = FrontierScan::new(frontier, reader, VecDeque::new()).unwrap();
+        let (_entries, scan) = collect_entries(scan);
+        let (_, _, remainders) = scan.into_parts();
+
+        assert_eq!(remainders.len(), 2);
+        assert_eq!(
+            pinned_segments(&remainders),
+            2,
+            "each remainder block pins its own segment file"
+        );
     }
 
     #[test]

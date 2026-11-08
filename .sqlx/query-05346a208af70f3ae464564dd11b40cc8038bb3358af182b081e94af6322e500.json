@@ -6,17 +6,35 @@
       {
         "ordinal": 0,
         "name": "id: models::Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "internal.data_plane_private_links",
+            "name": "id"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "generation",
-        "type_info": "Int8"
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "internal.data_plane_private_links",
+            "name": "generation"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "config!: sqlx::types::Json<stack::PrivateLink>",
-        "type_info": "Jsonb"
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "internal.data_plane_private_links",
+            "name": "config"
+          }
+        }
       }
     ],
     "parameters": {

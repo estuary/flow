@@ -1,0 +1,13 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: "updated[\"data\"][\"draft\"][\"specs\"][\"edges\"]"
+---
+[
+  {
+    "node": {
+      "catalogName": "aliceCo/data/foo",
+      "detail": null,
+      "expectPubId": null
+    }
+  }
+]

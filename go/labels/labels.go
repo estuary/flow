@@ -3,7 +3,7 @@ package labels
 import (
 	"strings"
 
-	gazLabels "go.gazette.dev/core/labels"
+	gazLabels "github.com/estuary/flow/go/gazette/labels"
 )
 
 // Heads up! Constants in this file must be mirrored to
@@ -19,6 +19,8 @@ const (
 	// Cordon is a label that indicates that this journal or shard is cordoned
 	// due to an ongoing data-plane migration.
 	Cordon = "estuary.dev/cordon"
+	// DiskReplayFrom is the earliest journal offset needed to rebuild a disk.
+	DiskReplayFrom = "estuary.dev/disk-replay-from"
 	// Field is a logical partition of the Collection that's implemented by this
 	// journal.
 	FieldPrefix = "estuary.dev/field/"
@@ -98,7 +100,7 @@ const (
 	SecretName = "estuary.dev/secret-name"
 )
 
-// A re-exported subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.
+// A re-exported subset of Gazette labels, defined in github.com/estuary/flow/go/gazette/labels/labels.go.
 const (
 	ContentType             = gazLabels.ContentType
 	ContentType_JSONLines   = gazLabels.ContentType_JSONLines
@@ -121,6 +123,8 @@ func IsRuntimeLabel(label string) bool {
 	case
 		// Cordoning is tracked in the data-plane.
 		Cordon,
+		// A disk's recovery floor is stored by the disk-daemon on its journal.
+		DiskReplayFrom,
 		// Key splits are performed dynamically by the runtime.
 		KeyBegin, KeyEnd,
 		// R-Clock splits are performed dynamically by the runtime.

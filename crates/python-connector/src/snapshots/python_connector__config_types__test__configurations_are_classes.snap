@@ -1,0 +1,33 @@
+---
+source: crates/python-connector/src/config_types.rs
+expression: "[render(Some(serde_json::json!({\n    \"type\": [\"object\", \"null\"], \"properties\": {\"a\": {\"type\": \"string\"}},\n}))), render(Some(serde_json::json!({}))), render(None),\nrender(Some(serde_json::json!({\"type\": \"string\"}))),].join(\"\\n=====\\n\")"
+---
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    a: _typing.Optional[str] = None
+
+
+
+
+=====
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+
+
+
+
+=====
+# Generated for the endpoint configuration of `spec.configSchema`.
+class EndpointConfig(_pydantic.BaseModel):
+    pass
+
+
+
+
+=====
+# Generated for the endpoint configuration of `spec.configSchema`.
+EndpointConfig: _typing.TypeAlias = str

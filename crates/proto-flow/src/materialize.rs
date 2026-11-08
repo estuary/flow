@@ -85,17 +85,20 @@ pub mod request {
         /// `projections\[*\].is_primary_key` to match, so same name != same spec.
         #[prost(message, repeated, tag = "7")]
         pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
-        /// Secrets of this materialization, mapping a JSON pointer within `config_json`
-        /// to the catalog name of a secret which the runtime resolves and merges
+        /// Secrets of this materialization, mapping a catalog secret name to its JSON
+        /// pointer within `config_json`. The runtime resolves and merges each secret
         /// into that location, as an RFC 7396 merge patch, before handing the
-        /// configuration to the connector. Entries are applied in lexicographic
-        /// pointer order. Empty if this materialization uses no secrets, or if
-        /// `config_json` is instead sops-encrypted.
+        /// configuration to the connector.
         #[prost(btree_map = "string, string", tag = "8")]
         pub secrets: ::prost::alloc::collections::BTreeMap<
             ::prost::alloc::string::String,
             ::prost::alloc::string::String,
         >,
+        /// URL of the directory of this task's specification, without a trailing
+        /// slash. The connector must locate each file it generates underneath this
+        /// URL, and return them with Response.Validated.generated_files.
+        #[prost(string, tag = "9")]
+        pub project_root: ::prost::alloc::string::String,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {
@@ -196,11 +199,9 @@ pub mod request {
         /// Last-persisted connector checkpoint state from a previous session.
         #[prost(bytes = "bytes", tag = "4")]
         pub state_json: ::prost::bytes::Bytes,
-        /// Sealed (encrypted) endpoint configuration of this materialization.
-        /// This is the SOPS-encrypted document from which the runtime derived the
-        /// decrypted `materialization.config_json`, including any `sops` metadata stanza.
-        /// Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
-        /// overlay fields without re-encrypting the configuration.
+        /// Endpoint configuration of this materialization exactly as published,
+        /// before whole-document unsealing or secrets-stanza injection. Connectors
+        /// may reuse it as the non-secret baseline of a `configUpdate`.
         #[prost(bytes = "bytes", tag = "5")]
         pub sealed_config_json: ::prost::bytes::Bytes,
     }
@@ -411,6 +412,16 @@ pub mod response {
     pub struct Validated {
         #[prost(message, repeated, tag = "1")]
         pub bindings: ::prost::alloc::vec::Vec<validated::Binding>,
+        /// Generated files returned by the connector.
+        /// Keys are absolute URLs of the generated resource, and values are its
+        /// generated file content.
+        ///
+        /// Each key must be underneath Request.Validate.project_root.
+        #[prost(btree_map = "string, string", tag = "2")]
+        pub generated_files: ::prost::alloc::collections::BTreeMap<
+            ::prost::alloc::string::String,
+            ::prost::alloc::string::String,
+        >,
     }
     /// Nested message and enum types in `Validated`.
     pub mod validated {

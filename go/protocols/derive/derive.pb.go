@@ -7,10 +7,10 @@ import (
 	context "context"
 	encoding_json "encoding/json"
 	fmt "fmt"
+	protocol "github.com/estuary/flow/go/gazette/consumer/protocol"
 	flow "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
-	protocol "go.gazette.dev/core/consumer/protocol"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -148,16 +148,16 @@ type Request_Validate struct {
 	Transforms []*Request_Validate_Transform `protobuf:"bytes,4,rep,name=transforms,proto3" json:"transforms,omitempty"`
 	// JSON types of shuffle key components extracted by the transforms of this derivation.
 	ShuffleKeyTypes []flow.CollectionSpec_Derivation_ShuffleType `protobuf:"varint,5,rep,packed,name=shuffle_key_types,json=shuffleKeyTypes,proto3,enum=flow.CollectionSpec_Derivation_ShuffleType" json:"shuffle_key_types,omitempty"`
-	// URL which roots the current Flow project.
-	//
-	// Derivation connectors should use this URL to generate any project-level
-	// files which are returned with Response.Validated.generated_files.
+	// URL of the directory of this task's specification, without a trailing
+	// slash. The connector must locate each file it generates underneath this
+	// URL, and return them with Response.Validated.generated_files.
 	ProjectRoot string `protobuf:"bytes,6,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	// Map of relative JSON pointers to the derivation specification,
 	// and the absolute URL from which the location's content was resolved.
-	// Connectors may use this for generating more helpful errors which are
-	// framed to the user's filesystem, rather than the filesystem within
-	// the connector.
+	//
+	// Deprecated, and to be removed: specifications are inlined before
+	// validation, so this is effectively always empty. It's still populated
+	// for the benefit of older connectors, but new connectors must not use it.
 	ImportMap map[string]string `protobuf:"bytes,7,rep,name=import_map,json=importMap,proto3" json:"import_map,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// Last CollectionSpec which was validated and published.
 	LastCollection *flow.CollectionSpec `protobuf:"bytes,8,opt,name=last_collection,json=lastCollection,proto3" json:"last_collection,omitempty"`
@@ -180,12 +180,10 @@ type Request_Validate struct {
 	// readers resolve `collection_index` and must not assume that entries
 	// are unique on name.
 	LinkedCollections []flow.CollectionSpec `protobuf:"bytes,10,rep,name=linked_collections,json=linkedCollections,proto3" json:"linked_collections"`
-	// Secrets of this derivation, mapping a JSON pointer within `config_json`
-	// to the catalog name of a secret which the runtime resolves and merges
+	// Secrets of this derivation, mapping a catalog secret name to its JSON
+	// pointer within `config_json`. The runtime resolves and merges each secret
 	// into that location, as an RFC 7396 merge patch, before handing the
-	// configuration to the connector. Entries are applied in lexicographic
-	// pointer order. Empty if this derivation uses no secrets, or if
-	// `config_json` is instead sops-encrypted.
+	// configuration to the connector.
 	Secrets              map[string]string `protobuf:"bytes,11,rep,name=secrets,proto3" json:"secrets,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
 	XXX_unrecognized     []byte            `json:"-"`
@@ -698,8 +696,7 @@ type Response_Validated struct {
 	// Keys are absolute URLs of the generated resource, and values are its
 	// generated file content.
 	//
-	// This can include project-level files, which should be underneath
-	// Request.Validate.project_root.
+	// Each key must be underneath Request.Validate.project_root.
 	//
 	// When run in certain contexts within a user's local development environment,
 	// reads of Flow specifications use a relaxed handling for missing configuration

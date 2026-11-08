@@ -7,12 +7,12 @@ import (
 	"net"
 	"sync/atomic"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
 	"golang.org/x/net/trace"
 )
 
@@ -56,8 +56,8 @@ func (ps *ProxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 	}
 
 	// Resolve the target port to the current container.
-	var container, publisher = resolution.Store.(interface {
-		ProxyHook() (*pr.Container, ops.Publisher)
+	var container, ports, publisher = resolution.Store.(interface {
+		ProxyHook() (*pr.Container, []*pf.NetworkPort, ops.Publisher)
 	}).ProxyHook()
 	resolution.Done()
 
@@ -74,9 +74,10 @@ func (ps *ProxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 		return stream.Send(opened)
 	}
 
-	// Identify a proxy address to use from the container's published ports.
+	// The task spec's ports may be proxied.
+	// Identify a proxy address of the target port within the container.
 	var address string
-	for _, port := range container.NetworkPorts {
+	for _, port := range ports {
 		if open.Open.TargetPort != port.Number {
 			continue
 		}

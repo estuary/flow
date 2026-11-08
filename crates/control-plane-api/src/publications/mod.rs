@@ -1,5 +1,3 @@
-use std::u32;
-
 use super::logs;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -9,14 +7,16 @@ use sqlx::types::Uuid;
 use tables::BuiltRow;
 
 pub mod builds;
+mod catalog_test_router;
 mod commit;
 mod db;
 mod finalize;
 mod initialize;
-mod retry;
-
+mod placement;
 mod quotas;
+mod retry;
 pub mod specs;
+pub mod submit;
 
 pub use self::commit::{ClearDraftErrors, NoopWithCommit, UpdatePublicationsRow, WithCommit};
 pub use self::db::{Row, create, delete_draft, fetch_publication, resolve};
@@ -36,8 +36,8 @@ pub struct DraftPublication<
     Ret: RetryPolicy,
     C: WithCommit,
 > {
-    /// The id of the user that is publishing the draft.
-    pub user_id: Uuid,
+    /// Authorization subject used when evaluating this publication.
+    pub subject: models::authz::Subject,
     /// Write logs to `internal.log_lines` using this token.
     pub logs_token: Uuid,
     /// Whether to stop after building. If `dry_run` is `true`, then the build will not be
@@ -155,13 +155,11 @@ impl PublicationResult {
 #[derive(Debug, Clone)]
 pub struct Publisher {
     builds_root: url::Url,
-    connector_network: String,
     logs_tx: logs::Tx,
     id_gen: std::sync::Arc<std::sync::Mutex<models::IdGenerator>>,
     db: sqlx::PgPool,
     builder: std::sync::Arc<Box<dyn builds::Builder>>,
     skip_tests: bool,
-    skip_connector_table_check: bool,
 }
 
 pub struct UncommittedBuild {
@@ -233,7 +231,6 @@ impl Into<build::Output> for UncommittedBuild {
 impl Publisher {
     pub fn new(
         builds_root: &url::Url,
-        connector_network: &str,
         logs_tx: &logs::Tx,
         pool: sqlx::PgPool,
         build_id_gen: models::IdGenerator,
@@ -241,13 +238,11 @@ impl Publisher {
     ) -> Self {
         Self {
             builds_root: builds_root.clone(),
-            connector_network: connector_network.to_string(),
             logs_tx: logs_tx.clone(),
             id_gen: std::sync::Mutex::new(build_id_gen.into()).into(),
             db: pool,
             builder: std::sync::Arc::new(builder),
             skip_tests: false,
-            skip_connector_table_check: false,
         }
     }
 
@@ -255,13 +250,6 @@ impl Publisher {
     /// testing scenarios, where we may not be able to run temp data planes.
     pub fn with_skip_all_tests(mut self) -> Self {
         self.skip_tests = true;
-        self
-    }
-
-    /// Skip checking that connector images exist in the connectors table.
-    /// By default, connector images are verified against the connectors table.
-    pub fn with_skip_connector_table_check(mut self) -> Self {
-        self.skip_connector_table_check = true;
         self
     }
 
@@ -273,7 +261,7 @@ impl Publisher {
     /// Publishs the given `DraftPublication`, using the provided `Initialize`, `FinalizeBuild`,
     /// and `RetryPolicy`.
     #[tracing::instrument(err, skip_all, fields(
-        user_id = %publication.user_id,
+        user_id = %publication.subject.user_id,
         logs_token = %publication.logs_token,
     ))]
     pub async fn publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit>(
@@ -305,7 +293,7 @@ impl Publisher {
         publication_id: models::Id,
         retry_count: u32,
         DraftPublication {
-            user_id,
+            subject,
             logs_token,
             dry_run,
             draft: raw_draft,
@@ -321,14 +309,14 @@ impl Publisher {
     ) -> anyhow::Result<PublicationResult> {
         let mut draft = raw_draft.clone_specs();
         initialize
-            .initialize(&self.db, *user_id, &mut draft)
+            .initialize(&self.db, subject, &mut draft)
             .await
             .context("initializing draft")?;
         // It's important that we generate the pub id inside the retry loop so that we can
         // retry `PublicationSuperseded` errors.
         let mut built = self
             .build(
-                *user_id,
+                subject,
                 publication_id,
                 detail.clone(),
                 draft,
@@ -360,13 +348,17 @@ impl Publisher {
 
     /// Build and verify the given draft. This is `pub` only because we have existing tests that
     /// use it. If you want to publish something, use the `Publisher::publish` function instead.
-    #[tracing::instrument(level = "info", skip(self, draft, snapshot))]
+    #[tracing::instrument(
+        level = "info",
+        skip(self, subject, draft, snapshot),
+        fields(user_id = ?subject.user_id)
+    )]
     pub async fn build(
         &self,
-        user_id: Uuid,
+        subject: &models::authz::Subject,
         publication_id: models::Id,
         detail: Option<String>,
-        draft: tables::DraftCatalog,
+        mut draft: tables::DraftCatalog,
         logs_token: sqlx::types::Uuid,
         explicit_plane_name: Option<&str>,
         snapshot: &crate::Snapshot,
@@ -375,51 +367,36 @@ impl Publisher {
     ) -> anyhow::Result<UncommittedBuild> {
         let start_time = tokens::now();
         let build_id = self.id_gen.lock().unwrap().next();
+        let user_id = subject.user_id;
 
-        // Ensure that all the connector images are allowed. It's critical that we do this before
-        // calling `build_catalog` in order to prevent the user from running arbitrary images
-        // during the build process. Note that this check will need replaced with a more general
-        // authorization check once we start supporting user-provided images.
-        let forbidden_images = if self.skip_connector_table_check {
-            tables::Errors::default()
-        } else {
-            specs::check_connector_images(&draft, &self.db)
-                .await
-                .context("checking connector images")?
+        let specs::ResolvedLiveCatalog {
+            live: mut live_catalog,
+            mapping_planes,
+        } = specs::resolve_live_specs(subject, &draft, &self.db, snapshot, verify_user_authz)
+            .await?;
+
+        // Resolve a data-plane name to its user-authorized Id.
+        let resolve = |data_plane_name: &str| {
+            if let Some(data_plane) = snapshot
+                .is_user_authorized(subject, data_plane_name, models::Capability::Read)
+                .then(|| snapshot.data_plane_by_catalog_name(data_plane_name))
+                .flatten()
+            {
+                Some(data_plane.control_id)
+            } else {
+                snapshot.request_refresh(); // Snapshot may be stale (unlikely).
+                None
+            }
         };
-        let forbidden_annotations = specs::check_connector_annotations(&draft, &self.db)
-            .await
-            .context("checking connector annotations")?;
-        if !forbidden_images.is_empty() || !forbidden_annotations.is_empty() {
-            let mut built = tables::Validations::default();
-            built.errors = forbidden_images;
-            built.errors.extend(forbidden_annotations.into_iter());
-            let output = build::Output {
-                draft,
-                built,
-                live: Default::default(),
-            };
-            return Ok(UncommittedBuild {
-                publication_id,
-                build_id,
-                user_id,
-                detail,
-                started_at: start_time,
-                output,
-                test_errors: tables::Errors::default(),
-                retry_count,
-            });
-        }
 
-        let live_catalog = specs::resolve_live_specs(
-            user_id,
-            &draft,
-            &self.db,
-            snapshot,
-            verify_user_authz,
+        let placement_errors = placement::assign(
+            &mut draft,
+            &live_catalog,
+            &mapping_planes,
             explicit_plane_name,
-        )
-        .await?;
+            &resolve,
+        );
+        live_catalog.errors.extend(placement_errors.into_iter());
 
         if !live_catalog.errors.is_empty() {
             return Ok(UncommittedBuild {
@@ -451,6 +428,7 @@ impl Publisher {
         let built = self
             .builder
             .build(
+                snapshot,
                 &self.builds_root,
                 draft,
                 live_catalog,
@@ -459,9 +437,34 @@ impl Publisher {
                 tmpdir,
                 self.logs_tx.clone(),
                 logs_token,
-                explicit_plane_name,
             )
             .await?;
+
+        // Placement either assigned a plane to every created spec, or failed
+        // the publication before its build. Anything else is a placement bug.
+        if built.errors().next().is_none() {
+            for r in &built.built.built_captures {
+                assert!(
+                    !r.is_insert() || !r.data_plane_id.is_zero(),
+                    "unplaced capture: {}",
+                    r.capture
+                );
+            }
+            for r in &built.built.built_collections {
+                assert!(
+                    !r.is_insert() || !r.data_plane_id.is_zero(),
+                    "unplaced collection: {}",
+                    r.collection
+                );
+            }
+            for r in &built.built.built_materializations {
+                assert!(
+                    !r.is_insert() || !r.data_plane_id.is_zero(),
+                    "unplaced materialization: {}",
+                    r.materialization
+                );
+            }
+        }
 
         // If there are any tests, run them now as long as there's no build errors
         let test_errors = if built.built.built_tests.len() > 0
@@ -470,10 +473,14 @@ impl Publisher {
         {
             tracing::info!(%build_id, %publication_id, "running tests");
 
-            // Tests run in-process; there is no data plane to race against.
-            let errors =
-                builds::test_catalog(logs_token, &self.logs_tx, &self.connector_network, &built)
-                    .await?;
+            let router = std::sync::Arc::new(
+                catalog_test_router::CatalogTestConnectorRouter::new(
+                    snapshot,
+                    &built.built.built_collections,
+                )
+                .context("routing derivation connectors to their data planes")?,
+            );
+            let errors = builds::test_catalog(logs_token, &self.logs_tx, &built, router).await?;
 
             tracing::debug!(test_count = %built.built.built_tests.len(), test_errors = %errors.len(), "finished running tests");
             errors

@@ -71,6 +71,12 @@ pub struct JobArgs {
     /// It's not required that the Pulumi stacks of data planes actually exist.
     #[clap(long = "dry-run")]
     dry_run: bool,
+    /// Serve the dev task type rather than the primary one, so this deployment
+    /// operates only on the data-planes explicitly assigned to it.
+    /// `DPC_DEV` must be exactly `true` or `false`; anything else (`1`, `yes`)
+    /// is rejected at startup rather than silently treated as false.
+    #[clap(long = "dev", env = "DPC_DEV")]
+    dev: bool,
     /// URL of the data-plane-controller service (worker).
     #[clap(
         long = "service-url",
@@ -145,8 +151,16 @@ pub async fn run_job(args: JobArgs) -> anyhow::Result<()> {
 
     let executor = executor::Executor::new(controller_config, args.service_url);
 
-    let server = automations::Server::new()
-        .register(executor)
+    // Registering under exactly one task type is what divides the data-planes
+    // between this deployment and the other one.
+    let server = automations::Server::new();
+    let server = if args.dev {
+        server.register(executor::DevExecutor(executor))
+    } else {
+        server.register(executor)
+    };
+
+    let server = server
         .serve(
             args.concurrency,
             pg_pool,

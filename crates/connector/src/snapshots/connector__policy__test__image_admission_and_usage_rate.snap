@@ -1,0 +1,99 @@
+---
+source: crates/connector/src/policy.rs
+assertion_line: 336
+expression: outcomes
+---
+[
+    (
+        Public,
+        "ghcr.io/estuary/source-a:v1",
+        Ok(
+            (
+                1.0,
+                "default for capture and materialize protocol",
+            ),
+        ),
+    ),
+    (
+        Public,
+        "ghcr.io/estuary/derive-python@sha256:abc",
+        Err(
+            "Python derivations may only run in private data-planes",
+        ),
+    ),
+    (
+        Public,
+        "example.test/acme/source-a:v1",
+        Err(
+            "connector image 'example.test/acme/source-a:v1' is not allowed in public data planes: only Estuary-managed images are permitted",
+        ),
+    ),
+    (
+        Private,
+        "example.test/acme/source-a:v1",
+        Ok(
+            (
+                1.0,
+                "default for capture and materialize protocol",
+            ),
+        ),
+    ),
+    (
+        Private,
+        "example.test/acme/source-a:v1",
+        Err(
+            "connector image 'example.test/acme/source-a:v1' declares 'dev.estuary.usage-rate', but only first-party images under ghcr.io/estuary/ may set usage rates",
+        ),
+    ),
+    (
+        Private,
+        "ghcr.io/estuary/source-a:v1",
+        Ok(
+            (
+                1.25,
+                "dev.estuary.usage-rate",
+            ),
+        ),
+    ),
+    (
+        Private,
+        "ghcr.io/estuary/derive-a:v1",
+        Ok(
+            (
+                0.0,
+                "default for derive protocol",
+            ),
+        ),
+    ),
+    (
+        Private,
+        "ghcr.io/estuary/derive-a:v1",
+        Ok(
+            (
+                1.25,
+                "dev.estuary.usage-rate",
+            ),
+        ),
+    ),
+    (
+        Private,
+        "ghcr.io/estuary/source-a:v1",
+        Err(
+            "connector image 'ghcr.io/estuary/source-a:v1' has invalid 'dev.estuary.usage-rate' value -1.0: usage rates must be finite and non-negative",
+        ),
+    ),
+    (
+        Private,
+        "ghcr.io/estuary/source-a:v1",
+        Err(
+            "connector image 'ghcr.io/estuary/source-a:v1' has invalid 'dev.estuary.usage-rate' value inf: usage rates must be finite and non-negative",
+        ),
+    ),
+    (
+        Private,
+        "ghcr.io/estuary/source-a:v1",
+        Err(
+            "connector image 'ghcr.io/estuary/source-a:v1' has invalid 'dev.estuary.usage-rate' value NaN: usage rates must be finite and non-negative",
+        ),
+    ),
+]

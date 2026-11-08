@@ -76,6 +76,41 @@ const MAX_PREFIXES: usize = 20;
 
 #[async_graphql::Object]
 impl ServiceAccountsQuery {
+    async fn service_account(
+        &self,
+        ctx: &Context<'_>,
+        catalog_name: models::Name,
+    ) -> async_graphql::Result<Option<ServiceAccount>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        if let Err(err) = validator::Validate::validate(&catalog_name) {
+            return Err(async_graphql::Error::new(format!(
+                "invalid catalog name: {err}"
+            )));
+        }
+        super::verify_authorization(
+            env,
+            catalog_name.as_str(),
+            models::authz::Capability::QueryServiceAccounts,
+        )
+        .await?;
+
+        let Some(user_id) = sqlx::query_scalar!(
+            r#"
+        SELECT user_id
+        FROM internal.service_accounts
+        WHERE catalog_name = $1::text::catalog_name
+        "#,
+            catalog_name.as_str(),
+        )
+        .fetch_optional(&env.pg_pool)
+        .await?
+        else {
+            return Ok(None);
+        };
+
+        load_service_account(&env.pg_pool, user_id).await.map(Some)
+    }
+
     async fn service_accounts(
         &self,
         ctx: &Context<'_>,
@@ -90,7 +125,7 @@ impl ServiceAccountsQuery {
         let user_accessible_prefixes = super::authorized_prefixes::authorized_prefixes(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            env.claims()?.sub,
+            &env.claims()?.subject(),
             models::authz::Capability::QueryServiceAccounts,
             None,
         );
@@ -511,6 +546,14 @@ impl ServiceAccountsMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
+        // API keys inherit the service account's full authority, so minting one
+        // would let a scoped caller escape its token's restrictions.
+        if claims.is_restricted() {
+            return Err(async_graphql::Error::new(
+                "restricted tokens cannot create API keys.",
+            ));
+        }
+
         super::verify_authorization(
             env,
             catalog_name.as_str(),
@@ -734,37 +777,6 @@ impl ServiceAccountsMutation {
     }
 }
 
-/// Verify that `user_id` is not a service-account identity, erroring if it is.
-///
-/// Service-account credentials are administered through createApiKey /
-/// revokeApiKey. The self-service refresh-token mutations reject a
-/// service-account caller: a valid key could otherwise mint replacement
-/// credentials for its own account — sidestepping the CreateApiKey gate and
-/// the admin-chosen expiry — or revoke keys outside the admin-facing flow.
-pub(super) async fn verify_not_service_account(
-    pg_pool: &sqlx::PgPool,
-    user_id: uuid::Uuid,
-) -> async_graphql::Result<()> {
-    let is_service_account = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS(
-            SELECT 1 FROM internal.service_accounts WHERE user_id = $1
-        ) AS "is_service_account!"
-        "#,
-        user_id,
-    )
-    .fetch_one(pg_pool)
-    .await?;
-
-    if is_service_account {
-        return Err(async_graphql::Error::new(
-            "service accounts cannot manage refresh tokens: their API keys are \
-             administered via createApiKey and revokeApiKey",
-        ));
-    }
-    Ok(())
-}
-
 /// Rewrite a terminal permission-denied authorization error into the generic
 /// "service account API key not found" error, so a denial is indistinguishable
 /// from a missing token id.
@@ -773,18 +785,15 @@ pub(super) async fn verify_not_service_account(
 /// provisional [`crate::ApiError::AuthZRetry`] — which drives the snapshot
 /// refresh-and-retry redirect — is passed through untouched, as is any other
 /// error, so this never swallows a retry or an internal fault.
-fn hide_denial_as_not_found(err: async_graphql::Error) -> async_graphql::Error {
-    let is_permission_denied = err
-        .source
-        .as_ref()
-        .and_then(|source| source.downcast_ref::<crate::ApiError>())
-        .is_some_and(|api_error| {
-            matches!(
-                api_error,
-                crate::ApiError::Status(status)
+pub(super) fn hide_denial_as_not_found(err: async_graphql::Error) -> async_graphql::Error {
+    let is_permission_denied = err.source.as_ref().is_some_and(|source| {
+        source.is::<super::authorization::AuthorizationDenied>()
+            || matches!(
+                source.downcast_ref::<crate::ApiError>(),
+                Some(crate::ApiError::Status(status))
                     if status.code() == tonic::Code::PermissionDenied
             )
-        });
+    });
 
     if is_permission_denied {
         async_graphql::Error::new("service account API key not found")
@@ -1042,6 +1051,78 @@ mod test {
         assert_eq!(created_grants[1]["prefix"], "aliceCo/data/");
         assert_eq!(created_grants[1]["capability"], "read");
 
+        let lookup = |name: &str| {
+            serde_json::json!({
+                "query": r#"
+                query($catalogName: Name!) {
+                    serviceAccount(catalogName: $catalogName) {
+                        catalogName createdByEmail createdAt lastUsedAt
+                        grants { prefix capability detail createdAt updatedAt }
+                        apiKeys { id }
+                    }
+                }"#,
+                "variables": { "catalogName": name }
+            })
+        };
+        let found: serde_json::Value = server
+            .graphql(&lookup("aliceCo/ci-deploy-bot"), Some(&alice_token))
+            .await;
+        assert_eq!(
+            found,
+            serde_json::json!({ "data": { "serviceAccount": sa } })
+        );
+
+        let missing: serde_json::Value = server
+            .graphql(&lookup("aliceCo/missing-bot"), Some(&alice_token))
+            .await;
+        assert_eq!(
+            missing,
+            serde_json::json!({ "data": { "serviceAccount": null } })
+        );
+
+        let batched: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        missing: serviceAccount(catalogName: "aliceCo/missing-bot") {
+                            catalogName
+                        }
+                        found: serviceAccount(catalogName: "aliceCo/ci-deploy-bot") {
+                            catalogName
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            batched,
+            serde_json::json!({
+                "data": {
+                    "missing": null,
+                    "found": { "catalogName": "aliceCo/ci-deploy-bot" }
+                }
+            })
+        );
+
+        let denied: serde_json::Value = server
+            .graphql(&lookup("aliceCo/ci-deploy-bot"), Some(&bob_token))
+            .await;
+        assert!(denied["data"].is_null());
+        assert_eq!(denied["errors"][0]["extensions"]["code"], "FORBIDDEN");
+
+        let invalid: serde_json::Value = server
+            .graphql(&lookup("aliceCo/bad name"), Some(&alice_token))
+            .await;
+        assert!(invalid["data"].is_null());
+        assert!(
+            invalid["errors"][0]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("invalid catalog name:")
+        );
+
         // === A catalog name is unique to one service account ===
         // A second account cannot claim the same handle, even for an authorized
         // caller.
@@ -1174,6 +1255,43 @@ mod test {
             foreign_grant["errors"].is_array(),
             "a grant to an unadministered prefix should be rejected: {foreign_grant}"
         );
+
+        // Even masks that retain CreateApiKey or cover the account cannot
+        // mint an unrestricted credential.
+        for (capability_mask, prefix_mask) in [
+            (Some(vec!["admin".to_string()]), None),
+            (None, Some(vec!["aliceCo/".to_string()])),
+        ] {
+            let scoped_token = server.make_restricted_access_token(
+                uuid::Uuid::from_bytes([0x11; 16]),
+                Some("alice@example.test"),
+                capability_mask,
+                prefix_mask,
+            );
+            let create: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        mutation {
+                            createApiKey(catalogName: "aliceCo/ci-deploy-bot", detail: "scoped", validFor: "P30D") { id }
+                        }"#
+                    }),
+                    Some(&scoped_token),
+                )
+                .await;
+            assert_eq!(
+                create["errors"][0]["message"], "restricted tokens cannot create API keys.",
+                "a scoped token must be refused: {create}"
+            );
+        }
+
+        let token_count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM public.refresh_tokens WHERE user_id = $1")
+                .bind(uuid::Uuid::parse_str(&sa_user_id).unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(token_count, 0, "scoped callers must not create credentials");
 
         // === Mint a service-account token ===
         let create_key: serde_json::Value = server

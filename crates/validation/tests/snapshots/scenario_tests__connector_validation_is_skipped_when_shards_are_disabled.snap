@@ -31,6 +31,7 @@ Outcome {
             model_fixes: [],
             validated: Validated {
                 bindings: [],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "acmeCo/testCapture",
@@ -164,6 +165,7 @@ Outcome {
                 created_at: "2029-06-12",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: None,
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -452,6 +454,7 @@ Outcome {
             model_fixes: [],
             validated: Validated {
                 bindings: [],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "acmeCo/testMaterialization",
@@ -585,6 +588,7 @@ Outcome {
                 sync_schedule_json: b"",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: None,
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -597,6 +601,7 @@ Outcome {
             capture: acmeCo/testCapture,
             scope: test://example/catalog.yaml#/captures/acmeCo~1testCapture,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "endpoint": {
                 "connector": {
@@ -622,6 +627,7 @@ Outcome {
             collection: acmeCo/foo,
             scope: test://example/catalog.yaml#/collections/acmeCo~1foo,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/acmeCo~1foo/schema","properties":{"id":{"type":"integer"},"val":{"type":"string"}},"required":["id","val"],"type":"object"},
               "key": [
@@ -645,6 +651,7 @@ Outcome {
             materialization: acmeCo/testMaterialization,
             scope: test://example/catalog.yaml#/materializations/acmeCo~1testMaterialization,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "endpoint": {
                 "connector": {

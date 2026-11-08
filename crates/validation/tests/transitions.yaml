@@ -92,10 +92,15 @@ driver:
   storageMappings:
     the/:
       stores: [{ provider: S3, bucket: a-bucket }]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
-    recovery/the/:
-      stores: [{ provider: S3, bucket: a-bucket }]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
+      recoveryStores: [{ provider: S3, bucket: a-bucket }]
+
+  # Place newly-created specs into a plane which no live spec uses,
+  # so that an insert is distinguishable from an update.
+  draftDataPlanes:
+    the/capture: "1d:1d:1d:1d:1d:1d:1d:1d"
+    the/collection: "1d:1d:1d:1d:1d:1d:1d:1d"
+    the/derivation: "1d:1d:1d:1d:1d:1d:1d:1d"
+    the/materialization: "1d:1d:1d:1d:1d:1d:1d:1d"
 
   liveCaptures:
     the/capture:

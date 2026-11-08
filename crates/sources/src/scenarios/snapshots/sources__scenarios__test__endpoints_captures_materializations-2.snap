@@ -5,9 +5,51 @@ expression: tables
 DraftCatalog {
     captures: [
         DraftCapture {
+            capture: acmeCo/source-acme,
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "endpoint": {
+                "python": {
+                  "files": {
+                    "pyproject.toml": "[project]\nname = \"source-acme\"\ndependencies = [\"estuary-cdk\"]\n",
+                    "source-acme/__init__.py": "from estuary_cdk.capture import BaseCaptureConnector\n\nfrom .models import Greeting\n",
+                    "source-acme/missing.py": null,
+                    "source-acme/models.py": "class Greeting:\n    pass\n"
+                  },
+                  "config": {"credentials":{"client_id":"a-client-id"}},
+                  "spec": {
+                    "configSchema": {"$defs":{"__flowInline1":{"$id":"test://example/credentials.schema.yaml","properties":{"client_id":{"type":"string"},"client_secret":{"secret":true,"type":"string"}},"type":"object"}},"$id":"test://example/source-acme.config.schema.yaml","properties":{"credentials":{"$ref":"credentials.schema.yaml"}},"required":["credentials"],"type":"object"},
+                    "resourceConfigSchema": {"$id":"test://example/catalog.yaml?ptr=/captures/acmeCo~1source-acme/endpoint/python/spec/resourceConfigSchema","properties":{"name":{"type":"string","x-collection-name":true}},"required":["name"],"type":"object"},
+                    "oauth2": {
+                      "provider": "acme",
+                      "authUrlTemplate": "https://acme.example/authorize?client_id={{{ client_id }}}",
+                      "accessTokenUrlTemplate": "https://acme.example/token",
+                      "accessTokenResponseMap": {
+                        "access_token": "/access_token"
+                      }
+                    }
+                  }
+                }
+              },
+              "secrets": {
+                "acmeCo/source-acme/client-secret": "/credentials/client_secret"
+              },
+              "bindings": [
+                {
+                  "resource": {"name":"widgets"},
+                  "target": "a/collection"
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCapture {
             capture: capture/config-missing,
             scope: test://example/catalog.yaml#/captures/capture~1config-missing,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -29,6 +71,7 @@ DraftCatalog {
             capture: capture/config-raw,
             scope: test://example/catalog.yaml#/captures/capture~1config-raw,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -44,6 +87,7 @@ DraftCatalog {
             capture: capture/local,
             scope: test://example/catalog.yaml#/captures/capture~1local,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "local": {
@@ -64,6 +108,7 @@ DraftCatalog {
             capture: capture/second,
             scope: test://example/catalog.yaml#/captures/capture~1second,
             expect_pub_id: "0011223344556677",
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -89,6 +134,7 @@ DraftCatalog {
             capture: first/capture,
             scope: test://example/catalog.yaml#/captures/first~1capture,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -116,6 +162,7 @@ DraftCatalog {
             materialization: a/materialization,
             scope: test://example/catalog.yaml#/materializations/a~1materialization,
             expect_pub_id: "0011223344556677",
+            data_plane_id: "0000000000000000",
             model: {
               "source": "a/capture",
               "endpoint": {
@@ -164,9 +211,45 @@ DraftCatalog {
             is_touch: 0,
         },
         DraftMaterialization {
+            materialization: acmeCo/materialize-acme,
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materialize-acme,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "endpoint": {
+                "python": {
+                  "files": {
+                    "materialize-acme/__init__.py": "from .flow_generated.python.acmeCo.materialize_acme import IMaterialization\n\nclass Materialization(IMaterialization):\n    pass\n",
+                    "materialize-acme/missing.py": null,
+                    "pyproject.toml": "[project]\nname = \"source-acme\"\ndependencies = [\"estuary-cdk\"]\n"
+                  },
+                  "config": {"credentials":{"client_id":"a-client-id"}},
+                  "spec": {
+                    "configSchema": {"$defs":{"__flowInline1":{"$id":"test://example/credentials.schema.yaml","properties":{"client_id":{"type":"string"},"client_secret":{"secret":true,"type":"string"}},"type":"object"}},"$id":"test://example/materialize-acme.config.schema.yaml","properties":{"credentials":{"$ref":"credentials.schema.yaml"}},"required":["credentials"],"type":"object"},
+                    "resourceConfigSchema": {"$id":"test://example/catalog.yaml?ptr=/materializations/acmeCo~1materialize-acme/endpoint/python/spec/resourceConfigSchema","properties":{"table":{"type":"string","x-collection-name":true}},"required":["table"],"type":"object"}
+                  }
+                }
+              },
+              "secrets": {
+                "acmeCo/materialize-acme/client-secret": "/credentials/client_secret"
+              },
+              "bindings": [
+                {
+                  "resource": {"table":"widgets"},
+                  "source": "a/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftMaterialization {
             materialization: materialization/local,
             scope: test://example/catalog.yaml#/materializations/materialization~1local,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "local": {
@@ -198,6 +281,7 @@ DraftCatalog {
             materialization: materialization/missing-config,
             scope: test://example/catalog.yaml#/materializations/materialization~1missing-config,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -221,6 +305,7 @@ DraftCatalog {
             materialization: materialization/with-config,
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -245,6 +330,7 @@ DraftCatalog {
             materialization: materialization/with-config-fragment,
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -259,12 +345,20 @@ DraftCatalog {
     ],
     imports: [
         Import {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1source-acme/endpoint/python/files/3,
+            to_resource: test://example/source-acme/missing.py,
+        },
+        Import {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
             to_resource: test://example/resource/not/found.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/endpoint/connector/config,
             to_resource: test://example/config/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materialize-acme/endpoint/python/files/2,
+            to_resource: test://example/materialize-acme/missing.py,
         },
         Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/bindings/0/resource,
@@ -277,6 +371,14 @@ DraftCatalog {
         Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
             to_resource: test://example/referenced/config.yaml#/bad/fragment,
+        },
+        Import {
+            scope: test://example/materialize-acme.config.schema.yaml#/properties/credentials/$ref,
+            to_resource: test://example/credentials.schema.yaml,
+        },
+        Import {
+            scope: test://example/source-acme.config.schema.yaml#/properties/credentials/$ref,
+            to_resource: test://example/credentials.schema.yaml,
         },
     ],
 }

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/broker/client"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

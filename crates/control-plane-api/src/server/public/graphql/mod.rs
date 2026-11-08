@@ -25,19 +25,28 @@ mod alert_configs;
 mod alert_subscriptions;
 mod alert_types;
 mod alerts;
+mod authorization;
 mod authorized_prefixes;
+use authorization::verify_authorization;
 pub(crate) mod billing;
+mod catalog_stats;
 mod data_planes;
+mod discovers;
+mod drafts;
 mod filters;
 pub(crate) use data_planes::parse_data_plane_name;
 mod connectors;
 pub mod id;
 mod invite_links;
+mod legal_terms;
 mod live_spec_refs;
 mod live_specs;
+mod logs;
 mod prefixes;
 mod publication_history;
+mod publications;
 mod refresh_tokens;
+mod sandboxes;
 mod scalars;
 mod secrets;
 mod service_accounts;
@@ -45,7 +54,7 @@ pub mod status;
 mod storage_mappings;
 mod tenant;
 
-pub(crate) use scalars::Sensitive;
+pub(crate) use scalars::{Sensitive, UInt64};
 
 /// Whether the current user holds `capability` on `name`, as a pure check
 /// against the request's authorization Snapshot.
@@ -68,34 +77,10 @@ fn may_access(
     Ok(tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        env.claims()?.sub,
+        &env.claims()?.subject(),
         name,
         capability,
     ))
-}
-
-/// Errors unless the current user holds `capability` on `prefix`.
-///
-/// This is the hard gate for mutations and access-controlled queries: a denial
-/// becomes `permission_denied`, and a provisional denial against a stale
-/// Snapshot follows the standard refresh-and-retry path. See [`may_access`] for
-/// the visibility-gate counterpart that fails closed instead of erroring.
-///
-/// `capability` accepts a legacy `models::Capability`, an orthogonal
-/// `models::authz::Capability` bit, or a `models::authz::CapabilitySet`.
-async fn verify_authorization(
-    env: &crate::Envelope,
-    prefix: &str,
-    capability: impl Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
-) -> async_graphql::Result<()> {
-    let policy_result = crate::server::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        capability,
-        [prefix],
-    );
-    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
-    Ok(())
 }
 
 /// A JSON object, the shape of which is opaque to the graphql schema
@@ -124,14 +109,22 @@ pub struct QueryRoot(
     invite_links::InviteLinksQuery,
     connectors::ConnectorsQuery,
     tenant::TenantQuery,
+    legal_terms::LegalTermsQuery,
     refresh_tokens::RefreshTokensQuery,
     service_accounts::ServiceAccountsQuery,
     secrets::SecretsQuery,
+    drafts::DraftsQuery,
+    catalog_stats::CatalogStatsQuery,
+    sandboxes::SandboxesQuery,
+    discovers::DiscoversQuery,
+    publications::PublicationsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
 #[derive(Debug, Default, async_graphql::MergedObject)]
 pub struct MutationRoot(
+    tenant::TenantMutation,
+    legal_terms::LegalTermsMutation,
     billing::BillingMutation,
     storage_mappings::StorageMappingsMutation,
     alert_configs::AlertConfigsMutation,
@@ -139,8 +132,12 @@ pub struct MutationRoot(
     invite_links::InviteLinksMutation,
     data_planes::DataPlanesMutation,
     refresh_tokens::RefreshTokensMutation,
+    sandboxes::SandboxesMutation,
     service_accounts::ServiceAccountsMutation,
     secrets::SecretsMutation,
+    drafts::DraftsMutation,
+    discovers::DiscoversMutation,
+    publications::PublicationsMutation,
 );
 
 pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {
@@ -150,14 +147,42 @@ pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchem
         EmptySubscription,
     )
     .data(alert_config_defaults)
+    .extension(authorization::AuthorizationErrors)
     .finish()
 }
 
-/// Returns the GraphQL SDL (Schema Definition Language) as a string.
-/// This is used by the flow-client build script to generate types.
-pub fn schema_sdl() -> String {
-    let schema = create_schema(models::AlertConfig::default());
-    schema.sdl()
+/// A GraphQL-over-HTTP request body. It wraps `async_graphql::Request` so that
+/// the OpenAPI spec can describe it, as that type has no `schemars::JsonSchema`.
+#[derive(serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct GraphQLRequest(async_graphql::Request);
+
+impl schemars::JsonSchema for GraphQLRequest {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "GraphQLRequest".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "A GraphQL operation to execute.",
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "GraphQL document containing the operation.",
+                },
+                "operationName": {
+                    "type": "string",
+                    "description": "Operation of `query` to execute, when it has several.",
+                },
+                "variables": {
+                    "type": "object",
+                    "description": "Values of the operation's variables.",
+                },
+            },
+        })
+    }
 }
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
@@ -165,16 +190,17 @@ pub(crate) async fn graphql_handler(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     axum::Extension(schema): axum::Extension<GraphQLSchema>,
     env: crate::Envelope,
-    axum::extract::Json(req): axum::extract::Json<async_graphql::Request>,
+    axum::extract::Json(GraphQLRequest(req)): axum::extract::Json<GraphQLRequest>,
 ) -> axum::response::Response {
     let pg_pool = env.pg_pool.clone();
 
-    let mut request = req
-        .data(env)
-        .data(async_graphql::dataloader::DataLoader::new(
-            PgDataLoader(pg_pool),
-            tokio::spawn,
-        ));
+    let mut request =
+        req.data(app.clone())
+            .data(env)
+            .data(async_graphql::dataloader::DataLoader::new(
+                PgDataLoader(pg_pool.clone()),
+                tokio::spawn,
+            ));
 
     if let Some(ref billing_provider) = app.billing_provider {
         request = request
@@ -188,9 +214,18 @@ pub(crate) async fn graphql_handler(
                 tokio::spawn,
             ))
             .data(async_graphql::dataloader::DataLoader::new(
-                billing::CustomerDataLoader(billing_provider.clone()),
+                billing::CustomerDataLoader {
+                    pg_pool: pg_pool.clone(),
+                    provider: billing_provider.clone(),
+                },
                 tokio::spawn,
             ));
+    }
+
+    if let Some(ref catalog_stats) = app.catalog_stats {
+        // No DataLoader (batching) is needed because a whole `catalogStats`
+        // query is served using one Bigtable scan.
+        request = request.data(catalog_stats.clone());
     }
 
     let response = schema.execute(request).await;
@@ -337,4 +372,70 @@ fn graphql_json_values_preserves_field_order() {
     let parsed: async_graphql::Value = serde_json::from_str(json_str).unwrap();
     let round_tripped = serde_json::to_string(&parsed).unwrap();
     assert_eq!(json_str.replace(' ', ""), round_tripped);
+}
+
+// flowctl compiles its GraphQL queries against the checked-in SDL, and embeds
+// it for `flowctl raw graphql-schema`. On drift this test regenerates the SDL
+// in place, so a failure is fixed by reviewing and committing the file.
+#[test]
+fn checked_in_sdl_is_current() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("control-plane-api.graphql");
+    let sdl = create_schema(models::AlertConfig::default()).sdl();
+    let committed = std::fs::read_to_string(&path).unwrap();
+
+    if committed != sdl {
+        std::fs::write(&path, sdl).unwrap();
+        panic!(
+            "checked-in GraphQL SDL was out of date; it has been regenerated in place -- review and commit {}",
+            path.display()
+        );
+    }
+}
+
+#[sqlx::test(migrations = "../../supabase/migrations")]
+async fn schema_route_serves_sdl_without_auth(pool: sqlx::PgPool) {
+    let _guard = crate::test_server::init();
+    let server = crate::test_server::TestServer::start(
+        pool.clone(),
+        crate::test_server::snapshot(pool.clone(), true).await,
+    )
+    .await;
+
+    let response = reqwest::get(server.base_url().join("/api/graphql/schema").unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()[reqwest::header::CONTENT_TYPE],
+        "text/plain; charset=utf-8"
+    );
+    assert_eq!(
+        response.text().await.unwrap(),
+        create_schema(models::AlertConfig::default()).sdl()
+    );
+}
+
+#[sqlx::test(migrations = "../../supabase/migrations")]
+async fn graphql_routes_are_documented(pool: sqlx::PgPool) {
+    let _guard = crate::test_server::init();
+    let server = crate::test_server::TestServer::start(
+        pool.clone(),
+        crate::test_server::snapshot(pool.clone(), true).await,
+    )
+    .await;
+
+    let spec: serde_json::Value =
+        reqwest::get(server.base_url().join("/api/v1/openapi.json").unwrap())
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+    insta::assert_json_snapshot!(serde_json::json!({
+        "/api/graphql": spec["paths"]["/api/graphql"],
+        "/api/graphql/schema": spec["paths"]["/api/graphql/schema"],
+        "GraphQLRequest": spec["components"]["schemas"]["GraphQLRequest"],
+    }));
 }

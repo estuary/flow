@@ -1,10 +1,9 @@
 use super::{
-    Connectors, Error, NoOpConnectors, Scope, collection, field_selection, indexed, linked,
-    reference, walk_transition,
+    Connectors, Error, Scope, collection, field_selection, indexed, linked, reference,
+    walk_transition,
 };
-use futures::SinkExt;
 use json::schema::types;
-use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
+use proto_flow::{connector, flow, materialize};
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 
@@ -20,15 +19,13 @@ type LiveBindings<'a> = BTreeMap<
     ),
 >;
 
-pub async fn walk_all_materializations<C: Connectors>(
+pub async fn walk_all_materializations(
     pub_id: models::Id,
     build_id: models::Id,
     draft_materializations: &tables::DraftMaterializations,
     live_materializations: &tables::LiveMaterializations,
     built_collections: &tables::BuiltCollections,
-    connectors: &C,
-    data_planes: &tables::DataPlanes,
-    explicit_plane: Option<&tables::DataPlane>,
+    connectors: &Connectors<'_>,
     dependencies: &tables::Dependencies<'_>,
     noop_materializations: bool,
     storage_mappings: &tables::StorageMappings,
@@ -56,8 +53,6 @@ pub async fn walk_all_materializations<C: Connectors>(
                 eob,
                 built_collections,
                 connectors,
-                data_planes,
-                explicit_plane,
                 dependencies,
                 noop_materializations,
                 storage_mappings,
@@ -81,14 +76,44 @@ pub async fn walk_all_materializations<C: Connectors>(
         .collect()
 }
 
-async fn walk_materialization<C: Connectors>(
+/// Map a materialization's endpoint into the connector Spec request used by
+/// validation and by local flowctl commands.
+pub fn materialization_spec_request(
+    endpoint: &models::MaterializationEndpoint,
+    shards: &models::ShardTemplate,
+) -> materialize::request::Spec {
+    let (connector_type, config_json) = match endpoint {
+        models::MaterializationEndpoint::Connector(config) => (
+            flow::materialization_spec::ConnectorType::Image as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::MaterializationEndpoint::Local(config) => (
+            flow::materialization_spec::ConnectorType::Local as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::MaterializationEndpoint::Dekaf(config) => (
+            flow::materialization_spec::ConnectorType::Dekaf as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::MaterializationEndpoint::Python(config) => (
+            flow::materialization_spec::ConnectorType::Image as i32,
+            serde_json::to_string(&crate::custom::materialize_python_connector(config, shards))
+                .unwrap()
+                .into(),
+        ),
+    };
+    materialize::request::Spec {
+        connector_type,
+        config_json,
+    }
+}
+
+async fn walk_materialization(
     pub_id: models::Id,
     build_id: models::Id,
     eob: EOB<&tables::LiveMaterialization, &tables::DraftMaterialization>,
     built_collections: &tables::BuiltCollections,
-    connectors: &C,
-    data_planes: &tables::DataPlanes,
-    explicit_plane: Option<&tables::DataPlane>,
+    connectors: &Connectors<'_>,
     dependencies: &tables::Dependencies<'_>,
     noop_materializations: bool,
     storage_mappings: &tables::StorageMappings,
@@ -99,7 +124,7 @@ async fn walk_materialization<C: Connectors>(
         scope,
         model,
         control_id,
-        data_plane,
+        data_plane_id,
         _partition_stores,
         recovery_stores,
         expect_pub_id,
@@ -111,9 +136,7 @@ async fn walk_materialization<C: Connectors>(
         pub_id,
         build_id,
         "materialization",
-        explicit_plane,
         eob,
-        data_planes,
         storage_mappings,
         errors,
     ) {
@@ -162,76 +185,47 @@ async fn walk_materialization<C: Connectors>(
     }
 
     // Unwrap `endpoint` into a connector type and configuration.
-    let (connector_type, config_json): (i32, bytes::Bytes) = match &endpoint {
-        models::MaterializationEndpoint::Connector(config) => (
-            flow::materialization_spec::ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::MaterializationEndpoint::Local(config) => (
-            flow::materialization_spec::ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::MaterializationEndpoint::Dekaf(config) => (
-            flow::materialization_spec::ConnectorType::Dekaf as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-    };
+    let materialize::request::Spec {
+        connector_type,
+        config_json,
+    } = materialization_spec_request(&endpoint, &shards);
+
+    if let models::MaterializationEndpoint::Python(python) = &endpoint {
+        let scope = scope.push_prop("endpoint");
+        let scope = scope.push_prop("python");
+
+        // The V1 runtime sends no JSON keys of Loads and Stores, which user code reads.
+        if !shards.uses_runtime_v2(models::CatalogType::Materialization) {
+            Error::RequireRuntimeV2 {
+                entity: "materialization",
+                name: materialization.to_string(),
+                capability: "python",
+                flag: models::ENABLE_RUNTIME_V2,
+            }
+            .push(scope, errors);
+        }
+        crate::custom::walk_python(
+            scope,
+            materialization,
+            &python.files,
+            &python.config,
+            &python.spec,
+            errors,
+        );
+    }
+
     let secrets_spec = assemble::secrets(&secrets);
+    let secrets_ctx = crate::secrets::Context::of_materialization(&secrets, &endpoint);
 
-    // Start an RPC with the task's connector.
-    let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
-    let response_rx = if noop_materializations || shards.disable {
-        futures::future::Either::Left(NoOpConnectors.materialize(
-            data_plane,
-            materialization,
-            request_rx,
-        ))
-    } else {
-        futures::future::Either::Right(connectors.materialize(
-            data_plane,
-            materialization,
-            request_rx,
-        ))
-    };
-    futures::pin_mut!(response_rx);
-
-    // Send Request.Spec and receive Response.Spec.
-    _ = request_tx
-        .send(
-            materialize::Request {
-                kind: Some(materialize::request::Kind::Spec(
-                    materialize::request::Spec {
-                        connector_type,
-                        config_json: config_json.clone(),
-                    },
-                )),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                if let Some(s) = &shards.log_level {
-                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-                }
-            }),
-        )
-        .await;
-
-    let materialize::response::Spec {
-        documentation_url: _,
-        config_schema_json: _,
-        resource_config_schema_json: _,
-        ..
-    } = super::expect_response(
+    crate::secrets::walk_model(
         scope,
-        &mut response_rx,
-        |response| match &mut response.kind {
-            Some(materialize::response::Kind::Spec(spec)) => {
-                Ok(Some(std::mem::take(spec.as_mut())))
-            }
-            _ => Ok(None),
-        },
+        "materialization",
+        materialization,
+        models::CatalogType::Materialization,
+        &shards,
+        &secrets_ctx,
         errors,
-    )
-    .await?;
+    );
 
     // Index live binding models on their (non-empty) resource /_meta/path .
     let live_bindings_model: BTreeMap<Vec<String>, &models::MaterializationBinding> = live_model
@@ -278,7 +272,6 @@ async fn walk_materialization<C: Connectors>(
                 model,
                 built_collections,
                 materialization,
-                data_plane.control_id,
                 shards.disable,
                 &live_bindings_model,
                 &live_bindings_spec,
@@ -329,6 +322,7 @@ async fn walk_materialization<C: Connectors>(
         })
         .collect();
     let bindings_validate_len = bindings_validate.len();
+    let project_root = super::project_root(&scope.flatten());
 
     let mut validate_request = materialize::request::Validate {
         name: materialization.to_string(),
@@ -343,47 +337,81 @@ async fn walk_materialization<C: Connectors>(
         },
         linked_collections: Vec::new(),
         secrets: secrets_spec.clone(),
+        project_root: project_root.clone(),
     };
     linked::install_materialize_validate(&mut validate_request, interner, indirect_specs);
 
-    // Send Request.Validate and receive Response.Validated.
-    _ = request_tx
-        .send(
-            materialize::Request {
-                kind: Some(materialize::request::Kind::Validate(Box::new(
-                    validate_request,
-                ))),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                if let Some(s) = &shards.log_level {
-                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-                }
-            }),
-        )
-        .await;
-
-    let (validated_response, network_ports) = super::expect_response(
+    let no_op = noop_materializations || shards.disable;
+    let (mut validated_response, network_ports, connector_spec) = super::validate_connector(
         scope,
-        &mut response_rx,
-        |response| {
-            let network_ports = match response.get_internal() {
-                Ok(internal) => internal.container.unwrap_or_default().network_ports,
-                Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
-            };
-            match &mut response.kind {
-                Some(materialize::response::Kind::Validated(v)) => {
-                    Ok(Some((std::mem::take(v), network_ports)))
-                }
-                _ => Ok(None),
-            }
+        connectors,
+        no_op,
+        data_plane_id,
+        shards.log_level.as_deref(),
+        connector::request::Kind::Materialize(materialize::Request {
+            kind: Some(materialize::request::Kind::Validate(Box::new(
+                validate_request,
+            ))),
+            ..Default::default()
+        }),
+        |response| match response {
+            connector::response::Kind::Materialize(materialize::Response {
+                kind: Some(materialize::response::Kind::Validated(validated)),
+                ..
+            }) => Some(validated),
+            _ => None,
         },
         errors,
     )
     .await?;
 
+    let network_ports = match &endpoint {
+        models::MaterializationEndpoint::Python(python) => {
+            crate::custom::network_ports(&python.spec)
+        }
+        _ => network_ports,
+    };
+
+    crate::secrets::walk_plaintext(
+        scope,
+        "materialization",
+        materialization,
+        &secrets_ctx,
+        &connector_spec.config_schema_json,
+        errors,
+    );
+
+    // A no-op validation has no Spec of the connector to check against.
+    // The checks run once the connector does.
+    if !no_op {
+        walk_resource_annotations(
+            scope,
+            sources.as_ref(),
+            target_naming.is_some(),
+            &connector_spec.resource_config_schema_json,
+            errors,
+        );
+    }
+
+    super::validate_generated_files(
+        scope,
+        &project_root,
+        &mut validated_response.generated_files,
+        errors,
+    );
+
+    if let models::MaterializationEndpoint::Python(python) = &endpoint {
+        crate::custom::retain_generated_files(
+            materialization,
+            &project_root,
+            &python.files,
+            &mut validated_response.generated_files,
+        );
+    }
+
     let materialize::response::Validated {
         bindings: bindings_validated,
+        generated_files: _,
     } = &validated_response;
 
     if bindings_validate_len != bindings_validated.len() {
@@ -741,6 +769,7 @@ async fn walk_materialization<C: Connectors>(
         sync_schedule_json,
         linked_collections: Vec::new(),
         secrets: secrets_spec,
+        connector_spec: (!no_op).then(|| Box::new(connector_spec)),
     };
     linked::install_materialization_spec(&mut spec, interner, indirect_specs);
 
@@ -759,9 +788,6 @@ async fn walk_materialization<C: Connectors>(
         reset: false,
     };
 
-    std::mem::drop(request_tx);
-    () = super::expect_eof(scope, response_rx, errors).await;
-
     // Compute the dependency hash after we're done with any potential modifications of the model,
     // since disabling a binding would change the hash.
     let dependency_hash = dependencies.compute_hash(&model);
@@ -769,7 +795,7 @@ async fn walk_materialization<C: Connectors>(
         materialization: materialization.clone(),
         scope: scope.flatten(),
         control_id,
-        data_plane_id: data_plane.control_id,
+        data_plane_id,
         dependency_hash,
         expect_build_id,
         expect_pub_id,
@@ -788,7 +814,6 @@ fn walk_materialization_binding<'a>(
     mut model: models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
     catalog_name: &models::Materialization,
-    data_plane_id: models::Id,
     disable: bool,
     live_bindings_model: &BTreeMap<Vec<String>, &models::MaterializationBinding>,
     live_bindings_spec: &LiveBindings,
@@ -830,7 +855,7 @@ fn walk_materialization_binding<'a>(
             (name, partitions.as_ref())
         }
     };
-    let Some((mut source_spec, built_collection)) = reference::walk_reference(
+    let Some((mut source_spec, _)) = reference::walk_reference(
         scope,
         "materialization binding",
         || {
@@ -874,8 +899,6 @@ fn walk_materialization_binding<'a>(
         model_fixes,
         errors,
     );
-
-    super::temporary_cross_data_plane_read_check(scope, built_collection, data_plane_id, errors);
 
     // The binding's `onIncompatibleSchemaChange` takes precedence, if specified.
     let on_incompatible_schema_change = model
@@ -969,6 +992,52 @@ fn walk_materialization_binding<'a>(
     };
 
     (model_path, model, None, Some(validate))
+}
+
+/// Verifies that the connector's resource config schema has the annotated
+/// locations which `source` and `targetNaming` will write into the
+/// resources of generated bindings.
+fn walk_resource_annotations(
+    scope: Scope,
+    source: Option<&models::SourceType>,
+    target_naming: bool,
+    resource_config_schema_json: &[u8],
+    errors: &mut tables::Errors,
+) {
+    let source = match source {
+        Some(models::SourceType::Configured(source)) => Some(source),
+        Some(models::SourceType::Simple(_)) => None,
+        None if !target_naming => return,
+        None => None,
+    };
+
+    let pointers = match std::str::from_utf8(resource_config_schema_json)
+        .map_err(anyhow::Error::from)
+        .and_then(tables::utils::pointer_for_schema)
+    {
+        Ok(pointers) => pointers,
+        Err(detail) => {
+            Error::ResourceSchemaAnnotations { detail }.push(scope, errors);
+            return;
+        }
+    };
+
+    if target_naming && pointers.x_schema_name.is_none() {
+        Error::TargetNamingWithoutSchemaName.push(scope.push_prop("targetNaming"), errors);
+    }
+    let Some(source) = source else {
+        return;
+    };
+    let scope = scope.push_prop("source");
+
+    if source.delta_updates && pointers.x_delta_updates.is_none() {
+        Error::SourceDeltaUpdatesUnsupported.push(scope.push_prop("deltaUpdates"), errors);
+    }
+    // TODO(js): Remove this check once we finish the target naming migration
+    if source.target_naming == models::TargetNaming::WithSchema && pointers.x_schema_name.is_none()
+    {
+        Error::SourceTargetSchemaUnsupported.push(scope.push_prop("targetNaming"), errors);
+    }
 }
 
 /// Carry live bindings over as inactive bindings of the spec being built,

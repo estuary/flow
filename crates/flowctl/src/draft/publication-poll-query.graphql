@@ -1,0 +1,24 @@
+query PollPublicationQuery($id: Id!, $after: String) {
+    publication(id: $id) {
+        status {
+            type
+        }
+        errors {
+            scope
+            detail
+        }
+        logs(after: $after) {
+            pageInfo {
+                hasNextPage
+                endCursor
+            }
+            edges {
+                node {
+                    loggedAt
+                    stream
+                    line
+                }
+            }
+        }
+    }
+}

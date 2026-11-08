@@ -1,19 +1,19 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::request::Discover, capture::request::Validate,\ncapture::request::validate::Binding, capture::request::Apply,\ncapture::request::Open, capture::request::Acknowledge, capture::Response,\ncapture::response::Spec, capture::response::Discovered,\ncapture::response::Validated, capture::response::Applied,\ncapture::response::Opened, capture::response::Captured,\ncapture::response::SourcedSchema, capture::response::Checkpoint,\ncapture::response::BackfillBegin, capture::response::BackfillComplete,\nderive::Request, derive::request::Spec, derive::request::Validate,\nderive::request::validate::Transform, derive::request::Open,\nderive::request::Read, derive::request::Flush, derive::request::StartCommit,\nderive::request::Reset, derive::Response, derive::response::Spec,\nderive::response::Validated, derive::response::Opened,\nderive::response::Published, derive::response::Flushed,\nderive::response::StartedCommit, materialize::Request,\nmaterialize::request::Spec, materialize::request::Validate,\nmaterialize::request::validate::Binding, materialize::request::Apply,\nmaterialize::request::Open, materialize::request::Load,\nmaterialize::request::Flush, materialize::request::Store,\nmaterialize::request::StartCommit, materialize::request::Acknowledge,\nmaterialize::Response, materialize::response::Spec,\nmaterialize::response::Validated, materialize::response::Applied,\nmaterialize::response::Opened, materialize::response::Loaded,\nmaterialize::response::Flushed, materialize::response::StartedCommit,\nmaterialize::response::Acknowledged, flow::CollectionSpec,\nflow::collection_spec::Derivation,\nflow::collection_spec::derivation::Transform, flow::CaptureSpec,\nflow::capture_spec::Binding, flow::MaterializationSpec,\nflow::materialization_spec::Binding, flow::Projection, flow::Inference,\nflow::RangeSpec, flow::ConnectorState, flow::OAuth2, flow::FieldSelection,)"
+expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::request::Discover, capture::request::Validate,\ncapture::request::validate::Binding, capture::request::Apply,\ncapture::request::Open, capture::request::Acknowledge, capture::Response,\ncapture::response::Spec, capture::response::Discovered,\ncapture::response::Validated, capture::response::Applied,\ncapture::response::Opened, capture::response::Captured,\ncapture::response::SourcedSchema, capture::response::Checkpoint,\ncapture::response::BackfillBegin, capture::response::BackfillComplete,\nderive::Request, derive::request::Spec, derive::request::Validate,\nderive::request::validate::Transform, derive::request::Open,\nderive::request::Read, derive::request::Flush, derive::request::StartCommit,\nderive::request::Reset, derive::Response, derive::response::Spec,\nderive::response::Validated, derive::response::Opened,\nderive::response::Published, derive::response::Flushed,\nderive::response::StartedCommit, materialize::Request,\nmaterialize::request::Spec, materialize::request::Validate,\nmaterialize::request::validate::Binding, materialize::request::Apply,\nmaterialize::request::Open, materialize::request::Load,\nmaterialize::request::Flush, materialize::request::Store,\nmaterialize::request::StartCommit, materialize::request::Acknowledge,\nmaterialize::Response, materialize::response::Spec,\nmaterialize::response::Validated, materialize::response::Applied,\nmaterialize::response::Opened, materialize::response::Loaded,\nmaterialize::response::Flushed, materialize::response::StartedCommit,\nmaterialize::response::Acknowledged, connector::Request, connector::Response,\nflow::CollectionSpec, flow::collection_spec::Derivation,\nflow::collection_spec::derivation::Transform, flow::CaptureSpec,\nflow::capture_spec::Binding, flow::MaterializationSpec,\nflow::materialization_spec::Binding, flow::Projection, flow::Inference,\nflow::RangeSpec, flow::ConnectorState, flow::OAuth2, flow::FieldSelection,)"
 ---
     80  capture::Request
     40  capture::request::Spec
    112  capture::request::Discover
-   816  capture::request::Validate
+   848  capture::request::Validate
     48  capture::request::validate::Binding
-  1392  capture::request::Apply
-   768  capture::request::Open
+  1408  capture::request::Apply
+   776  capture::request::Open
      4  capture::request::Acknowledge
     96  capture::Response
    408  capture::response::Spec
     24  capture::response::Discovered
-    24  capture::response::Validated
+    48  capture::response::Validated
     64  capture::response::Applied
      1  capture::response::Opened
     40  capture::response::Captured
@@ -39,10 +39,10 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     40  derive::response::StartedCommit
    200  materialize::Request
     40  materialize::request::Spec
-   848  materialize::request::Validate
+   880  materialize::request::Validate
     96  materialize::request::validate::Binding
-  1456  materialize::request::Apply
-   800  materialize::request::Open
+  1472  materialize::request::Apply
+   808  materialize::request::Open
     72  materialize::request::Load
     80  materialize::request::Flush
    168  materialize::request::Store
@@ -50,19 +50,21 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     32  materialize::request::Acknowledge
    104  materialize::Response
    384  materialize::response::Spec
-    24  materialize::response::Validated
+    48  materialize::response::Validated
     64  materialize::response::Applied
     64  materialize::response::Opened
     40  materialize::response::Loaded
     40  materialize::response::Flushed
     40  materialize::response::StartedCommit
     40  materialize::response::Acknowledged
+   232  connector::Request
+   232  connector::Response
    448  flow::CollectionSpec
-   632  flow::collection_spec::Derivation
+   640  flow::collection_spec::Derivation
    288  flow::collection_spec::derivation::Transform
-   656  flow::CaptureSpec
+   664  flow::CaptureSpec
     96  flow::capture_spec::Binding
-   688  flow::MaterializationSpec
+   696  flow::MaterializationSpec
    408  flow::materialization_spec::Binding
    416  flow::Projection
    360  flow::Inference

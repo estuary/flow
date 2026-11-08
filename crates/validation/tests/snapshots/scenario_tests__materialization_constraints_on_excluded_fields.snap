@@ -376,6 +376,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "testing/db-views",
@@ -827,6 +828,16 @@ Outcome {
                 sync_schedule_json: b"",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: Some(
+                    ConnectorSpec {
+                        protocol: 0,
+                        config_schema_json: b"{\"type\":\"object\"}",
+                        resource_config_schema_json: b"{\"properties\":{\"schema\":{\"type\":\"string\",\"x-schema-name\":true},\"target\":{\"type\":\"string\",\"x-collection-name\":true}},\"required\":[\"target\"],\"type\":\"object\"}",
+                        documentation_url: "",
+                        oauth2: None,
+                        resource_path_pointers: [],
+                    },
+                ),
             },
             previous_spec: MaterializationSpec {
                 name: "testing/db-views",
@@ -911,6 +922,7 @@ Outcome {
                 sync_schedule_json: b"",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: None,
             },
             is_touch: 0,
             dependency_hash: f70cb9d1e746ef16,
@@ -923,6 +935,7 @@ Outcome {
             collection: testing/constraints,
             scope: test://example/catalog.yaml#/collections/testing~1constraints,
             expect_pub_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1constraints/schema","properties":{"id":{"type":"string"},"naughty_f":{"type":"string"},"naughty_u":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
@@ -946,6 +959,7 @@ Outcome {
             materialization: testing/db-views,
             scope: test://example/catalog.yaml#/materializations/testing~1db-views,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {

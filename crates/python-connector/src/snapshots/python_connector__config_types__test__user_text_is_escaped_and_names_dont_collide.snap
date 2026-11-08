@@ -1,0 +1,23 @@
+---
+source: crates/python-connector/src/config_types.rs
+expression: "render(Some(serde_json::json!({\n    \"type\": \"object\", \"description\": \"Ends with a quote\\\"\", \"properties\":\n    {\n        \"path\":\n        {\"type\": \"string\", \"description\":\n            \"A Windows path like C:\\\\Users\\\\me\"}, \"quoted\":\n        {\"type\": \"string\", \"description\":\n            \"Has \\\"\\\"\\\" inside, and a \\u{0} NUL\"}, \"trailing\\\"\":\n        {\"type\": \"string\"}, \"choice\": {\"enum\": [\"a\\nb\", \"c\\\"d\", \"e\\\\f\"]},\n        \"datetime\": {\"type\": \"string\", \"x-python-type\": \"datetime.datetime\"},\n        \"typing\": {\"type\": \"integer\", \"default\": 10.0}, \"model_config\":\n        {\"type\": \"string\"}, \"schema\": {\"type\": \"string\"}, \"json\":\n        {\"type\": \"boolean\"},\n    },\n})))"
+---
+# Generated for the endpoint configuration of `spec.configSchema`.
+import datetime as _datetime
+
+
+class EndpointConfig(_pydantic.BaseModel):
+    """Ends with a quote\""""
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    choice: _typing.Optional[_typing.Literal["a\nb", "c\"d", "e\\f"]] = None
+    datetime: _typing.Optional[_datetime.datetime] = None
+    m_json: _typing.Optional[bool] = _pydantic.Field(default=None, alias="json")
+    m_model_config: _typing.Optional[str] = _pydantic.Field(default=None, alias="model_config")
+    path: _typing.Optional[str] = None
+    """A Windows path like C:\\Users\\me"""
+    quoted: _typing.Optional[str] = None
+    """Has \"\"\" inside, and a \x00 NUL"""
+    m_schema: _typing.Optional[str] = _pydantic.Field(default=None, alias="schema")
+    trailing_: _typing.Optional[str] = _pydantic.Field(default=None, alias="trailing\"")
+    typing: int = 10

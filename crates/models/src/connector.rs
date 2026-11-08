@@ -4,17 +4,85 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Splits a full connector image name into separate image and tag components.
-/// The resulting tag will always begin with either a `@sha256:` or `:` if a
-/// tag is present. Otherwise, the tag will be an empty string.
+/// The resulting tag begins with `:` or with a digest's `@` if either is
+/// present, and a tag followed by a digest stays whole (`:v1@sha256:...`),
+/// so the components always concatenate back into `image_full`. Otherwise,
+/// the tag will be an empty string.
 pub fn split_image_tag(image_full: &str) -> (String, String) {
     let mut image = image_full.to_string();
 
-    if let Some(pivot) = image.find("@sha256:").or_else(|| image.find(":")) {
-        let tag = image.split_off(pivot);
-        (image, tag)
-    } else {
-        (image, String::new())
+    // A digest follows the only `@` a reference may contain, and may itself
+    // be preceded by a tag, as in `repo:v1@sha256:...`.
+    let digest_pivot = image.find('@').unwrap_or(image.len());
+
+    // A registry may include a port, so only a colon in the final path component
+    // can delimit an image tag.
+    let image_name_start = image[..digest_pivot]
+        .rfind('/')
+        .map_or(0, |pivot| pivot + 1);
+    let tag_pivot = image[image_name_start..digest_pivot]
+        .find(':')
+        .map_or(digest_pivot, |pivot| image_name_start + pivot);
+
+    let tag = image.split_off(tag_pivot);
+    (image, tag)
+}
+
+/// Whether `image` is a frozen `:dev` derive image of the V1 runtime.
+/// These images serve exactly one request per connector invocation.
+/// They also predate tolerance of unknown JSON fields, so their requests
+/// must not carry fields added since, such as `connector_spec`.
+/// TODO(johnny): remove with retirement of `:dev` images.
+pub fn is_frozen_derive_image(image: &str) -> bool {
+    let (repository, tag) = split_image_tag(image);
+
+    tag == ":dev"
+        && matches!(
+            repository.as_str(),
+            "ghcr.io/estuary/derive-typescript" | "ghcr.io/estuary/derive-python"
+        )
+}
+
+/// Port on which `flow-connector-init` serves a connector container's RPCs.
+/// It's unlikely to be a port that a connector would use.
+pub const CONNECTOR_INIT_PORT: u16 = 49092;
+
+/// Catalog-name component which marks where the image repository begins in
+/// the name of an image-owned secret. See [`image_owns_secret`].
+pub const IMAGE_SECRET_SEPARATOR: &str = "connectors";
+
+/// Whether `secret` belongs to the image `repository`. Such a secret is named
+/// `<prefix>/connectors/<repository>/<leaf>`, where `<prefix>` is any catalog
+/// prefix.
+///
+/// The `connectors` component is needed because a repository may have any
+/// number of path components. Without it, a secret named
+/// `acmeCo/oauth/ghcr.io/acmeco/source-foo/client` could belong to the image
+/// `ghcr.io/acmeco/source-foo`, or to the Docker Hub image `acmeco/source-foo`.
+/// Anyone can register `acmeco` on Docker Hub, publish that image, and use it
+/// to read the real connector's secret. With the separator, the repository is
+/// exactly what follows the last `connectors` component.
+///
+/// For the same reason, a repository which itself has a `connectors` component
+/// can't own secrets. Nor can a repository that names a registry port
+/// (`localhost:5000/image`), because catalog names don't allow `:`.
+pub fn image_owns_secret(secret: &str, repository: &str) -> bool {
+    if repository
+        .split('/')
+        .any(|component| component == IMAGE_SECRET_SEPARATOR)
+    {
+        return false;
     }
+
+    let Some((parent, _leaf)) = secret.rsplit_once('/') else {
+        return false;
+    };
+    let separator = format!("/{IMAGE_SECRET_SEPARATOR}/");
+    let Some((prefix, embedded_repository)) = parent.rsplit_once(&separator) else {
+        return false;
+    };
+
+    !prefix.is_empty() && embedded_repository == repository
 }
 
 /// Connectors with an image name starting with this value are Dekaf-type materializations. No image with this
@@ -91,5 +159,125 @@ impl LocalConfig {
             env: BTreeMap::new(),
             protobuf: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    /// Pins the exhaustive list, because it gates behavior changes that are
+    /// invisible until a connector fails to parse its requests.
+    #[test]
+    fn is_frozen_derive_image_matches_only_the_frozen_derive_images() {
+        for image in [
+            "ghcr.io/estuary/derive-typescript:dev",
+            "ghcr.io/estuary/derive-python:dev",
+        ] {
+            assert!(super::is_frozen_derive_image(image), "{image}");
+        }
+
+        for image in [
+            // Other tags of the same connectors are current builds.
+            "ghcr.io/estuary/derive-typescript:stable",
+            "ghcr.io/estuary/derive-typescript:local",
+            "ghcr.io/estuary/derive-python:stable",
+            // A digest pins a build we cannot identify as frozen.
+            "ghcr.io/estuary/derive-python@sha256:abc",
+            // Untagged, and unrelated connectors at `:dev`.
+            "ghcr.io/estuary/derive-python",
+            "ghcr.io/estuary/source-hello-world:dev",
+            "ghcr.io/estuary/materialize-postgres:dev",
+            // Not ours, however it is named.
+            "example.com/derive-python:dev",
+        ] {
+            assert!(!super::is_frozen_derive_image(image), "{image}");
+        }
+    }
+
+    #[test]
+    fn split_image_tag_handles_registry_ports_and_digests() {
+        for (image, expected) in [
+            (
+                "ghcr.io/estuary/source-example:v1",
+                ("ghcr.io/estuary/source-example", ":v1"),
+            ),
+            (
+                "registry.example:5000/source-example:v1",
+                ("registry.example:5000/source-example", ":v1"),
+            ),
+            (
+                "registry.example:5000/source-example@sha256:abcdef",
+                ("registry.example:5000/source-example", "@sha256:abcdef"),
+            ),
+            (
+                "registry.example:5000/source-example",
+                ("registry.example:5000/source-example", ""),
+            ),
+            ("source-example:v1", ("source-example", ":v1")),
+            ("source-example", ("source-example", "")),
+            // A tag and a digest together: the repository excludes both, and
+            // the tag half carries both so that the pin is never dropped.
+            (
+                "ghcr.io/estuary/derive-python:v1@sha256:abcdef",
+                ("ghcr.io/estuary/derive-python", ":v1@sha256:abcdef"),
+            ),
+            (
+                "registry.example:5000/source-example:v1@sha256:abcdef",
+                ("registry.example:5000/source-example", ":v1@sha256:abcdef"),
+            ),
+            // Digests of algorithms other than sha256.
+            (
+                "ghcr.io/estuary/source-example@sha512:abcdef",
+                ("ghcr.io/estuary/source-example", "@sha512:abcdef"),
+            ),
+        ] {
+            let actual = super::split_image_tag(image);
+            assert_eq!((actual.0.as_str(), actual.1.as_str()), expected, "{image}");
+        }
+    }
+
+    #[test]
+    fn image_secret_names_have_an_unambiguous_repository_boundary() {
+        let repository = "registry.vendor.test/acme/source-example";
+
+        for (secret, expected) in [
+            (
+                "vendor/connectors/registry.vendor.test/acme/source-example/oauth-client",
+                true,
+            ),
+            (
+                "arbitrary/connectors/prefix/connectors/registry.vendor.test/acme/source-example/oauth-client",
+                true,
+            ),
+            (
+                "vendor/registry.vendor.test/acme/source-example/oauth-client",
+                false,
+            ),
+            (
+                "connectors/registry.vendor.test/acme/source-example/oauth-client",
+                false,
+            ),
+            (
+                "vendor/connectors/registry.vendor.test/acme/source-example/nested/oauth-client",
+                false,
+            ),
+        ] {
+            assert_eq!(
+                super::image_owns_secret(secret, repository),
+                expected,
+                "{secret}"
+            );
+        }
+
+        // The longer repository is refused because it contains the separator;
+        // the rightmost separator deterministically assigns this name to the
+        // shorter repository instead.
+        assert!(!super::image_owns_secret(
+            "vendor/connectors/registry.vendor.test/connectors/registry.attacker.test/source/client",
+            "registry.vendor.test/connectors/registry.attacker.test/source",
+        ));
+        assert!(super::image_owns_secret(
+            "vendor/connectors/registry.vendor.test/connectors/registry.attacker.test/source/client",
+            "registry.attacker.test/source",
+        ));
     }
 }

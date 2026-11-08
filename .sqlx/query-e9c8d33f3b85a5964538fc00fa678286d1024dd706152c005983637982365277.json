@@ -6,52 +6,102 @@
       {
         "ordinal": 0,
         "name": "catalog_name: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "catalog_name"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "last_build_id: models::Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "last_build_id"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "disabled!: bool",
-        "type_info": "Bool"
+        "type_info": "Bool",
+        "origin": "Expression"
       },
       {
         "ordinal": 3,
         "name": "controller_version: i32",
-        "type_info": "Int4"
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "controller_version"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "connector_status?: ConnectorStatus",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "connector_status",
+            "name": "flow_document"
+          }
+        }
       },
       {
         "ordinal": 5,
         "name": "controller_next_run: DateTime<Utc>",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.tasks",
+            "name": "wake_at"
+          }
+        }
       },
       {
         "ordinal": 6,
         "name": "controller_updated_at: DateTime<Utc>",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "updated_at"
+          }
+        }
       },
       {
         "ordinal": 7,
         "name": "controller_status_json!: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": "Expression"
       },
       {
         "ordinal": 8,
         "name": "controller_error: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "error"
+          }
+        }
       },
       {
         "ordinal": 9,
         "name": "controller_failures: i32",
-        "type_info": "Int4"
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "failures"
+          }
+        }
       }
     ],
     "parameters": {

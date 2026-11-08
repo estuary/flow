@@ -3,11 +3,13 @@ use std::collections::BTreeSet;
 mod alert_config;
 pub mod authorizations;
 pub mod authz;
+mod capture_python;
 mod captures;
 mod catalogs;
 pub mod collate;
 mod collections;
 mod connector;
+pub mod custom_connector;
 mod derivation;
 mod derive_python;
 mod derive_sqlite;
@@ -18,6 +20,7 @@ mod id;
 mod journals;
 mod labels;
 mod materializations;
+mod materialize_python;
 mod private_links;
 pub mod publications;
 mod raw_value;
@@ -38,11 +41,13 @@ pub use crate::alert_config::{
     TaskIdleCondition, TaskIdleConfig,
 };
 pub use crate::labels::{Label, LabelSelector, LabelSet};
+pub use capture_python::CapturePython;
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
 pub use connector::{
-    ConnectorConfig, DEKAF_IMAGE_NAME_PREFIX, DEKAF_IMAGE_TAG, DekafConfig, LocalConfig,
+    CONNECTOR_INIT_PORT, ConnectorConfig, DEKAF_IMAGE_NAME_PREFIX, DEKAF_IMAGE_TAG, DekafConfig,
+    IMAGE_SECRET_SEPARATOR, LocalConfig, image_owns_secret, is_frozen_derive_image,
     split_image_tag,
 };
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
@@ -59,6 +64,7 @@ pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
     RecommendedDepth, TargetNamingStrategy,
 };
+pub use materialize_python::MaterializePython;
 pub use private_links::{AWSPrivateLink, AzurePrivateLink, GCPPrivateServiceConnect, PrivateLink};
 pub use raw_value::RawValue;
 pub use references::{

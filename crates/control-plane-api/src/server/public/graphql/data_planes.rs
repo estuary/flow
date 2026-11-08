@@ -183,6 +183,40 @@ pub struct DataPlane {
     raw_gcp_psc_endpoints: Vec<serde_json::Value>,
 }
 
+impl DataPlane {
+    /// Builds a DataPlane from its snapshot row and optional database details.
+    /// Returns None if the data plane's name cannot be parsed.
+    pub(crate) fn build(
+        dp: &crate::snapshot::DataPlane,
+        user_capability: models::Capability,
+        details: Option<&DataPlaneDetails>,
+    ) -> Option<Self> {
+        let (cloud_provider, region, tag, is_public) = parse_data_plane_name(&dp.data_plane_name)?;
+        let details = details.cloned().unwrap_or_default();
+
+        Some(Self {
+            id: dp.control_id,
+            name: dp.data_plane_name.clone(),
+            fqdn: dp.data_plane_fqdn.clone(),
+            reactor_address: dp.reactor_address.clone(),
+            user_capability,
+            cloud_provider,
+            region,
+            tag,
+            is_public,
+            closed: dp.closed,
+            cidr_blocks: details.cidr_blocks,
+            gcp_service_account_email: details.gcp_service_account_email,
+            aws_iam_user_arn: details.aws_iam_user_arn,
+            azure_application_name: details.azure_application_name,
+            azure_application_client_id: details.azure_application_client_id,
+            raw_aws_link_endpoints: details.aws_link_endpoints,
+            raw_azure_link_endpoints: details.azure_link_endpoints,
+            raw_gcp_psc_endpoints: details.gcp_psc_endpoints,
+        })
+    }
+}
+
 #[ComplexObject]
 impl DataPlane {
     /// Configured private links for this data-plane, each with its
@@ -322,7 +356,34 @@ async fn fetch_data_plane_details(
         .collect())
 }
 
-struct DataPlaneDetails {
+/// Keys the request-scoped loader by data plane name, so that resolvers
+/// returning data planes (such as `StorageMapping.dataPlanes`) collapse
+/// into one batch query.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct DataPlaneDetailsKey(pub String);
+
+impl async_graphql::dataloader::Loader<DataPlaneDetailsKey> for super::PgDataLoader {
+    type Value = DataPlaneDetails;
+    type Error = String;
+
+    async fn load(
+        &self,
+        keys: &[DataPlaneDetailsKey],
+    ) -> Result<HashMap<DataPlaneDetailsKey, Self::Value>, Self::Error> {
+        let names: Vec<String> = keys.iter().map(|key| key.0.clone()).collect();
+        let details = fetch_data_plane_details(&self.0, &names)
+            .await
+            .map_err(|err| err.message)?;
+
+        Ok(details
+            .into_iter()
+            .map(|(name, details)| (DataPlaneDetailsKey(name), details))
+            .collect())
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DataPlaneDetails {
     cidr_blocks: Vec<String>,
     gcp_service_account_email: Option<String>,
     aws_iam_user_arn: Option<String>,
@@ -484,7 +545,7 @@ impl DataPlanesQuery {
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedDataPlanes> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
+        let subject = env.claims()?.subject();
         let snapshot = env.snapshot();
 
         let DataPlanesFilter {
@@ -509,9 +570,8 @@ impl DataPlanesQuery {
 
         // Keep data planes that match the filter, that the user can read, and
         // that have valid names. Sort by name for stable pagination.
-        let mut accessible_data_planes: Vec<&tables::DataPlane> = snapshot
-            .data_planes
-            .iter()
+        let mut accessible_data_planes: Vec<&crate::snapshot::DataPlane> = snapshot
+            .data_planes()
             .filter(|dp| {
                 // `public` isn't a column: it's implied by the name prefix,
                 // so it comes from the same parse that validates the name.
@@ -519,6 +579,10 @@ impl DataPlanesQuery {
                     tracing::warn!(data_plane_name = %dp.data_plane_name, "skipping data plane with unparseable name");
                     return false;
                 };
+                // A plane which cannot sign claims cannot be used.
+                if !dp.can_sign() {
+                    return false;
+                }
                 // Filter to public/private planes, if requested.
                 if public_eq.is_some_and(|want| want != public) {
                     return false;
@@ -539,7 +603,7 @@ impl DataPlanesQuery {
                 tables::UserGrant::is_authorized(
                         &snapshot.role_grants,
                         &snapshot.user_grants,
-                        claims.sub,
+                        &subject,
                         &dp.data_plane_name,
                         models::Capability::Read,
                     )
@@ -574,58 +638,23 @@ impl DataPlanesQuery {
             )
             .await?;
 
-        // Preserve sorted order from pagination before moving into HashMap.
         let names: Vec<String> = rows.iter().map(|dp| dp.data_plane_name.clone()).collect();
-
-        // Build row data map for attach_user_capabilities.
-        let row_data: HashMap<String, &tables::DataPlane> = rows
-            .into_iter()
-            .map(|dp| (dp.data_plane_name.clone(), dp))
-            .collect();
 
         // Fetch detail fields from the database for all data planes in this page.
         let details_map = fetch_data_plane_details(&env.pg_pool, &names).await?;
 
-        let edges = crate::server::attach_user_capabilities(
-            env.snapshot(),
-            env.claims()?,
-            names.into_iter(),
-            |data_plane_name, user_capability| {
-                let dp = row_data.get(&data_plane_name)?;
-                let details = details_map.get(&data_plane_name);
-                let (cloud_provider, region, tag, is_public) =
-                    parse_data_plane_name(&data_plane_name).expect("name validated by pre-filter");
-                let node = DataPlane {
-                    id: dp.control_id,
-                    name: data_plane_name.clone(),
-                    fqdn: dp.data_plane_fqdn.clone(),
-                    reactor_address: dp.reactor_address.clone(),
-                    user_capability: user_capability.expect("capability guaranteed by pre-filter"),
-                    cloud_provider,
-                    region,
-                    tag,
-                    is_public,
-                    closed: dp.closed,
-                    cidr_blocks: details.map(|d| d.cidr_blocks.clone()).unwrap_or_default(),
-                    gcp_service_account_email: details
-                        .and_then(|d| d.gcp_service_account_email.clone()),
-                    aws_iam_user_arn: details.and_then(|d| d.aws_iam_user_arn.clone()),
-                    azure_application_name: details.and_then(|d| d.azure_application_name.clone()),
-                    azure_application_client_id: details
-                        .and_then(|d| d.azure_application_client_id.clone()),
-                    raw_aws_link_endpoints: details
-                        .map(|d| d.aws_link_endpoints.clone())
-                        .unwrap_or_default(),
-                    raw_azure_link_endpoints: details
-                        .map(|d| d.azure_link_endpoints.clone())
-                        .unwrap_or_default(),
-                    raw_gcp_psc_endpoints: details
-                        .map(|d| d.gcp_psc_endpoints.clone())
-                        .unwrap_or_default(),
-                };
-                Some(connection::Edge::new(data_plane_name, node))
-            },
-        );
+        let edges = rows
+            .into_iter()
+            .map(|dp| {
+                let user_capability = snapshot
+                    .user_capability(&subject, &dp.data_plane_name)
+                    .expect("capability guaranteed by pre-filter");
+                let node =
+                    DataPlane::build(dp, user_capability, details_map.get(&dp.data_plane_name))
+                        .expect("name validated by pre-filter");
+                connection::Edge::new(dp.data_plane_name.clone(), node)
+            })
+            .collect();
 
         let mut conn = PaginatedDataPlanes::new(has_prev, has_next);
         conn.edges = edges;
@@ -653,12 +682,13 @@ impl DataPlanesQuery {
 
         let mut planes: Vec<PublicDataPlane> = env
             .snapshot()
-            .data_planes
-            .iter()
+            .data_planes()
             .filter_map(|dp| {
                 let (cloud_provider, region, _tag, is_public) =
                     parse_data_plane_name(&dp.data_plane_name)?;
-                (is_public && !dp.closed).then(|| PublicDataPlane {
+
+                // Surface public planes which are ready for use.
+                (is_public && !dp.closed && dp.can_sign()).then(|| PublicDataPlane {
                     name: dp.data_plane_name.clone(),
                     cloud_provider,
                     region,
@@ -1668,7 +1698,7 @@ mod tests {
             .await;
         assert_eq!(
             first_error_message(&denied),
-            "PermissionDenied: alice@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1' with required capability ModifyDataPlanePrivateNetworking",
+            "PermissionDenied: alice@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1'. Requires capabilities: manage_data_plane or admin",
         );
     }
 
@@ -1914,7 +1944,7 @@ mod tests {
             .await;
         assert_eq!(
             first_error_message(&bob_denied),
-            "PermissionDenied: bob@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1' with required capability ModifyDataPlanePrivateNetworking",
+            "PermissionDenied: bob@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1'. Requires capabilities: manage_data_plane or admin",
         );
 
         // An id-addressed mutation on a link Bob may not modify must return the

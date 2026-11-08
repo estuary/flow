@@ -36,6 +36,7 @@ pub struct DbInvoiceRow {
     pub subtotal: i32,
     pub extra: sqlx::types::Json<serde_json::Value>,
     pub invoice_type: InvoiceType,
+    pub stripe_invoice_id: Option<String>,
 }
 
 /// Forward pagination: fetch invoices older than `cursor` (or the newest
@@ -62,7 +63,8 @@ pub async fn fetch_invoice_rows_forward(
             line_items as "line_items!: sqlx::types::Json<serde_json::Value>",
             subtotal as "subtotal!",
             extra as "extra!: sqlx::types::Json<serde_json::Value>",
-            invoice_type as "invoice_type!: InvoiceType"
+            invoice_type as "invoice_type!: InvoiceType",
+            stripe_invoice_id
         FROM internal.invoices_ext
         WHERE billed_prefix = $1
           AND ($2::date IS NULL OR date_start > $2)
@@ -127,7 +129,8 @@ pub async fn fetch_invoice_rows_backward(
             line_items as "line_items!: sqlx::types::Json<serde_json::Value>",
             subtotal as "subtotal!",
             extra as "extra!: sqlx::types::Json<serde_json::Value>",
-            invoice_type as "invoice_type!: InvoiceType"
+            invoice_type as "invoice_type!: InvoiceType",
+            stripe_invoice_id
         FROM internal.invoices_ext
         WHERE billed_prefix = $1
           AND ($2::date IS NULL OR date_start > $2)

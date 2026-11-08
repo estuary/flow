@@ -209,8 +209,8 @@ expression: json_catalogue(ex_derive_requests())
     },
     "lastVersion": "00:11:22:33",
     "secrets": {
-      "": "acmeCo/whole-config",
-      "/credentials/password": "acmeCo/password"
+      "acmeCo/password": "/credentials/password",
+      "acmeCo/whole-config": ""
     }
   }
 }

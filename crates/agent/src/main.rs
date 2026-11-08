@@ -5,9 +5,7 @@ extern crate allocator;
 use anyhow::Context;
 use axum::http;
 use clap::Parser;
-use control_plane_api::{
-    App, discovers::DiscoverHandler, proxy_connectors::DataPlaneConnectors, publications::Publisher,
-};
+use control_plane_api::{App, publications::Publisher};
 use derivative::Derivative;
 use futures::FutureExt;
 use sqlx::{ConnectOptions, Connection};
@@ -32,9 +30,6 @@ struct Args {
     /// URL endpoint into which build database are placed.
     #[clap(long = "builds-root", env = "BUILDS_ROOT")]
     builds_root: url::Url,
-    /// Docker network for connector invocations.
-    #[clap(long = "connector-network", default_value = "bridge")]
-    connector_network: String,
     /// Email address of user which provisions and maintains tenant accounts.
     #[clap(long = "accounts-email", default_value = "support@estuary.dev")]
     accounts_email: String,
@@ -47,6 +42,12 @@ struct Args {
     #[derivative(Debug = "ignore")]
     #[clap(long = "stripe-api-key", env = "STRIPE_API_KEY")]
     stripe_api_key: Option<String>,
+    /// Token for the Fly.io Sprites API. When provided, the sandbox GraphQL
+    /// mutations are enabled. Without it, those operations return an error
+    /// indicating sandboxes are not configured.
+    #[derivative(Debug = "ignore")]
+    #[clap(long = "sprites-token", env = "SPRITES_TOKEN")]
+    sprites_token: Option<String>,
     /// Signing secret for verifying inbound Stripe webhook deliveries. When
     /// unset, the Stripe webhook endpoint fails closed. Intentionally has no
     /// default: production must set it explicitly, and never silently falls back
@@ -54,19 +55,13 @@ struct Args {
     #[derivative(Debug = "ignore")]
     #[clap(long = "stripe-webhook-secret", env = "STRIPE_WEBHOOK_SECRET")]
     stripe_webhook_secret: Option<String>,
+    /// Optional control-plane OAuth service.
+    #[derivative(Debug = "ignore")]
+    #[command(flatten)]
+    oauth_config: Option<control_plane_api::server::public::oauth::Config>,
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
-    /// Skip checking that connector images exist in the connectors table during publication.
-    // TODO(johnny): This flag is temporary, while we release data-plane enforcement
-    // of connector restrictions. Once released, we should remove this flag and remove
-    // all enforcement within the agent.
-    #[clap(
-        long = "skip-connector-table-check",
-        default_value = "false",
-        env = "SKIP_CONNECTOR_TABLE_CHECK"
-    )]
-    skip_connector_table_check: bool,
     /// Origin to allow in CORS contexts. May be specified multiple times.
     #[clap(long = "allow-origin")]
     allow_origin: Vec<String>,
@@ -155,11 +150,6 @@ struct Args {
     #[clap(long, env, default_value = "https://dashboard.estuary.dev/")]
     dashboard_base_url: String,
 
-    /// How frequently to evaluate tenant-related alert conditions.
-    #[clap(long, env, default_value = "1h")]
-    #[arg(value_parser = humantime::parse_duration)]
-    tenant_alert_interval: std::time::Duration,
-
     /// When `true`, any *newly-created* capture without an explicit
     /// `enable-runtime-v2` shard flag is published onto runtime v2. Existing
     /// captures are unaffected, and an explicit per-task flag always takes
@@ -180,6 +170,16 @@ struct Args {
     /// precedence.
     #[clap(long, env = "RUNTIME_V2_NEW_DERIVATIONS", default_value = "false")]
     runtime_v2_new_derivations: bool,
+
+    /// When `true`, any derivation that a user publication creates or updates
+    /// without an explicit `enable-runtime-v2` shard flag is published onto
+    /// runtime v2. An update keeps the live task's explicit flag, if it has one.
+    #[clap(long, env = "RUNTIME_V2_ALL_DERIVATIONS", default_value = "false")]
+    runtime_v2_all_derivations: bool,
+
+    /// Required BigTable configuration for controller and GraphQL stats.
+    #[command(flatten)]
+    catalog_stats_config: control_plane_api::catalog_stats::CatalogStatsConfig,
 
     #[command(flatten)]
     controller_config: agent::controllers::ControllerConfig,
@@ -316,21 +316,20 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = control_plane_api::logs::serve_sink(pg_pool.clone(), logs_rx);
     let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
-    let connectors = DataPlaneConnectors::new(logs_tx.clone());
-    let discover_handler = DiscoverHandler::new(connectors.clone());
 
-    let builder = control_plane_api::publications::builds::new_builder(connectors);
-    let mut publisher = Publisher::new(
+    let connector_factory =
+        Arc::new(control_plane_api::connectors::ControlPlaneConnectorFactory::new(logs_tx.clone()));
+    let discover_handler =
+        control_plane_api::discovers::DiscoverHandler::new(connector_factory.clone());
+
+    let builder = control_plane_api::publications::builds::new_builder(connector_factory.clone());
+    let publisher = Publisher::new(
         &args.builds_root,
-        &args.connector_network,
         &logs_tx,
         pg_pool.clone(),
         agent::id_generator::with_random_shard(),
         builder,
     );
-    if args.skip_connector_table_check {
-        publisher = publisher.with_skip_connector_table_check();
-    }
 
     // Share-able future which completes when the agent should exit.
     // Cloud Run and Kubernetes signal shutdown with SIGTERM; SIGINT covers
@@ -362,6 +361,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let controller_publication_cooldown =
         chrono::Duration::from_std(args.controller_publication_cooldown)?;
     let alert_config_defaults = args.controller_config.alert_config_defaults();
+    let catalog_stats =
+        control_plane_api::catalog_stats::connect(args.catalog_stats_config).await?;
     let control_plane = agent::PGControlPlane::new(
         pg_pool.clone(),
         system_user_id,
@@ -372,6 +373,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         args.auto_discover_probability,
         controller_publication_cooldown,
         args.controller_config,
+        catalog_stats.clone(),
     );
 
     let billing_provider: Option<Arc<dyn control_plane_api::billing::BillingProvider>> =
@@ -381,15 +383,27 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             )) as Arc<dyn control_plane_api::billing::BillingProvider>
         });
     let tenant_controller_billing_provider = billing_provider.clone();
-    let api_app = Arc::new(App::new(
+    let tenant_controller_catalog_stats = catalog_stats.clone();
+
+    let sprites = args
+        .sprites_token
+        .map(|token| Arc::new(control_plane_api::sprites::Client::new(token)));
+    let mut api_app = App::new(
         agent::id_generator::with_random_shard(),
         billing_provider,
+        Some(catalog_stats),
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),
         snapshot_watch.clone(),
+        sprites,
         args.stripe_webhook_secret,
-    ));
+    );
+    if let Some(config) = args.oauth_config {
+        config.validate()?;
+        api_app.oauth = Some(Arc::new(config));
+    }
+    let api_app = Arc::new(api_app);
     let api_router = control_plane_api::build_router(
         api_app.clone(),
         &args.allow_origin,
@@ -405,8 +419,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 
     let automations_fut = if args.max_automations > 0 {
-        let directive_executor = agent::DirectiveHandler::new(args.accounts_email, &logs_tx);
-        let connector_tags_executor = agent::TagExecutor::new(&args.connector_network, &logs_tx);
+        let connector_tags_executor =
+            agent::TagExecutor::new(connector_factory, snapshot_watch.clone());
         let mut automations_server = automations::Server::new()
             .register(agent::controllers::LiveSpecControllerExecutor::new(
                 control_plane,
@@ -418,19 +432,17 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                 runtime_v2_new_captures: args.runtime_v2_new_captures,
                 runtime_v2_new_materializations: args.runtime_v2_new_materializations,
                 runtime_v2_new_derivations: args.runtime_v2_new_derivations,
+                runtime_v2_all_derivations: args.runtime_v2_all_derivations,
             })
             .register(agent::DiscoverExecutor {
                 handler: discover_handler,
-                snapshot_watch,
+                snapshot_watch: snapshot_watch.clone(),
             })
-            .register(directive_executor)
             .register(connector_tags_executor)
-            .register(migrate::automation::MigrationExecutor)
-            .register(agent::alerts::new_tenant_alerts_executor(
-                args.tenant_alert_interval,
-            ))
+            .register(migrate::automation::MigrationExecutor { snapshot_watch })
             .register(agent::tenant_controller::TenantController::new(
                 tenant_controller_billing_provider,
+                tenant_controller_catalog_stats,
             ));
 
         if args.serve_alert_notifications {

@@ -1,0 +1,5 @@
+query FetchDraftQuery($id: Id!) {
+    draft(id: $id) {
+        id
+    }
+}

@@ -69,7 +69,10 @@ expression: json_catalogue(ex_capture_responses())
           "path"
         ]
       }
-    ]
+    ],
+    "generatedFiles": {
+      "file:///project/root/uv.lock": "version = 1"
+    }
   }
 }
 

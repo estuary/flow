@@ -46,7 +46,7 @@ message UUIDParts {
   // Clock is a v1 UUID 60-bit timestamp (60 MSBs), followed by 4 bits of
   // sequence counter.
   fixed64 clock = 2
-      [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
+      [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/message.Clock" ];
 }
 
 // Projection is a mapping between a document location, specified as a
@@ -281,8 +281,10 @@ message CollectionSpec {
       // Selector of collection partitions which this materialization reads.
       protocol.LabelSelector partition_selector = 3 [ (gogoproto.nullable) = false ];
       // Priority of this transform, with respect to other transforms of the derivation.
-      // Higher values imply higher priority.
-      uint32 priority = 4;
+      // Higher values imply higher priority, and negative values are allowed.
+      // `int32` (not `sint32`) preserves wire compatibility with the `uint32`
+      // encoding used before negative priorities were allowed.
+      int32 priority = 4;
       // Number of seconds for which documents of this transformed are delayed
       // while reading, relative to other documents (when back-filling) and the
       // present wall-clock time (when tailing).
@@ -359,13 +361,15 @@ message CollectionSpec {
     // are unique on name.
     repeated CollectionSpec linked_collections = 10
         [ (gogoproto.nullable) = false ];
-    // Secrets of this derivation, mapping a JSON pointer within `config_json`
-    // to the catalog name of a secret which the runtime resolves and merges
+    // Secrets of this derivation, mapping a catalog secret name to its JSON
+    // pointer within `config_json`. The runtime resolves and merges each secret
     // into that location, as an RFC 7396 merge patch, before handing the
-    // configuration to the connector. Entries are applied in lexicographic
-    // pointer order. Empty if this derivation uses no secrets, or if
-    // `config_json` is instead sops-encrypted.
+    // configuration to the connector.
     map<string, string> secrets = 11;
+    // The connector's response to its Spec request within the build of this
+    // task. Unset if the build didn't run the connector, as when the task is
+    // disabled.
+    ConnectorSpec connector_spec = 12;
   }
   Derivation derivation = 12;
 }
@@ -468,13 +472,15 @@ message CaptureSpec {
   // are unique on name.
   repeated CollectionSpec linked_collections = 12
       [ (gogoproto.nullable) = false ];
-  // Secrets of this capture, mapping a JSON pointer within `config_json`
-  // to the catalog name of a secret which the runtime resolves and merges
+  // Secrets of this capture, mapping a catalog secret name to its JSON
+  // pointer within `config_json`. The runtime resolves and merges each secret
   // into that location, as an RFC 7396 merge patch, before handing the
-  // configuration to the connector. Entries are applied in lexicographic
-  // pointer order. Empty if this capture uses no secrets, or if
-  // `config_json` is instead sops-encrypted.
+  // configuration to the connector.
   map<string, string> secrets = 13;
+  // The connector's response to its Spec request within the build of this
+  // task. Unset if the build didn't run the connector, as when the task is
+  // disabled.
+  ConnectorSpec connector_spec = 14;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
@@ -515,8 +521,10 @@ message MaterializationSpec {
     // Selector of collection partitions which this materialization reads.
     protocol.LabelSelector partition_selector = 7 [ (gogoproto.nullable) = false ];
     // Priority of this binding, with respect to other bindings of the materialization.
-    // Higher values imply higher priority.
-    uint32 priority = 9;
+    // Higher values imply higher priority, and negative values are allowed.
+    // `int32` (not `sint32`) preserves wire compatibility with the `uint32`
+    // encoding used before negative priorities were allowed.
+    int32 priority = 9;
     // Resolved fields selected for materialization.
     FieldSelection field_selection = 4 [ (gogoproto.nullable) = false ];
     // Materialize delta updates of documents rather than full reductions.
@@ -595,13 +603,41 @@ message MaterializationSpec {
   // `projections[*].is_primary_key` to match, so same name != same spec.
   repeated CollectionSpec linked_collections = 13
       [ (gogoproto.nullable) = false ];
-  // Secrets of this materialization, mapping a JSON pointer within `config_json`
-  // to the catalog name of a secret which the runtime resolves and merges
-  // into that location, as an RFC 7396 merge patch, before handing the
-  // configuration to the connector. Entries are applied in lexicographic
-  // pointer order. Empty if this materialization uses no secrets, or if
-  // `config_json` is instead sops-encrypted.
+  // Secrets of this materialization, mapping a catalog secret name to its
+  // JSON pointer within `config_json`. The runtime resolves and merges each
+  // secret into that location, as an RFC 7396 merge patch, before handing the
+  // configuration to the connector.
   map<string, string> secrets = 14;
+  // The connector's response to its Spec request within the build of this
+  // task. Unset if the build didn't run the connector, as when the task is
+  // disabled.
+  ConnectorSpec connector_spec = 15;
+}
+
+// ConnectorSpec is a connector's response to a Spec request. Its fields match
+// those of the capture, derive, and materialize protocols' Response.Spec in
+// number and type, so it decodes any of them.
+message ConnectorSpec {
+  // Protocol version of the connector.
+  uint32 protocol = 1;
+  // JSON schema of the connector's configuration.
+  bytes config_schema_json = 2 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "configSchema"
+  ];
+  // JSON schema of the connector's resource configuration.
+  // For a derivation, this is the schema of its lambda configuration.
+  bytes resource_config_schema_json = 3 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "resourceConfigSchema"
+  ];
+  // URL for the connector's documentation.
+  string documentation_url = 4;
+  // Optional OAuth2 configuration.
+  OAuth2 oauth2 = 5;
+  // JSON pointers which extract resource paths from resource configurations.
+  // Only captures use them.
+  repeated string resource_path_pointers = 6;
 }
 
 // OAuth2 describes an OAuth2 provider
@@ -821,6 +857,9 @@ enum ContentType {
   JSON_SCHEMA = 1;
   CONFIG = 4;
   DOCUMENTS_FIXTURE = 5;
+  // Text content which is never parsed as a document,
+  // such as the files of a Python project.
+  TEXT = 6;
 }
 
 // BuildAPI is deprecated and will be removed.
@@ -842,8 +881,8 @@ message BuildAPI {
     // The Docker network the connectors are given access to during catalog
     // builds.
     string connector_network = 5;
-    // URL which roots the Flow project.
-    string project_root = 6;
+
+    reserved 6;
   }
 }
 
@@ -853,7 +892,7 @@ message TaskNetworkProxyRequest {
     protocol.Header header = 1;
 
     string shard_id = 2 [
-      (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID"
+      (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/consumer/protocol.ShardID"
     ];
     // The port number inside the container that the client wishes to connect to.
     uint32 target_port = 3;

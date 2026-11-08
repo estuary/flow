@@ -3,10 +3,7 @@
 #
 # It imports the capture catalog for its source `events/*` collections, so feeding
 # this file to `flowctl raw preview-next` also builds the (Docker-free) capture,
-# but not the downstream materializations. The derivation itself IS an image
-# connector (derive-typescript), so previewing it needs the locally-built `:local`
-# image and reads the published `events/*` journals from the local stack (README
-# "Running").
+# but not the downstream materializations.
 import:
   - ../capture/flow.yaml
 
@@ -33,13 +30,10 @@ collections:
       using:
         typescript: { module: ../accounts.ts }
       shards:
-        # `enable-runtime-v2` routes the task to runtime-next (matching the capture).
-        # `derive-image-tag` makes the build resolve the TypeScript connector to the
-        # locally-built `:local` image, which both Validate and the V2 runtime then
-        # use — so the V2 module compiles against the V2 IDerivation interface.
+        # `enable-runtime-v2` routes the task to runtime-next (matching the capture),
+        # and resolves the TypeScript connector to its `:stable` image.
         flags:
           enable-runtime-v2: "true"
-          derive-image-tag: local
           indirect-specs: "true"
       transforms:
         - name: fromAlpha

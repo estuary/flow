@@ -1,0 +1,69 @@
+---
+source: crates/runtime-lab/src/bin/capture-fake-postgres/discover.rs
+expression: "super::sourced_schema(&tables[1])"
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {
+      "type": "object"
+    },
+    "amount": {
+      "format": "number",
+      "type": "string"
+    },
+    "customer_id": {
+      "type": "integer"
+    },
+    "order_id": {
+      "type": "integer"
+    },
+    "placed_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "quantity": {
+      "type": "integer"
+    },
+    "shipped_on": {
+      "format": "date",
+      "type": "string"
+    },
+    "sku": {
+      "type": "string"
+    },
+    "status": {
+      "maxLength": 16,
+      "type": "string"
+    },
+    "tracking": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "unit_price": {
+      "format": "number",
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "warehouse_id": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "customer_id",
+    "order_id",
+    "status",
+    "sku",
+    "quantity",
+    "unit_price",
+    "amount",
+    "warehouse_id",
+    "tracking",
+    "placed_at",
+    "shipped_on"
+  ],
+  "type": "object",
+  "unevaluatedProperties": false
+}

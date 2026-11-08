@@ -1,0 +1,18 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1s3-source,
+        error: network port 0 is invalid: it must be between 1 and 65535, and not 49092 (flow-connector-init),
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1s3-source,
+        error: network port 49092 is invalid: it must be between 1 and 65535, and not 49092 (flow-connector-init),
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1s3-source,
+        error: network port 65536 is invalid: it must be between 1 and 65535, and not 49092 (flow-connector-init),
+    },
+]

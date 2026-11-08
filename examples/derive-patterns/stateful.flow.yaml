@@ -18,7 +18,17 @@ collections:
 
     derive:
       using:
-        python: { module: stateful.flow.py }
+        python:
+          # The derivation's directory is named for its collection, and its
+          # `__init__.py` exports its `Derivation`.
+          files: [pyproject.toml, stateful/__init__.py]
+      shards:
+        flags:
+          # A derivation having `files` runs on the V2 runtime.
+          enable-runtime-v2: "true"
+          # Run this checkout's derive-python image, which `ci:catalog-test`
+          # builds as `:local`.
+          custom-image-tag: local
       transforms:
         - name: fromInts
           source: { name: patterns/ints }

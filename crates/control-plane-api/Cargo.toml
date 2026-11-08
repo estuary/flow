@@ -16,6 +16,7 @@ async-process = { path = "../async-process" }
 async-stripe = { workspace = true }
 billing-types = { path = "../billing-types", features = ["async-graphql"] }
 build = { path = "../build" }
+catalog-stats = { path = "../catalog-stats" }
 catalog-tests = { path = "../catalog-tests" }
 coroutines = { path = "../coroutines" }
 doc = { path = "../doc" }
@@ -23,13 +24,12 @@ gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }
-migrate = { path = "../migrate" }
 models = { path = "../models", features = ["async-graphql", "sqlx-support"] }
+oauth-server = { path = "../oauth-server" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
-proto-grpc = { path = "../proto-grpc", features = ["runtime_client"] }
-runtime = { path = "../runtime" }
+proto-grpc = { path = "../proto-grpc", features = ["connector_client"] }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 tokens = { path = "../tokens" }
@@ -39,6 +39,7 @@ aide = { workspace = true }
 anyhow = { workspace = true }
 async-graphql = { workspace = true }
 async-graphql-axum = { workspace = true }
+async-stream = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
@@ -50,6 +51,7 @@ colored_json = { workspace = true }
 derivative = { workspace = true }
 enumset = { workspace = true }
 futures = { workspace = true }
+hex = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
@@ -62,17 +64,22 @@ rustls = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true }
+strum = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+unicode-normalization = { workspace = true }
+unicode-security = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 validator = { workspace = true }
@@ -80,13 +87,14 @@ xxhash-rust = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+catalog-stats = { path = "../catalog-stats", features = ["test_util"] }
 flow-client-next = { path = "../flow-client-next" }
+runtime-local = { path = "../runtime-local" }
+service-kit = { path = "../service-kit" }
 
-hex = { workspace = true }
 hmac = { workspace = true }
 insta = { workspace = true }
 md5 = { workspace = true }
-sha2 = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
 

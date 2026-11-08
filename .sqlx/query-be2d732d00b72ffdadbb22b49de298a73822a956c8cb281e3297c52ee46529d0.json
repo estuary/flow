@@ -20,6 +20,12 @@
               }
             }
           }
+        },
+        "origin": {
+          "Table": {
+            "table": "connector_tags",
+            "name": "resource_path_pointers"
+          }
         }
       }
     ],

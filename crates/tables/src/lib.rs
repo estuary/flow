@@ -23,7 +23,7 @@ pub mod utils;
 pub use built::{BuiltRow, Validations};
 pub use dependencies::Dependencies;
 pub use draft::{DraftCatalog, DraftRow};
-pub use live::{CatalogResolver, LiveCatalog, LiveRow};
+pub use live::{LiveCatalog, LiveRow};
 
 tables!(
     table Fetches (row Fetch, sql "fetches") {
@@ -53,13 +53,15 @@ tables!(
 
     table StorageMappings (row StorageMapping, sql "storage_mappings") {
         // Catalog prefix to which this storage mapping applies.
+        // Recovery mappings are *not* separate rows: each row pairs the
+        // partition and recovery stores of its prefix.
         key catalog_prefix: models::Prefix,
         // Control-plane ID of this storage mapping.
         val control_id: models::Id,
-        // Stores for journal fragments under this prefix.
+        // Stores for journal fragments of collections under this prefix.
         val stores: Vec<models::Store>,
-        // Names of data planes into which covered tasks may be created.
-        val data_planes: Vec<String>,
+        // Stores for recovery logs of tasks under this prefix.
+        val recovery_stores: Vec<models::Store>,
     }
 
     table InferredSchemas (row InferredSchema, sql "inferred_schemas") {
@@ -69,43 +71,6 @@ tables!(
         val schema: models::Schema,
         // MD5 content sum of `schema`.
         val md5: String,
-    }
-
-    table DataPlanes (row #[derive(Clone, serde::Serialize, serde::Deserialize)] DataPlane, sql "data_planes") {
-        // Control-plane identifier for this data-plane.
-        key control_id: models::Id,
-        // Name of this data-plane under the catalog namespace.
-        // This is used for authorization and not much else.
-        val data_plane_name: String,
-        // Unique and fully-qualified domain name of this data-plane.
-        val data_plane_fqdn: String,
-        // Whether this data-plane is closed to new selection. Closed planes
-        // keep serving existing tasks but are hidden from the default
-        // `dataPlanes` listing, letting operators retire a plane from new
-        // selection without deleting its record.
-        val closed: bool,
-        // HMAC-256 keys for this data-plane.
-        // The first is used for signing, and any key may validate.
-        val hmac_keys: Vec<String>,
-        // HMAC-256 keys for this data-plane in sops-encrypted yaml document format
-        // The first is used for signing, and any key may validate.
-        val encrypted_hmac_keys: models::RawValue,
-        // Name of the collection for ops logs of the data-plane.
-        val ops_logs_name: models::Collection,
-        // Name of the collection for ops stats of the data-plane.
-        val ops_stats_name: models::Collection,
-        // Address of brokers within the data-plane.
-        val broker_address: String,
-        // Address of reactors within the data-plane.
-        val reactor_address: String,
-        // Kafka-protocol URI for this dataplane's Dekaf instance.
-        // This is managed by the data-plane-controller, and is
-        // None if this data-plane has no Dekaf instance.
-        val dekaf_address: Option<String>,
-        // Schema registry endpoint for this dataplane's Dekaf instance.
-        // This is managed by the data-plane-controller, and is
-        // None if this data-plane has no Dekaf instance.
-        val dekaf_registry_address: Option<String>,
     }
 
     table RoleGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] RoleGrant, sql "role_grants") {
@@ -135,6 +100,10 @@ tables!(
         val scope: url::Url,
         // Expected last publication ID of this capture.
         val expect_pub_id: Option<models::Id>,
+        // Data plane into which a new spec is placed, chosen by the control
+        // plane at publication. Zero if the spec already exists (it keeps
+        // its live plane), or if placement is deferred, as in local builds.
+        val data_plane_id: models::Id,
         // Model of this capture, or None if the capture is being deleted.
         val model: Option<models::CaptureDef>,
         // This draft is a "touch" which intends to refresh
@@ -150,6 +119,10 @@ tables!(
         val scope: url::Url,
         // Expected last publication ID of this collection.
         val expect_pub_id: Option<models::Id>,
+        // Data plane into which a new spec is placed, chosen by the control
+        // plane at publication. Zero if the spec already exists (it keeps
+        // its live plane), or if placement is deferred, as in local builds.
+        val data_plane_id: models::Id,
         // Model of this collection, or None if the collection is being deleted.
         val model: Option<models::CollectionDef>,
         // This draft is a "touch" which intends to refresh
@@ -165,6 +138,10 @@ tables!(
         val scope: url::Url,
         // Expected last publication ID of this materialization.
         val expect_pub_id: Option<models::Id>,
+        // Data plane into which a new spec is placed, chosen by the control
+        // plane at publication. Zero if the spec already exists (it keeps
+        // its live plane), or if placement is deferred, as in local builds.
+        val data_plane_id: models::Id,
         // Model of this materialization, or None if the materialization is being deleted.
         val model: Option<models::MaterializationDef>,
         // This draft is a "touch" which intends to refresh
@@ -269,7 +246,8 @@ tables!(
         val scope: url::Url,
         // Control-plane ID of this capture, or zero if un-assigned.
         val control_id: models::Id,
-        // Data-plane assignment for this capture.
+        // Data-plane assignment for this capture, or zero if a new
+        // capture's placement is deferred (as in local builds).
         val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
@@ -301,7 +279,8 @@ tables!(
         val scope: url::Url,
         // Control-plane ID of this collection, or zero if un-assigned.
         val control_id: models::Id,
-        // Data-plane assignment for this collection.
+        // Data-plane assignment for this collection, or zero if a new
+        // collection's placement is deferred (as in local builds).
         val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
@@ -333,7 +312,8 @@ tables!(
         val scope: url::Url,
         // Control-plane ID of this materialization, or zero if un-assigned.
         val control_id: models::Id,
-        // Data-plane assignment for this materialization.
+        // Data-plane assignment for this materialization, or zero if a new
+        // materialization's placement is deferred (as in local builds).
         val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
@@ -487,6 +467,7 @@ string_wrapper_types!(
 
 json_sql_types!(
     Vec<String>,
+    Vec<models::Id>,
     Vec<models::Store>,
     Vec<models::authz::CapabilityBundle>,
     models::Capability,

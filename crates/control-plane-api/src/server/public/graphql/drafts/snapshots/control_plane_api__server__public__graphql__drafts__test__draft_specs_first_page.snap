@@ -1,0 +1,47 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: first_page
+---
+{
+  "data": {
+    "draft": {
+      "numSpecs": 5,
+      "specs": {
+        "edges": [
+          {
+            "cursor": "aliceCo/data/foo",
+            "node": {
+              "catalogName": "aliceCo/data/foo",
+              "catalogType": "collection",
+              "detail": "same as live",
+              "expectPubId": "0000000000000700",
+              "isUnchanged": true,
+              "lastPubId": "000000fffe000002",
+              "model": {},
+              "updatedAt": "2024-02-02T01:00:00+00:00"
+            }
+          },
+          {
+            "cursor": "aliceCo/in/capture-foo",
+            "node": {
+              "catalogName": "aliceCo/in/capture-foo",
+              "catalogType": null,
+              "detail": null,
+              "expectPubId": "0000000000000000",
+              "isUnchanged": false,
+              "lastPubId": "000000fffe000002",
+              "model": null,
+              "updatedAt": "2024-02-02T02:00:00+00:00"
+            }
+          }
+        ],
+        "pageInfo": {
+          "endCursor": "aliceCo/in/capture-foo",
+          "hasNextPage": true,
+          "hasPreviousPage": false,
+          "startCursor": "aliceCo/data/foo"
+        }
+      }
+    }
+  }
+}

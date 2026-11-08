@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select stripe_customer_id from public.tenants where tenant = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stripe_customer_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "stripe_customer_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "327777da622e031789fa921511f5ee0361713c7ff0a9a61dd754e351db982f27"
+}

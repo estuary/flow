@@ -123,8 +123,8 @@ pub struct Shim {
 /// A connector process, and the pipes we speak to it over.
 struct Instance {
     child: async_process::Child,
-    stdin: async_process::ChildStdio,
-    stdout: Option<async_process::ChildStdio>,
+    stdin: async_process::ChildStdin,
+    stdout: Option<async_process::ChildOutput>,
 }
 
 /// The value `materialize-boilerplate` expects in `FLOW_RUNTIME_CODEC`.
@@ -451,11 +451,9 @@ impl Zombie {
             let _ = self.instance.stdin.write_all(&msg).await;
         }
         let _ = self.instance.stdin.flush().await;
-        // `shutdown` on a `ChildStdio` — a `tokio::fs::File` — flushes; it does not close
-        // the pipe, so it does not end the zombie's session. What ends the session is the
-        // fence refusing its commit; the pipe closes later, when the request pump returns
-        // and drops the file.
-        let _ = self.instance.stdin.shutdown().await;
+        // Replaying the queue doesn't end the zombie's session. What ends it is the fence
+        // refusing its commit; the pipe closes later, when the request pump returns and
+        // drops it.
         self.frozen = false;
         self.sealed = true;
     }
@@ -549,7 +547,7 @@ async fn fire_faults(
 async fn pump_requests<R>(
     shim: Arc<Shim>,
     mut from_runtime: R,
-    mut to_connector: async_process::ChildStdio,
+    mut to_connector: async_process::ChildStdin,
     command: Vec<String>,
     live_pid: libc::pid_t,
 ) -> anyhow::Result<()>
@@ -565,15 +563,8 @@ where
             buffer.reserve(1);
         }
         if from_runtime.read_buf(&mut buffer).await? == 0 {
-            // The runtime closed our stdin. Flush what the connector has been given so it can
-            // finish its session — the pipe itself closes when this function returns and the
-            // stdio handles drop, which is what the connector sees as EOF.
-            let _ = to_connector.shutdown().await;
-            if let Some(z) = &mut zombie {
-                if !z.frozen {
-                    let _ = z.instance.stdin.shutdown().await;
-                }
-            }
+            // The runtime closed our stdin. The connector's pipe closes when this function
+            // returns and the stdio handles drop, which is what the connector sees as EOF.
             return Ok(());
         }
 
@@ -694,7 +685,7 @@ where
 
 async fn pump_responses(
     shim: Arc<Shim>,
-    mut from_connector: async_process::ChildStdio,
+    mut from_connector: async_process::ChildOutput,
     live_pid: libc::pid_t,
 ) -> anyhow::Result<()> {
     let mut buffer = Vec::with_capacity(32 * 1024);

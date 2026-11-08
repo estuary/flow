@@ -36,3 +36,48 @@ async fn test_auth_task_name_with_period() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+const BASIC_FIXTURE: &str = include_str!("fixtures/basic.flow.yaml");
+
+/// Every rejected login must fail identically, so that a client can't use the
+/// error to learn which task names exist. This covers a wrong password, a name
+/// that matches no task, and a task that isn't a materialization.
+#[tokio::test]
+async fn test_auth_failures_are_indistinguishable() -> anyhow::Result<()> {
+    super::init_tracing();
+
+    let env = DekafTestEnv::setup("auth_uniform", BASIC_FIXTURE).await?;
+    let materialization = env.materialization_name().unwrap();
+    let capture = env.capture_name().unwrap();
+    let unknown = format!("{}/no-such-task", env.namespace);
+    let info = env.connection_info().await?;
+
+    let cases = [
+        ("wrong password", materialization, "not-the-token"),
+        ("unknown task", unknown.as_str(), "not-the-token"),
+        ("not a materialization", capture, "not-the-token"),
+    ];
+
+    let http = reqwest::Client::new();
+    let mut outcomes = Vec::new();
+
+    for (case, username, password) in cases {
+        let sasl = match TestKafkaClient::connect(&info.broker, username, password).await {
+            Ok(_) => "authenticated".to_string(),
+            // The broker's port depends on the local stack, so redact it.
+            Err(err) => format!("{err:#}").replace(&info.broker, "[DEKAF_BROKER]"),
+        };
+        let registry = http
+            .get(format!("{}/subjects", info.registry))
+            .basic_auth(username, Some(password))
+            .send()
+            .await?;
+        let registry = format!("{} {}", registry.status(), registry.text().await?);
+
+        outcomes.push((case, sasl, registry));
+    }
+
+    insta::assert_debug_snapshot!(outcomes);
+
+    Ok(())
+}

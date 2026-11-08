@@ -5,8 +5,6 @@ permissions:
 on:
   push:
     branches: [master]
-    paths-ignore:
-      - "site/**"
   workflow_dispatch: {}
 
 concurrency:

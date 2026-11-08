@@ -6,17 +6,35 @@
       {
         "ordinal": 0,
         "name": "collection_name",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inferred_schemas",
+            "name": "collection_name"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "schema!: Json<Box<RawValue>>",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "inferred_schemas",
+            "name": "schema"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "md5!: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inferred_schemas",
+            "name": "md5"
+          }
+        }
       }
     ],
     "parameters": {

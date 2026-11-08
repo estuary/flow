@@ -1,4 +1,4 @@
-use crate::{CliContext, catalog::SpecSummaryItem, draft, local_specs};
+use crate::{CliContext, draft, local_specs};
 use anyhow::Context;
 
 #[derive(Debug, clap::Args)]
@@ -32,13 +32,14 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
         "The publish command must be run interactively unless the `--auto-approve` flag is provided"
     );
 
-    let (mut draft_catalog, _live, _validations) =
-        local_specs::load_and_validate(ctx, &args.source).await?;
+    let mut draft_catalog = local_specs::load_and_validate(ctx, &args.source)
+        .await?
+        .draft;
 
     let draft = draft::create_draft(ctx).await?;
     println!("Created draft: {}", &draft.id);
     tracing::info!(draft_id = %draft.id, "created draft");
-    draft::author(ctx, draft.id, &mut draft_catalog).await?;
+    let mut summary = draft::author(ctx, draft.id, &mut draft_catalog).await?;
 
     let removed = draft::remove_unchanged(ctx, draft.id).await?;
     if !removed.is_empty() {
@@ -51,8 +52,8 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
         println!(""); // blank line to give a bit of spacing
     }
 
-    let mut summary = SpecSummaryItem::summarize_catalog(draft_catalog);
     summary.retain(|s| !removed.contains(&s.catalog_name));
+    summary.sort_by(|a, b| a.spec_type.as_ref().cmp(b.spec_type.as_ref()));
 
     if summary.is_empty() {
         println!("No specs would be changed by this publication, nothing to publish.");

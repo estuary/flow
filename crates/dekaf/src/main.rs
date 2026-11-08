@@ -24,7 +24,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use url::Url;
 
-/// A Kafka-compatible proxy for reading Estuary Flow collections.
+/// A Kafka-compatible proxy for reading Estuary collections.
 #[derive(Debug, Parser, serde::Serialize)]
 #[command(about, version)]
 pub struct Cli {

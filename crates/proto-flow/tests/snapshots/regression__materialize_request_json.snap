@@ -1,5 +1,6 @@
 ---
 source: crates/proto-flow/tests/regression.rs
+assertion_line: 1572
 expression: json_catalogue(ex_materialize_requests())
 ---
 // spec
@@ -119,9 +120,10 @@ expression: json_catalogue(ex_materialize_requests())
     ],
     "lastVersion": "00:11:22:33",
     "secrets": {
-      "": "acmeCo/whole-config",
-      "/credentials/password": "acmeCo/password"
-    }
+      "acmeCo/password": "/credentials/password",
+      "acmeCo/whole-config": ""
+    },
+    "projectRoot": "file:///project/root"
   }
 }
 
@@ -324,8 +326,38 @@ expression: json_catalogue(ex_materialize_requests())
       "createdAt": "2025-07-09",
       "syncSchedule": {"baseInterval":"4h","timezone":"America/New_York","windows":[{"end":"17:00","interval":"30m","start":"09:00"}]},
       "secrets": {
-        "": "acmeCo/whole-config",
-        "/credentials/password": "acmeCo/password"
+        "acmeCo/password": "/credentials/password",
+        "acmeCo/whole-config": ""
+      },
+      "connectorSpec": {
+        "protocol": 3032023,
+        "configSchema": {"type":"object"},
+        "resourceConfigSchema": {"properties":{"table":{"type":"string","x-collection-name":true}},"type":"object"},
+        "documentationUrl": "https://example/docs",
+        "oauth2": {
+          "provider": "oauth-provider",
+          "authUrlTemplate": "https://auth-url",
+          "accessTokenUrlTemplate": "https://access-token",
+          "accessTokenMethod": "POST",
+          "accessTokenBody": "foo",
+          "accessTokenHeaders": {
+            "hdr-one": {"hello":"hdr"},
+            "hdr-two": 42.5
+          },
+          "accessTokenResponseMap": {
+            "foo": true,
+            "key": "value"
+          },
+          "refreshTokenUrlTemplate": "https://refresh-token",
+          "refreshTokenMethod": "POST",
+          "refreshTokenBody": "refresh!",
+          "refreshTokenHeaders": {
+            "hdr-three": {"refresh":"hdr"}
+          },
+          "refreshTokenResponseMap": {
+            "access": "here"
+          }
+        }
       }
     },
     "version": "11:22:33:44",
@@ -533,8 +565,38 @@ expression: json_catalogue(ex_materialize_requests())
       "createdAt": "2025-07-09",
       "syncSchedule": {"baseInterval":"4h","timezone":"America/New_York","windows":[{"end":"17:00","interval":"30m","start":"09:00"}]},
       "secrets": {
-        "": "acmeCo/whole-config",
-        "/credentials/password": "acmeCo/password"
+        "acmeCo/password": "/credentials/password",
+        "acmeCo/whole-config": ""
+      },
+      "connectorSpec": {
+        "protocol": 3032023,
+        "configSchema": {"type":"object"},
+        "resourceConfigSchema": {"properties":{"table":{"type":"string","x-collection-name":true}},"type":"object"},
+        "documentationUrl": "https://example/docs",
+        "oauth2": {
+          "provider": "oauth-provider",
+          "authUrlTemplate": "https://auth-url",
+          "accessTokenUrlTemplate": "https://access-token",
+          "accessTokenMethod": "POST",
+          "accessTokenBody": "foo",
+          "accessTokenHeaders": {
+            "hdr-one": {"hello":"hdr"},
+            "hdr-two": 42.5
+          },
+          "accessTokenResponseMap": {
+            "foo": true,
+            "key": "value"
+          },
+          "refreshTokenUrlTemplate": "https://refresh-token",
+          "refreshTokenMethod": "POST",
+          "refreshTokenBody": "refresh!",
+          "refreshTokenHeaders": {
+            "hdr-three": {"refresh":"hdr"}
+          },
+          "refreshTokenResponseMap": {
+            "access": "here"
+          }
+        }
       }
     },
     "version": "11:22:33:44",

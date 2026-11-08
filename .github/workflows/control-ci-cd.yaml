@@ -8,16 +8,33 @@ on:
     paths:
       - supabase/functions/**
       - .github/workflows/control-ci-cd.yaml
+  pull_request:
+    paths:
+      - supabase/functions/**
+      - .github/workflows/control-ci-cd.yaml
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# The deploy authenticates to Supabase with its own access token, so GITHUB_TOKEN
+# is needed only for the checkout. Without this block it would inherit the
+# org-wide write-all default.
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v3
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Test Supabase Edge Functions
+        run: deno test --allow-all supabase/functions/tests/
 
       - uses: supabase/setup-cli@v1
         with:

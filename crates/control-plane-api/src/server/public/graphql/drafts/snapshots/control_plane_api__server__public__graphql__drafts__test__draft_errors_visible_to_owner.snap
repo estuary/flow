@@ -1,0 +1,42 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: response
+---
+{
+  "data": {
+    "draft": {
+      "errors": [
+        {
+          "catalogName": "",
+          "detail": "global diagnostic",
+          "scope": "file:///tmp/catalog.yaml"
+        },
+        {
+          "catalogName": "otherCo/hidden",
+          "detail": "outside-grant diagnostic",
+          "scope": "flow://capture/otherCo/hidden"
+        },
+        {
+          "catalogName": "aliceCo/data/foo",
+          "detail": "readable diagnostic",
+          "scope": "flow://collection/aliceCo/data/foo#/schema"
+        },
+        {
+          "catalogName": "",
+          "detail": "deletion diagnostic",
+          "scope": "flow://deletion/otherCo/hidden"
+        },
+        {
+          "catalogName": "",
+          "detail": "publication diagnostic",
+          "scope": "flow://unauthorized/otherCo/build"
+        },
+        {
+          "catalogName": "",
+          "detail": "bare-name diagnostic",
+          "scope": "otherCo/bare"
+        }
+      ]
+    }
+  }
+}

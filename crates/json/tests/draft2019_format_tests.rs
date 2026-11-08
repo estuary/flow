@@ -74,12 +74,10 @@ fn test_d09_format_relative_json_pointer() {
     run_draft09_format_test("relative-json-pointer.json", &[]);
 }
 
-// TODO(johnny): The `time` crate doesn't support the leap seconds of this test,
-// such as "23:59:60Z".
-// #[test]
-// fn test_d09_format_time() {
-//     run_draft09_format_test("time.json", &[]);
-// }
+#[test]
+fn test_d09_format_time() {
+    run_draft09_format_test("time.json", &[]);
+}
 
 #[test]
 fn test_d09_format_uri_reference() {

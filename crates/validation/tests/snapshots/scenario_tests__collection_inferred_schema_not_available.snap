@@ -470,6 +470,7 @@ Outcome {
             collection: testing/foobar,
             scope: test://example/catalog.yaml#/collections/testing~1foobar,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "writeSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1foobar/writeSchema","properties":{"alwaysNull":{"type":["number","null"]},"changingType":{"items":{"type":"number"},"title":"My type is changing.","type":"array"},"key":{"title":"I'm the key!","type":"integer"},"notSeen":{"type":"integer"},"timestamp":{"description":"I'm a timestamp.","reduce":{"strategy":"firstWriteWins"},"type":"string"}},"reduce":{"strategy":"merge"},"required":["key"],"type":"object"},
               "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","additionalProperties":false,"properties":{"alwaysNull":{"type":"null"},"changingType":{"type":"number"},"key":{"maximum":10,"minimum":0,"type":"integer"},"timestamp":{"format":"date-time","type":"string"}},"required":["key","timestamp","changingType"],"type":"object","x-collection-generation-id":"0000000000000001"}},"$id":"test://example/catalog.yaml?ptr=/collections/testing~1foobar/readSchema","allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},

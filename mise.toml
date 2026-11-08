@@ -1,20 +1,26 @@
-# Mise configuration for Estuary Flow development tasks
+# Mise configuration for Estuary development tasks
 # See https://mise.jdx.dev for documentation
 
 # Tool versions
 [tools]
-go = { version = "1.25" }
+go = { version = "1.26.10" }
 # `rust` is required, but installation via mise is incompatible with Swatim/rust-cache
 
 "github:wasm-bindgen/wasm-pack" = { version = "0.13.1" }
-"github:etcd-io/etcd" = { version = "3.5.24" }
-"github:getsops/sops" = { version = "3.11.0", bin = "sops" }
+"github:etcd-io/etcd" = { version = "3.5.35" }
+"github:getsops/sops" = { version = "3.13.3", bin = "sops" }
 "github:jdx/usage" = { version = "6.4.0" }
 "github:mozilla/sccache" = { version = "0.12.0", platforms = { linux-arm64 = { asset_pattern = "sccache-v*-aarch64-unknown-linux-musl.tar.gz" }, linux-x64 = { asset_pattern = "sccache-v*-x86_64-unknown-linux-musl.tar.gz" }, macos-arm64 = { asset_pattern = "sccache-v*-aarch64-apple-darwin.tar.gz" } } }
 "github:nextest-rs/nextest" = { version = "cargo-nextest-0.9.114" }
+"github:CycloneDX/cyclonedx-rust-cargo" = { version = "cargo-cyclonedx-0.5.9", platforms = { linux-arm64 = { asset_pattern = "cargo-cyclonedx-aarch64-unknown-linux-gnu.tar.xz" }, linux-x64 = { asset_pattern = "cargo-cyclonedx-x86_64-unknown-linux-musl.tar.xz" }, macos-arm64 = { asset_pattern = "cargo-cyclonedx-aarch64-apple-darwin.tar.xz" } } }
+"github:rust-secure-code/cargo-auditable" = { version = "0.7.7", platforms = { linux-arm64 = { asset_pattern = "cargo-auditable-aarch64-unknown-linux-musl.tar.xz" }, linux-x64 = { asset_pattern = "cargo-auditable-x86_64-unknown-linux-musl.tar.xz" }, macos-arm64 = { asset_pattern = "cargo-auditable-aarch64-apple-darwin.tar.xz" } } }
 "github:rui314/mold" = { version = "2.40.4" }
 "github:supabase/cli" = { version = "2.54.11" }
+"github:aquasecurity/trivy" = { version = "0.76.0", platforms = { linux-arm64 = { asset_pattern = "trivy_*_Linux-ARM64.tar.gz" }, linux-x64 = { asset_pattern = "trivy_*_Linux-64bit.tar.gz" }, macos-arm64 = { asset_pattern = "trivy_*_macOS-ARM64.tar.gz" } } }
 "go:github.com/gogo/protobuf/protoc-gen-gogo" = { version = "1.3.2" }
+# With cgo, this links through gcc using the ambient `-fuse-ld=mold` CGO_LDFLAGS.
+# mold may not be on PATH yet, since `mise install` installs tools concurrently.
+"go:github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway" = { version = "1.16.0", install_env = { CGO_ENABLED = "0" } }
 
 [settings]
 auto_install = false

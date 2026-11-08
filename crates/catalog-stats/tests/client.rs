@@ -2,20 +2,6 @@ use catalog_stats::test_util;
 use chrono::TimeZone;
 use futures::TryStreamExt;
 
-async fn connect() -> catalog_stats::Client {
-    // The emulator's host port is dynamic per stack; FLOW_PORT_BIGTABLE is set
-    // by mise/tasks/local/stack-env. Run via mise so the ambient env is present.
-    let port = std::env::var("FLOW_PORT_BIGTABLE")
-        .expect("FLOW_PORT_BIGTABLE must be set — run via 'mise run' (see local:bigtable)");
-    catalog_stats::Client::connect(&catalog_stats::BigtableConfig {
-        project: "estuary-local".to_string(),
-        instance: "estuary-local".to_string(),
-        emulator_host: Some(format!("localhost:{port}")),
-    })
-    .await
-    .expect("BigTable emulator must be running: `mise run local:bigtable`")
-}
-
 fn base_ts() -> chrono::DateTime<chrono::Utc> {
     chrono::Utc.with_ymd_and_hms(2026, 5, 5, 18, 0, 0).unwrap()
 }
@@ -67,7 +53,7 @@ async fn fetch_at_for_names() {
         expected: &'static [&'static str],
     }
 
-    let client = connect().await;
+    let client = test_util::connect_emulator("estuary-local").await;
     let base = base_ts();
 
     for case in [
@@ -141,7 +127,7 @@ async fn fetch_range_for_names() {
         expected: &'static [(&'static str, i64)],
     }
 
-    let client = connect().await;
+    let client = test_util::connect_emulator("estuary-local").await;
     let base = base_ts();
     let at = |h: i64| base + chrono::Duration::hours(h);
 
@@ -217,7 +203,7 @@ async fn fetch_range_for_prefix() {
         expected: &'static [(&'static str, i64)],
     }
 
-    let client = connect().await;
+    let client = test_util::connect_emulator("estuary-local").await;
     let base = base_ts();
     let at = |h: i64| base + chrono::Duration::hours(h);
 
@@ -276,7 +262,7 @@ async fn fetch_range_for_prefix() {
 
 #[tokio::test]
 async fn fetch_range_for_prefix_empty_prefix_yields_empty_stream() {
-    let client = connect().await;
+    let client = test_util::connect_emulator("estuary-local").await;
     let base = base_ts();
     let got = names_of(client.fetch_range_for_prefix(
         "",
@@ -289,7 +275,7 @@ async fn fetch_range_for_prefix_empty_prefix_yields_empty_stream() {
 
 #[tokio::test]
 async fn fetches_target_only_the_requested_grain() {
-    let client = connect().await;
+    let client = test_util::connect_emulator("estuary-local").await;
     let prefix = fresh_prefix(&client, "grain_isolation").await;
     let ts = base_ts();
     let hourly_name = format!("{prefix}hourly");

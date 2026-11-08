@@ -210,6 +210,28 @@ pub enum Error {
     #[error("{category} partition selector field {field} cannot be an empty string")]
     SelectorEmptyString { category: String, field: String },
     #[error(
+        "file {path} must be `/`-separated names of letters, numbers, `-`, `_`, and `.`, without `.` or `..` components, and can't be under {reserved}"
+    )]
+    CustomFilePath { path: String, reserved: String },
+    #[error("list {paths} in `files`: they're this task's manifest and entry point")]
+    CustomFilesMissing { paths: String },
+    #[error(
+        "a derivation cannot mix the deprecated `module` with `files`, `config`, or `spec`: list its module in `files` instead"
+    )]
+    CustomLegacyMixed {},
+    #[error("`{field}` is no longer supported: {replacement}")]
+    CustomRemovedField {
+        field: &'static str,
+        replacement: &'static str,
+    },
+    #[error("`config` {detail}")]
+    CustomConfig { detail: String },
+    #[error(
+        "network port {port} is invalid: it must be between 1 and 65535, and not {} (flow-connector-init)",
+        models::CONNECTOR_INIT_PORT
+    )]
+    NetworkPortInvalid { port: u32 },
+    #[error(
         "cannot infer shuffle key types because all transforms use a computed `lambda` or `any`.\nFlow must know the key types that your computed shuffle lambda will output.\nPlease add an explicit `shuffleKeyTypes` to this derivation."
     )]
     ShuffleKeyCannotInfer {},
@@ -232,12 +254,10 @@ pub enum Error {
         types: Vec<ShuffleType>,
         given_types: Vec<ShuffleType>,
     },
-    #[error("connector returned an invalid generated file URL {url:?}")]
-    InvalidGeneratedFileUrl {
-        url: String,
-        #[source]
-        detail: url::ParseError,
-    },
+    #[error(
+        "connector returned generated file {url:?}, which isn't a URL underneath the project root {root:?}"
+    )]
+    InvalidGeneratedFileUrl { url: String, root: String },
     #[error(transparent)]
     Connector {
         #[from]
@@ -314,12 +334,6 @@ pub enum Error {
         ref_entity: &'static str,
         ref_name: String,
     },
-    #[error("{this_entity} {this_name} requires data plane {data_plane_id}, which was not found")]
-    MissingDataPlaneId {
-        this_entity: &'static str,
-        this_name: String,
-        data_plane_id: models::Id,
-    },
     #[error("draft model is a 'touch' operation but is not equal to the live model (and must be)")]
     TouchModelIsNotEqual,
     #[error(
@@ -330,6 +344,17 @@ pub enum Error {
     TouchModelIsDelete,
     #[error("this binding must backfill because its source collection {collection} was reset")]
     SourceCollectionWasReset { collection: String },
+    #[error("the connector's resource config schema doesn't support `source` or `targetNaming`")]
+    ResourceSchemaAnnotations {
+        #[source]
+        detail: anyhow::Error,
+    },
+    #[error("targetNaming requires the connector to support x-schema-name in its resource config")]
+    TargetNamingWithoutSchemaName,
+    #[error("source.deltaUpdates set but the connector does not support delta updates")]
+    SourceDeltaUpdatesUnsupported,
+    #[error("source.targetNaming set but the connector does not support resource schemas")]
+    SourceTargetSchemaUnsupported,
     #[error("materialization {materialization} uses Dekaf endpoint which cannot be reset")]
     DekafMaterializationCannotReset { materialization: String },
     #[error("shard flag {flag} must be {expect:?} if set, but is {value:?}")]
@@ -347,41 +372,53 @@ pub enum Error {
     },
 
     #[error(
-        "{entity} {name} maps to storage mapping {partition_mapping}, implying it must have an aligned recovery mapping recovery/{partition_mapping}, but it actually maps to {recovery_mapping}"
+        "{entity} {name} uses `{capability}`, which requires the V2 task runtime: set `{flag}: \"true\"` under its `shards.flags`"
     )]
-    StorageMappingPrefixMismatch {
+    RequireRuntimeV2 {
         entity: &'static str,
         name: String,
-        partition_mapping: models::Prefix,
-        recovery_mapping: models::Prefix,
+        capability: &'static str,
+        flag: &'static str,
     },
     #[error(
-        "{entity} {name} storage mapping {partition_mapping} is missing associated data planes"
+        "{entity} {name} may use only secrets which are its siblings, but secret {secret} is not directly under the prefix {prefix}"
     )]
-    StorageMappingMissingDataPlanes {
+    SecretNotSibling {
         entity: &'static str,
         name: String,
-        partition_mapping: models::Prefix,
+        secret: String,
+        prefix: String,
     },
     #[error(
-        "{entity} {name} recovery storage mapping recovery/{partition_mapping} has data planes {recovery_planes:?}, which doesn't match mapping {partition_mapping} planes {partition_planes:?}"
+        "{entity} {name} may use only secrets which are its siblings, or which its connector image vouches for, but secret {secret} is neither directly under the prefix {prefix} nor named <prefix>/connectors/{image}/<secret>"
     )]
-    StorageMappingDataPlanesMismatch {
+    SecretNotSiblingOrImage {
         entity: &'static str,
         name: String,
-        partition_mapping: models::Prefix,
-        partition_planes: Vec<String>,
-        recovery_planes: Vec<String>,
+        secret: String,
+        prefix: String,
+        image: String,
     },
     #[error(
-        "{entity} {name} storage mapping {partition_mapping} is restricted to data planes {listed_data_planes:?}, and doesn't permit {data_plane}"
+        "{entity} {name} uses `secrets`, but its endpoint configuration has a top-level `sops` property: a configuration is either wrapped as a whole by `sops`, or is plaintext and draws its secrets from `secrets` (where `sops` is reserved)"
     )]
-    DataPlaneNotInStorageMapping {
+    SecretsWithSops { entity: &'static str, name: String },
+    #[error(
+        "{entity} {name} endpoint configuration location {ptr} is annotated `secret: true` and cannot hold a plaintext value: set it with `flowctl secret set` and reference the secret from `secrets`"
+    )]
+    SecretsPlaintextValue {
         entity: &'static str,
         name: String,
-        partition_mapping: models::Prefix,
-        data_plane: String,
-        listed_data_planes: Vec<String>,
+        ptr: String,
+    },
+    #[error(
+        "{entity} {name} cannot apply secret {secret} at endpoint configuration location {ptr}: the pointer is incompatible with the configuration's structure"
+    )]
+    SecretsPointerIncompatible {
+        entity: &'static str,
+        name: String,
+        secret: String,
+        ptr: String,
     },
 
     #[error("trigger {index}: invalid URL: {detail}")]

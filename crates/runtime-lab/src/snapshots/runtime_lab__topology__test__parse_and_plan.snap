@@ -1,0 +1,41 @@
+---
+source: crates/runtime-lab/src/topology.rs
+expression: plan_shards(&topology)
+---
+[
+  {
+    "task": "acmeCo/lab/identity",
+    "taskIndex": 0,
+    "shardIndex": 0,
+    "host": "h2",
+    "label": "h2-t0-s000"
+  },
+  {
+    "task": "acmeCo/lab/sink",
+    "taskIndex": 1,
+    "shardIndex": 0,
+    "host": "h1",
+    "label": "h1-t1-s000"
+  },
+  {
+    "task": "acmeCo/lab/sink",
+    "taskIndex": 1,
+    "shardIndex": 1,
+    "host": "h2",
+    "label": "h2-t1-s001"
+  },
+  {
+    "task": "acmeCo/lab/sink",
+    "taskIndex": 1,
+    "shardIndex": 2,
+    "host": "h1",
+    "label": "h1-t1-s002"
+  },
+  {
+    "task": "acmeCo/lab/sink",
+    "taskIndex": 1,
+    "shardIndex": 3,
+    "host": "h2",
+    "label": "h2-t1-s003"
+  }
+]

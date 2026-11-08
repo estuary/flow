@@ -43,6 +43,13 @@ expression: bob_result
                     "catalogName": "aliceCo/shared/b",
                     "userCapability": "read"
                   }
+                },
+                {
+                  "cursor": "aliceCo/shared/c",
+                  "node": {
+                    "catalogName": "aliceCo/shared/c",
+                    "userCapability": "read"
+                  }
                 }
               ],
               "pageInfo": {

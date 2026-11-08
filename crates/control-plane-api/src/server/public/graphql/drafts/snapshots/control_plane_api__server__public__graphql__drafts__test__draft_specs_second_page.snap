@@ -1,0 +1,66 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: second_page
+---
+{
+  "data": {
+    "draft": {
+      "numSpecs": 5,
+      "specs": {
+        "edges": [
+          {
+            "cursor": "aliceCo/out/materialize-bar",
+            "node": {
+              "catalogName": "aliceCo/out/materialize-bar",
+              "catalogType": "materialization",
+              "detail": "changed model",
+              "expectPubId": null,
+              "isUnchanged": false,
+              "lastPubId": "000000fffe000002",
+              "model": {
+                "changed": true
+              },
+              "updatedAt": "2024-02-02T03:00:00+00:00"
+            }
+          },
+          {
+            "cursor": "aliceCo/z-new",
+            "node": {
+              "catalogName": "aliceCo/z-new",
+              "catalogType": "collection",
+              "detail": null,
+              "expectPubId": null,
+              "isUnchanged": false,
+              "lastPubId": null,
+              "model": {
+                "new": true
+              },
+              "updatedAt": "2024-02-02T04:00:00+00:00"
+            }
+          },
+          {
+            "cursor": "otherCo/hidden",
+            "node": {
+              "catalogName": "otherCo/hidden",
+              "catalogType": "capture",
+              "detail": "owned staged change",
+              "expectPubId": null,
+              "isUnchanged": false,
+              "lastPubId": null,
+              "model": {
+                "staged": "outside-grant"
+              },
+              "updatedAt": "2024-02-02T04:00:00+00:00"
+            }
+          }
+        ],
+        "pageInfo": {
+          "endCursor": "otherCo/hidden",
+          "hasNextPage": false,
+          "hasPreviousPage": true,
+          "startCursor": "aliceCo/out/materialize-bar"
+        }
+      }
+    }
+  }
+}

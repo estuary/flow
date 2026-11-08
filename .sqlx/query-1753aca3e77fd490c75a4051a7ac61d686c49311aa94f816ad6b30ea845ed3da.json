@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select\n            m.id as \"id: Id\",\n            m.catalog_prefix,\n            m.spec,\n            r.spec as \"recovery_spec?\"\n        from unnest($1::text[]) t(name)\n        join storage_mappings m on starts_with(m.catalog_prefix, t.name)\n        left join storage_mappings r on r.catalog_prefix = 'recovery/' || m.catalog_prefix\n        where not starts_with(m.catalog_prefix, 'recovery/');\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "storage_mappings",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_prefix",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "storage_mappings",
+            "name": "catalog_prefix"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "spec",
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "storage_mappings",
+            "name": "spec"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "recovery_spec?",
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "storage_mappings",
+            "name": "spec"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "1753aca3e77fd490c75a4051a7ac61d686c49311aa94f816ad6b30ea845ed3da"
+}

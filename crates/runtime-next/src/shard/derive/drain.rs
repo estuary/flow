@@ -2,8 +2,8 @@
 //!
 //! [`drain_and_publish`] runs as the actor's parked `drain_fut`: it consumes a
 //! rotated output combiner, publishes each derived document as a `CONTINUE_TXN`
-//! journal append, folds the document into the collection's inferred write
-//! shape, flushes the publisher, and snapshots its commit position. The shard
+//! journal append, folds the document into the collection's inferred shape,
+//! flushes the publisher, and snapshots its commit position. The shard
 //! reports the resulting per-transaction `drained` stats and `publisher_commit`
 //! to the leader in `L:Stored`.
 
@@ -23,8 +23,8 @@ pub(super) struct Output<P: crate::Publisher> {
     pub publisher_commit: Option<crate::proto::derive::stored::PublisherCommit>,
     /// The publisher, borrowed for the drain's journal appends.
     pub publisher: P,
-    /// The collection's inferred write shape, possibly widened this transaction.
-    pub write_shape: doc::Shape,
+    /// The collection's inferred shape, possibly widened this transaction.
+    pub inferred_shape: doc::Shape,
 }
 
 /// Drain the rotated output combiner: publish each derived document, fold it
@@ -34,7 +34,7 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
     parser: simd_doc::Parser,
     mut publisher: P,
     task: std::sync::Arc<Task>,
-    mut write_shape: doc::Shape,
+    mut inferred_shape: doc::Shape,
     metrics: super::Metrics,
     logger: L,
 ) -> anyhow::Result<Output<P>> {
@@ -52,10 +52,10 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
     let mut count = 1u64;
 
     while let Some(doc::combine::DrainedDoc { meta: _, root: doc }) = drainer.drain_next()? {
-        if write_shape.widen_owned(&doc) {
-            let limit = complexity_limit(&write_shape);
+        if inferred_shape.widen_owned(&doc) {
+            let limit = complexity_limit(&inferred_shape);
             doc::shape::limits::enforce_shape_complexity_limit(
-                &mut write_shape,
+                &mut inferred_shape,
                 limit,
                 doc::shape::limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
             );
@@ -94,7 +94,7 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
         );
 
     if updated_inference {
-        let schema = doc::shape::schema::to_schema(write_shape.clone());
+        let schema = doc::shape::schema::to_schema(inferred_shape.clone());
         logger.event(crate::LogEvent::InferredSchema {
             collection_name: &task.collection_name,
             binding: None,
@@ -109,7 +109,7 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
         drained_bytes,
         publisher_commit,
         publisher,
-        write_shape,
+        inferred_shape,
     })
 }
 

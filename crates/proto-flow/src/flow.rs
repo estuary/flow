@@ -410,17 +410,21 @@ pub mod collection_spec {
         /// are unique on name.
         #[prost(message, repeated, tag = "10")]
         pub linked_collections: ::prost::alloc::vec::Vec<super::CollectionSpec>,
-        /// Secrets of this derivation, mapping a JSON pointer within `config_json`
-        /// to the catalog name of a secret which the runtime resolves and merges
+        /// Secrets of this derivation, mapping a catalog secret name to its JSON
+        /// pointer within `config_json`. The runtime resolves and merges each secret
         /// into that location, as an RFC 7396 merge patch, before handing the
-        /// configuration to the connector. Entries are applied in lexicographic
-        /// pointer order. Empty if this derivation uses no secrets, or if
-        /// `config_json` is instead sops-encrypted.
+        /// configuration to the connector.
         #[prost(btree_map = "string, string", tag = "11")]
         pub secrets: ::prost::alloc::collections::BTreeMap<
             ::prost::alloc::string::String,
             ::prost::alloc::string::String,
         >,
+        /// The connector's response to its Spec request within the build of this
+        /// task. Unset if the build didn't run the connector, as when the task is
+        /// disabled.
+        #[prost(message, optional, boxed, tag = "12")]
+        pub connector_spec:
+            ::core::option::Option<::prost::alloc::boxed::Box<super::ConnectorSpec>>,
     }
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
@@ -442,9 +446,11 @@ pub mod collection_spec {
             #[prost(message, optional, tag = "3")]
             pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
             /// Priority of this transform, with respect to other transforms of the derivation.
-            /// Higher values imply higher priority.
-            #[prost(uint32, tag = "4")]
-            pub priority: u32,
+            /// Higher values imply higher priority, and negative values are allowed.
+            /// `int32` (not `sint32`) preserves wire compatibility with the `uint32`
+            /// encoding used before negative priorities were allowed.
+            #[prost(int32, tag = "4")]
+            pub priority: i32,
             /// Number of seconds for which documents of this transformed are delayed
             /// while reading, relative to other documents (when back-filling) and the
             /// present wall-clock time (when tailing).
@@ -643,17 +649,20 @@ pub struct CaptureSpec {
     /// are unique on name.
     #[prost(message, repeated, tag = "12")]
     pub linked_collections: ::prost::alloc::vec::Vec<CollectionSpec>,
-    /// Secrets of this capture, mapping a JSON pointer within `config_json`
-    /// to the catalog name of a secret which the runtime resolves and merges
+    /// Secrets of this capture, mapping a catalog secret name to its JSON
+    /// pointer within `config_json`. The runtime resolves and merges each secret
     /// into that location, as an RFC 7396 merge patch, before handing the
-    /// configuration to the connector. Entries are applied in lexicographic
-    /// pointer order. Empty if this capture uses no secrets, or if
-    /// `config_json` is instead sops-encrypted.
+    /// configuration to the connector.
     #[prost(btree_map = "string, string", tag = "13")]
     pub secrets: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    /// The connector's response to its Spec request within the build of this
+    /// task. Unset if the build didn't run the connector, as when the task is
+    /// disabled.
+    #[prost(message, optional, boxed, tag = "14")]
+    pub connector_spec: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorSpec>>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -779,17 +788,20 @@ pub struct MaterializationSpec {
     /// `projections\[*\].is_primary_key` to match, so same name != same spec.
     #[prost(message, repeated, tag = "13")]
     pub linked_collections: ::prost::alloc::vec::Vec<CollectionSpec>,
-    /// Secrets of this materialization, mapping a JSON pointer within `config_json`
-    /// to the catalog name of a secret which the runtime resolves and merges
-    /// into that location, as an RFC 7396 merge patch, before handing the
-    /// configuration to the connector. Entries are applied in lexicographic
-    /// pointer order. Empty if this materialization uses no secrets, or if
-    /// `config_json` is instead sops-encrypted.
+    /// Secrets of this materialization, mapping a catalog secret name to its
+    /// JSON pointer within `config_json`. The runtime resolves and merges each
+    /// secret into that location, as an RFC 7396 merge patch, before handing the
+    /// configuration to the connector.
     #[prost(btree_map = "string, string", tag = "14")]
     pub secrets: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    /// The connector's response to its Spec request within the build of this
+    /// task. Unset if the build didn't run the connector, as when the task is
+    /// disabled.
+    #[prost(message, optional, boxed, tag = "15")]
+    pub connector_spec: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorSpec>>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {
@@ -815,9 +827,11 @@ pub mod materialization_spec {
         #[prost(message, optional, tag = "7")]
         pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
         /// Priority of this binding, with respect to other bindings of the materialization.
-        /// Higher values imply higher priority.
-        #[prost(uint32, tag = "9")]
-        pub priority: u32,
+        /// Higher values imply higher priority, and negative values are allowed.
+        /// `int32` (not `sint32`) preserves wire compatibility with the `uint32`
+        /// encoding used before negative priorities were allowed.
+        #[prost(int32, tag = "9")]
+        pub priority: i32,
         /// Resolved fields selected for materialization.
         #[prost(message, optional, tag = "4")]
         pub field_selection: ::core::option::Option<super::FieldSelection>,
@@ -896,6 +910,32 @@ pub mod materialization_spec {
             }
         }
     }
+}
+/// ConnectorSpec is a connector's response to a Spec request. Its fields match
+/// those of the capture, derive, and materialize protocols' Response.Spec in
+/// number and type, so it decodes any of them.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectorSpec {
+    /// Protocol version of the connector.
+    #[prost(uint32, tag = "1")]
+    pub protocol: u32,
+    /// JSON schema of the connector's configuration.
+    #[prost(bytes = "bytes", tag = "2")]
+    pub config_schema_json: ::prost::bytes::Bytes,
+    /// JSON schema of the connector's resource configuration.
+    /// For a derivation, this is the schema of its lambda configuration.
+    #[prost(bytes = "bytes", tag = "3")]
+    pub resource_config_schema_json: ::prost::bytes::Bytes,
+    /// URL for the connector's documentation.
+    #[prost(string, tag = "4")]
+    pub documentation_url: ::prost::alloc::string::String,
+    /// Optional OAuth2 configuration.
+    #[prost(message, optional, tag = "5")]
+    pub oauth2: ::core::option::Option<OAuth2>,
+    /// JSON pointers which extract resource paths from resource configurations.
+    /// Only captures use them.
+    #[prost(string, repeated, tag = "6")]
+    pub resource_path_pointers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// OAuth2 describes an OAuth2 provider
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1178,9 +1218,6 @@ pub mod build_api {
         /// builds.
         #[prost(string, tag = "5")]
         pub connector_network: ::prost::alloc::string::String,
-        /// URL which roots the Flow project.
-        #[prost(string, tag = "6")]
-        pub project_root: ::prost::alloc::string::String,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1291,6 +1328,9 @@ pub enum ContentType {
     JsonSchema = 1,
     Config = 4,
     DocumentsFixture = 5,
+    /// Text content which is never parsed as a document,
+    /// such as the files of a Python project.
+    Text = 6,
 }
 impl ContentType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1303,6 +1343,7 @@ impl ContentType {
             Self::JsonSchema => "JSON_SCHEMA",
             Self::Config => "CONFIG",
             Self::DocumentsFixture => "DOCUMENTS_FIXTURE",
+            Self::Text => "TEXT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1312,6 +1353,7 @@ impl ContentType {
             "JSON_SCHEMA" => Some(Self::JsonSchema),
             "CONFIG" => Some(Self::Config),
             "DOCUMENTS_FIXTURE" => Some(Self::DocumentsFixture),
+            "TEXT" => Some(Self::Text),
             _ => None,
         }
     }

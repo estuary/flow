@@ -15,14 +15,60 @@
 //! override admits the event's level, it passes. The override is *additive* —
 //! it never suppresses an event the base filter would keep.
 //!
-//! Cost when no override is active: [`OverrideFilter`]'s `max_level_hint` is
-//! `TRACE`, so disabled `trace!`/`debug!` callsites do one extra `enabled()`
-//! check (an atomic load, plus — only inside a handler span — a short scope
-//! walk) rather than being statically skipped.
+//! Cost when no override is active: none. [`OverrideFilter`] then reports
+//! `Interest::never` and an `INFO` level hint, so disabled `trace!`/`debug!`
+//! callsites are skipped statically, as under the base filter alone. Setting
+//! the first override (or clearing the last) rebuilds the process's callsite
+//! interest cache, and while any override is active every callsite below the
+//! base level is checked dynamically: a scope walk per event or span.
+//! Hot paths such as h2's per-frame spans make that dynamic check expensive,
+//! which is why it's confined to the (rare) periods an override is set.
 
 use crate::Registry;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+
+/// Number of live handlers with a trace override set, process-wide: callsite
+/// interest is itself process-global.
+static ACTIVE_OVERRIDES: AtomicUsize = AtomicUsize::new(0);
+
+/// Serializes [`rebuild_interest`]. Held only around the rebuild, never while
+/// reading `ACTIVE_OVERRIDES`: the rebuild calls back into [`OverrideFilter`].
+static REBUILD: Mutex<()> = Mutex::new(());
+
+/// Count a handler's override moving from `prev` to `next` (0 = none),
+/// returning whether the first override was set or the last cleared, in which
+/// case the caller must [`rebuild_interest`] once it has released its locks.
+///
+/// Callers hold the [`Registry`] lock under which they swapped the override,
+/// so each handler's set is counted before its clear and the count never
+/// transiently reads zero (or wraps) while an override is live.
+pub(crate) fn count_override_change(prev: u8, next: u8) -> bool {
+    match (prev != 0, next != 0) {
+        (false, true) => ACTIVE_OVERRIDES.fetch_add(1, Ordering::SeqCst) == 0,
+        (true, false) => ACTIVE_OVERRIDES.fetch_sub(1, Ordering::SeqCst) == 1,
+        _ => false,
+    }
+}
+
+/// Rebuild the process's callsite interest cache and max level from the
+/// current `ACTIVE_OVERRIDES`.
+///
+/// tracing-core samples the max level hint when a rebuild starts and applies
+/// it when it ends, and stores per-callsite interest unsynchronized, so two
+/// overlapping rebuilds can finish out of order and leave the older answer in
+/// place (e.g. an `INFO` max level while an override is set). Serialized, the
+/// last rebuild starts after every count change that requested one, and so
+/// reflects the final count.
+pub(crate) fn rebuild_interest() {
+    let _guard = REBUILD.lock().unwrap();
+    tracing::callsite::rebuild_interest_cache();
+}
+
+fn any_override_active() -> bool {
+    ACTIVE_OVERRIDES.load(Ordering::Relaxed) != 0
+}
 
 /// Compose `base` with an [`OverrideFilter`] over `registry`, yielding a filter
 /// to attach to a `fmt` (or other) layer via `Layer::with_filter`. Events pass
@@ -61,6 +107,9 @@ where
         if meta.target() == crate::handlers::HANDLER_SPAN_TARGET {
             return true;
         }
+        if !any_override_active() {
+            return false;
+        }
         let want = crate::handlers::level_to_u8(meta.level());
         let Some(span) = cx.lookup_current() else {
             return false;
@@ -78,15 +127,24 @@ where
     ) -> tracing::subscriber::Interest {
         if meta.target() == crate::handlers::HANDLER_SPAN_TARGET {
             tracing::subscriber::Interest::always()
-        } else {
-            // An override set later may admit this callsite, so we can't cache
-            // a static decision: ask `enabled` per event.
+        } else if any_override_active() {
+            // An active override may admit this callsite within its handler
+            // span, and not elsewhere: ask `enabled` per event.
             tracing::subscriber::Interest::sometimes()
+        } else {
+            // Re-evaluated when an override is set (`rebuild_interest`).
+            tracing::subscriber::Interest::never()
         }
     }
 
     fn max_level_hint(&self) -> Option<tracing_subscriber::filter::LevelFilter> {
-        Some(tracing_subscriber::filter::LevelFilter::TRACE)
+        if any_override_active() {
+            Some(tracing_subscriber::filter::LevelFilter::TRACE)
+        } else {
+            // Handler spans are `info_span!`s, which the base filter's hint
+            // (composed by `or`) must cover for them to be created.
+            Some(tracing_subscriber::filter::LevelFilter::INFO)
+        }
     }
 
     fn on_new_span(
@@ -196,6 +254,76 @@ mod tests {
         tracing::subscriber::with_default(subscriber, || {
             tracing::trace!("dropped: no enclosing handler span");
             assert_eq!(n2(), 0);
+        });
+    }
+
+    #[test]
+    fn overrides_rebuild_cached_callsite_interest() {
+        let registry = Registry::new();
+        let count = Arc::new(AtomicUsize::new(0));
+        let n = || count.load(Ordering::Relaxed);
+        let active = || ACTIVE_OVERRIDES.load(Ordering::SeqCst);
+        let max_level = tracing::level_filters::LevelFilter::current;
+
+        let subscriber =
+            tracing_subscriber::registry().with(CountLayer(count.clone()).with_filter(
+                layer_filter(tracing_subscriber::EnvFilter::new("info"), registry.clone()),
+            ));
+
+        tracing::subscriber::with_default(subscriber, || {
+            // A single callsite, hit throughout: its cached interest (and the
+            // max level gating it) must follow overrides as they come and go.
+            let probe = || tracing::trace!("probe");
+
+            let first = registry.register("test.kind");
+            let second = registry.register("test.kind");
+            let (first_id, second_id) = {
+                let live = registry.snapshot().live;
+                (live[0].id, live[1].id)
+            };
+
+            first.span().in_scope(probe);
+            assert_eq!((n(), active()), (0, 0));
+
+            assert!(registry.set_trace_override(first_id, Some(tracing::Level::TRACE)));
+            first.span().in_scope(probe);
+            probe(); // Outside any handler span.
+            assert_eq!(
+                (n(), active(), max_level()),
+                (1, 1, tracing::level_filters::LevelFilter::TRACE)
+            );
+
+            // Clearing the last override returns the callsite to `never`...
+            assert!(registry.set_trace_override(first_id, None));
+            first.span().in_scope(probe);
+            assert_eq!(
+                (n(), active(), max_level()),
+                (1, 0, tracing::level_filters::LevelFilter::INFO)
+            );
+
+            // ...and setting one again flips it back.
+            assert!(registry.set_trace_override(first_id, Some(tracing::Level::TRACE)));
+            first.span().in_scope(probe);
+            assert_eq!((n(), active()), (2, 1));
+
+            // Finishing a handler with its override set releases its count,
+            // without disturbing another handler's override.
+            assert!(registry.set_trace_override(second_id, Some(tracing::Level::TRACE)));
+            assert_eq!(active(), 2);
+            drop(first);
+            assert_eq!(active(), 1);
+            second.span().in_scope(probe);
+            assert_eq!(n(), 3);
+
+            drop(second);
+            assert_eq!(
+                (active(), max_level()),
+                (0, tracing::level_filters::LevelFilter::INFO)
+            );
+
+            let third = registry.register("test.kind");
+            third.span().in_scope(probe);
+            assert_eq!(n(), 3);
         });
     }
 }

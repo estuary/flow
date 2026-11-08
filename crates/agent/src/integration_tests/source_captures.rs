@@ -370,7 +370,7 @@ async fn test_source_captures_collection_name() {
 #[tokio::test]
 async fn test_source_capture_no_annotations() {
     let harness = TestHarness::init("test_source_capture_no_annotations").await;
-    let user_id = harness.setup_tenant("sheep").await;
+    let user_id = harness.setup_tenant("ducks").await;
 
     let snapshot = harness.pinned_snapshot().await;
 
@@ -426,7 +426,7 @@ async fn test_source_capture_no_annotations() {
     let built = harness
         .publisher
         .build(
-            user_id,
+            &models::authz::Subject::unrestricted(user_id),
             pub_id,
             None,
             draft,
@@ -442,16 +442,128 @@ async fn test_source_capture_no_annotations() {
 
     let errors = built.errors().collect::<Vec<_>>();
 
-    insta::assert_debug_snapshot!(errors, @r###"
+    insta::assert_debug_snapshot!(errors, @"
     [
         Error {
-            scope: flow://materialization/ducks/materializeA,
-            error: sourceCapture.deltaUpdates set but the connector 'materialize/test' does not support delta updates,
+            scope: flow://materialization/ducks/materializeA#/source/deltaUpdates,
+            error: source.deltaUpdates set but the connector does not support delta updates,
         },
         Error {
-            scope: flow://materialization/ducks/materializeA,
-            error: sourceCapture.targetSchema set but the connector 'materialize/test' does not support resource schemas,
+            scope: flow://materialization/ducks/materializeA#/source/targetNaming,
+            error: source.targetNaming set but the connector does not support resource schemas,
         },
     ]
-    "###);
+    ");
+}
+
+#[tokio::test]
+async fn test_source_capture_connector_spec() {
+    let mut harness = TestHarness::init("test_source_capture_connector_spec").await;
+    let user_id = harness.setup_tenant("ducks").await;
+
+    fn model(state: &crate::controllers::ControllerState) -> &models::MaterializationDef {
+        state
+            .live_spec
+            .as_ref()
+            .unwrap()
+            .as_materialization()
+            .unwrap()
+    }
+    let materialization = |image: &str, disable: bool| {
+        serde_json::json!({
+            "source": { "capture": "ducks/capture" },
+            "endpoint": { "connector": { "image": image, "config": {} } },
+            "bindings": [],
+            "shards": { "disable": disable },
+        })
+    };
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "ducks/pond/quacks": {
+                "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                "key": ["/id"]
+            }
+        },
+        "captures": {
+            "ducks/capture": {
+                "endpoint": { "connector": { "image": "source/test:test", "config": {} } },
+                "bindings": [
+                    { "resource": { "name": "greetings" }, "target": "ducks/pond/quacks" }
+                ]
+            }
+        },
+        "materializations": {
+            "ducks/disabled": materialization("materialize/test:test", true),
+            "ducks/legacy": materialization("materialize/test:test", false),
+            "ducks/untagged": materialization("materialize/test:untagged", false),
+        }
+    }));
+    let result = harness
+        .user_publication(user_id, "test source.capture connector spec", draft)
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+
+    // Model built specs which predate `connector_spec`.
+    sqlx::query(
+        r#"update live_specs set built_spec = (built_spec::jsonb - 'connectorSpec')::json
+        where catalog_name = any($1)"#,
+    )
+    .bind(vec!["ducks/legacy", "ducks/untagged"])
+    .execute(&harness.pool)
+    .await
+    .unwrap();
+
+    harness.run_pending_controllers(None).await;
+
+    // A disabled materialization isn't maintained per its `source.capture`.
+    let disabled = harness.get_controller_state("ducks/disabled").await;
+    assert!(model(&disabled).bindings.is_empty());
+    assert!(
+        disabled
+            .current_status
+            .unwrap_materialization()
+            .source_capture
+            .is_none()
+    );
+
+    // A built spec without a `connector_spec` falls back to `connector_tags`.
+    let legacy = harness.get_controller_state("ducks/legacy").await;
+    let legacy_model = model(&legacy);
+    assert_eq!(1, legacy_model.bindings.len());
+    assert_eq!(
+        Some(&serde_json::json!("pond_quacks")),
+        legacy_model.bindings[0].resource.to_value().pointer("/id")
+    );
+
+    // With neither, the materialization can't generate bindings.
+    let untagged = harness.get_controller_state("ducks/untagged").await;
+    assert!(
+        untagged
+            .error
+            .as_deref()
+            .is_some_and(|err| err.contains("has no connector tag")),
+        "{:?}",
+        untagged.error
+    );
+
+    // Re-enabling the disabled materialization builds its `connector_spec`,
+    // after which its controller adds the missing binding.
+    let draft = draft_catalog(serde_json::json!({
+        "materializations": {
+            "ducks/disabled": materialization("materialize/test:test", false),
+        }
+    }));
+    let result = harness
+        .user_publication(user_id, "re-enable materialization", draft)
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+
+    let disabled = harness.run_pending_controller("ducks/disabled").await;
+    assert_eq!(1, model(&disabled).bindings.len());
+    let source_capture = disabled
+        .current_status
+        .unwrap_materialization()
+        .source_capture
+        .clone();
+    assert!(source_capture.is_some_and(|status| status.up_to_date));
 }

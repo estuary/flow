@@ -424,20 +424,29 @@ fn should_include_archive_member<R: std::io::Read>(entry: &ZipFile<'_, R>) -> bo
     // OSX users will often end up with extra hidden files in their archives. An example is the
     // `.DS_Store` files that apple puts everywhere, but we've also seen `__MACOSX/.*`. So we
     // filter out any hidden files (those whose name begins with a '.').
-    entry.is_file()
-        && Path::new(entry.name())
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|name| !name.starts_with("."))
-            .unwrap_or_else(|| {
-                // If we got here, it's because the zip entry has a path that ends with '..' or
-                // something like that, which seems unusual enough to be worth logging.
-                tracing::warn!(
-                    "skipping zip entry: {:?} since the filename does not appear to be valid",
-                    entry.name()
-                );
-                false
-            })
+    if !entry.is_file() {
+        return false;
+    }
+    let name = match entry.name() {
+        Ok(name) => name,
+        Err(err) => {
+            tracing::warn!(?err, "skipping zip entry with an undecodable name");
+            return false;
+        }
+    };
+    Path::new(name.as_ref())
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|name| !name.starts_with("."))
+        .unwrap_or_else(|| {
+            // If we got here, it's because the zip entry has a path that ends with '..' or
+            // something like that, which seems unusual enough to be worth logging.
+            tracing::warn!(
+                "skipping zip entry: {:?} since the filename does not appear to be valid",
+                name
+            );
+            false
+        })
 }
 
 #[cfg(test)]

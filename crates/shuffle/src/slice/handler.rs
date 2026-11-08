@@ -1,4 +1,4 @@
-use super::{LazyJournalClient, SliceActor, heap::ReadyReadHeap, state};
+use super::{LazyJournalClient, SliceActor, heap::ReadHeap, state};
 use anyhow::Context;
 use futures::{StreamExt, stream};
 use proto_flow::shuffle;
@@ -46,6 +46,7 @@ where
         task,
         shards,
         shard_index: slice_shard_index,
+        priority,
     } = open.open.context("first message must be Open")?;
 
     if shards.get(slice_shard_index as usize).map(|m| &m.endpoint) != Some(&service.peer_endpoint) {
@@ -64,19 +65,25 @@ where
     handler.set_label(shard_id);
     handler.set_field("session_id", session_id);
     handler.set_field("slice_shard_index", slice_shard_index);
+    handler.set_field("priority", priority);
     handler.set_field("shards", shards.len());
     handler.set_field("token", serde_json::to_string(&authz.claims()).unwrap());
     handler.set_phase("opening");
 
     let task = task.context("Open must include task")?;
     let (bindings, sources, validators) = crate::Binding::from_task(&task)?;
+    let priorities = crate::binding::distinct_priorities(&bindings);
+
+    if !priorities.contains(&priority) {
+        anyhow::bail!("Open priority {priority} is not of the task's priorities {priorities:?}");
+    }
 
     let num_cohorts = bindings
         .iter()
         .map(|b| b.cohort as usize + 1)
         .max()
         .unwrap_or(0);
-    let metrics = super::Metrics::new(shard_id, num_cohorts);
+    let metrics = super::Metrics::new(shard_id, priority, num_cohorts);
 
     service_kit::event!(
         tracing::Level::INFO,
@@ -84,21 +91,21 @@ where
         session_id,
         shards = shards.len(),
         slice_shard_index,
+        priority,
         "received Open from Session",
     );
 
     // Concurrently Open a Log RPC with every shard, racing the fan-out against
-    // our Slice request stream. `try_join_all` short-circuits on the first Log
-    // open error, dropping the sibling opens (and their Log request channels)
-    // so teardown cascades. `Start` arrives only after we send `Opened`, so any
-    // message here means the Session (or its RPC) went away: we abort likewise.
-    // This mirrors the Session handler's open-phase EOF cascade.
-    let (log_request_tx, log_response_rx): (Vec<_>, Vec<_>) = tokio::select! {
-        result = futures::future::try_join_all((0..shards.len()).map(|log_shard_index| {
+    // our Slice request stream (which may EOF to cancel) or a Log error (which
+    // must fail-fast).
+    let (log_channels, log_response_rx): (Vec<_>, Vec<_>) = tokio::select! {
+        result = crate::try_join_all_eager((0..shards.len()).map(|log_shard_index| {
             open_log_rpc(
                 &service,
                 session_id,
-                slice_shard_index as u32,
+                slice_shard_index,
+                priority,
+                &priorities,
                 &shards,
                 log_shard_index as u32,
             )
@@ -111,7 +118,7 @@ where
 
     tracing::info!(
         session_id,
-        log_count = log_request_tx.len(),
+        log_count = log_channels.len(),
         "Slice opened all Log RPCs"
     );
 
@@ -144,6 +151,7 @@ where
         session_id,
         shards,
         slice_shard_index,
+        priority,
         bindings,
         sources,
         journal_clients,
@@ -160,16 +168,10 @@ where
         flush: state::FlushState::new(),
         progress: state::ProgressState::new(),
         slice_response_tx,
-        log_prev_journal: vec![String::new(); log_request_tx.len()],
-        log_request_tx,
-        pending_probes: stream::FuturesUnordered::new(),
-        pending_reads: stream::FuturesUnordered::new(),
+        rounds: super::rounds::Rounds::new(log_channels),
         parser: simd_doc::SimdParser::new(1_000_000),
-        ready_read_heap: ReadyReadHeap::new(),
+        heap: ReadHeap::new(),
         replay: None,
-        tailing_reads: 0,
-        stalled_reads: Default::default(),
-        initial_reads_started: false,
         metrics,
     }
     .serve(slice_request_rx, log_response_rx)
@@ -183,15 +185,21 @@ where
 }
 
 /// Open Log RPCs to all shards and wait for Opened responses.
-#[tracing::instrument(level = "debug", skip(service, shards), err(Debug, level = "warn"))]
+#[tracing::instrument(
+    level = "debug",
+    skip(service, priorities, shards),
+    err(Debug, level = "warn")
+)]
 async fn open_log_rpc(
     service: &crate::Service,
     session_id: u32,
     slice_shard_index: u32,
+    priority: i32,
+    priorities: &[i32],
     shards: &[shuffle::Shard],
     log_shard_index: u32,
 ) -> anyhow::Result<(
-    mpsc::Sender<shuffle::LogRequest>,
+    super::rounds::LogChannel,
     stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>,
 )> {
     let verify = proto_grpc::verify(
@@ -199,17 +207,14 @@ async fn open_log_rpc(
         "Opened",
         &shards[log_shard_index as usize].endpoint,
     );
-    let (request_tx, request_rx) = crate::new_channel::<shuffle::LogRequest>();
+    let (request_tx, request_rx) = crate::new_channel();
 
     // Spawn or dial RPC, yielding a boxed response stream.
     let request_rx = tokio_stream::wrappers::ReceiverStream::new(request_rx);
 
     let mut response_rx = if log_shard_index == slice_shard_index {
         tracing::debug!("spawning in-process Log RPC");
-        tokio_stream::wrappers::ReceiverStream::new(
-            service.spawn_log(proto_grpc::Authorizer::trusted_local(), request_rx.map(Ok)),
-        )
-        .boxed()
+        service.spawn_log(proto_grpc::Authorizer::trusted_local(), request_rx.map(Ok))
     } else {
         let endpoint = &shards[log_shard_index as usize].endpoint;
         tracing::debug!(log_shard_index, endpoint=%endpoint, "dialing remote Log RPC");
@@ -234,9 +239,11 @@ async fn open_log_rpc(
                 shards: shards.to_vec(),
                 slice_shard_index,
                 log_shard_index,
+                priority,
+                priorities: priorities.to_vec(),
             }),
-            append: None,
-            flush: None,
+            appends: Vec::new(),
+            barrier: None,
         },
     )?;
 
@@ -245,7 +252,7 @@ async fn open_log_rpc(
         shuffle::LogResponse {
             opened: Some(shuffle::log_response::Opened {}),
             ..
-        } => Ok((request_tx, response_rx)),
+        } => Ok((super::rounds::LogChannel::new(request_tx), response_rx)),
 
         response => Err(verify.fail_msg(response)),
     }

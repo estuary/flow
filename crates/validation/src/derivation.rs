@@ -1,12 +1,7 @@
-use super::{
-    Connectors, Error, NoOpConnectors, Scope, collection, flag_value, indexed, linked, reference,
-    schema,
-};
-use futures::SinkExt;
+use super::{Connectors, Error, Scope, collection, indexed, linked, reference, schema};
 use proto_flow::{
-    derive, flow,
+    connector, derive, flow,
     flow::collection_spec::derivation::{ConnectorType, ShuffleType as ProtoShuffleType},
-    ops::log::Level as LogLevel,
 };
 use std::collections::BTreeMap;
 use superslice::Ext;
@@ -25,18 +20,16 @@ type LiveTransforms<'a> = BTreeMap<
     ),
 >;
 
-pub async fn walk_all_derivations<C: Connectors>(
+pub async fn walk_all_derivations(
     pub_id: models::Id,
     build_id: models::Id,
     draft_collections: &tables::DraftCollections,
     live_collections: &tables::LiveCollections,
     built_collections: &tables::BuiltCollections,
-    connectors: &C,
-    data_planes: &tables::DataPlanes,
+    connectors: &Connectors<'_>,
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
     noop_derivations: bool,
-    project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
     init_vector: &[u8],
     errors: &mut tables::Errors,
@@ -68,11 +61,9 @@ pub async fn walk_all_derivations<C: Connectors>(
                 eob,
                 built_collections,
                 connectors,
-                data_planes,
                 dependencies,
                 imports,
                 noop_derivations,
-                project_root,
                 storage_mappings,
                 init_vector,
                 &mut local_errors,
@@ -95,47 +86,53 @@ pub async fn walk_all_derivations<C: Connectors>(
         .collect()
 }
 
-/// Resolve a built-in TypeScript / Python derivation into a concrete image
-/// connector. `repository` is the connector's image repository (without a tag);
-/// the tag is selected from the task's feature `flags`:
-///
-/// - `derive-image-tag`: explicit override (e.g. `local` for a locally-built
-///   image), used regardless of the runtime version.
-/// - otherwise `stable` for V2 tasks (`enable-runtime-v2`), or `dev` for legacy
-///   V1 tasks.
-///
-/// The built-in `config` (a `module`, plus Python `dependencies`) becomes the
-/// connector's nested configuration, mirroring what the runtime previously
-/// wrapped at connector-start time.
-fn builtin_derive_connector<C: serde::Serialize>(
-    repository: &str,
-    config: &C,
-    flags: &BTreeMap<models::Token, models::Token>,
-) -> models::ConnectorConfig {
-    let tag = flag_value(flags, "derive-image-tag").unwrap_or(
-        if flag_value(flags, models::ENABLE_RUNTIME_V2) == Some("true") {
-            "stable"
-        } else {
-            "dev"
-        },
-    );
-    models::ConnectorConfig {
-        image: format!("{repository}:{tag}"),
-        config: models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
+/// Map a derivation's `using` model into the connector Spec request used by
+/// validation and by local flowctl commands.
+pub fn derive_spec_request(
+    using: &models::DeriveUsing,
+    shards: &models::ShardTemplate,
+) -> derive::request::Spec {
+    let (connector_type, config_json) = match using {
+        models::DeriveUsing::Connector(config) => (
+            ConnectorType::Image as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::DeriveUsing::Local(config) => (
+            ConnectorType::Local as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::DeriveUsing::Sqlite(config) => (
+            ConnectorType::Sqlite as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::DeriveUsing::Typescript(config) => (
+            ConnectorType::Image as i32,
+            serde_json::to_string(&crate::custom::derive_typescript_connector(config, shards))
+                .unwrap()
+                .into(),
+        ),
+        models::DeriveUsing::Python(config) => (
+            ConnectorType::Image as i32,
+            serde_json::to_string(&crate::custom::derive_python_connector(config, shards))
+                .unwrap()
+                .into(),
+        ),
+    };
+    derive::request::Spec {
+        connector_type,
+        config_json,
     }
 }
 
-async fn walk_derivation<C: Connectors>(
+async fn walk_derivation(
     pub_id: models::Id,
     build_id: models::Id,
     eob: EOB<&tables::LiveCollection, &tables::DraftCollection>,
     built_collections: &tables::BuiltCollections,
-    connectors: &C,
-    data_planes: &tables::DataPlanes,
+    connectors: &Connectors<'_>,
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
     noop_derivations: bool,
-    project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
     init_vector: &[u8],
     errors: &mut tables::Errors,
@@ -218,10 +215,8 @@ async fn walk_derivation<C: Connectors>(
     let scope = scope.push_prop("derive");
     let mut model_fixes = Vec::new();
 
-    // Collect imports of this derivation, so that we can present the connector
-    // with a relative mapping of its imports. This is used to generate more
-    // helpful errors, where temporary files within the connector are re-mapped
-    // to the user's relative filesystem.
+    // Collect imports of this derivation for the deprecated `import_map`,
+    // which older connectors may still read.
     let import_map = {
         let scope = scope.flatten();
 
@@ -255,8 +250,37 @@ async fn walk_derivation<C: Connectors>(
         shards,
     } = model;
 
-    let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
+    crate::custom::walk_legacy_fields(scope.push_prop("using"), &using, errors);
 
+    // A model having a legacy `module` is checked by `walk_legacy_fields`.
+    if let models::DeriveUsing::Python(python @ models::DeriveUsingPython { module: None, .. }) =
+        &using
+    {
+        let scope = scope.push_prop("using");
+        let scope = scope.push_prop("python");
+
+        // The V1 runtime's frozen `dev` image runs only a legacy `module`.
+        if !shards.uses_runtime_v2(models::CatalogType::Collection) {
+            Error::RequireRuntimeV2 {
+                entity: "derivation",
+                name: collection.to_string(),
+                capability: "files",
+                flag: models::ENABLE_RUNTIME_V2,
+            }
+            .push(scope.push_prop("files"), errors);
+        }
+        crate::custom::walk_python(
+            scope,
+            collection,
+            &python.files,
+            &python.config,
+            &python.spec,
+            errors,
+        );
+    }
+
+    let project_root = super::project_root(&scope.flatten());
+    let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
     let max_bindings = crate::max_bindings(indirect_specs);
 
     if transforms_model.len() > max_bindings {
@@ -270,48 +294,28 @@ async fn walk_derivation<C: Connectors>(
         return None;
     }
 
-    // Unwrap `using` into a connector type and configuration.
-    let (connector_type, config_json): (i32, bytes::Bytes) = match &using {
-        models::DeriveUsing::Connector(config) => (
-            ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::DeriveUsing::Local(config) => (
-            ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::DeriveUsing::Sqlite(config) => (
-            ConnectorType::Sqlite as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        // Built-in TypeScript / Python derivations are resolved at build time
-        // into a concrete image connector, keyed by the task's feature flags.
-        // The data-plane runtime then runs the resolved image directly rather
-        // than re-deriving a tag, which keeps Validate and the runtime — and the
-        // V1 and V2 runtimes — in agreement about which connector interface a
-        // module is compiled against.
-        models::DeriveUsing::Typescript(config) => (
-            ConnectorType::Image as i32,
-            serde_json::to_string(&builtin_derive_connector(
-                "ghcr.io/estuary/derive-typescript",
-                config,
-                &shards.flags,
-            ))
-            .unwrap()
-            .into(),
-        ),
-        models::DeriveUsing::Python(config) => (
-            ConnectorType::Image as i32,
-            serde_json::to_string(&builtin_derive_connector(
-                "ghcr.io/estuary/derive-python",
-                config,
-                &shards.flags,
-            ))
-            .unwrap()
-            .into(),
-        ),
-    };
+    let derive::request::Spec {
+        connector_type,
+        config_json,
+    } = derive_spec_request(&using, &shards);
     let secrets_spec = assemble::secrets(&secrets);
+    let secrets_ctx = crate::secrets::Context::of_derivation(&secrets, &using);
+
+    // Frozen `:dev` images reject `connector_spec` as an unknown JSON field.
+    // A derivation which uses one neither sends nor bakes a `connector_spec`.
+    let frozen_image = connector_type == ConnectorType::Image as i32
+        && serde_json::from_slice::<models::ConnectorConfig>(&config_json)
+            .is_ok_and(|config| models::is_frozen_derive_image(&config.image));
+
+    crate::secrets::walk_model(
+        scope,
+        "derivation",
+        collection,
+        models::CatalogType::Collection,
+        &shards,
+        &secrets_ctx,
+        errors,
+    );
 
     // Resolve the data-plane for this task. We cannot continue without it.
     let Ok(built_index) = built_collections.binary_search_by_key(&collection, |b| &b.collection)
@@ -320,52 +324,7 @@ async fn walk_derivation<C: Connectors>(
     };
     let built_collection = &built_collections[built_index];
 
-    let data_plane = data_planes
-        .get_by_key(&built_collection.data_plane_id)
-        .expect("collection was built and has a known-valid data-plane");
-
-    // Start an RPC with the task's connector.
-    let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
-    let response_rx = if noop_derivations || shards.disable {
-        futures::future::Either::Left(NoOpConnectors.derive(data_plane, collection, request_rx))
-    } else {
-        futures::future::Either::Right(connectors.derive(data_plane, collection, request_rx))
-    };
-    futures::pin_mut!(response_rx);
-
-    // Send Request.Spec and receive Response.Spec.
-    _ = request_tx
-        .send(
-            derive::Request {
-                kind: Some(derive::request::Kind::Spec(derive::request::Spec {
-                    connector_type,
-                    config_json: config_json.clone(),
-                })),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                if let Some(s) = &shards.log_level {
-                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-                }
-            }),
-        )
-        .await;
-
-    let derive::response::Spec {
-        documentation_url: _,
-        config_schema_json: _,
-        resource_config_schema_json: _,
-        ..
-    } = super::expect_response(
-        scope,
-        &mut response_rx,
-        |response| match &mut response.kind {
-            Some(derive::response::Kind::Spec(spec)) => Ok(Some(std::mem::take(spec.as_mut()))),
-            _ => Ok(None),
-        },
-        errors,
-    )
-    .await?;
+    let data_plane_id = built_collection.data_plane_id;
 
     let scope_transforms = scope.push_prop("transforms");
 
@@ -407,7 +366,6 @@ async fn walk_derivation<C: Connectors>(
                 transform,
                 collection,
                 built_collections,
-                data_plane.control_id,
                 noop_derivations || shards.disable,
                 &live_transforms_model,
                 &live_transforms_spec,
@@ -495,17 +453,14 @@ async fn walk_derivation<C: Connectors>(
     .collect();
 
     // Determine storage mappings for task recovery logs.
-    let recovery_stores = match crate::storage_mapping::lookup_mapping(
-        "derivation",
-        &format!("recovery/{collection}"),
-        storage_mappings,
-    ) {
-        Ok(mapping) => mapping.stores.as_slice(),
-        Err(err) => {
-            err.push(scope, errors);
-            &[]
-        }
-    };
+    let recovery_stores =
+        match crate::storage_mapping::lookup_mapping("derivation", collection, storage_mappings) {
+            Ok(mapping) => mapping.recovery_stores.as_slice(),
+            Err(err) => {
+                err.push(scope, errors);
+                &[]
+            }
+        };
 
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
@@ -537,9 +492,14 @@ async fn walk_derivation<C: Connectors>(
         collection: built_collection.spec.clone(),
         transforms: transforms_validate,
         shuffle_key_types: shuffle_key_types_spec.iter().map(|t| *t as i32).collect(),
-        project_root: project_root.to_string(),
+        project_root: project_root.clone(),
         import_map,
-        last_collection: live_spec.cloned(),
+        last_collection: live_spec.cloned().map(|mut last| {
+            if let Some(derivation) = last.derivation.as_mut().filter(|_| frozen_image) {
+                derivation.connector_spec = None; // Clear V2 `connector_spec` rolled back to V1.
+            }
+            last
+        }),
         last_version: if expect_build_id.is_zero() {
             String::new()
         } else {
@@ -550,43 +510,62 @@ async fn walk_derivation<C: Connectors>(
     };
     linked::install_derive_validate(&mut validate_request, interner, indirect_specs);
 
-    // Send Request.Validate and receive Response.Validated.
-    _ = request_tx
-        .send(
-            derive::Request {
-                kind: Some(derive::request::Kind::Validate(Box::new(validate_request))),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                if let Some(s) = &shards.log_level {
-                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-                }
-            }),
-        )
-        .await;
-
-    let (validated_response, network_ports) = super::expect_response(
+    let no_op = noop_derivations || shards.disable;
+    let (mut validated_response, network_ports, connector_spec) = super::validate_connector(
         scope,
-        &mut response_rx,
-        |response| {
-            let network_ports = match response.get_internal() {
-                Ok(internal) => internal.container.unwrap_or_default().network_ports,
-                Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
-            };
-            match &mut response.kind {
-                Some(derive::response::Kind::Validated(v)) => {
-                    Ok(Some((std::mem::take(v), network_ports)))
-                }
-                _ => Ok(None),
-            }
+        connectors,
+        no_op,
+        data_plane_id,
+        shards.log_level.as_deref(),
+        connector::request::Kind::Derive(derive::Request {
+            kind: Some(derive::request::Kind::Validate(Box::new(validate_request))),
+            ..Default::default()
+        }),
+        |response| match response {
+            connector::response::Kind::Derive(derive::Response {
+                kind: Some(derive::response::Kind::Validated(validated)),
+                ..
+            }) => Some(validated),
+            _ => None,
         },
         errors,
     )
     .await?;
 
+    let network_ports = match &using {
+        models::DeriveUsing::Python(python) => crate::custom::network_ports(&python.spec),
+        _ => network_ports,
+    };
+
+    crate::secrets::walk_plaintext(
+        scope,
+        "derivation",
+        collection,
+        &secrets_ctx,
+        &connector_spec.config_schema_json,
+        errors,
+    );
+
+    super::validate_generated_files(
+        scope,
+        &project_root,
+        &mut validated_response.generated_files,
+        errors,
+    );
+
+    // A legacy model lists no `files`, and keeps only `flow_generated/`.
+    if let models::DeriveUsing::Python(models::DeriveUsingPython { files, .. }) = &using {
+        crate::custom::retain_generated_files(
+            collection,
+            &project_root,
+            files,
+            &mut validated_response.generated_files,
+        );
+    }
+
     let derive::response::Validated {
         transforms: transforms_validated,
-        generated_files,
+        generated_files: _,
     } = &validated_response;
 
     if transforms_validate_len != transforms_validated.len() {
@@ -595,17 +574,6 @@ async fn walk_derivation<C: Connectors>(
             got: transforms_validated.len(),
         }
         .push(scope, errors);
-    }
-
-    // Sanity check the URLs of generated files.
-    for (maybe_url, _) in generated_files {
-        if let Err(err) = url::Url::parse(&maybe_url) {
-            Error::InvalidGeneratedFileUrl {
-                url: maybe_url.clone(),
-                detail: err,
-            }
-            .push(scope, errors)
-        }
     }
 
     // Join transform models and their Validate requests with their Validated responses.
@@ -804,6 +772,7 @@ async fn walk_derivation<C: Connectors>(
         redact_salt,
         linked_collections: Vec::new(),
         secrets: secrets_spec,
+        connector_spec: (!no_op && !frozen_image).then(|| Box::new(connector_spec)),
     };
     linked::install_derivation(&mut spec, interner, indirect_specs);
 
@@ -815,9 +784,6 @@ async fn walk_derivation<C: Connectors>(
         secrets,
         shards,
     };
-
-    std::mem::drop(request_tx);
-    () = super::expect_eof(scope, response_rx, errors).await;
 
     Some((
         built_index,
@@ -842,7 +808,6 @@ fn walk_derive_transform<'a>(
     mut model: models::TransformDef,
     catalog_name: &models::Collection,
     built_collections: &'a tables::BuiltCollections,
-    data_plane_id: models::Id,
     disable: bool,
     live_transforms_model: &BTreeMap<&models::Transform, &models::TransformDef>,
     live_transforms_spec: &LiveTransforms,
@@ -884,7 +849,7 @@ fn walk_derive_transform<'a>(
             (name, partitions.as_ref())
         }
     };
-    let Some((source_spec, source_built)) = reference::walk_reference(
+    let Some((source_spec, _)) = reference::walk_reference(
         scope,
         "transform",
         || model.name.to_string(),
@@ -976,7 +941,6 @@ fn walk_derive_transform<'a>(
         models::Shuffle::Any => (Vec::new(), String::new()),
     };
 
-    super::temporary_cross_data_plane_read_check(scope, source_built, data_plane_id, errors);
     let reads_from_self = source_name == catalog_name;
 
     // The transform inlines its source while it's detached from a request:
@@ -995,54 +959,4 @@ fn walk_derive_transform<'a>(
     };
 
     (model, Some(validate))
-}
-
-#[cfg(test)]
-mod test {
-    use super::builtin_derive_connector;
-
-    fn flags(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<models::Token, models::Token> {
-        pairs
-            .iter()
-            .map(|(k, v)| (models::Token::new(*k), models::Token::new(*v)))
-            .collect()
-    }
-
-    #[test]
-    fn derive_image_tag_resolution() {
-        let repo = "ghcr.io/estuary/derive-typescript";
-        let config = models::DeriveUsingTypescript {
-            module: models::RawValue::from_str("\"mod.ts\"").unwrap(),
-            environment: Default::default(),
-        };
-
-        // Legacy V1 (no flags) maps to the frozen `:dev` image.
-        assert_eq!(
-            builtin_derive_connector(repo, &config, &flags(&[])).image,
-            "ghcr.io/estuary/derive-typescript:dev"
-        );
-        // V2 tasks default to `:stable`.
-        assert_eq!(
-            builtin_derive_connector(
-                repo,
-                &config,
-                &flags(&[(models::ENABLE_RUNTIME_V2, "true")])
-            )
-            .image,
-            "ghcr.io/estuary/derive-typescript:stable"
-        );
-        // An explicit `derive-image-tag` overrides either default.
-        assert_eq!(
-            builtin_derive_connector(
-                repo,
-                &config,
-                &flags(&[
-                    (models::ENABLE_RUNTIME_V2, "true"),
-                    ("derive-image-tag", "local")
-                ]),
-            )
-            .image,
-            "ghcr.io/estuary/derive-typescript:local"
-        );
-    }
 }

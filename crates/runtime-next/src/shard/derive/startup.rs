@@ -1,7 +1,8 @@
 use super::Task;
 use crate::proto;
+use crate::shard::connector;
 use anyhow::Context;
-use futures::{StreamExt, stream::BoxStream};
+use futures::StreamExt;
 use prost::Message;
 use proto_flow::{derive, flow};
 use tokio::sync::mpsc;
@@ -27,7 +28,7 @@ pub async fn dial_and_join(
             .max_encoding_message_size(usize::MAX);
 
     // Unbounded: we never pump messages to the leader (strictly request / response).
-    let (leader_tx, leader_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (leader_tx, leader_rx) = mpsc::unbounded_channel();
     let mut leader_rx = leader_client
         .derive(tokio_stream::wrappers::UnboundedReceiverStream::new(
             leader_rx,
@@ -61,15 +62,14 @@ pub async fn dial_and_join(
 pub(super) struct Startup<P: crate::Publisher> {
     pub accumulator: crate::Accumulator,
     pub codec: connector_init::Codec,
-    pub connector_rx: BoxStream<'static, tonic::Result<derive::Response>>,
-    pub connector_tx: mpsc::Sender<derive::Request>,
+    pub connector_rx: mpsc::Receiver<tonic::Result<connector::proto::Response>>,
+    pub connector_tx: mpsc::Sender<connector::proto::Request>,
     pub db: crate::shard::RocksDB,
     pub leader_rx: tonic::Streaming<proto::Derive>,
     pub leader_tx: mpsc::UnboundedSender<proto::Derive>,
     pub publisher: P,
     pub shuffle_reader: shuffle::log::Reader,
     pub task: Task,
-    pub write_shape: doc::Shape,
 }
 
 pub(super) async fn run<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
@@ -120,7 +120,6 @@ where
     let spec =
         flow::CollectionSpec::decode(spec_bytes.as_ref()).context("invalid Task derivation")?;
     let task = Task::new(&spec).context("building task definition")?;
-    let write_shape = task.write_shape.clone();
 
     // The derived collection is the single additional publisher binding;
     // publisher binding zero is the fixed ops-stats journal.
@@ -204,11 +203,29 @@ where
         ..Default::default()
     };
 
-    let (connector_tx, mut connector_rx, container, codec) =
-        super::connector::start(service, logger, log_level, sqlite_vfs_uri, initial).await?;
+    // `sqlite_vfs_uri` threads this shard's recorded SQLite VFS to a
+    // derive-sqlite connector; it's empty (and rejected) for every other type.
+    let (
+        connector_tx,
+        mut connector_rx,
+        connector::Started {
+            container, codec, ..
+        },
+    ) = connector::start(
+        &*service.connector_router,
+        logger,
+        &labeling.task_name,
+        connector::proto::request::Start {
+            log_level: log_level as i32,
+            sqlite_vfs_uri,
+        },
+        connector::proto::request::Kind::Derive(initial),
+    )
+    .await?;
 
-    let verify = crate::verify("Derive", "Opened", "connector");
-    let opened = match verify.not_eof(connector_rx.next().await)? {
+    let verify = crate::verify_connector("Derive", "Opened");
+    let next = connector::next(&mut connector_rx, logger, connector::unwrap_derive);
+    let opened = match verify.not_eof(next.await)? {
         derive::Response {
             kind: Some(derive::response::Kind::Opened(opened)),
             ..
@@ -250,6 +267,5 @@ where
         publisher,
         shuffle_reader,
         task,
-        write_shape,
     })
 }

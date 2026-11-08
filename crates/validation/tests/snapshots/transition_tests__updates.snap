@@ -35,6 +35,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "the/capture",
@@ -524,6 +525,16 @@ Outcome {
                 created_at: "2025-05-07",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: Some(
+                    ConnectorSpec {
+                        protocol: 0,
+                        config_schema_json: b"{\"type\":\"object\"}",
+                        resource_config_schema_json: b"{\"properties\":{\"schema\":{\"type\":\"string\"},\"source\":{\"type\":\"string\"}},\"required\":[\"source\"],\"type\":\"object\"}",
+                        documentation_url: "",
+                        oauth2: None,
+                        resource_path_pointers: [],
+                    },
+                ),
             },
             previous_spec: CaptureSpec {
                 name: "the/capture",
@@ -600,6 +611,7 @@ Outcome {
                 created_at: "",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: None,
             },
             is_touch: 0,
             dependency_hash: 5b38dc32c776e2b2,
@@ -1785,6 +1797,16 @@ Outcome {
                         redact_salt: b"pass-through-derivation-salt",
                         linked_collections: [],
                         secrets: {},
+                        connector_spec: Some(
+                            ConnectorSpec {
+                                protocol: 0,
+                                config_schema_json: b"{\"type\":\"object\"}",
+                                resource_config_schema_json: b"true",
+                                documentation_url: "",
+                                oauth2: None,
+                                resource_path_pointers: [],
+                            },
+                        ),
                     },
                 ),
             },
@@ -1890,6 +1912,7 @@ Outcome {
                         redact_salt: b"pass-through-derivation-salt",
                         linked_collections: [],
                         secrets: {},
+                        connector_spec: None,
                     },
                 ),
             },
@@ -1987,6 +2010,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "the/materialization",
@@ -2524,6 +2548,16 @@ Outcome {
                 sync_schedule_json: b"",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: Some(
+                    ConnectorSpec {
+                        protocol: 0,
+                        config_schema_json: b"{\"type\":\"object\"}",
+                        resource_config_schema_json: b"{\"properties\":{\"schema\":{\"type\":\"string\",\"x-schema-name\":true},\"target\":{\"type\":\"string\",\"x-collection-name\":true}},\"required\":[\"target\"],\"type\":\"object\"}",
+                        documentation_url: "",
+                        oauth2: None,
+                        resource_path_pointers: [],
+                    },
+                ),
             },
             previous_spec: MaterializationSpec {
                 name: "the/materialization",
@@ -2609,6 +2643,7 @@ Outcome {
                 sync_schedule_json: b"",
                 linked_collections: [],
                 secrets: {},
+                connector_spec: None,
             },
             is_touch: 0,
             dependency_hash: 5b38dc32c776e2b2,
@@ -2685,6 +2720,7 @@ Outcome {
             capture: the/capture,
             scope: test://example/catalog.yaml#/captures/the~1capture,
             expect_pub_id: "1010101010101010",
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -2707,6 +2743,7 @@ Outcome {
             collection: the/collection,
             scope: test://example/catalog.yaml#/collections/the~1collection,
             expect_pub_id: "1010101010101010",
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1collection/schema","properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"},
               "key": [
@@ -2725,6 +2762,7 @@ Outcome {
             collection: the/derivation,
             scope: test://example/catalog.yaml#/collections/the~1derivation,
             expect_pub_id: "1010101010101010",
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema","properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"},
               "key": [
@@ -2767,6 +2805,7 @@ Outcome {
             materialization: the/materialization,
             scope: test://example/catalog.yaml#/materializations/the~1materialization,
             expect_pub_id: "1010101010101010",
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {

@@ -26,7 +26,7 @@ expression: fetched_capture
     },
     {
       "resource": {
-        "$serde_json::private::RawValue": "{\"modified\":0,\"stream\":\"bar\"}"
+        "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"bar\"]},\"modified\":0,\"stream\":\"bar\"}"
       },
       "disable": true,
       "target": "acmeCo/other"

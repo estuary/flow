@@ -1,0 +1,19 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: response
+---
+{
+  "data": {
+    "createPublication": {
+      "draftId": "[draft-id]",
+      "dryRun": false,
+      "errors": [],
+      "id": "[id]",
+      "pubId": null,
+      "status": {
+        "lockFailures": [],
+        "type": "queued"
+      }
+    }
+  }
+}

@@ -1,0 +1,155 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select\n            id as \"id!: Id\",\n            created_at,\n            updated_at,\n            detail,\n            draft_id as \"draft_id!: Id\",\n            dry_run,\n            logs_token,\n            user_id,\n            data_plane_name,\n            draft_content_hash,\n            job_status as \"job_status!: Json<Box<RawValue>>\"\n        from publications\n        where id = $1::flowid\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "detail",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "detail"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "draft_id!: Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "draft_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "dry_run",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "dry_run"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "logs_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "logs_token"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "data_plane_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "data_plane_name"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "draft_content_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "draft_content_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "job_status!: Json<Box<RawValue>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "publications",
+            "name": "job_status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "d52c76a81f6644f459d5227aed3ba9212e620e7097961ce02d7e5cafb650ec69"
+}

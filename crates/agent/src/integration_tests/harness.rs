@@ -38,7 +38,7 @@ use tables::DraftRow;
 use tempfile::tempdir;
 use tokio::sync::Semaphore;
 
-use self::connectors::MockDiscoverConnectors;
+use self::connectors::MockConnectors;
 
 // The local stack's Postgres port is dynamic (one stack per checkout), so the
 // URL comes from FLOW_PG_URL (set by mise/tasks/local/stack-env). Run these
@@ -176,10 +176,14 @@ pub struct TestHarness {
     pub control_plane: TestControlPlane,
     pub test_name: String,
     pub pool: sqlx::PgPool,
+    /// BigTable emulator holding the catalog stats that controllers read.
+    pub catalog_stats: Arc<catalog_stats::Client>,
+    pub billing_provider: Arc<control_plane_api::billing::InMemoryBillingProvider>,
     pub publisher: Publisher,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
-    pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
+    pub connectors: Arc<MockConnectors>,
+    pub discover_handler: DiscoverHandler,
     /// Watch of the authorization Snapshot used by the discovers and
     /// publications executors. It is refreshed before each such automation
     /// poll, so that grants created by the test are visible to authorization.
@@ -187,11 +191,11 @@ pub struct TestHarness {
     /// Replaces the Snapshot behind `snapshot_watch`.
     snapshot_replace: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
-    pub directive_exec: crate::directives::DirectiveHandler,
     pub alert_sender: self::alerts::TestSender,
     pub runtime_v2_new_captures: bool,
     pub runtime_v2_new_materializations: bool,
     pub runtime_v2_new_derivations: bool,
+    pub runtime_v2_all_derivations: bool,
     // Control plane API app instance for GraphQL queries
     control_plane_app: Option<Arc<control_plane_api::App>>,
 }
@@ -229,6 +233,8 @@ impl HarnessBuilder {
         let pool = sqlx::PgPool::connect(&fixed_database_url())
             .await
             .expect("Failed to connect to database");
+        let catalog_stats =
+            Arc::new(catalog_stats::test_util::connect_emulator("estuary-local").await);
 
         let builds_root = tempdir().expect("Failed to create tempdir");
 
@@ -247,13 +253,12 @@ impl HarnessBuilder {
             eprintln!("end of PUB-LOG");
         });
 
-        let mock_connectors = connectors::MockDiscoverConnectors::default();
-        let discover_handler = DiscoverHandler::new(mock_connectors.clone());
+        let connectors = Arc::new(MockConnectors::default());
+        let discover_handler = DiscoverHandler::new(connectors.clone());
 
-        let builder = control_plane_api::publications::builds::new_builder(mock_connectors);
+        let builder = control_plane_api::publications::builds::new_builder(connectors.clone());
         let publisher = Publisher::new(
             &url::Url::from_directory_path(builds_root.path()).unwrap(),
-            "some-connector-network",
             &logs_tx,
             pool.clone(),
             models::IdGenerator::new(1),
@@ -284,31 +289,33 @@ impl HarnessBuilder {
                 1.0, // auto_discover_probability
                 publication_cooldown,
                 crate::controllers::ControllerConfig::default(),
+                catalog_stats.clone(),
             ),
             snapshot_replace.clone(),
         );
 
         let controller_exec =
             crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
-        let directive_exec =
-            crate::directives::DirectiveHandler::new("support@estuary.test".to_string(), &logs_tx);
 
         let mut harness = TestHarness {
             test_name,
             pool,
+            catalog_stats,
+            billing_provider: Arc::new(control_plane_api::billing::InMemoryBillingProvider::new()),
             publisher,
             builds_root,
+            connectors,
             discover_handler,
             snapshot_watch: executor_snapshot_watch,
             snapshot_replace,
             control_plane,
             controller_exec,
-            directive_exec,
             control_plane_app: None,
             alert_sender: alerts::TestSender::new(),
             runtime_v2_new_captures: false,
             runtime_v2_new_materializations: false,
             runtime_v2_new_derivations: false,
+            runtime_v2_all_derivations: false,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -413,9 +420,11 @@ impl TestHarness {
         self.add_data_plane(
             "ops/dp/public/test",
             "test.dp.estuary-data.com",
-            vec!["secret-key".to_string()],
+            vec!["dGVzdA==".to_string()],
         )
         .await;
+        sqlx::query("UPDATE data_planes SET hmac_keys = ARRAY['dGVzdA=='] WHERE data_plane_name = 'ops/dp/public/test'")
+            .execute(&self.pool).await.unwrap();
     }
 
     /// Ideally, we'd get a whole separate database for each integration test
@@ -507,17 +516,8 @@ impl TestHarness {
             ),
             del_alert_history as (
                 delete from alert_history
-            ),
-            del_inferred_schemas as (
-                delete from inferred_schemas
-            ),
-            del_hourly_stats as (
-                delete from catalog_stats_hourly
-            ),
-            del_daily_stats as (
-                delete from catalog_stats_daily
             )
-            delete from catalog_stats_monthly;"#,
+            delete from inferred_schemas;"#,
             system_user_id
         )
         .execute(&self.pool)
@@ -540,22 +540,32 @@ impl TestHarness {
         &mut self.control_plane
     }
 
+    pub fn set_controller_catalog_stats(&mut self, client: Arc<catalog_stats::Client>) {
+        self.control_plane.inner.catalog_stats = client;
+        self.controller_exec =
+            crate::controllers::LiveSpecControllerExecutor::new(self.control_plane.clone());
+    }
+
     /// Setup a new tenant with the given name, and return the id of the user
-    /// who has `admin` capabilities to it. Performs essentially the same setup
-    /// as the beta onboarding directive, so the user_grants, role_grants,
-    /// storage_mappings, and tenants tables should all look just like they
-    /// would in production.
+    /// who has `admin` capabilities to it, using shared tenant provisioning
+    /// with test storage mappings.
+    ///
+    /// Clears its catalog stats because the emulator outlives each test.
     pub async fn setup_tenant(&self, tenant: &str) -> sqlx::types::Uuid {
+        catalog_stats::test_util::delete_rows_with_prefix(
+            &self.catalog_stats,
+            &format!("{tenant}/"),
+        )
+        .await
+        .expect("failed to clear tenant catalog stats");
+
         let email = format!("{tenant}@{}.test", self.test_name.replace(' ', "-"));
         let meta = serde_json::json!({
             "picture": format!("http://{tenant}.test/avatar"),
             "full_name": format!("Full ({tenant}) Name"),
         });
 
-        control_plane_api::directives::beta_onboard::provision_test_tenant(
-            &self.pool, tenant, &email, meta,
-        )
-        .await
+        control_plane_api::tenants::provision_test_tenant(&self.pool, tenant, &email, meta).await
     }
 
     pub async fn add_role_grant(&mut self, subject: &str, object: &str, capability: Capability) {
@@ -828,23 +838,6 @@ impl TestHarness {
         .unwrap();
     }
 
-    pub async fn send_automation_message<T: serde::Serialize>(
-        &mut self,
-        to_task: models::Id,
-        from_task: models::Id,
-        message: T,
-    ) {
-        sqlx::query!(
-            r#"select internal.send_to_task($1::flowid, $2::flowid, $3::json)"#,
-            to_task as models::Id,
-            from_task as models::Id,
-            sqlx::types::Json(message) as sqlx::types::Json<T>,
-        )
-        .execute(&self.pool)
-        .await
-        .expect("failed to send message to task");
-    }
-
     /// Asserts that the given alert type is firing for the given
     /// `catalog_name`, and returns the alert status for further assertions.
     pub async fn assert_alert_firing(&mut self, catalog_name: &str, alert: AlertType) -> TestAlert {
@@ -882,12 +875,15 @@ impl TestHarness {
     /// Asssert that the alert for the given `id` has been resolved, and runs the notification task,
     /// returning any notifications that may have been sent.
     pub async fn assert_alert_resolved(&mut self, notification_task_id: models::Id) -> TestAlert {
-        let Some(alert) =
-            control_plane_api::alerts::fetch_alert_by_id(notification_task_id, &self.pool)
-                .await
-                .unwrap()
-        else {
-            panic!("no alert_history row found for notification_task_id: '{notification_task_id}'");
+        let Some(alert) = control_plane_api::alerts::fetch_alert_for_notification(
+            notification_task_id,
+            &self.pool,
+        )
+        .await
+        .unwrap() else {
+            panic!(
+                "no alert notification found for notification_task_id: '{notification_task_id}'"
+            );
         };
 
         assert!(
@@ -1141,6 +1137,7 @@ impl TestHarness {
                     runtime_v2_new_captures: self.runtime_v2_new_captures,
                     runtime_v2_new_materializations: self.runtime_v2_new_materializations,
                     runtime_v2_new_derivations: self.runtime_v2_new_derivations,
+                    runtime_v2_all_derivations: self.runtime_v2_all_derivations,
                 })
             }
             task_types::DISCOVERS => {
@@ -1153,10 +1150,12 @@ impl TestHarness {
                     snapshot_watch: self.snapshot_watch.clone(),
                 })
             }
-            task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
-            task_types::TENANT_ALERT_EVALS => Server::new().register(
-                crate::alerts::new_tenant_alerts_executor(std::time::Duration::from_mins(5)),
-            ),
+            task_types::TENANT_CONTROLLER => {
+                Server::new().register(crate::tenant_controller::TenantController::new(
+                    Some(self.billing_provider.clone()),
+                    self.catalog_stats.clone(),
+                ))
+            }
             task_types::ALERT_NOTIFICATIONS => Server::new().register(
                 crate::alerts::AlertNotifications::new(
                     "http://estuary.test/",
@@ -1313,6 +1312,50 @@ impl TestHarness {
         .await
         .expect("querying for connector_tags id");
 
+        self.insert_discover(
+            Some(connector_tag.id),
+            capture_name,
+            data_plane_name,
+            draft_id,
+            endpoint_config,
+            update_only,
+            mock_discover_resp,
+        )
+        .await
+    }
+
+    /// Inserts a queued discover having no connector tag, which takes its
+    /// endpoint from the drafted or live capture, and registers the mock
+    /// connector response.
+    pub async fn queue_draft_discover(
+        &mut self,
+        capture_name: &str,
+        draft_id: Id,
+        update_only: bool,
+        mock_discover_resp: connectors::MockDiscover,
+    ) -> Id {
+        self.insert_discover(
+            None,
+            capture_name,
+            "ops/dp/public/test",
+            draft_id,
+            "{}",
+            update_only,
+            mock_discover_resp,
+        )
+        .await
+    }
+
+    async fn insert_discover(
+        &mut self,
+        connector_tag_id: Option<Id>,
+        capture_name: &str,
+        data_plane_name: &str,
+        draft_id: Id,
+        endpoint_config: &str,
+        update_only: bool,
+        mock_discover_resp: connectors::MockDiscover,
+    ) -> Id {
         let config_json = TextJson(models::RawValue::from_str(endpoint_config).unwrap());
         let disco = sqlx::query!(
             r##"insert into discovers (
@@ -1325,7 +1368,7 @@ impl TestHarness {
             ) values ($1, $2, $3, $4, $5, $6)
             returning id as "id: Id";"##,
             capture_name as &str,
-            connector_tag.id as Id,
+            connector_tag_id as Option<Id>,
             draft_id as Id,
             config_json as TextJson<models::RawValue>,
             update_only,
@@ -1336,8 +1379,7 @@ impl TestHarness {
         .unwrap();
         let disco_id = disco.id;
 
-        self.discover_handler
-            .connectors
+        self.connectors
             .mock_discover(capture_name, mock_discover_resp);
 
         disco_id
@@ -1427,6 +1469,21 @@ impl TestHarness {
             .await
     }
 
+    /// Runs the publications executor and asserts that it ran `publication_id`,
+    /// which must already be queued, for example by `createPublication`.
+    /// Returns the publication's result.
+    pub async fn run_queued_publication(&mut self, publication_id: Id) -> ScenarioResult {
+        let task_id = self
+            .run_automation_task(automations::task_types::PUBLICATIONS)
+            .await
+            .expect("expected a publication task to have run");
+        assert_eq!(
+            task_id, publication_id,
+            "expected publication {publication_id} to have run, but {task_id} ran instead"
+        );
+        self.get_publication_result(publication_id).await
+    }
+
     /// Runs a publication by inserting into the `publications` table and
     /// waiting for the publications handler to process it. Returns
     /// a `ScenarioResult` (a hold over from the old publications tests, which
@@ -1459,16 +1516,7 @@ impl TestHarness {
         .expect("failed to create publication");
         txn.commit().await.expect("failed to commit transaction");
 
-        let task_id = self
-            .run_automation_task(automations::task_types::PUBLICATIONS)
-            .await
-            .expect("expected a publication task to have run");
-        assert_eq!(
-            task_id, pub_id,
-            "automations task id should match the publication that was just created"
-        );
-
-        let pub_result = self.get_publication_result(pub_id.into()).await;
+        let pub_result = self.run_queued_publication(pub_id).await;
         assert_ne!(publications::StatusType::Queued, pub_result.status.r#type);
         pub_result
     }
@@ -1711,6 +1759,8 @@ impl TestHarness {
             exp: (req_start + chrono::Duration::hours(1)).timestamp() as u64,
             role: "authenticated".to_string(),
             email: Some("user@example.com".to_string()),
+            capability_mask: None,
+            prefix_mask: None,
         };
 
         let token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)
@@ -1805,10 +1855,12 @@ impl TestHarness {
         let app = Arc::new(control_plane_api::App::new(
             id_gen,
             None,
+            None,
             &jwt_secret,
             self.pool.clone(),
             self.publisher.clone(),
             snapshot_watch.clone(),
+            None,
             None,
         ));
 
@@ -1932,7 +1984,7 @@ struct ControlPlaneMocks {
 #[derive(Clone)]
 pub struct TestControlPlane {
     pub auto_discover_enabled: bool,
-    inner: PGControlPlane<MockDiscoverConnectors>,
+    inner: PGControlPlane,
     mocks: Arc<Mutex<ControlPlaneMocks>>,
     controller_config: Arc<Mutex<crate::controllers::ControllerConfig>>,
     /// Replaces the Snapshot behind the shared manually-driven watch, which
@@ -1972,7 +2024,7 @@ impl publications::FinalizeBuild for InjectBuildFailures {
 
 impl TestControlPlane {
     fn new(
-        inner: PGControlPlane<MockDiscoverConnectors>,
+        inner: PGControlPlane,
         snapshot_replace: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
     ) -> Self {
         Self {
@@ -2192,7 +2244,7 @@ impl ControlPlane for TestControlPlane {
         &self,
         catalog_name: String,
         since: DateTime<Utc>,
-    ) -> anyhow::Result<i64> {
+    ) -> anyhow::Result<u64> {
         self.inner
             .fetch_bytes_processed_since(catalog_name, since)
             .await
@@ -2244,7 +2296,7 @@ impl ControlPlane for TestControlPlane {
         Ok(resp)
     }
 
-    async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {
+    async fn get_connector_spec(&self, image: String) -> anyhow::Result<Option<ConnectorSpec>> {
         self.inner.get_connector_spec(image).await
     }
 
@@ -2302,7 +2354,7 @@ impl ControlPlane for TestControlPlane {
         let refresh = self.inner.snapshot_watch.token();
 
         let publication = DraftPublication {
-            user_id: self.inner.system_user_id,
+            subject: models::authz::Subject::unrestricted(self.inner.system_user_id),
             detail,
             draft,
             logs_token,

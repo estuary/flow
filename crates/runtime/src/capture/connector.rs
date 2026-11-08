@@ -89,13 +89,20 @@ pub async fn start<L: LogHandler>(
             )?
             .boxed()
         }
+        models::CaptureEndpoint::Python(_) => {
+            return Err(tonic::Status::invalid_argument(
+                "Python captures should have been resolved to an image at build time",
+            )
+            .into());
+        }
     };
 
-    // Send an initial Spec request
+    // Send an initial Spec request, carrying the sealed configuration so that
+    // a connector may use its non-secret portions to describe itself.
     connector_tx
         .try_send(Request {
             kind: Some(request::Kind::Spec(request::Spec {
-                config_json: "{}".into(),
+                config_json: sealed_config.get().to_string().into(),
                 connector_type: connector_type,
             })),
             ..Default::default()
@@ -286,7 +293,7 @@ mod test {
             .expect("internal has attached container");
 
         assert_eq!(
-            container.network_ports,
+            container.advertised_ports,
             [proto_flow::flow::NetworkPort {
                 number: 8080,
                 protocol: String::new(),

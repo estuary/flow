@@ -1,0 +1,9 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: bob_deleted
+---
+{
+  "data": {
+    "deleteDraft": "0000000000000020"
+  }
+}

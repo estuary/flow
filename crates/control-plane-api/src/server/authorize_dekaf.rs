@@ -33,7 +33,8 @@ pub async fn authorize_dekaf(
     mut env: crate::Envelope,
     super::Request(Request { token }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::ApiError> {
-    let unverified = super::parse_untrusted_data_plane_claims(&token)?;
+    let unverified =
+        super::parse_untrusted_data_plane_claims(&token, proto_flow::capability::AUTHORIZE)?;
 
     // Use the `iat` claim to establish the logical start of the request,
     // rounded up to the next second (as it was round down when encoded).
@@ -94,6 +95,8 @@ pub async fn authorize_dekaf(
         sub: uuid::Uuid::nil(),
         role: DEKAF_ROLE.to_string(),
         email: None,
+        capability_mask: None,
+        prefix_mask: None,
     };
 
     // Only return a token if we are not redirecting
@@ -124,6 +127,9 @@ struct AuthorizationResult {
     redirect_dekaf_registry_address: Option<String>,
 }
 
+// TODO(johnny): Refactor this route onto
+// `task_residency::resolve_catalog_task_location`, mapping `Elsewhere` to the
+// existing redirect response while keeping Dekaf-specific type and ops checks.
 fn evaluate_authorization(
     snapshot: &crate::Snapshot,
     task_name: &str,
@@ -186,11 +192,7 @@ fn evaluate_authorization(
             )));
         }
 
-        let Some(target_dataplane) = snapshot
-            .data_planes
-            .iter()
-            .find(|dp| dp.control_id == task.data_plane_id)
-        else {
+        let Some(target_dataplane) = snapshot.data_plane_by_id(task.data_plane_id) else {
             return Err(tonic::Status::internal(format!(
                 "target dataplane for task {task_name} not found"
             )));
@@ -372,7 +374,6 @@ mod tests {
             test_server::snapshot(pool.clone(), true).await,
         )
         .await;
-        tokio::time::pause();
 
         // Create signed source for the materialization task
         let signed_source = flow_client::workflows::task_dekaf_auth::new_signed_source(

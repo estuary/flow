@@ -9,7 +9,6 @@ pub fn walk_all_tests(
     draft_tests: &tables::DraftTests,
     live_tests: &tables::LiveTests,
     built_collections: &tables::BuiltCollections,
-    data_planes: &tables::DataPlanes,
     dependencies: &tables::Dependencies<'_>,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
@@ -27,7 +26,6 @@ pub fn walk_all_tests(
             build_id,
             eob,
             built_collections,
-            data_planes,
             dependencies,
             storage_mappings,
             errors,
@@ -41,7 +39,6 @@ fn walk_test(
     build_id: models::Id,
     eob: EOB<&tables::LiveTest, &tables::DraftTest>,
     built_collections: &tables::BuiltCollections,
-    data_planes: &tables::DataPlanes,
     dependencies: &tables::Dependencies<'_>,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
@@ -59,16 +56,7 @@ fn walk_test(
         _live_model,
         live_spec,
         is_touch,
-    ) = match walk_transition(
-        pub_id,
-        build_id,
-        "test",
-        None,
-        eob,
-        data_planes,
-        storage_mappings,
-        errors,
-    ) {
+    ) = match walk_transition(pub_id, build_id, "test", eob, storage_mappings, errors) {
         Ok(ok) => ok,
         Err(built) => return built,
     };

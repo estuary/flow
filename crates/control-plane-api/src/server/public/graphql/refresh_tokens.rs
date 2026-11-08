@@ -132,8 +132,17 @@ impl RefreshTokensMutation {
     ) -> async_graphql::Result<RefreshTokenResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
-
-        super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
+        if claims.is_restricted() {
+            return Err(async_graphql::Error::new(
+                "restricted tokens cannot create refresh tokens.",
+            ));
+        }
+        if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
+            return Err(async_graphql::Error::new(
+                "service accounts cannot manage refresh tokens: their API keys are \
+             administered via createApiKey and revokeApiKey",
+            ));
+        }
 
         // ISO 8601 durations begin with 'P'; considering this cheap and good enough validation for now.
         if !valid_for.starts_with('P') {
@@ -142,30 +151,13 @@ impl RefreshTokensMutation {
             ));
         }
 
-        let row = sqlx::query!(
-            r#"
-            WITH new_token AS (
-                SELECT gen_random_uuid()::text AS secret
-            )
-            INSERT INTO refresh_tokens (user_id, multi_use, valid_for, hash, detail)
-            SELECT
-                $1,
-                $2,
-                v.valid_for,
-                crypt(nt.secret, gen_salt('bf')),
-                $4
-            FROM new_token nt, (SELECT $3::text::interval AS valid_for) v
-            WHERE v.valid_for > interval '0' AND v.valid_for <= interval '366 days'
-            RETURNING
-                id AS "id!: models::Id",
-                (SELECT secret FROM new_token) AS "secret!: String"
-            "#,
+        let row = crate::server::public::token_exchange::create_refresh_token(
+            &env.pg_pool,
             claims.sub,
             multi_use,
-            valid_for,
+            &valid_for,
             detail.as_deref(),
         )
-        .fetch_optional(&env.pg_pool)
         .await
         .map_err(|err| {
             // Postgres raises SQLSTATE 22007 (invalid_datetime_format) for a
@@ -211,7 +203,12 @@ impl RefreshTokensMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
+        if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
+            return Err(async_graphql::Error::new(
+                "service accounts cannot manage refresh tokens: their API keys are \
+             administered via createApiKey and revokeApiKey",
+            ));
+        }
 
         let result = sqlx::query!(
             "UPDATE refresh_tokens SET valid_for = interval '0' \
@@ -248,6 +245,69 @@ mod test {
             .encode(serde_json::json!({ "id": id, "secret": secret }).to_string())
     }
 
+    /// A token carrying a `capability_mask` or `prefix_mask` is scoped down from the user's
+    /// full authority. Letting it mint a refresh token would let the holder
+    /// exchange that for an unmasked access token, escaping the mask, so the
+    /// mutation is refused before any row is written.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_scoped_token_cannot_create_refresh_token(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        for (capability_mask, prefix_mask) in [
+            (Some(vec!["admin".to_string()]), None),
+            (None, Some(vec!["acmeCo/team/".to_string()])),
+        ] {
+            let scoped_token = server.make_restricted_access_token(
+                alice,
+                Some("alice@example.test"),
+                capability_mask,
+                prefix_mask,
+            );
+            let create: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        mutation {
+                            createRefreshToken(validFor: "P30D") { id }
+                        }"#
+                    }),
+                    Some(&scoped_token),
+                )
+                .await;
+            assert_eq!(
+                create["errors"][0]["message"], "restricted tokens cannot create refresh tokens.",
+                "a scoped token must be refused: {create}"
+            );
+        }
+
+        // The refusal happens before the insert, so the user's unmasked view
+        // shows no token was created.
+        let unmasked_token = server.make_access_token(alice, Some("alice@example.test"));
+        let list: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"query { refreshTokens { edges { node { id } } } }"#
+                }),
+                Some(&unmasked_token),
+            )
+            .await;
+        assert_eq!(
+            list["data"]["refreshTokens"]["edges"],
+            serde_json::json!([]),
+            "no refresh token should exist: {list}"
+        );
+    }
+
     /// Covers the refresh-token GraphQL surface (create → list → revoke, plus
     /// the `validFor` validation and not-found idempotency guards), the
     /// `/api/v1/auth/token` refresh-token dispatch, and rejection of a refresh
@@ -258,10 +318,12 @@ mod test {
     /// JWT — is intentionally not exercised here: it reads `app.jwt_secret` from
     /// `vault.decrypted_secrets` and calls pgjwt's `sign()`, neither of which
     /// exists in the sqlx::test DB (only `auth`/`stripe` are polyfilled). That
-    /// signing path is covered by the pgTAP `test_generate_access_token`. The
-    /// assertions here all fail inside `generate_access_token` *before* signing
-    /// (bad secret, expired/revoked token, or an unknown grant), so they're
-    /// deterministic without the vault/pgjwt setup.
+    /// signing path is covered by the pgTAP `test_generate_access_token`, and by
+    /// `token_exchange::test_refresh_grant_ignores_authorization_header` under
+    /// the `jwt_sign_polyfill` fixture. The assertions here all fail inside
+    /// `generate_access_token` *before* signing (bad secret, expired/revoked
+    /// token, or an unknown grant), so they're deterministic without the
+    /// vault/pgjwt setup.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))

@@ -1,0 +1,8 @@
+["crm_contacts", [1], {"email": "ada@example.com", "firstname": "Augusta Ada", "lastname": "King"}]
+["crm_contacts", [2], {"email": "grace@example.com", "firstname": "Grace", "lastname": "Hopper"}]
+["events", ["e1"], {"id": "e1", "kind": "signup"}]
+["events", ["e2"], {"id": "e2", "kind": "upgrade"}]
+["page_views", ["/about"], {"page": "/about", "views": 7}]
+["page_views", ["/blog"], {"page": "/blog", "views": 4}]
+["page_views", ["/home"], {"page": "/home", "views": 14}]
+["page_views", ["/pricing"], {"page": "/pricing", "views": 3}]

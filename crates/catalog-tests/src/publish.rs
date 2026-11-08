@@ -9,7 +9,7 @@
 //! `write_intents` is also the session's per-transaction commit signal, because
 //! the `Publisher` seam's contract *is* the transaction lifecycle. Only the
 //! leader's stats-only publisher sends it, discriminated by the empty
-//! `collection_specs` that
+//! `binding_targets` that
 //! [`PublisherFactory::open`](runtime_next::PublisherFactory) documents for it;
 //! the leader's Tail FSM reaches `WriteIntents` once per transaction, after
 //! every shard's drain has fanned in. One extra signal fires at session startup,

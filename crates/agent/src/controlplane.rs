@@ -16,7 +16,6 @@ use control_plane_api::{
     connector_tags, controllers, data_plane,
     discovers::{Discover, DiscoverHandler, DiscoverOutput},
     live_specs, logs,
-    proxy_connectors::{DiscoverConnectors, MakeConnectors},
     publications::{
         DefaultRetryPolicy, DraftPublication, NoopInitialize, NoopWithCommit,
         PruneUnboundCollections, PublicationResult, Publisher,
@@ -42,7 +41,7 @@ macro_rules! unwrap_single {
 /// this point, as we plan to eventually make connectors a part of the catalog
 /// namespace.
 pub struct ConnectorSpec {
-    pub protocol: runtime::RuntimeProtocol,
+    pub protocol: String,
     pub documentation_url: String,
     pub endpoint_config_schema: models::Schema,
     pub resource_config_schema: models::Schema,
@@ -91,6 +90,8 @@ pub trait ControlPlane: Send + Sync {
         live_spec_id: Id,
     ) -> anyhow::Result<Option<DateTime<Utc>>>;
 
+    /// Returns the start of the most recent of the last 60 days in which
+    /// `catalog_name` read or wrote any bytes, from daily catalog stats.
     async fn fetch_last_data_movement_ts(
         &self,
         catalog_name: String,
@@ -117,11 +118,12 @@ pub trait ControlPlane: Send + Sync {
     /// Returns total bytes processed for `catalog_name` since `since` using
     /// `catalog_stats_hourly`. Includes bytes written by this task, written to
     /// this task, and read by this task.
+    /// The window includes the hours containing `since` and the current time.
     async fn fetch_bytes_processed_since(
         &self,
         catalog_name: String,
         since: DateTime<Utc>,
-    ) -> anyhow::Result<i64>;
+    ) -> anyhow::Result<u64>;
 
     async fn delete_shard_failures(
         &self,
@@ -182,9 +184,12 @@ pub trait ControlPlane: Send + Sync {
     /// Fetch the given set of live specs, returning them all as part of a `LiveCatalog`.
     async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog>;
 
-    /// Fetch the connector spec for the given image, which should include both
-    /// the name and the tag.
-    async fn get_connector_spec(&self, connector_image: String) -> anyhow::Result<ConnectorSpec>;
+    /// Fetch the `connector_tags` spec of the given image, which includes both
+    /// the name and the tag. Returns None if the image has no tag row.
+    async fn get_connector_spec(
+        &self,
+        connector_image: String,
+    ) -> anyhow::Result<Option<ConnectorSpec>>;
 
     /// Fetch the inferred schema for the given collection.
     async fn get_inferred_schema(
@@ -239,29 +244,31 @@ fn set_of<T: Into<String>>(s: T) -> BTreeSet<String> {
 
 /// Implementation of `ControlPlane` that connects directly to postgres.
 #[derive(Clone)]
-pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
+pub struct PGControlPlane {
     pub pool: sqlx::PgPool,
     pub system_user_id: Uuid,
     pub publications_handler: Publisher,
-    pub discovers_handler: DiscoverHandler<C>,
+    pub discovers_handler: DiscoverHandler,
     pub logs_tx: logs::Tx,
     pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
     pub auto_discover_probability: f64,
     pub controller_publication_cooldown: chrono::Duration,
     pub controller_config: std::sync::Arc<crate::controllers::ControllerConfig>,
+    pub catalog_stats: Arc<catalog_stats::Client>,
 }
 
-impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
+impl PGControlPlane {
     pub fn new(
         pool: sqlx::PgPool,
         system_user_id: Uuid,
         publications_handler: Publisher,
-        discovers_handler: DiscoverHandler<C>,
+        discovers_handler: DiscoverHandler,
         logs_tx: logs::Tx,
         snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
         auto_discover_probability: f64,
         controller_publication_cooldown: chrono::Duration,
         controller_config: crate::controllers::ControllerConfig,
+        catalog_stats: Arc<catalog_stats::Client>,
     ) -> Self {
         Self {
             pool,
@@ -273,6 +280,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
             auto_discover_probability,
             controller_publication_cooldown,
             controller_config: std::sync::Arc::new(controller_config),
+            catalog_stats,
         }
     }
 
@@ -288,7 +296,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         let refresh = self.snapshot_watch.token();
         let snapshot = refresh.result().unwrap();
 
-        let Some(data_plane) = snapshot.data_planes.get_by_key(&data_plane_id) else {
+        let Some(data_plane) = snapshot.data_plane_by_id(data_plane_id) else {
             snapshot.revoke.cancel();
             return Err(anyhow::anyhow!(
                 "data-plane {data_plane_id} not in snapshot"
@@ -302,21 +310,17 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
-        // Parse first data-plane HMAC key (used for signing tokens).
-        let (encode_key, _decode) =
-            tokens::jwt::parse_base64_hmac_keys(data_plane.hmac_keys.iter().take(1))
-                .context("invalid data-plane HMAC key")?;
-
         let iat = tokens::now();
         let claims = proto_gazette::Claims {
             cap: proto_gazette::capability::LIST | proto_gazette::capability::APPLY,
             exp: (iat + tokens::TimeDelta::minutes(1)).timestamp() as u64,
             iat: iat.timestamp() as u64,
-            iss: data_plane.data_plane_fqdn.clone(),
+            iss: String::new(),
             sel: broker::LabelSelector::default(),
             sub: "agent".to_string(),
         };
-        let token = tokens::jwt::sign(&claims, &encode_key)
+        let token = data_plane
+            .sign_claims(claims)
             .context("failed to sign claims for data-plane")?;
 
         let metadata = proto_grpc::Metadata::new()
@@ -344,7 +348,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
 }
 
 #[async_trait::async_trait]
-impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> {
+impl ControlPlane for PGControlPlane {
     fn can_auto_discover(&self) -> bool {
         if self.auto_discover_probability == 1.0 {
             return true;
@@ -459,9 +463,13 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         &self,
         catalog_name: String,
     ) -> anyhow::Result<Option<DateTime<Utc>>> {
-        controllers::fetch_last_data_movement_ts(&catalog_name, &self.pool)
-            .await
-            .context("fetching last data movement")
+        controllers::fetch_last_data_movement_ts(
+            &catalog_name,
+            self.current_time(),
+            &self.catalog_stats,
+        )
+        .await
+        .context("fetching last data movement")
     }
 
     async fn resolved_alert_config(
@@ -489,10 +497,15 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         &self,
         catalog_name: String,
         since: DateTime<Utc>,
-    ) -> anyhow::Result<i64> {
-        controllers::fetch_bytes_processed_since(&catalog_name, since, &self.pool)
-            .await
-            .context("fetching bytes processed")
+    ) -> anyhow::Result<u64> {
+        controllers::fetch_bytes_processed_since(
+            &catalog_name,
+            since,
+            self.current_time(),
+            &self.catalog_stats,
+        )
+        .await
+        .context("fetching bytes processed")
     }
 
     async fn delete_shard_failures(
@@ -534,12 +547,12 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         Ok(resp)
     }
 
-    async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {
+    async fn get_connector_spec(&self, image: String) -> anyhow::Result<Option<ConnectorSpec>> {
         let (image_name, image_tag) = models::split_image_tag(&image);
         let Some(row) =
             connector_tags::fetch_connector_spec(&image_name, &image_tag, &self.pool).await?
         else {
-            anyhow::bail!("no connector spec found for image '{}'", image);
+            return Ok(None);
         };
 
         let connector_tags::ConnectorSpec {
@@ -551,18 +564,18 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             oauth2,
             auto_discover_interval,
         } = row;
-        let Some(runtime_protocol) =
-            runtime::RuntimeProtocol::from_database_string_value(&protocol)
-        else {
-            anyhow::bail!("invalid protocol {:?}", protocol);
-        };
+
+        anyhow::ensure!(
+            matches!(protocol.as_str(), "capture" | "materialization" | "derive"),
+            "invalid protocol {protocol:?}",
+        );
 
         let resource_path_pointers = resource_path_pointers
             .into_iter()
             .map(|p| json::Pointer::from_str(&p))
             .collect::<Vec<_>>();
-        Ok(ConnectorSpec {
-            protocol: runtime_protocol,
+        Ok(Some(ConnectorSpec {
+            protocol,
             documentation_url,
             endpoint_config_schema: models::Schema::new(models::RawValue::from(
                 endpoint_config_schema.0,
@@ -573,7 +586,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             resource_path_pointers,
             oauth2: oauth2.map(|o| o.0),
             auto_discover_interval: auto_discover_interval.into(),
-        })
+        }))
     }
 
     async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog> {
@@ -634,20 +647,15 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         let refresh = snapshot_watch.token();
         let snapshot = refresh.result().unwrap();
 
-        let data_plane = snapshot
-            .data_planes
-            .get_by_key(&data_plane_id)
-            .with_context(|| format!("data-plane {data_plane_id} not in snapshot"))?;
-
         let req = Discover {
-            user_id: *system_user_id,
+            subject: models::authz::Subject::unrestricted(*system_user_id),
             filter_user_authz: false,
             capture_name,
             draft,
             update_only,
             reset_on_key_change,
             logs_token,
-            data_plane: data_plane.clone(),
+            data_plane_id,
             created_at,
             snapshot,
         };
@@ -664,7 +672,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         let refresh = self.snapshot_watch.token();
 
         let publication = DraftPublication {
-            user_id: self.system_user_id,
+            subject: models::authz::Subject::unrestricted(self.system_user_id),
             logs_token,
             draft,
             detail,

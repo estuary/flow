@@ -1,0 +1,9 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: "serde_json::json!({\n    \"first\": first[\"errors\"][0][\"message\"], \"deletionAbsent\":\n    deletion_absent[\"errors\"][0][\"message\"], \"deletionPresent\":\n    deletion_present[\"errors\"][0][\"message\"],\n})"
+---
+{
+  "deletionAbsent": "PermissionDenied: User is not authorized to create or change 'bobCo/data/zeta-gone'",
+  "deletionPresent": "PermissionDenied: User is not authorized to create or change 'bobCo/data/zeta-gone'",
+  "first": "PermissionDenied: User is not authorized to create or change 'bobCo/data/alpha'"
+}

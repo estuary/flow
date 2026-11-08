@@ -1,0 +1,15 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: created
+---
+{
+  "data": {
+    "createDraft": {
+      "createdAt": "[ts]",
+      "detail": "created through GraphQL",
+      "id": "[id]",
+      "numSpecs": 0,
+      "updatedAt": "[ts]"
+    }
+  }
+}

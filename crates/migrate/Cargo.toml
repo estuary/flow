@@ -12,6 +12,7 @@ license.workspace = true
 activate = { path = "../activate" }
 assemble = { path = "../assemble" }
 automations = { path = "../automations" }
+control-plane-api = { path = "../control-plane-api" }
 gazette = { path = "../gazette" }
 labels = { path = "../labels" }
 models = { path = "../models", features = ["sqlx-support"] }

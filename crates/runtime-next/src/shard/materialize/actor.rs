@@ -1,4 +1,5 @@
 use super::{LoadKeys, Task, boundaries::Boundaries, drain, scan};
+use crate::shard::connector;
 use crate::{patches, proto};
 use anyhow::Context;
 use bytes::Bytes;
@@ -29,9 +30,9 @@ pub(super) struct Actor {
     boundaries: Boundaries,
     // FIFO of outbound connector requests, drained head-first into
     // `connector_tx` as channel capacity permits.
-    connector_pending: Vec<materialize::Request>,
+    connector_pending: VecDeque<materialize::Request>,
     // Bounded channel out to the connector subprocess.
-    connector_tx: mpsc::Sender<materialize::Request>,
+    connector_tx: mpsc::Sender<connector::proto::Request>,
     // RocksDB, when a Persist is not in flight.
     db: Option<crate::shard::RocksDB>,
     // RocksDB future when a Persist is in flight. Resolves to the reply the
@@ -71,7 +72,7 @@ pub(super) struct Actor {
 impl Actor {
     pub fn new(
         codec: connector_init::Codec,
-        connector_tx: mpsc::Sender<materialize::Request>,
+        connector_tx: mpsc::Sender<connector::proto::Request>,
         controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
         db: crate::shard::RocksDB,
         disable_load_optimization: bool,
@@ -91,7 +92,7 @@ impl Actor {
 
         Self {
             boundaries: Boundaries::new(task.bindings.len()),
-            connector_pending: Vec::new(),
+            connector_pending: VecDeque::new(),
             connector_tx,
             controller_tx,
             db: Some(db),
@@ -109,17 +110,18 @@ impl Actor {
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<Ctrl, Conn, Ldr>(
+    pub async fn serve<Ctrl, Ldr>(
         mut self,
         accumulator: crate::Accumulator,
-        connector_rx: &mut Conn,
+        connector_rx: &mut mpsc::Receiver<tonic::Result<connector::proto::Response>>,
         controller_rx: &mut Ctrl,
         leader_rx: &mut Ldr,
+        logger: &impl crate::Logger,
+        max_pinned_segments: usize,
         shuffle_reader: shuffle::log::Reader,
     ) -> anyhow::Result<crate::shard::RocksDB>
     where
         Ctrl: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
-        Conn: futures::Stream<Item = tonic::Result<materialize::Response>> + Send + Unpin + 'static,
         Ldr: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
     {
         let mut phase = Phase::Idle {
@@ -128,6 +130,7 @@ impl Actor {
             shuffle_remainders: VecDeque::new(),
         };
         let mut loop_count: u64 = 0;
+        let mut pinned_stop_sent = false;
 
         let mut ticker = tokio::time::interval(crate::ACTOR_TICK_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -204,6 +207,18 @@ impl Actor {
                         }),
                         ..Default::default()
                     });
+
+                    if crate::shard::stop_for_pinned_segments(
+                        &mut pinned_stop_sent,
+                        shuffle::log::pinned_segments(&shuffle_remainders),
+                        max_pinned_segments,
+                    ) {
+                        _ = self.leader_tx.send(proto::Materialize {
+                            stop: Some(proto::Stop {}),
+                            ..Default::default()
+                        });
+                    }
+
                     phase = Phase::Idle {
                         accumulator,
                         shuffle_reader,
@@ -213,7 +228,7 @@ impl Actor {
                 continue;
             } else if let Phase::Draining(mut drainer) = phase {
                 if let Some(request) = drainer.step(&self.task.bindings, self.codec)? {
-                    self.connector_pending.push(request);
+                    self.connector_pending.push_back(request);
                     phase = Phase::Draining(drainer);
                 } else {
                     let (accumulator, shuffle_reader, shuffle_remainders, active) =
@@ -243,15 +258,15 @@ impl Actor {
             tokio::select! {
                 biased;
 
-                // Prioritize moving connector messages (high volume).
-                msg = connector_rx.next() => {
+                // Prioritize moving connector messages and logs (high volume).
+                msg = connector::next(connector_rx, logger, connector::unwrap_materialize) => {
                     self.on_connector_response(&mut phase, msg)?;
                 }
                 // Next, a leader message.
                 msg = leader_rx.next() => {
                     let (next, stopped) = self
                         .on_leader_message(phase, msg)
-                        .map_err(|err| prefer_connector_error(connector_rx, err))?;
+                        .map_err(|err| connector::prefer_error(connector_rx, logger, "Materialize", err))?;
                     phase = next;
 
                     if stopped {
@@ -303,21 +318,12 @@ impl Actor {
         }
 
         // We observed L:Stopped, which the leader sends only at a transaction
-        // boundary — so we're idle and own the shuffle Reader. Remove our shuffle
-        // log segment files now, before blocking on the leader's EOF below. The
-        // leader is concurrently closing its shuffle SessionClient; deleting these
-        // segments releases any disk back-pressure held by the co-located Log RPC,
-        // letting the shuffle topology drain to EOF so the leader's close() can
-        // complete. Only then does the leader drop our channel, delivering the EOF
-        // we await next.
-        let Phase::Idle { shuffle_reader, .. } = &phase else {
+        // boundary. The leader is concurrently closing its shuffle
+        // SessionClient, and drops our channel once the shuffle topology has
+        // drained, delivering the EOF we await next.
+        if !matches!(phase, Phase::Idle { .. }) {
             anyhow::bail!("leader sent Stopped while shard was not idle");
-        };
-        shuffle::log::remove_shard_segments(
-            shuffle_reader.directory(),
-            shuffle_reader.shard_index(),
-        )
-        .context("removing shuffle log segments on Stop")?;
+        }
 
         // After Stopped and shuffle session drain, the leader's stream must EOF.
         let verify = crate::verify("Materialize", "leader EOF after Stopped", "leader");
@@ -346,14 +352,15 @@ impl Actor {
             .try_reserve_many(self.connector_pending.len())
         {
             for (request, permit) in self.connector_pending.drain(..).zip(permits) {
-                permit.send(request);
+                permit.send(connector::wrap_materialize(request));
             }
             return idle;
         }
 
-        // We have only partial capacity to send. In this uncommon case, we pay
-        // for relocating the tail of `connector_pending`. Note the sender may
-        // race sends, so account for capacity > connector_pending having opened up.
+        // We have only partial capacity to send, which is common: a scan step
+        // queues a whole block of requests against a small channel. Draining the
+        // front of a VecDeque leaves its tail in place. Note the sender may race
+        // sends, so account for capacity > connector_pending having opened up.
         let n = self
             .connector_tx
             .capacity()
@@ -362,7 +369,7 @@ impl Actor {
         match self.connector_tx.try_reserve_many(n) {
             Ok(permits) => {
                 for (request, permit) in self.connector_pending.drain(..n).zip(permits) {
-                    permit.send(request);
+                    permit.send(connector::wrap_materialize(request));
                 }
             }
             // Sends to the connector are best-effort: a Closed channel means the
@@ -435,7 +442,7 @@ impl Actor {
         {
             // Forward the markers; the connector self-selects whether to act,
             // per its key range.
-            self.connector_pending.push(materialize::Request {
+            self.connector_pending.push_back(materialize::Request {
                 kind: Some(materialize::request::Kind::Flush(
                     materialize::request::Flush {
                         state_patches_json: connector_patches_json,
@@ -475,7 +482,7 @@ impl Actor {
             connector_patches_json,
         }) = msg.start_commit
         {
-            self.connector_pending.push(materialize::Request {
+            self.connector_pending.push_back(materialize::Request {
                 kind: Some(materialize::request::Kind::StartCommit(
                     materialize::request::StartCommit {
                         runtime_checkpoint: connector_checkpoint,
@@ -488,7 +495,7 @@ impl Actor {
             connector_patches_json,
         }) = msg.acknowledge
         {
-            self.connector_pending.push(materialize::Request {
+            self.connector_pending.push_back(materialize::Request {
                 kind: Some(materialize::request::Kind::Acknowledge(
                     materialize::request::Acknowledge {
                         state_patches_json: connector_patches_json,
@@ -575,7 +582,7 @@ impl Actor {
         phase: &mut Phase,
         resp: Option<tonic::Result<materialize::Response>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify("Materialize", "connector response", "connector");
+        let verify = crate::verify_connector("Materialize", "connector response");
         let resp = verify.not_eof(resp)?;
 
         if let Some(materialize::response::Kind::Loaded(materialize::response::Loaded {
@@ -718,30 +725,6 @@ impl Actor {
     }
 }
 
-/// Replace a leader-stream failure with the connector's own terminal error,
-/// if the connector has already failed and its error is immediately ready.
-///
-/// The leader fails a session when any of its shards does, and broadcasts that
-/// failure to every shard — including the shard whose connector caused it. Both
-/// errors are then ready at once, and while the `biased` select prefers the
-/// connector arm, that only helps if the loop polls again: an error surfaced by
-/// the leader arm in the meantime would report the leader's echo of this
-/// shard's own failure, rather than the connector error which caused it.
-///
-/// A ready *response* is discarded rather than handled: the session is failing
-/// either way, and the only question is which error describes why.
-fn prefer_connector_error<Conn>(connector_rx: &mut Conn, err: anyhow::Error) -> anyhow::Error
-where
-    Conn: futures::Stream<Item = tonic::Result<materialize::Response>> + Unpin,
-{
-    match connector_rx.next().now_or_never() {
-        Some(Some(Err(status))) => {
-            crate::verify("Materialize", "connector response", "connector").fail_status(status)
-        }
-        _ => err,
-    }
-}
-
 async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> T {
     match opt.as_mut() {
         Some(fut) => {
@@ -759,7 +742,7 @@ mod tests {
     use crate::shard::materialize::task::{Binding, Source};
     use proto_flow::flow;
     use proto_flow::materialize::{request, response};
-    use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
+    use tokio_stream::wrappers::UnboundedReceiverStream;
 
     /// An empty Task: no bindings, no sources, no persisted state keys.
     fn empty_task() -> Arc<Task> {
@@ -780,10 +763,27 @@ mod tests {
         }
     }
 
+    /// Wrap a connector response as the Connector RPC delivers it.
+    fn wrap(response: materialize::Response) -> tonic::Result<connector::proto::Response> {
+        Ok(connector::proto::Response {
+            kind: Some(connector::proto::response::Kind::Materialize(response)),
+        })
+    }
+
+    /// Unwrap a request the actor sent to its connector.
+    fn unwrap(request: connector::proto::Request) -> materialize::Request {
+        let connector::proto::request::Kind::Materialize(request) =
+            request.kind.expect("wrapped request")
+        else {
+            panic!("actor sent a non-materialize request")
+        };
+        request
+    }
+
     fn make_actor() -> (
         Actor,
         mpsc::UnboundedReceiver<proto::Materialize>,
-        mpsc::Receiver<materialize::Request>,
+        mpsc::Receiver<connector::proto::Request>,
     ) {
         let (leader_tx, leader_rx) = mpsc::unbounded_channel();
         let (connector_tx, connector_rx) = mpsc::channel(8);
@@ -792,7 +792,7 @@ mod tests {
         (
             Actor {
                 boundaries: Boundaries::new(0),
-                connector_pending: Vec::new(),
+                connector_pending: VecDeque::new(),
                 connector_tx,
                 controller_tx,
                 db: None,
@@ -832,7 +832,7 @@ mod tests {
         // Drive the non-blocking send of the pending connector request.
         _ = actor.try_connector_tx();
 
-        let request = connector_rx.recv().await.unwrap();
+        let request = unwrap(connector_rx.recv().await.unwrap());
         let Some(request::Kind::Acknowledge(ack)) = request.kind else {
             panic!("connector receives C:Acknowledge, got {request:?}")
         };
@@ -872,10 +872,11 @@ mod tests {
     #[tokio::test]
     async fn full_lifecycle_round_trip() {
         // Actor → connector requests; the test reads as a mock connector.
-        let (actor_to_conn_tx, mut actor_to_conn_rx) = mpsc::channel::<materialize::Request>(8);
+        let (actor_to_conn_tx, mut actor_to_conn_rx) =
+            mpsc::channel::<connector::proto::Request>(8);
         // Mock connector → actor responses.
-        let (conn_to_actor_tx, conn_to_actor_rx) =
-            mpsc::channel::<tonic::Result<materialize::Response>>(8);
+        let (conn_to_actor_tx, mut conn_to_actor_rx) =
+            mpsc::channel::<tonic::Result<connector::proto::Response>>(8);
         // Actor → leader; the test reads as a mock leader.
         let (actor_to_leader_tx, mut actor_to_leader_rx) =
             mpsc::unbounded_channel::<proto::Materialize>();
@@ -889,7 +890,6 @@ mod tests {
         let (actor_to_controller_tx, mut actor_to_controller_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Materialize>>();
 
-        let conn_stream = ReceiverStream::new(conn_to_actor_rx);
         let leader_stream = UnboundedReceiverStream::new(leader_to_actor_rx);
         let controller_stream = UnboundedReceiverStream::new(controller_to_actor_rx);
 
@@ -898,7 +898,7 @@ mod tests {
 
         let actor = Actor {
             boundaries: Boundaries::new(0),
-            connector_pending: Vec::new(),
+            connector_pending: VecDeque::new(),
             connector_tx: actor_to_conn_tx,
             controller_tx: actor_to_controller_tx,
             db: Some(db),
@@ -919,15 +919,16 @@ mod tests {
         let shuffle_reader = shuffle::log::Reader::new(shuffle_dir.path(), 0);
 
         let serve_handle = tokio::spawn(async move {
-            let mut conn_stream = conn_stream;
             let mut leader_stream = leader_stream;
             let mut controller_stream = controller_stream;
             actor
                 .serve(
                     accumulator,
-                    &mut conn_stream,
+                    &mut conn_to_actor_rx,
                     &mut controller_stream,
                     &mut leader_stream,
+                    &crate::TracingLogger,
+                    crate::shard::max_pinned_segments(&Default::default()),
                     shuffle_reader,
                 )
                 .await
@@ -943,7 +944,7 @@ mod tests {
             }))
             .unwrap();
 
-        let req = actor_to_conn_rx.recv().await.unwrap();
+        let req = unwrap(actor_to_conn_rx.recv().await.unwrap());
         let Some(request::Kind::Acknowledge(ack)) = req.kind else {
             panic!("connector receives C:Acknowledge, got {req:?}")
         };
@@ -953,7 +954,7 @@ mod tests {
         );
 
         conn_to_actor_tx
-            .send(Ok(materialize::Response {
+            .send(wrap(materialize::Response {
                 kind: Some(response::Kind::Acknowledged(response::Acknowledged {
                     state: Some(flow::ConnectorState {
                         updated_json: Bytes::from_static(br#"{"ack_done":true}"#),
@@ -979,7 +980,7 @@ mod tests {
             }))
             .unwrap();
 
-        let req = actor_to_conn_rx.recv().await.unwrap();
+        let req = unwrap(actor_to_conn_rx.recv().await.unwrap());
         let Some(request::Kind::Flush(flush)) = req.kind else {
             panic!("connector receives C:Flush, got {req:?}")
         };
@@ -989,7 +990,7 @@ mod tests {
         );
 
         conn_to_actor_tx
-            .send(Ok(materialize::Response {
+            .send(wrap(materialize::Response {
                 kind: Some(response::Kind::Flushed(response::Flushed {
                     state: Some(flow::ConnectorState {
                         updated_json: Bytes::from_static(br#"{"flushed":true}"#),
@@ -1030,14 +1031,14 @@ mod tests {
             }))
             .unwrap();
 
-        let req = actor_to_conn_rx.recv().await.unwrap();
+        let req = unwrap(actor_to_conn_rx.recv().await.unwrap());
         let Some(request::Kind::StartCommit(sc)) = req.kind else {
             panic!("connector receives C:StartCommit, got {req:?}")
         };
         assert_eq!(sc.state_patches_json, Bytes::from_static(br#"[{"sc":1}]"#),);
 
         conn_to_actor_tx
-            .send(Ok(materialize::Response {
+            .send(wrap(materialize::Response {
                 kind: Some(response::Kind::StartedCommit(response::StartedCommit {
                     state: Some(flow::ConnectorState {
                         updated_json: Bytes::from_static(br#"{"sc_done":true}"#),
@@ -1391,47 +1392,6 @@ mod tests {
         assert!(
             result.is_err(),
             "a corrupt document UUID fails a truncating binding's transaction"
-        );
-    }
-
-    #[tokio::test]
-    async fn connector_error_wins_over_the_leaders_echo() {
-        let leader_err = || anyhow::anyhow!("leader session failed: some peer shard failed");
-
-        // A connector error which is already ready replaces the leader's error:
-        // the leader is echoing this shard's own failure back at it.
-        let (tx, rx) = mpsc::channel(1);
-        tx.send(Err(tonic::Status::unknown(
-            "commit failed: refusing to commit store table",
-        )))
-        .await
-        .unwrap();
-        let mut connector_rx = ReceiverStream::new(rx);
-
-        let err = prefer_connector_error(&mut connector_rx, leader_err());
-        assert_eq!(
-            format!("{err:#}"),
-            "Materialize error (expected connector response) from connector: \
-             commit failed: refusing to commit store table"
-        );
-
-        // A healthy connector leaves the leader's error in place, as does a
-        // connector which has merely reached EOF.
-        let (_tx, rx) = mpsc::channel::<tonic::Result<materialize::Response>>(1);
-        let mut connector_rx = ReceiverStream::new(rx);
-        let err = prefer_connector_error(&mut connector_rx, leader_err());
-        assert_eq!(
-            format!("{err:#}"),
-            "leader session failed: some peer shard failed"
-        );
-
-        let (tx, rx) = mpsc::channel::<tonic::Result<materialize::Response>>(1);
-        drop(tx);
-        let mut connector_rx = ReceiverStream::new(rx);
-        let err = prefer_connector_error(&mut connector_rx, leader_err());
-        assert_eq!(
-            format!("{err:#}"),
-            "leader session failed: some peer shard failed"
         );
     }
 }

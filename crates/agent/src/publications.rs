@@ -24,6 +24,8 @@ pub struct PublicationsExecutor {
     pub runtime_v2_new_materializations: bool,
     /// When true, newly-created derivations are published onto runtime v2; see [`RuntimeV2Rollout`].
     pub runtime_v2_new_derivations: bool,
+    /// When true, new and updated derivations are published onto runtime v2.
+    pub runtime_v2_all_derivations: bool,
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -192,7 +194,7 @@ impl PublicationsExecutor {
         }
 
         let publication_op = DraftPublication {
-            user_id: row.user_id,
+            subject: models::authz::Subject::unrestricted(row.user_id),
             logs_token: row.logs_token,
             dry_run: row.dry_run,
             detail: row.detail.clone(),
@@ -201,14 +203,16 @@ impl PublicationsExecutor {
             snapshot,
             default_data_plane_name: row.data_plane_name.clone().filter(|s| !s.is_empty()),
             initialize: (
+                ExpandDraft {
+                    filter_user_can_edit: true,
+                    snapshot,
+                    expected_content_hash: row.draft_content_hash.as_deref(),
+                },
                 RuntimeV2Rollout {
                     new_captures: self.runtime_v2_new_captures,
                     new_materializations: self.runtime_v2_new_materializations,
                     new_derivations: self.runtime_v2_new_derivations,
-                },
-                ExpandDraft {
-                    filter_user_has_admin: true,
-                    snapshot,
+                    all_derivations: self.runtime_v2_all_derivations,
                 },
             ),
             finalize: PruneUnboundCollections,

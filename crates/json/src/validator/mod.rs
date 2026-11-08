@@ -71,6 +71,9 @@ where
     keywords: &'s [Keyword<A>],
     // Bit flags of this Frame.
     flags: u8,
+    // KIND_* classes of `keywords`, which let per-node passes skip Frames
+    // having no keyword of interest without scanning them.
+    kinds: u8,
     // Counter retains:
     // * The current index into Keyword::Properties (when an object).
     // * The number of valid Keyword::Contains applications (when an array).
@@ -92,6 +95,35 @@ const FLAG_VALID_IF_ELSE: u8 = 0x04;
 const FLAG_VALID_ANY_OF: u8 = 0x08;
 // FLAG_VALID_ONE_OF is set if a Keyword::OneOf in-place application validated.
 const FLAG_VALID_ONE_OF: u8 = 0x10;
+
+// Keyword classes of a Frame's schema. Validation visits each document node
+// with every active Frame, and most Frames (in-place applications especially)
+// have no keyword relevant to a given visit: these classes let a visit skip
+// them outright. Frame retains these eight as a u8 (keeping Frame within a
+// cache line); the u16 classes beyond them only matter while winding the
+// Frame, and their type keeps them from being tested against Frame::kinds.
+//
+// Keywords applied to object properties.
+const KIND_PROPERTIES: u8 = 0x01;
+// Keyword::PropertyNames.
+const KIND_PROPERTY_NAMES: u8 = 0x02;
+// Keywords applied to array items.
+const KIND_ITEMS: u8 = 0x04;
+// Keywords checked against string nodes.
+const KIND_STRING: u8 = 0x08;
+// Keywords checked against numeric nodes.
+const KIND_NUMBER: u8 = 0x10;
+// Keywords checked against a whole object or array, after its children.
+// Includes Keyword::Properties, which checks for missing required properties.
+const KIND_CONTAINER: u8 = 0x20;
+// Keywords checked against every node.
+const KIND_NODE: u8 = 0x40;
+// Keyword::AnyOf or OneOf, which are checked as the Frame unwinds.
+const KIND_ANY_OR_ONE_OF: u8 = 0x80;
+// Keywords having in-place applications.
+const KIND_IN_PLACE: u16 = 0x0100;
+// Keyword::UnevaluatedItems or UnevaluatedProperties.
+const KIND_UNEVALUATED: u16 = 0x0200;
 
 struct FrameSpeculative<'s, A>
 where
@@ -158,6 +190,7 @@ where
             parent_keyword: None,
             keywords: &[],
             flags: 0,
+            kinds: 0,
             outcomes: Vec::new(),
             counter: 0,
             speculative: None,

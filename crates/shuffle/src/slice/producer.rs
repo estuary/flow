@@ -34,10 +34,10 @@ pub struct ProducerState {
     ///
     /// The sentinel can never arise organically: `uuid::sequence` sets
     /// `max_continue` only to a CONTINUE's Clock, which is strictly greater than
-    /// `last_commit`, and advances `last_commit` only while `max_continue` is
-    /// zero — so a live `max_continue` is always either zero or strictly above
-    /// `last_commit`, never equal. A gapped producer always has a non-negative
-    /// offset (the `+begin` of its open span).
+    /// `last_commit`, and every branch that advances `last_commit` leaves
+    /// `max_continue` at zero — so a live `max_continue` is always either zero
+    /// or strictly above `last_commit`, never equal. A gapped producer always
+    /// has a non-negative offset (the `+begin` of its open span).
     ///
     /// This field is in-memory only. It doesn't contribute to a
     /// `ProducerFrontier` checkpoint and a recovered session rebuilds it.
@@ -72,7 +72,6 @@ pub fn build_flush_frontier(
     let mut journals: Vec<crate::JournalFrontier> = Vec::new();
     let mut latest_backfill_begin = BTreeMap::<u16, Clock>::new();
     let mut latest_backfill_complete = BTreeMap::<u16, Clock>::new();
-    let mut binding_gap_floors = BTreeMap::<u16, Clock>::new();
 
     for read_state in reads.iter_mut() {
         if read_state.unreported.is_empty() {
@@ -84,10 +83,9 @@ pub fn build_flush_frontier(
             continue;
         }
 
-        // Backfill clocks and the gap floor are per-binding metadata. Drain this
-        // journal's into the checkpoint maps; multiple journals of one binding
-        // fold to their max. The `continue` above strands none: each is folded
-        // from a document, so a non-zero one implies unreported work.
+        // Backfill clocks are per-binding metadata. Drain this journal's into
+        // the checkpoint maps; multiple journals of one binding fold to their
+        // max.
         let binding = read_state.binding_index;
         let backfill_begin = std::mem::take(&mut read_state.backfill_begin);
         if backfill_begin != Clock::zero() {
@@ -103,14 +101,6 @@ pub fn build_flush_frontier(
                 .and_modify(|c| *c = (*c).max(backfill_complete))
                 .or_insert(backfill_complete);
         }
-        let gap_floor = std::mem::take(&mut read_state.gap_floor);
-        if gap_floor != Clock::zero() {
-            binding_gap_floors
-                .entry(binding)
-                .and_modify(|c| *c = (*c).max(gap_floor))
-                .or_insert(gap_floor);
-        }
-
         let mut producers: Vec<_> = read_state
             .unreported
             .iter()
@@ -121,7 +111,9 @@ pub fn build_flush_frontier(
                 // `last_commit == 0` means hint-only. This lets recovery
                 // distinguish a real span begun at journal offset zero (the floor,
                 // gapped when `M > 0`) from a hint-only placeholder `{0, 0}`.
-                last_commit: Clock::from_u64(ps.last_commit.as_u64().max(1)),
+                last_commit: ps
+                    .last_commit
+                    .max(proto_gazette::uuid::OBSERVED_COMMIT_FLOOR),
                 hinted_commit: Clock::zero(),
                 offset: ps.offset,
             })
@@ -138,6 +130,7 @@ pub fn build_flush_frontier(
             producers,
             bytes_read_delta,
             bytes_behind_delta,
+            ..Default::default()
         });
 
         // Update the baselines for the next delta computation.
@@ -154,7 +147,6 @@ pub fn build_flush_frontier(
         flushed_lsn: vec![crate::log::Lsn::ZERO; shard_count],
         latest_backfill_begin,
         latest_backfill_complete,
-        binding_gap_floors,
     };
 
     // Build a Frontier from causal hints via single-pass iteration.
@@ -182,8 +174,7 @@ pub fn build_flush_frontier(
                 binding,
                 journal,
                 producers,
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
+                ..Default::default()
             }
         })
         .collect();
@@ -200,7 +191,6 @@ pub fn build_flush_frontier(
         flushed_lsn: vec![],
         latest_backfill_begin: Default::default(),
         latest_backfill_complete: Default::default(),
-        binding_gap_floors: Default::default(),
     })
 }
 
@@ -418,24 +408,17 @@ mod test {
     fn test_build_flush_frontier_drains_binding_clocks_from_reads() {
         // Two journals of one binding (shared `suffix/0`). The drain folds both
         // journals' clocks per-binding via `max` and clears each read's fields.
-        // journal/A is processed first with the smaller begin and floor; journal/B
-        // carries the larger, so the fold must `max`-upgrade to it rather than keep
-        // the first-seen value. Only journal/A carries a complete.
+        // journal/A is processed first with the smaller begin; journal/B carries
+        // the larger, so the fold must `max`-upgrade to it rather than keep the
+        // first-seen value. Only journal/A carries a complete.
         let mut read_a = read_state("journal/A", 0, &[(0x01, 100, -500)]);
         read_a.backfill_begin = Clock::from_u64(80);
         read_a.backfill_complete = Clock::from_u64(100);
-        read_a.gap_floor = Clock::from_u64(300);
 
         let mut read_b = read_state("journal/B", 0, &[(0x03, 0, 700)]);
         read_b.backfill_begin = Clock::from_u64(90);
-        read_b.gap_floor = Clock::from_u64(900);
 
-        // journal/C's floor was raised at read start, but it has no document
-        // yet, so the floor waits.
-        let mut read_c = read_state("journal/C", 1, &[]);
-        read_c.gap_floor = Clock::from_u64(500);
-
-        let mut reads = vec![read_a, read_b, read_c];
+        let mut reads = vec![read_a, read_b];
 
         let frontier = build_flush_frontier(&mut reads, std::iter::empty(), 2);
         assert_eq!(frontier.journals.len(), 2);
@@ -449,17 +432,10 @@ mod test {
             frontier.latest_backfill_complete.get(&0),
             Some(&Clock::from_u64(100))
         );
-        assert_eq!(
-            frontier.binding_gap_floors,
-            BTreeMap::from([(0u16, Clock::from_u64(900))])
-        );
 
         // The per-journal clocks are drained (reset to zero).
         assert_eq!(reads[0].backfill_begin, Clock::zero());
         assert_eq!(reads[0].backfill_complete, Clock::zero());
-        assert_eq!(reads[0].gap_floor, Clock::zero());
         assert_eq!(reads[1].backfill_begin, Clock::zero());
-        assert_eq!(reads[1].gap_floor, Clock::zero());
-        assert_eq!(reads[2].gap_floor, Clock::from_u64(500));
     }
 }

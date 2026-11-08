@@ -24,6 +24,9 @@ collections:
           shuffle: any
           lambda: |
             select json($flow_document);
+      shards:
+        flags:
+          enable-runtime-v2: "true"
 
   ops.us-central1.v1/inferred-schemas/L2:
     schema: inferred-schemas.schema.yaml
@@ -39,6 +42,9 @@ collections:
           shuffle:
             key: [/collection_name]
           lambda: select json($flow_document);
+      shards:
+        flags:
+          enable-runtime-v2: "true"
 
   ops.us-central1.v1/catalog-stats-L2:
     schema: catalog-stats.schema.yaml
@@ -71,6 +77,9 @@ collections:
           # TODO(johnny): Ideally, this would be shuffle: { key: [/catalogName] }
           # However, while rolling out federated data-planes I'm minimizing churn.
           shuffle: any
+      shards:
+        flags:
+          enable-runtime-v2: "true"
 
   ops/rollups/L2/catalog-stats:
     schema: catalog-stats.schema.yaml
@@ -92,3 +101,6 @@ collections:
           source: ops/rollups/L1/BASE_NAME/catalog-stats
           shuffle:
             key: [/catalogName]
+      shards:
+        flags:
+          enable-runtime-v2: "true"

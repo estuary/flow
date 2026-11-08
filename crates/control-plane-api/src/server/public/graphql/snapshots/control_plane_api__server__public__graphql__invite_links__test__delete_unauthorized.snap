@@ -6,13 +6,24 @@ expression: unauthorized_delete
   "data": null,
   "errors": [
     {
+      "extensions": {
+        "code": "FORBIDDEN",
+        "requiredBundleOptions": [
+          [
+            "team_admin"
+          ],
+          [
+            "admin"
+          ]
+        ]
+      },
       "locations": [
         {
           "column": 25,
           "line": 3
         }
       ],
-      "message": "PermissionDenied: bob@example.test is not authorized to access prefix or name 'aliceCo/' with required capability admin",
+      "message": "PermissionDenied: bob@example.test is not authorized to access prefix or name 'aliceCo/'. Requires capabilities: team_admin or admin",
       "path": [
         "deleteInviteLink"
       ]

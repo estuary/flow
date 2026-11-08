@@ -2,28 +2,9 @@ use anyhow::Context;
 use serde_json::value::RawValue;
 
 use crate::{
-    DataPlanes, Errors, InferredSchemas, LiveCapture, LiveCaptures, LiveCollection,
-    LiveCollections, LiveMaterialization, LiveMaterializations, LiveTest, LiveTests,
-    StorageMappings,
+    Errors, InferredSchemas, LiveCapture, LiveCaptures, LiveCollection, LiveCollections,
+    LiveMaterialization, LiveMaterializations, LiveTest, LiveTests, StorageMappings,
 };
-
-// CatalogResolver is a trait which maps `catalog_names`, such as those from
-// DraftCatalog::all_catalog_names(), into their live specifications.
-pub trait CatalogResolver {
-    /// Fetch live specifications drawn from the provided iterator of catalog names.
-    ///
-    /// A CatalogResolver MUST return all matched specifications, and MAY return
-    /// additional specifications which weren't in the argument `catalog_names`.
-    /// One use for such over-fetching is to return alternative, similarly-named
-    /// specifications which can help produce better errors for users.
-    ///
-    /// `catalog_names` may be in any order, and may contain duplicates.
-    ///
-    fn resolve<'a>(
-        &'a self,
-        catalog_names: Vec<&'a str>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::LiveCatalog> + Send + 'a>>;
-}
 
 /// LiveRow is a common trait of rows reflecting live specifications.
 pub trait LiveRow: crate::Row {
@@ -203,7 +184,6 @@ impl LiveCatalog {
         let Self {
             captures,
             collections,
-            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -214,7 +194,6 @@ impl LiveCatalog {
         vec![
             captures,
             collections,
-            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -228,7 +207,6 @@ impl LiveCatalog {
         let Self {
             captures,
             collections,
-            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -239,7 +217,6 @@ impl LiveCatalog {
         vec![
             captures,
             collections,
-            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -254,7 +231,6 @@ impl LiveCatalog {
 pub struct LiveCatalog {
     pub captures: LiveCaptures,
     pub collections: LiveCollections,
-    pub data_planes: DataPlanes,
     pub errors: Errors,
     pub inferred_schemas: InferredSchemas,
     pub materializations: LiveMaterializations,

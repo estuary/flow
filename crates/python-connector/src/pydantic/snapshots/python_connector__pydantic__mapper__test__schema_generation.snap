@@ -1,0 +1,407 @@
+---
+source: crates/python-connector/src/pydantic/mapper.rs
+expression: w
+---
+Schema for test/collection-anchor with CURI test://example/catalog.yaml?ptr=/collections/test~1collection-anchor/schema:
+class DocAnAnchorObject(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    one: str
+    two: _typing.Optional[int] = None
+
+class DocOtherAnchor(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    anAnchor: _typing.Optional["DocAnAnchor"] = None
+    three: str
+
+DocAnAnchor: _typing.TypeAlias = _typing.Union["DocAnAnchorObject", list[_typing.Literal["array!"]]]
+Document: _typing.TypeAlias = "DocOtherAnchor"
+
+
+Schema for test/collection-anchor with CURI test://example/catalog.yaml?ptr=/collections/test~1collection-anchor/schema without anchors:
+class Document(_pydantic.BaseModel):
+    class AnAnchorObject(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        one: str
+        two: _typing.Optional[int] = None
+
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    anAnchor: _typing.Optional[_typing.Union["AnAnchorObject", list[_typing.Literal["array!"]]]] = None
+    three: str
+
+
+
+Schema for test/collection-dir with CURI test://example/schema.json:
+class DocAnAnchorObject(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    one: str
+    two: _typing.Optional[int] = None
+
+class Document(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    anAnchor: _typing.Optional["DocAnAnchor"] = None
+    int: int
+    lğmöm: _typing.Optional[list[_typing.Union[bool, int, str]]] = None
+    other: _typing.Optional[_typing.Literal[42, "hello"]] = None
+    str: str
+
+DocAnAnchor: _typing.TypeAlias = _typing.Union["DocAnAnchorObject", list[_typing.Literal["array!"]]]
+
+
+Schema for test/collection-dir with CURI test://example/schema.json without anchors:
+class Document(_pydantic.BaseModel):
+    class AnAnchorObject(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        one: str
+        two: _typing.Optional[int] = None
+
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    anAnchor: _typing.Optional[_typing.Union["AnAnchorObject", list[_typing.Literal["array!"]]]] = None
+    int: int
+    lğmöm: _typing.Optional[list[_typing.Union[bool, int, str]]] = None
+    other: _typing.Optional[_typing.Literal[42, "hello"]] = None
+    str: str
+
+
+
+Schema for test/collection-ref with CURI test://example/catalog.yaml?ptr=/collections/test~1collection-ref/schema:
+class DocAnAnchorObject(_pydantic.BaseModel):
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    one: str
+    two: _typing.Optional[int] = None
+
+DocAnAnchor: _typing.TypeAlias = _typing.Union["DocAnAnchorObject", list[_typing.Literal["array!"]]]
+Document: _typing.TypeAlias = str
+
+
+Schema for test/collection-ref with CURI test://example/catalog.yaml?ptr=/collections/test~1collection-ref/schema without anchors:
+Document: _typing.TypeAlias = str
+
+
+Schema for test/edge-cases with CURI test://example/edge-cases.json:
+class Document(_pydantic.BaseModel):
+    class AdditionalPropsAllowed(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        name: _typing.Optional[str] = None
+
+    class ArrayOfObjectsItem(_pydantic.BaseModel):
+        class Nested(_pydantic.BaseModel):
+            model_config = _pydantic.ConfigDict(extra='allow')
+
+            flag: _typing.Optional[bool] = None
+
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        name: _typing.Optional[str] = None
+        nested: _typing.Optional["Nested"] = None
+
+    class EmptyObject(_pydantic.BaseModel):
+        pass
+
+    class EnumWithObjectObject(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+
+    class InvalidIdentifiers(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        m_123start: _typing.Optional[int] = _pydantic.Field(default=None, alias="123start")
+        m_special: _typing.Optional[_typing.Union[int, float]] = _pydantic.Field(default=None, alias="@special")
+        dot_name: _typing.Optional[str] = _pydantic.Field(default=None, alias="dot.name")
+        has_space: _typing.Optional[bool] = _pydantic.Field(default=None, alias="has space")
+        my_field: _typing.Optional[str] = _pydantic.Field(default=None, alias="my-field")
+
+    class MixedUnionObject(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        when_object: _typing.Optional[str] = None
+
+    class NestedObject(_pydantic.BaseModel):
+        class Inner(_pydantic.BaseModel):
+            class Deeper(_pydantic.BaseModel):
+                model_config = _pydantic.ConfigDict(extra='allow')
+
+                value: _typing.Union[int, float]
+
+            model_config = _pydantic.ConfigDict(extra='allow')
+
+            deep: bool
+            deeper: _typing.Optional["Deeper"] = None
+
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        inner: _typing.Optional["Inner"] = None
+        outer: str
+
+    class ObjectInListItem(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        id: str
+        value: _typing.Optional[_typing.Union[int, float]] = None
+
+    class ObjectInUnion(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        type: _typing.Literal["a", "b"]
+
+    class ObjectWithDocs(_pydantic.BaseModel):
+        """Documented Object An object with comprehensive documentation"""
+        class Nested(_pydantic.BaseModel):
+            """Nested Object A nested object with its own documentation"""
+            model_config = _pydantic.ConfigDict(extra='allow')
+
+            deepField: _typing.Optional[bool] = None
+            """Deep Field A field deep in the hierarchy"""
+
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        field1: str
+        """First Field"""
+        field2: _typing.Optional[int] = None
+        """Second field with only description"""
+        nested: _typing.Optional["Nested"] = None
+        """Nested Object A nested object with its own documentation"""
+
+    class PatternProps(_pydantic.BaseModel):
+        class PydanticExtraObject(_pydantic.BaseModel):
+            model_config = _pydantic.ConfigDict(extra='allow')
+
+            patternObj: _typing.Optional[bool] = None
+
+        __pydantic_extra__: dict[str, _typing.Union["PydanticExtraObject", int, str]] = _pydantic.Field(init=False) # type: ignore[reportIncompatibleVariableOverride]
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        id: _typing.Optional[int] = None
+
+    class PythonKeywords(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        class_: _typing.Optional[str] = _pydantic.Field(default=None, alias="class")
+        def_: _typing.Optional[int] = _pydantic.Field(default=None, alias="def")
+        for_: _typing.Optional[str] = _pydantic.Field(default=None, alias="for")
+        if_: _typing.Optional[str] = _pydantic.Field(default=None, alias="if")
+        return_: _typing.Optional[bool] = _pydantic.Field(default=None, alias="return")
+
+    class RequiredAndOptional(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        optional1: _typing.Optional[bool] = None
+        optional2: _typing.Optional[_typing.Union[int, float]] = None
+        required1: str
+        required2: int
+
+    class WithoutTypeObject(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        nested: _typing.Optional[int] = None
+
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    additionalPropsAllowed: _typing.Optional["AdditionalPropsAllowed"] = None
+    anyType: _typing.Optional[_typing.Any] = None
+    """Field that accepts any value"""
+    anyTypeExplicit: _typing.Optional[_typing.Any] = None
+    arrayOfObjects: _typing.Optional[list["ArrayOfObjectsItem"]] = None
+    complexEnum: _typing.Optional[_typing.Union[_typing.Literal[42, "option-A", "option-B", "option-C"], float]] = None
+    constValue: _typing.Optional[_typing.Literal["fixed-value"]] = None
+    emptyObject: _typing.Optional["EmptyObject"] = None
+    enumWithObject: _typing.Optional[_typing.Union[_typing.Literal[42], "EnumWithObjectObject"]] = None
+    invalidIdentifiers: _typing.Optional["InvalidIdentifiers"] = None
+    mixedUnion: _typing.Optional[_typing.Union["MixedUnionObject", int, float, str]] = None
+    nestedObject: _typing.Optional["NestedObject"] = None
+    never: _typing.Optional[_typing.Literal["this field is constrained by its schema to never exist"]] = None
+    objectInList: _typing.Optional[list["ObjectInListItem"]] = None
+    objectInUnion: _typing.Optional["ObjectInUnion"] = None
+    objectWithDocs: _typing.Optional["ObjectWithDocs"] = None
+    """Documented Object An object with comprehensive documentation"""
+    patternProps: _typing.Optional["PatternProps"] = None
+    pythonKeywords: _typing.Optional["PythonKeywords"] = None
+    requiredAndOptional: _typing.Optional["RequiredAndOptional"] = None
+    singleEnum: _typing.Optional[_typing.Literal["only-one"]] = None
+    tuple1: _typing.Optional[tuple[str, int, bool]] = None
+    """Tuple using only prefixItems"""
+    tuple2: _typing.Optional[tuple[_typing.Union[int, float], _typing.Union[int, float]]] = None
+    """Tuple using only items"""
+    tuple3: _typing.Optional[tuple[str, int, bool, bool]] = None
+    """Tuple using mix of prefixItems and items"""
+    tuple4: _typing.Optional[tuple[str, _typing.Any]] = None
+    """Tuple with incomplete prefixItems"""
+    unionWithDocs: _typing.Optional[_typing.Union[int, float, str]] = None
+    """Documented Union A union type with documentation"""
+    withBoth: _typing.Optional[bool] = None
+    """Title and Description This field has both a title and a description for comprehensive documentation"""
+    withDescription: _typing.Optional[int] = None
+    """A field with a description explaining its purpose"""
+    withTitle: _typing.Optional[str] = None
+    """A field with a title"""
+    withoutType: _typing.Optional[_typing.Union["WithoutTypeObject", list[_typing.Any], bool, int, float, str, None]] = None
+
+
+
+Schema for test/edge-cases with CURI test://example/edge-cases.json without anchors:
+class Document(_pydantic.BaseModel):
+    class AdditionalPropsAllowed(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        name: _typing.Optional[str] = None
+
+    class ArrayOfObjectsItem(_pydantic.BaseModel):
+        class Nested(_pydantic.BaseModel):
+            model_config = _pydantic.ConfigDict(extra='allow')
+
+            flag: _typing.Optional[bool] = None
+
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        name: _typing.Optional[str] = None
+        nested: _typing.Optional["Nested"] = None
+
+    class EmptyObject(_pydantic.BaseModel):
+        pass
+
+    class EnumWithObjectObject(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+
+    class InvalidIdentifiers(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        m_123start: _typing.Optional[int] = _pydantic.Field(default=None, alias="123start")
+        m_special: _typing.Optional[_typing.Union[int, float]] = _pydantic.Field(default=None, alias="@special")
+        dot_name: _typing.Optional[str] = _pydantic.Field(default=None, alias="dot.name")
+        has_space: _typing.Optional[bool] = _pydantic.Field(default=None, alias="has space")
+        my_field: _typing.Optional[str] = _pydantic.Field(default=None, alias="my-field")
+
+    class MixedUnionObject(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        when_object: _typing.Optional[str] = None
+
+    class NestedObject(_pydantic.BaseModel):
+        class Inner(_pydantic.BaseModel):
+            class Deeper(_pydantic.BaseModel):
+                model_config = _pydantic.ConfigDict(extra='allow')
+
+                value: _typing.Union[int, float]
+
+            model_config = _pydantic.ConfigDict(extra='allow')
+
+            deep: bool
+            deeper: _typing.Optional["Deeper"] = None
+
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        inner: _typing.Optional["Inner"] = None
+        outer: str
+
+    class ObjectInListItem(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        id: str
+        value: _typing.Optional[_typing.Union[int, float]] = None
+
+    class ObjectInUnion(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        type: _typing.Literal["a", "b"]
+
+    class ObjectWithDocs(_pydantic.BaseModel):
+        """Documented Object An object with comprehensive documentation"""
+        class Nested(_pydantic.BaseModel):
+            """Nested Object A nested object with its own documentation"""
+            model_config = _pydantic.ConfigDict(extra='allow')
+
+            deepField: _typing.Optional[bool] = None
+            """Deep Field A field deep in the hierarchy"""
+
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        field1: str
+        """First Field"""
+        field2: _typing.Optional[int] = None
+        """Second field with only description"""
+        nested: _typing.Optional["Nested"] = None
+        """Nested Object A nested object with its own documentation"""
+
+    class PatternProps(_pydantic.BaseModel):
+        class PydanticExtraObject(_pydantic.BaseModel):
+            model_config = _pydantic.ConfigDict(extra='allow')
+
+            patternObj: _typing.Optional[bool] = None
+
+        __pydantic_extra__: dict[str, _typing.Union["PydanticExtraObject", int, str]] = _pydantic.Field(init=False) # type: ignore[reportIncompatibleVariableOverride]
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        id: _typing.Optional[int] = None
+
+    class PythonKeywords(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        class_: _typing.Optional[str] = _pydantic.Field(default=None, alias="class")
+        def_: _typing.Optional[int] = _pydantic.Field(default=None, alias="def")
+        for_: _typing.Optional[str] = _pydantic.Field(default=None, alias="for")
+        if_: _typing.Optional[str] = _pydantic.Field(default=None, alias="if")
+        return_: _typing.Optional[bool] = _pydantic.Field(default=None, alias="return")
+
+    class RequiredAndOptional(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        optional1: _typing.Optional[bool] = None
+        optional2: _typing.Optional[_typing.Union[int, float]] = None
+        required1: str
+        required2: int
+
+    class WithoutTypeObject(_pydantic.BaseModel):
+        model_config = _pydantic.ConfigDict(extra='allow')
+
+        nested: _typing.Optional[int] = None
+
+    model_config = _pydantic.ConfigDict(extra='allow')
+
+    additionalPropsAllowed: _typing.Optional["AdditionalPropsAllowed"] = None
+    anyType: _typing.Optional[_typing.Any] = None
+    """Field that accepts any value"""
+    anyTypeExplicit: _typing.Optional[_typing.Any] = None
+    arrayOfObjects: _typing.Optional[list["ArrayOfObjectsItem"]] = None
+    complexEnum: _typing.Optional[_typing.Union[_typing.Literal[42, "option-A", "option-B", "option-C"], float]] = None
+    constValue: _typing.Optional[_typing.Literal["fixed-value"]] = None
+    emptyObject: _typing.Optional["EmptyObject"] = None
+    enumWithObject: _typing.Optional[_typing.Union[_typing.Literal[42], "EnumWithObjectObject"]] = None
+    invalidIdentifiers: _typing.Optional["InvalidIdentifiers"] = None
+    mixedUnion: _typing.Optional[_typing.Union["MixedUnionObject", int, float, str]] = None
+    nestedObject: _typing.Optional["NestedObject"] = None
+    never: _typing.Optional[_typing.Literal["this field is constrained by its schema to never exist"]] = None
+    objectInList: _typing.Optional[list["ObjectInListItem"]] = None
+    objectInUnion: _typing.Optional["ObjectInUnion"] = None
+    objectWithDocs: _typing.Optional["ObjectWithDocs"] = None
+    """Documented Object An object with comprehensive documentation"""
+    patternProps: _typing.Optional["PatternProps"] = None
+    pythonKeywords: _typing.Optional["PythonKeywords"] = None
+    requiredAndOptional: _typing.Optional["RequiredAndOptional"] = None
+    singleEnum: _typing.Optional[_typing.Literal["only-one"]] = None
+    tuple1: _typing.Optional[tuple[str, int, bool]] = None
+    """Tuple using only prefixItems"""
+    tuple2: _typing.Optional[tuple[_typing.Union[int, float], _typing.Union[int, float]]] = None
+    """Tuple using only items"""
+    tuple3: _typing.Optional[tuple[str, int, bool, bool]] = None
+    """Tuple using mix of prefixItems and items"""
+    tuple4: _typing.Optional[tuple[str, _typing.Any]] = None
+    """Tuple with incomplete prefixItems"""
+    unionWithDocs: _typing.Optional[_typing.Union[int, float, str]] = None
+    """Documented Union A union type with documentation"""
+    withBoth: _typing.Optional[bool] = None
+    """Title and Description This field has both a title and a description for comprehensive documentation"""
+    withDescription: _typing.Optional[int] = None
+    """A field with a description explaining its purpose"""
+    withTitle: _typing.Optional[str] = None
+    """A field with a title"""
+    withoutType: _typing.Optional[_typing.Union["WithoutTypeObject", list[_typing.Any], bool, int, float, str, None]] = None

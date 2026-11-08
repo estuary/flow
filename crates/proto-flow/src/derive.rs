@@ -67,17 +67,17 @@ pub mod request {
             tag = "5"
         )]
         pub shuffle_key_types: ::prost::alloc::vec::Vec<i32>,
-        /// URL which roots the current Flow project.
-        ///
-        /// Derivation connectors should use this URL to generate any project-level
-        /// files which are returned with Response.Validated.generated_files.
+        /// URL of the directory of this task's specification, without a trailing
+        /// slash. The connector must locate each file it generates underneath this
+        /// URL, and return them with Response.Validated.generated_files.
         #[prost(string, tag = "6")]
         pub project_root: ::prost::alloc::string::String,
         /// Map of relative JSON pointers to the derivation specification,
         /// and the absolute URL from which the location's content was resolved.
-        /// Connectors may use this for generating more helpful errors which are
-        /// framed to the user's filesystem, rather than the filesystem within
-        /// the connector.
+        ///
+        /// Deprecated, and to be removed: specifications are inlined before
+        /// validation, so this is effectively always empty. It's still populated
+        /// for the benefit of older connectors, but new connectors must not use it.
         #[prost(btree_map = "string, string", tag = "7")]
         pub import_map: ::prost::alloc::collections::BTreeMap<
             ::prost::alloc::string::String,
@@ -107,12 +107,10 @@ pub mod request {
         /// are unique on name.
         #[prost(message, repeated, tag = "10")]
         pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
-        /// Secrets of this derivation, mapping a JSON pointer within `config_json`
-        /// to the catalog name of a secret which the runtime resolves and merges
+        /// Secrets of this derivation, mapping a catalog secret name to its JSON
+        /// pointer within `config_json`. The runtime resolves and merges each secret
         /// into that location, as an RFC 7396 merge patch, before handing the
-        /// configuration to the connector. Entries are applied in lexicographic
-        /// pointer order. Empty if this derivation uses no secrets, or if
-        /// `config_json` is instead sops-encrypted.
+        /// configuration to the connector.
         #[prost(btree_map = "string, string", tag = "11")]
         pub secrets: ::prost::alloc::collections::BTreeMap<
             ::prost::alloc::string::String,
@@ -330,8 +328,7 @@ pub mod response {
         /// Keys are absolute URLs of the generated resource, and values are its
         /// generated file content.
         ///
-        /// This can include project-level files, which should be underneath
-        /// Request.Validate.project_root.
+        /// Each key must be underneath Request.Validate.project_root.
         ///
         /// When run in certain contexts within a user's local development environment,
         /// reads of Flow specifications use a relaxed handling for missing configuration

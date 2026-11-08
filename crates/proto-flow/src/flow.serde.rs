@@ -30,7 +30,7 @@ impl<'de> serde::Deserialize<'de> for BuildApi {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -93,9 +93,6 @@ impl serde::Serialize for build_api::Config {
         if !self.connector_network.is_empty() {
             len += 1;
         }
-        if !self.project_root.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("flow.BuildAPI.Config", len)?;
         if !self.build_id.is_empty() {
             struct_ser.serialize_field("buildId", &self.build_id)?;
@@ -113,9 +110,6 @@ impl serde::Serialize for build_api::Config {
         }
         if !self.connector_network.is_empty() {
             struct_ser.serialize_field("connectorNetwork", &self.connector_network)?;
-        }
-        if !self.project_root.is_empty() {
-            struct_ser.serialize_field("projectRoot", &self.project_root)?;
         }
         struct_ser.end()
     }
@@ -136,8 +130,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
             "sourceType",
             "connector_network",
             "connectorNetwork",
-            "project_root",
-            "projectRoot",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -147,7 +139,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
             Source,
             SourceType,
             ConnectorNetwork,
-            ProjectRoot,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -157,7 +148,7 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -175,7 +166,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
                             "source" => Ok(GeneratedField::Source),
                             "sourceType" | "source_type" => Ok(GeneratedField::SourceType),
                             "connectorNetwork" | "connector_network" => Ok(GeneratedField::ConnectorNetwork),
-                            "projectRoot" | "project_root" => Ok(GeneratedField::ProjectRoot),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -200,7 +190,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
                 let mut source__ = None;
                 let mut source_type__ = None;
                 let mut connector_network__ = None;
-                let mut project_root__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::BuildId => {
@@ -233,12 +222,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
                             }
                             connector_network__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::ProjectRoot => {
-                            if project_root__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("projectRoot"));
-                            }
-                            project_root__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -250,7 +233,6 @@ impl<'de> serde::Deserialize<'de> for build_api::Config {
                     source: source__.unwrap_or_default(),
                     source_type: source_type__.unwrap_or_default(),
                     connector_network: connector_network__.unwrap_or_default(),
-                    project_root: project_root__.unwrap_or_default(),
                 })
             }
         }
@@ -304,6 +286,9 @@ impl serde::Serialize for CaptureSpec {
         if !self.secrets.is_empty() {
             len += 1;
         }
+        if self.connector_spec.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CaptureSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -350,6 +335,9 @@ impl serde::Serialize for CaptureSpec {
         if !self.secrets.is_empty() {
             struct_ser.serialize_field("secrets", &self.secrets)?;
         }
+        if let Some(v) = self.connector_spec.as_ref() {
+            struct_ser.serialize_field("connectorSpec", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -383,6 +371,8 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             "linked_collections",
             "linkedCollections",
             "secrets",
+            "connector_spec",
+            "connectorSpec",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -400,6 +390,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             CreatedAt,
             LinkedCollections,
             Secrets,
+            ConnectorSpec,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -409,7 +400,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -435,6 +426,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
                             "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
                             "secrets" => Ok(GeneratedField::Secrets),
+                            "connectorSpec" | "connector_spec" => Ok(GeneratedField::ConnectorSpec),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -467,6 +459,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                 let mut created_at__ = None;
                 let mut linked_collections__ = None;
                 let mut secrets__ = None;
+                let mut connector_spec__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -555,6 +548,12 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                                 map_.next_value::<std::collections::BTreeMap<_, _>>()?
                             );
                         }
+                        GeneratedField::ConnectorSpec => {
+                            if connector_spec__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("connectorSpec"));
+                            }
+                            connector_spec__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -574,6 +573,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                     created_at: created_at__.unwrap_or_default(),
                     linked_collections: linked_collections__.unwrap_or_default(),
                     secrets: secrets__.unwrap_or_default(),
+                    connector_spec: connector_spec__,
                 })
             }
         }
@@ -666,7 +666,7 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -800,7 +800,7 @@ impl<'de> serde::Deserialize<'de> for capture_spec::ConnectorType {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = capture_spec::ConnectorType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -970,7 +970,7 @@ impl<'de> serde::Deserialize<'de> for CollectionSpec {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1153,6 +1153,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if !self.secrets.is_empty() {
             len += 1;
         }
+        if self.connector_spec.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CollectionSpec.Derivation", len)?;
         if self.connector_type != 0 {
             let v = collection_spec::derivation::ConnectorType::try_from(self.connector_type)
@@ -1197,6 +1200,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if !self.secrets.is_empty() {
             struct_ser.serialize_field("secrets", &self.secrets)?;
         }
+        if let Some(v) = self.connector_spec.as_ref() {
+            struct_ser.serialize_field("connectorSpec", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -1227,6 +1233,8 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             "linked_collections",
             "linkedCollections",
             "secrets",
+            "connector_spec",
+            "connectorSpec",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1242,6 +1250,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             RedactSalt,
             LinkedCollections,
             Secrets,
+            ConnectorSpec,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1251,7 +1260,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1275,6 +1284,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             "redactSalt" | "redact_salt" => Ok(GeneratedField::RedactSalt),
                             "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
                             "secrets" => Ok(GeneratedField::Secrets),
+                            "connectorSpec" | "connector_spec" => Ok(GeneratedField::ConnectorSpec),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1305,6 +1315,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                 let mut redact_salt__ = None;
                 let mut linked_collections__ = None;
                 let mut secrets__ = None;
+                let mut connector_spec__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
@@ -1379,6 +1390,12 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                                 map_.next_value::<std::collections::BTreeMap<_, _>>()?
                             );
                         }
+                        GeneratedField::ConnectorSpec => {
+                            if connector_spec__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("connectorSpec"));
+                            }
+                            connector_spec__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1396,6 +1413,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                     redact_salt: redact_salt__.unwrap_or_default(),
                     linked_collections: linked_collections__.unwrap_or_default(),
                     secrets: secrets__.unwrap_or_default(),
+                    connector_spec: connector_spec__,
                 })
             }
         }
@@ -1436,7 +1454,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::ConnectorType
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = collection_spec::derivation::ConnectorType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1515,7 +1533,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::ShuffleType {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = collection_spec::derivation::ShuffleType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1729,7 +1747,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1922,6 +1940,200 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
         deserializer.deserialize_struct("flow.CollectionSpec.Derivation.Transform", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for ConnectorSpec {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.protocol != 0 {
+            len += 1;
+        }
+        if !self.config_schema_json.is_empty() {
+            len += 1;
+        }
+        if !self.resource_config_schema_json.is_empty() {
+            len += 1;
+        }
+        if !self.documentation_url.is_empty() {
+            len += 1;
+        }
+        if self.oauth2.is_some() {
+            len += 1;
+        }
+        if !self.resource_path_pointers.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("flow.ConnectorSpec", len)?;
+        if self.protocol != 0 {
+            struct_ser.serialize_field("protocol", &self.protocol)?;
+        }
+        if !self.config_schema_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("configSchema", &crate::as_raw_json(&self.config_schema_json)?)?;
+        }
+        if !self.resource_config_schema_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("resourceConfigSchema", &crate::as_raw_json(&self.resource_config_schema_json)?)?;
+        }
+        if !self.documentation_url.is_empty() {
+            struct_ser.serialize_field("documentationUrl", &self.documentation_url)?;
+        }
+        if let Some(v) = self.oauth2.as_ref() {
+            struct_ser.serialize_field("oauth2", v)?;
+        }
+        if !self.resource_path_pointers.is_empty() {
+            struct_ser.serialize_field("resourcePathPointers", &self.resource_path_pointers)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ConnectorSpec {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "protocol",
+            "config_schema_json",
+            "configSchema",
+            "resource_config_schema_json",
+            "resourceConfigSchema",
+            "documentation_url",
+            "documentationUrl",
+            "oauth2",
+            "resource_path_pointers",
+            "resourcePathPointers",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Protocol,
+            ConfigSchemaJson,
+            ResourceConfigSchemaJson,
+            DocumentationUrl,
+            Oauth2,
+            ResourcePathPointers,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "protocol" => Ok(GeneratedField::Protocol),
+                            "configSchema" | "config_schema_json" => Ok(GeneratedField::ConfigSchemaJson),
+                            "resourceConfigSchema" | "resource_config_schema_json" => Ok(GeneratedField::ResourceConfigSchemaJson),
+                            "documentationUrl" | "documentation_url" => Ok(GeneratedField::DocumentationUrl),
+                            "oauth2" => Ok(GeneratedField::Oauth2),
+                            "resourcePathPointers" | "resource_path_pointers" => Ok(GeneratedField::ResourcePathPointers),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ConnectorSpec;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct flow.ConnectorSpec")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ConnectorSpec, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut protocol__ = None;
+                let mut config_schema_json__ = None;
+                let mut resource_config_schema_json__ = None;
+                let mut documentation_url__ = None;
+                let mut oauth2__ = None;
+                let mut resource_path_pointers__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Protocol => {
+                            if protocol__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("protocol"));
+                            }
+                            protocol__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::ConfigSchemaJson => {
+                            if config_schema_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("configSchema"));
+                            }
+                            config_schema_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
+                        GeneratedField::ResourceConfigSchemaJson => {
+                            if resource_config_schema_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("resourceConfigSchema"));
+                            }
+                            resource_config_schema_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
+                        GeneratedField::DocumentationUrl => {
+                            if documentation_url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("documentationUrl"));
+                            }
+                            documentation_url__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Oauth2 => {
+                            if oauth2__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("oauth2"));
+                            }
+                            oauth2__ = map_.next_value()?;
+                        }
+                        GeneratedField::ResourcePathPointers => {
+                            if resource_path_pointers__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("resourcePathPointers"));
+                            }
+                            resource_path_pointers__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ConnectorSpec {
+                    protocol: protocol__.unwrap_or_default(),
+                    config_schema_json: config_schema_json__.unwrap_or_default(),
+                    resource_config_schema_json: resource_config_schema_json__.unwrap_or_default(),
+                    documentation_url: documentation_url__.unwrap_or_default(),
+                    oauth2: oauth2__,
+                    resource_path_pointers: resource_path_pointers__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("flow.ConnectorSpec", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for ConnectorState {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1974,7 +2186,7 @@ impl<'de> serde::Deserialize<'de> for ConnectorState {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2051,6 +2263,7 @@ impl serde::Serialize for ContentType {
             Self::JsonSchema => "JSON_SCHEMA",
             Self::Config => "CONFIG",
             Self::DocumentsFixture => "DOCUMENTS_FIXTURE",
+            Self::Text => "TEXT",
         };
         serializer.serialize_str(variant)
     }
@@ -2066,11 +2279,12 @@ impl<'de> serde::Deserialize<'de> for ContentType {
             "JSON_SCHEMA",
             "CONFIG",
             "DOCUMENTS_FIXTURE",
+            "TEXT",
         ];
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = ContentType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2110,6 +2324,7 @@ impl<'de> serde::Deserialize<'de> for ContentType {
                     "JSON_SCHEMA" => Ok(ContentType::JsonSchema),
                     "CONFIG" => Ok(ContentType::Config),
                     "DOCUMENTS_FIXTURE" => Ok(ContentType::DocumentsFixture),
+                    "TEXT" => Ok(ContentType::Text),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -2149,7 +2364,7 @@ impl<'de> serde::Deserialize<'de> for ExtractApi {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2221,7 +2436,7 @@ impl<'de> serde::Deserialize<'de> for extract_api::Code {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = extract_api::Code;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2338,7 +2553,7 @@ impl<'de> serde::Deserialize<'de> for extract_api::Config {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2487,7 +2702,7 @@ impl<'de> serde::Deserialize<'de> for FieldSelection {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2719,7 +2934,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2955,7 +3170,7 @@ impl<'de> serde::Deserialize<'de> for inference::Array {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3073,7 +3288,7 @@ impl<'de> serde::Deserialize<'de> for inference::Exists {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = inference::Exists;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3187,7 +3402,7 @@ impl<'de> serde::Deserialize<'de> for inference::Numeric {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3303,7 +3518,7 @@ impl<'de> serde::Deserialize<'de> for inference::Redact {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = inference::Redact;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3394,7 +3609,7 @@ impl<'de> serde::Deserialize<'de> for inference::Reduce {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = inference::Reduce;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3533,7 +3748,7 @@ impl<'de> serde::Deserialize<'de> for inference::String {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3682,6 +3897,9 @@ impl serde::Serialize for MaterializationSpec {
         if !self.secrets.is_empty() {
             len += 1;
         }
+        if self.connector_spec.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -3730,6 +3948,9 @@ impl serde::Serialize for MaterializationSpec {
         if !self.secrets.is_empty() {
             struct_ser.serialize_field("secrets", &self.secrets)?;
         }
+        if let Some(v) = self.connector_spec.as_ref() {
+            struct_ser.serialize_field("connectorSpec", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -3763,6 +3984,8 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             "linked_collections",
             "linkedCollections",
             "secrets",
+            "connector_spec",
+            "connectorSpec",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3780,6 +4003,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             SyncScheduleJson,
             LinkedCollections,
             Secrets,
+            ConnectorSpec,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3789,7 +4013,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3815,6 +4039,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             "syncSchedule" | "sync_schedule_json" => Ok(GeneratedField::SyncScheduleJson),
                             "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
                             "secrets" => Ok(GeneratedField::Secrets),
+                            "connectorSpec" | "connector_spec" => Ok(GeneratedField::ConnectorSpec),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3847,6 +4072,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                 let mut sync_schedule_json__ = None;
                 let mut linked_collections__ = None;
                 let mut secrets__ = None;
+                let mut connector_spec__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -3935,6 +4161,12 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                                 map_.next_value::<std::collections::BTreeMap<_, _>>()?
                             );
                         }
+                        GeneratedField::ConnectorSpec => {
+                            if connector_spec__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("connectorSpec"));
+                            }
+                            connector_spec__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3954,6 +4186,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                     sync_schedule_json: sync_schedule_json__.unwrap_or_default(),
                     linked_collections: linked_collections__.unwrap_or_default(),
                     secrets: secrets__.unwrap_or_default(),
+                    connector_spec: connector_spec__,
                 })
             }
         }
@@ -4126,7 +4359,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4365,7 +4598,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::binding::DeprecatedS
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4459,7 +4692,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::ConnectorType {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = materialization_spec::ConnectorType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4562,7 +4795,7 @@ impl<'de> serde::Deserialize<'de> for NetworkPort {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4776,7 +5009,7 @@ impl<'de> serde::Deserialize<'de> for OAuth2 {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5024,7 +5257,7 @@ impl<'de> serde::Deserialize<'de> for Projection {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5192,7 +5425,7 @@ impl<'de> serde::Deserialize<'de> for RangeSpec {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5341,7 +5574,7 @@ impl<'de> serde::Deserialize<'de> for SerPolicy {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5468,7 +5701,7 @@ impl<'de> serde::Deserialize<'de> for Slice {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5586,7 +5819,7 @@ impl<'de> serde::Deserialize<'de> for TaskNetworkProxyRequest {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5719,7 +5952,7 @@ impl<'de> serde::Deserialize<'de> for task_network_proxy_request::Open {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5854,7 +6087,7 @@ impl<'de> serde::Deserialize<'de> for TaskNetworkProxyResponse {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5970,7 +6203,7 @@ impl<'de> serde::Deserialize<'de> for task_network_proxy_response::OpenResponse 
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -6070,7 +6303,7 @@ impl<'de> serde::Deserialize<'de> for task_network_proxy_response::Status {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = task_network_proxy_response::Status;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -6168,7 +6401,7 @@ impl<'de> serde::Deserialize<'de> for TestSpec {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -6326,7 +6559,7 @@ impl<'de> serde::Deserialize<'de> for test_spec::Step {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -6466,7 +6699,7 @@ impl<'de> serde::Deserialize<'de> for test_spec::step::Type {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = test_spec::step::Type;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -6563,7 +6796,7 @@ impl<'de> serde::Deserialize<'de> for UuidParts {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

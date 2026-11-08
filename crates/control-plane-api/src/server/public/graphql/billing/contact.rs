@@ -3,7 +3,7 @@ use async_graphql::{InputObject, SimpleObject};
 
 #[derive(Debug, Clone, SimpleObject)]
 pub struct BillingContact {
-    pub email: Option<String>,
+    pub emails: Vec<String>,
     pub name: Option<String>,
     pub address: Option<BillingAddress>,
 }
@@ -60,7 +60,7 @@ pub async fn fetch_billing_contact(
 ) -> anyhow::Result<BillingContact> {
     let row = sqlx::query!(
         r#"
-        SELECT billing_email, billing_name, billing_address
+        SELECT billing_emails, billing_name, billing_address
         FROM tenants
         WHERE tenant = $1
         "#,
@@ -76,40 +76,34 @@ pub async fn fetch_billing_contact(
         .context("deserializing stored billing_address")?;
 
     Ok(BillingContact {
-        email: row.billing_email,
+        emails: row.billing_emails,
         name: row.billing_name,
         address,
     })
 }
 
-pub struct UpdatedBillingContact {
-    pub email: Option<String>,
-    pub name: Option<String>,
-    pub address: Option<BillingAddress>,
-}
-
 pub async fn update_billing_contact(
     pool: &sqlx::PgPool,
     tenant: &str,
-    email: &str,
+    emails: &[String],
     name: &str,
     address: &BillingAddress,
-) -> anyhow::Result<UpdatedBillingContact> {
+) -> anyhow::Result<BillingContact> {
     let address_json = serde_json::to_value(address)?;
 
     let row = sqlx::query!(
         r#"
         UPDATE tenants
         SET
-            billing_email = $2,
+            billing_emails = $2,
             billing_name = $3,
             billing_address = $4,
             updated_at = now()
         WHERE tenant = $1
-        RETURNING billing_email, billing_name, billing_address
+        RETURNING billing_emails, billing_name, billing_address
         "#,
         tenant,
-        email,
+        emails,
         name,
         address_json,
     )
@@ -122,8 +116,8 @@ pub async fn update_billing_contact(
         .transpose()
         .context("deserializing stored billing_address")?;
 
-    Ok(UpdatedBillingContact {
-        email: row.billing_email,
+    Ok(BillingContact {
+        emails: row.billing_emails,
         name: row.billing_name,
         address,
     })

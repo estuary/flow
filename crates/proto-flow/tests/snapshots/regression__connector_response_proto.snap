@@ -1,0 +1,6 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: proto_test(ex_connector_response())
+---
+|0a041001 3200|                       ....2.           00000000
+                                                       00000006

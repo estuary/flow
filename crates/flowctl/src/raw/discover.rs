@@ -1,5 +1,5 @@
-use crate::local_specs;
-use proto_flow::{capture, flow};
+use crate::{local_connector, local_specs};
+use proto_flow::capture;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -18,18 +18,14 @@ pub struct Discover {
     /// Rather than updating the filesystem with the discovered specs
     #[clap(long)]
     emit_raw: bool,
-    /// Docker network to run the connector.
-    #[clap(long, default_value = "bridge")]
-    network: String,
 }
 
 pub async fn do_discover(
-    _ctx: &mut crate::CliContext,
+    ctx: &mut crate::CliContext,
     Discover {
         source,
         capture,
         flat,
-        network,
         emit_raw,
     }: &Discover,
 ) -> anyhow::Result<()> {
@@ -70,44 +66,34 @@ pub async fn do_discover(
 
     let secrets = assemble::secrets(&model_clone.secrets);
 
-    let discover = match &model_clone.endpoint {
-        models::CaptureEndpoint::Connector(config) => capture::request::Discover {
-            name: capture.capture.to_string(),
-            connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: serde_json::to_string(&config).unwrap().into(),
-            created_at: String::new(),
-            secrets,
-        },
-        models::CaptureEndpoint::Local(config) => capture::request::Discover {
-            name: capture.capture.to_string(),
-            connector_type: flow::capture_spec::ConnectorType::Local as i32,
-            config_json: serde_json::to_string(config).unwrap().into(),
-            created_at: String::new(),
-            secrets,
-        },
-    };
-    let discover = capture::Request {
-        kind: Some(capture::request::Kind::Discover(Box::new(discover))),
-        ..Default::default()
-    }
-    .with_internal(|internal| {
-        if let Some(s) = &model_clone.shards.log_level {
-            internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
-        }
-    });
+    let capture::request::Spec {
+        connector_type,
+        config_json,
+    } = validation::capture_spec_request(&model_clone.endpoint, &model_clone.shards);
 
-    let response = runtime::Runtime::new(
-        runtime::Plane::Local,
-        network.clone(),
-        ops::tracing_log_handler,
-        None,
-        format!("discover/{}", capture.capture),
+    let discover = capture::request::Discover {
+        name: capture.capture.to_string(),
+        connector_type,
+        config_json,
+        created_at: String::new(),
+        secrets,
+    };
+
+    let router = ctx.local_connector_router();
+    let response = local_connector::unary(
+        &*router,
+        model_clone.shards.log_level.as_deref(),
+        proto_flow::connector::request::Kind::Capture(capture::Request {
+            kind: Some(capture::request::Kind::Discover(Box::new(discover))),
+            ..Default::default()
+        }),
     )
-    .unary_capture(discover)
     .await?;
 
-    let Some(capture::response::Kind::Discovered(capture::response::Discovered { bindings })) =
-        response.kind
+    let Some(capture::Response {
+        kind: Some(capture::response::Kind::Discovered(capture::response::Discovered { bindings })),
+        ..
+    }) = proto_grpc::connector::unwrap_capture(response)
     else {
         anyhow::bail!("connector didn't send expected Discovered response");
     };
@@ -136,10 +122,19 @@ pub async fn do_discover(
         let collection_name = format!("{prefix}/{}", binding.recommended_name);
         let collection = models::Collection::new(collection_name);
 
+        // Each binding documents its resource path at `/_meta/path`, as
+        // control-plane discovers do. A connector which predates Discovered
+        // resource paths leaves validation to record them.
+        let mut resource =
+            serde_json::from_slice::<models::RawValue>(&binding.resource_config_json)?;
+        if !binding.resource_path.is_empty() {
+            resource = validation::store_resource_meta(&resource, &binding.resource_path);
+        }
+
         model.bindings.push(models::CaptureBinding {
             target: collection.clone(),
             disable: false,
-            resource: serde_json::from_slice::<models::RawValue>(&binding.resource_config_json)?,
+            resource,
             backfill: 0,
         });
 
@@ -147,6 +142,7 @@ pub async fn do_discover(
             collection,
             &scope,
             None,
+            models::Id::zero(), // Local drafts make no placement.
             Some(models::CollectionDef {
                 schema: Some(models::Schema::new(serde_json::from_slice::<
                     models::RawValue,

@@ -310,8 +310,7 @@ fn main() {
     config
         .out_dir(&b.src_dir)
         .btree_map(&["."]) // Make ordering stable for snapshots.
-        // Fields that hold tuple-encoded values use Bytes rather than Vec<u8>.
-        .bytes(&["."]) // Use Bytes instead of Vec<u8>.
+        .bytes(&["."]) // Represent byte fields with Bytes, not Vec<u8>.
         .file_descriptor_set_path(&b.descriptor_path)
         .compile_well_known_types()
         .extern_path(".consumer", "::proto_gazette::consumer")
@@ -339,6 +338,9 @@ fn main() {
         ".materialize.Request.kind.apply",
         ".materialize.Request.kind.open",
         ".materialize.Response.kind.spec",
+        ".connector.Response.Started.spec.capture",
+        ".connector.Response.Started.spec.derive",
+        ".connector.Response.Started.spec.materialize",
     ] {
         config.boxed(path);
     }
@@ -355,6 +357,16 @@ fn main() {
         ".capture.Request.Validate.Binding.collection",
         ".materialize.Request.Validate.Binding.collection",
         ".derive.Request.Validate.Transform.collection",
+    ] {
+        config.boxed(path);
+    }
+
+    // A built spec's `ConnectorSpec` is large and read only by the control
+    // plane, so it's boxed to keep it out of the size of every built spec.
+    for path in [
+        ".flow.CaptureSpec.connector_spec",
+        ".flow.MaterializationSpec.connector_spec",
+        ".flow.CollectionSpec.Derivation.connector_spec",
     ] {
         config.boxed(path);
     }
@@ -382,6 +394,7 @@ fn main() {
         .build(&[
             ".flow",
             ".capture",
+            ".connector",
             ".derive",
             ".materialize",
             ".ops",
@@ -436,6 +449,7 @@ fn main() {
 
     for path in [
         "./capture.serde.rs",
+        "./connector.serde.rs",
         "./derive.serde.rs",
         "./flow.serde.rs",
         "./materialize.serde.rs",

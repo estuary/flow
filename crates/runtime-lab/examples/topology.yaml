@@ -1,0 +1,26 @@
+# Three hosts, each running three shards of each reference task (and the
+# capture, which has exactly one shard, on h2). Host h2 starts unconstrained;
+# `scripts/example_cap_cpu.py` caps its reactor mid-run.
+catalog: catalog.flow.yaml
+
+hosts:
+  h1:
+    reactor: { cgroup: { cpuset.cpus: "0-1" } }
+    sidecar: { cgroup: { cpuset.cpus: "0-1" } }
+    connectors: { cgroup: { cpuset.cpus: "0-1" } }
+  h2:
+    reactor: { cgroup: { cpuset.cpus: "2-3" } }
+    sidecar: { cgroup: { cpuset.cpus: "2-3" } }
+    connectors: { cgroup: { cpuset.cpus: "2-3" } }
+  h3:
+    reactor: { cgroup: { cpuset.cpus: "4-5" } }
+    sidecar: { cgroup: { cpuset.cpus: "4-5" } }
+    connectors: { cgroup: { cpuset.cpus: "4-5" } }
+
+tasks:
+  acmeCo/lab/sink:
+    shards: [h1, h2, h3, h1, h2, h3, h1, h2, h3]
+  acmeCo/lab/identity:
+    shards: [h1, h2, h3, h1, h2, h3, h1, h2, h3]
+  acmeCo/lab/pg:
+    shards: [h2]

@@ -1,0 +1,5 @@
+---
+source: crates/python-connector/src/config_types.rs
+expression: "format!(\"{err:#}\")"
+---
+invalid `configSchema`: invalid JSON schema: at schema://bundle#/type: invalid type name: 'not-a-type'

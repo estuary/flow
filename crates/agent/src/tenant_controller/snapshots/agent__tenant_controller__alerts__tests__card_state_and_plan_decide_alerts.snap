@@ -1,0 +1,97 @@
+---
+source: crates/agent/src/tenant_controller/alerts.rs
+expression: results
+---
+[
+  {
+    "case": "without a billing provider, leaves alerts unchanged",
+    "notificationTasks": 2,
+    "open": [
+      [
+        "missing_payment_method",
+        "acmeCo/alerts/missing_payment_method"
+      ],
+      [
+        "shard_failed",
+        "acmeCo/alerts/missing_payment_method"
+      ]
+    ],
+    "status": {},
+    "waitSeconds": 68366
+  },
+  {
+    "case": "live customer with a card",
+    "notificationTasks": 2,
+    "open": [
+      [
+        "shard_failed",
+        "acmeCo/alerts/missing_payment_method"
+      ]
+    ],
+    "status": {},
+    "waitSeconds": 68366
+  },
+  {
+    "case": "live customer without a card",
+    "notificationTasks": 3,
+    "open": [
+      [
+        "missing_payment_method",
+        "acmeCo/alerts/missing_payment_method"
+      ],
+      [
+        "shard_failed",
+        "acmeCo/alerts/missing_payment_method"
+      ]
+    ],
+    "status": {},
+    "waitSeconds": 68366
+  },
+  {
+    "case": "failed retrieval changes nothing",
+    "notificationTasks": 3,
+    "open": [
+      [
+        "missing_payment_method",
+        "acmeCo/alerts/missing_payment_method"
+      ],
+      [
+        "shard_failed",
+        "acmeCo/alerts/missing_payment_method"
+      ]
+    ],
+    "status": {
+      "failures": 1,
+      "last_error": "Stripe is unavailable"
+    },
+    "waitSeconds": 60
+  },
+  {
+    "case": "successful retrieval clears the failure",
+    "notificationTasks": 3,
+    "open": [
+      [
+        "missing_payment_method",
+        "acmeCo/alerts/missing_payment_method"
+      ],
+      [
+        "shard_failed",
+        "acmeCo/alerts/missing_payment_method"
+      ]
+    ],
+    "status": {},
+    "waitSeconds": 68366
+  },
+  {
+    "case": "contract closes its alerts silently",
+    "notificationTasks": 2,
+    "open": [
+      [
+        "shard_failed",
+        "acmeCo/alerts/missing_payment_method"
+      ]
+    ],
+    "status": {},
+    "waitSeconds": null
+  }
+]

@@ -185,9 +185,9 @@ async fn drain_loop(
         //    head with no unresolved causal hints. `bytes_behind` sums each
         //    journal's cumulative `write_head - read_offset`, which is never
         //    negative, so a zero sum means every journal is at its head; AND
-        //  - every base-set journal has appeared in a checkpoint. Combined with
-        //    the caught-up check, having been read means it has been read through
-        //    its probed head (the live head is at or beyond it).
+        //  - every base-set journal has had bytes read in some checkpoint.
+        //    Combined with the caught-up check, having been read means it has
+        //    been read through its probed head (the live head is at or beyond it).
         if let Some(pending) = &pending {
             let (_, _, _, bytes_behind) = frontier.measures();
             if bytes_behind == 0 && frontier.unresolved_hints == 0 && pending.is_empty() {
@@ -234,18 +234,29 @@ async fn drain_loop(
 
         on_checkpoint(&delta)?;
 
-        // Drop base-set journals that progressed in this checkpoint: any journal
-        // present in a delta has been read, and the caught-up check above
-        // confirms it's been read through its write head.
+        // Drop base-set journals read in this checkpoint. The caught-up check
+        // above confirms each has been read through its write head.
         if let Some(pending) = &mut pending {
             for jf in &delta.journals {
-                pending.remove(jf.journal.as_ref());
+                // Entries carrying only a gap floor or causal-hint state record no
+                // read of the journal. Only bytes read show it's been read.
+                if jf.bytes_read_delta != 0 {
+                    pending.remove(jf.journal.as_ref());
+                }
             }
         }
 
         // The Session always tails, so we detect "caught up" client-side rather
         // than wait for an EOF that won't come.
+        let resolved = delta.unresolved_hints == 0;
         frontier = frontier.reduce(delta);
+
+        // A resolved checkpoint resolves or discharges every hint of earlier
+        // peeks. A discharged hint is dropped rather than resolved, so it would
+        // otherwise persist through `reduce` and block the stop condition.
+        if resolved {
+            frontier.clear_discharged_hints();
+        }
     }
 }
 
@@ -316,16 +327,20 @@ async fn list_base_set(
         // Probe where a read of this journal would begin once fragments before
         // `not_before` are fast-forwarded, along with its current write head.
         // A probed offset already at the write head means all content precedes
-        // `not_before`: the read is caught up and the journal may never appear
-        // in a Frontier, so it must not join the read-through set.
-        let (offset, write_head, _header) = shuffle::slice::read::probe_read_start(
-            client.clone(),
-            &spec.name,
+        // `not_before`: the read is caught up and the journal may never be read,
+        // so it must not join the read-through set.
+        let broker::ReadResponse {
+            offset, write_head, ..
+        } = shuffle::slice::read::probe_read(
+            &client,
+            &broker::ReadRequest {
+                journal: spec.name.clone(),
+                begin_mod_time,
+                do_not_proxy: true,
+                min_etcd_revision: journal.create_revision,
+                ..Default::default()
+            },
             "ad-hoc",
-            None,
-            journal.create_revision,
-            0,
-            begin_mod_time,
         )
         .await?;
 

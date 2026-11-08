@@ -426,7 +426,10 @@ fn validate_bindings(
 
     Ok(materialize::Response {
         kind: Some(materialize::response::Kind::Validated(
-            materialize::response::Validated { bindings },
+            materialize::response::Validated {
+                bindings,
+                ..Default::default()
+            },
         )),
         ..Default::default()
     })

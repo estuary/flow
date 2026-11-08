@@ -30,6 +30,8 @@ pub(super) struct Startup<P: crate::Publisher, S: crate::leader::ShuffleSession,
     pub session: S,
     // Task definition.
     pub task: Task,
+    // Durable gap floors, keyed by binding index.
+    pub gap_floors: BTreeMap<u16, uuid::Clock>,
     // Leader's initial cumulative backfill-begin boundary (committed ∪ hinted).
     pub backfill_begin: BTreeMap<u16, uuid::Clock>,
     // Leader's initial cumulative backfill-complete boundary (committed ∪ hinted).
@@ -130,6 +132,7 @@ pub(super) async fn run<
         max_keys,
         trigger_params_json: pending_trigger_params,
         active_backfills: _, // capture-only state
+        gap_floors,
     } = recv_recovers(shard_rx, &task.peers)
         .await
         .context("receiving Recover fan-in")?;
@@ -141,6 +144,8 @@ pub(super) async fn run<
         .context("validating hinted Frontier")?;
     let committed_frontier = shuffle::Frontier::decode(committed_frontier.unwrap_or_default())
         .context("validating committed Frontier")?;
+
+    let gap_floors = frontier_mapping::recovered_gap_floors(&gap_floors);
 
     tracing::debug!(
         ?committed_close,
@@ -241,6 +246,8 @@ pub(super) async fn run<
         backfill_begin,
         backfill_complete,
     ) = scanned.into_projected_parts();
+    let mut resume_frontier = resume_frontier;
+    resume_frontier.hydrate_gap_floors(&gap_floors);
 
     // Open the shuffle Session with the recovered resume Frontier.
     let shuffle_task = shuffle::proto::Task {
@@ -262,6 +269,7 @@ pub(super) async fn run<
         publisher,
         session,
         task,
+        gap_floors,
         backfill_begin,
         backfill_complete,
     })
@@ -305,7 +313,8 @@ impl Baseline {
             connector_state_json: _,
             max_keys: _,
             trigger_params_json: _,
-            active_backfills: _, // capture-only state
+            active_backfills: _, // Capture-only state.
+            gap_floors: _,       // Inert to reconciliation.
         } = recover;
 
         let baseline = Baseline {

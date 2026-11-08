@@ -223,9 +223,13 @@ where
                     if let Some(last) = chain.last() {
                         // We're fully replacing the lhs resource with the already-inlined
                         // `model`, which means that all of its imports are no longer used.
-                        draft
-                            .imports
-                            .retain(|r| !r.scope.as_str().starts_with(lhs.scope().as_str()));
+                        // Match whole JSON pointer components, so that replacing `acmeCo/foo`
+                        // doesn't also drop the imports of a sibling `acmeCo/foo-bar`.
+                        let lhs_scope = lhs.scope().as_str();
+                        draft.imports.retain(|r| {
+                            !matches!(r.scope.as_str().strip_prefix(lhs_scope),
+                                Some(rest) if rest.is_empty() || rest.starts_with('/'))
+                        });
 
                         add_imports(draft, &chain);
                         *count += 1;

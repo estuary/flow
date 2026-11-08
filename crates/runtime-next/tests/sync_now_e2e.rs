@@ -131,7 +131,7 @@ fn synthetic_frontier(seq: u64) -> shuffle::Frontier {
                 offset: -((seq * 1_000) as i64),
             }],
             bytes_read_delta: (DOCS_PER_TXN * 100) as i64,
-            bytes_behind_delta: 0,
+            ..Default::default()
         }],
         vec![0],
     )

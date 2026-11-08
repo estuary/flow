@@ -1,0 +1,30 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/catalog_stats/types.rs
+expression: bucket.task_stats.unwrap().capture
+---
+[
+    CaptureBindingStats {
+        collection: "acmeCo/first",
+        right: None,
+        out: Some(
+            DocsAndBytes {
+                docs_total: 3,
+                bytes_total: 4,
+            },
+        ),
+        last_published_at: Some(
+            2023-11-14T22:13:20Z,
+        ),
+    },
+    CaptureBindingStats {
+        collection: "acmeCo/second",
+        right: Some(
+            DocsAndBytes {
+                docs_total: 1,
+                bytes_total: 2,
+            },
+        ),
+        out: None,
+        last_published_at: None,
+    },
+]

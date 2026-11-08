@@ -1,4 +1,5 @@
 use super::{Task, drain, scan};
+use crate::shard::connector;
 use crate::{patches, proto};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, future, future::BoxFuture};
@@ -23,9 +24,9 @@ enum Phase {
 pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // FIFO of outbound connector requests, drained head-first into
     // `connector_tx` as channel capacity permits.
-    connector_pending: Vec<derive::Request>,
+    connector_pending: VecDeque<derive::Request>,
     // Bounded channel out to the connector.
-    connector_tx: mpsc::Sender<derive::Request>,
+    connector_tx: mpsc::Sender<connector::proto::Request>,
     // Wire codec negotiated with the connector.
     codec: connector_init::Codec,
     // Channel for sending to the controller. Used only to answer the test-only
@@ -61,14 +62,14 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     split_fut: Option<crate::shard::SplitFuture>,
     // Task being executed.
     task: Arc<Task>,
-    // Inferred write shape; parked while a drain borrows it.
-    write_shape: Option<doc::Shape>,
+    // Inferred shape; parked while a drain borrows it.
+    inferred_shape: Option<doc::Shape>,
 }
 
 impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         codec: connector_init::Codec,
-        connector_tx: mpsc::Sender<derive::Request>,
+        connector_tx: mpsc::Sender<connector::proto::Request>,
         controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
         db: crate::shard::RocksDB,
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
@@ -76,10 +77,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         logger: L,
         publisher: P,
         task: Arc<Task>,
-        write_shape: doc::Shape,
+        inferred_shape: doc::Shape,
     ) -> Self {
         Self {
-            connector_pending: Vec::new(),
+            connector_pending: VecDeque::new(),
             connector_tx,
             codec,
             controller_tx,
@@ -97,22 +98,22 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             split_policy: crate::shard::split_policy::SplitPolicy::new(),
             split_fut: None,
             task,
-            write_shape: Some(write_shape),
+            inferred_shape: Some(inferred_shape),
         }
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<Ctrl, Conn, Ldr>(
+    pub async fn serve<Ctrl, Ldr>(
         mut self,
         accumulator: crate::Accumulator,
-        connector_rx: &mut Conn,
+        connector_rx: &mut mpsc::Receiver<tonic::Result<connector::proto::Response>>,
         controller_rx: &mut Ctrl,
         leader_rx: &mut Ldr,
+        max_pinned_segments: usize,
         shuffle_reader: shuffle::log::Reader,
-    ) -> anyhow::Result<crate::shard::RocksDB>
+    ) -> anyhow::Result<(crate::shard::RocksDB, doc::Shape)>
     where
         Ctrl: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
-        Conn: futures::Stream<Item = tonic::Result<derive::Response>> + Send + Unpin + 'static,
         Ldr: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
     {
         // Source-document validators, indexed by transform. Built once and lent
@@ -131,6 +132,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             shuffle_remainders: VecDeque::new(),
         };
         let mut loop_count: u64 = 0;
+        let mut pinned_stop_sent = false;
 
         let mut ticker = tokio::time::interval(crate::ACTOR_TICK_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -188,6 +190,18 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         }),
                         ..Default::default()
                     });
+
+                    if crate::shard::stop_for_pinned_segments(
+                        &mut pinned_stop_sent,
+                        shuffle::log::pinned_segments(&shuffle_remainders),
+                        max_pinned_segments,
+                    ) {
+                        _ = self.leader_tx.send(proto::Derive {
+                            stop: Some(proto::Stop {}),
+                            ..Default::default()
+                        });
+                    }
+
                     phase = Phase::Idle {
                         shuffle_reader,
                         shuffle_remainders,
@@ -199,15 +213,15 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             tokio::select! {
                 biased;
 
-                // Prioritize moving connector messages (high volume).
-                msg = connector_rx.next() => {
+                // Prioritize moving connector messages and logs (high volume).
+                msg = connector::next(connector_rx, &self.logger, connector::unwrap_derive) => {
                     self.on_connector_response(&mut accumulator, msg)?;
                 }
                 // Next, a leader message.
                 msg = leader_rx.next() => {
                     let (next, stopped) = self
                         .on_leader_message(phase, &mut accumulator, &mut accumulator_idle, msg)
-                        .map_err(|err| prefer_connector_error(connector_rx, err))?;
+                        .map_err(|err| connector::prefer_error(connector_rx, &self.logger, "Derive", err))?;
                     phase = next;
 
                     if stopped {
@@ -239,7 +253,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     let output = result?;
                     accumulator_idle = Some(output.accumulator);
                     self.publisher = Some(output.publisher);
-                    self.write_shape = Some(output.write_shape);
+                    self.inferred_shape = Some(output.inferred_shape);
                     self.drain_fut = None;
 
                     // The drain just flushed this transaction's collection appends,
@@ -282,21 +296,12 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         }
 
         // We observed L:Stopped, which the leader sends only at a transaction
-        // boundary — so we're idle and own the shuffle Reader. Remove our shuffle
-        // log segment files now, before blocking on the leader's EOF below. The
-        // leader is concurrently closing its shuffle SessionClient; deleting these
-        // segments releases any disk back-pressure held by the co-located Log RPC,
-        // letting the shuffle topology drain to EOF so the leader's close() can
-        // complete. Only then does the leader drop our channel, delivering the EOF
-        // we await next.
-        let Phase::Idle { shuffle_reader, .. } = &phase else {
+        // boundary. The leader is concurrently closing its shuffle
+        // SessionClient, and drops our channel once the shuffle topology has
+        // drained, delivering the EOF we await next.
+        if !matches!(phase, Phase::Idle { .. }) {
             anyhow::bail!("leader sent Stopped while shard was not idle");
-        };
-        shuffle::log::remove_shard_segments(
-            shuffle_reader.directory(),
-            shuffle_reader.shard_index(),
-        )
-        .context("removing shuffle log segments on Stop")?;
+        }
 
         // After Stopped and shuffle session drain, the leader's stream must EOF.
         let verify = crate::verify("Derive", "leader EOF after Stopped", "leader");
@@ -305,8 +310,13 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let Some(db) = self.db.take() else {
             anyhow::bail!("leader Stopped while a Persist is in flight");
         };
+        // Hand the inferred shape back so the next session continues inference.
+        let inferred_shape = self
+            .inferred_shape
+            .take()
+            .context("missing inferred shape")?;
 
-        Ok(db)
+        Ok((db, inferred_shape))
     }
 
     fn try_connector_tx(&mut self) -> impl Future<Output = bool> + 'static {
@@ -322,14 +332,15 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             .try_reserve_many(self.connector_pending.len())
         {
             for (request, permit) in self.connector_pending.drain(..).zip(permits) {
-                permit.send(request);
+                permit.send(connector::wrap_derive(request));
             }
             return idle;
         }
 
-        // We have only partial capacity to send. In this uncommon case, we pay
-        // for relocating the tail of `connector_pending`. Note the sender may
-        // race sends, so account for capacity > connector_pending having opened up.
+        // We have only partial capacity to send, which is common: a scan step
+        // queues a whole block of requests against a small channel. Draining the
+        // front of a VecDeque leaves its tail in place. Note the sender may race
+        // sends, so account for capacity > connector_pending having opened up.
         let n = self
             .connector_tx
             .capacity()
@@ -338,7 +349,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         match self.connector_tx.try_reserve_many(n) {
             Ok(permits) => {
                 for (request, permit) in self.connector_pending.drain(..n).zip(permits) {
-                    permit.send(request);
+                    permit.send(connector::wrap_derive(request));
                 }
             }
             // Sends to the connector are best-effort: a Closed channel means the
@@ -390,7 +401,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             connector_patches_json,
         }) = msg.flush
         {
-            self.connector_pending.push(derive::Request {
+            self.connector_pending.push_back(derive::Request {
                 kind: Some(derive::request::Kind::Flush(derive::request::Flush {
                     state_patches_json: connector_patches_json,
                 })),
@@ -409,10 +420,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 .publisher
                 .take()
                 .context("L:Store while publisher is busy")?;
-            let write_shape = self
-                .write_shape
+            let inferred_shape = self
+                .inferred_shape
                 .take()
-                .context("L:Store while write shape is busy")?;
+                .context("L:Store while inferred shape is busy")?;
 
             self.staged_published_docs = std::mem::take(&mut self.published_docs);
             self.staged_published_bytes = std::mem::take(&mut self.published_bytes);
@@ -427,7 +438,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         parser,
                         publisher,
                         task,
-                        write_shape,
+                        inferred_shape,
                         metrics,
                         logger,
                     )
@@ -439,7 +450,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             connector_checkpoint,
         }) = msg.start_commit
         {
-            self.connector_pending.push(derive::Request {
+            self.connector_pending.push_back(derive::Request {
                 kind: Some(derive::request::Kind::StartCommit(
                     derive::request::StartCommit {
                         runtime_checkpoint: connector_checkpoint,
@@ -516,7 +527,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         accumulator: &mut crate::Accumulator,
         resp: Option<tonic::Result<derive::Response>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify("Derive", "connector response", "connector");
+        let verify = crate::verify_connector("Derive", "connector response");
         let resp = verify.not_eof(resp)?;
 
         if let Some(derive::response::Kind::Published(derive::response::Published { doc_json })) =
@@ -597,7 +608,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 ..Default::default()
             });
         } else if matches!(msg.reset, Some(proto::Reset {})) {
-            self.connector_pending.push(derive::Request {
+            self.connector_pending.push_back(derive::Request {
                 kind: Some(derive::request::Kind::Reset(derive::request::Reset {})),
                 ..Default::default()
             });
@@ -609,21 +620,6 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             return Err(verify.fail_msg(msg));
         }
         Ok(())
-    }
-}
-
-/// Replace a leader-stream failure with the connector's own terminal error,
-/// if the connector has already failed and its error is immediately ready.
-/// See the materialize twin for why this is needed.
-fn prefer_connector_error<Conn>(connector_rx: &mut Conn, err: anyhow::Error) -> anyhow::Error
-where
-    Conn: futures::Stream<Item = tonic::Result<derive::Response>> + Unpin,
-{
-    match connector_rx.next().now_or_never() {
-        Some(Some(Err(status))) => {
-            crate::verify("Derive", "connector response", "connector").fail_status(status)
-        }
-        _ => err,
     }
 }
 
@@ -643,11 +639,29 @@ mod tests {
     use super::super::{Source, Transform};
     use super::*;
     use proto_flow::derive::{request, response};
-    use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
+    use tokio_stream::wrappers::UnboundedReceiverStream;
+
+    /// Wrap a connector response as the Connector RPC delivers it.
+    fn wrap(response: derive::Response) -> tonic::Result<connector::proto::Response> {
+        Ok(connector::proto::Response {
+            kind: Some(connector::proto::response::Kind::Derive(response)),
+        })
+    }
+
+    /// Unwrap a request the actor sent to its connector.
+    fn unwrap(request: connector::proto::Request) -> derive::Request {
+        let connector::proto::request::Kind::Derive(request) =
+            request.kind.expect("wrapped request")
+        else {
+            panic!("actor sent a non-derive request")
+        };
+        request
+    }
 
     fn test_task() -> Task {
         Task {
             collection_name: "test/derived".to_string(),
+            collection_generation_id: models::Id::zero(),
             document_uuid_ptr: json::Pointer::from("/_meta/uuid"),
             key_extractors: Vec::new(),
             redact_salt: bytes::Bytes::new(),
@@ -662,7 +676,6 @@ mod tests {
             }],
             binding_state_keys: vec!["fromSrc".to_string()],
             write_schema_json: bytes::Bytes::from_static(b"{}"),
-            write_shape: doc::Shape::nothing(),
         }
     }
 
@@ -671,7 +684,8 @@ mod tests {
     /// terminal `ignore` set.
     #[tokio::test]
     async fn observe_throttle_split_dispatch() {
-        let (actor_to_conn_tx, _conn_rx) = mpsc::channel::<derive::Request>(crate::CHANNEL_BUFFER);
+        let (actor_to_conn_tx, _conn_rx) =
+            mpsc::channel::<connector::proto::Request>(proto_grpc::CHANNEL_BUFFER);
         let (actor_to_leader_tx, _leader_rx) = mpsc::unbounded_channel::<proto::Derive>();
         let (actor_to_controller_tx, _controller_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
@@ -686,7 +700,7 @@ mod tests {
             ..Default::default()
         };
         let publisher = crate::JournalPublisher::new_test_real([&spec]);
-        let write_shape = task.write_shape.clone();
+        let inferred_shape = task.shape_by_generation(None);
 
         let mut actor = Actor::new(
             connector_init::Codec::Proto,
@@ -698,7 +712,7 @@ mod tests {
             crate::TracingLogger,
             publisher,
             task,
-            write_shape,
+            inferred_shape,
         );
 
         // Seed a policy under which the observed journal is immediately due.
@@ -764,9 +778,9 @@ mod tests {
     #[tokio::test]
     async fn full_lifecycle_round_trip() {
         let (actor_to_conn_tx, mut actor_to_conn_rx) =
-            mpsc::channel::<derive::Request>(crate::CHANNEL_BUFFER);
-        let (conn_to_actor_tx, conn_to_actor_rx) =
-            mpsc::channel::<tonic::Result<derive::Response>>(crate::CHANNEL_BUFFER);
+            mpsc::channel::<connector::proto::Request>(proto_grpc::CHANNEL_BUFFER);
+        let (conn_to_actor_tx, mut conn_to_actor_rx) =
+            mpsc::channel::<tonic::Result<connector::proto::Response>>(proto_grpc::CHANNEL_BUFFER);
         let (actor_to_leader_tx, mut actor_to_leader_rx) =
             mpsc::unbounded_channel::<proto::Derive>();
         let (leader_to_actor_tx, leader_to_actor_rx) =
@@ -778,7 +792,7 @@ mod tests {
 
         let task = Arc::new(test_task());
         let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
-        let write_shape = task.write_shape.clone();
+        let inferred_shape = task.shape_by_generation(None);
         let db = crate::shard::RocksDB::open(None).await.unwrap();
         let shuffle_dir = tempfile::tempdir().unwrap();
         let shuffle_reader = shuffle::log::Reader::new(shuffle_dir.path(), 0);
@@ -793,19 +807,19 @@ mod tests {
             crate::TracingLogger,
             crate::publish::RecordingPublisher::default(),
             task,
-            write_shape,
+            inferred_shape,
         );
 
         let serve_handle = tokio::spawn(async move {
-            let mut conn_stream = ReceiverStream::new(conn_to_actor_rx);
             let mut leader_stream = UnboundedReceiverStream::new(leader_to_actor_rx);
             let mut controller_stream = UnboundedReceiverStream::new(controller_to_actor_rx);
             actor
                 .serve(
                     accumulator,
-                    &mut conn_stream,
+                    &mut conn_to_actor_rx,
                     &mut controller_stream,
                     &mut leader_stream,
+                    crate::shard::max_pinned_segments(&Default::default()),
                     shuffle_reader,
                 )
                 .await
@@ -813,7 +827,7 @@ mod tests {
 
         // 1) The connector publishes one derived document into the combiner.
         conn_to_actor_tx
-            .send(Ok(derive::Response {
+            .send(wrap(derive::Response {
                 kind: Some(response::Kind::Published(response::Published {
                     doc_json: bytes::Bytes::from_static(br#"{"id":"a","_meta":{"uuid":""}}"#),
                 })),
@@ -835,7 +849,7 @@ mod tests {
                 }))
                 .unwrap();
 
-            let req = actor_to_conn_rx.recv().await.unwrap();
+            let req = unwrap(actor_to_conn_rx.recv().await.unwrap());
             assert!(
                 matches!(req.kind, Some(request::Kind::Reset(_))),
                 "connector receives C:Reset"
@@ -859,7 +873,7 @@ mod tests {
             }))
             .unwrap();
 
-        let req = actor_to_conn_rx.recv().await.unwrap();
+        let req = unwrap(actor_to_conn_rx.recv().await.unwrap());
         let Some(request::Kind::Flush(flush)) = req.kind else {
             panic!("connector receives C:Flush, got {req:?}")
         };
@@ -869,7 +883,7 @@ mod tests {
         );
 
         conn_to_actor_tx
-            .send(Ok(derive::Response {
+            .send(wrap(derive::Response {
                 kind: Some(response::Kind::Flushed(response::Flushed {
                     state: None,
                     more: false,
@@ -908,14 +922,14 @@ mod tests {
             }))
             .unwrap();
 
-        let req = actor_to_conn_rx.recv().await.unwrap();
+        let req = unwrap(actor_to_conn_rx.recv().await.unwrap());
         let Some(request::Kind::StartCommit(start_commit)) = req.kind else {
             panic!("connector receives C:StartCommit, got {req:?}")
         };
         assert!(start_commit.runtime_checkpoint.is_some());
 
         conn_to_actor_tx
-            .send(Ok(derive::Response {
+            .send(wrap(derive::Response {
                 kind: Some(response::Kind::StartedCommit(response::StartedCommit {
                     state: None,
                 })),
@@ -968,7 +982,7 @@ mod tests {
             .unwrap();
         std::mem::drop(leader_to_actor_tx);
 
-        let db = serve_handle.await.unwrap().unwrap();
+        let (db, _inferred_shape) = serve_handle.await.unwrap().unwrap();
 
         // Confirm the Persist round-tripped.
         let (_db, recover) = db.scan(Vec::<&str>::new()).await.unwrap();

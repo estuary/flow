@@ -25,7 +25,7 @@ const PORT_PROTO_LABEL_PREFIX: &str = "dev.estuary.port-proto.";
 // `flow-connector-init` is extracted from this image when a locally-built copy
 // isn't found by `locate_bin` (dev/CI builds place one alongside the executable).
 // TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
-const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/reactor:v0.6.12-69-gb7eb6426711";
+const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/reactor:v0.6.15-15-g6954c5551";
 const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
 /// Determines the protocol of an image. If the image has a `FLOW_RUNTIME_PROTOCOL` label,
@@ -285,12 +285,12 @@ pub async fn start(
         "started connector container"
     );
     let usage_rate = image_inspection.usage_rate;
-    let network_ports = image_inspection.network_ports;
+    let advertised_ports = image_inspection.advertised_ports;
 
     Ok((
         runtime::Container {
             ip_addr: format!("{ip_addr}"),
-            network_ports,
+            advertised_ports,
             usage_rate,
             mapped_host_ports,
         },
@@ -305,17 +305,33 @@ pub async fn start(
 
 /// Validates that a connector image is allowed to run in this data-plane.
 fn validate_connector_image(image: &str, plane: crate::Plane) -> anyhow::Result<()> {
-    if matches!(plane, crate::Plane::Public) {
-        if !image.starts_with("ghcr.io/estuary/") {
-            anyhow::bail!(
-                "connector image '{image}' is not allowed in public data planes: only Estuary-managed images are permitted"
-            );
-        }
-        if image.starts_with("ghcr.io/estuary/derive-python:") {
-            anyhow::bail!("Python derivations may only run in private data-planes");
-        }
+    if !matches!(plane, crate::Plane::Public) {
+        return Ok(());
     }
-    Ok(())
+    // Compare the parsed repository, as a reference may also be untagged or
+    // pinned by digest (`repo`, `repo@sha256:...`).
+    let (repository, _) = models::split_image_tag(image);
+
+    if !repository
+        .strip_prefix("ghcr.io/estuary/")
+        .is_some_and(|name| !name.is_empty())
+    {
+        anyhow::bail!(
+            "connector image '{image}' is not allowed in public data planes: only Estuary-managed images are permitted"
+        );
+    }
+    match repository.as_str() {
+        "ghcr.io/estuary/derive-python" => {
+            anyhow::bail!("Python derivations may only run in private data-planes")
+        }
+        "ghcr.io/estuary/capture-python" => {
+            anyhow::bail!("Python captures may only run in private data-planes")
+        }
+        "ghcr.io/estuary/materialize-python" => {
+            anyhow::bail!("Python materializations may only run in private data-planes")
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Performs a basic validation of logs that represent events, to restrict
@@ -541,7 +557,7 @@ struct ImageInspection {
     /// The type of connector
     runtime_protocol: RuntimeProtocol,
     /// Network ports that the connector wishes to expose
-    network_ports: Vec<flow::NetworkPort>,
+    advertised_ports: Vec<flow::NetworkPort>,
     /// The number of usage credits per second that the connector incurs
     usage_rate: f32,
     /// A brief description of how the `usage_rate` was determined
@@ -590,7 +606,7 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
     })?;
 
     let labels = labels.unwrap_or_default();
-    let mut network_ports = Vec::new();
+    let mut advertised_ports = Vec::new();
 
     for (exposed_port, _) in exposed_ports.iter() {
         // We're unable to support UDP at this time.
@@ -618,7 +634,7 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
             )
         })?;
 
-        network_ports.push(flow::NetworkPort {
+        advertised_ports.push(flow::NetworkPort {
             number: number as u32,
             protocol: protocol.unwrap_or_default(),
             public,
@@ -648,7 +664,7 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
 
     Ok(ImageInspection {
         runtime_protocol,
-        network_ports,
+        advertised_ports,
         usage_rate,
         usage_rate_source,
         id,
@@ -780,7 +796,7 @@ mod test {
         ));
 
         assert_eq!(
-            container.network_ports,
+            container.advertised_ports,
             [flow::NetworkPort {
                 number: 8080,
                 protocol: String::new(),
@@ -846,7 +862,7 @@ mod test {
         let inspection = parse_image_inspection(fixture.to_string().as_bytes()).unwrap();
 
         assert_eq!(
-            &inspection.network_ports,
+            &inspection.advertised_ports,
             &[
                 flow::NetworkPort {
                     number: 567,
@@ -922,16 +938,31 @@ mod test {
     fn test_validate_connector_image_public_plane() {
         let validate = |img| super::validate_connector_image(img, crate::Plane::Public);
 
-        // Allowed: estuary connectors (except derive-python)
+        // Allowed: estuary connectors (except Python connectors)
         assert!(validate("ghcr.io/estuary/source-http-ingest:dev").is_ok());
         assert!(validate("ghcr.io/estuary/materialize-postgres:v1").is_ok());
 
-        // Blocked: derive-python
+        // Blocked: Python derivations, captures, and materializations
         assert!(validate("ghcr.io/estuary/derive-python:latest").is_err());
+        assert!(validate("ghcr.io/estuary/capture-python:stable").is_err());
+        assert!(validate("ghcr.io/estuary/materialize-python:stable").is_err());
+
+        // Blocked: Python connectors, untagged or pinned by digest.
+        for image in [
+            "ghcr.io/estuary/derive-python",
+            "ghcr.io/estuary/capture-python",
+            "ghcr.io/estuary/capture-python@sha256:abc",
+            "ghcr.io/estuary/materialize-python:v1@sha256:abc",
+        ] {
+            assert!(validate(image).is_err(), "{image}");
+        }
+        // Allowed: other repositories sharing a Python connector's prefix.
+        assert!(validate("ghcr.io/estuary/derive-python-tools:v1").is_ok());
 
         // Blocked: non-estuary images
         assert!(validate("alpine").is_err());
         assert!(validate("docker.io/estuary/source-postgres:v1").is_err());
+        assert!(validate("ghcr.io/estuary/").is_err());
     }
 
     #[test]

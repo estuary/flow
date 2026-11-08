@@ -1,0 +1,32 @@
+---
+source: crates/shuffle/src/slice/rounds.rs
+expression: "trace.join(\"\\n\")"
+---
+consume(32/8) -> Ok(())
+    round: 32/8, sent: 0/8, acked: [0/8, 0/8], hwm: 10, full: true
+send -> true
+    round: 0/8, sent: 32/8, acked: [0/8, 0/8], hwm: 10, full: false
+consume(1/8) -> Err(0)
+    round: 0/8, sent: 32/8, acked: [0/8, 0/8], hwm: 10, full: false
+Log 0 acks 32/8 -> Err(1)
+    round: 0/8, sent: 32/8, acked: [32/8, 0/8], hwm: 10, full: false
+Log 1 acks 32/8 -> Ok(())
+    round: 1/8, sent: 32/8, acked: [32/8, 32/8], hwm: 20, full: true
+consume(4/8) -> Ok(())
+    round: 5/8, sent: 32/8, acked: [32/8, 32/8], hwm: 40, full: true
+send -> true
+    round: 0/8, sent: 37/8, acked: [32/8, 32/8], hwm: 40, full: false
+consume(3/8) -> Ok(())
+    round: 3/8, sent: 37/8, acked: [32/8, 32/8], hwm: 40, full: true
+consume(1 byte) -> Err(0)
+    round: 3/8, sent: 37/8, acked: [32/8, 32/8], hwm: 40, full: true
+Log 1 acks 4/8 -> Err(0)
+    round: 3/8, sent: 37/8, acked: [32/8, 36/8], hwm: 40, full: true
+Log 0 acks 1/8 -> Ok(())
+    round: 4/8, sent: 37/8, acked: [33/8, 36/8], hwm: 50, full: true
+consume(1 byte) -> Err(0)
+    round: 4/8, sent: 37/8, acked: [33/8, 36/8], hwm: 50, full: true
+on_acked(0, 0) -> Acked quota 0 must be between prior Acked 138412032 and sent 155189248
+    round: 4/8, sent: 37/8, acked: [33/8, 36/8], hwm: 50, full: true
+on_acked(1, 64/8) -> Acked quota 268435456 must be between prior Acked 150994944 and sent 155189248
+    round: 4/8, sent: 37/8, acked: [33/8, 36/8], hwm: 50, full: true

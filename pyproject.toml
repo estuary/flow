@@ -6,8 +6,8 @@ authors = ["Johnny Graettinger <johnny@estuary.dev>"]
 
 [tool.poetry.dependencies]
 pydantic = "^2.0"
-pytest = "^7.4.3"
-pytest-insta = "^0.2.0"
+pytest = "^9.0.3"
+pytest-insta = "^0.4.1"
 python = "^3.10"
 
 [build-system]

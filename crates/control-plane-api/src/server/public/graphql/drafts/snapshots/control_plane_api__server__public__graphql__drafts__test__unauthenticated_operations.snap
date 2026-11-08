@@ -1,0 +1,12 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: errors
+---
+{
+  "createDraft": "code: 'The request does not have valid authentication credentials', message: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+  "deleteDraft": "code: 'The request does not have valid authentication credentials', message: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+  "draft": "code: 'The request does not have valid authentication credentials', message: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+  "drafts": "code: 'The request does not have valid authentication credentials', message: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+  "stageDraftSpecs": "code: 'The request does not have valid authentication credentials', message: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+  "unstageDraftSpecs": "code: 'The request does not have valid authentication credentials', message: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\""
+}

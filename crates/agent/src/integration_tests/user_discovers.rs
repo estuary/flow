@@ -5,6 +5,279 @@ use crate::{
 };
 use proto_flow::capture::response::{Discovered, discovered::Binding};
 
+const GRAPHQL_CAPTURE: &str = "acmeCo/capture";
+const GRAPHQL_LOOKUP: &str = "query($id: Id!) { discover(id:$id) { status errors { detail } } }";
+
+async fn submit_graphql_discover(
+    harness: &mut TestHarness,
+    user: uuid::Uuid,
+    draft: models::Id,
+) -> models::Id {
+    // Use the harness's publication plane regardless of persistent fixture ordering.
+    let submitted: serde_json::Value = harness
+        .execute_graphql_query(
+            user,
+            "mutation($draft: Id!, $name: Name!, $plane: String!) { createDiscover(draftId:$draft, captureName:$name, dataPlane:$plane) { id status } }",
+            &serde_json::json!({"draft": draft, "name": GRAPHQL_CAPTURE, "plane": "ops/dp/public/test"}),
+        )
+        .await
+        .unwrap();
+    serde_json::from_value(submitted["createDiscover"]["id"].clone()).unwrap()
+}
+
+fn graphql_discovered(names: &[&str]) -> Discovered {
+    Discovered {
+        bindings: names
+            .iter()
+            .map(|name| Binding {
+                recommended_name: (*name).to_owned(),
+                document_schema_json: document_schema(1),
+                resource_config_json: serde_json::json!({"id": name}).to_string().into(),
+                key: vec!["/id".to_owned()],
+                ..Default::default()
+            })
+            .collect(),
+    }
+}
+
+/// Discover a new capture through GraphQL and publish it with one binding,
+/// returning the publication's id.
+async fn publish_graphql_capture(harness: &mut TestHarness, user: uuid::Uuid) -> models::Id {
+    let draft = harness
+        .create_draft(
+            user,
+            "initial capture fixture",
+            draft_catalog(serde_json::json!({
+                "captures": { GRAPHQL_CAPTURE: {
+                    "endpoint": {"connector": {"image": "source/test:test", "config": {}}},
+                    "bindings": []
+                }}
+            })),
+        )
+        .await;
+    let id = submit_graphql_discover(harness, user, draft).await;
+    harness.connectors.mock_discover(
+        GRAPHQL_CAPTURE,
+        Ok((spec_fixture(), graphql_discovered(&["widgets"]))),
+    );
+    let discovered = harness.run_queued_discover(id).await;
+    assert!(
+        discovered.job_status.is_success(),
+        "{:?}",
+        discovered.errors
+    );
+    let published = harness
+        .create_user_publication(user, draft, "publish capture fixture")
+        .await;
+    assert!(published.status.is_success(), "{published:?}");
+    published.pub_id.unwrap()
+}
+
+#[tokio::test]
+async fn test_graphql_rediscover_connector_failure_and_retry() {
+    let mut harness =
+        TestHarness::init("test_graphql_rediscover_connector_failure_and_retry").await;
+    let user = harness.setup_tenant("acmeCo").await;
+    let pub_id = publish_graphql_capture(&mut harness, user).await;
+    let draft = harness
+        .create_draft(user, "rediscover live capture", Default::default())
+        .await;
+
+    // A failed discover of the live capture doesn't add it to the draft.
+    let failed_id = submit_graphql_discover(&mut harness, user, draft).await;
+    harness
+        .connectors
+        .mock_discover(GRAPHQL_CAPTURE, Err("connector unavailable".to_owned()));
+    let failed = harness.run_queued_discover(failed_id).await;
+    assert_eq!(failed.draft.spec_count(), 0);
+    let failed_lookup: serde_json::Value = harness
+        .execute_graphql_query(user, GRAPHQL_LOOKUP, &serde_json::json!({"id": failed_id}))
+        .await
+        .unwrap();
+    insta::assert_json_snapshot!("graphql_discover_connector_failure", failed_lookup);
+
+    // A retry merges new bindings into the live capture, expects its last
+    // publication, and replaces the draft errors that the failure recorded.
+    let retry_id = submit_graphql_discover(&mut harness, user, draft).await;
+    harness.connectors.mock_discover(
+        GRAPHQL_CAPTURE,
+        Ok((spec_fixture(), graphql_discovered(&["widgets", "gadgets"]))),
+    );
+    let merged = harness.run_queued_discover(retry_id).await;
+    assert!(merged.job_status.is_success(), "{:?}", merged.errors);
+    assert_eq!(merged.draft.collections.len(), 2);
+    assert_eq!(
+        merged.draft.captures[0]
+            .model
+            .as_ref()
+            .unwrap()
+            .bindings
+            .len(),
+        2
+    );
+    assert_eq!(merged.draft.captures[0].expect_pub_id, Some(pub_id));
+    let earlier: serde_json::Value = harness
+        .execute_graphql_query(user, GRAPHQL_LOOKUP, &serde_json::json!({"id": failed_id}))
+        .await
+        .unwrap();
+    insta::assert_json_snapshot!("graphql_discover_error_cleared_by_retry", earlier);
+}
+
+#[tokio::test]
+async fn test_graphql_discover_invalid_draft_is_atomic() {
+    let mut harness = TestHarness::init("test_graphql_discover_invalid_draft_is_atomic").await;
+    let user = harness.setup_tenant("acmeCo").await;
+    publish_graphql_capture(&mut harness, user).await;
+    let draft = harness
+        .create_draft(
+            user,
+            "rediscover with malformed collection",
+            Default::default(),
+        )
+        .await;
+    let id = submit_graphql_discover(&mut harness, user, draft).await;
+    sqlx::query("INSERT INTO draft_specs (draft_id, catalog_name, spec_type, spec) VALUES ($1, 'acmeCo/malformed', 'collection', '{}'::json)")
+        .bind(draft).execute(&harness.pool).await.unwrap();
+    harness.connectors.mock_discover(
+        GRAPHQL_CAPTURE,
+        Ok((spec_fixture(), graphql_discovered(&["widgets", "gadgets"]))),
+    );
+    let failed = harness.run_queued_discover(id).await;
+    assert_eq!(
+        failed.job_status,
+        crate::discovers::JobStatus::DiscoverFailed
+    );
+    assert_eq!(failed.errors[0].0, "flow://collection/acmeCo/malformed");
+    // The reloaded draft holds only the malformed entry, which doesn't parse:
+    // the discover committed neither the capture nor its collections.
+    assert_eq!(failed.draft.spec_count(), 0);
+}
+
+#[tokio::test]
+async fn test_discover_without_connector_tag() {
+    let mut harness = TestHarness::init("test_discover_without_connector_tag").await;
+    let user = harness.setup_tenant("acmeCo").await;
+
+    // A discover having no connector tag dials the endpoint of the drafted capture.
+    let draft = harness
+        .create_draft(
+            user,
+            "drafted endpoint",
+            draft_catalog(serde_json::json!({
+                "captures": { GRAPHQL_CAPTURE: {
+                    "endpoint": {"connector": {"image": "source/test:test", "config": {"from": "draft"}}},
+                    "bindings": []
+                }}
+            })),
+        )
+        .await;
+    let id = harness
+        .queue_draft_discover(
+            GRAPHQL_CAPTURE,
+            draft,
+            false,
+            Ok((spec_fixture(), graphql_discovered(&["widgets"]))),
+        )
+        .await;
+    let result = harness.run_queued_discover(id).await;
+    assert!(result.job_status.is_success(), "{:?}", result.errors);
+    let request = harness
+        .connectors
+        .last_discover_request(GRAPHQL_CAPTURE)
+        .unwrap();
+    assert_eq!(
+        br#"{"image":"source/test:test","config":{"from":"draft"}}"#,
+        request.config_json.as_ref()
+    );
+
+    let published = harness
+        .create_user_publication(user, draft, "publish drafted capture")
+        .await;
+    assert!(published.status.is_success(), "{published:?}");
+
+    // Once live, it's discovered from an empty draft with the live endpoint.
+    let draft = harness
+        .create_draft(user, "live endpoint", Default::default())
+        .await;
+    let id = harness
+        .queue_draft_discover(
+            GRAPHQL_CAPTURE,
+            draft,
+            false,
+            Ok((spec_fixture(), graphql_discovered(&["widgets", "gadgets"]))),
+        )
+        .await;
+    let result = harness.run_queued_discover(id).await;
+    assert!(result.job_status.is_success(), "{:?}", result.errors);
+    let request = harness
+        .connectors
+        .last_discover_request(GRAPHQL_CAPTURE)
+        .unwrap();
+    assert_eq!(
+        br#"{"image":"source/test:test","config":{"from":"draft"}}"#,
+        request.config_json.as_ref()
+    );
+}
+
+#[tokio::test]
+async fn test_discover_rejects_non_discovered_responses() {
+    let mut harness = TestHarness::init("test_discover_rejects_non_discovered_responses").await;
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    let draft_id = harness
+        .create_draft(user_id, "squirrels/capture", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "squirrels/capture",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((spec_fixture(), Default::default())),
+        )
+        .await;
+
+    // A capture response which is not Discovered. Responses of the wrong
+    // protocol are rejected upstream by `proto_grpc::connector::unary`.
+    harness.connectors.mock_raw_discover(
+        "squirrels/capture",
+        Ok((
+            proto_flow::connector::response::Started {
+                spec: Some(proto_flow::connector::response::started::Spec::Capture(
+                    Box::new(spec_fixture()),
+                )),
+                ..Default::default()
+            },
+            proto_flow::connector::response::Kind::Capture(proto_flow::capture::Response {
+                kind: Some(proto_flow::capture::response::Kind::Validated(
+                    Default::default(),
+                )),
+                ..Default::default()
+            }),
+        )),
+    );
+
+    let result = harness.run_queued_discover(discover_id).await;
+    assert!(
+        matches!(
+            result.job_status,
+            crate::discovers::JobStatus::DiscoverFailed
+        ),
+        "unexpected status: {:?}",
+        result.job_status
+    );
+    assert_eq!(1, result.errors.len());
+    assert!(
+        result.errors[0]
+            .1
+            .contains("connector did not return capture Discovered"),
+        "unexpected error: {:?}",
+        result.errors
+    );
+}
+
 #[tokio::test]
 async fn test_user_discovers() {
     let mut harness = TestHarness::init("test_user_discovers").await;
@@ -549,9 +822,9 @@ async fn test_discover_no_data_plane() {
             vec!["c2VjcmV0".to_string()],
         )
         .await;
-    // A readable plane with no HMAC keys at all is excluded from the
-    // authorization Snapshot by construction, and cannot sign anything a
-    // discover would need. It is treated the same as a missing plane.
+    // A readable plane with no HMAC keys at all is carried by the Snapshot,
+    // but cannot sign anything a discover would need. It is treated the same
+    // as a missing plane.
     harness
         .add_data_plane(
             "ops/dp/public/keyless",
@@ -559,6 +832,13 @@ async fn test_discover_no_data_plane() {
             Vec::new(),
         )
         .await;
+    // Data-plane fixtures survive harness resets, so restore this case on every setup.
+    sqlx::query(
+        "UPDATE data_planes SET hmac_keys = '{}' WHERE data_plane_name = 'ops/dp/public/keyless'",
+    )
+    .execute(&harness.pool)
+    .await
+    .unwrap();
 
     for (case, data_plane_name) in [
         ("unauthorized plane", "ops/dp/private/other"),

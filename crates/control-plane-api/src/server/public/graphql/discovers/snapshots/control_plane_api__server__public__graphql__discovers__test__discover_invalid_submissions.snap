@@ -1,0 +1,22 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers/test.rs
+expression: rejections
+---
+[
+  {
+    "capture": "aliceCo/deleted",
+    "message": "draft entry is a deletion"
+  },
+  {
+    "capture": "aliceCo/other-type",
+    "message": "draft entry is not a capture"
+  },
+  {
+    "capture": "aliceCo/malformed",
+    "message": "invalid capture model"
+  },
+  {
+    "capture": "aliceCo/delete-flag",
+    "message": "capture is staged for deletion"
+  }
+]

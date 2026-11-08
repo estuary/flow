@@ -1,6 +1,8 @@
 use super::{
     FLAG_INVALID, FLAG_VALID_ANY_OF, FLAG_VALID_IF_ELSE, FLAG_VALID_IF_THEN, FLAG_VALID_ONE_OF,
-    Frame, FrameSpeculative, Outcome, ScopedOutcome, Validation,
+    Frame, FrameSpeculative, KIND_ANY_OR_ONE_OF, KIND_CONTAINER, KIND_IN_PLACE, KIND_ITEMS,
+    KIND_NODE, KIND_NUMBER, KIND_PROPERTIES, KIND_PROPERTY_NAMES, KIND_STRING, KIND_UNEVALUATED,
+    Outcome, ScopedOutcome, Validation,
 };
 use crate::{
     AsNode, Node,
@@ -109,6 +111,9 @@ where
         let active = *self.active.last().unwrap() as usize..self.stack.len();
 
         for frame in active.start..active.end {
+            if self.stack[frame].kinds & KIND_ITEMS == 0 {
+                continue;
+            }
             let mut matched = false;
 
             for kw in self.stack[frame].keywords {
@@ -153,6 +158,9 @@ where
         let active = *self.active.last().unwrap() as usize..self.stack.len();
 
         for frame in active.start..active.end {
+            if self.stack[frame].kinds & KIND_PROPERTY_NAMES == 0 {
+                continue;
+            }
             for kw in self.stack[frame].keywords {
                 if let Keyword::PropertyNames { property_names } = &kw {
                     self.wind_frame(
@@ -187,6 +195,9 @@ where
         let active = *self.active.last().unwrap() as usize..self.stack.len();
 
         for frame in active.start..active.end {
+            if self.stack[frame].kinds & KIND_PROPERTIES == 0 {
+                continue;
+            }
             let mut matched = false;
 
             for kw in self.stack[frame].keywords {
@@ -275,6 +286,9 @@ where
     ) {
         let frame = self.stack.len();
         let keywords = &*schema.keywords;
+        let kinds = keywords
+            .iter()
+            .fold(0, |kinds, kw| kinds | keyword_kinds(kw));
 
         // Ensure we have capacity for another Frame.
         if self.stack.len() == self.stack.capacity() {
@@ -302,6 +316,7 @@ where
             parent_keyword,
             keywords,
             flags: 0,
+            kinds: kinds as u8,
             outcomes: Vec::new(),
             counter: 0,
             speculative: None,
@@ -318,27 +333,19 @@ where
         // * Or, if this Frame is an in-place application (e.g. $ref) of a
         //   parent that tracks evaluated children, then it too must track
         //   evaluated children (but does not track speculative validations).
-        for kw in keywords {
-            match kw {
-                Keyword::UnevaluatedItems { .. } => {
-                    if let Node::Array(items) = node.as_node() {
-                        self.stack[frame].speculative = Some(Box::new(FrameSpeculative {
-                            evaluated: vec![0u32; (items.len() + 31) / 32].into(),
-                            invalid_unevaluated: Some(vec![0u32; (items.len() + 31) / 32].into()),
-                            outcomes_unevaluated: Vec::new(),
-                        }))
-                    }
-                }
-                Keyword::UnevaluatedProperties { .. } => {
-                    if let Node::Object(fields) = node.as_node() {
-                        self.stack[frame].speculative = Some(Box::new(FrameSpeculative {
-                            evaluated: vec![0u32; (fields.len() + 31) / 32].into(),
-                            invalid_unevaluated: Some(vec![0u32; (fields.len() + 31) / 32].into()),
-                            outcomes_unevaluated: Vec::new(),
-                        }))
-                    }
-                }
-                _ => (),
+        if kinds & KIND_UNEVALUATED != 0 {
+            for kw in keywords {
+                let len = match (kw, node.as_node()) {
+                    (Keyword::UnevaluatedItems { .. }, Node::Array(items)) => items.len(),
+                    (Keyword::UnevaluatedProperties { .. }, Node::Object(fields)) => fields.len(),
+                    _ => continue,
+                };
+                let words = len.div_ceil(32);
+                self.stack[frame].speculative = Some(Box::new(FrameSpeculative {
+                    evaluated: vec![0u32; words].into(),
+                    invalid_unevaluated: Some(vec![0u32; words].into()),
+                    outcomes_unevaluated: Vec::new(),
+                }));
             }
         }
         if in_place {
@@ -353,6 +360,9 @@ where
             }
         }
 
+        if kinds & KIND_IN_PLACE == 0 {
+            return;
+        }
         for kw in keywords {
             match kw {
                 Keyword::AllOf { all_of } => {
@@ -432,6 +442,9 @@ where
         }
 
         for frame in &mut self.stack[active] {
+            if frame.kinds & KIND_CONTAINER == 0 {
+                continue;
+            }
             for kw in frame.keywords {
                 let invalid: Outcome<'s, A> = match kw {
                     Keyword::MaxItems { max_items } => {
@@ -476,6 +489,9 @@ where
         let active = *self.active.last().unwrap() as usize..self.stack.len();
 
         for frame in &mut self.stack[active] {
+            if frame.kinds & KIND_CONTAINER == 0 {
+                continue;
+            }
             for kw in frame.keywords {
                 let invalid: Outcome<'s, A> = match kw {
                     Keyword::MaxProperties { max_properties } => {
@@ -519,6 +535,9 @@ where
         let mut as_number: Option<Option<bigdecimal::BigDecimal>> = None;
 
         for frame in &mut self.stack[active] {
+            if frame.kinds & KIND_STRING == 0 {
+                continue;
+            }
             for kw in frame.keywords {
                 let invalid: Outcome<'s, A> = match kw {
                     Keyword::Format { format } => {
@@ -601,6 +620,9 @@ where
         let active = *self.active.last().unwrap() as usize..self.stack.len();
 
         for frame in &mut self.stack[active] {
+            if frame.kinds & KIND_NUMBER == 0 {
+                continue;
+            }
             for kw in frame.keywords {
                 let invalid: Outcome<'s, A> = match kw {
                     Keyword::MinimumPosInt { minimum } => {
@@ -715,6 +737,9 @@ where
         let active = *self.active.last().unwrap() as usize..self.stack.len();
 
         for frame in &mut self.stack[active] {
+            if frame.kinds & KIND_NODE == 0 {
+                continue;
+            }
             for kw in frame.keywords {
                 let invalid: Outcome<'s, A> = match kw {
                     Keyword::False => Outcome::False,
@@ -758,29 +783,48 @@ where
 
     #[inline]
     fn unwind_frame(&mut self, child_index: usize, tape_index: i32) {
-        let mut frame = self.stack.pop().unwrap();
-        let parent = &mut self.stack[frame.parent_frame as usize];
+        // Unwind the top Frame in place, and only then drop it. Popping it by
+        // value was an observed hot-spot: the Frame was typically just written
+        // by wind_frame, and moving it whole stalls on those pending stores.
+        let top = self.stack.len() - 1;
+        let (parents, frame) = self.stack.split_at_mut(top);
+        let frame = &mut frame[0];
+        let parent = &mut parents[frame.parent_frame as usize];
 
-        for kw in frame.keywords {
-            let invalid = match kw {
-                Keyword::AnyOf { .. } => {
-                    if frame.flags & FLAG_VALID_ANY_OF != 0 {
-                        continue;
+        Self::unwind_into(&self.filter, frame, parent, child_index, tape_index);
+        self.stack.truncate(top);
+    }
+
+    #[inline]
+    fn unwind_into(
+        filter: &F,
+        frame: &mut Frame<'s, A>,
+        parent: &mut Frame<'s, A>,
+        child_index: usize,
+        tape_index: i32,
+    ) {
+        if frame.kinds & KIND_ANY_OR_ONE_OF != 0 {
+            for kw in frame.keywords {
+                let invalid = match kw {
+                    Keyword::AnyOf { .. } => {
+                        if frame.flags & FLAG_VALID_ANY_OF != 0 {
+                            continue;
+                        }
+                        Outcome::AnyOfNotMatched
                     }
-                    Outcome::AnyOfNotMatched
-                }
-                Keyword::OneOf { .. } => {
-                    if frame.flags & FLAG_VALID_ONE_OF != 0 {
-                        continue;
+                    Keyword::OneOf { .. } => {
+                        if frame.flags & FLAG_VALID_ONE_OF != 0 {
+                            continue;
+                        }
+                        Outcome::OneOfNotMatched
                     }
-                    Outcome::OneOfNotMatched
-                }
-                _ => continue,
-            };
-            invalidate(&self.filter, &mut frame, invalid, tape_index);
+                    _ => continue,
+                };
+                invalidate(filter, frame, invalid, tape_index);
+            }
         }
         if frame.speculative.is_some() {
-            unwind_speculative(&mut frame);
+            unwind_speculative(frame);
         }
 
         let Some(parent_keyword) = frame.parent_keyword else {
@@ -816,12 +860,7 @@ where
                 if is_invalid(frame.flags) {
                     return;
                 } else if parent.flags & FLAG_VALID_ONE_OF != 0 {
-                    invalidate(
-                        &self.filter,
-                        parent,
-                        Outcome::OneOfMultipleMatched,
-                        tape_index,
-                    );
+                    invalidate(filter, parent, Outcome::OneOfMultipleMatched, tape_index);
                 } else {
                     parent.flags |= FLAG_VALID_ONE_OF;
                 }
@@ -851,7 +890,7 @@ where
                 frame.outcomes.clear();
 
                 if is_valid(frame.flags) {
-                    if let Some(outcome) = (self.filter)(Outcome::NotIsValid) {
+                    if let Some(outcome) = filter(Outcome::NotIsValid) {
                         frame.outcomes.push(ScopedOutcome {
                             outcome,
                             schema_curi: schema::get_curi(&frame.keywords),
@@ -879,7 +918,12 @@ where
 
             // Unevaluated applications have bespoke handling.
             Keyword::UnevaluatedItems { .. } | Keyword::UnevaluatedProperties { .. } => {
-                unwind_unevaluated(child_index as u32, frame.flags, frame.outcomes, parent);
+                unwind_unevaluated(
+                    child_index as u32,
+                    frame.flags,
+                    std::mem::take(&mut frame.outcomes),
+                    parent,
+                );
                 return;
             }
 
@@ -889,7 +933,7 @@ where
         if parent.outcomes.is_empty() {
             std::mem::swap(&mut parent.outcomes, &mut frame.outcomes);
         } else {
-            parent.outcomes.extend(frame.outcomes.into_iter());
+            parent.outcomes.append(&mut frame.outcomes);
         }
 
         if is_invalid(frame.flags) {
@@ -916,6 +960,77 @@ where
             }
             Handling::Neither => {}
         }
+    }
+}
+
+/// The KIND_* classes of a Keyword, by the validation passes which examine it.
+/// Classes retained by Frame use only the low eight bits.
+#[inline(always)]
+fn keyword_kinds<A: Annotation>(kw: &Keyword<A>) -> u16 {
+    match kw {
+        Keyword::Annotation { .. }
+        | Keyword::Const { .. }
+        | Keyword::Enum { .. }
+        | Keyword::False
+        | Keyword::Type { .. } => KIND_NODE as u16,
+
+        Keyword::Properties { .. } => (KIND_PROPERTIES | KIND_CONTAINER) as u16,
+        Keyword::AdditionalProperties { .. } | Keyword::PatternProperties { .. } => {
+            KIND_PROPERTIES as u16
+        }
+        Keyword::UnevaluatedProperties { .. } => KIND_PROPERTIES as u16 | KIND_UNEVALUATED,
+        Keyword::PropertyNames { .. } => KIND_PROPERTY_NAMES as u16,
+
+        Keyword::Items { .. } | Keyword::PrefixItems { .. } => KIND_ITEMS as u16,
+        Keyword::Contains { .. } => KIND_ITEMS as u16,
+        Keyword::UnevaluatedItems { .. } => KIND_ITEMS as u16 | KIND_UNEVALUATED,
+
+        Keyword::MaxContains { .. }
+        | Keyword::MaxItems { .. }
+        | Keyword::MaxProperties { .. }
+        | Keyword::MinContains { .. }
+        | Keyword::MinItems { .. }
+        | Keyword::MinProperties { .. }
+        | Keyword::UniqueItems {} => KIND_CONTAINER as u16,
+
+        Keyword::Format { .. }
+        | Keyword::MaxLength { .. }
+        | Keyword::MinLength { .. }
+        | Keyword::Pattern { .. }
+        | Keyword::XStrMaximum { .. }
+        | Keyword::XStrMinimum { .. } => KIND_STRING as u16,
+
+        Keyword::ExclusiveMaximumFloat { .. }
+        | Keyword::ExclusiveMaximumNegInt { .. }
+        | Keyword::ExclusiveMaximumPosInt { .. }
+        | Keyword::ExclusiveMinimumFloat { .. }
+        | Keyword::ExclusiveMinimumNegInt { .. }
+        | Keyword::ExclusiveMinimumPosInt { .. }
+        | Keyword::MaximumFloat { .. }
+        | Keyword::MaximumNegInt { .. }
+        | Keyword::MaximumPosInt { .. }
+        | Keyword::MinimumFloat { .. }
+        | Keyword::MinimumNegInt { .. }
+        | Keyword::MinimumPosInt { .. }
+        | Keyword::MultipleOfFloat { .. }
+        | Keyword::MultipleOfNegInt { .. }
+        | Keyword::MultipleOfPosInt { .. } => KIND_NUMBER as u16,
+
+        Keyword::AnyOf { .. } | Keyword::OneOf { .. } => KIND_IN_PLACE | KIND_ANY_OR_ONE_OF as u16,
+        Keyword::AllOf { .. }
+        | Keyword::DependentSchemas { .. }
+        | Keyword::DynamicRef { .. }
+        | Keyword::Else { .. }
+        | Keyword::If { .. }
+        | Keyword::Not { .. }
+        | Keyword::Ref { .. }
+        | Keyword::Then { .. } => KIND_IN_PLACE,
+
+        Keyword::Anchor { .. }
+        | Keyword::Definitions { .. }
+        | Keyword::Defs { .. }
+        | Keyword::DynamicAnchor { .. }
+        | Keyword::Id { .. } => 0,
     }
 }
 

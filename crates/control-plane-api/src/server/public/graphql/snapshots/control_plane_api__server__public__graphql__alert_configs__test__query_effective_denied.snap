@@ -13,7 +13,7 @@ expression: response
           "line": 3
         }
       ],
-      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/' with required capability CatalogRead",
+      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/'",
       "path": [
         "effectiveAlertConfig"
       ]

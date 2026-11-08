@@ -276,7 +276,6 @@ async fn discover_requests_carry_created_at() {
 
 fn discover_request_date(harness: &TestHarness, capture_name: &str) -> String {
     harness
-        .discover_handler
         .connectors
         .last_discover_request(capture_name)
         .expect("a Discover request was made")

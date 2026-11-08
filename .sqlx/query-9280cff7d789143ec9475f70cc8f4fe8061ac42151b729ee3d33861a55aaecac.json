@@ -6,7 +6,13 @@
       {
         "ordinal": 0,
         "name": "config_update: ConfigUpdate",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "config_updates",
+            "name": "flow_document"
+          }
+        }
       }
     ],
     "parameters": {

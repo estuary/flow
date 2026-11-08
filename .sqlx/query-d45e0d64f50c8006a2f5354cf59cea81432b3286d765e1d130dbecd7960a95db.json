@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT logged_at, stream, log_line\n                FROM internal.log_lines\n                WHERE token = $1\n                  AND ($2::timestamptz IS NULL OR logged_at > $2)\n                ORDER BY logged_at ASC\n                LIMIT $3\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "logged_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.log_lines",
+            "name": "logged_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "stream",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.log_lines",
+            "name": "stream"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "log_line",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.log_lines",
+            "name": "log_line"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d45e0d64f50c8006a2f5354cf59cea81432b3286d765e1d130dbecd7960a95db"
+}

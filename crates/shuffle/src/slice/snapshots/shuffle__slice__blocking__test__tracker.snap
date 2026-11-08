@@ -1,0 +1,10 @@
+---
+source: crates/shuffle/src/slice/blocking.rs
+expression: "trace.join(\"\\n\")"
+---
+never blocked: Report { quota_micros: 0, capacity_micros: 0, episodes: 0, log: 0, log_micros: 0 }
+episodes: Report { quota_micros: 40000, capacity_micros: 5000, episodes: 3, log: 1, log_micros: 40000 }
+current: Report { quota_micros: 0, capacity_micros: 30000, episodes: 1, log: 0, log_micros: 30000 }
+continued: Report { quota_micros: 0, capacity_micros: 20000, episodes: 0, log: 0, log_micros: 20000 }
+ended: Report { quota_micros: 0, capacity_micros: 5000, episodes: 0, log: 0, log_micros: 5000 }
+after: Report { quota_micros: 0, capacity_micros: 0, episodes: 0, log: 0, log_micros: 0 }

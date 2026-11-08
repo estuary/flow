@@ -1,0 +1,162 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            discovers.capture_name,\n            discovers.connector_tag_id as \"connector_tag_id: Id\",\n            discovers.created_at,\n            discovers.data_plane_name,\n            discovers.draft_id as \"draft_id: Id\",\n            discovers.endpoint_config as \"endpoint_config: Json<Box<RawValue>>\",\n            discovers.id as \"id: Id\",\n            connectors.image_name || connector_tags.image_tag as \"image?\",\n            discovers.logs_token,\n            discovers.update_only,\n            discovers.updated_at,\n            drafts.user_id\n        from discovers\n        join drafts on discovers.draft_id = drafts.id\n        left join connector_tags on discovers.connector_tag_id = connector_tags.id\n        left join connectors on connectors.id = connector_tags.connector_id\n        where discovers.id = $1::flowid;\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "capture_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "capture_name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "connector_tag_id: Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "connector_tag_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "data_plane_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "data_plane_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "draft_id: Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "draft_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "endpoint_config: Json<Box<RawValue>>",
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "endpoint_config"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "id: Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "image?",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "logs_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "logs_token"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "update_only",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "update_only"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "discovers",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "drafts",
+            "name": "user_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f06e7f2f19767f5afceecaec361b23f779669d2af36acdc2b51977a561f95ed0"
+}

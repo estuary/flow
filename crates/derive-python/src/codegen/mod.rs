@@ -1,18 +1,16 @@
+use anyhow::Context;
 use itertools::Itertools;
 use proto_flow::flow;
 use std::fmt::Write;
 
-mod ast;
-mod mapper;
-
 use super::LambdaConfig;
-use mapper::Mapper;
+use python_connector::pydantic::{Mapper, to_pascal_case};
 
 /// Generate Pydantic models and protocol types for a Python derivation.
 pub fn types_py(
     collection: &flow::CollectionSpec,
     transforms: &[(&str, &flow::CollectionSpec, LambdaConfig)],
-) -> String {
+) -> anyhow::Result<String> {
     let mut w = String::with_capacity(4096);
 
     // Add imports
@@ -22,20 +20,23 @@ pub fn types_py(
 import typing
 import collections.abc
 import pydantic
+import typing as _typing
+import pydantic as _pydantic
 
 
 "#
     )
     .unwrap();
 
-    let mapper = Mapper::new(&collection.write_schema_json, "Document");
+    let mapper = Mapper::new(&collection.write_schema_json, "Document")
+        .with_context(|| format!("invalid schema of collection {}", collection.name))?;
     writeln!(
         w,
         "# Generated for published documents of derived collection {}",
         collection.name
     )
     .unwrap();
-    mapper.map(mapper.schema(), "Document").render(&mut w);
+    mapper.map(mapper.schema(), "Document")?.render(&mut w);
 
     // Generate Source{Transform} collection types for each transform
     for (name, collection, _config) in transforms {
@@ -45,7 +46,8 @@ import pydantic
             Mapper::new(&collection.write_schema_json, &source_name)
         } else {
             Mapper::new(&collection.read_schema_json, &source_name)
-        };
+        }
+        .with_context(|| format!("invalid schema of collection {}", collection.name))?;
 
         writeln!(
             w,
@@ -53,7 +55,10 @@ import pydantic
             collection.name
         )
         .unwrap();
-        mapper.map(mapper.schema(), &source_name).render(&mut w);
+        mapper
+            .map(mapper.schema(), &source_name)
+            .with_context(|| format!("invalid schema of collection {}", collection.name))?
+            .render(&mut w);
     }
 
     // Generate protocol message types
@@ -208,7 +213,7 @@ class Response(pydantic.BaseModel):
     )
     .unwrap();
 
-    w
+    Ok(w)
 }
 
 /// Generate the main.py runtime wrapper from template.
@@ -304,23 +309,6 @@ class Derivation(IDerivation):
     w
 }
 
-fn to_pascal_case(name: &str) -> String {
-    let mut result = String::new();
-    let mut uppercase_next = true;
-
-    for c in name.chars() {
-        if !c.is_alphanumeric() {
-            uppercase_next = true;
-        } else if uppercase_next {
-            result.extend(c.to_uppercase());
-            uppercase_next = false;
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
 fn to_snake_case(name: &str) -> String {
     lazy_static::lazy_static! {
         static ref CAMEL_BOUNDARY: regex::Regex = regex::Regex::new(r"([a-z0-9])([A-Z])").unwrap();
@@ -348,7 +336,7 @@ fn to_snake_case(name: &str) -> String {
 pub fn module_path_parts(collection_name: &str) -> impl Iterator<Item = String> {
     collection_name
         .split('/')
-        .map(mapper::sanitize_python_identifier)
+        .map(python_connector::pydantic::sanitize_python_identifier)
 }
 
 #[cfg(test)]
@@ -489,7 +477,7 @@ mod test {
         ];
 
         // Test types_py generation
-        let types_output = types_py(&sums_spec, &transforms);
+        let types_output = types_py(&sums_spec, &transforms).unwrap();
         insta::assert_snapshot!("types_py", types_output);
 
         // Test stub_py generation

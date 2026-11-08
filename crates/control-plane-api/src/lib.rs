@@ -1,14 +1,14 @@
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 
 pub mod alert_subscriptions;
 pub mod alerts;
 pub mod billing;
+pub mod catalog_stats;
 pub mod connector_tags;
+pub mod connectors;
 pub mod controllers;
 pub mod data_plane;
-pub mod directives;
 pub mod discovers;
 pub mod draft;
 mod envelope;
@@ -17,9 +17,13 @@ mod interval;
 pub mod jobs;
 pub mod live_specs;
 pub mod logs;
-pub mod proxy_connectors;
 pub mod publications;
+pub mod sandboxes;
+pub mod secrets;
 pub mod server;
+pub mod sprites;
+pub mod storage_mappings;
+pub mod tenants;
 mod text_json;
 
 #[cfg(test)]
@@ -55,9 +59,6 @@ pub use server::{
     ApiError, App, AuthZRetry, build_router,
     snapshot::{self, Snapshot},
 };
-
-// Re-export the GraphQL schema SDL function for flow-client build script
-pub use server::public::graphql::schema_sdl as graphql_schema_sdl;
 
 // TODO(johnny): Move to publications module?
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
@@ -95,70 +96,6 @@ pub async fn get_user_id_for_email(email: &str, db: &sqlx::PgPool) -> sqlx::Resu
     )
     .fetch_one(db)
     .await
-}
-
-// timeout is a convenience for tokio::time::timeout which merges
-// its error with the Future's nested anyhow::Result Output.
-pub async fn timeout<Ok, Fut, C, WC>(
-    dur: std::time::Duration,
-    fut: Fut,
-    with_context: WC,
-) -> anyhow::Result<Ok>
-where
-    C: std::fmt::Display + Send + Sync + 'static,
-    Fut: std::future::Future<Output = anyhow::Result<Ok>>,
-    WC: FnOnce() -> C,
-{
-    use anyhow::Context;
-
-    match tokio::time::timeout(dur, fut).await {
-        Ok(result) => result,
-        Err(err) => Err(anyhow::anyhow!(err)).with_context(with_context),
-    }
-}
-
-pub async fn decrypt_hmac_keys(
-    encrypted_hmac_keys: &models::RawValue,
-) -> anyhow::Result<Vec<String>> {
-    let sops = locate_bin::locate("sops").context("failed to locate sops")?;
-
-    #[derive(serde::Deserialize)]
-    struct HMACKeys {
-        hmac_keys: Vec<String>,
-    }
-
-    // Note that input_output() pre-allocates an output buffer as large as its input buffer,
-    // and our decrypted result will never be larger than its input.
-    let async_process::Output {
-        stderr,
-        stdout,
-        status,
-    } = async_process::input_output(
-        async_process::Command::new(sops).args([
-            "--decrypt",
-            "--input-type",
-            "json",
-            "--output-type",
-            "json",
-            "/dev/stdin",
-        ]),
-        encrypted_hmac_keys.get().as_bytes(),
-    )
-    .await
-    .context("failed to run sops")?;
-
-    let stdout = zeroize::Zeroizing::from(stdout);
-
-    if !status.success() {
-        anyhow::bail!(
-            "decrypting hmac sops document failed: {}",
-            String::from_utf8_lossy(&stderr),
-        );
-    }
-
-    Ok(serde_json::from_slice::<HMACKeys>(&stdout)
-        .context("parsing decrypted sops document")?
-        .hmac_keys)
 }
 
 fn status_into_response(mut status: tonic::Status) -> axum::response::Response {

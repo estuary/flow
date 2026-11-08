@@ -1,6 +1,6 @@
 use anyhow::Context;
-use futures::{FutureExt, StreamExt, future::BoxFuture};
-use proto_flow::{capture, derive, flow, materialize};
+use futures::{FutureExt, future::BoxFuture};
+use proto_flow::flow;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -38,42 +38,6 @@ pub fn arg_source_to_url(source: &str, create_if_not_exists: bool) -> anyhow::Re
     Ok(url::Url::from_file_path(&source).unwrap())
 }
 
-/// Map a `source` into a suitable project root directory.
-///
-/// If `source` is a local file:// URL, its parent directories are examined
-/// for a contained `flow.yaml`, `flow.yml`, or `flow.json` file, and the URL
-/// of the root-most directory having such a file is returned.
-///
-/// Or, if `source` is not a local file://, then the current working directory is returned.
-pub fn project_root(source: &url::Url) -> url::Url {
-    let current_dir =
-        std::env::current_dir().expect("failed to determine current working directory");
-    let source_path = source.to_file_path();
-
-    let dir = if let Ok(source_path) = &source_path {
-        let mut dir = source_path
-            .parent()
-            .expect("source path is an absolute filesystem path");
-
-        while let Some(parent) = dir.parent() {
-            if ["flow.yaml", "flow.yml", "flow.json"]
-                .iter()
-                .any(|name| parent.join(name).exists())
-            {
-                dir = parent;
-            } else {
-                break;
-            }
-        }
-        dir
-    } else {
-        // `source` isn't local. Use the current working directory.
-        &current_dir
-    };
-
-    url::Url::from_file_path(dir).expect("cannot map project directory into a URL")
-}
-
 /// Load a Flow specification `source` into a tables::DraftCatalog.
 /// All file:// resources are rooted ("jailed") to the given `file_root`.
 pub async fn load(source: &url::Url, file_root: &Path) -> tables::DraftCatalog {
@@ -97,32 +61,40 @@ pub async fn load(source: &url::Url, file_root: &Path) -> tables::DraftCatalog {
 pub async fn local(
     pub_id: models::Id,
     build_id: models::Id,
-    connector_network: &str,
-    log_handler: impl runtime::LogHandler,
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
+    log_handler: impl ::ops::LogHandler,
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
-    project_root: &url::Url,
     mut draft: tables::DraftCatalog,
     live: tables::LiveCatalog,
 ) -> Output {
     ::sources::inline_draft_catalog(&mut draft);
 
-    let runtime = runtime::Runtime::new(
-        runtime::Plane::Local,
-        connector_network.to_string(),
-        log_handler,
-        None,
-        format!("build/{build_id:#}"),
-    );
-    let connectors = RuntimeConnectors { runtime };
+    // Build a validation::Connectors against the local connector service.
+    // As we're local (user can ctrl-C), apply no timeout.
+    let connectors = move |_data_plane_id: models::Id, request: proto_flow::connector::Request| {
+        let router = connector_router.clone();
+        let log_handler = log_handler.clone();
+
+        async move {
+            let logger = move |log: &ops::Log| ::ops::LogHandler::log(&log_handler, log);
+            proto_grpc::connector::unary(
+                &*router,
+                &logger,
+                request,
+                std::time::Duration::MAX,
+                std::time::Duration::MAX,
+            )
+            .await
+        }
+        .boxed()
+    };
 
     let built = validation::validate(
         pub_id,
         build_id,
-        project_root,
         &connectors,
-        None, // No explicit data-plane name.
         &draft,
         &live,
         true, // Fail-fast.
@@ -142,16 +114,13 @@ pub async fn local(
 ///
 /// When `noop_connectors` is true, all connector validations are skipped.
 pub async fn for_local_test(source: &url::Url, noop_connectors: bool) -> Output {
-    use tables::CatalogResolver;
-
     let file_root = std::path::Path::new("/");
     let draft = load(source, file_root).await;
 
     if !draft.errors.is_empty() {
         return Output::new(draft, Default::default(), Default::default());
     }
-    let catalog_names = draft.all_spec_names().collect();
-    let live = NoOpCatalogResolver.resolve(catalog_names).await;
+    let live = no_op_live_catalog();
 
     if !live.errors.is_empty() {
         return Output::new(draft, live, Default::default());
@@ -160,12 +129,11 @@ pub async fn for_local_test(source: &url::Url, noop_connectors: bool) -> Output 
     local(
         models::Id::new([32; 8]),
         models::Id::new([1; 8]),
-        "",
+        connector::local_test_router(),
         ops::tracing_log_handler,
         noop_connectors,
         noop_connectors,
         noop_connectors,
-        &project_root(source),
         draft,
         live,
     )
@@ -174,25 +142,22 @@ pub async fn for_local_test(source: &url::Url, noop_connectors: bool) -> Output 
 
 /// Build a source catalog for local catalog testing (`flowctl raw test`).
 ///
-/// Live specs resolve against a `NoOpCatalogResolver`, so there is no
-/// control-plane round-trip. Derivation connectors are validated over `network`,
+/// Live specs use a minimal offline catalog, so there is no control-plane
+/// round-trip. Derivation connectors are validated through `connector_router`,
 /// while capture and materialization connectors are not: a catalog test never
 /// runs those tasks.
 pub async fn for_catalog_test(
     source: &url::Url,
-    network: &str,
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
     log_handler: impl Fn(&ops::Log) + Send + Sync + Clone + 'static,
 ) -> Output {
-    use tables::CatalogResolver;
-
     let file_root = std::path::Path::new("/");
     let draft = load(source, file_root).await;
 
     if !draft.errors.is_empty() {
         return Output::new(draft, Default::default(), Default::default());
     }
-    let catalog_names = draft.all_spec_names().collect();
-    let live = NoOpCatalogResolver.resolve(catalog_names).await;
+    let live = no_op_live_catalog();
 
     if !live.errors.is_empty() {
         return Output::new(draft, live, Default::default());
@@ -201,12 +166,11 @@ pub async fn for_catalog_test(
     local(
         models::Id::new([32; 8]),
         models::Id::new([1; 8]),
-        network,
+        connector_router,
         log_handler,
         true,  // noop_captures: tests never run a capture.
         false, // Validate derivations.
         true,  // noop_materializations: tests never run a materialization.
-        &project_root(source),
         draft,
         live,
     )
@@ -293,23 +257,30 @@ pub fn persist(
     Ok(())
 }
 
-/// Gather all file URLs and contents generated by validations.
-/// Malformed URLs are ignored, as they're already surfaced as validation errors.
-pub fn generate_files(
-    project_root: &url::Url,
-    validations: &tables::Validations,
-) -> anyhow::Result<()> {
+/// Gather all file URLs and contents generated by validations, and write
+/// those underneath the directory of `source` (see `write_files`).
+/// Validation has removed generated files which aren't URLs underneath
+/// their task's project root.
+pub fn generate_files(source: &url::Url, validations: &tables::Validations) -> anyhow::Result<()> {
     let mut files = BTreeMap::new();
 
-    for row in validations.built_collections.iter() {
-        let Some(validated) = &row.validated else {
-            continue;
-        };
+    let collections = validations
+        .built_collections
+        .iter()
+        .filter_map(|row| Some(&row.validated.as_ref()?.generated_files));
+    let captures = validations
+        .built_captures
+        .iter()
+        .filter_map(|row| Some(&row.validated.as_ref()?.generated_files));
+    let materializations = validations
+        .built_materializations
+        .iter()
+        .filter_map(|row| Some(&row.validated.as_ref()?.generated_files));
 
-        for (url, content) in &validated.generated_files {
-            if let Ok(url) = url::Url::parse(&url) {
-                files.insert(url, content.as_bytes());
-            }
+    for generated_files in collections.chain(captures).chain(materializations) {
+        for (url, content) in generated_files {
+            let url = url::Url::parse(&url).expect("validation removes malformed URLs");
+            files.insert(url, content.as_bytes());
         }
     }
     let files = files
@@ -317,19 +288,33 @@ pub fn generate_files(
         .map(|(resource, content)| (resource, content.to_vec()))
         .collect();
 
-    write_files(project_root, files)
+    write_files(source, files)
 }
 
-/// Write out files which are located underneath the `project_root`.
-pub fn write_files(project_root: &url::Url, files: Vec<(url::Url, Vec<u8>)>) -> anyhow::Result<()> {
+/// Write out each file having a local file:// URL underneath the directory
+/// of `source`. A local file outside it is skipped with a warning, as is
+/// every local file if `source` isn't itself local.
+///
+/// Containment is checked on the decoded path, and not on the URL.
+/// `to_file_path()` percent-decodes each segment, so an encoded
+/// `x%2f..%2f..` only becomes `..` components once it's a path.
+pub fn write_files(source: &url::Url, files: Vec<(url::Url, Vec<u8>)>) -> anyhow::Result<()> {
+    let root = source
+        .to_file_path()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
+
     for (resource, content) in files {
         let Ok(path) = resource.to_file_path() else {
             tracing::info!(%resource, "not writing the resource because it's remote and not local");
             continue;
         };
-        if !resource.as_str().starts_with(project_root.as_str()) {
-            tracing::info!(%resource, %project_root,
-                "not writing local resource because it's not under the project root");
+        if !root
+            .as_deref()
+            .is_some_and(|root| is_contained(root, &path))
+        {
+            tracing::warn!(%resource, %source,
+                "not writing local file because it's outside the directory of the source");
             continue;
         }
         if let Some(parent) = path.parent() {
@@ -342,6 +327,16 @@ pub fn write_files(project_root: &url::Url, files: Vec<(url::Url, Vec<u8>)>) -> 
         tracing::info!(path=%path.to_str().unwrap_or(resource.as_str()), "wrote file");
     }
     Ok(())
+}
+
+/// Is `path` underneath `root`, with only ordinary names after it?
+/// `Path::strip_prefix` matches whole components, and doesn't resolve
+/// `.` or `..`, so those are rejected rather than followed.
+fn is_contained(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root).is_ok_and(|rest| {
+        rest.components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
+    })
 }
 
 /// Fetcher is a general-purpose implementation of sources::Fetcher.
@@ -425,104 +420,74 @@ impl sources::Fetcher for Fetcher {
     }
 }
 
-/// RuntimeConnectors is a general-purpose implementation of
-/// validation::Connectors that dispatches to its contained runtime::Runtime.
-pub struct RuntimeConnectors<L: runtime::LogHandler> {
-    runtime: runtime::Runtime<L>,
-}
+/// Build the minimal live catalog used by offline and test builds, which want
+/// to build catalogs without an integrated control plane.
+pub fn no_op_live_catalog() -> tables::LiveCatalog {
+    let mut live = tables::LiveCatalog::default();
 
-impl<L: runtime::LogHandler> std::fmt::Debug for RuntimeConnectors<L> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("RuntimeConnectors")
-    }
-}
+    let store = models::Store::Gcs(models::GcsBucketAndPrefix {
+        bucket: "example-bucket".to_string(),
+        prefix: None,
+    });
+    // An empty prefix matches every collection and task, and the same store
+    // backs both partitions and recovery logs.
+    live.storage_mappings.insert_row(
+        models::Prefix::new(""),
+        models::Id::zero(),
+        vec![store.clone()],
+        vec![store],
+    );
 
-impl<L: runtime::LogHandler> validation::Connectors for RuntimeConnectors<L> {
-    fn capture<'a, R>(
-        &'a self,
-        _data_plane: &'a tables::DataPlane,
-        _task: &'a models::Capture,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<capture::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = capture::Request> + Send + Unpin + 'static,
-    {
-        self.runtime
-            .clone()
-            .serve_capture(request_rx.map(|request| Ok(request)))
-    }
-
-    fn derive<'a, R>(
-        &'a self,
-        _data_plane: &'a tables::DataPlane,
-        _task: &'a models::Collection,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<derive::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = derive::Request> + Send + Unpin + 'static,
-    {
-        self.runtime
-            .clone()
-            .serve_derive(request_rx.map(|request| Ok(request)))
-    }
-
-    fn materialize<'a, R>(
-        &'a self,
-        _data_plane: &'a tables::DataPlane,
-        _task: &'a models::Materialization,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<materialize::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = materialize::Request> + Send + Unpin + 'static,
-    {
-        self.runtime
-            .clone()
-            .serve_materialize(request_rx.map(|request| Ok(request)))
-    }
-}
-
-/// NoOpCatalogResolver is a CatalogResolver which does nothing, for use by
-/// test cases which want to build catalogs without an integrated control plane.
-pub struct NoOpCatalogResolver;
-
-impl tables::CatalogResolver for NoOpCatalogResolver {
-    fn resolve<'a>(
-        &'a self,
-        _catalog_names: Vec<&'a str>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = tables::LiveCatalog> + Send + 'a>> {
-        async move {
-            let mut live = tables::LiveCatalog::default();
-
-            live.storage_mappings.insert_row(
-                models::Prefix::new(""),
-                models::Id::zero(),
-                vec![models::Store::Gcs(models::GcsBucketAndPrefix {
-                    bucket: "example-bucket".to_string(),
-                    prefix: None,
-                })],
-                vec!["ops/dp/public/noop".to_string()],
-            );
-
-            live.data_planes.insert_row(
-                models::Id::zero(),
-                "ops/dp/public/noop".to_string(),
-                "noop.dp.estuary-data.com".to_string(),
-                false, // closed
-                vec!["hmac-key".to_string()],
-                models::RawValue::from_string("{}".to_string()).unwrap(),
-                models::Collection::new("ops/logs"),
-                models::Collection::new("ops/stats"),
-                "broker:address".to_string(),
-                "reactor:address".to_string(),
-                Some("tls://dekaf.noop.dp.estuary-data.com:9092".to_string()),
-                Some("https://dekaf.noop.dp.estuary-data.com:443".to_string()),
-            );
-
-            live
-        }
-        .boxed()
-    }
+    live
 }
 
 pub const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub const STDIN_URL: &str = "stdin://root/flow.yaml";
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn files_are_written_only_underneath_the_source_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = url::Url::from_directory_path(tmp.path()).unwrap();
+        let source = base.join("proj/flow.yaml").unwrap();
+
+        let files = [
+            "proj/sub/ok.yaml",
+            // An encoded `/` decodes into `..` components which escape `proj/`.
+            "proj/x%2F..%2F..%2Fescape.yaml",
+            // A sibling directory which shares the name prefix of `proj`.
+            "proj-other/sibling.yaml",
+            "https://example/remote.yaml",
+        ]
+        .into_iter()
+        .map(|file| (base.join(file).unwrap(), b"content".to_vec()))
+        .collect();
+        super::write_files(&source, files).unwrap();
+
+        // A source which isn't local writes no local files.
+        let remote = url::Url::parse("https://example/flow.yaml").unwrap();
+        let files = vec![(base.join("proj/remote-source.yaml").unwrap(), Vec::new())];
+        super::write_files(&remote, files).unwrap();
+
+        let mut written = Vec::new();
+        let mut stack = vec![tmp.path().to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    written.push(path.strip_prefix(tmp.path()).unwrap().to_owned());
+                }
+            }
+        }
+        written.sort();
+
+        insta::assert_debug_snapshot!(written, @r#"
+        [
+            "proj/sub/ok.yaml",
+        ]
+        "#);
+    }
+}

@@ -1,1 +1,0 @@
- select $user, 1 as edits_this_day, date($meta$dt) as date where $user is not null;

@@ -11,6 +11,11 @@ pub struct TaskServiceConfig {
     pub container_network: ::prost::alloc::string::String,
     #[prost(enumeration = "Plane", tag = "6")]
     pub plane: i32,
+    /// This process: its ID and the reactor's advertised gRPC endpoint. Reported
+    /// as `connector.Response.Started.process`, telling a proxied caller which
+    /// reactor its connector landed on.
+    #[prost(message, optional, tag = "7")]
+    pub process: ::core::option::Option<::proto_gazette::broker::ProcessSpec>,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 /// It's a description of a document shuffle,
@@ -138,10 +143,11 @@ pub struct Container {
     /// then it is *only* accessible from the hosting server.
     #[prost(string, tag = "1")]
     pub ip_addr: ::prost::alloc::string::String,
-    /// Network ports which are available for this container.
+    /// Network ports which the container's image advertises.
+    /// Validation builds them into the task spec's `network_ports`.
     #[prost(message, repeated, tag = "2")]
-    pub network_ports: ::prost::alloc::vec::Vec<super::flow::NetworkPort>,
-    /// Mapping of ports from `network_ports` to a corresponding "host-ip:port" address,
+    pub advertised_ports: ::prost::alloc::vec::Vec<super::flow::NetworkPort>,
+    /// Mapping of published ports to a corresponding "host-ip:port" address,
     /// as either IPv4 or IPv6, through which the port can be accessed. If empty,
     /// then the container `ip_addr` should be used directly.
     #[prost(btree_map = "uint32, string", tag = "3")]
@@ -403,28 +409,6 @@ pub struct CombineResponse {
     #[prost(bytes = "bytes", tag = "6")]
     pub values_packed: ::prost::bytes::Bytes,
 }
-/// No requests are sent by the client in a ProxyConnectors RPC. However:
-///
-/// * The client should leave its stream open while the proxy is in use.
-/// * Then, it sends EOF to begin a graceful stop of the proxy.
-/// * The response stream will EOF only after all logs have been yielded.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ConnectorProxyRequest {}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ConnectorProxyResponse {
-    /// Address to dial for invoking connector RPCs.
-    /// Sent with the first response.
-    #[prost(string, tag = "1")]
-    pub address: ::prost::alloc::string::String,
-    /// Proxy ID to be attached as metadata key "proxy-id" to connector RPCs.
-    /// Sent with the first response.
-    #[prost(string, tag = "2")]
-    pub proxy_id: ::prost::alloc::string::String,
-    /// Log emitted by connectors invoked using `proxy_id`.
-    /// All messages following the first are logs.
-    #[prost(message, optional, tag = "3")]
-    pub log: ::core::option::Option<super::ops::Log>,
-}
 /// Join is sent by each shard to the leader at session start. The leader
 /// gathers all expected Joins, verifies `shards` are exactly equal,
 /// and responds with Joined on consensus or disagreement.
@@ -593,6 +577,10 @@ pub struct Recover {
     /// keys by the scan.
     #[prost(btree_map = "uint32, fixed64", tag = "11")]
     pub active_backfills: ::prost::alloc::collections::BTreeMap<u32, u64>,
+    /// Gap floors, keyed by binding index: each the maximum `gap_floor` of any
+    /// journal of the binding. Resolved from "GF:{state_key}" keys by the scan.
+    #[prost(btree_map = "uint32, fixed64", tag = "12")]
+    pub gap_floors: ::prost::alloc::collections::BTreeMap<u32, u64>,
 }
 /// Persist is sent by the leader to shard zero when state must be durably
 /// written. Each field maps to a contractual WriteBatch effect on shard
@@ -683,6 +671,12 @@ pub struct Persist {
     /// Effect: after the WriteBatch commits, scan and reply `Recover` not `Persisted`.
     #[prost(bool, tag = "17")]
     pub rescan: bool,
+    /// Gap floors, keyed by binding index: each the maximum `gap_floor` of any
+    /// journal of the binding, cumulative over the session. Only bindings whose
+    /// floor rose since the prior Persist are present.
+    /// Effect: Put fixed64-LE under "GF:{state_key}" (state_key resolved by the encoder).
+    #[prost(btree_map = "uint32, fixed64", tag = "20")]
+    pub gap_floors: ::prost::alloc::collections::BTreeMap<u32, u64>,
     /// The active-backfill change this transaction observed, if any. At most one
     /// per commit — a backfill control signal stands alone in its transaction.
     #[prost(oneof = "persist::ActiveBackfillChange", tags = "18, 19")]
@@ -832,6 +826,7 @@ pub struct Synced {
     pub close_request_seq: u64,
 }
 /// Stop is sent Controller → Shard → Leader to request graceful shutdown.
+/// A shard may also originate Stop to shed resources held by its session.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Stop {}
 /// Stopped confirms the session has shut down. The leader sends Stopped

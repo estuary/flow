@@ -1,0 +1,67 @@
+---
+source: crates/materialize-python/src/lib.rs
+expression: "validated.generated_files[\"file:///project/acmeCo/materialize-acme/__init__.py\"]"
+---
+"""Materialization acmeCo/materialize-acme.
+
+The platform runs the `Materialization` class which this directory exports. It
+must directly subclass the generated `IMaterialization`: as
+`class Materialization(IMaterialization)`, or
+`class Materialization(IMaterialization[MyConfig, MyResourceConfig, MyState])`
+to parse its configurations and state into types of its own. Modules of this
+directory import one another relatively (`from .helpers import ...`).
+
+Each binding has a `store_{name}` method, and a `load_{name}` method if it
+uses standard updates, named for its resource path. This starter discards
+the documents of its bindings, and loads none. A binding whose methods aren't
+overridden is handled by the generic `store` and `load`, which raise here, so
+that a binding which is added without code to handle it fails.
+
+Loads run concurrently, up to `concurrent_loads` at once (and stores, up to
+`concurrent_stores`). A load may instead buffer its key, and yield the loaded
+documents of a whole batch, or leave the batch to `flush`. A store may likewise
+buffer its document, and write the batch in `start_commit`.
+"""
+import typing
+from collections.abc import AsyncIterator
+from estuary_cdk.flow import MaterializationBinding
+from acmeCo.materialize_acme import EndpointConfig, IMaterialization, Request, ResourceConfig, Response
+
+
+class Materialization(IMaterialization):
+    def __init__(self, config: EndpointConfig, bindings: list[MaterializationBinding[ResourceConfig]]):
+        self.config = config
+        self.bindings = bindings
+
+    @classmethod
+    async def open(
+        cls, open: Request.Open[EndpointConfig, ResourceConfig, dict[str, typing.Any]]
+    ) -> tuple[typing.Self, Response.Opened]:
+        # `EndpointConfig` is generated from the materialization's `spec.configSchema`,
+        # and `ResourceConfig` from its `spec.resourceConfigSchema`.
+        materialization = open.materialization
+        return cls(materialization.config, materialization.bindings), Response.Opened()
+
+    async def store_crm_contacts(self, store: Request.StoreCrmContacts) -> None:
+        # Write `store.doc` to the endpoint under `store.key`, or delete it if
+        # `store.delete`. This starter discards it.
+        pass
+
+    async def store_page_views(self, store: Request.StorePageViews) -> None:
+        # Write `store.doc` to the endpoint under `store.key`, or delete it if
+        # `store.delete`. This starter discards it.
+        pass
+
+    async def load_page_views(self, load: Request.LoadPageViews) -> AsyncIterator[Response.Loaded[typing.Any]]:
+        # If `load.key` was stored, yield `Response.Loaded(binding=load.binding, doc=...)`.
+        # This starter finds no key, so every document is new.
+        if False:
+            yield
+
+    async def store(self, store: Request.Store[typing.Any, typing.Any]) -> None:
+        raise RuntimeError(f"unhandled store of binding {self.bindings[store.binding].resourcePath}")
+
+    async def load(self, load: Request.Load[typing.Any]) -> AsyncIterator[Response.Loaded[typing.Any]]:
+        if False:
+            yield
+        raise RuntimeError(f"unhandled load of binding {self.bindings[load.binding].resourcePath}")

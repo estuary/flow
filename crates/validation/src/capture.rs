@@ -1,6 +1,5 @@
-use super::{Connectors, Error, NoOpConnectors, Scope, indexed, linked, reference};
-use futures::SinkExt;
-use proto_flow::{capture, flow, ops::log::Level as LogLevel};
+use super::{Connectors, Error, Scope, indexed, linked, reference};
+use proto_flow::{capture, connector, flow};
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 use xxhash_rust::xxh3::Xxh3;
@@ -16,15 +15,13 @@ type LiveBindings<'a> = BTreeMap<
     ),
 >;
 
-pub async fn walk_all_captures<C: Connectors>(
+pub async fn walk_all_captures(
     pub_id: models::Id,
     build_id: models::Id,
     draft_captures: &tables::DraftCaptures,
     live_captures: &tables::LiveCaptures,
     built_collections: &tables::BuiltCollections,
-    connectors: &C,
-    data_planes: &tables::DataPlanes,
-    explicit_plane: Option<&tables::DataPlane>,
+    connectors: &Connectors<'_>,
     dependencies: &tables::Dependencies<'_>,
     noop_captures: bool,
     storage_mappings: &tables::StorageMappings,
@@ -52,8 +49,6 @@ pub async fn walk_all_captures<C: Connectors>(
                 eob,
                 built_collections,
                 connectors,
-                data_planes,
-                explicit_plane,
                 dependencies,
                 noop_captures,
                 storage_mappings,
@@ -78,14 +73,40 @@ pub async fn walk_all_captures<C: Connectors>(
         .collect()
 }
 
-async fn walk_capture<C: Connectors>(
+/// Map a capture's endpoint into the connector Spec request used by
+/// validation and by local flowctl commands.
+pub fn capture_spec_request(
+    endpoint: &models::CaptureEndpoint,
+    shards: &models::ShardTemplate,
+) -> capture::request::Spec {
+    let (connector_type, config_json) = match endpoint {
+        models::CaptureEndpoint::Connector(config) => (
+            flow::capture_spec::ConnectorType::Image as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::CaptureEndpoint::Local(config) => (
+            flow::capture_spec::ConnectorType::Local as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::CaptureEndpoint::Python(config) => (
+            flow::capture_spec::ConnectorType::Image as i32,
+            serde_json::to_string(&crate::custom::capture_python_connector(config, shards))
+                .unwrap()
+                .into(),
+        ),
+    };
+    capture::request::Spec {
+        connector_type,
+        config_json,
+    }
+}
+
+async fn walk_capture(
     pub_id: models::Id,
     build_id: models::Id,
     eob: EOB<&tables::LiveCapture, &tables::DraftCapture>,
     built_collections: &tables::BuiltCollections,
-    connectors: &C,
-    data_planes: &tables::DataPlanes,
-    explicit_plane: Option<&tables::DataPlane>,
+    connectors: &Connectors<'_>,
     dependencies: &tables::Dependencies<'_>,
     noop_captures: bool,
     storage_mappings: &tables::StorageMappings,
@@ -97,7 +118,7 @@ async fn walk_capture<C: Connectors>(
         scope,
         model,
         control_id,
-        data_plane,
+        data_plane_id,
         _partition_stores,
         recovery_stores,
         expect_pub_id,
@@ -105,16 +126,7 @@ async fn walk_capture<C: Connectors>(
         live_model,
         live_spec,
         is_touch,
-    ) = match crate::walk_transition(
-        pub_id,
-        build_id,
-        "capture",
-        explicit_plane,
-        eob,
-        data_planes,
-        storage_mappings,
-        errors,
-    ) {
+    ) = match crate::walk_transition(pub_id, build_id, "capture", eob, storage_mappings, errors) {
         Ok(ok) => ok,
         Err(built) => return built,
     };
@@ -152,62 +164,46 @@ async fn walk_capture<C: Connectors>(
     }
 
     // Unwrap `endpoint` into a connector type and configuration.
-    let (connector_type, config_json): (i32, bytes::Bytes) = match &endpoint {
-        models::CaptureEndpoint::Connector(config) => (
-            flow::capture_spec::ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::CaptureEndpoint::Local(config) => (
-            flow::capture_spec::ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-    };
+    let capture::request::Spec {
+        connector_type,
+        config_json,
+    } = capture_spec_request(&endpoint, &shards);
+
+    if let models::CaptureEndpoint::Python(python) = &endpoint {
+        let scope = scope.push_prop("endpoint");
+        let scope = scope.push_prop("python");
+
+        if !shards.uses_runtime_v2(models::CatalogType::Capture) {
+            Error::RequireRuntimeV2 {
+                entity: "capture",
+                name: capture.to_string(),
+                capability: "python",
+                flag: models::ENABLE_RUNTIME_V2,
+            }
+            .push(scope, errors);
+        }
+        crate::custom::walk_python(
+            scope,
+            capture,
+            &python.files,
+            &python.config,
+            &python.spec,
+            errors,
+        );
+    }
 
     let secrets_spec = assemble::secrets(&secrets);
+    let secrets_ctx = crate::secrets::Context::of_capture(&secrets, &endpoint);
 
-    // Start an RPC with the task's connector.
-    let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
-    let response_rx = if noop_captures || shards.disable {
-        futures::future::Either::Left(NoOpConnectors.capture(data_plane, capture, request_rx))
-    } else {
-        futures::future::Either::Right(connectors.capture(data_plane, capture, request_rx))
-    };
-    futures::pin_mut!(response_rx);
-
-    // Send Request.Spec and receive Response.Spec.
-    _ = request_tx
-        .send(
-            capture::Request {
-                kind: Some(capture::request::Kind::Spec(capture::request::Spec {
-                    connector_type,
-                    config_json: config_json.clone(),
-                })),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                if let Some(s) = &shards.log_level {
-                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-                }
-            }),
-        )
-        .await;
-
-    let capture::response::Spec {
-        documentation_url: _,
-        config_schema_json: _,
-        resource_config_schema_json: _,
-        resource_path_pointers: _,
-        ..
-    } = super::expect_response(
+    crate::secrets::walk_model(
         scope,
-        &mut response_rx,
-        |response| match &mut response.kind {
-            Some(capture::response::Kind::Spec(spec)) => Ok(Some(std::mem::take(spec.as_mut()))),
-            _ => Ok(None),
-        },
+        "capture",
+        capture,
+        models::CatalogType::Capture,
+        &shards,
+        &secrets_ctx,
         errors,
-    )
-    .await?;
+    );
 
     // Index live binding models having a non-empty resource /_meta/path .
     let live_bindings_model: BTreeMap<Vec<String>, &models::CaptureBinding> = live_model
@@ -293,6 +289,7 @@ async fn walk_capture<C: Connectors>(
         })
         .collect();
     let bindings_validate_len = bindings_validate.len();
+    let project_root = super::project_root(&scope.flatten());
 
     let mut validate_request = capture::request::Validate {
         name: capture.to_string(),
@@ -307,45 +304,65 @@ async fn walk_capture<C: Connectors>(
         },
         linked_collections: Vec::new(),
         secrets: secrets_spec.clone(),
+        project_root: project_root.clone(),
     };
     linked::install_capture_validate(&mut validate_request, interner, indirect_specs);
 
-    // Send Request.Validate and receive Response.Validated.
-    _ = request_tx
-        .send(
-            capture::Request {
-                kind: Some(capture::request::Kind::Validate(Box::new(validate_request))),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                if let Some(s) = &shards.log_level {
-                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-                }
-            }),
-        )
-        .await;
-
-    let (validated_response, network_ports) = super::expect_response(
+    let no_op = noop_captures || shards.disable;
+    let (mut validated_response, network_ports, connector_spec) = super::validate_connector(
         scope,
-        &mut response_rx,
-        |response| {
-            let network_ports = match response.get_internal() {
-                Ok(internal) => internal.container.unwrap_or_default().network_ports,
-                Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
-            };
-            match &mut response.kind {
-                Some(capture::response::Kind::Validated(v)) => {
-                    Ok(Some((std::mem::take(v), network_ports)))
-                }
-                _ => Ok(None),
-            }
+        connectors,
+        no_op,
+        data_plane_id,
+        shards.log_level.as_deref(),
+        connector::request::Kind::Capture(capture::Request {
+            kind: Some(capture::request::Kind::Validate(Box::new(validate_request))),
+            ..Default::default()
+        }),
+        |response| match response {
+            connector::response::Kind::Capture(capture::Response {
+                kind: Some(capture::response::Kind::Validated(validated)),
+                ..
+            }) => Some(validated),
+            _ => None,
         },
         errors,
     )
     .await?;
 
+    let network_ports = match &endpoint {
+        models::CaptureEndpoint::Python(python) => crate::custom::network_ports(&python.spec),
+        _ => network_ports,
+    };
+
+    crate::secrets::walk_plaintext(
+        scope,
+        "capture",
+        capture,
+        &secrets_ctx,
+        &connector_spec.config_schema_json,
+        errors,
+    );
+
+    super::validate_generated_files(
+        scope,
+        &project_root,
+        &mut validated_response.generated_files,
+        errors,
+    );
+
+    if let models::CaptureEndpoint::Python(python) = &endpoint {
+        crate::custom::retain_generated_files(
+            capture,
+            &project_root,
+            &python.files,
+            &mut validated_response.generated_files,
+        );
+    }
+
     let capture::response::Validated {
         bindings: bindings_validated,
+        generated_files: _,
     } = &validated_response;
 
     if bindings_validate_len != bindings_validated.len() {
@@ -525,6 +542,7 @@ async fn walk_capture<C: Connectors>(
         ),
         linked_collections: Vec::new(),
         secrets: secrets_spec,
+        connector_spec: (!no_op).then(|| Box::new(connector_spec)),
     };
     linked::install_capture_spec(&mut spec, interner, indirect_specs);
 
@@ -541,16 +559,13 @@ async fn walk_capture<C: Connectors>(
         reset: false,
     };
 
-    std::mem::drop(request_tx);
-    () = super::expect_eof(scope, response_rx, errors).await;
-
     // Compute the dependency hash, now that we're done with any modifications of the model
     let dependency_hash = dependencies.compute_hash(&model);
     Some(tables::BuiltCapture {
         capture: capture.clone(),
         scope: scope.flatten(),
         control_id,
-        data_plane_id: data_plane.control_id,
+        data_plane_id,
         dependency_hash,
         expect_build_id,
         expect_pub_id,

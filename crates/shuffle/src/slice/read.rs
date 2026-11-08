@@ -34,8 +34,6 @@ pub struct ReadState {
     pub backfill_complete: uuid::Clock,
     /// Whether a read-start byte gap awaits its first document.
     pub pending_gap: bool,
-    /// Sampled gap floor, awaiting the next flush (zero = none).
-    pub gap_floor: uuid::Clock,
     /// Producers whose state has been reported in a flush frontier: either from
     /// the initial checkpoint or drained from `unreported` at the start of a
     /// flush cycle.
@@ -89,7 +87,6 @@ impl ReadState {
             backfill_begin: uuid::Clock::zero(),
             backfill_complete: uuid::Clock::zero(),
             pending_gap: false,
-            gap_floor: uuid::Clock::zero(),
             reported,
             unreported: Default::default(),
             read_offset: 0,
@@ -104,41 +101,52 @@ impl ReadState {
         }
     }
 
-    /// Seed all four offset fields to `offset`, the read's effective start as
-    /// resolved by the journal probe. The probe may fast-forward past leading
-    /// fragments that precede the read's `begin_mod_time`, so `offset` can
-    /// exceed the checkpoint offset; the skipped range would be filtered by the
-    /// read regardless. Initializing all four equal makes the initial "bytes
-    /// behind" (`write_head - read_offset`) and the delta baseline
-    /// (`prev_write_head - prev_read_offset`) zero, which is required because
-    /// metrics accumulate deltas starting from these baselines.
+    /// Begin the read at its `probed_offset`, which its probe fast-forwarded
+    /// from `resume_offset`, noting whether that left a byte gap.
     ///
-    /// `write_head` is a placeholder here; it's overwritten with the journal's
-    /// true head once the first batch resolves in `process_read_result`.
-    pub fn start_at(&mut self, offset: i64) {
-        self.read_offset = offset;
-        self.prev_read_offset = offset;
-        self.write_head = offset;
-        self.prev_write_head = offset;
+    /// Delta baselines are seeded at the probed offset. Metrics accumulate
+    /// deltas from a zero baseline, and bytes the read skipped are not read.
+    /// `write_head` is the journal's head at the probe, so the first flush
+    /// reports the read's full backlog as bytes behind.
+    ///
+    /// A gapped read whose probed offset is the journal's `write_head` is
+    /// tailing, and may not receive a document for a long while, if ever.
+    /// Every ACK its gap removed or skipped was appended before the probe,
+    /// so its gap floor is set from the probe's time, `now`, and returned.
+    pub fn on_probed(
+        &mut self,
+        resume_offset: i64,
+        probed_offset: i64,
+        write_head: i64,
+        now: uuid::Clock,
+    ) -> Option<uuid::Clock> {
+        self.pending_gap = probed_offset > resume_offset;
+        self.read_offset = probed_offset;
+        self.prev_read_offset = probed_offset;
+        self.write_head = write_head;
+        self.prev_write_head = probed_offset;
+
+        if probed_offset < write_head {
+            return None;
+        }
+        self.take_gap_floor(now)
     }
 
-    /// Sample the first document past a read-start byte gap into `gap_floor`,
-    /// plus [`crate::CAUSAL_HINT_GAP_MARGIN`].
+    /// Take the floor of a pending read-start byte gap: `clock` plus
+    /// [`crate::CAUSAL_HINT_GAP_MARGIN`]. `clock` is that of the first document
+    /// past the gap, or the probe's time if the read is already tailing.
+    /// Every ACK the gap removed precedes it, so hints naming them are bounded.
     ///
-    /// Every ACK the gap removed precedes this document in offset order, so the
-    /// sample bounds them all. Hints naming them can never resolve on this read.
-    ///
-    /// `notBefore` is not consulted: it suppresses append but not commits
-    /// (`super::state::sequence_producer`), so hints still resolve from any
-    /// document the read receives. It bears on the floor only when it opens a gap.
-    pub fn sample_gap_floor(&mut self, clock: uuid::Clock) {
+    /// `notBefore` doesn't bear on the floor: it suppresses append but not
+    /// commits (`super::state::sequence_producer`).
+    pub fn take_gap_floor(&mut self, clock: uuid::Clock) -> Option<uuid::Clock> {
         if !std::mem::take(&mut self.pending_gap) {
-            return;
+            return None;
         }
         // A duration as a Clock delta, encoded as `Binding::read_delay` is.
         let margin =
             uuid::Clock::from_u64((crate::CAUSAL_HINT_GAP_MARGIN.as_secs() * 10_000_000) << 4);
-        self.gap_floor = self.gap_floor.max(clock + margin);
+        Some(clock + margin)
     }
 
     /// Fold a just-sequenced commit's `post` producer state into [`Park`],
@@ -193,7 +201,7 @@ pub struct Meta {
 
 /// ReadyRead is a ReadLines which has one or more parsed documents.
 pub struct ReadyRead {
-    /// The underlying read stream, returned to pending_reads when `tail` is exhausted.
+    /// The underlying read stream, which awaits I/O once the tail is exhausted.
     pub inner: super::ReadLines,
     /// Head document content.
     pub doc: doc::OwnedArchivedNode,
@@ -203,6 +211,23 @@ pub struct ReadyRead {
     pub doc_tail: simd_doc::transcoded::OwnedIterOut,
     /// Pre-extracted metadata for remaining tail documents.
     pub meta_tail: std::vec::IntoIter<Meta>,
+}
+
+impl ReadyRead {
+    /// Advance to the next document of the batch, re-using this Box,
+    /// or return the underlying read if the batch is drained.
+    pub fn advance(mut self: Box<Self>) -> Result<Box<Self>, super::ReadLines> {
+        // `doc_tail` and `meta_tail` advance in lock-step.
+        match (self.doc_tail.next(), self.meta_tail.next()) {
+            (Some((doc, _)), Some(meta)) => {
+                self.doc = doc;
+                self.meta = meta;
+                Ok(self)
+            }
+            (None, None) => Err(self.inner),
+            _ => unreachable!("doc_tail and meta_tail have equal length"),
+        }
+    }
 }
 
 /// Extract UUID metadata and validate each document in a transcoded batch.
@@ -284,54 +309,46 @@ pub fn extract_metas(
     Ok(out)
 }
 
-/// Probe where a read starting at `offset` with the given `begin_mod_time` will
-/// actually begin, along with the journal's current write head.
-/// Returns `(start_offset, write_head, header)`.
+/// Probe where a read of `request` will actually begin, by a non-blocking,
+/// metadata-only read of it.
 ///
-/// We issue a non-blocking, metadata-only read at `offset` with `begin_mod_time`
-/// wired in. The broker fast-forwards over any fragments that fall before
-/// `begin_mod_time` (or over holes in the offset space) and replies with a single
-/// metadata response before closing the stream — `Status OK` with a covering
-/// fragment if eligible content exists, or `OFFSET_NOT_YET_AVAILABLE` if every
-/// fragment was filtered. Either way the response carries:
-///   * `offset`: the fast-forwarded start, at-or-after the requested `offset`, and
+/// The broker fast-forwards over any fragments that fall before
+/// `begin_mod_time` (or over holes in the offset space) and replies with a
+/// single metadata response before closing the stream — `Status OK` with a
+/// covering fragment if eligible content exists, or `OFFSET_NOT_YET_AVAILABLE`
+/// if every fragment was filtered. Either way the response carries:
+///   * `offset`: the fast-forwarded start, at-or-after the request `offset`, and
 ///   * `write_head`: the journal's current write head.
 ///
-/// `start_offset == write_head` means the read is caught up: all content up to the
-/// head precedes `begin_mod_time`. Starting the read at `start_offset` rather than
-/// a stale `offset` below the head is both correct — the skipped bytes precede
-/// `begin_mod_time` and would be filtered by the read regardless — and necessary
-/// to classify a caught-up read as tailing rather than stalled.
-///
-/// Note that `client.read()` controls `ReadRequest::metadata_only` internally.
-pub async fn probe_read_start(
-    client: gazette::journal::Client,
-    journal: &str,
+/// A probed `offset == write_head` means the read is caught up: all content up
+/// to the head precedes `begin_mod_time`.
+pub async fn probe_read(
+    client: &gazette::journal::Client,
+    request: &broker::ReadRequest,
     binding_state_key: &str,
-    header: Option<broker::Header>,
-    journal_create_revision: i64,
-    offset: i64,
-    begin_mod_time: i64,
-) -> anyhow::Result<(i64, i64, Option<broker::Header>)> {
+) -> anyhow::Result<broker::ReadResponse> {
     use futures::StreamExt;
 
-    let stream = client.read(broker::ReadRequest {
-        journal: journal.to_string(),
-        offset,
-        begin_mod_time,
+    let stream = client.clone().read(broker::ReadRequest {
         block: false,
-        do_not_proxy: true,
-        header,
-        min_etcd_revision: journal_create_revision,
-        ..Default::default()
+        metadata_only: true,
+        ..request.clone()
     });
     tokio::pin!(stream);
 
+    let mut metadata: Option<broker::ReadResponse> = None;
+
     loop {
         match stream.next().await {
-            None => anyhow::bail!(
-                "probe stream ended unexpectedly for {journal} (binding {binding_state_key})",
-            ),
+            None => {
+                let Some(resp) = metadata else {
+                    panic!(
+                        "metadata-only read of {} ended without a response",
+                        request.journal
+                    )
+                };
+                return Ok(resp);
+            }
             Some(Err(gazette::RetryError {
                 attempt,
                 inner: err,
@@ -351,8 +368,8 @@ pub async fn probe_read_start(
                     service_kit::event!(
                         tracing::Level::WARN,
                         "read",
-                        binding = binding_state_key.to_string(),
-                        journal = journal.to_string(),
+                        binding_state_key = binding_state_key.to_string(),
+                        journal = request.journal.clone(),
                         attempt,
                         err = service_kit::event::debug(err),
                         "transient error probing journal read start (will retry)",
@@ -360,15 +377,67 @@ pub async fn probe_read_start(
                 } else {
                     return Err(map_read_error(
                         err,
-                        journal,
+                        &request.journal,
                         binding_state_key,
                         "probing read start",
                     ));
                 }
             }
-            Some(Ok(resp)) => return Ok((resp.offset, resp.write_head, resp.header)),
+            Some(Ok(resp)) => {
+                assert!(
+                    metadata.is_none(),
+                    "metadata-only read of {} yielded more than one response",
+                    request.journal,
+                );
+                metadata = Some(resp);
+            }
         }
     }
+}
+
+/// Start the blocking read of `request`, which resumes from its `offset` (the
+/// resume offset) but begins at the offset found by `probe_read` (the probed
+/// offset). Starting at the probed offset rather than a stale resume offset
+/// below the head is both correct — the skipped bytes precede `begin_mod_time`
+/// and would be filtered by the read regardless — and necessary to classify a
+/// caught-up read as tailing rather than stalled.
+pub async fn start_read(
+    client: gazette::journal::Client,
+    mut request: broker::ReadRequest,
+    read_id: u32,
+    binding_state_key: String,
+) -> super::heap::Probed {
+    use futures::StreamExt;
+
+    let probed = probe_read(&client, &request, &binding_state_key).await?;
+    let tailing = probed.offset >= probed.write_head;
+
+    service_kit::event!(
+        tracing::Level::DEBUG,
+        "read",
+        read_id,
+        binding_state_key,
+        journal = request.journal.clone(),
+        resume_offset = request.offset,
+        probed_offset = probed.offset,
+        tailing,
+        write_head = probed.write_head,
+        "probed journal read start",
+    );
+
+    let resume_offset = std::mem::replace(&mut request.offset, probed.offset);
+    request.header = probed.header;
+
+    Ok((
+        resume_offset,
+        probed.offset,
+        probed.write_head,
+        Box::pin(gazette::journal::read::ReadLines::new(
+            client.read(request).boxed(),
+            read_id,
+            tailing,
+        )) as super::ReadLines,
+    ))
 }
 
 /// Classification of a `ReadLines` failure.
@@ -648,21 +717,43 @@ mod test {
         let margin = crate::CAUSAL_HINT_GAP_MARGIN.as_secs();
         let mut read = recovered(&[]);
 
-        // No gap: nothing is sampled.
-        read.sample_gap_floor(clock(20));
-        assert_eq!(read.gap_floor, uuid::Clock::zero());
+        // No gap: there's no floor.
+        assert_eq!(read.take_gap_floor(clock(20)), None);
 
-        // A gap samples its first document plus the margin, and nothing after.
+        // A gap's floor is its first document plus the margin, taken once.
         read.pending_gap = true;
-        read.sample_gap_floor(clock(20));
+        assert_eq!(read.take_gap_floor(clock(20)), Some(clock(20 + margin)));
         assert!(!read.pending_gap);
-        assert_eq!(read.gap_floor, clock(20 + margin));
-        read.sample_gap_floor(clock(30));
-        assert_eq!(read.gap_floor, clock(20 + margin));
+        assert_eq!(read.take_gap_floor(clock(30)), None);
+    }
 
-        // The floor only rises.
-        read.pending_gap = true;
-        read.sample_gap_floor(clock(15));
-        assert_eq!(read.gap_floor, clock(20 + margin));
+    #[test]
+    fn test_gap_floor_at_probe_of_tailing_read() {
+        let clock = |secs| uuid::Clock::from_unix(secs, 0);
+        let margin = crate::CAUSAL_HINT_GAP_MARGIN.as_secs();
+
+        // A gapped read which is already tailing takes its floor at the probe,
+        // and not again at its first document.
+        let mut read = recovered(&[]);
+        assert_eq!(
+            read.on_probed(100, 500, 500, clock(1_000)),
+            Some(clock(1_000 + margin))
+        );
+        assert_eq!((read.read_offset, read.write_head), (500, 500));
+        assert_eq!(read.take_gap_floor(clock(2_000)), None);
+
+        // A gapped read which isn't tailing takes it at its first document.
+        let mut read = recovered(&[]);
+        assert_eq!(read.on_probed(100, 500, 900, clock(1_000)), None);
+        assert_eq!(
+            (read.read_offset, read.write_head, read.prev_write_head),
+            (500, 900, 500)
+        );
+        assert_eq!(read.take_gap_floor(clock(20)), Some(clock(20 + margin)));
+
+        // A tailing read without a gap has no floor.
+        let mut read = recovered(&[]);
+        assert_eq!(read.on_probed(500, 500, 500, clock(1_000)), None);
+        assert!(!read.pending_gap);
     }
 }

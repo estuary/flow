@@ -17,8 +17,10 @@ and ad-hoc collection reads.
 
 The system is built from three layered gRPC RPCs, defined in
 `go/protocols/shuffle/shuffle.proto`, each implemented as an async actor
-and forming a hierarchy. For M shards, the system uses M Slice
-streams and M² Log streams (each Slice opens one Log RPC to every shard):
+and forming a hierarchy. For M shards and P distinct binding priorities
+(see Concepts), the system uses M·P Slice streams and M²·P Log
+streams (each Slice opens one Log RPC to every shard).
+With a single priority, which is typical:
 
 ```
 Coordinator (external caller, typically runs on shard-000)
@@ -42,9 +44,9 @@ external coordinator (e.g. shard-000 of a derivation or materialization).
 Manages the session lifecycle, routes discovered journals to Slices,
 and aggregates progress into checkpoints.
 
-**Slice** (`slice/`): Per-shard RPC opened by the Session. Each Slice
-watches journal listings for its assigned bindings, reads documents from
-journals, sequences them, validates them, extracts shuffle keys, and routes
+**Slice** (`slice/`): Per-(shard, priority) RPC opened by the Session. Each Slice
+watches journal listings for its assigned bindings (of its priority), reads documents
+from journals, sequences them, validates them, extracts shuffle keys, and routes
 documents to the appropriate Log RPC(s) based on key hash.
 
 **Log** (`log/`): Per-shard RPC opened by each Slice. All Slices
@@ -74,22 +76,12 @@ Session request stream, the Session propagates this to its Slices by closing
 their request streams, and each Slice in turn to its Logs. Each actor observes
 the EOF, then drains its downstream peers' EOFs before exiting.
 
-This interacts subtly with disk back-pressure. When a Log engages back-pressure
-(§8), it stops draining a Slice's `Append`s, which parks that Slice's request
-stream — so the Log no longer polls it and cannot observe its EOF. A Slice whose
-`Append` is parked at a back-pressured Log therefore can't drain that Log to EOF,
-and shutdown wedges from the Log upward. Back-pressure normally releases only as
-the downstream coordinator consumes the local log and reclaims segments — which
-stops happening once the coordinator is shutting down.
-
-A coordinator breaks this by relieving the back-pressure out-of-band: it removes
-each shard's log segment files (`remove_shard_segments`). The co-located Log's
-sealed-segment reclaim observes the unlinks, drops `disk_backlog_bytes` below
-threshold, and releases back-pressure — so the parked Slice streams re-arm, reach
-EOF, and the whole topology drains. Because this discards any log not yet
-consumed, a coordinator does it only once it will request no further checkpoints,
-then calls `SessionClient::close()` (which blocks until the Session→Slice→Log
-topology has fully drained).
+A Log reads every Slice's rounds whether or not its merge is paused by disk
+back-pressure (§8), so it always observes each Slice's EOF. Once all have
+EOF'd, it exits, discarding any rounds still unmerged along with its log
+segments. A coordinator closes a Session (`SessionClient::close()`,
+which blocks until the Session→Slice→Log topology has fully drained) only once
+it will request no further checkpoints, so nothing it would read is lost.
 
 #### Teardown during the opening phase
 
@@ -100,20 +92,15 @@ which drops their request channels and cascades EOF down to those peers and
 their peers in turn. Racing the request stream catches the *upstream* going
 away mid-open.
 
-The Log rendezvous is the subtle case. `M` Slices connect to each Log shard; the
-invocation that connects last runs the `LogActor`, while the earlier `M-1` park.
-A parked invocation must remain cancel-observant, so it selects its own
-completion signal against `response_tx.closed()` (fired when its Slice
-client drops its receiver) and reaps *only its own* slot under the `log_joins`
-mutex (dropping the whole entry when it removed the last live slot),
-so a stale partial rendezvous can't wedge the map or poison
-a retry.
+The Log rendezvous (`log::LogJoin`) is the subtle case. Each Log shard is
+joined by `M·P` Slices, and the last to connect runs the `LogActor`. The
+others park, and remain cancel-observant while they do (`log::handler`).
 
 #### No deadlines, by design
 
 There are deliberately **no** open-phase deadlines. Every transient failure
-surfaces as an error that self-heals via `try_join_all` and the Go retry loop,
-so a timeout would add flapping that would only paper over a true regression,
+surfaces as an error that self-heals via `crate::try_join_all_eager` and coordinator
+retry, so a timeout would add flapping that would only paper over a true regression,
 and makes the ensemble more difficult to debug (a stable wedge is far easier
 to inspect).
 
@@ -126,9 +113,19 @@ for AuthN and AuthZ scoping to the requested task topology.
 
 ### Concepts
 
-**Shard Topology**: A session has N **shards**, each owning a disjoint range of the 2D
+**Shard Topology**: A session has M **shards**, each owning a disjoint range of the 2D
 (key_hash, r_clock) space. Shards tile the full `[0, 0xFFFFFFFF]` range
-in both dimensions. Each shard runs one Slice RPC actor and one Log RPC actor.
+in both dimensions. Each shard runs a Slice RPC actor of each priority, and one
+Log RPC actor.
+
+**Priorities**: Bindings may have different priorities, and documents of
+higher-priority bindings are shuffled ahead of those of lower ones. Each
+distinct priority is processed independently: every shard runs a separate
+Slice of each priority (`binding::distinct_priorities`), which reads only
+bindings of that priority, has its own flow-control windows, and flushes and
+reports progress on its own. Documents of different priorities meet only at
+each Log's merge, which takes higher-priority documents first (§8). Most tasks
+use only the default priority, and so run one Slice per shard.
 
 **Span**: A single run of CONTINUE_TXN documents by one producer in one journal,
 without an interleaving ACK. The producer's first CONTINUE_TXN *opens* a span and
@@ -192,12 +189,19 @@ explicit delay cannot gate a binding read in real time.
 whether retention removed them, `begin_mod_time` skipped them, or they were
 never written. The response does not say which.
 
-**Binding gap floor**: A clock below which a binding's causal hints are
-unreachable. Only a byte gap at read start raises it, to the first document past
-the gap plus `CAUSAL_HINT_GAP_MARGIN` (`ReadState::sample_gap_floor`). It only
-rises, and discharges causal hints which trail it (`Completed::is_gap_stale`) —
-never producer commits, and never the hinted frontier an idempotent-recovery
-session replays.
+**Gap floor**: A clock below which causal hints naming a `(journal, binding)`
+are unreachable, because a byte gap at the read's start skipped their ACKs
+(`JournalFrontier::gap_floor`). It discharges hints, never producer commits.
+
+**Prune floor**: The largest clock of a producer which a `(journal, binding)`
+entry of the session's cumulative Frontier has forgotten
+(`JournalFrontier::prune_floor`). It discharges hints onto, and accounts for
+commits of, forgotten producers.
+
+**Remainder**: An already-read log block holding entries not yet committed at
+the reading shard's frontier, carried into later scans until they are
+(`log/reader/scan.rs`). A remainder holds its segment file open, and a segment
+is unlinked only when its last handle drops.
 
 #### Terms to avoid
 
@@ -218,19 +222,17 @@ optimistically from the latest journal offset, so when an uncommitted
 transaction later commits it must perform bounded "replay reads" to re-read
 that data — a routine, high-latency part of steady-state reading. This
 implementation reads forward and stages open spans into the log inline,
-so steady-state reading never replays. Replay is confined to restart recovery:
-a `(binding, journal)` read resumes from its checkpoint's cut floor
-(`M = max|offset|` across producer entries), and a producer whose open span
-begins before `M` is *gapped* — its skipped range is recovered by a single
-bounded historical replay, triggered lazily by the producer's first newer
-document (see `slice/replay.rs`).
+so steady-state reading never replays. Replay is confined to restart recovery,
+of *gapped* producers only.
 
 **Per-shard RPCs → shared streams**: The legacy system starts an RPC per
 (shard, journal) pair, which doesn't scale: at M=10 shards with N=100k
 journals, that's up to M×N = 1M concurrent RPCs, and each ACK is broadcast
-to every shard. This implementation uses M + M² streams total (M Slice RPCs + M²
-Log RPCs), independent of journal count. At M=10 with N=100k, that's 110 streams
-instead of 1M. Listing watches are also distributed across shards (each
+to every shard. This implementation uses M·P + M²·P streams total
+(M·P Slice RPCs + M²·P Log RPCs, for P distinct priorities),
+independent of journal count. At M=10 and P=1 with N=100k,
+that's 110 streams instead of 1M.
+Listing watches are also distributed across shards (each
 watches ~B/M bindings) rather than duplicated on every shard.
 
 **In-memory staging → disk-backed logs**: The legacy system holds shuffled
@@ -261,16 +263,16 @@ resume checkpoint frontier. The Session:
    plus `Source` structs — one per distinct source collection, following the
    spec's declared indirection. Schema validators and journal clients are built
    per Source, so bindings fanning in on one collection share them.
-2. Opens a Slice RPC to every shard (shard 0 is in-process; others are
-   remote gRPC calls).
+2. Opens a Slice RPC of every priority to every shard (those of shard 0 are
+   in-process; others are remote gRPC calls).
 3. Sends `Opened` to the coordinator, then reads the resume checkpoint
    `Frontier`.
 4. Sends `Start` to all Slices, which triggers journal listing watches.
 
 ### 2. Journal Discovery
 
-Each Slice watches Gazette journal listings for its assigned bindings
-(round-robin by `binding.index % shard_count`). The Slice sends a
+Each Slice watches Gazette journal listings for its assigned bindings: those
+of its priority, round-robin by `binding.index % shard_count`. The Slice sends a
 `ListingAdded` for each journal. The Slice sends one `ListingSnapshotComplete`
 when a binding's initial snapshot is fully delivered, empty snapshots included.
 
@@ -293,7 +295,7 @@ Within the candidate set, a stable hash of `(journal_name, read_suffix)`
 selects the target shard. The Session constructs a `StartRead` message
 containing the journal spec, binding index, and the per-journal producer
 checkpoint extracted from the resume frontier, then sends it to the
-target Slice.
+target shard's Slice of the binding's priority.
 
 Only one Slice lists each binding. When the Session has received a
 `ListingSnapshotComplete` for every binding, it puts an `InitialReadsStarted` on
@@ -310,9 +312,8 @@ recovered later by a bounded replay (see `slice/replay.rs`).
 It first probes the journal write head to determine whether the read is already
 tailing (caught up).
 
-A probe landing beyond the requested offset is a byte gap at read start, which
-raises the binding's gap floor (`ReadState::sample_gap_floor`). A gap mid-read
-raises nothing.
+A probe landing beyond the resume offset is a byte gap at read start, which
+raises the journal's gap floor (`ReadState::take_gap_floor`).
 
 Read data arrives as `LinesBatch` chunks from Gazette, which are
 transcoded via `simd_doc::SimdParser` into archived document nodes.
@@ -321,29 +322,27 @@ flags) and validates the document against the binding's schema.
 
 ### 5. Ready-Read Heap and Clock Gating
 
-Parsed documents enter a priority heap (`ReadyReadHeap`) ordered by
-(priority DESC, adjusted_clock ASC), where `adjusted_clock = clock +
-read_delay`. The Slice does not drain until the Session's `InitialReadsStarted`
-arrives, all pending reads are tailing, and no read still probes its write head.
-No unstarted read and no unresolved read can then preempt the heap top.
+Parsed documents enter a heap ordered by clock adjusted by `read_delay`.
+`ReadHeap` also tracks reads which are probing or pending broker I/O, and the
+Slice drains its top only once no unstarted, probing, or non-tailing read could
+preempt it (`ReadHeap::resolved_top`).
 
 A single non-tailing read therefore head-of-line-blocks the whole Slice's
-drain, so I/O stalls on individual journals matter. A read is only
-(re-)parked into `pending_reads` after a now-or-never poll fails to yield
-its next batch (`park_or_process`); a read with content already buffered is
-processed immediately rather than counted as blocked. Reads that genuinely
-park while non-tailing are tracked in `stalled` and surfaced — by transition
-— on the `stall` event track and the `shuffle_slice_stalled_reads` gauge, so
-an operator can sample *which* journals are blocking and for how long.
+drain. Its last Barrier (§8) then gates every Log's merge at the position it
+has consumed through, which holds back later Appends of its priority, and of
+every lesser priority. Peer Slices fill their windows and stop reading too,
+so an I/O stall on one journal can pause the session. Stalled reads are
+surfaced on the `stall` event track and the `shuffle_slice_stalled_reads`
+gauge, so an operator can see *which* journals are blocking, and for how long.
 
 Before processing the heap top, the Slice gates on wall-clock time: if
 `adjusted_clock` is in the future (due to `read_delay`), the actor
 sleeps until the clock catches up. This is how read delays impose
 cross-transform ordering guarantees.
 
-Each dequeue also records the document's clock on the
+Each consumed document also records its clock on the
 `shuffle_slice_last_source_published_at_time_seconds` gauge, labeled by
-cohort: how far this shard's shuffled read has progressed in source
+priority and cohort: how far this shard's shuffled read has progressed in source
 published-at time. `time() - gauge` is the shard's read lag, and max - min
 across sibling shards is their skew — the measure of how tightly remapped
 routing (§7) actually couples shards. Clocks are only comparable within a
@@ -365,7 +364,9 @@ The top document is sequenced against per-producer state using
 - **Duplicates**: Already-seen documents, covered by the producer's `last_commit`.
   Silently dropped.
 
-`notBefore` / `notAfter` bounds suppress log appends but not flush cycles and progress reporting.
+`notBefore` / `notAfter` bounds suppress log appends but not flush cycles and
+progress reporting. Nor do they exempt a document from flow control (§7): it's
+consumed whether or not it's appended.
 
 ### 7. Key Extraction and Append Routing
 
@@ -375,46 +376,68 @@ computes its hash, and routes to target Log shard(s) using
 `filter_r_clocks` additionally filters by the rotated clock value,
 distributing reads across shards in the r_clock dimension.
 
-Key routing is deliberately "mostly solid": within `route_to_shards()`, a
-small fixed fraction of keys (`routing::REMAP_THRESHOLD / REMAP_BUCKETS`,
-selected by the key hash's low bits) route by a remapped hash — the hash's
-16-bit halves swapped — landing them across the key space rather than in
-their own range. This puts a
-trickle of every Slice's documents into every Log, so a lagging Log's
-clock-ordered merge (§8) back-pressures a Slice that has raced ahead,
-bounding how far shards' wall-clocks can diverge within a transaction. The
-remap is a pure function of the key hash, so every Slice agrees on it, and
-it is internal to routing: the key hash that connectors and log entries
-observe is always the true hash of the packed key.
+The document, its packed key, metadata, and journal context are buffered
+as an `Append` for each target Log. Journal names are delta-encoded across
+consecutive Appends to minimize wire overhead.
 
-The document, its packed key, metadata, and journal context are sent
-as an `Append` message to each target Log. Journal names are
-delta-encoded across consecutive sends to minimize wire overhead.
+#### Rounds and Flow Control
+
+A Slice sends its Appends to each Log in **rounds** (`slice::rounds`). Each
+round is closed by a **Barrier** (§8), and goes to every Log whether or not it
+has Appends for it.
+
+Slices are flow-controlled by **quota**: the archived bytes of the documents
+they consume, appended or not. A Log releases a round's quota once it merges
+the round's Barrier. A Slice may consume at most a **window** of quota beyond
+what every Log has released. That bounds its lead over the merge, and the
+memory each Log buffers for it.
 
 ### 8. Log Merge and Output
 
-Each LogActor receives Append messages from all Slices. Received
-appends are placed in a min-heap ordered by (priority DESC,
-adjusted_clock ASC). The actor pops entries one at a time, writing
-documents to its on-disk log files in a globally-merged order.
+Each Log buffers the rounds of each Slice (`log::buffer`), and merges them
+across Slices in (priority DESC, adjusted_clock ASC) order into its on-disk
+log segments.
 
-Back-pressure is enforced through HTTP/2 flow control: when the Log actor
-can't drain fast enough, Slice sends block, which blocks journal reads,
-creating system-wide priority enforcement. High-priority, earlier-clock
-documents flow through first.
+A **Barrier** marks the position a Slice has consumed through, appended or
+not. While a Slice has nothing queued at a Log, its last Barrier **gates**
+that Log's merge, unless the Slice was **caught up**: it had no document due.
+So:
+- Within a priority, Appends merge across shards in adjusted-clock order.
+- A priority is held back while any higher priority has a document due, as
+  through a backfill.
+- A priority isn't held back by higher-priority documents awaiting their read
+  delay.
+
+This order is precise only while Slices read a backlog. Once they're caught
+up, their Appends race by their wakes and merge best-effort, as do Appends of
+a replay or a regressed producer clock. `log::actor::LogActor` argues the
+merge's liveness.
+
+A Barrier carries the Slice's flush request (§9), which is released only once
+the Barrier merges. So a Slice's progress and causal hints reach the Session in
+merge order, whether or not it appends, and its flushes wait on any peer of
+its priority which is behind. A gated priority can't flush at all, so its
+checkpoints wait on higher priorities. Each priority has its own checkpoint
+pipeline (§11), so no other priority's checkpoints are held. Should a gated
+priority's causal hint outlast `CAUSAL_HINT_RESOLUTION_TIMEOUT`, the session
+restarts from the progress other priorities committed meanwhile.
+
+Back-pressure runs from a Log's disk back to the Slices' journal reads. A merge
+pauses while the disk can't keep up, and a paused merge releases no quota
+(`log::actor::LogActor`).
+
+`shuffle_slice_rounds` / `shuffle_log_rounds` count rounds, and each Slice's
+`blocked` event track reports its time blocked on Logs (`slice::blocking`).
 
 ### 9. Flush Cycle
 
-When the Slice observes a commit (ACK or OUTSIDE_TXN), it marks the
-flush as ready. On the next event loop iteration (if no flush is already
-in-flight), the Slice:
+A commit (ACK or OUTSIDE_TXN) makes a flush ready, and the Slice's next round
+carries it on its Barrier. Each Log answers `Flushed` once it has merged that
+Barrier and made the Appends before it durable. Once every Log answers, the
+flush's `Frontier` joins the Slice's progress (`slice::state`).
 
-1. Builds a `Frontier` from unreported producer state and accumulated
-   causal hints, then drains `unreported` into `reported`.
-2. Sends `Flush { cycle }` to all Log shards.
-3. Each Log performs its durability IO and responds `Flushed { cycle }`.
-4. When all Logs respond, the flush cycle completes and the frontier
-   is reduced into the Slice's accumulated progress.
+A Slice has one flush in flight. The next covers all it consumed meanwhile,
+which may run up to a window ahead of the merge.
 
 Flush and progress reporting are deliberately decoupled for latency
 pipelining: Slices flush autonomously after each commit without waiting
@@ -429,15 +452,22 @@ request pending, it sends the accumulated frontier as a `Frontier`.
 
 ### 11. Checkpoint Pipeline
 
-The Session's `CheckpointPipeline` is a four-stage state machine that
-promotes progress through: `progressed` → `unresolved` → `ready`.
+The Session runs a `CheckpointPipeline` of each priority: a state machine that
+promotes progress through `progressed` → `unresolved` → `ready`.
+Causal hints resolve only within a cohort, and a cohort is of one priority, so
+hints resolve independently within each pipeline.
+
+`CheckpointState` answers the coordinator's requests by reducing across the
+per-priority pipelines (see "Anchoring", below).
 
 **Causal hints** gate promotion. When a producer writes to journals
 spanning multiple bindings within a single transaction, the ACK document
 in one journal carries hints about commits expected in other journals.
 Progress stays in `unresolved` until all hinted journals confirm the
 producer committed — this prevents the checkpoint from advancing past
-transactions that are only partially visible.
+transactions that are only partially visible. A priority's stalled hints time
+out after `CAUSAL_HINT_RESOLUTION_TIMEOUT`, counting only time during which a
+coordinator request is outstanding.
 
 Unaccounted `progressed` is held back behind `unresolved` so that newer
 progress — which may itself add fresh hints — can't indefinitely starve
@@ -450,29 +480,23 @@ sends it as a single `Frontier` message.
 Hints can be cyclic: `unresolved` may resolve hints carried by `progressed`.
 Similarly, a re-enabled binding can re-visit hints which have long since
 been resolved. `progressed` is therefore pruned (`Frontier::prune_hints`)
-at promotion against `frontier::Completed` — the pipeline's accounting of
-what is already done. It holds a per-cohort ledger of producer commits, plus
-a per-binding maximum of promoted progress which deems any clock at least
-`PRODUCER_STALENESS_HORIZON` older to be completed — both written only on
-promotion to `ready`. That horizon rule is the dual of `runtime-next`'s
-committed-frontier prune, which forgets producers by the same constant: it is
-what keeps a hint naming a forgotten producer dischargeable at all.
-
-Its third authority, the per-binding gap floor, breaks that pattern: it
-discharges hints alone, and advances from any delta rather than on promotion —
-so it can promote a pending `unresolved` out of band.
+at promotion against the session's **cumulative Frontier**
+(`CheckpointState::cumulative`): the resume checkpoint, reduced with every
+promotion to `ready`. Reads also start from it. Each `(journal, binding)`
+entry accounts for a hint onto it by a promoted commit, its prune floor, or
+its gap floor (`JournalFrontier::accounts_for`). Only the hinted entry's own
+evidence counts: a producer's later transaction can promote on other journals
+before this hint's ACK is read.
 
 #### Accounted-progress ratchet
 
-While a checkpoint is held unresolved, each incoming delta is judged
-(`Frontier::first_unaccounted`) against the boundary that checkpoint
-defines. A delta is **accounted** when every producer commit and causal
-hint it reports is already covered by one of the three authorities: the
-pending frontier's own clocks and hints, a commit the producer's cohort
-has completed, or the staleness horizon. A hint — never a commit — may
-additionally be covered by the binding's gap floor. Accounted progress folds
-into the unresolved boundary, adopting the read's true offsets; unaccounted
-progress is held back for the next boundary.
+While a checkpoint is held `unresolved`, progress which it already accounts
+for folds into it, adopting the read's true offsets
+(`Frontier::first_unaccounted`). Other progress is held back for the next
+boundary. Recovery is the ratchet's primary use. Without it, a recovery
+session's one checkpoint would keep its old cut floor, and the next session
+would re-read the whole hinted span. `CheckpointPipeline` gives the full
+argument.
 
 #### Idempotent recovery is a session of its own
 
@@ -484,7 +508,7 @@ checkpoint, make it so:
 
 - The Session starts reads only for `(journal, binding)` pairs carrying
   an unresolved hint (`Topology::build_start_read` returns None otherwise,
-  gated on `resume_checkpoint.unresolved_hints`). Every other journal —
+  gated on `Topology::recovery_session`). Every other journal —
   including one newly listed mid-recovery — is the next session's work.
 - Each such read parks the moment its own hints resolve
   (`slice::read::Park`): it drops its in-hand batch and its journal read
@@ -504,29 +528,13 @@ term, tailing past the hinted frontier while a lower-priority cohort
 still resolves, is gone, so the replay fits within the same
 `estuary.dev/shuffle-disk-limit` the crashed session ran under.
 
-Recovery is the ratchet's primary use case. Without it, the one-shot
-recovery session would discard every true replay offset in `progressed`,
-leaving its checkpoint at the old cut floor so that the next session
-re-reads the whole hinted span. Recovery has just one unresolved
-generation, so its first unaccounted delta freezes the ratchet for the
-rest of the session; conservative hint resolution then lands at the
-ratcheted floor, and the next session re-reads only the novel tail.
-
 #### Peeks of partial progress
 
 In the recovery case, `unresolved` can carry hints whose resolution
 requires reading tens of GB before `ready` becomes available. To avoid
 keeping the coordinator idle (and log segments unscannable) during that
-window, `take_ready` may emit a *peek* of `unresolved` instead: a
-`Frontier` carrying `unresolved_hints == true` and zeroed byte deltas.
-A peek is emitted only when `unresolved` has made progress — any
-producer's `last_commit` advancing — since the last emission.
-
-The same "did `unresolved` make progress?" signal disarms the `on_tick`
-stall timeout: it fires only when no progress at all occurs between
-two consecutive ticks, and only while a coordinator request is
-outstanding — with nobody waiting on a checkpoint, zero progress is
-routine.
+window, `CheckpointState::take_ready` may emit a *peek* of `unresolved` instead:
+a `Frontier` carrying `unresolved_hints == true` and zeroed byte deltas.
 
 A peek also carries `latest_backfill_begin` eagerly (cloned from
 `unresolved`, which retains it for the eventual resolved `ready`), as
@@ -537,6 +545,16 @@ boundary are never combined. The begin clock only becomes durable
 checkpoint state once its causal hints resolve and it rides a fully-resolved
 `ready`. `latest_backfill_complete` is surfaced the same way — eagerly on a peek
 and durably on a resolved `ready` — but plays no part in classification.
+
+#### Anchoring
+
+A priority is *anchored* once a peek surfaces its `unresolved` to the
+coordinator, whose open transaction then can't close until those hints
+resolve. While any priority is anchored, requests are answered by peeks, which
+carry other priorities' `ready` (it holds no hints) but never their
+`unresolved`. Once none is anchored, every priority's `ready` is taken together
+as a resolved checkpoint. A recovery session starts with its resumed hints
+already anchored. `CheckpointState` documents the exact rules.
 
 ### 12. Coordinator Receives Checkpoint
 
@@ -574,7 +592,7 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
 
 ## Modules
 
-- `session/`: Session actor, checkpoint pipeline, journal routing.
+- `session/`: Session actor, per-priority checkpoint pipelines (`CheckpointState`), journal routing.
 - `slice/`: Slice actor, journal reading, document sequencing, key
   extraction, Append routing, flush/progress state machines.
   - `listing.rs`: Gazette journal listing subscriber.
@@ -585,9 +603,17 @@ coordinator follows it with `Frontier::clear_discharged_hints`.
   - `replay.rs`: Bounded historical replay of a gapped producer's span on
     restart recovery.
   - `routing.rs`: Clock rotation and shard routing.
-  - `heap.rs`: Priority heap for ready reads.
-- `log/`: Log actor, append merge heap, flush IO.
+  - `heap.rs`: ReadHeap of a Slice's reads and the heap of their ready
+    documents, which classifies its top.
+  - `state.rs`: Flush and progress state machines.
+  - `rounds.rs`: Rounds of Appends and Barriers to Logs, and the window of
+    quota.
+  - `blocking.rs`: Time the send loop is blocked on Logs, reported as events.
+- `log/`: Log actor, per-Slice buffers and merge, flush IO.
+  - `buffer.rs`: Per-Slice buffers of Appends and Barriers, and the merge
+    across Slices.
   - `log/block/`: Zero-copy types for working with segmented log blocks.
+- `merge.rs`: Merge order (`Position`).
 - `frontier.rs`: Frontier types, reduction, causal hint resolution,
   chunked encode/decode, and drain.
-- `binding.rs`: Binding and Source configuration, partition filtering.
+- `binding.rs`: Binding and Source configuration, partition filtering, and priorities.

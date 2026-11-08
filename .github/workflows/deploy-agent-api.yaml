@@ -40,13 +40,18 @@ jobs:
           image: ${{ steps.image-tag.outputs.image }}
           timeout: 10m
           # Egress via a dedicated subnet on the data-plane-controller VPC (its own NAT IP) for a stable outbound IP.
-          flags: '--network=data-plane-controller --subnet=control-plane-api-sn1 --vpc-egress=all-traffic'
+          flags: "--network=data-plane-controller --subnet=control-plane-api-sn1 --vpc-egress=all-traffic"
 
           env_vars: |-
             BUILDS_ROOT=gs://estuary-control/builds/
+            BIGTABLE_PROJECT=estuary-control
+            BIGTABLE_INSTANCE=catalog-stats
+            BIGTABLE_APP_PROFILE=single-cluster-profile
             DATABASE_CA=/etc/db-ca.crt
             DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
             NO_COLOR=1
+            OAUTH_ISSUER=https://api.estuary.dev
+            OAUTH_CONSENT_URL=https://dashboard.estuary.dev/oauth/consent
 
           secrets: |-
             PGPASSWORD=POSTGRES_PASSWORD:latest
@@ -54,6 +59,8 @@ jobs:
             CONTROL_PLANE_JWT_SECRET=CONTROL_PLANE_JWT_SECRET:latest
             STRIPE_API_KEY=STRIPE_API_KEY:latest
             STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest
+            SPRITES_TOKEN=SPRITES_TOKEN:latest
+            OAUTH_ENCRYPTION_KEY=OAUTH_ENCRYPTION_KEY:latest
 
           env_vars_update_strategy: overwrite
           secrets_update_strategy: overwrite

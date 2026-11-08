@@ -227,6 +227,12 @@ impl Entries {
 
 impl MemTable {
     pub fn new(spec: Spec) -> Self {
+        Self::new_in(spec, HeapNode::new_allocator())
+    }
+
+    /// Build a MemTable which allocates from `alloc`.
+    /// `spill()` returns an allocator for this use.
+    pub fn new_in(spec: Spec, alloc: Bump) -> Self {
         Self {
             entries: UnsafeCell::new(Entries {
                 queued: Vec::new(),
@@ -234,7 +240,7 @@ impl MemTable {
                 spec,
                 scratch: bytes::BytesMut::new(),
             }),
-            zz_alloc: HeapNode::new_allocator(),
+            zz_alloc: alloc,
         }
     }
 
@@ -408,12 +414,14 @@ impl MemTable {
     /// If the MemTable is empty this is a no-op.
     /// `chunk_target_size` is the target size of a serialized chunk of the spilled segment.
     /// In practice, values like 256KB are reasonable.
+    ///
+    /// Returns the MemTable's Spec and its allocator, reset for re-use by `new_in`.
     pub fn spill<F: io::Read + io::Write + io::Seek>(
         self,
         writer: &mut SpillWriter<F>,
         chunk_target_size: usize,
-    ) -> Result<Spec, Error> {
-        let (mut sorted, mut spec, alloc) = self.try_into_parts()?;
+    ) -> Result<(Spec, Bump), Error> {
+        let (mut sorted, mut spec, mut alloc) = self.try_into_parts()?;
 
         // Validate all !front() && !known_valid() documents of the spilled
         // segment, applying "redact" annotations as we go so that no redacted
@@ -469,10 +477,10 @@ impl MemTable {
             "spilled MemTable to disk segment",
         );
 
-        std::mem::drop(sorted); // Now safe to drop.
-        std::mem::drop(alloc); // Now safe to drop.
+        std::mem::drop(sorted); // Now safe to reset.
+        alloc.reset();
 
-        Ok(spec)
+        Ok((spec, alloc))
     }
 }
 
@@ -810,13 +818,13 @@ mod test {
     /// Force the Accumulator's current MemTable into a new spill segment,
     /// leaving a fresh empty MemTable behind.
     fn force_spill(acc: &mut crate::combine::Accumulator) {
-        let spec = acc
+        let (spec, alloc) = acc
             .memtable
             .take()
             .unwrap()
             .spill(&mut acc.spill, CHUNK_TARGET_SIZE)
             .unwrap();
-        acc.memtable = Some(MemTable::new(spec));
+        acc.memtable = Some(MemTable::new_in(spec, alloc));
     }
 
     fn project(doc: DrainedDoc) -> (usize, serde_json::Value, bool) {
@@ -1904,7 +1912,7 @@ mod test {
         add(&memtable, true, json!({"key": "ccc", "v": "bad"}));
 
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
-        let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
+        let (spec, _alloc) = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
 
         let (spill, ranges) = spill.into_parts();
         assert_eq!(ranges, vec![0..138]);
@@ -2070,7 +2078,7 @@ mod test {
             );
 
             let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
-            let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
+            let (spec, _alloc) = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
 
             // Read back all spilled documents and verify redaction
             let (spill, ranges) = spill.into_parts();

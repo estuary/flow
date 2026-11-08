@@ -53,8 +53,23 @@ pub const FIXTURE_PRODUCER: uuid::Producer = uuid::Producer([7, 19, 83, 3, 3, 17
 pub const FIXTURE_BLOCK_ENTRIES: usize = 32 * 1024;
 pub const FIXTURE_BLOCK_BYTES: usize = 64 * 1024 * 1024;
 
-/// A transaction of documents tagged with their source collection names.
-pub type Transaction = Vec<(String, serde_json::Value)>;
+/// A transaction of items tagged with their source collection names.
+pub type Transaction = Vec<TxnItem>;
+
+/// One collection-tagged item of a [`Transaction`].
+#[derive(Debug, PartialEq)]
+pub enum TxnItem {
+    /// A document of the named collection.
+    Doc(String, serde_json::Value),
+    /// Begin a backfill of every binding sourcing the named collection.
+    BackfillBegin(String),
+    /// Complete the open backfill of every binding sourcing the named collection.
+    BackfillComplete(String),
+}
+
+/// Open backfills of a run: the begin clock of each binding (by index) whose
+/// latest backfill has not yet completed.
+pub type OpenBackfills = HashMap<u16, uuid::Clock>;
 
 /// One queued item of a replay opener's channel.
 pub enum FixtureItem {
@@ -297,8 +312,11 @@ pub struct TxnState {
     block_journals: HashMap<String, u16>,
     /// (journal, binding) => (max committed clock, source bytes this txn).
     frontier_acc: BTreeMap<(String, u16), (uuid::Clock, i64)>,
-    /// Clock seconds stamped on the next document pushed by [`push_doc`], which
-    /// advances it per document. Unused (and left zero) when the caller stamps
+    /// Backfill begin and complete clocks of this transaction, by binding index.
+    backfill_begin: BTreeMap<u16, uuid::Clock>,
+    backfill_complete: BTreeMap<u16, uuid::Clock>,
+    /// Clock seconds stamped on the next document pushed by [`push_doc`] or
+    /// backfill begin pushed by [`push_item`], each of which advances it. Unused (and left zero) when the caller stamps
     /// each document itself via [`push_binding`].
     doc_seconds: u64,
 }
@@ -312,6 +330,8 @@ impl TxnState {
             entries_bytes: vec![0; n_shards],
             block_journals: HashMap::new(),
             frontier_acc: BTreeMap::new(),
+            backfill_begin: BTreeMap::new(),
+            backfill_complete: BTreeMap::new(),
             doc_seconds: 0,
         }
     }
@@ -334,6 +354,15 @@ impl TxnState {
             doc_seconds: 3600 * txn_ordinal,
             ..Self::new(n_shards)
         }
+    }
+
+    /// Consume the clocks of the next `count` documents, as that many
+    /// [`push_doc`] calls would, returning the first. Document `i` of them is
+    /// stamped `Clock::from_unix(first + i, 0)`.
+    pub fn take_doc_seconds(&mut self, count: u64) -> u64 {
+        let first = self.doc_seconds;
+        self.doc_seconds += count;
+        first
     }
 }
 
@@ -366,33 +395,69 @@ pub fn push_binding(
     journal_offsets: &mut HashMap<(String, u16), i64>,
     packed_key: &mut bytes::BytesMut,
 ) -> anyhow::Result<()> {
-    assert_eq!(
-        shards.len(),
-        writers.len(),
-        "shards and writers must be index-aligned"
-    );
+    let alloc = doc::HeapNode::new_allocator();
+    let mut heap = doc::HeapNode::from_serde(doc, &alloc).context("allocating fixture document")?;
+    let validator = &mut validators[bindings[bi].source as usize];
 
+    let append = build_append(
+        &mut heap,
+        &alloc,
+        bi,
+        doc_clock,
+        bindings,
+        sources,
+        Some(validator),
+        packed_key,
+    )?;
+    push_append(
+        state,
+        append,
+        bindings,
+        sources,
+        shards,
+        writers,
+        sealed,
+        journal_offsets,
+    )
+}
+
+/// Build the shuffle log Append of `heap` as a document of binding `bi`, as
+/// the live slice does: stamp its synthetic UUID, archive it, set the
+/// schema-valid flag, and pack its shuffle key. It touches no transaction
+/// state, so documents may be built in parallel and then pushed in order.
+///
+/// Without a `validator` the document is flagged valid unchecked: the caller
+/// vouches for it.
+#[allow(clippy::too_many_arguments)]
+pub fn build_append<'alloc>(
+    heap: &mut doc::HeapNode<'alloc>,
+    alloc: &'alloc doc::Allocator,
+    bi: usize,
+    doc_clock: uuid::Clock,
+    bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
+    validator: Option<&mut doc::Validator>,
+    packed_key: &mut bytes::BytesMut,
+) -> anyhow::Result<shuffle::proto::log_request::Append> {
     let binding = &bindings[bi];
     let source = &sources[binding.source as usize];
-    let journal = fixture_journal(&source.collection);
 
     // Inject a synthetic UUID at the collection's UUID pointer.
-    let mut doc = doc.clone();
     let synthetic_uuid = uuid::build(FIXTURE_PRODUCER, doc_clock, uuid::Flags::OUTSIDE_TXN);
-    *json::ptr::create_value(&source.uuid_ptr, &mut doc)
-        .context("creating fixture UUID location in document")? =
-        serde_json::json!(synthetic_uuid.as_hyphenated().to_string());
+    let uuid_str = doc::BumpStr::from_str(&synthetic_uuid.as_hyphenated().to_string(), alloc);
+    if heap
+        .try_set(&source.uuid_ptr, doc::HeapNode::String(uuid_str), alloc)
+        .is_err()
+    {
+        anyhow::bail!("creating fixture UUID location in document");
+    }
 
-    let alloc = doc::HeapNode::new_allocator();
-    let heap = doc::HeapNode::from_serde(&doc, &alloc).context("allocating fixture document")?;
     let archive = heap.to_archive();
     let archived = doc::ArchivedNode::from_archive(archive.as_slice());
 
-    // Mirror the slice: set the schema-valid flag from validation and
-    // pack the shuffle key from the archived document.
-    let mut flags = uuid::Flags::OUTSIDE_TXN.0;
-    if validators[binding.source as usize].is_valid(archived) {
-        flags |= shuffle::FLAGS_SCHEMA_VALID;
+    let mut flags = uuid::Flags::OUTSIDE_TXN.0 as u32;
+    if validator.is_none_or(|validator| validator.is_valid(archived)) {
+        flags |= shuffle::FLAGS_SCHEMA_VALID as u32;
     }
 
     packed_key.clear();
@@ -403,9 +468,46 @@ pub fn push_binding(
         packed_key,
         None,
     );
+    let doc_archived = bytes::Bytes::from(archive.to_vec());
 
-    let doc_bytes = bytes::Bytes::from(archive.to_vec());
-    let source_len = doc_bytes.len() as u32;
+    Ok(shuffle::proto::log_request::Append {
+        journal_name_truncate_delta: 0,
+        journal_name_suffix: String::new(),
+        binding: binding.index as u32,
+        read_delay: binding.read_delay.as_u64(),
+        producer: FIXTURE_PRODUCER.as_i64(),
+        clock: doc_clock.as_u64(),
+        flags,
+        packed_key: packed_key.split().freeze(),
+        source_byte_length: doc_archived.len() as u32,
+        doc_archived,
+    })
+}
+
+/// Route an Append to its shards by its packed key, as the live slice does,
+/// and add it to those shards' blocks, appending any block which has met its
+/// threshold. Advances its journal's offset and frontier clock.
+#[allow(clippy::too_many_arguments)]
+pub fn push_append(
+    state: &mut TxnState,
+    append: shuffle::proto::log_request::Append,
+    bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
+    shards: &[shuffle::proto::Shard],
+    writers: &mut [ShardWriter],
+    sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
+    journal_offsets: &mut HashMap<(String, u16), i64>,
+) -> anyhow::Result<()> {
+    assert_eq!(
+        shards.len(),
+        writers.len(),
+        "shards and writers must be index-aligned"
+    );
+
+    // Binding indices are positions in `bindings`.
+    let binding = &bindings[append.binding as usize];
+    let journal = fixture_journal(&sources[binding.source as usize].collection);
+    let clock = uuid::Clock::from_u64(append.clock);
 
     let next_bid = state.block_journals.len() as u16;
     let journal_bid = *state
@@ -413,24 +515,26 @@ pub fn push_binding(
         .entry(journal.clone())
         .or_insert(next_bid);
 
-    // Mirror the slice's routing: hash the packed key and write the
-    // document to each shard whose range admits it.
-    let key_hash = doc::Extractor::packed_hash(packed_key);
-    let r_clock = shuffle::slice::routing::rotate_clock(doc_clock);
-    let key = packed_key.split().freeze();
-
     let meta = shuffle::log::BlockMeta {
         binding: binding.index,
         journal_bid,
         producer_bid: 0,
-        flags,
-        clock: doc_clock.as_u64(),
+        flags: append.flags as u16,
+        clock: append.clock,
     };
+    let key_hash = doc::Extractor::packed_hash(&append.packed_key);
+    let r_clock = shuffle::slice::routing::rotate_clock(clock);
+
     for shard_index in
         shuffle::slice::routing::route_to_shards(key_hash, r_clock, binding.filter_r_clocks, shards)
     {
-        state.entries[shard_index].push((meta, source_len, key.clone(), doc_bytes.clone()));
-        state.entries_bytes[shard_index] += doc_bytes.len();
+        state.entries[shard_index].push((
+            meta,
+            append.source_byte_length,
+            append.packed_key.clone(),
+            append.doc_archived.clone(),
+        ));
+        state.entries_bytes[shard_index] += append.doc_archived.len();
 
         if state.entries[shard_index].len() >= FIXTURE_BLOCK_ENTRIES
             || state.entries_bytes[shard_index] >= FIXTURE_BLOCK_BYTES
@@ -448,13 +552,14 @@ pub fn push_binding(
 
     // The source journal is read once regardless of routing: advance its
     // offset and frontier clock per document, not per target shard.
+    let source_len = append.source_byte_length as i64;
     let acc = state
         .frontier_acc
         .entry((journal.clone(), binding.index))
         .or_insert((uuid::Clock::from_u64(0), 0));
-    acc.0 = acc.0.max(doc_clock);
-    acc.1 += source_len as i64;
-    *journal_offsets.entry((journal, binding.index)).or_insert(0) += source_len as i64;
+    acc.0 = acc.0.max(clock);
+    acc.1 += source_len;
+    *journal_offsets.entry((journal, binding.index)).or_insert(0) += source_len;
 
     Ok(())
 }
@@ -508,6 +613,99 @@ pub fn push_doc(
     Ok(())
 }
 
+/// Push one collection-tagged [`TxnItem`] into `state`: a document through
+/// [`push_doc`], or a backfill marker through [`push_backfill_begin`] or
+/// [`push_backfill_complete`].
+#[allow(clippy::too_many_arguments)]
+pub fn push_item(
+    state: &mut TxnState,
+    item: &TxnItem,
+    bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
+    validators: &mut [doc::Validator],
+    collection_bindings: &HashMap<String, Vec<usize>>,
+    shards: &[shuffle::proto::Shard],
+    writers: &mut [ShardWriter],
+    sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
+    journal_offsets: &mut HashMap<(String, u16), i64>,
+    open_backfills: &mut OpenBackfills,
+    packed_key: &mut bytes::BytesMut,
+) -> anyhow::Result<()> {
+    match item {
+        TxnItem::Doc(collection, doc) => push_doc(
+            state,
+            collection,
+            doc,
+            bindings,
+            sources,
+            validators,
+            collection_bindings,
+            shards,
+            writers,
+            sealed,
+            journal_offsets,
+            packed_key,
+        ),
+        TxnItem::BackfillBegin(collection) => {
+            push_backfill_begin(
+                state,
+                collection,
+                bindings,
+                collection_bindings,
+                open_backfills,
+            );
+            Ok(())
+        }
+        TxnItem::BackfillComplete(collection) => push_backfill_complete(
+            state,
+            collection,
+            bindings,
+            collection_bindings,
+            open_backfills,
+        ),
+    }
+}
+
+/// Begin a backfill of every binding of `collection`, consuming one document
+/// clock as the marker's publication time. That clock is the truncation
+/// boundary, so documents pushed before the marker fall below it and documents
+/// pushed after it do not.
+fn push_backfill_begin(
+    state: &mut TxnState,
+    collection: &str,
+    bindings: &[shuffle::Binding],
+    collection_bindings: &HashMap<String, Vec<usize>>,
+    open_backfills: &mut OpenBackfills,
+) {
+    let clock = uuid::Clock::from_unix(state.doc_seconds, 0);
+    state.doc_seconds += 1;
+
+    for &bi in collection_bindings.get(collection).into_iter().flatten() {
+        let binding = bindings[bi].index;
+        state.backfill_begin.insert(binding, clock);
+        open_backfills.insert(binding, clock);
+    }
+}
+
+/// Complete the open backfill of every binding of `collection`. A completion
+/// carries its begin's clock, so a binding with no open backfill is an error.
+fn push_backfill_complete(
+    state: &mut TxnState,
+    collection: &str,
+    bindings: &[shuffle::Binding],
+    collection_bindings: &HashMap<String, Vec<usize>>,
+    open_backfills: &mut OpenBackfills,
+) -> anyhow::Result<()> {
+    for &bi in collection_bindings.get(collection).into_iter().flatten() {
+        let binding = bindings[bi].index;
+        let Some(clock) = open_backfills.remove(&binding) else {
+            anyhow::bail!("backfill complete of {collection} has no open backfill begin");
+        };
+        state.backfill_complete.insert(binding, clock);
+    }
+    Ok(())
+}
+
 /// Close a transaction: append each shard's remaining documents and return the
 /// checkpoint frontier which makes the transaction's documents visible.
 ///
@@ -526,6 +724,8 @@ pub fn finish_txn(
         entries,
         block_journals,
         frontier_acc,
+        backfill_begin,
+        backfill_complete,
         ..
     } = state;
 
@@ -557,13 +757,17 @@ pub fn finish_txn(
                     offset,
                 }],
                 bytes_read_delta: bytes_read,
-                bytes_behind_delta: 0,
+                ..Default::default()
             }
         })
         .collect();
 
     let flushed_lsn: Vec<u64> = writers.iter().map(|w| w.last_lsn.as_u64()).collect();
-    shuffle::Frontier::new(journals, flushed_lsn).context("building fixture checkpoint frontier")
+    let mut frontier = shuffle::Frontier::new(journals, flushed_lsn)
+        .context("building fixture checkpoint frontier")?;
+    frontier.latest_backfill_begin = backfill_begin;
+    frontier.latest_backfill_complete = backfill_complete;
+    Ok(frontier)
 }
 
 /// Write one whole binding-tagged transaction and return its checkpoint
@@ -605,7 +809,7 @@ pub fn write_transaction_for_bindings(
 
 /// Write one whole collection-tagged transaction — the `txn_ordinal`-th of the
 /// run — and return its checkpoint frontier: a [`TxnState::for_txn`] ->
-/// [`push_doc`] -> [`finish_txn`] sequence over its documents.
+/// [`push_item`] -> [`finish_txn`] sequence over its items.
 #[allow(clippy::too_many_arguments)]
 pub fn write_transaction(
     transaction: &Transaction,
@@ -618,16 +822,16 @@ pub fn write_transaction(
     sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
     txn_ordinal: &mut u64,
     journal_offsets: &mut HashMap<(String, u16), i64>,
+    open_backfills: &mut OpenBackfills,
     packed_key: &mut bytes::BytesMut,
 ) -> anyhow::Result<shuffle::Frontier> {
     let mut state = TxnState::for_txn(writers.len(), *txn_ordinal);
     *txn_ordinal += 1;
 
-    for (collection, doc) in transaction {
-        push_doc(
+    for item in transaction {
+        push_item(
             &mut state,
-            collection,
-            doc,
+            item,
             bindings,
             sources,
             validators,
@@ -636,6 +840,7 @@ pub fn write_transaction(
             writers,
             sealed,
             journal_offsets,
+            open_backfills,
             packed_key,
         )?;
     }
@@ -667,8 +872,7 @@ mod test {
                     hinted_commit: uuid::Clock::from_u64(0),
                     offset: -(lsn as i64),
                 }],
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
+                ..Default::default()
             }],
             vec![lsn],
         )

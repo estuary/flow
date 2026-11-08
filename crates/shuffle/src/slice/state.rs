@@ -17,6 +17,9 @@ pub struct Topology {
     pub shards: Vec<shuffle::Shard>,
     /// Index of this Slice RPC within `shards`.
     pub slice_shard_index: u32,
+    /// Priority of this Slice. It lists and reads only bindings of this
+    /// priority, and its Appends merge at this priority.
+    pub priority: i32,
     /// Per-binding shuffle configuration extracted from the task spec.
     pub bindings: Vec<crate::Binding>,
     /// Source collections read by the task's bindings.
@@ -61,7 +64,7 @@ impl FlushState {
         }
     }
 
-    /// Whether we're ready to begin a Flush cycle.
+    /// Whether we're ready to begin a flush cycle.
     pub fn should_flush(&self) -> bool {
         self.ready && self.in_flight.is_empty()
     }
@@ -172,15 +175,30 @@ impl ProgressState {
         self.flushed = std::mem::take(&mut self.flushed).reduce(frontier);
     }
 
+    /// Raise the gap floor of `(journal, binding)`, to be reported with the
+    /// next progress. A floor isn't flushed: it only discharges hints, and isn't
+    /// log content, so it's reported without awaiting the Slice's flush or merge.
+    pub fn on_gap_floor(&mut self, journal: &str, binding: u16, floor: uuid::Clock) {
+        self.flushed = std::mem::take(&mut self.flushed).reduce(crate::Frontier {
+            journals: vec![crate::JournalFrontier {
+                journal: journal.into(),
+                binding,
+                gap_floor: floor,
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+    }
+
     /// Is progress ready to report? True iff a request is outstanding AND
-    /// we've accumulated flushed progress. Idempotent — gate `take_progressed()`
-    /// on this so a failed permit reservation can be retried.
+    /// we've accumulated flushed progress, or a gap floor which may discharge
+    /// a peer's hints.
     pub fn has_progressed(&self) -> bool {
         self.requested && !self.flushed.journals.is_empty()
     }
 
     /// Unconditionally clear the outstanding request and accumulated flushed
-    /// progress, returning the latter. Callers should gate on `has_progressed()`.
+    /// progress, returning the latter.
     pub fn take_progressed(&mut self) -> crate::Frontier {
         self.requested = false;
         std::mem::take(&mut self.flushed)
@@ -263,7 +281,7 @@ pub struct ResolvedCheckpoint {
     pub hinted: ProducerMap<uuid::Clock>,
 }
 
-/// Resolve a checkpoint into a start offset, initial ProducerStates, and the
+/// Resolve a checkpoint into a resume offset, initial ProducerStates, and the
 /// causal hints those states must read through.
 pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> ResolvedCheckpoint {
     let mut producers = ProducerMap::<ProducerState>::with_capacity_and_hasher(
@@ -291,11 +309,12 @@ pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> Resolve
         // entry is read-derived, so re-establish the writer's floor here;
         // otherwise the second pass installs a zero (non-)sentinel and the
         // gap is silently missed.
-        let last_commit = uuid::Clock::from_u64(if offset > 0 {
-            last_commit.max(crate::frontier::OBSERVED_COMMIT_FLOOR)
+        let last_commit = uuid::Clock::from_u64(last_commit);
+        let last_commit = if offset > 0 {
+            last_commit.max(uuid::OBSERVED_COMMIT_FLOOR)
         } else {
             last_commit
-        });
+        };
 
         let hinted_commit = uuid::Clock::from_u64(hinted_commit);
         if hinted_commit > last_commit {
@@ -324,8 +343,7 @@ pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> Resolve
     // to see any of its documents via journal read through `max_offset`), and
     // the distinction matters as it'd otherwise force a replay from offset zero.
     for (_producer, ps) in producers.iter_mut() {
-        let is_span_at_head =
-            ps.offset == 0 && ps.last_commit.as_u64() == crate::frontier::OBSERVED_COMMIT_FLOOR;
+        let is_span_at_head = ps.offset == 0 && ps.last_commit == uuid::OBSERVED_COMMIT_FLOOR;
 
         if (ps.offset > 0 && ps.offset < max_offset) || (is_span_at_head && max_offset > 0) {
             ps.max_continue = ps.last_commit;
@@ -988,13 +1006,13 @@ mod test {
             "clean rollback clears the gap",
         );
 
-        // ACK < L: durable deep rollback. `last_commit` regresses to the ACK clock.
+        // ACK < L: durable deep rollback. `last_commit` is retained at L.
         let s = seq(ACK, 50).unwrap();
         assert!(s.is_commit && !s.replay, "deep rollback commits");
         assert_eq!(
             s.producer_state.last_commit,
-            Clock::from_u64(50),
-            "deep rollback regresses last_commit to the ACK clock",
+            Clock::from_u64(100),
+            "deep rollback retains last_commit",
         );
         assert_eq!(s.producer_state.offset, -500);
         assert!(
@@ -1111,6 +1129,62 @@ mod test {
             !r.producers.get(&p).unwrap().is_gapped(),
             "rolled-back producer stays committed across restart",
         );
+    }
+
+    #[test]
+    fn test_forgotten_producer_rollback() {
+        // Issue #3672: a producer pruned from the checkpoint has no known last
+        // commit. It opens a span at clock 150, then its recovery re-writes its
+        // ACK at its prior commit, clock 100. That ACK is below the span, and
+        // must roll it back cleanly.
+        let binding = test_binding(0, true, None, "/suffix");
+        let p = producer(0x01);
+        let p3 = producer(0x03);
+
+        let seq = |state: ProducerState, flags: Flags, clock: u64, begin: i64, end: i64| {
+            sequence_producer(
+                state,
+                "test/journal",
+                Clock::zero(),
+                &binding,
+                &meta(p, Clock::from_u64(clock), flags, begin, end),
+            )
+            .unwrap()
+        };
+        let assert_rolled_back = |s: &SequencedDoc| {
+            assert!(s.is_commit && !s.is_append && !s.replay);
+            assert_eq!(
+                s.producer_state.last_commit,
+                Clock::from_u64(100),
+                "the ACK re-establishes last_commit",
+            );
+            assert_eq!(s.producer_state.offset, -650);
+            assert!(!s.producer_state.is_gapped());
+        };
+
+        // Live: the forgotten producer sequences from the default state.
+        let s = seq(ProducerState::default(), CONTINUE, 150, 300, 350);
+        assert_eq!(s.producer_state.offset, 300);
+        assert_rolled_back(&seq(s.producer_state, ACK, 100, 600, 650));
+
+        // Recovered: the checkpoint carries the open span at the floor, and
+        // p3's commit through 500 gaps it.
+        let r = resolve_checkpoint(vec![cp_lc(&p, 1, 300), cp(&p3, -500)]);
+        let gapped = *r.producers.get(&p).unwrap();
+        assert!(gapped.is_gapped());
+
+        // The ACK is above the floor sentinel, so it triggers a replay.
+        assert!(seq(gapped, ACK, 100, 600, 650).replay);
+
+        // `SliceActor::start_replay` clears the sentinel, the replay re-sequences
+        // the span, and then the re-presented ACK rolls it back.
+        let replaying = ProducerState {
+            max_continue: Clock::zero(),
+            ..gapped
+        };
+        let s = seq(replaying, CONTINUE, 150, 300, 350);
+        assert_eq!(s.producer_state.last_commit, uuid::OBSERVED_COMMIT_FLOOR);
+        assert_rolled_back(&seq(s.producer_state, ACK, 100, 600, 650));
     }
 
     #[test]
@@ -1281,11 +1355,8 @@ mod test {
                     hinted_commit: Clock::from_u64(0),
                     offset: -500,
                 }],
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
+                ..Default::default()
             }],
-            flushed_lsn: vec![],
-            unresolved_hints: 0,
             ..Default::default()
         };
 

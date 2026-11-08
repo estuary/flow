@@ -4,9 +4,11 @@
 //! it. Turning transactions into shuffle-log segments, and relaying the matching
 //! checkpoint frontiers to the runtime, is [`runtime_local::segments`]'s job.
 //!
-//! Fixture format (one JSON value per line, matching legacy `flowctl preview`):
-//! - a document:      `["collection/name", { ...document... }]`
-//! - a commit marker: `{"commit": true}`
+//! Fixture format (one JSON value per line, extending legacy `flowctl preview`):
+//! - a document:          `["collection/name", { ...document... }]`
+//! - a commit marker:     `{"commit": true}`
+//! - a backfill begin:    `{"backfillBegin": "collection/name"}`
+//! - a backfill complete: `{"backfillComplete": "collection/name"}`
 //!
 //! Documents between commit markers form one transaction. A transaction is
 //! written as one or more log blocks per shard — see
@@ -19,6 +21,12 @@
 //! consecutive commit markers — are deliberate and preserved: connectors-repo
 //! fixtures lead with one to drive an initial empty commit cycle, and
 //! apply-only tests use a fixture that is a single bare `{"commit": true}` line.
+//!
+//! A backfill marker applies to every binding of its collection and is
+//! delivered in the `Flush` of its transaction. A begin's truncation boundary is
+//! its position in the fixture, so documents before it fall below the boundary
+//! and documents after it do not. A complete carries the boundary of its
+//! collection's open begin.
 //!
 //! ## Per-session segments
 //!
@@ -46,8 +54,11 @@
 //!
 //! ### Back-pressure
 //!
-//! Documents are written as they are parsed ([`segments::push_doc`]), so the
-//! feeder holds one block per shard rather than a whole transaction, and the
+//! Documents are written as they are parsed — built into shuffle log Appends in
+//! batches across worker threads, then pushed in fixture order
+//! ([`segments::push_append`])
+//! — so the feeder holds one batch and one block per shard rather than a whole
+//! transaction, and the
 //! feeder pauses between transactions while its sealed segments exceed
 //! [`StreamLimits::disk_limit_bytes`] — recoupling the writer to consumer
 //! progress the way `LogActor` does in the live path.
@@ -60,10 +71,12 @@
 
 use anyhow::Context;
 use futures::StreamExt;
+use proto_gazette::uuid;
 use runtime_local::segments::{
-    self, FixtureItem, ShardWriter, Transaction, TxnState, finish_txn, open_shard_writers,
-    push_doc, write_transaction,
+    self, FixtureItem, OpenBackfills, ShardWriter, Transaction, TxnItem, TxnState, build_append,
+    finish_txn, open_shard_writers, push_append, push_item, write_transaction,
 };
+use shuffle::proto::log_request::Append;
 use std::collections::HashMap;
 use tokio::io::AsyncBufReadExt;
 
@@ -147,13 +160,15 @@ pub fn build(
     let mut session_dirs = Vec::with_capacity(session_targets.len());
     let mut session_frontiers = Vec::with_capacity(session_targets.len());
 
-    // Publication clock and per-(journal, binding) committed offsets advance
-    // globally across sessions; segment LSNs restart per session. Offsets are
-    // tracked per binding to mirror live reads, where each binding of a shared
-    // journal independently observes that journal's (single) offset space.
+    // Publication clock, per-(journal, binding) committed offsets, and open
+    // backfills advance globally across sessions; segment LSNs restart per
+    // session. Offsets are tracked per binding to mirror live reads, where
+    // each binding of a shared journal independently observes that journal's
+    // (single) offset space.
     let shards = segments::full_range_shards(n_shards);
     let mut txn_ordinal = 0u64;
     let mut journal_offsets: HashMap<(String, u16), i64> = HashMap::new();
+    let mut open_backfills = OpenBackfills::new();
     let mut packed_key = bytes::BytesMut::new();
     let mut transactions = transactions.into_iter();
 
@@ -182,6 +197,7 @@ pub fn build(
                 &mut keepalive._sealed,
                 &mut txn_ordinal,
                 &mut journal_offsets,
+                &mut open_backfills,
                 &mut packed_key,
             )?);
         }
@@ -220,11 +236,20 @@ pub fn start_streaming(
     base_dir: &std::path::Path,
     n_shards: u32,
     limits: StreamLimits,
+    validate: bool,
     frontier_tx: tokio::sync::mpsc::UnboundedSender<FixtureItem>,
     eof_stop: tokio_util::sync::CancellationToken,
     hold: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<(String, tokio::task::JoinHandle<anyhow::Result<()>>)> {
     let (bindings, sources, validators, collection_bindings) = segments::task_bindings(task)?;
+
+    // Each worker validates with its own validators.
+    let builders = (0..append_workers())
+        .map(|_| {
+            let (_, _, validators, _) = segments::task_bindings(task)?;
+            Ok(AppendBuilder::new(validators, validate))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     // The session reads from its own directory, mirroring the eager per-session
     // layout.
@@ -249,6 +274,7 @@ pub fn start_streaming(
         bindings,
         sources,
         validators,
+        builders,
         collection_bindings,
         path,
         segments::full_range_shards(n_shards),
@@ -265,6 +291,7 @@ async fn feed_stream(
     bindings: Vec<shuffle::Binding>,
     sources: Vec<shuffle::Source>,
     mut validators: Vec<doc::Validator>,
+    mut builders: Vec<AppendBuilder>,
     collection_bindings: HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
     shards: Vec<shuffle::proto::Shard>,
@@ -279,6 +306,7 @@ async fn feed_stream(
         &bindings,
         &sources,
         &mut validators,
+        &mut builders,
         &collection_bindings,
         path,
         &shards,
@@ -314,7 +342,7 @@ async fn feed_stream(
     result
 }
 
-/// Incrementally read fixture lines, writing each document as it is parsed and
+/// Incrementally read fixture lines, writing each item as it is parsed and
 /// relaying a frontier per commit marker. Returns at stream EOF, when the run
 /// ends (`hold` cancels), or on a stream / fixture error.
 #[allow(clippy::too_many_arguments)]
@@ -322,6 +350,7 @@ async fn feed_lines(
     bindings: &[shuffle::Binding],
     sources: &[shuffle::Source],
     validators: &mut [doc::Validator],
+    builders: &mut [AppendBuilder],
     collection_bindings: &HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
     shards: &[shuffle::proto::Shard],
@@ -349,11 +378,12 @@ async fn feed_lines(
 
     let mut txn_ordinal = 0u64;
     let mut journal_offsets: HashMap<(String, u16), i64> = HashMap::new();
+    let mut open_backfills = OpenBackfills::new();
     let mut packed_key = bytes::BytesMut::new();
 
     let mut txn = TxnState::for_txn(writers.len(), txn_ordinal);
     txn_ordinal += 1;
-    let mut txn_docs = 0usize;
+    let mut txn_items = 0usize;
     let mut committed = 0usize;
     let mut lineno = 0usize;
 
@@ -362,6 +392,11 @@ async fn feed_lines(
     let mut rolled = Vec::new();
     let mut disk_backlog_bytes = 0u64;
     let mut disk_back_pressure = false;
+
+    // Document lines awaiting preparation, and their bytes. Any other line
+    // pushes them first, keeping fixture order.
+    let mut batch: Vec<(usize, String)> = Vec::new();
+    let mut batch_bytes = 0usize;
 
     loop {
         // Hold the writer while the consumer catches up. Taken only here,
@@ -409,13 +444,47 @@ async fn feed_lines(
         };
         lineno += 1;
 
+        if line.trim_start().starts_with('[') {
+            batch_bytes += line.len();
+            batch.push((lineno, line));
+            txn_items += 1;
+            if batch.len() >= APPEND_BATCH_LINES || batch_bytes >= APPEND_BATCH_BYTES {
+                push_batch(
+                    &mut txn,
+                    &mut batch,
+                    builders,
+                    bindings,
+                    sources,
+                    collection_bindings,
+                    shards,
+                    writers,
+                    &mut rolled,
+                    &mut journal_offsets,
+                )?;
+                batch_bytes = 0;
+            }
+            continue;
+        }
+        push_batch(
+            &mut txn,
+            &mut batch,
+            builders,
+            bindings,
+            sources,
+            collection_bindings,
+            shards,
+            writers,
+            &mut rolled,
+            &mut journal_offsets,
+        )?;
+        batch_bytes = 0;
+
         match parse_line(&line, lineno)? {
             None => (),
-            Some(Line::Doc(collection, doc)) => {
-                push_doc(
+            Some(Line::Item(item)) => {
+                push_item(
                     &mut txn,
-                    &collection,
-                    &doc,
+                    &item,
                     bindings,
                     sources,
                     validators,
@@ -424,15 +493,17 @@ async fn feed_lines(
                     writers,
                     &mut rolled,
                     &mut journal_offsets,
+                    &mut open_backfills,
                     &mut packed_key,
-                )?;
-                txn_docs += 1;
+                )
+                .with_context(|| format!("fixture line {lineno}"))?;
+                txn_items += 1;
             }
             Some(Line::Commit) => {
                 let closing =
                     std::mem::replace(&mut txn, TxnState::for_txn(writers.len(), txn_ordinal));
                 txn_ordinal += 1;
-                txn_docs = 0;
+                txn_items = 0;
 
                 let frontier = finish_txn(closing, writers, &mut rolled, &journal_offsets)?;
                 committed += 1;
@@ -451,11 +522,24 @@ async fn feed_lines(
         }
     }
 
-    // Trailing documents without a final commit marker form a final
-    // transaction, and an entirely-empty stream still runs one empty
-    // transaction (the connector's Apply and one empty commit cycle) — both
-    // mirroring eager parsing.
-    if txn_docs != 0 || committed == 0 {
+    push_batch(
+        &mut txn,
+        &mut batch,
+        builders,
+        bindings,
+        sources,
+        collection_bindings,
+        shards,
+        writers,
+        &mut rolled,
+        &mut journal_offsets,
+    )?;
+
+    // Trailing items without a final commit marker form a final transaction,
+    // and an entirely-empty stream still runs one empty transaction (the
+    // connector's Apply and one empty commit cycle) — both mirroring eager
+    // parsing.
+    if txn_items != 0 || committed == 0 {
         let frontier = finish_txn(txn, writers, &mut rolled, &journal_offsets)?;
         let _ = frontier_tx.send(FixtureItem::Frontier(frontier));
     }
@@ -466,6 +550,156 @@ async fn feed_lines(
         &mut disk_backlog_bytes,
         &mut disk_back_pressure,
     );
+    Ok(())
+}
+
+/// Document lines built per batch, and the batch's byte bound.
+const APPEND_BATCH_LINES: usize = 16 * 1024;
+const APPEND_BATCH_BYTES: usize = 64 * 1024 * 1024;
+
+/// Threads building Appends: two less than the number of cores for the shards
+fn append_workers() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .saturating_sub(2)
+        .clamp(1, 16)
+}
+
+struct AppendBuilder {
+    parser: simd_doc::Parser,
+    alloc: doc::Allocator,
+    validators: Vec<doc::Validator>,
+    validate: bool,
+    packed_key: bytes::BytesMut,
+}
+
+impl AppendBuilder {
+    fn new(validators: Vec<doc::Validator>, validate: bool) -> Self {
+        Self {
+            parser: simd_doc::Parser::new(),
+            alloc: doc::HeapNode::new_allocator(),
+            validators,
+            validate,
+            packed_key: bytes::BytesMut::new(),
+        }
+    }
+
+    /// Build an Append of a `["collection", {...}]` line for every binding of
+    /// its collection, parsing the document once per binding straight into a
+    /// `HeapNode`.
+    #[allow(clippy::too_many_arguments)]
+    fn build_appends(
+        &mut self,
+        line: &str,
+        lineno: usize,
+        doc_clock: uuid::Clock,
+        bindings: &[shuffle::Binding],
+        sources: &[shuffle::Source],
+        collection_bindings: &HashMap<String, Vec<usize>>,
+        out: &mut Vec<Append>,
+    ) -> anyhow::Result<()> {
+        let (collection, doc): (String, &serde_json::value::RawValue) =
+            serde_json::from_str(line.trim()).with_context(|| {
+                format!("fixture line {lineno} is not a document or marker: {line}")
+            })?;
+
+        let Some(binding_indices) = collection_bindings.get(&collection) else {
+            return Ok(()); // Collection isn't a source of this task.
+        };
+        let Self {
+            parser,
+            alloc,
+            validators,
+            validate,
+            packed_key,
+        } = self;
+
+        for &bi in binding_indices {
+            alloc.reset();
+            let mut heap = parser
+                .parse_one(doc.get().as_bytes(), alloc)
+                .with_context(|| format!("parsing fixture line {lineno}"))?;
+            let validator = validate.then(|| &mut validators[bindings[bi].source as usize]);
+
+            out.push(
+                build_append(
+                    &mut heap, alloc, bi, doc_clock, bindings, sources, validator, packed_key,
+                )
+                .with_context(|| format!("fixture line {lineno}"))?,
+            );
+        }
+        Ok(())
+    }
+}
+
+/// Build the Appends of a batch of document lines across `builders`, then push
+/// them in fixture order, so blocks and document clocks match a serial feeder.
+/// Each line consumes one clock, whether or not the task sources its collection.
+#[allow(clippy::too_many_arguments)]
+fn push_batch(
+    txn: &mut TxnState,
+    batch: &mut Vec<(usize, String)>,
+    builders: &mut [AppendBuilder],
+    bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
+    collection_bindings: &HashMap<String, Vec<usize>>,
+    shards: &[shuffle::proto::Shard],
+    writers: &mut [ShardWriter],
+    rolled: &mut Vec<shuffle::log::writer::SealedSegment>,
+    journal_offsets: &mut HashMap<(String, u16), i64>,
+) -> anyhow::Result<()> {
+    if batch.is_empty() {
+        return Ok(());
+    }
+    let first_seconds = txn.take_doc_seconds(batch.len() as u64);
+    let chunk = batch.len().div_ceil(builders.len());
+
+    let built: Vec<anyhow::Result<Vec<Append>>> = std::thread::scope(|scope| {
+        let workers: Vec<_> = batch
+            .chunks(chunk)
+            .zip(builders.iter_mut())
+            .enumerate()
+            .map(|(worker, (lines, builder))| {
+                let first = first_seconds + (worker * chunk) as u64;
+                scope.spawn(move || {
+                    let mut out = Vec::with_capacity(lines.len());
+                    for (i, (lineno, line)) in lines.iter().enumerate() {
+                        builder.build_appends(
+                            line,
+                            *lineno,
+                            uuid::Clock::from_unix(first + i as u64, 0),
+                            bindings,
+                            sources,
+                            collection_bindings,
+                            &mut out,
+                        )?;
+                    }
+                    Ok(out)
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| w.join().expect("fixture append worker panicked"))
+            .collect()
+    });
+
+    for appends in built {
+        for append in appends? {
+            push_append(
+                txn,
+                append,
+                bindings,
+                sources,
+                shards,
+                writers,
+                rolled,
+                journal_offsets,
+            )?;
+        }
+    }
+    batch.clear();
     Ok(())
 }
 
@@ -545,7 +779,7 @@ fn parse(path: &std::path::Path) -> anyhow::Result<Vec<Transaction>> {
 }
 
 /// Parse fixture content into transactions, splitting on `{"commit": true}`
-/// lines. Trailing documents without a final commit marker form a final
+/// lines. Trailing items without a final commit marker form a final
 /// transaction.
 fn parse_content(content: &str) -> anyhow::Result<Vec<Transaction>> {
     let mut transactions: Vec<Transaction> = Vec::new();
@@ -555,7 +789,7 @@ fn parse_content(content: &str) -> anyhow::Result<Vec<Transaction>> {
         match parse_line(line, lineno + 1)? {
             None => continue,
             Some(Line::Commit) => transactions.push(std::mem::take(&mut current)),
-            Some(Line::Doc(collection, doc)) => current.push((collection, doc)),
+            Some(Line::Item(item)) => current.push(item),
         }
     }
 
@@ -566,10 +800,31 @@ fn parse_content(content: &str) -> anyhow::Result<Vec<Transaction>> {
     Ok(transactions)
 }
 
-/// One parsed fixture line: a transaction boundary or a sourced document.
+/// One parsed fixture line: a transaction boundary or a transaction item.
+#[derive(Debug, PartialEq)]
 enum Line {
     Commit,
+    Item(TxnItem),
+}
+
+/// The JSON spelling of one fixture line.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum FixtureLine {
+    /// `["collection/name", { ...document... }]`
     Doc(String, serde_json::Value),
+    /// `{"commit": true}`
+    Commit { commit: bool },
+    /// `{"backfillBegin": "collection/name"}`
+    BackfillBegin {
+        #[serde(rename = "backfillBegin")]
+        collection: String,
+    },
+    /// `{"backfillComplete": "collection/name"}`
+    BackfillComplete {
+        #[serde(rename = "backfillComplete")]
+        collection: String,
+    },
 }
 
 /// Parse a single fixture line (`None` for blank lines); `lineno` is 1-based.
@@ -578,23 +833,21 @@ fn parse_line(line: &str, lineno: usize) -> anyhow::Result<Option<Line>> {
     if line.is_empty() {
         return Ok(None);
     }
-    if is_commit_line(line) {
-        return Ok(Some(Line::Commit));
-    }
-    let (collection, doc): (String, serde_json::Value) = serde_json::from_str(line)
-        .with_context(|| format!("fixture line {lineno} is not [collection, document]: {line}"))?;
-    Ok(Some(Line::Doc(collection, doc)))
-}
+    let not_a_line = || format!("fixture line {lineno} is not a document or marker: {line}");
 
-/// True if `line` is a `{"commit": true}` transaction boundary marker.
-fn is_commit_line(line: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(line)
-        .ok()
-        .as_ref()
-        .and_then(|v| v.as_object())
-        .and_then(|o| o.get("commit"))
-        .and_then(|c| c.as_bool())
-        .unwrap_or(false)
+    Ok(Some(
+        match serde_json::from_str(line).with_context(not_a_line)? {
+            FixtureLine::Doc(collection, doc) => Line::Item(TxnItem::Doc(collection, doc)),
+            FixtureLine::Commit { commit: true } => Line::Commit,
+            FixtureLine::Commit { commit: false } => anyhow::bail!(not_a_line()),
+            FixtureLine::BackfillBegin { collection } => {
+                Line::Item(TxnItem::BackfillBegin(collection))
+            }
+            FixtureLine::BackfillComplete { collection } => {
+                Line::Item(TxnItem::BackfillComplete(collection))
+            }
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -629,16 +882,25 @@ mod test {
 
 [\"a/coll\", {\"k\": 3}]
 {\"commit\": true}
+{\"backfillBegin\": \"a/coll\"}
 [\"a/coll\", {\"k\": 4}]
+{\"backfillComplete\": \"a/coll\"}
 ";
         let txns = parse_content(content).unwrap();
         // Three transactions: two committed, plus a trailing un-committed one.
-        assert_eq!(txns.len(), 3);
-        assert_eq!(txns[0].len(), 2);
-        assert_eq!(txns[0][0].0, "a/coll");
-        assert_eq!(txns[1].len(), 1);
-        assert_eq!(txns[2].len(), 1);
-        assert_eq!(txns[2][0].1, serde_json::json!({"k": 4}));
+        let doc = |c: &str, k: i64| TxnItem::Doc(c.to_string(), serde_json::json!({ "k": k }));
+        assert_eq!(
+            txns,
+            vec![
+                vec![doc("a/coll", 1), doc("b/coll", 2)],
+                vec![doc("a/coll", 3)],
+                vec![
+                    TxnItem::BackfillBegin("a/coll".to_string()),
+                    doc("a/coll", 4),
+                    TxnItem::BackfillComplete("a/coll".to_string()),
+                ],
+            ]
+        );
     }
 
     /// A Task with no bindings: fixture documents are skipped (no collection is
@@ -675,6 +937,7 @@ mod test {
             tmp.path(),
             1,
             StreamLimits::default(),
+            true,
             frontier_tx,
             eof_stop.clone(),
             hold.clone(),
@@ -776,6 +1039,7 @@ mod test {
             tmp.path(),
             1,
             StreamLimits::default(),
+            true,
             frontier_tx,
             eof_stop.clone(),
             hold.clone(),
@@ -810,10 +1074,10 @@ mod test {
         feeder.await.unwrap().unwrap();
     }
 
-    /// A Task with one materialization binding on `acmeCo/events`, keyed on
-    /// `/id`: fixture documents for that collection are routed and written, so
-    /// tests can observe what the feeder actually puts on disk.
-    fn one_binding_task() -> shuffle::proto::Task {
+    /// A Task with `n_bindings` materialization bindings on `acmeCo/events`,
+    /// keyed on `/id`: fixture documents for that collection are routed and
+    /// written, so tests can observe what the feeder actually puts on disk.
+    fn events_task(n_bindings: usize) -> shuffle::proto::Task {
         let collection = proto_flow::flow::CollectionSpec {
             name: "acmeCo/events".to_string(),
             key: vec!["/id".to_string()],
@@ -835,15 +1099,131 @@ mod test {
             task: Some(shuffle::proto::task::Task::Materialization(
                 proto_flow::flow::MaterializationSpec {
                     name: "acmeCo/sink".to_string(),
-                    bindings: vec![proto_flow::flow::materialization_spec::Binding {
-                        collection: Some(Box::new(collection)),
-                        partition_selector: Some(Default::default()),
-                        ..Default::default()
-                    }],
+                    bindings: vec![
+                        proto_flow::flow::materialization_spec::Binding {
+                            collection: Some(Box::new(collection)),
+                            partition_selector: Some(Default::default()),
+                            ..Default::default()
+                        };
+                        n_bindings
+                    ],
                     ..Default::default()
                 },
             )),
         }
+    }
+
+    /// The parallel path parses straight into a `HeapNode`; its Appends must
+    /// equal the `serde_json::Value` path's.
+    #[test]
+    fn built_appends_match_the_value_path() {
+        let task = events_task(2);
+        let (bindings, sources, mut validators, collection_bindings) =
+            segments::task_bindings(&task).unwrap();
+        let line = r#"["acmeCo/events",{"id":42,"pad":"x\u00e9y","n":[1.5,-0.0,null,{"b":true,"a":"\""}]}]"#;
+        let clock = uuid::Clock::from_unix(7, 0);
+
+        let mut builder = AppendBuilder::new(segments::task_bindings(&task).unwrap().2, true);
+        let mut parallel = Vec::new();
+        builder
+            .build_appends(
+                line,
+                1,
+                clock,
+                &bindings,
+                &sources,
+                &collection_bindings,
+                &mut parallel,
+            )
+            .unwrap();
+
+        let (_, doc): (String, serde_json::Value) = serde_json::from_str(line).unwrap();
+        let mut packed_key = bytes::BytesMut::new();
+        let from_value: Vec<_> = collection_bindings["acmeCo/events"]
+            .iter()
+            .map(|&bi| {
+                let alloc = doc::HeapNode::new_allocator();
+                let mut heap = doc::HeapNode::from_serde(&doc, &alloc).unwrap();
+                let validator = &mut validators[bindings[bi].source as usize];
+                build_append(
+                    &mut heap,
+                    &alloc,
+                    bi,
+                    clock,
+                    &bindings,
+                    &sources,
+                    Some(validator),
+                    &mut packed_key,
+                )
+                .unwrap()
+            })
+            .collect();
+
+        assert_eq!(parallel.len(), 2);
+        assert_eq!(parallel, from_value);
+    }
+
+    /// Spreading a batch across workers must not change what is written: the
+    /// same segments and frontier as a single worker, clocks included.
+    #[test]
+    fn batches_write_the_same_log_on_any_number_of_workers() {
+        let task = events_task(1);
+        let lines: Vec<(usize, String)> = (0..50)
+            .map(|i| {
+                // Every third line's collection isn't sourced, but still
+                // consumes a clock.
+                let collection = if i % 3 == 0 {
+                    "acmeCo/other"
+                } else {
+                    "acmeCo/events"
+                };
+                (
+                    i + 1,
+                    format!(r#"["{collection}",{{"id":{i},"pad":"p{i}"}}]"#),
+                )
+            })
+            .collect();
+
+        let write = |workers: usize| {
+            let tmp = tempfile::tempdir().unwrap();
+            let (bindings, sources, _, collection_bindings) =
+                segments::task_bindings(&task).unwrap();
+            let shards = segments::full_range_shards(2);
+            let mut writers = open_shard_writers(tmp.path(), 2).unwrap();
+            let mut builders: Vec<_> = (0..workers)
+                .map(|_| AppendBuilder::new(segments::task_bindings(&task).unwrap().2, true))
+                .collect();
+            let mut txn = TxnState::for_txn(2, 0);
+            let (mut rolled, mut offsets) = (Vec::new(), HashMap::new());
+
+            push_batch(
+                &mut txn,
+                &mut lines.clone(),
+                &mut builders,
+                &bindings,
+                &sources,
+                &collection_bindings,
+                &shards,
+                &mut writers,
+                &mut rolled,
+                &mut offsets,
+            )
+            .unwrap();
+            let frontier = finish_txn(txn, &mut writers, &mut rolled, &offsets).unwrap();
+
+            let mut files: Vec<_> = std::fs::read_dir(tmp.path())
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .collect();
+            files.sort();
+            let segments: Vec<Vec<u8>> = files.iter().map(|f| std::fs::read(f).unwrap()).collect();
+            (format!("{frontier:?}"), segments)
+        };
+
+        let serial = write(1);
+        assert!(serial.1.iter().map(Vec::len).sum::<usize>() > 0);
+        assert_eq!(write(4), serial);
+        assert_eq!(write(7), serial);
     }
 
     /// Total bytes of log segment files living under `dir`. Nothing unlinks
@@ -932,11 +1312,12 @@ mod test {
         let hold = tokio_util::sync::CancellationToken::new();
 
         let (dir, feeder) = start_streaming(
-            &one_binding_task(),
+            &events_task(1),
             Some(path.clone()),
             tmp.path(),
             1,
             limits,
+            true,
             frontier_tx,
             eof_stop,
             hold.clone(),
@@ -1030,11 +1411,12 @@ mod test {
         let hold = tokio_util::sync::CancellationToken::new();
 
         let (dir, feeder) = start_streaming(
-            &one_binding_task(),
+            &events_task(1),
             Some(path.clone()),
             tmp.path(),
             1,
             StreamLimits::default(),
+            true,
             frontier_tx,
             eof_stop,
             hold.clone(),
@@ -1079,12 +1461,129 @@ mod test {
         feeder.abort();
     }
 
+    /// Plan `content` over two bindings of `acmeCo/events`, in one session.
+    fn plan_events(content: &str) -> anyhow::Result<FixturePlan> {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("fixture");
+        std::fs::write(&path, content).unwrap();
+        build(&events_task(2), &path, tmp.path(), &[0], 1)
+    }
+
+    /// Each frontier's backfill begins and completes, as clock seconds by
+    /// binding index.
+    fn backfill_seconds(plan: &FixturePlan) -> Vec<(Vec<(u16, u64)>, Vec<(u16, u64)>)> {
+        let seconds = |m: &std::collections::BTreeMap<u16, proto_gazette::uuid::Clock>| {
+            m.iter()
+                .map(|(b, c)| (*b, c.to_unix().0))
+                .collect::<Vec<_>>()
+        };
+        plan.session_frontiers[0]
+            .iter()
+            .map(|f| {
+                (
+                    seconds(&f.latest_backfill_begin),
+                    seconds(&f.latest_backfill_complete),
+                )
+            })
+            .collect()
+    }
+
     #[test]
-    fn test_is_commit_line() {
-        assert!(is_commit_line(r#"{"commit": true}"#));
-        assert!(!is_commit_line(r#"{"commit": false}"#));
-        assert!(!is_commit_line(r#"["a/coll", {"commit": true}]"#));
-        assert!(!is_commit_line(r#"{"other": true}"#));
-        assert!(!is_commit_line("not json"));
+    fn test_backfill_markers() {
+        let plan = plan_events(
+            r#"["acmeCo/events", {"id": 1}]
+["acmeCo/events", {"id": 2}]
+{"commit": true}
+["acmeCo/events", {"id": 3}]
+{"backfillBegin": "acmeCo/events"}
+["acmeCo/events", {"id": 1}]
+{"commit": true}
+{"backfillComplete": "acmeCo/events"}
+{"commit": true}
+{"backfillBegin": "acmeCo/events"}
+{"backfillComplete": "acmeCo/events"}
+{"backfillBegin": "acmeCo/other"}
+{"backfillComplete": "acmeCo/other"}
+"#,
+        )
+        .unwrap();
+
+        // A begin fans out to both bindings, at the clock following the
+        // document before it. Its complete carries that same clock, and a
+        // begin and complete may share a transaction. Markers of a collection
+        // no binding sources are ignored.
+        assert_eq!(
+            backfill_seconds(&plan),
+            vec![
+                (vec![], vec![]),
+                (vec![(0, 3601), (1, 3601)], vec![]),
+                (vec![], vec![(0, 3601), (1, 3601)]),
+                (vec![(0, 10800), (1, 10800)], vec![(0, 10800), (1, 10800)]),
+            ]
+        );
+
+        // The re-stored document follows the boundary, so it is not truncated.
+        let last_commit = plan.session_frontiers[0][1].journals[0].producers[0].last_commit;
+        assert_eq!(last_commit.to_unix().0, 3602);
+    }
+
+    #[test]
+    fn test_backfill_complete_without_begin() {
+        let err = plan_events(
+            r#"{"backfillBegin": "acmeCo/events"}
+{"backfillComplete": "acmeCo/events"}
+{"commit": true}
+{"backfillComplete": "acmeCo/events"}
+"#,
+        )
+        .err()
+        .unwrap();
+        assert!(
+            format!("{err:#}")
+                .contains("backfill complete of acmeCo/events has no open backfill begin"),
+            "{err:#}"
+        );
+    }
+
+    #[test]
+    fn test_parse_line() {
+        let parse = |line| parse_line(line, 7).map_err(|err| format!("{err:#}"));
+
+        assert_eq!(parse("  "), Ok(None));
+        assert_eq!(parse(r#"{"commit": true}"#), Ok(Some(Line::Commit)));
+        assert_eq!(
+            parse(r#"{"backfillBegin": "a/coll"}"#),
+            Ok(Some(Line::Item(TxnItem::BackfillBegin(
+                "a/coll".to_string()
+            ))))
+        );
+        assert_eq!(
+            parse(r#"{"backfillComplete": "a/coll"}"#),
+            Ok(Some(Line::Item(TxnItem::BackfillComplete(
+                "a/coll".to_string()
+            ))))
+        );
+        assert_eq!(
+            parse(r#"["a/coll", {"commit": true}]"#),
+            Ok(Some(Line::Item(TxnItem::Doc(
+                "a/coll".to_string(),
+                serde_json::json!({"commit": true})
+            ))))
+        );
+
+        for bad in [
+            r#"{"commit": false}"#,
+            r#"{"backfillBegin": true}"#,
+            r#"{"other": true}"#,
+            "not json",
+        ] {
+            let err = parse(bad).unwrap_err();
+            assert!(
+                err.starts_with(&format!(
+                    "fixture line 7 is not a document or marker: {bad}"
+                )),
+                "{err}"
+            );
+        }
     }
 }

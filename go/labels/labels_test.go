@@ -3,8 +3,8 @@ package labels
 import (
 	"testing"
 
+	"github.com/estuary/flow/go/gazette/labels"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/labels"
 )
 
 func TestRuntimeLabels(t *testing.T) {
@@ -15,6 +15,7 @@ func TestRuntimeLabels(t *testing.T) {
 		{"other", false},
 		{Build, false},
 		{Collection, false},
+		{DiskReplayFrom, true},
 		{FieldPrefix + "One", true},
 		{FieldPrefix + "two", true},
 		{KeyBegin, true},

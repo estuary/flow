@@ -1,0 +1,6 @@
+mutation CreateDiscoverMutation($draftId: Id!, $captureName: Name!, $dataPlane: String) {
+    createDiscover(draftId: $draftId, captureName: $captureName, dataPlane: $dataPlane) {
+        id
+        dataPlaneName
+    }
+}

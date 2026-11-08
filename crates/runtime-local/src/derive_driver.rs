@@ -10,7 +10,7 @@ use crate::Controls;
 use crate::services::Run;
 use anyhow::Context;
 use prost::Message;
-use proto_flow::{flow, flow::collection_spec::derivation::ConnectorType, runtime as cruntime};
+use proto_flow::{flow, flow::collection_spec::derivation::ConnectorType};
 use runtime_next::proto;
 use runtime_next::{LoggerFactory, PublisherFactory};
 use tokio::sync::mpsc;
@@ -59,7 +59,7 @@ pub async fn run_sessions<P: PublisherFactory, L: LoggerFactory>(
             peer_endpoint: run.peer_endpoint.clone(),
             shuffle_log_dir: run.shuffle_log_dir.clone(),
             sqlite_dir: sqlite_dir.clone(),
-            network: run.network.clone(),
+            connector_router: run.connector_router.clone(),
             registry: run.registry.clone(),
         };
         let task_name = spec.name.clone();
@@ -94,7 +94,7 @@ struct RunHandle {
     peer_endpoint: String,
     shuffle_log_dir: String,
     sqlite_dir: String, // Empty unless derive-sqlite.
-    network: String,
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
     registry: service_kit::Registry,
 }
 
@@ -113,8 +113,7 @@ async fn drive_one_shard<P: PublisherFactory, L: LoggerFactory>(
     let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
 
     let shard_svc = runtime_next::shard::Service::new(
-        cruntime::Plane::Local,
-        run.network.clone(),
+        run.connector_router,
         None,
         task_name,
         controls.publisher_factory.clone(),

@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: outcomes
+---
+[
+  {
+    "case": "scoped to aliceCo/",
+    "error": "PermissionDenied: User is not authorized to create or change 'bobCo/out/mat'",
+    "status": null
+  },
+  {
+    "case": "unrestricted",
+    "error": null,
+    "status": "queued"
+  }
+]

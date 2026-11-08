@@ -75,7 +75,11 @@ Execute the full SQL test suite:
 ```
 
 ### Edge Functions
-Functions are deployed automatically but can be tested locally with the Supabase CLI.
+Functions are deployed automatically from `master`. Their Deno tests under
+`functions/tests/` run in CI on every PR that touches `functions/`, and locally with:
+```bash
+deno test --allow-all supabase/functions/tests/
+```
 
 ## Foundational Tables
 
@@ -90,6 +94,9 @@ Functions are deployed automatically but can be tested locally with the Supabase
 - **`tenants`** - Top-level organizational units with quotas and billing configuration
 - **`user_grants`** - User permissions for catalog prefixes (read, write, admin)
 - **`role_grants`** - Role-based authorization model for scalable permission management
+- **`internal.legal_terms`** - Append-only, versioned legal text
+- **`internal.tenant_consent`** - Append-only consent records;
+  user and tenant IDs are required and retained without foreign keys so records survive account deletion
 
 ### Connector Infrastructure
 - **`connectors`** - Registry of available connector images implementing Flow protocols

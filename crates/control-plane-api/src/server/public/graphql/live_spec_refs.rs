@@ -28,15 +28,13 @@ pub struct LiveSpecsBy {
 pub struct LiveSpecRef {
     /// The catalog_name of the referent.
     pub catalog_name: models::Name,
-    /// The current user's capability to the referent. Null indicates no access.
-    /// A query can obtain a reference to a catalog spec that the user has no
-    /// access to, which happens in scenarios where a LiveSpec that the user
-    /// does have access to references a spec in a different catalog namespace
-    /// that the user cannot access. It can also happen simply by listing by
-    /// name, and passing a name that the user cannot access. In either case,
-    /// the result would be `userCapability: null`, and all other fields on the
-    /// LiveSpecRef would also be null.
+    /// The current user's legacy capability to the referent, retained for compatibility.
+    /// Authorization is evaluated independently using the CatalogRead capability bit.
+    #[graphql(deprecation = "Legacy capability reporting does not reflect effective permissions.")]
     pub user_capability: Option<models::Capability>,
+    // Legacy capability reporting does not reflect effective bits or token restrictions.
+    #[graphql(skip)]
+    pub can_read: bool,
 }
 
 #[ComplexObject]
@@ -46,7 +44,7 @@ impl LiveSpecRef {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<live_specs::LiveSpec>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
 
@@ -65,7 +63,7 @@ impl LiveSpecRef {
 
     /// Returns all alerts that are currently firing for this live spec.
     async fn active_alerts(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<Vec<Alert>>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
         let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
@@ -85,7 +83,7 @@ impl LiveSpecRef {
         before: Option<String>,
         last: i32,
     ) -> async_graphql::Result<Option<alerts::PaginatedAlerts>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
         alerts::live_spec_alert_history_no_authz(ctx, &self.catalog_name, before, last)
@@ -98,7 +96,7 @@ impl LiveSpecRef {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<status::LiveSpecStatus>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
         let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
@@ -113,13 +111,14 @@ impl LiveSpecRef {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<publication_history::SpecPublicationHistoryItem>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
 
         let include_model = ctx.look_ahead().field("model").exists();
-        let key = publication_history::LastPublicationInfoKey {
+        let key = publication_history::PublicationInfoKey {
             catalog_name: self.catalog_name.clone(),
+            publication_id: None,
             include_model,
         };
 
@@ -128,7 +127,28 @@ impl LiveSpecRef {
         Ok(pub_info)
     }
 
-    /// The complete history of publications of this spec
+    /// The change to this specification recorded by the given publication,
+    /// or null if no accessible matching record exists. This is an exact lookup,
+    /// not the specification as of a publication that did not change it.
+    async fn publication_for_id(
+        &self,
+        ctx: &Context<'_>,
+        id: models::Id,
+    ) -> async_graphql::Result<Option<publication_history::SpecPublicationHistoryItem>> {
+        if !self.can_read {
+            return Ok(None);
+        }
+
+        let key = publication_history::PublicationInfoKey {
+            catalog_name: self.catalog_name.clone(),
+            publication_id: Some(id),
+            include_model: ctx.look_ahead().field("model").exists(),
+        };
+        let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
+        Ok(loader.load_one(key).await?)
+    }
+
+    /// The complete history of publications of this spec.
     async fn publication_history(
         &self,
         ctx: &Context<'_>,
@@ -137,7 +157,7 @@ impl LiveSpecRef {
         before: Option<String>,
         last: Option<i32>,
     ) -> async_graphql::Result<Option<publication_history::SpecHistoryConnection>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
         let include_model = ctx
@@ -160,47 +180,30 @@ impl LiveSpecRef {
     }
 }
 
-/// Applies the given pagination parameters to `all_names` and returns a
-/// `Connection` suitable for a graphql response. `all_names` is expected to
-/// contain the complete list of **sorted** live specs names. Note that the sort
-/// order, both of `all_names` and the query results, must always be ascending,
-/// regardless of whether forward or reverse pagination is being used. Source:
-/// https://relay.dev/graphql/connections.htm#sec-Edge-order
-/// If `require_min_capability` is `Some`, then `all_specs` will be filtered to
-/// only include those specs for which the user has the required minimum
-/// capability.
-pub async fn paginate_live_specs_refs(
-    ctx: &Context<'_>,
-    require_min_capability: Option<models::Capability>,
-    all_names: Vec<String>,
-    after: Option<String>,
-    before: Option<String>,
-    first: Option<i32>,
-    last: Option<i32>,
-) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-    let env = ctx.data::<crate::Envelope>()?;
-
-    if all_names.is_empty() {
-        return Ok(connection::Connection::new(false, false));
-    }
-    let all_refs = crate::server::attach_user_capabilities(
-        env.snapshot(),
-        env.claims()?,
-        all_names,
-        |name, maybe_capability| {
-            if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
-                return None;
-            }
-            Some(LiveSpecRef {
-                catalog_name: models::Name::new(name),
-                user_capability: maybe_capability,
-            })
-        },
-    );
-    apply_pagination(all_refs, after, before, first, last).await
+/// Resolves can_read for each ref
+pub fn live_spec_refs(
+    env: &crate::Envelope,
+    all_names: impl IntoIterator<Item = String>,
+) -> async_graphql::Result<impl Iterator<Item = LiveSpecRef>> {
+    let subject = env.claims()?.subject();
+    Ok(all_names.into_iter().map(move |name| {
+        let user_capability = env.snapshot().user_capability(&subject, &name);
+        let can_read = env.snapshot().is_user_authorized(
+            &subject,
+            &name,
+            models::authz::Capability::CatalogRead,
+        );
+        LiveSpecRef {
+            catalog_name: models::Name::new(name),
+            user_capability,
+            can_read,
+        }
+    }))
 }
 
-async fn apply_pagination(
+/// References and results must remain sorted by ascending catalog name, including
+/// when paginating backwards: https://relay.dev/graphql/connections.htm#sec-Edge-order
+pub async fn paginate_live_specs_refs(
     mut all_refs: Vec<LiveSpecRef>,
     after: Option<String>,
     before: Option<String>,
@@ -228,10 +231,13 @@ async fn apply_pagination(
                 } else {
                     0
                 };
-                (start, first.unwrap_or(usize::MAX).min(all_refs.len()))
+                let end = start
+                    .saturating_add(first.unwrap_or(usize::MAX))
+                    .min(all_refs.len());
+                (start, end)
             };
             let has_prev = start_index > 0;
-            let has_next = end_index < all_refs.len().saturating_sub(1);
+            let has_next = end_index < all_refs.len();
             let edges = all_refs
                 .drain(start_index..end_index)
                 .map(|r| connection::Edge::new(r.catalog_name.to_string(), r))
@@ -291,7 +297,7 @@ impl LiveSpecsQuery {
         let policy_result = crate::server::evaluate_names_authorization(
             env.snapshot(),
             env.claims()?,
-            models::Capability::Read,
+            models::authz::Capability::CatalogRead,
             names
                 .iter()
                 .map(models::Name::as_str)
@@ -358,20 +364,9 @@ impl LiveSpecsQuery {
         // We already know that the user at least has read capability to the prefix,
         // but it's possible that they may have a greater capability to specific
         // sub-prefixes, so resolve those here.
-        let edges = crate::server::attach_user_capabilities(
-            env.snapshot(),
-            env.claims()?,
-            names,
-            |name, user_capability| {
-                Some(connection::Edge::new(
-                    name.clone(),
-                    LiveSpecRef {
-                        catalog_name: models::Name::new(name),
-                        user_capability,
-                    },
-                ))
-            },
-        );
+        let edges = live_spec_refs(env, names)?
+            .map(|reference| connection::Edge::new(reference.catalog_name.to_string(), reference))
+            .collect();
 
         let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
         conn.edges = edges;

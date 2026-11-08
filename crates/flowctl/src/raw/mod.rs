@@ -9,7 +9,6 @@ use std::{
     io::{self, Read, Write},
     path::PathBuf,
 };
-use tables::CatalogResolver;
 
 mod alerts;
 mod discover;
@@ -69,6 +68,15 @@ pub enum Command {
     Oauth(oauth::Oauth),
     /// Emit the Flow specification JSON-Schema.
     JsonSchema,
+    /// Emit the control-plane GraphQL schema which flowctl was built with.
+    GraphqlSchema,
+    /// Execute a GraphQL query or mutation against the control-plane API.
+    ///
+    /// The document is given by --query, or read from --query-file.
+    /// The response is printed as returned by the API, or as YAML with
+    /// --output yaml. The command fails if the response carries any GraphQL errors.
+    /// Use `graphql-schema` to view the available types and operations.
+    Graphql(Graphql),
     /// Read stats collection documents
     Stats(Stats),
     /// Stream logs associated with the given bearer token.
@@ -144,6 +152,27 @@ pub struct Rpc {
     body: String,
 }
 
+#[derive(Debug, clap::Args)]
+#[clap(rename_all = "kebab-case")]
+pub struct Graphql {
+    /// GraphQL document holding the operation to execute.
+    #[clap(
+        long,
+        conflicts_with("query_file"),
+        required_unless_present("query_file")
+    )]
+    query: Option<String>,
+    /// Path of a GraphQL document holding the operation to execute, or `-` for stdin.
+    #[clap(long)]
+    query_file: Option<PathBuf>,
+    /// Serialized JSON object of operation variables.
+    #[clap(long)]
+    variables: Option<String>,
+    /// Name of the operation to execute, if the document holds more than one.
+    #[clap(long)]
+    operation_name: Option<String>,
+}
+
 #[derive(Debug, Clone, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Build {
@@ -156,9 +185,6 @@ pub struct Build {
     /// Build ID of this build.
     #[clap(long)]
     build_id: models::Id,
-    /// Docker network to use for connectors.
-    #[clap(long, default_value = "")]
-    connector_network: String,
     /// File root which jails local file:// resources.
     #[clap(long, default_value = "/")]
     file_root: String,
@@ -250,6 +276,10 @@ impl Advanced {
                 let schema = models::Catalog::root_json_schema();
                 Ok(serde_json::to_writer_pretty(std::io::stdout(), &schema)?)
             }
+            Command::GraphqlSchema => {
+                Ok(io::stdout().write_all(crate::graphql::GRAPHQL_SCHEMA.as_bytes())?)
+            }
+            Command::Graphql(graphql) => do_graphql(ctx, graphql).await,
             Command::Stats(stats) => stats.run(ctx).await,
             Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
@@ -308,6 +338,87 @@ async fn do_rpc(
     Ok(())
 }
 
+async fn do_graphql(
+    ctx: &mut crate::CliContext,
+    Graphql {
+        query,
+        query_file,
+        variables,
+        operation_name,
+    }: &Graphql,
+) -> anyhow::Result<()> {
+    // Default to JSON even on a TTY, so the response reads as the API returned it.
+    // A table can't render a response shaped by the caller's query. Reject it
+    // before sending, as the operation may be a mutation.
+    let output = ctx.output.output.unwrap_or(crate::output::OutputType::Json);
+    if output == crate::output::OutputType::Table {
+        anyhow::bail!("cannot use --output table with `raw graphql` (use json or yaml)");
+    }
+
+    let query = match (query, query_file) {
+        (Some(query), _) => query.clone(),
+        (None, Some(path)) if path.as_os_str() == "-" => {
+            let mut query = String::new();
+            io::stdin()
+                .read_to_string(&mut query)
+                .context("reading GraphQL document from stdin")?;
+            query
+        }
+        (None, Some(path)) => std::fs::read_to_string(path)
+            .with_context(|| format!("reading GraphQL document {}", path.display()))?,
+        (None, None) => unreachable!("clap requires --query or --query-file"),
+    };
+    let variables: Option<Box<serde_json::value::RawValue>> = variables
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .context("parsing --variables as JSON")?;
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Request<'a> {
+        query: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        variables: Option<&'a serde_json::value::RawValue>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        operation_name: Option<&'a str>,
+    }
+    let request = Request {
+        query: &query,
+        variables: variables.as_deref(),
+        operation_name: operation_name.as_deref(),
+    };
+
+    let response: Box<serde_json::value::RawValue> = crate::graphql::agent_unary(
+        &ctx.rest,
+        ctx.access_token().as_deref(),
+        crate::graphql::GRAPHQL_PATH,
+        &request,
+    )
+    .await?;
+
+    if output == crate::output::OutputType::Yaml {
+        // serde_yaml::Value keeps the response's field order, which matches the query.
+        let response: serde_yaml::Value =
+            serde_json::from_str(response.get()).context("parsing GraphQL response")?;
+        serde_yaml::to_writer(io::stdout().lock(), &response)?;
+    } else {
+        println!("{}", response.get());
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Errors {
+        errors: Option<Vec<serde::de::IgnoredAny>>,
+    }
+    let Errors { errors } =
+        serde_json::from_str(response.get()).context("parsing GraphQL response")?;
+
+    match errors.map(|errors| errors.len()).unwrap_or_default() {
+        0 => Ok(()),
+        count => anyhow::bail!("GraphQL response has {count} error(s)"),
+    }
+}
+
 async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<()> {
     let resolver = local_specs::Resolver {
         pg: ctx.pg.clone(),
@@ -318,13 +429,11 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
         db_path,
         pub_id,
         build_id,
-        connector_network,
         file_root,
         source,
     } = build.clone();
 
     let source_url = build::arg_source_to_url(&source, false)?;
-    let project_root = build::project_root(&source_url);
 
     let draft = build::load(&source_url, std::path::Path::new(&file_root)).await;
     let draft = local_specs::surface_errors(draft.into_result())?;
@@ -335,12 +444,11 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let output = build::local(
         pub_id,
         build_id,
-        &connector_network,
+        ctx.local_connector_router(),
         ops::tracing_log_handler,
         false, // Don't no-op captures.
         false, // Don't no-op derivations.
         false, // Don't no-op materializations.
-        &project_root,
         draft,
         live,
     )
@@ -373,7 +481,7 @@ async fn do_combine(
     ctx: &mut crate::CliContext,
     Combine { source, collection }: &Combine,
 ) -> anyhow::Result<()> {
-    let (_sources, _live, validations) = local_specs::load_and_validate(ctx, source).await?;
+    let validations = local_specs::load_and_validate(ctx, source).await?.built;
 
     let collection = match validations
         .built_collections

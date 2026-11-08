@@ -9,6 +9,14 @@ test://example/catalog.yaml:
           config: test://example/path/to/old/config
       bindings: []
 
+    # Shares a prefix with `exists`, and keeps its imports when `exists` is replaced.
+    acmeCo/captures/exists-too:
+      endpoint:
+        connector:
+          image: an/image
+          config: test://example/path/to/sibling/config
+      bindings: []
+
   collections:
     acmeCo/collections/exists:
       schema: test://example/path/to/old/schema
@@ -28,5 +36,7 @@ test://example/catalog.yaml:
 test://example/acmeCo/flow.yaml: {}
 
 test://example/path/to/old/config: [old]
+
+test://example/path/to/sibling/config: [sibling]
 
 test://example/path/to/old/schema: { const: old-value }

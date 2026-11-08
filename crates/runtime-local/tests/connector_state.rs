@@ -67,11 +67,16 @@ async fn run_capture(
 
     let spec = build_capture(&catalog(transactions)).await;
 
+    let registry = service_kit::Registry::new();
     let run = runtime_local::services::Run::start_capture(
-        String::new(),
+        runtime_local::local_router(
+            String::new(),
+            registry.clone(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        ),
         1,
         None,
-        service_kit::Registry::new(),
+        registry,
     )
     .await
     .unwrap();

@@ -11,9 +11,8 @@ RemainAfterExit=yes
 # Load instance-specific environment with data plane configuration
 EnvironmentFile=%h/flow-local/env/plane-link-%i.env
 
-# Call control-plane API to register the data plane
-# Use printf to build JSON and avoid shell quoting complexities
-# DEKAF_ADDRESS and DEKAF_REGISTRY_ADDRESS are optional; if not set, omit them from the payload
+# Call control-plane API to register the data plane, posting the request body
+# which the data-plane task wrote to CREATE_REQUEST.
 #
 # The curl --retry flags wait out control-plane agent start-up: --retry-connrefused
 # re-issues while the agent isn't listening yet, and --retry covers transient 5xx
@@ -21,13 +20,6 @@ EnvironmentFile=%h/flow-local/env/plane-link-%i.env
 # port only once it can serve (crates/agent/src/main.rs), so a connection being
 # accepted means ready; a non-transient 4xx still fails fast with its body.
 ExecStart=/bin/bash -c ' \
-    if [ -n "${DEKAF_ADDRESS:-}" ] && [ -n "${DEKAF_REGISTRY_ADDRESS:-}" ]; then \
-        printf "{\\"name\\":\\"%%s\\",\\"category\\":{\\"manual\\":{\\"brokerAddress\\":\\"%%s\\",\\"reactorAddress\\":\\"%%s\\",\\"hmacKeys\\":[\\"%%s\\"],\\"dekafAddress\\":\\"%%s\\",\\"dekafRegistryAddress\\":\\"%%s\\"}}}" \
-            "${DATA_PLANE_NAME}" "${BROKER_ADDRESS}" "${REACTOR_ADDRESS}" "${HMAC_KEY}" "${DEKAF_ADDRESS}" "${DEKAF_REGISTRY_ADDRESS}"; \
-    else \
-        printf "{\\"name\\":\\"%%s\\",\\"category\\":{\\"manual\\":{\\"brokerAddress\\":\\"%%s\\",\\"reactorAddress\\":\\"%%s\\",\\"hmacKeys\\":[\\"%%s\\"]}}}" \
-            "${DATA_PLANE_NAME}" "${BROKER_ADDRESS}" "${REACTOR_ADDRESS}" "${HMAC_KEY}"; \
-    fi | \
     curl -v \
         -X POST \
         -H "content-type: application/json" \
@@ -37,7 +29,7 @@ ExecStart=/bin/bash -c ' \
         --retry-delay 2 \
         --retry-max-time 120 \
         --fail-with-body \
-        --data-binary @- \
+        --data-binary @${CREATE_REQUEST} \
         ${AGENT_API}/admin/create-data-plane \
     '
 

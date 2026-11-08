@@ -5,6 +5,10 @@ use std::collections::BTreeMap;
 
 // Indirect sub-locations within `sources` into external resources which
 // are referenced through relative imports.
+//
+// Tasks may write a common resource only with identical content. Otherwise
+// the last write would win, and every task importing the resource would
+// silently get its content. Each conflicting write is an error of `draft`.
 pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) {
     let tables::DraftCatalog {
         captures,
@@ -14,43 +18,69 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
         materializations,
         resources,
         tests,
-        errors: _,
+        errors,
     } = draft;
+
+    // Each resource written by this pass, and the task which first wrote it.
+    let mut written = BTreeMap::new();
 
     for tables::DraftCapture {
         capture,
         scope,
         expect_pub_id: _,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in captures.iter_mut()
     {
         if let Some(model) = model {
-            indirect_capture(scope, capture, model, imports, resources, threshold);
+            let mut staged = tables::Resources::new();
+            indirect_capture(scope, capture, model, imports, &mut staged, threshold);
+            upsert_staged(scope, capture, staged, resources, &mut written, errors);
         }
     }
     for tables::DraftCollection {
         collection,
         scope,
         expect_pub_id: _,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in collections.iter_mut()
     {
         if let Some(model) = model {
-            indirect_collection(scope, collection, model, imports, resources, threshold);
+            let mut staged = tables::Resources::new();
+            indirect_collection(scope, collection, model, imports, &mut staged, threshold);
+            upsert_staged(scope, collection, staged, resources, &mut written, errors);
         }
     }
     for tables::DraftMaterialization {
         materialization,
         scope,
         expect_pub_id: _,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in materializations.iter_mut()
     {
         if let Some(model) = model {
-            indirect_materialization(scope, materialization, model, imports, resources, threshold);
+            let mut staged = tables::Resources::new();
+            indirect_materialization(
+                scope,
+                materialization,
+                model,
+                imports,
+                &mut staged,
+                threshold,
+            );
+            upsert_staged(
+                scope,
+                materialization,
+                staged,
+                resources,
+                &mut written,
+                errors,
+            );
         }
     }
     for tables::DraftTest {
@@ -62,7 +92,44 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
     } in tests.iter_mut()
     {
         if let Some(model) = model {
-            indirect_test(scope, test, model, imports, resources, threshold);
+            let mut staged = tables::Resources::new();
+            indirect_test(scope, test, model, imports, &mut staged, threshold);
+            upsert_staged(scope, test, staged, resources, &mut written, errors);
+        }
+    }
+}
+
+/// Upsert each resource `staged` by the task `name` into `resources`,
+/// unless an earlier write of this pass gave it different content.
+/// `staged` keeps every write of the task, so that the task's own writes
+/// are also checked against each other.
+fn upsert_staged(
+    scope: &url::Url,
+    name: &impl AsRef<str>,
+    staged: tables::Resources,
+    resources: &mut tables::Resources,
+    written: &mut BTreeMap<url::Url, String>,
+    errors: &mut tables::Errors,
+) {
+    for row in staged {
+        let Some(other) = written.get(&row.resource) else {
+            written.insert(row.resource.clone(), name.as_ref().to_string());
+            row.upsert_if_changed(resources);
+            continue;
+        };
+        let current = resources
+            .get_key(&row.resource)
+            .expect("written resources are in `resources`");
+
+        if current.content_dom.get() != row.content_dom.get() {
+            errors.insert_row(
+                scope,
+                anyhow::anyhow!(
+                    "{} and {other} both write {}, with different content",
+                    name.as_ref(),
+                    row.resource,
+                ),
+            );
         }
     }
 }
@@ -108,6 +175,7 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         capture,
         scope,
         expect_pub_id,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in captures.iter()
@@ -124,6 +192,7 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         collection,
         scope,
         expect_pub_id,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in collections.iter()
@@ -140,6 +209,7 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         materialization,
         scope,
         expect_pub_id,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in materializations.iter()
@@ -199,48 +269,57 @@ fn indirect_capture(
     let models::CaptureDef {
         endpoint, bindings, ..
     } = model;
-    let base = base_name(capture);
+    let (base, ext) = (base_name(capture), Format::from_scope(scope).extension());
 
-    match endpoint {
+    let (variant, config) = match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
-            indirect_dom(
-                Scope::new(scope)
-                    .push_prop("endpoint")
-                    .push_prop("connector")
-                    .push_prop("config"),
-                config,
-                ContentType::Config,
-                format!("{base}.config"),
+            ("connector", config)
+        }
+        models::CaptureEndpoint::Local(models::LocalConfig { config, .. }) => ("local", config),
+        models::CaptureEndpoint::Python(models::CapturePython {
+            files,
+            config,
+            spec,
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("endpoint");
+            let scope = scope.push_prop("python");
+
+            indirect_files(scope, files, imports, resources);
+            indirect_custom_spec(
+                scope.push_prop("spec"),
+                spec,
+                base,
+                ext,
                 imports,
                 resources,
                 threshold,
             );
+            ("python", config)
         }
-        models::CaptureEndpoint::Local(models::LocalConfig { config, .. }) => {
-            indirect_dom(
-                Scope::new(scope)
-                    .push_prop("endpoint")
-                    .push_prop("local")
-                    .push_prop("config"),
-                config,
-                ContentType::Config,
-                format!("{base}.config"),
-                imports,
-                resources,
-                threshold,
-            );
-        }
-    }
+    };
+    indirect(
+        Scope::new(scope)
+            .push_prop("endpoint")
+            .push_prop(variant)
+            .push_prop("config"),
+        config,
+        &format!("{base}.config.{ext}"),
+        ContentType::Config,
+        imports,
+        resources,
+        threshold,
+    );
 
     for (index, models::CaptureBinding { resource, .. }) in bindings.iter_mut().enumerate() {
-        indirect_dom(
+        indirect(
             Scope::new(scope)
                 .push_prop("bindings")
                 .push_item(index)
                 .push_prop("resource"),
             resource,
+            &format!("{base}.resource.{index}.config.{ext}"),
             ContentType::Config,
-            format!("{base}.resource.{index}.config"),
             imports,
             resources,
             threshold,
@@ -268,33 +347,31 @@ fn indirect_collection(
         delete: _,
         reset: _,
     } = model;
-    let base = base_name(collection);
+    let (base, ext) = (base_name(collection), Format::from_scope(scope).extension());
 
-    if let Some(schema) = schema {
-        indirect_schema(
-            Scope::new(scope).push_prop("schema"),
-            schema,
-            format!("{base}.schema"),
-            imports,
-            resources,
-            threshold,
-        );
-    }
-    if let Some(write_schema) = write_schema {
-        indirect_schema(
-            Scope::new(scope).push_prop("writeSchema"),
+    for (prop, schema, filename) in [
+        ("schema", schema, format!("{base}.schema.{ext}")),
+        (
+            "writeSchema",
             write_schema,
-            format!("{base}.write.schema"),
-            imports,
-            resources,
-            threshold,
-        )
-    }
-    if let Some(read_schema) = read_schema {
-        indirect_schema(
-            Scope::new(scope).push_prop("readSchema"),
+            format!("{base}.write.schema.{ext}"),
+        ),
+        (
+            "readSchema",
             read_schema,
-            format!("{base}.read.schema"),
+            format!("{base}.read.schema.{ext}"),
+        ),
+    ] {
+        let Some(schema) = schema else {
+            continue;
+        };
+        strip_file_id(schema);
+
+        indirect(
+            Scope::new(scope).push_prop(prop),
+            schema,
+            &filename,
+            ContentType::JsonSchema,
             imports,
             resources,
             threshold,
@@ -321,34 +398,35 @@ fn indirect_derivation(
         redact_salt: _,
         secrets: _,
     } = derivation;
+    let ext = Format::from_scope(scope).extension();
     let mut is_sql = false;
 
     match using {
         models::DeriveUsing::Connector(models::ConnectorConfig { config, .. }) => {
-            indirect_dom(
+            indirect(
                 Scope::new(scope)
                     .push_prop("derive")
                     .push_prop("using")
                     .push_prop("connector")
                     .push_prop("config"),
                 config,
+                &format!("{base}.config.{ext}"),
                 ContentType::Config,
-                format!("{base}.config"),
                 imports,
                 resources,
                 threshold,
             );
         }
         models::DeriveUsing::Local(models::LocalConfig { config, .. }) => {
-            indirect_dom(
+            indirect(
                 Scope::new(scope)
                     .push_prop("derive")
                     .push_prop("using")
                     .push_prop("local")
                     .push_prop("config"),
                 config,
+                &format!("{base}.config.{ext}"),
                 ContentType::Config,
-                format!("{base}.config"),
                 imports,
                 resources,
                 threshold,
@@ -358,7 +436,7 @@ fn indirect_derivation(
             is_sql = true;
 
             for (index, migration) in migrations.iter_mut().enumerate() {
-                indirect_raw(
+                indirect(
                     Scope::new(scope)
                         .push_prop("derive")
                         .push_prop("using")
@@ -366,7 +444,8 @@ fn indirect_derivation(
                         .push_prop("migrations")
                         .push_item(index),
                     migration,
-                    format!("{base}.migration.{index}.sql"),
+                    &format!("{base}.migration.{index}.sql"),
+                    ContentType::Config,
                     imports,
                     resources,
                     threshold,
@@ -374,28 +453,58 @@ fn indirect_derivation(
             }
         }
         models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module, .. }) => {
-            indirect_raw(
+            indirect(
                 Scope::new(scope)
                     .push_prop("derive")
                     .push_prop("using")
                     .push_prop("typescript")
                     .push_prop("module"),
                 module,
-                format!("{base}.ts"),
+                &format!("{base}.ts"),
+                ContentType::Config,
                 imports,
                 resources,
                 threshold,
             );
         }
-        models::DeriveUsing::Python(models::DeriveUsingPython { module, .. }) => {
-            indirect_raw(
-                Scope::new(scope)
-                    .push_prop("derive")
-                    .push_prop("using")
-                    .push_prop("python")
-                    .push_prop("module"),
-                module,
-                format!("{base}.py"),
+        models::DeriveUsing::Python(models::DeriveUsingPython {
+            files,
+            config,
+            spec,
+            module,
+            ..
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("derive");
+            let scope = scope.push_prop("using");
+            let scope = scope.push_prop("python");
+
+            if let Some(module) = module {
+                indirect(
+                    scope.push_prop("module"),
+                    module,
+                    &format!("{base}.py"),
+                    ContentType::Config,
+                    imports,
+                    resources,
+                    0, // Always indirect.
+                );
+            }
+            indirect(
+                scope.push_prop("config"),
+                config,
+                &format!("{base}.config.{ext}"),
+                ContentType::Config,
+                imports,
+                resources,
+                threshold,
+            );
+            indirect_files(scope, files, imports, resources);
+            indirect_custom_spec(
+                scope.push_prop("spec"),
+                spec,
+                base,
+                ext,
                 imports,
                 resources,
                 threshold,
@@ -413,64 +522,37 @@ fn indirect_derivation(
         },
     ) in transforms.iter_mut().enumerate()
     {
-        if is_sql {
-            indirect_raw(
+        // SQL lambdas are written as SQL files, and all others as documents.
+        let lambda_ext = if is_sql { "sql" } else { ext };
+
+        indirect(
+            Scope::new(scope)
+                .push_prop("derive")
+                .push_prop("transforms")
+                .push_item(index)
+                .push_prop("lambda"),
+            lambda,
+            &format!("{base}.lambda.{name}.{lambda_ext}"),
+            ContentType::Config,
+            imports,
+            resources,
+            threshold,
+        );
+        if let models::Shuffle::Lambda(lambda) = shuffle {
+            indirect(
                 Scope::new(scope)
                     .push_prop("derive")
                     .push_prop("transforms")
                     .push_item(index)
+                    .push_prop("shuffle")
                     .push_prop("lambda"),
                 lambda,
-                format!("{base}.lambda.{name}.sql"),
-                imports,
-                resources,
-                threshold,
-            );
-            if let models::Shuffle::Lambda(lambda) = shuffle {
-                indirect_raw(
-                    Scope::new(scope)
-                        .push_prop("derive")
-                        .push_prop("transforms")
-                        .push_item(index)
-                        .push_prop("shuffle")
-                        .push_prop("lambda"),
-                    lambda,
-                    format!("{base}.lambda.{name}.shuffle.sql"),
-                    imports,
-                    resources,
-                    threshold,
-                );
-            }
-        } else {
-            indirect_dom(
-                Scope::new(scope)
-                    .push_prop("derive")
-                    .push_prop("transforms")
-                    .push_item(index)
-                    .push_prop("lambda"),
-                lambda,
+                &format!("{base}.lambda.{name}.shuffle.{lambda_ext}"),
                 ContentType::Config,
-                format!("{base}.lambda.{name}"),
                 imports,
                 resources,
                 threshold,
             );
-            if let models::Shuffle::Lambda(lambda) = shuffle {
-                indirect_dom(
-                    Scope::new(scope)
-                        .push_prop("derive")
-                        .push_prop("transforms")
-                        .push_item(index)
-                        .push_prop("shuffle")
-                        .push_prop("lambda"),
-                    lambda,
-                    ContentType::Config,
-                    format!("{base}.lambda.{name}.shuffle"),
-                    imports,
-                    resources,
-                    threshold,
-                );
-            }
         }
     }
 }
@@ -486,59 +568,66 @@ fn indirect_materialization(
     let models::MaterializationDef {
         endpoint, bindings, ..
     } = model;
-    let base = base_name(materialization);
+    let (base, ext) = (
+        base_name(materialization),
+        Format::from_scope(scope).extension(),
+    );
 
-    match endpoint {
+    let (variant, config) = match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
-            indirect_dom(
-                Scope::new(scope)
-                    .push_prop("endpoint")
-                    .push_prop("connector")
-                    .push_prop("config"),
-                config,
-                ContentType::Config,
-                format!("{base}.config"),
+            ("connector", config)
+        }
+        models::MaterializationEndpoint::Local(models::LocalConfig { config, .. }) => {
+            ("local", config)
+        }
+        models::MaterializationEndpoint::Dekaf(models::DekafConfig { config, .. }) => {
+            ("dekaf", config)
+        }
+        models::MaterializationEndpoint::Python(models::MaterializePython {
+            files,
+            config,
+            spec,
+        }) => {
+            let scope = Scope::new(scope);
+            let scope = scope.push_prop("endpoint");
+            let scope = scope.push_prop("python");
+
+            indirect_files(scope, files, imports, resources);
+            indirect_custom_spec(
+                scope.push_prop("spec"),
+                spec,
+                base,
+                ext,
                 imports,
                 resources,
                 threshold,
-            )
+            );
+            ("python", config)
         }
-        models::MaterializationEndpoint::Local(models::LocalConfig { config, .. }) => indirect_dom(
-            Scope::new(scope)
-                .push_prop("endpoint")
-                .push_prop("local")
-                .push_prop("config"),
-            config,
-            ContentType::Config,
-            format!("{base}.config"),
-            imports,
-            resources,
-            threshold,
-        ),
-        models::MaterializationEndpoint::Dekaf(models::DekafConfig { config, .. }) => indirect_dom(
-            Scope::new(scope)
-                .push_prop("endpoint")
-                .push_prop("dekaf")
-                .push_prop("config"),
-            config,
-            ContentType::Config,
-            format!("{base}.config"),
-            imports,
-            resources,
-            threshold,
-        ),
-    }
+    };
+    indirect(
+        Scope::new(scope)
+            .push_prop("endpoint")
+            .push_prop(variant)
+            .push_prop("config"),
+        config,
+        &format!("{base}.config.{ext}"),
+        ContentType::Config,
+        imports,
+        resources,
+        threshold,
+    );
 
     for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()
     {
-        indirect_dom(
+        indirect(
             Scope::new(scope)
                 .push_prop("bindings")
                 .push_item(index)
                 .push_prop("resource"),
             resource,
+            &format!("{base}.resource.{index}.config.{ext}"),
             ContentType::Config,
-            format!("{base}.resource.{index}.config"),
             imports,
             resources,
             threshold,
@@ -554,18 +643,18 @@ fn indirect_test(
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
-    let base = base_name(test);
+    let (base, ext) = (base_name(test), Format::from_scope(scope).extension());
 
     for (index, step) in model.steps.iter_mut().enumerate() {
         let documents = match step {
             models::TestStep::Ingest(models::TestStepIngest { documents, .. })
             | models::TestStep::Verify(models::TestStepVerify { documents, .. }) => documents,
         };
-        indirect_dom(
+        indirect(
             Scope::new(scope).push_item(index).push_prop("documents"),
             documents,
+            &format!("{base}.step.{index}.{ext}"),
             ContentType::Config,
-            format!("{base}.step.{index}"),
             imports,
             resources,
             threshold,
@@ -573,108 +662,165 @@ fn indirect_test(
     }
 }
 
-fn indirect_schema(
+/// Remove a superfluous `file://` $id of a schema, which would otherwise
+/// be written into its indirect resource.
+fn strip_file_id(schema: &mut models::RawValue) {
+    let serde_json::Value::Object(mut m) = schema.to_value() else {
+        return;
+    };
+    if m.contains_key("definitions") || m.contains_key("$defs") {
+        // We can't touch $id, as it provides the canonical base against which
+        // $ref is resolved to definitions.
+        return;
+    }
+    if let Some(true) = m
+        .get("$id")
+        .and_then(serde_json::Value::as_str)
+        .map(|s| s.starts_with("file://"))
+    {
+        m.remove("$id");
+        *schema = models::RawValue::from_value(&serde_json::Value::Object(m));
+    }
+}
+
+/// Indirect `value` into a resource at `filename`, relative to `scope`,
+/// and replace `value` with that relative import.
+///
+/// A `filename` with a JSON or YAML extension is written as a document of
+/// that format. Otherwise `value` is written as text and must be a string,
+/// or it's left inline.
+///
+/// Values which are already imports, or whose JSON encoding isn't longer
+/// than `threshold`, are left as-is.
+fn indirect(
     scope: Scope,
-    content_dom: &mut models::RawValue,
-    filename: String,
+    value: &mut models::RawValue,
+    filename: &str,
+    content_type: ContentType,
     imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
-    let schema = content_dom.to_value();
+    if value.as_import_url().is_some() || value.get().len() <= threshold {
+        return;
+    }
+    let scope = scope.flatten();
+    let resource = scope.join(filename).unwrap();
 
-    // Attempt to clean up the schema by removing a superfluous $id.
-    match schema {
-        serde_json::Value::Object(mut m) => {
-            if m.contains_key("definitions") || m.contains_key("$defs") {
-                // We can't touch $id, as it provides the canonical base against which
-                // $ref is resolved to definitions.
-            } else if let Some(true) = m
-                .get("$id")
-                .and_then(serde_json::Value::as_str)
-                .map(|s| s.starts_with("file://"))
-            {
-                m.remove("$id");
-                *content_dom = models::RawValue::from_value(&serde_json::Value::Object(m))
-            }
-        }
-        _ => (),
+    let content: bytes::Bytes = if crate::is_dom_path(filename) {
+        Format::from_scope(&resource).serialize(value).into()
+    } else if let Ok(text) = serde_json::from_str::<String>(value.get()) {
+        text.into()
+    } else {
+        return;
     };
 
-    indirect_dom(
-        scope,
-        content_dom,
-        ContentType::JsonSchema,
-        filename,
-        imports,
-        resources,
-        threshold,
-    )
-}
-
-fn indirect_dom(
-    scope: Scope,
-    content_dom: &mut models::RawValue,
-    content_type: ContentType,
-    filename: String,
-    imports: &mut tables::Imports,
-    resources: &mut tables::Resources,
-    threshold: usize,
-) {
-    if content_dom.get().len() <= threshold {
-        // Leave small DOMs in-place.
-        // This includes content_dom's which are already indirect.
-        return;
-    }
-    let scope = scope.flatten();
-
-    let fmt = Format::from_scope(&scope);
-    let filename = format!("{filename}.{}", fmt.extension());
-
-    tables::Resource {
-        resource: scope.join(&filename).unwrap(),
+    resources.insert(tables::Resource {
+        resource: resource.clone(),
         content_type,
-        content: fmt.serialize(content_dom).into(),
-        content_dom: content_dom.clone(),
-    }
-    .upsert_if_changed(resources);
+        content,
+        content_dom: std::mem::take(value),
+    });
 
-    imports.insert_row(&scope, scope.join(&filename).unwrap());
+    imports.insert_row(&scope, resource);
 
-    *content_dom =
-        models::RawValue::from_string(serde_json::to_string(&filename).unwrap()).unwrap();
+    *value = models::RawValue::from_string(serde_json::to_string(filename).unwrap()).unwrap();
 }
 
-fn indirect_raw(
+/// Indirect the schemas of a custom connector's `spec`, as is done for
+/// collection schemas.
+fn indirect_custom_spec(
     scope: Scope,
-    content_dom: &mut models::RawValue,
-    filename: String,
+    spec: &mut models::custom_connector::Spec,
+    base: &str,
+    ext: &str,
     imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
-    if content_dom.get().len() <= threshold {
-        // Leave small raw strings in-place.
-        // This includes content_dom's which are already indirect.
+    let models::custom_connector::Spec {
+        config_schema,
+        resource_config_schema,
+        oauth2: _,
+        network_ports: _,
+    } = spec;
+
+    for (prop, schema, filename) in [
+        (
+            "configSchema",
+            config_schema,
+            format!("{base}.config.schema.{ext}"),
+        ),
+        (
+            "resourceConfigSchema",
+            resource_config_schema,
+            format!("{base}.resource.schema.{ext}"),
+        ),
+    ] {
+        let Some(schema) = schema else {
+            continue;
+        };
+        strip_file_id(schema);
+
+        indirect(
+            scope.push_prop(prop),
+            schema,
+            &filename,
+            ContentType::JsonSchema,
+            imports,
+            resources,
+            threshold,
+        );
+    }
+}
+
+/// Indirect an inline `files` object of the task at `scope` into the array
+/// form, writing each file as text at its path relative to the specification.
+/// Sibling tasks listing a common path write the same resource.
+///
+/// `files` having a path which validation rejects are left inline, so that
+/// they're never written outside of the specification's directory. A file
+/// without content (which failed to load) is listed, but not written.
+fn indirect_files(
+    scope: Scope,
+    files: &mut models::custom_connector::Files,
+    imports: &mut tables::Imports,
+    resources: &mut tables::Resources,
+) {
+    let models::custom_connector::Files::Inline(inline) = files else {
+        return;
+    };
+    if !inline
+        .keys()
+        .all(|path| models::custom_connector::Files::is_valid_path(path))
+    {
         return;
     }
-    let scope = scope.flatten();
+    let scope = scope.push_prop("files");
+    let mut paths = Vec::with_capacity(inline.len());
 
-    let content_str =
-        serde_json::from_str::<String>(content_dom.get()).expect("value must be a JSON string");
+    for (index, (path, content)) in std::mem::take(inline).into_iter().enumerate() {
+        let item = scope.push_item(index).flatten();
+        let resource = item
+            .join(&path)
+            .expect("valid project paths are relative URLs");
 
-    tables::Resource {
-        resource: scope.join(&filename).unwrap(),
-        content_type: ContentType::Config,
-        content: content_str.into(),
-        content_dom: std::mem::take(content_dom),
+        if let Some(content) = content {
+            resources.insert(tables::Resource {
+                resource: resource.clone(),
+                content_type: ContentType::Text,
+                content_dom: models::RawValue::from_string(
+                    serde_json::to_string(&content).unwrap(),
+                )
+                .unwrap(),
+                content: content.into(),
+            });
+
+            imports.insert_row(&item, resource);
+        }
+        paths.push(path);
     }
-    .upsert_if_changed(resources);
-
-    imports.insert_row(&scope, scope.join(&filename).unwrap());
-
-    *content_dom =
-        models::RawValue::from_string(serde_json::to_string(&filename).unwrap()).unwrap();
+    *files = models::custom_connector::Files::Indirect(paths);
 }
 
 fn base_name(name: &impl AsRef<str>) -> &str {
@@ -683,5 +829,167 @@ fn base_name(name: &impl AsRef<str>) -> &str {
     match name.rsplit_once("/") {
         Some((_, base)) => base,
         None => name,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{indirect, indirect_files};
+    use json::Scope;
+    use proto_flow::flow::ContentType;
+
+    #[test]
+    fn values_are_written_by_their_extension() {
+        let scope =
+            url::Url::parse("test://example/catalog.yaml#/collections/acmeCo~1orders").unwrap();
+        let mut imports = tables::Imports::new();
+        let mut resources = tables::Resources::new();
+
+        let values: Vec<(&str, String)> = [
+            ("lib/__init__.py", r#""""#),
+            ("lib/already.py", r#""lib/already.py""#),
+            ("lib/geo.py", r#""def region_for(doc):\n    return doc\n""#),
+            ("data/regions.json", r#"{"north":1,"south":2}"#),
+            ("data/config.yaml", r#"{"labels":["alpha"],"retries":3}"#),
+            ("data/notjson", r#"{"not":"text"}"#),
+        ]
+        .into_iter()
+        .map(|(key, value)| {
+            let mut value = models::RawValue::from_str(value).unwrap();
+            indirect(
+                Scope::new(&scope),
+                &mut value,
+                key,
+                ContentType::Config,
+                &mut imports,
+                &mut resources,
+                0,
+            );
+            (key, value.get().to_string())
+        })
+        .collect();
+
+        let written: Vec<(String, String)> = resources
+            .iter()
+            .map(|resource| {
+                (
+                    resource.resource.to_string(),
+                    String::from_utf8(resource.content.to_vec()).unwrap(),
+                )
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!((values, written, imports));
+    }
+
+    #[test]
+    fn tasks_conflict_over_differing_resources() {
+        // Tasks of a flat layout share a directory. Both name `orders`, and
+        // so write the same schema file, and both list `pyproject.toml`.
+        let derive = |schema: &str, pyproject: &str| {
+            serde_json::json!({
+                "schema": {"const": schema},
+                "key": ["/id"],
+                "derive": {
+                    "using": {"python": {"files": {
+                        "pyproject.toml": pyproject,
+                        "shared.py": "SHARED = True\n",
+                    }}},
+                    "transforms": [],
+                },
+            })
+        };
+        let fixture = serde_json::json!({
+            "test://example/catalog.yaml": {
+                "collections": {
+                    "acmeCo/a/orders": derive("a", "[project]\nname = \"a\"\n"),
+                    "acmeCo/b/orders": derive("b", "[project]\nname = \"b\"\n"),
+                },
+            },
+        });
+        let mut draft = crate::scenarios::evaluate_fixtures(Default::default(), &fixture);
+        assert!(draft.errors.is_empty(), "{:?}", draft.errors);
+
+        super::indirect_large_files(&mut draft, 0);
+
+        let errors: Vec<String> = draft
+            .errors
+            .iter()
+            .map(|tables::Error { scope, error }| format!("{scope}: {error}"))
+            .collect();
+        let written: Vec<(String, String)> = draft
+            .resources
+            .iter()
+            .filter(|r| r.resource.path() != "/catalog.yaml")
+            .map(|r| {
+                (
+                    r.resource.to_string(),
+                    String::from_utf8_lossy(&r.content).to_string(),
+                )
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!((errors, written));
+    }
+
+    #[test]
+    fn files_are_written_only_at_valid_paths() {
+        let scope = url::Url::parse("test://example/acmeCo/flow.yaml#/collections/acmeCo~1derived")
+            .unwrap();
+        let scope = Scope::new(&scope);
+        let mut imports = tables::Imports::new();
+        let mut resources = tables::Resources::new();
+
+        let mut valid = models::custom_connector::Files::Inline(
+            [
+                (
+                    "pyproject.toml".to_string(),
+                    Some("[project]\n".to_string()),
+                ),
+                ("derived/__init__.py".to_string(), None),
+            ]
+            .into(),
+        );
+        let mut escaping = models::custom_connector::Files::Inline(
+            [
+                (
+                    "pyproject.toml".to_string(),
+                    Some("[project]\n".to_string()),
+                ),
+                (
+                    "../escape.py".to_string(),
+                    Some("pwned = True\n".to_string()),
+                ),
+            ]
+            .into(),
+        );
+        indirect_files(scope, &mut valid, &mut imports, &mut resources);
+        indirect_files(scope, &mut escaping, &mut imports, &mut resources);
+
+        let written: Vec<String> = resources.iter().map(|r| r.resource.to_string()).collect();
+
+        insta::assert_debug_snapshot!((valid, escaping, written), @r#"
+        (
+            Indirect(
+                [
+                    "derived/__init__.py",
+                    "pyproject.toml",
+                ],
+            ),
+            Inline(
+                {
+                    "../escape.py": Some(
+                        "pwned = True\n",
+                    ),
+                    "pyproject.toml": Some(
+                        "[project]\n",
+                    ),
+                },
+            ),
+            [
+                "test://example/acmeCo/pyproject.toml",
+            ],
+        )
+        "#);
     }
 }

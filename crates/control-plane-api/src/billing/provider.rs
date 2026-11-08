@@ -1,14 +1,20 @@
 /// `BillingProvider` is intentionally a narrow seam around outbound Stripe API
 /// calls. It is not meant to be a complete billing service boundary, which is
 /// why the interface still uses Stripe-native types. Database-backed billing
-/// reads live separately under `billing::db`.
+/// reads live separately under `billing::db`, and resolution of a tenant's
+/// recorded customer ID, which combines both, lives under `billing::customer`.
 ///
 /// This trait exists for two reasons:
 /// 1. Keep the Stripe SDK wiring in one place.
 /// 2. Make resolver tests deterministic without calling live Stripe.
 #[async_trait::async_trait]
 pub trait BillingProvider: Send + Sync + std::fmt::Debug {
-    async fn search_customers(&self, query: &str) -> anyhow::Result<Vec<stripe::Customer>>;
+    /// Retrieve a customer by ID. Stripe returns a deleted customer with
+    /// `deleted` set rather than failing.
+    async fn retrieve_customer(
+        &self,
+        customer_id: &stripe::CustomerId,
+    ) -> anyhow::Result<stripe::Customer>;
 
     async fn create_customer(
         &self,
@@ -50,7 +56,11 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         payment_method_id: &stripe::PaymentMethodId,
     ) -> anyhow::Result<stripe::PaymentMethod>;
 
-    async fn search_invoices(&self, query: &str) -> anyhow::Result<Vec<stripe::Invoice>>;
+    /// Retrieve an invoice by ID, or `None` if it no longer exists in Stripe.
+    async fn retrieve_invoice(
+        &self,
+        invoice_id: &stripe::InvoiceId,
+    ) -> anyhow::Result<Option<stripe::Invoice>>;
 
     async fn retrieve_payment_intent(
         &self,
@@ -64,34 +74,6 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer>;
-
-    async fn find_customer(&self, tenant: &str) -> anyhow::Result<Option<stripe::Customer>> {
-        let query = billing_types::customer_search_query(tenant);
-        let customers = self.search_customers(&query).await?;
-        Ok(customers.into_iter().next())
-    }
-
-    async fn require_customer(&self, tenant: &str) -> anyhow::Result<stripe::Customer> {
-        self.find_customer(tenant)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("no Stripe customer exists for tenant '{tenant}'"))
-    }
-
-    async fn find_or_create_customer(
-        &self,
-        tenant: &str,
-        email: &str,
-        full_name: Option<&str>,
-        billing_name: Option<&str>,
-        address: Option<stripe::Address>,
-    ) -> anyhow::Result<stripe::Customer> {
-        if let Some(existing) = self.find_customer(tenant).await? {
-            return Ok(existing);
-        }
-
-        self.create_customer(tenant, email, full_name, billing_name, address)
-            .await
-    }
 }
 
 pub fn default_payment_method_id(customer: &stripe::Customer) -> Option<String> {

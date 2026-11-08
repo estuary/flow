@@ -161,6 +161,7 @@ flow-plane@<dp>.target                     one per data plane (dp = local-<stack
   ├─ flow-gazette@<dp>-<port>             broker(s),  base+0..9
   ├─ flow-reactor@<dp>-<port>             reactor(s), base+99..90
   ├─ flow-runtime-sidecar@<dp>            Rust sidecar, base+60 (gRPC) / +61 (admin)
+  ├─ flow-disk-daemon@<dp>                root via Docker, socket disk-<base>/disk.sock
   ├─ flow-dekaf@<dp>                      Kafka shim,  base+50/51/52 (only with --dekaf)
   └─ flow-plane-link@<dp>                 oneshot: POSTs to agent to register
 ```
@@ -173,7 +174,7 @@ at `FLOW_PLANE_BASE` with 4 brokers, 1 reactor, and link, then publishes
 ### One package set builds every Rust binary
 
 `build:local-rust` builds agent, bindings, config-encryption,
-data-plane-controller, dekaf, flowctl, and runtime-sidecar in a single `cargo
+data-plane-controller, dekaf, disk-daemon, flowctl, and runtime-sidecar in a single `cargo
 build`. Every `cargo build` for a local stack goes through it: the
 `ExecStartPre` of each `flow-*@.service`, and the Dekaf CI job. Cargo resolves
 features over the set of packages you name, and that resolution reaches every
@@ -198,7 +199,8 @@ Two consequences that will mislead you if you script against systemd state:
   first; starting a unit directly on a cold checkout takes *minutes*.
 
 `local:stack-wait` is a readiness check - it enumerates this stack's
-loaded units, maps each to its port, and blocks until all accept connections:
+loaded units, maps each to its port or Unix socket, and blocks until all accept
+connections:
 
 ```bash
 mise run local:stack-wait                 # default 900s budget
@@ -253,7 +255,7 @@ make divergence rare.
 
 `local:stop` is a stack-scoped guillotine — it stops only *this* stack's units,
 removes only this stack's drop-ins, env files, and runtime state
-(`~/flow-local/<name>/{etcd,fragments,builds}` and `test-tenant-*.env`), and
+(`~/flow-local/<name>/{etcd,fragments,builds,disk-*}` and `test-tenant-*.env`), and
 `reset-failed`s only this stack. It **never** `rm -r ~/.config/systemd/user`,
 leaves the shared TLS material and unit template symlinks in place, and
 **retains the registry entry, build artifacts, and supabase docker volumes**.
@@ -262,9 +264,16 @@ With two stacks up, stopping one leaves the other's units, DB, etcd, fragments,
 and flowctl profile untouched. `systemctl --user restart
 flow-supabase@<stack>` wipes only that stack's DB (see below).
 
-Also note: `flow-plane-link@<dp>.service` has an `ExecStop=` that deletes
+`flow-plane-link@<dp>.service` has an `ExecStop=` that deletes
 `live_specs` + the data plane row from Postgres. That fires whenever the link
-service stops — even on a tidy `systemctl stop flow-plane@<dp>.target`.
+service stops — even `systemctl stop flow-plane@<dp>.target`.
+
+`flow-runtime-sidecar@<dp>.service` does not exit on SIGTERM while a V2 task
+holds a leader session open, so systemd SIGKILLs it at the 90s stop timeout.
+This is intended: flowctl-go controls lifecycle, and only it releases the sidecar.
+`flow-reactor@<dp>-<port>.service` and `flow-gazette@<dp>-<port>.service` *also*
+won't exit gracefully if they own shards or journals (respectively) that cannot
+be handed off to another instance. Delete tasks and collections to speed teardown.
 
 ### Release a stack by deleting its worktree
 
@@ -314,6 +323,10 @@ preserve state, delete the sentinel beforehand or don't restart.
 - **`AGE-SECRET-KEY-15HVSX9…`** — the second SOPS age key, which wraps
   first-class secrets. Only config-encryption holds it (as `SOPS_AGE_KEY` in
   its own env file); its public counterpart `age1x4kj9xj…` is `SECRETS_KMS_KEY`.
+- **`AGE-SECRET-KEY-1M3S7XA…`** — the third SOPS age key, which wraps
+  data-plane HMAC keys. Only the agent holds it. `local:data-plane` encrypts
+  each plane's keys to its public counterpart `age13uwnwn9…` and registers the
+  plane with the encrypted document.
 - **`key-<data-plane-name>`**, base64 — the HMAC auth key shared by brokers,
   reactors, sidecar, and the agent (e.g. for `local-flow-cluster`, the base64 of
   `key-local-flow-cluster`).
@@ -343,6 +356,7 @@ Per stack, under `~/flow-local/<name>/` (= `${FLOW_STACK_DIR}`):
 | `etcd/` | Etcd data dir |
 | `fragments/<dp>/` | Gazette journal fragments (file-only mode) |
 | `builds/` | Catalog builds emitted by the agent |
+| `disk-<base>/` | Disk-daemon socket and images of the data plane at `<base>` |
 | `test-tenant-<tenant>.env` | flowctl credentials from `local:test-tenant` |
 | `.supabase-started` | Sentinel that triggers `db reset` on next supabase start |
 
@@ -378,13 +392,17 @@ inside the checkout targets this stack** — no `--profile` needed.
 You must `export SSL_CERT_FILE=~/flow-local/ca.crt` (per command) or you'll see
 TLS violations on broker/reactor calls.
 
-## Connectors must be registered before you can publish them
+## flowctl seals configs only for registered connectors
 
-A stack can only publish specs whose connector image is in its `connectors`
-table, and `supabase/seed.sql` seeds only a handful. **Having the image locally
-in `docker images` is not enough**: image presence and DB registration are independent.
+Publication and discovery don't consult the `connectors` table. The data plane
+decides which images a task may run, and a local plane runs any image.
+Validation takes a connector's schemas from its own Spec response.
 
-Publishing an unregistered image fails with a message written for production:
+flowctl is the exception. It seals a plaintext endpoint configuration through
+config-encryption, using the endpoint schema of the image's `connector_tags`
+row. `supabase/seed.sql` seeds only a handful, and **having the image locally
+in `docker images` is not enough**. An image with no row fails with a message
+written for production:
 
 ```
 connector image 'ghcr.io/estuary/materialize-sqlite:dev' is unknown to Estuary,
@@ -392,7 +410,11 @@ so the endpoint configuration cannot be encrypted. Use a different connector or
 reach out to Estuary support for help
 ```
 
-Locally, that means "register it first". See what this stack knows, then add what it doesn't:
+A task with a `secrets` stanza, or with an already `sops`-wrapped
+configuration, is not sealed and needs no row. An unregistered tag of a
+registered image is sealed using the schema of that image's default tag.
+
+Otherwise, register the image. See what this stack knows, then add what it doesn't:
 
 ```bash
 # Make this stack's vars ambient first.
@@ -408,23 +430,30 @@ psql "$FLOW_PG_URL" -c "SELECT c.image_name, t.image_tag,
 mise exec -- ./local/install-connector.sh ghcr.io/estuary/materialize-sqlite dev
 ```
 
-Registering queues a `connector_tags` job; the agent runs the image to fill in
-its protocol and endpoint/resource spec schemas, which validation needs. Wait
-for that row to reach `success` (a few seconds) before publishing — until then
-the schemas are absent and a publish can still fail.
+Registering queues a `connector_tags` job; the agent asks a public data plane to
+run the image and fill in its protocol and endpoint/resource spec schemas.
+Wait for that row to reach `success` (a few seconds) before publishing through
+flowctl. Until then the endpoint schema is absent and sealing fails.
 
 ## Connectors run on the Supabase Docker network
 
 The **reactor** sets `FLOW_NETWORK=supabase_network_<stack>` (per stack), and the
 data plane spawns every connector container onto that network — at runtime *and*
-at build / discover / Validate time. The agent proxies connectors to the data
-plane (`ProxyConnectors`), so they land on the reactor's network regardless of
-the agent's own config. A connector endpoint config can therefore point straight
-at this stack's Supabase Postgres (`db:5432` inside the network — the
-container-internal port is always 5432 regardless of the host-published port);
+at build / discover / Validate time. The control-plane connector factory routes
+requests through the data plane, so connectors land on the reactor's network
+regardless of the agent's own config. A connector endpoint config can therefore
+point straight at this stack's Supabase Postgres (`db:5432` inside the network
+— the container-internal port is always 5432 regardless of the host-published port);
 other services must be `docker network connect supabase_network_<stack>`'d first.
 
 ## Provisioning tenant credentials
+
+`local:test-tenant` provisions through GraphQL `tenantCreate`. For a new tenant,
+it waits for `publicDataPlanes` to return an open public plane with ready signing
+keys, selects that plane, and submits acceptance of the latest MSA terms ID from
+`internal.legal_terms`. The selected user must not already administer a tenant;
+use another seeded user to provision an additional tenant. If the tenant already
+exists, the task skips provisioning and emits fresh credentials.
 
 ```bash
 mise run local:test-tenant --tenant acmeCo --user alice@example.com
@@ -489,8 +518,8 @@ collide; the classic remap set belongs to one stack).
 
 `local/ops-publication.sh <bundle>` emits the SQL that `local:stack` uses to
 publish an ops bundle (targets `ops/dp/public/${FLOW_CLUSTER}`).
-`local/install-connector.sh <image> [tag]` adds a connector to this stack's DB —
-a **precondition** for publishing a spec that uses it, not an optional extra; see
-"Connectors must be registered before you can publish them" above for the failure
+`local/install-connector.sh <image> [tag]` adds a connector to this stack's DB,
+which flowctl needs to seal the image's endpoint configurations; see
+"flowctl seals configs only for registered connectors" above for the failure
 it prevents and the tag-argument gotcha.
 Both require the ambient `FLOW_*` vars (run inside a mise context).

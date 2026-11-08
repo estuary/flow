@@ -537,6 +537,77 @@ driver:
 }
 
 #[test]
+fn test_materialization_resource_annotations() {
+    // The connector's resource schema has `x-collection-name` but neither
+    // `x-schema-name` nor `x-delta-updates`, so `targetNaming`,
+    // `source.deltaUpdates`, and `source.targetNaming: withSchema` all fail.
+    let missing_annotations = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/db-views:
+      targetNaming: { strategy: singleSchema, schema: the_schema }
+      source:
+        capture: testing/s3-source
+        deltaUpdates: true
+        targetNaming: withSchema
+
+driver:
+  materializations:
+    testing/db-views:
+      resourceConfigSchema:
+        type: object
+        properties:
+          table: { type: string, x-collection-name: true }
+"#,
+    );
+    // A resource schema without `x-collection-name` can't be used at all.
+    let missing_collection_name = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/db-views:
+      source: testing/s3-source
+
+driver:
+  materializations:
+    testing/db-views:
+      resourceConfigSchema:
+        type: object
+        properties:
+          table: { type: string }
+"#,
+    );
+    // A disabled materialization doesn't run its connector,
+    // and has no Spec to check against.
+    let disabled = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/db-views:
+      targetNaming: { strategy: singleSchema, schema: the_schema }
+      source:
+        capture: testing/s3-source
+        deltaUpdates: true
+      shards:
+        disable: true
+
+driver:
+  materializations:
+    testing/db-views:
+      resourceConfigSchema:
+        type: object
+        properties:
+          table: { type: string }
+"#,
+    );
+    insta::assert_debug_snapshot!((missing_annotations, missing_collection_name, disabled));
+}
+
+#[test]
 fn test_materialization_duplicates() {
     let errors = common::run_errors(
         MODEL_YAML,
@@ -1284,13 +1355,9 @@ fn test_storage_mappings_not_found() {
 driver:
   storageMappings:
     testing/: null
-    recovery/testing/: null
     TestinG/:
       stores: [{provider: S3, bucket: data-bucket}]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
-    RecoverY/TestinG/:
-      stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
+      recoveryStores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1306,7 +1373,7 @@ driver:
     "":
       # This is allowed, and matches for all journals and tasks.
       stores: [{provider: S3, bucket: a-bucket}]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
+      recoveryStores: [{provider: S3, bucket: a-bucket}]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1410,6 +1477,411 @@ test://example/int-string-tests:
 }
 
 #[test]
+fn test_custom_files_errors() {
+    // `testing/int-reverse` and `testing/from-array-key` don't use the V2
+    // runtime, which `files` require, even if they're only a manifest and
+    // entry. Without a legacy `module`, `testing/int-reverse` can't have
+    // `dependencies`, and its `config` isn't an object.
+    // `testing/int-halve` lists neither its manifest nor its entry, which is
+    // how a project bootstraps, and its `config` has reserved properties.
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derive:
+        using:
+          typescript: null
+          python:
+            files:
+              pyproject.toml: ""
+              int-reverse/__init__.py: "class Derivation: pass\n"
+              lib//double.py: "x = 1"
+              ../escape.py: "x = 1"
+              .venv/lib.py: "x = 1"
+              flow_generated/sneaky.py: "x = 1"
+            dependencies: { httpx: ">=0.27" }
+            config: 42
+            # `spec` also requires the V2 runtime, and its schemas must compile.
+            spec:
+              configSchema: { type: object, properties: { a: { type: string, pattern: '(' } } }
+
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      derive:
+        using:
+          typescript: null
+          python:
+            files: {}
+            config: { _python: {}, sops: {} }
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+
+test://example/from-array-key:
+  collections:
+    testing/from-array-key:
+      derive:
+        using:
+          sqlite: null
+          python:
+            files:
+              pyproject.toml: ""
+              from-array-key/__init__.py: "class Derivation: pass\n"
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_custom_legacy_modules_are_built_as_authored() {
+    // A legacy `module` is built as the `{module}` configuration, and its model
+    // is unchanged. Of the files which the V1 runtime's `dev` image generates,
+    // only those under `flow_generated/` are kept. A legacy `module`
+    // may not be mixed with `files`, `config`, or `spec`. Its `dependencies`
+    // are built as authored.
+    let outcome = common::run(
+        &MODEL_YAML,
+        r#"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derive:
+        using:
+          typescript: null
+          python:
+            module: "class Derivation: pass\n"
+            dependencies: { httpx: ">=0.27" }
+
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      derive:
+        using:
+          typescript: null
+          python:
+            module: "class Derivation: pass\n"
+            files: { pyproject.toml: "" }
+            config: { a: 1 }
+            spec: { configSchema: { type: object } }
+            dependencies: { httpx: ">=0.27" }
+        shards:
+          flags:
+            enable-runtime-v2: "true"
+
+driver:
+  derivations:
+    testing/int-reverse:
+      config:
+        image: ghcr.io/estuary/derive-python:dev
+        config:
+          module: "class Derivation: pass\n"
+          dependencies: { httpx: ">=0.27" }
+      generatedFiles:
+        test://example/flow_generated/python/testing/int_reverse/__init__.py: types
+        test://example/pyproject.toml: master-era manifest
+        test://example/pyrightconfig.json: editor configuration
+"#,
+    );
+    let legacy = outcome
+        .built_collections
+        .iter()
+        .find(|row| row.collection.as_str() == "testing/int-reverse")
+        .unwrap();
+
+    insta::assert_debug_snapshot!((
+        &outcome.errors,
+        &legacy.model_fixes,
+        &legacy
+            .model
+            .as_ref()
+            .unwrap()
+            .derive
+            .as_ref()
+            .unwrap()
+            .using,
+        legacy
+            .validated
+            .as_ref()
+            .unwrap()
+            .generated_files
+            .keys()
+            .collect::<Vec<_>>(),
+    ));
+}
+
+#[test]
+fn test_invalid_advertised_network_ports() {
+    // Ports which an image advertises are held to the same rule as those which
+    // a custom connector declares. They're also checked to fit in a u16.
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+driver:
+  captures:
+    testing/s3-source:
+      networkPorts:
+        - { number: 0 }
+        - { number: 49092, public: true }
+        - { number: 65536 }
+        - { number: 567, public: true }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_python_capture_builds() {
+    // The built configuration carries the model's files, config, and spec.
+    // An absent `resourceConfigSchema` is the connector's to default.
+    // The built spec has the network ports which the model declares.
+    // The driver's image advertises port 9999, which isn't built.
+    // Generated files outside `flow_generated/` are dropped, as is
+    // a starter of a listed file which exists.
+    let outcome = common::run(
+        &MODEL_YAML,
+        r#"
+test://example/int-string-captures:
+  captures:
+    testing/source-acme:
+      endpoint:
+        python:
+          files:
+            pyproject.toml: "[project]\n"
+            source-acme/__init__.py: "class Connector: pass\n"
+          config:
+            greeting: Hello
+          spec:
+            configSchema:
+              type: object
+              properties:
+                greeting: { type: string, default: Howdy }
+            networkPorts:
+              "8080": { protocol: h2, public: true }
+              "9000": {}
+      bindings:
+        - target: testing/int-string
+          resource: { name: greetings }
+
+driver:
+  captures:
+    testing/source-acme:
+      connectorType: IMAGE
+      config:
+        image: ghcr.io/estuary/capture-python:stable
+        config:
+          greeting: Hello
+          _python:
+            files:
+              pyproject.toml: "[project]\n"
+              source-acme/__init__.py: "class Connector: pass\n"
+            spec:
+              configSchema:
+                $id: test://example/int-string-captures?ptr=/captures/testing~1source-acme/endpoint/python/spec/configSchema
+                type: object
+                properties:
+                  greeting: { type: string, default: Howdy }
+              networkPorts:
+                "8080": { protocol: h2, public: true }
+                "9000": {}
+      bindings:
+        - resourcePath: [greetings]
+      networkPorts:
+        - { number: 9999, public: true }
+      generatedFiles:
+        test://example/flow_generated/python/testing/source_acme/__init__.py: "generated"
+        test://example/source-acme/__init__.py: "overwritten"
+        test://example/.git/hooks/pre-commit: "planted"
+"#,
+    );
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+
+    let built = outcome
+        .built_captures
+        .iter()
+        .find(|row| row.capture.as_str() == "testing/source-acme")
+        .unwrap();
+    let spec = built.spec.as_ref().unwrap();
+    let config: serde_json::Value = serde_json::from_slice(&spec.config_json).unwrap();
+    let generated: Vec<&String> = built
+        .validated
+        .as_ref()
+        .unwrap()
+        .generated_files
+        .keys()
+        .collect();
+
+    insta::assert_json_snapshot!((config, generated, &spec.network_ports));
+}
+
+#[test]
+fn test_python_capture_errors() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+test://example/int-string-captures:
+  captures:
+    testing/source-acme:
+      endpoint:
+        python:
+          files:
+            pyproject.toml: "[project]\n"
+            # A listed lock is the user's own, and is allowed.
+            uv.lock: "version = 1\n"
+            .venv/lib.py: "x = 1"
+            flow_generated/python/sneaky.py: "x = 1"
+            flow_generated: "x = 1"
+            ../escape.py: "x = 1"
+          config:
+            _python: { capture: sneaky }
+            sops: { mac: whoops }
+          spec:
+            configSchema: { type: object, properties: { a: { type: string, pattern: '(' } } }
+            resourceConfigSchema: { type: not-a-type }
+            # Port 0 and the port of flow-connector-init are invalid.
+            networkPorts: { "0": {}, "49092": {}, "8080": {} }
+      bindings: []
+    # Python captures run only on the V2 runtime.
+    testing/source-other:
+      endpoint:
+        python:
+          config: [not, an, object]
+      bindings: []
+      shards:
+        flags: { enable-runtime-v2: "false" }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_python_materialization_builds() {
+    // The built configuration carries the model's files, config, and spec.
+    // An absent `configSchema` is the connector's to default.
+    // The built spec has the network ports which the model declares.
+    // The driver's image advertises port 9999, which isn't built.
+    // Generated files outside `flow_generated/` are dropped, as is
+    // a starter of a listed file which exists.
+    let outcome = common::run(
+        &MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/materialize-acme:
+      endpoint:
+        python:
+          files:
+            pyproject.toml: "[project]\n"
+            materialize-acme/__init__.py: "class Materialization: pass\n"
+          config:
+            greeting: Hello
+          spec:
+            resourceConfigSchema:
+              type: object
+              properties:
+                table: { type: string, x-collection-name: true }
+            networkPorts:
+              "8443": { public: true }
+      bindings:
+        - source: testing/int-string
+          resource: { table: greetings }
+      shards:
+        flags: { enable-runtime-v2: "true" }
+
+driver:
+  materializations:
+    testing/materialize-acme:
+      connectorType: IMAGE
+      config:
+        image: ghcr.io/estuary/materialize-python:stable
+        config:
+          greeting: Hello
+          _python:
+            files:
+              pyproject.toml: "[project]\n"
+              materialize-acme/__init__.py: "class Materialization: pass\n"
+            spec:
+              resourceConfigSchema:
+                $id: test://example/db-views?ptr=/materializations/testing~1materialize-acme/endpoint/python/spec/resourceConfigSchema
+                type: object
+                properties:
+                  table: { type: string, x-collection-name: true }
+              networkPorts:
+                "8443": { public: true }
+      bindings:
+        - constraints:
+            flow_document: { type: 2, reason: "location required" }
+            int: { type: 3, reason: "recommended" }
+          resourcePath: [greetings]
+      networkPorts:
+        - { number: 9999, public: true }
+      generatedFiles:
+        test://example/flow_generated/python/testing/materialize_acme/__init__.py: "generated"
+        test://example/materialize-acme/__init__.py: "overwritten"
+        test://example/.git/hooks/pre-commit: "planted"
+"#,
+    );
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+
+    let built = outcome
+        .built_materializations
+        .iter()
+        .find(|row| row.materialization.as_str() == "testing/materialize-acme")
+        .unwrap();
+    let spec = built.spec.as_ref().unwrap();
+    let config: serde_json::Value = serde_json::from_slice(&spec.config_json).unwrap();
+    let generated: Vec<&String> = built
+        .validated
+        .as_ref()
+        .unwrap()
+        .generated_files
+        .keys()
+        .collect();
+
+    insta::assert_json_snapshot!((config, generated, &spec.network_ports));
+}
+
+#[test]
+fn test_python_materialization_errors() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/materialize-acme:
+      endpoint:
+        python:
+          files:
+            pyproject.toml: "[project]\n"
+            # A listed lock is the user's own, and is allowed.
+            uv.lock: "version = 1\n"
+            .venv/lib.py: "x = 1"
+            flow_generated/python/sneaky.py: "x = 1"
+            flow_generated: "x = 1"
+            ../escape.py: "x = 1"
+          config:
+            _python: { materialization: sneaky }
+            sops: { mac: whoops }
+          spec:
+            configSchema: { type: object, properties: { a: { type: string, pattern: '(' } } }
+            resourceConfigSchema: { type: not-a-type }
+      bindings: []
+      shards:
+        flags: { enable-runtime-v2: "true" }
+    # Python materializations run only on the V2 runtime.
+    testing/materialize-other:
+      endpoint:
+        python:
+          config: [not, an, object]
+      bindings: []
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_invalid_generated_file_url() {
     let errors = common::run_errors(
         &MODEL_YAML,
@@ -1425,73 +1897,20 @@ driver:
 }
 
 #[test]
-fn test_data_plane_not_found() {
+fn test_generated_file_outside_project() {
+    // The derivation's project root is `test://example`.
     let errors = common::run_errors(
         &MODEL_YAML,
         r#"
 driver:
-  dataPlanes:
-    "1d:1d:1d:1d:1d:1d:1d:1d": null
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_storage_mapping_prefix_mismatch() {
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-driver:
-  storageMappings:
-    recovery/testing/: null
-    recovery/:
-      stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_storage_mapping_data_planes_do_not_align() {
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-driver:
-  storageMappings:
-    recovery/testing/:
-      data_planes: ["ops/dp/public/test-other"]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_storage_mapping_data_plane_does_not_exist() {
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-driver:
-  storageMappings:
-    testing/:
-      data_planes: ["ops/dp/public/test-not-found"]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_storage_mapping_omits_data_planes() {
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-driver:
-  storageMappings:
-    testing/:
-      data_planes: []
-    recovery/testing/:
-      data_planes: []
+  derivations:
+    testing/from-array-key:
+      generatedFiles:
+        test://example/flow_generated/ok.sql: generated content
+        test://example-other/outside.sql: generated content
+        test://elsewhere/outside.sql: generated content
+        test://example/x%2F..%2F..%2Fescape.sql: generated content
+        test://example/x%2e%2e/%2E%2E/escape.sql: generated content
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -2153,6 +2572,25 @@ test://example/catalog.yaml:
 "#,
     );
     insta::assert_debug_snapshot!(errors, @"[]");
+}
+
+#[test]
+fn test_derivation_environment_is_rejected() {
+    // `environment` is removed. It still parses, so that a model having one
+    // fails validation rather than parsing.
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derive:
+        using:
+          typescript:
+            environment: { KEY: value }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]

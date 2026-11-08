@@ -12,26 +12,12 @@ use crate::{
         ControllerErrorExt, ControllerState, NextRun, alerts,
         publication_status::{self, PendingPublication},
     },
-    controlplane::ConnectorSpec,
 };
 use control_plane_api::discovers::DiscoverOutput;
 
-async fn try_connector_spec<C: ControlPlane>(
-    model: &models::CaptureDef,
-    control_plane: &C,
-) -> anyhow::Result<ConnectorSpec> {
-    let models::CaptureEndpoint::Connector(cfg) = &model.endpoint else {
-        anyhow::bail!("only connector endpoints are supported for auto-discovery");
-    };
-    let spec = control_plane
-        .get_connector_spec(cfg.image.clone())
-        .await
-        .context("failed to fetch connector spec")?;
-    if spec.resource_path_pointers.is_empty() {
-        anyhow::bail!("connector has no resource path pointers");
-    }
-    Ok(spec)
-}
+/// Auto-discover interval of a capture whose image has no `connector_tags`
+/// row. It matches the default of `connector_tags.auto_discover_interval`.
+const DEFAULT_AUTO_DISCOVER_INTERVAL: chrono::Duration = chrono::Duration::hours(2);
 
 /// Performs an auto-discover if one is due, and returns a boolean
 /// indicating whether a publication was performed. If this returns true,
@@ -189,12 +175,23 @@ async fn get_auto_discover_interval<C: ControlPlane>(
     if let Some(interval) = status.interval {
         return Ok(chrono::Duration::from_std(interval)?);
     }
-    // If there's no `connector_tags` row for this capture connector
-    // then we cannot discover, so this is an error.
-    let connector_spec = try_connector_spec(model, control_plane)
+    // Only an image connector has a `connector_tags` row, which may set its interval.
+    let cfg = match &model.endpoint {
+        models::CaptureEndpoint::Connector(cfg) => cfg,
+        models::CaptureEndpoint::Python(_) | models::CaptureEndpoint::Local(_) => {
+            return Ok(DEFAULT_AUTO_DISCOVER_INTERVAL);
+        }
+    };
+    let connector_spec = control_plane
+        .get_connector_spec(cfg.image.clone())
         .await
         .context("fetching connector spec")?;
-    Ok(connector_spec.auto_discover_interval)
+
+    Ok(
+        connector_spec.map_or(DEFAULT_AUTO_DISCOVER_INTERVAL, |spec| {
+            spec.auto_discover_interval
+        }),
+    )
 }
 
 pub fn next_run(status: &AutoDiscoverStatus) -> Option<NextRun> {
@@ -257,6 +254,7 @@ async fn try_auto_discover<C: ControlPlane>(
         capture: capture_name.clone(),
         scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
         expect_pub_id: Some(state.last_pub_id),
+        data_plane_id: models::Id::zero(),
         model: Some(model.clone()),
         // start with a touch. The discover merge will set this to false if it actually updates the capture
         is_touch: true,

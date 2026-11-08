@@ -1,0 +1,26 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: outcomes
+---
+[
+    (
+        "frozen",
+        Some(
+            (
+                "ghcr.io/estuary/derive-typescript:dev",
+                false,
+            ),
+        ),
+        [],
+    ),
+    (
+        "current",
+        Some(
+            (
+                "ghcr.io/estuary/derive-typescript:stable",
+                true,
+            ),
+        ),
+        [],
+    ),
+]

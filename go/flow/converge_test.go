@@ -10,13 +10,13 @@ import (
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
 	"google.golang.org/grpc"
 )
 

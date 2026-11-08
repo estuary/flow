@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select catalog_name, spec->'derive'->'shards'->'flags'->>$2::text as \"derive_flag\"\n               from live_specs\n               where catalog_name = any($1::text[]) and spec is not null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "catalog_name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "derive_flag",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "43dc0a8d20100369c65dd75ae47a441c5a6f20753e69422f1edf5d03b3e3b77c"
+}

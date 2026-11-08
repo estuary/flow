@@ -1,0 +1,126 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/plan.rs
+expression: plans
+---
+[
+  {
+    "response": {
+      "data": {
+        "tenant": {
+          "billing": {
+            "plan": {
+              "__typename": "SelfServePlan",
+              "collectionMethod": "CHARGE_DEFAULT_PAYMENT_METHOD",
+              "dataTiers": [
+                {
+                  "quantity": null,
+                  "rateCents": 50
+                }
+              ],
+              "phase": "FREE",
+              "trial": null,
+              "usageTiers": [
+                {
+                  "quantity": 4464,
+                  "rateCents": 14
+                },
+                {
+                  "quantity": null,
+                  "rateCents": 7
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "step": "select 'newly provisioned'"
+  },
+  {
+    "response": {
+      "data": {
+        "tenant": {
+          "billing": {
+            "plan": {
+              "__typename": "SelfServePlan",
+              "collectionMethod": "SEND_INVOICE",
+              "dataTiers": [
+                {
+                  "quantity": null,
+                  "rateCents": 50
+                }
+              ],
+              "phase": "PAID",
+              "trial": {
+                "end": "2024-02-29",
+                "start": "2024-01-31"
+              },
+              "usageTiers": [
+                {
+                  "quantity": 4464,
+                  "rateCents": 14
+                },
+                {
+                  "quantity": null,
+                  "rateCents": 7
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "step": "update tenants set trial_start = '2024-01-31', collection_method = 'send_invoice' where tenant = 'billingplan/'"
+  },
+  {
+    "response": {
+      "data": {
+        "tenant": {
+          "billing": {
+            "plan": {
+              "__typename": "ContractPlan",
+              "collectionMethod": "SEND_INVOICE",
+              "dataTiers": [
+                {
+                  "quantity": 1024,
+                  "rateCents": 0
+                },
+                {
+                  "quantity": null,
+                  "rateCents": 50
+                }
+              ],
+              "paymentProvider": "AWS_MARKETPLACE",
+              "usageTiers": [
+                {
+                  "quantity": 1440,
+                  "rateCents": 0
+                },
+                {
+                  "quantity": null,
+                  "rateCents": 14
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "step": "update tenants set plan_kind = 'contract', payment_provider = 'aws_marketplace', data_tiers = '{0,1024,50}', usage_tiers = '{0,1440,14}' where tenant = 'billingplan/'"
+  },
+  {
+    "response": {
+      "data": {
+        "tenant": {
+          "billing": {
+            "plan": {
+              "__typename": "InternalPlan",
+              "detail": null
+            }
+          }
+        }
+      }
+    },
+    "step": "update tenants set plan_kind = 'internal' where tenant = 'billingplan/'"
+  }
+]

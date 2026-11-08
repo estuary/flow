@@ -1,7 +1,7 @@
 use anyhow::Context;
 use automations::{Action, Executor, TaskType, task_types};
 use chrono::{DateTime, Utc};
-use control_plane_api::alerts::{Alert, fetch_alert_by_id};
+use control_plane_api::alerts::{Alert, fetch_alert_for_notification};
 use notifications::Renderer;
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -234,11 +234,11 @@ impl<ES: EmailSender> Executor for AlertNotifications<ES> {
         state: &'s mut Self::State,
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
     ) -> anyhow::Result<Self::Outcome> {
-        let Some(alert) = fetch_alert_by_id(task_id, pool)
+        let Some(alert) = fetch_alert_for_notification(task_id, pool)
             .await
             .context("fetching from alert_history")?
         else {
-            tracing::warn!(%task_id, ?state, "no alert found for task");
+            tracing::warn!(%task_id, ?state, "alert or notification task no longer exists");
             return Ok(AlertOutcome::ResolvedSent);
         };
 

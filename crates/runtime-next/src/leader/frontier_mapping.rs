@@ -88,8 +88,7 @@ pub fn checkpoint_to_frontier(
             journal: journal.into(),
             binding,
             producers,
-            bytes_read_delta: 0,
-            bytes_behind_delta: 0,
+            ..Default::default()
         });
     }
 
@@ -116,6 +115,9 @@ pub fn merge_frontier_into_checkpoint<S: AsRef<str>>(
     let mut scratch = Vec::new();
 
     for jf in &frontier.journals {
+        if jf.producers.is_empty() {
+            continue; // Carries only a gap floor, which V1 has no use for.
+        }
         let Some(suffix) = binding_journal_read_suffixes.get(jf.binding as usize) else {
             continue; // Reachable only if shuffle service provides bad binding indices.
         };
@@ -193,18 +195,32 @@ pub fn merge_frontier_into_checkpoint<S: AsRef<str>>(
     }
 }
 
+/// Map a `Recover`'s gap floors (from `GF:` rows) to binding indices and Clocks.
+pub fn recovered_gap_floors(
+    gap_floors: &std::collections::BTreeMap<u32, u64>,
+) -> std::collections::BTreeMap<u16, uuid::Clock> {
+    gap_floors
+        .iter()
+        .map(|(binding, clock)| (*binding as u16, uuid::Clock::from_u64(*clock)))
+        .collect()
+}
+
 /// Project a verbatim `FH:` Frontier into hinted form: each producer's
 /// `last_commit` is promoted to `hinted_commit`, and `last_commit` /
 /// `offset` are zeroed. The result is reduced with the recovered
 /// committed Frontier when composing a session's resume Frontier.
 pub fn project_hinted(mut frontier: shuffle::Frontier) -> shuffle::Frontier {
+    let mut unresolved_hints = 0;
     for jf in &mut frontier.journals {
         for pf in &mut jf.producers {
             pf.hinted_commit = pf.last_commit;
             pf.last_commit = uuid::Clock::zero();
             pf.offset = 0;
+            unresolved_hints += (pf.hinted_commit > pf.last_commit) as usize;
         }
     }
+    // `reduce` adjusts this count incrementally, so it must be exact.
+    frontier.unresolved_hints = unresolved_hints;
     frontier
 }
 
@@ -257,13 +273,13 @@ pub fn extract_committed_close(checkpoint: &consumer::Checkpoint) -> Option<uuid
 
 /// Committed-close Clock seeded when reconciliation adopts an authoritative
 /// checkpoint carrying no embedded close Clock (one last written by the V1
-/// runtime). It's shuffle's `OBSERVED_COMMIT_FLOOR`: greater than zero (a
+/// runtime). It's [`uuid::OBSERVED_COMMIT_FLOOR`]: greater than zero (a
 /// never-reconciled RocksDB) yet strictly below every real Clock, so a
 /// committed-close equal to this floor durably means "a consistent V2
 /// baseline was adopted, and no V2 transaction has committed atop it yet".
 /// Because each `Persist` applies as one atomic WriteBatch, the committed
 /// close doubles as the marker proving all of an adoption's effects landed.
-pub const COMMITTED_CLOSE_FLOOR: uuid::Clock = uuid::Clock::from_u64(1);
+pub const COMMITTED_CLOSE_FLOOR: uuid::Clock = uuid::OBSERVED_COMMIT_FLOOR;
 
 /// Build the `Persist` that adopts an authoritative `checkpoint` wholesale:
 /// its mapped sources replace the committed Frontier, its ACK intents replace

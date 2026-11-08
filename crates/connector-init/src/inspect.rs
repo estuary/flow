@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Image label or environment variable which identifies the codec that
 /// the connector wishes to use. A value of "json" selects the JSON codec;
@@ -17,8 +17,12 @@ pub struct Image {
 pub struct ImageConfig {
     pub cmd: Option<Vec<String>>,
     pub entrypoint: Option<Vec<String>>,
-    pub labels: HashMap<String, String>,
+    pub labels: BTreeMap<String, String>,
     pub env: Vec<String>,
+    // Unlike `labels` and `env`, which every connector image carries,
+    // an image publishing no port omits `ExposedPorts` entirely.
+    #[serde(default)]
+    pub exposed_ports: BTreeMap<String, serde_json::Value>,
 }
 
 impl Image {
@@ -61,5 +65,90 @@ impl Image {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Image;
+
+    #[test]
+    fn parses_docker_and_podman_inspections() {
+        let outcomes: Vec<_> = [
+            (
+                "docker",
+                include_bytes!("fixtures/docker-image-inspect.json").as_slice(),
+            ),
+            (
+                "podman",
+                include_bytes!("fixtures/podman-image-inspect.json").as_slice(),
+            ),
+        ]
+        .into_iter()
+        .map(|(engine, fixture)| (engine, Image::parse_from_json_slice(fixture).unwrap()))
+        .collect();
+
+        insta::assert_debug_snapshot!(outcomes, @r###"
+        [
+            (
+                "docker",
+                Image {
+                    config: ImageConfig {
+                        cmd: None,
+                        entrypoint: Some(
+                            [
+                                "/connector/source-http-ingest",
+                            ],
+                        ),
+                        labels: {
+                            "CONNECTOR_PROTOCOL": "flow-capture",
+                            "FLOW_RUNTIME_CODEC": "json",
+                            "FLOW_RUNTIME_PROTOCOL": "capture",
+                            "dev.estuary.port-public.8080": "true",
+                            "org.opencontainers.image.revision": "262fcee1dab22b57a234e247f8b65b93a7bf0032",
+                        },
+                        env: [
+                            "PATH=/connector:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                            "GOMEMLIMIT=900MiB",
+                            "DOCS_URL=https://go.estuary.dev/source-http-ingest",
+                            "CONNECTOR_NAME=source-http-ingest",
+                        ],
+                        exposed_ports: {
+                            "8080/tcp": Object {},
+                        },
+                    },
+                },
+            ),
+            (
+                "podman",
+                Image {
+                    config: ImageConfig {
+                        cmd: None,
+                        entrypoint: Some(
+                            [
+                                "/connector/source-http-ingest",
+                            ],
+                        ),
+                        labels: {
+                            "CONNECTOR_PROTOCOL": "flow-capture",
+                            "FLOW_RUNTIME_CODEC": "json",
+                            "FLOW_RUNTIME_PROTOCOL": "capture",
+                            "dev.estuary.port-public.8080": "true",
+                            "org.opencontainers.image.revision": "262fcee1dab22b57a234e247f8b65b93a7bf0032",
+                        },
+                        env: [
+                            "PATH=/connector:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                            "GOMEMLIMIT=900MiB",
+                            "DOCS_URL=https://go.estuary.dev/source-http-ingest",
+                            "CONNECTOR_NAME=source-http-ingest",
+                        ],
+                        exposed_ports: {
+                            "8080/tcp": Object {},
+                        },
+                    },
+                },
+            ),
+        ]
+        "###);
     }
 }

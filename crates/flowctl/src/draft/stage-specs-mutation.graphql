@@ -1,0 +1,3 @@
+mutation StageDraftSpecsMutation($draftId: Id!, $specs: [DraftSpecInput!]!) {
+    stageDraftSpecs(draftId: $draftId, specs: $specs)
+}

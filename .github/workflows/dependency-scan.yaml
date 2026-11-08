@@ -1,0 +1,79 @@
+name: Dependency Scan
+permissions:
+  contents: read
+
+# Every run scans every language's whole lockfile: Cargo.lock, go.mod and
+# poetry.lock. The Vulnerability Management Policy bars deploying to production
+# with an unresolved HIGH or CRITICAL finding. Merges to master deploy, so a
+# pull request fails on any such finding, including one in dependencies it
+# doesn't touch. A finding is resolved by a fix or by an approved exception
+# recorded in .trivyignore.yaml. The nightly run of master catches
+# vulnerabilities published while no pull request is open.
+on:
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-scan:
+    name: Dependency Scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Install Trivy
+        uses: jdx/mise-action@9dc7d5dd454262207dea3ab5a06a3df6afc8ff26 # v3.4.1
+        with:
+          install_args: github:aquasecurity/trivy
+
+      - name: Scan
+        run: mise run ci:trivy
+
+  # A failed nightly or manual scan of master opens an issue, or comments on the
+  # one already open, so the finding is tracked rather than living only in one
+  # person's email. The next passing scan closes it. Pull requests report
+  # through their own check instead.
+  report:
+    name: Report
+    needs: dependency-scan
+    if: >-
+      always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/master' &&
+      contains(fromJSON('["success", "failure"]'), needs.dependency-scan.result)
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - name: Open, update or close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.dependency-scan.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # GitHub assigns issues only to users, not teams, and this job's token
+          # cannot list team members, so @estuary/operations is assigned by
+          # name. Keep this in step with the team's membership.
+          ASSIGNEES: skord,mdibaiee,qaoj,mwillman-estuary
+        run: |
+          set -euo pipefail
+
+          title="Dependency Scan failed on master"
+          issue=$(gh issue list --state open --search "in:title \"${title}\"" --json number,title \
+            --jq "map(select(.title == \"${title}\")) | first | .number // empty")
+
+          if [ "$RESULT" = failure ]; then
+            body="The Dependency Scan of master failed: ${RUN_URL}"$'\n\n'"The Scan step's log names each package, CVE and fixed version. A failure in an earlier step means the scan itself did not run."
+            if [ -n "$issue" ]; then
+              gh issue comment "$issue" --body "$body"
+            else
+              gh issue create --title "$title" --assignee "$ASSIGNEES" \
+                --body "@estuary/operations ${body}"
+            fi
+          elif [ -n "$issue" ]; then
+            gh issue close "$issue" --comment "The Dependency Scan of master passed: ${RUN_URL}"
+          fi

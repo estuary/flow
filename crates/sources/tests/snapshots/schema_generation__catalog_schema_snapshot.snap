@@ -277,12 +277,12 @@ expression: "&schema"
         },
         "secrets": {
           "title": "Secrets which are merged into the endpoint configuration.",
-          "description": "Maps a JSON pointer within the endpoint configuration to the name of a\nsecret which is resolved and merged into that location as the task\nstarts. Secrets are named catalog entities, managed apart from the\nspecification, and must be siblings of this task: secret\n`acmeCo/widgets/password` may be used by capture `acmeCo/widgets/source-pg`.\n\nEach entry synthesizes a document from its pointer -- pointer `/a/b`\nwith resolved value `v` becomes `{\"a\":{\"b\":v}}` -- which is applied to\nthe configuration as an RFC 7396 merge patch. Entries are applied in\nlexicographic pointer order, so a deeper pointer wins where two entries\noverlap, and a `null` value deletes its location.\n\nPointer tokens are always object property names: token `2` addresses the\nproperty `\"2\"` and never an array index, and `-` is the literal property\n`\"-\"`. Arrays are therefore atomic values: to change one, point at the\nproperty holding it and supply the whole array. The empty pointer merges\nat the configuration root, and its secret must resolve to an object.\n\nA configuration using `secrets` must be plaintext: it cannot also be\nencrypted, and its top-level `sops` property is reserved.",
+          "description": "Maps the name of a secret to a JSON pointer within the endpoint\nconfiguration. On task start, the resolved value is applied into\nthe specified location as an RFC 7396 JSON merge patch.\n\nA configuration using `secrets` may not also be sealed with `sops`.",
           "type": "object",
           "additionalProperties": false,
           "patternProperties": {
-            "^(/([^/~]|(~[01]))+)*$": {
-              "$ref": "#/$defs/Secret"
+            "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$": {
+              "$ref": "#/$defs/JsonPointer"
             }
           }
         },
@@ -301,7 +301,7 @@ expression: "&schema"
       "description": "An endpoint from which Flow will capture.",
       "oneOf": [
         {
-          "title": "A Connector.",
+          "title": "An image connector.",
           "type": "object",
           "properties": {
             "connector": {
@@ -311,6 +311,19 @@ expression: "&schema"
           "additionalProperties": false,
           "required": [
             "connector"
+          ]
+        },
+        {
+          "title": "A custom Python connector.",
+          "type": "object",
+          "properties": {
+            "python": {
+              "$ref": "#/$defs/CapturePython"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "python"
           ]
         },
         {
@@ -327,6 +340,28 @@ expression: "&schema"
           ]
         }
       ]
+    },
+    "CapturePython": {
+      "description": "A capture implemented by a user-authored Python connector,\nwritten with the Estuary connector development kit (CDK).",
+      "type": "object",
+      "properties": {
+        "config": {
+          "title": "Configuration of this capture.",
+          "description": "An object described by `spec.configSchema`, which your `Connector`\nclass receives. Supply sensitive values through the `secrets` stanza.",
+          "$ref": "#/$defs/Value"
+        },
+        "files": {
+          "title": "Files of this capture's Python project.",
+          "description": "The capture's directory is named for the final component of the\ncapture's name: `acmeCo/source-acme` has directory `source-acme/`.\nIts `source-acme/__init__.py` defines a `Connector` class, which\nsubclasses the CDK's `BaseCaptureConnector`.\nThe project's `pyproject.toml` declares its dependencies. If you list a\n`uv.lock`, it pins them exactly. Create or update it with `uv lock`.\nOtherwise, they're resolved anew each time the capture starts.",
+          "$ref": "#/$defs/CustomConnectorFiles"
+        },
+        "spec": {
+          "title": "Connector specification of this capture.",
+          "description": "Its `configSchema` describes the capture's `config`, and its\n`resourceConfigSchema` describes the `resource` of each binding.",
+          "$ref": "#/$defs/CustomConnectorSpec"
+        }
+      },
+      "additionalProperties": false
     },
     "Collection": {
       "description": "Collection names are paths of Unicode letters, numbers, '-', '_', or '.'.\nEach path component is separated by a slash '/',\nand a name may not begin or end in a '/'.",
@@ -488,6 +523,93 @@ expression: "&schema"
         "config"
       ]
     },
+    "CustomConnectorFiles": {
+      "description": "Files of the custom connector, as a list of paths or a map of paths to contents. A listed path is relative to this specification's directory, and its file is read as UTF-8 text. Publishing stores the files' contents, and pulling the specification writes them back out as a list of paths. Paths are `/`-separated names of letters, numbers, `-`, `_`, and `.`, and can't have `.` or `..` components.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "CustomConnectorNetworkPort": {
+      "description": "A network port on which a custom connector listens.",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "title": "ALPN protocol of a public port, such as `h2` or `mqtt`.",
+          "description": "Connections to a public port with a protocol are proxied as TCP.\nOtherwise, they're HTTP/1.1 requests, which is the protocol of every\nport that isn't public.",
+          "type": "string"
+        },
+        "public": {
+          "title": "Allow unauthenticated connections to the port?",
+          "description": "Otherwise, only authenticated users with access to the task may connect.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CustomConnectorSpec": {
+      "description": "Specification of a custom connector, whose code you write.\n\nIt declares the JSON schemas of the connector's endpoint and resource\nconfigurations, its OAuth2 provider if it has one, and the network ports\non which it listens. Estuary answers requests for the connector's\nspecification from this declaration alone, without running your code.\nThe schemas also generate the configuration types that your code receives.",
+      "type": "object",
+      "properties": {
+        "configSchema": {
+          "title": "JSON schema of the task's endpoint `config`.",
+          "description": "It's an inline schema, or a relative URL of one.\nMark sensitive locations with `secret: true`, and supply their values\nthrough the task's `secrets` stanza. Annotate a location with\n`x-python-type` (such as `datetime.datetime`) to set its type in\ngenerated Python code. Otherwise a string is a `str`, whatever its\n`format`. If absent, the task takes no configuration: its schema is an\nobject which allows no properties.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "networkPorts": {
+          "title": "Network ports on which the connector listens, keyed on port number.",
+          "description": "Estuary proxies connections to each port from a hostname of the task.",
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^\\d+$": {
+              "$ref": "#/$defs/CustomConnectorNetworkPort"
+            }
+          }
+        },
+        "oauth2": {
+          "title": "OAuth2 provider of the connector, if it supports OAuth2.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OAuth2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resourceConfigSchema": {
+          "title": "JSON schema of the resource configuration of each binding.",
+          "description": "It's an inline schema, or a relative URL of one. If absent, the\nconnector's default resource configuration is used, which is typically\nwhat you want.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "DekafConfig": {
       "description": "Dekaf service configuration",
       "type": "object",
@@ -518,12 +640,12 @@ expression: "&schema"
         },
         "secrets": {
           "title": "Secrets which are merged into the `using` configuration.",
-          "description": "Maps a JSON pointer within the configuration of `using` to the name of a\nsecret which is resolved and merged into that location as the task\nstarts. Secrets are named catalog entities, managed apart from the\nspecification, and must be siblings of this task: secret\n`acmeCo/widgets/token` may be used by derivation `acmeCo/widgets/rollups`.\n\nEach entry synthesizes a document from its pointer -- pointer `/a/b`\nwith resolved value `v` becomes `{\"a\":{\"b\":v}}` -- which is applied to\nthe configuration as an RFC 7396 merge patch. Entries are applied in\nlexicographic pointer order, so a deeper pointer wins where two entries\noverlap, and a `null` value deletes its location.\n\nPointer tokens are always object property names: token `2` addresses the\nproperty `\"2\"` and never an array index, and `-` is the literal property\n`\"-\"`. Arrays are therefore atomic values: to change one, point at the\nproperty holding it and supply the whole array. The empty pointer merges\nat the configuration root, and its secret must resolve to an object.\n\nA configuration using `secrets` must be plaintext: it cannot also be\nencrypted, and its top-level `sops` property is reserved.",
+          "description": "Maps the name of a secret to a JSON pointer within the endpoint\nconfiguration. On task start, the resolved value is applied into\nthe specified location as an RFC 7396 JSON merge patch.\n\nA configuration using `secrets` may not also be sealed with `sops`.",
           "type": "object",
           "additionalProperties": false,
           "patternProperties": {
-            "^(/([^/~]|(~[01]))+)*$": {
-              "$ref": "#/$defs/Secret"
+            "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$": {
+              "$ref": "#/$defs/JsonPointer"
             }
           }
         },
@@ -630,25 +752,20 @@ expression: "&schema"
     "DeriveUsingPython": {
       "type": "object",
       "properties": {
-        "dependencies": {
-          "title": "Python package dependencies.",
-          "description": "Map of package name to version specifier (e.g., {\"httpx\": \">=0.27\", \"pydantic\": \">=2.0\"}).\nThese dependencies will be included in the generated pyproject.toml.",
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
-          "default": {}
+        "config": {
+          "title": "Configuration of this derivation.",
+          "description": "An object described by `spec.configSchema`, which your `Derivation`\nclass receives. Supply sensitive values through the `secrets` stanza.",
+          "$ref": "#/$defs/Value"
         },
-        "environment": {
-          "title": "Environment variables made available to the Python module.",
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
+        "files": {
+          "title": "Files of this derivation's Python project.",
+          "description": "The derivation's directory is named for the final component of the\ncollection's name: `acmeCo/orders` has directory `orders/`.\nIts `orders/__init__.py` defines a `Derivation` class, which directly\nsubclasses the generated `IDerivation`.\nThe project's `pyproject.toml` declares its dependencies. If you list a\n`uv.lock`, it pins them exactly. Create or update it with `uv lock`.\nOtherwise, they're resolved anew each time the derivation starts.",
+          "$ref": "#/$defs/CustomConnectorFiles"
         },
         "module": {
-          "title": "Python module implementing this derivation.",
-          "description": "Module is either a relative URL of a Python module file,\nor is an inline representation of a Python module.\nThe module must have an exported Derivation class which\nextends the generated IDerivation base class.",
+          "title": "Deprecated: list the derivation's module in `files`.",
+          "description": "A relative URL of a Python module, or its inline content.\nIt's used as the derivation's `__init__.py`, beside a default\n`pyproject.toml`. It can't be combined with `files`, `config`, or `spec`.",
+          "deprecated": true,
           "oneOf": [
             {
               "description": "A URL identifying a resource, which may be a relative local path\nwith respect to the current resource (i.e, ../path/to/flow.yaml),\nor may be an external absolute URL (i.e., http://example/flow.yaml).",
@@ -663,12 +780,14 @@ expression: "&schema"
               "contentMediaType": "text/x.python"
             }
           ]
+        },
+        "spec": {
+          "title": "Connector specification of this derivation.",
+          "description": "Its `configSchema` describes the derivation's `config`, and its\n`resourceConfigSchema` describes the `lambda` of each transform.",
+          "$ref": "#/$defs/CustomConnectorSpec"
         }
       },
-      "additionalProperties": false,
-      "required": [
-        "module"
-      ]
+      "additionalProperties": false
     },
     "DeriveUsingSqlite": {
       "type": "object",
@@ -700,13 +819,6 @@ expression: "&schema"
     "DeriveUsingTypescript": {
       "type": "object",
       "properties": {
-        "environment": {
-          "title": "Environment variables made available to the TypeScript module.",
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
         "module": {
           "title": "TypeScript module implementing this derivation.",
           "description": "Module is either a relative URL of a TypeScript module file,\nor is an inline representation of a Typescript module.\nThe module must have a exported Derivation variable which\nis an instance implementing the corresponding Derivation\ninterface.",
@@ -942,10 +1054,9 @@ expression: "&schema"
         },
         "priority": {
           "title": "Priority applied to documents processed by this binding.",
-          "description": "When all bindings are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one binding has a higher priority than others,\nthen *all* ready documents are processed through the binding\nbefore *any* documents of other bindings are processed.",
+          "description": "When all bindings are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one binding has a higher priority than others,\nthen *all* ready documents are processed through the binding\nbefore *any* documents of other bindings are processed.\n\nPriority may be negative, which de-prioritizes a binding with\nrespect to bindings having the default priority of zero.",
           "type": "integer",
-          "format": "uint32",
-          "minimum": 0
+          "format": "int32"
         },
         "resource": {
           "title": "Endpoint resource to materialize into.",
@@ -1010,12 +1121,12 @@ expression: "&schema"
         },
         "secrets": {
           "title": "Secrets which are merged into the endpoint configuration.",
-          "description": "Maps a JSON pointer within the endpoint configuration to the name of a\nsecret which is resolved and merged into that location as the task\nstarts. Secrets are named catalog entities, managed apart from the\nspecification, and must be siblings of this task: secret\n`acmeCo/widgets/password` may be used by materialization\n`acmeCo/widgets/materialize-pg`.\n\nEach entry synthesizes a document from its pointer -- pointer `/a/b`\nwith resolved value `v` becomes `{\"a\":{\"b\":v}}` -- which is applied to\nthe configuration as an RFC 7396 merge patch. Entries are applied in\nlexicographic pointer order, so a deeper pointer wins where two entries\noverlap, and a `null` value deletes its location.\n\nPointer tokens are always object property names: token `2` addresses the\nproperty `\"2\"` and never an array index, and `-` is the literal property\n`\"-\"`. Arrays are therefore atomic values: to change one, point at the\nproperty holding it and supply the whole array. The empty pointer merges\nat the configuration root, and its secret must resolve to an object.\n\nA configuration using `secrets` must be plaintext: it cannot also be\nencrypted, and its top-level `sops` property is reserved.",
+          "description": "Maps the name of a secret to a JSON pointer within the endpoint\nconfiguration. On task start, the resolved value is applied into\nthe specified location as an RFC 7396 JSON merge patch.\n\nA configuration using `secrets` may not also be sealed with `sops`.",
           "type": "object",
           "additionalProperties": false,
           "patternProperties": {
-            "^(/([^/~]|(~[01]))+)*$": {
-              "$ref": "#/$defs/Secret"
+            "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$": {
+              "$ref": "#/$defs/JsonPointer"
             }
           }
         },
@@ -1072,7 +1183,7 @@ expression: "&schema"
       "description": "An Endpoint connector used for Flow materializations.",
       "oneOf": [
         {
-          "title": "A Connector.",
+          "title": "An image connector.",
           "type": "object",
           "properties": {
             "connector": {
@@ -1082,6 +1193,19 @@ expression: "&schema"
           "additionalProperties": false,
           "required": [
             "connector"
+          ]
+        },
+        {
+          "title": "A custom Python connector.",
+          "type": "object",
+          "properties": {
+            "python": {
+              "$ref": "#/$defs/MaterializePython"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "python"
           ]
         },
         {
@@ -1162,6 +1286,101 @@ expression: "&schema"
       ],
       "required": [
         "recommended"
+      ]
+    },
+    "MaterializePython": {
+      "description": "A materialization implemented by a user-authored Python connector.",
+      "type": "object",
+      "properties": {
+        "config": {
+          "title": "Configuration of this materialization.",
+          "description": "An object described by `spec.configSchema`, which your `Materialization`\nclass receives. Supply sensitive values through the `secrets` stanza.",
+          "$ref": "#/$defs/Value"
+        },
+        "files": {
+          "title": "Files of this materialization's Python project.",
+          "description": "The materialization's directory is named for the final component of the\nmaterialization's name: `acmeCo/materialize-acme` has directory\n`materialize-acme/`. Its `materialize-acme/__init__.py` defines a\n`Materialization` class, which directly subclasses the generated\n`IMaterialization`.\nThe project's `pyproject.toml` declares its dependencies. If you list a\n`uv.lock`, it pins them exactly. Create or update it with `uv lock`.\nOtherwise, they're resolved anew each time the materialization starts.",
+          "$ref": "#/$defs/CustomConnectorFiles"
+        },
+        "spec": {
+          "title": "Connector specification of this materialization.",
+          "description": "Its `configSchema` describes the materialization's `config`, and its\n`resourceConfigSchema` describes the `resource` of each binding.",
+          "$ref": "#/$defs/CustomConnectorSpec"
+        }
+      },
+      "additionalProperties": false
+    },
+    "OAuth2": {
+      "description": "OAuth2 provider of a connector, which mirrors the OAuth2 of a connector's\nSpec response (and the CDK's `OAuth2Spec`).\n\nHeader and response-map values are strings, as the CDK's `OAuth2Spec`\nrequires. Templates are mustache templates. Every template may use `client_id` and\n`redirect_uri`. The authorization URL may also use `state`, the access\ntoken request may use `code` and `client_secret`, and the refresh token\nrequest may use `refresh_token` and `client_secret`.",
+      "type": "object",
+      "properties": {
+        "accessTokenBody": {
+          "title": "Template of the body of the access token request.",
+          "type": "string"
+        },
+        "accessTokenHeaders": {
+          "title": "Headers of the access token request.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "accessTokenMethod": {
+          "title": "HTTP method of the access token request (default POST).",
+          "type": "string"
+        },
+        "accessTokenResponseMap": {
+          "title": "Mapping of the access token response into standard names.",
+          "description": "Keys are the standard RFC 6749 names (`access_token`, `refresh_token`,\nand `access_token_expires_at`), and values locate them in the\nprovider's response. Without a mapping, response keys are used as-is.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "accessTokenUrlTemplate": {
+          "title": "Template of the URL from which an access token is requested.",
+          "type": "string"
+        },
+        "authUrlTemplate": {
+          "title": "Template of the URL to which a user is sent to authorize access.",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Machine-readable name of the OAuth2 provider.",
+          "type": "string"
+        },
+        "refreshTokenBody": {
+          "title": "Template of the body of the refresh token request.",
+          "type": "string"
+        },
+        "refreshTokenHeaders": {
+          "title": "Headers of the refresh token request.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "refreshTokenMethod": {
+          "title": "HTTP method of the refresh token request (default POST).",
+          "type": "string"
+        },
+        "refreshTokenResponseMap": {
+          "title": "Mapping of the refresh token response into standard names.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "refreshTokenUrlTemplate": {
+          "title": "Template of the URL from which an access token is refreshed.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "authUrlTemplate",
+        "accessTokenUrlTemplate"
       ]
     },
     "OnIncompatibleSchemaChange": {
@@ -1298,14 +1517,6 @@ expression: "&schema"
           "type": "object"
         }
       ]
-    },
-    "Secret": {
-      "description": "Secret names are paths of Unicode letters, numbers, '-', '_', or '.'.\nEach path component is separated by a slash '/',\nand a name may not begin or end in a '/'.",
-      "type": "string",
-      "examples": [
-        "acmeCo/db/password"
-      ],
-      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$"
     },
     "ShardTemplate": {
       "description": "A ShardTemplate configures how shards process a catalog task.",
@@ -1890,10 +2101,9 @@ expression: "&schema"
         },
         "priority": {
           "title": "Priority applied to documents processed by this transform.",
-          "description": "When all transforms are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one transform has a higher priority than others,\nthen *all* ready documents are processed through the transform\nbefore *any* documents of other transforms are processed.",
+          "description": "When all transforms are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one transform has a higher priority than others,\nthen *all* ready documents are processed through the transform\nbefore *any* documents of other transforms are processed.\n\nPriority may be negative, which de-prioritizes a transform with\nrespect to transforms having the default priority of zero.",
           "type": "integer",
-          "format": "uint32",
-          "minimum": 0
+          "format": "int32"
         },
         "readDelay": {
           "title": "Delay applied to documents processed by this transform.",

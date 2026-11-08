@@ -1,0 +1,64 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/storage_mappings.rs
+expression: fragment_stores
+---
+[
+    FragmentStore {
+        provider: S3,
+        prefix: Some(
+            "collection-data/",
+        ),
+        bucket: Some(
+            "my-bucket",
+        ),
+        region: Some(
+            "us-east-1",
+        ),
+        storage_account_name: None,
+        container_name: None,
+        account_tenant_id: None,
+        endpoint: None,
+    },
+    FragmentStore {
+        provider: Gcs,
+        prefix: None,
+        bucket: Some(
+            "my-bucket",
+        ),
+        region: None,
+        storage_account_name: None,
+        container_name: None,
+        account_tenant_id: None,
+        endpoint: None,
+    },
+    FragmentStore {
+        provider: Azure,
+        prefix: None,
+        bucket: None,
+        region: None,
+        storage_account_name: Some(
+            "storageaccount",
+        ),
+        container_name: Some(
+            "containername",
+        ),
+        account_tenant_id: Some(
+            "689f4ac1-038c-44cc-a1f9-8a65bc33386e",
+        ),
+        endpoint: None,
+    },
+    FragmentStore {
+        provider: Custom,
+        prefix: None,
+        bucket: Some(
+            "my-bucket",
+        ),
+        region: None,
+        storage_account_name: None,
+        container_name: None,
+        account_tenant_id: None,
+        endpoint: Some(
+            "storage.example.com",
+        ),
+    },
+]

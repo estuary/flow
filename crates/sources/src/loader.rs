@@ -145,16 +145,15 @@ impl<F: Fetcher> Loader<F> {
         use flow::ContentType as CT;
         let is_dom = match content_type {
             CT::Catalog | CT::JsonSchema | CT::DocumentsFixture => true,
-            CT::Config => {
-                let path = scope.resource().path().to_lowercase();
-                path.ends_with("yaml") || path.ends_with("yml") || path.ends_with("json")
-            }
+            CT::Config => crate::is_dom_path(scope.resource().path()),
+            CT::Text => false,
         };
 
         // We must map the raw `content` into a document object model.
         // * If we expect this resource is a document, parse it as such.
         // * If it's UTF8, then wrap it in a string.
-        // * Otherwise, record a LoadError for non-UTF8 content.
+        // * Otherwise, record a LoadError for non-UTF8 content, and wrap its
+        //   lossy text. The resource still exists, and mustn't look missing.
         let content_dom = if is_dom {
             // Parse YAML and JSON.
             let Some(mut content_dom) = self.fallible(scope, serde_yaml::from_slice(&content))
@@ -184,14 +183,15 @@ impl<F: Fetcher> Loader<F> {
             serde_transcode::transcode(content_dom, &mut serializer).expect("must transcode");
 
             RawValue::from_string(String::from_utf8(buf).unwrap()).unwrap()
-        } else if let Ok(content) = std::str::from_utf8(&content) {
-            RawValue::from_string(serde_json::to_string(&content).unwrap()).unwrap()
         } else {
-            self.tables_mut().errors.insert_row(
-                &scope.flatten(),
-                anyhow::anyhow!(LoadError::ResourceNotUTF8),
-            );
-            return;
+            if std::str::from_utf8(&content).is_err() {
+                self.tables_mut().errors.insert_row(
+                    &scope.flatten(),
+                    anyhow::anyhow!(LoadError::ResourceNotUTF8),
+                );
+            }
+            let content = String::from_utf8_lossy(&content);
+            RawValue::from_string(serde_json::to_string(&content).unwrap()).unwrap()
         };
 
         match content_type {
@@ -722,6 +722,7 @@ impl<F: Fetcher> Loader<F> {
             catalog_name,
             scope.flatten(),
             spec.expect_pub_id.take(),
+            models::Id::zero(), // Placed by the control plane at publication.
             (!spec.delete).then_some(spec),
             false, // !is_touch
         )
@@ -779,17 +780,27 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
-            models::DeriveUsing::Python(models::DeriveUsingPython { module, .. }) => {
+            models::DeriveUsing::Python(models::DeriveUsingPython {
+                files,
+                config,
+                spec,
+                module,
+                ..
+            }) => {
                 tasks.push(
                     async move {
-                        self.load_config(
-                            scope
-                                .push_prop("using")
-                                .push_prop("python")
-                                .push_prop("module"),
-                            module,
-                        )
-                        .await
+                        let scope = scope.push_prop("using");
+                        let scope = scope.push_prop("python");
+                        futures::join!(
+                            async {
+                                if let Some(module) = module {
+                                    self.load_config(scope.push_prop("module"), module).await;
+                                }
+                            },
+                            self.load_config(scope.push_prop("config"), config),
+                            self.load_files(scope.push_prop("files"), files),
+                            self.load_custom_spec(scope.push_prop("spec"), spec),
+                        );
                     }
                     .boxed(),
                 );
@@ -886,6 +897,24 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
+            models::CaptureEndpoint::Python(models::CapturePython {
+                files,
+                config,
+                spec,
+            }) => {
+                tasks.push(
+                    async move {
+                        let scope = scope.push_prop("endpoint");
+                        let scope = scope.push_prop("python");
+                        futures::join!(
+                            self.load_config(scope.push_prop("config"), config),
+                            self.load_files(scope.push_prop("files"), files),
+                            self.load_custom_spec(scope.push_prop("spec"), spec),
+                        );
+                    }
+                    .boxed(),
+                );
+            }
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {
@@ -920,6 +949,7 @@ impl<F: Fetcher> Loader<F> {
             catalog_name,
             scope.flatten(),
             spec.expect_pub_id.take(),
+            models::Id::zero(), // Placed by the control plane at publication.
             (!spec.delete).then_some(spec),
             false, // !is_touch
         );
@@ -981,6 +1011,24 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
+            models::MaterializationEndpoint::Python(models::MaterializePython {
+                files,
+                config,
+                spec,
+            }) => {
+                tasks.push(
+                    async move {
+                        let scope = scope.push_prop("endpoint");
+                        let scope = scope.push_prop("python");
+                        futures::join!(
+                            self.load_config(scope.push_prop("config"), config),
+                            self.load_files(scope.push_prop("files"), files),
+                            self.load_custom_spec(scope.push_prop("spec"), spec),
+                        );
+                    }
+                    .boxed(),
+                );
+            }
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {
@@ -1017,6 +1065,7 @@ impl<F: Fetcher> Loader<F> {
             catalog_name,
             scope.flatten(),
             spec.expect_pub_id.take(),
+            models::Id::zero(), // Placed by the control plane at publication.
             (!spec.delete).then_some(spec),
             false, // !is_touch
         );
@@ -1054,19 +1103,69 @@ impl<F: Fetcher> Loader<F> {
     }
 
     async fn load_config<'s>(&'s self, scope: Scope<'s>, config: &RawValue) {
-        // If `config` is a JSON string that has no whitespace then presume and
-        // require that it's a relative or absolute URL to an imported file.
-        match serde_json::from_str::<&str>(config.get()) {
-            Ok(import) if !import.chars().any(char::is_whitespace) => {
-                self.load_import(
-                    scope,
-                    self.fallible(scope, scope.resource().join(&import)),
-                    flow::ContentType::Config,
-                )
-                .await;
+        let Some(import) = config.as_import_url() else {
+            return;
+        };
+        self.load_import(
+            scope,
+            self.fallible(scope, scope.resource().join(&import)),
+            flow::ContentType::Config,
+        )
+        .await;
+    }
+
+    // Load the schemas of a custom connector's `spec`. Like collection
+    // schemas, each is inline or a relative URL, and may `$ref` other schemas.
+    async fn load_custom_spec<'s>(
+        &'s self,
+        scope: Scope<'s>,
+        spec: &'s models::custom_connector::Spec,
+    ) {
+        let models::custom_connector::Spec {
+            config_schema,
+            resource_config_schema,
+            oauth2: _,
+            network_ports: _,
+        } = spec;
+
+        let load = |prop: &'static str, schema: &'s Option<models::Schema>| async move {
+            if let Some(schema) = schema {
+                self.load_schema_reference(scope.push_prop(prop), schema)
+                    .await;
             }
-            _ => {}
-        }
+        };
+        futures::join!(
+            load("configSchema", config_schema),
+            load("resourceConfigSchema", resource_config_schema),
+        );
+    }
+
+    // Load each file of an indirect `files` list as text.
+    // An inline `files` object has nothing to load. A malformed path isn't
+    // fetched, as it may name a location outside of the specification's
+    // directory, and validation reports it.
+    async fn load_files<'s>(
+        &'s self,
+        scope: Scope<'s>,
+        files: &'s models::custom_connector::Files,
+    ) {
+        let models::custom_connector::Files::Indirect(paths) = files else {
+            return;
+        };
+        let tasks = paths
+            .iter()
+            .enumerate()
+            .filter(|(_, path)| models::custom_connector::Files::is_valid_path(path))
+            .map(|(index, path)| {
+                async move {
+                    let scope = scope.push_item(index);
+                    let import = self.fallible(scope, scope.resource().join(path));
+                    self.load_import(scope, import, flow::ContentType::Text)
+                        .await
+                }
+                .boxed()
+            });
+        let _: Vec<()> = futures::future::join_all(tasks).await;
     }
 
     // Rewrite the `command` of a `local:` connector endpoint so that its
@@ -1144,6 +1243,59 @@ fn resolve_local_command(resource: &Url, command: &[String]) -> anyhow::Result<O
     };
 
     Ok(Some(resolved.to_string_lossy().into_owned()))
+}
+
+#[cfg(test)]
+mod not_utf8_test {
+    use futures::FutureExt;
+
+    struct NoFetcher;
+
+    impl super::Fetcher for NoFetcher {
+        fn fetch<'a>(
+            &'a self,
+            resource: &'a url::Url,
+            _content_type: proto_flow::flow::ContentType,
+        ) -> futures::future::BoxFuture<'a, anyhow::Result<bytes::Bytes>> {
+            panic!("unexpected fetch of {resource}")
+        }
+    }
+
+    #[test]
+    fn text_which_isnt_utf8_is_an_error_and_a_resource() {
+        let loader = super::Loader::new(Default::default(), NoFetcher);
+        let resource = url::Url::parse("test://example/regions.csv").unwrap();
+
+        loader
+            .load_resource_content(
+                json::Scope::new(&resource),
+                &resource,
+                bytes::Bytes::from_static(b"caf\xe9\n"),
+                proto_flow::flow::ContentType::Text,
+            )
+            .now_or_never()
+            .unwrap();
+
+        let tables = loader.into_tables();
+        insta::assert_debug_snapshot!((&tables.errors, &tables.resources), @r#"
+        (
+            [
+                Error {
+                    scope: test://example/regions.csv,
+                    error: resource content is not UTF-8,
+                },
+            ],
+            [
+                Resource {
+                    resource: test://example/regions.csv,
+                    content_type: "TEXT",
+                    content: ".. binary ..",
+                    content_dom: "caf�\n",
+                },
+            ],
+        )
+        "#);
+    }
 }
 
 #[cfg(test)]

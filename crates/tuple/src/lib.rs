@@ -296,62 +296,50 @@ mod tests {
         test_serde(-256, b"\x12\xfe\xff");
         test_serde(65536, b"\x17\x01\x00\x00");
         test_serde(-65536, b"\x11\xfe\xff\xff");
-        test_serde(i64::max_value(), b"\x1C\x7f\xff\xff\xff\xff\xff\xff\xff");
+        test_serde(i64::MAX, b"\x1C\x7f\xff\xff\xff\xff\xff\xff\xff");
+        test_serde(i64::MAX as u64 + 1, b"\x1C\x80\x00\x00\x00\x00\x00\x00\x00");
+        test_serde(u64::MAX, b"\x1C\xff\xff\xff\xff\xff\xff\xff\xff");
         test_serde(
-            i64::max_value() as u64 + 1,
-            b"\x1C\x80\x00\x00\x00\x00\x00\x00\x00",
-        );
-        test_serde(u64::max_value(), b"\x1C\xff\xff\xff\xff\xff\xff\xff\xff");
-        test_serde(
-            u128::max_value(),
+            u128::MAX,
             b"\x1D\x10\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff",
         );
         test_serde(
-            u64::max_value() as u128 + 1,
+            u64::MAX as u128 + 1,
             b"\x1D\x09\x01\x00\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            u64::max_value() as i128 + 1,
+            u64::MAX as i128 + 1,
             b"\x1D\x09\x01\x00\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            i64::min_value() as i128 + 1,
+            i64::MIN as i128 + 1,
             b"\x0C\x80\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            i64::min_value() as i128 - 1,
+            i64::MIN as i128 - 1,
             b"\x0C\x7f\xff\xff\xff\xff\xff\xff\xfe",
         );
+        test_serde(-(u64::MAX as i128), b"\x0C\x00\x00\x00\x00\x00\x00\x00\x00");
         test_serde(
-            -(u64::max_value() as i128),
-            b"\x0C\x00\x00\x00\x00\x00\x00\x00\x00",
-        );
-        test_serde(
-            -(u64::max_value() as i128) - 1,
+            -(u64::MAX as i128) - 1,
             b"\x0b\xf6\xfe\xff\xff\xff\xff\xff\xff\xff\xff",
         );
         test_serde(
-            -(u64::max_value() as i128) - 2,
+            -(u64::MAX as i128) - 2,
             b"\x0b\xf6\xfe\xff\xff\xff\xff\xff\xff\xff\xfe",
         );
         test_serde(
-            (u64::max_value() as i128) * -2,
+            (u64::MAX as i128) * -2,
             b"\x0b\xf6\xfe\x00\x00\x00\x00\x00\x00\x00\x01",
         );
         test_serde(
-            (u64::max_value() as i128) * 2,
+            (u64::MAX as i128) * 2,
             b"\x1d\x09\x01\xff\xff\xff\xff\xff\xff\xff\xfe",
         );
         test_serde(-4294967295i64, b"\x10\x00\x00\x00\x00");
-        test_serde(
-            i64::min_value() + 2,
-            b"\x0C\x80\x00\x00\x00\x00\x00\x00\x01",
-        );
-        test_serde(
-            i64::min_value() + 1,
-            b"\x0C\x80\x00\x00\x00\x00\x00\x00\x00",
-        );
-        test_serde(i64::min_value(), b"\x0C\x7f\xff\xff\xff\xff\xff\xff\xff");
+        test_serde(i64::MIN + 2, b"\x0C\x80\x00\x00\x00\x00\x00\x00\x01");
+        test_serde(i64::MIN + 1, b"\x0C\x80\x00\x00\x00\x00\x00\x00\x00");
+        test_serde(i64::MIN, b"\x0C\x7f\xff\xff\xff\xff\xff\xff\xff");
 
         test_serde(9252427359321063944i128, b"\x1c\x80g9\xa9np\x02\x08");
         assert!(
@@ -372,10 +360,7 @@ mod tests {
             }
         );
 
-        test_serde(
-            u64::max_value() as i128,
-            b"\x1c\xff\xff\xff\xff\xff\xff\xff\xff",
-        );
+        test_serde(u64::MAX as i128, b"\x1c\xff\xff\xff\xff\xff\xff\xff\xff");
         assert!(
             match unpack::<i64>(b"\x1c\xff\xff\xff\xff\xff\xff\xff\xff").unwrap_err() {
                 PackError::UnsupportedIntLength => true,
@@ -383,10 +368,7 @@ mod tests {
             }
         );
 
-        test_serde(
-            -(u64::max_value() as i128),
-            b"\x0c\x00\x00\x00\x00\x00\x00\x00\x00",
-        );
+        test_serde(-(u64::MAX as i128), b"\x0c\x00\x00\x00\x00\x00\x00\x00\x00");
         assert!(
             match unpack::<i64>(b"\x0c\x00\x00\x00\x00\x00\x00\x00\x00").unwrap_err() {
                 PackError::UnsupportedIntLength => true,
@@ -395,7 +377,7 @@ mod tests {
         );
 
         test_serde(
-            (i64::max_value() as i128) + 1,
+            (i64::MAX as i128) + 1,
             b"\x1c\x80\x00\x00\x00\x00\x00\x00\x00",
         );
         assert!(
@@ -406,7 +388,7 @@ mod tests {
         );
 
         test_serde(
-            (i64::min_value() as i128) - 1,
+            (i64::MIN as i128) - 1,
             b"\x0c\x7f\xff\xff\xff\xff\xff\xff\xfe",
         );
         assert!(
@@ -458,92 +440,92 @@ mod tests {
         test_serde(BigUint::from(65536u64), b"\x17\x01\x00\x00");
         test_serde(BigInt::from(-65536), b"\x11\xfe\xff\xff");
         test_serde(
-            BigInt::from(i64::max_value()),
+            BigInt::from(i64::MAX),
             b"\x1C\x7f\xff\xff\xff\xff\xff\xff\xff",
         );
         test_serde(
-            BigUint::from(i64::max_value() as u64),
+            BigUint::from(i64::MAX as u64),
             b"\x1C\x7f\xff\xff\xff\xff\xff\xff\xff",
         );
         test_serde(
-            BigInt::from(i64::max_value() as u64 + 1),
+            BigInt::from(i64::MAX as u64 + 1),
             b"\x1C\x80\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            BigUint::from(i64::max_value() as u64 + 1),
+            BigUint::from(i64::MAX as u64 + 1),
             b"\x1C\x80\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            BigInt::from(u64::max_value()),
+            BigInt::from(u64::MAX),
             b"\x1C\xff\xff\xff\xff\xff\xff\xff\xff",
         );
         test_serde(
-            BigUint::from(u64::max_value()),
+            BigUint::from(u64::MAX),
             b"\x1C\xff\xff\xff\xff\xff\xff\xff\xff",
         );
         test_serde(
-            BigInt::from(u128::max_value()),
+            BigInt::from(u128::MAX),
             b"\x1D\x10\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff",
         );
         test_serde(
-            BigUint::from(u128::max_value()),
+            BigUint::from(u128::MAX),
             b"\x1D\x10\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff",
         );
         test_serde(
-            BigInt::from(u64::max_value() as u128 + 1),
+            BigInt::from(u64::MAX as u128 + 1),
             b"\x1D\x09\x01\x00\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            BigUint::from(u64::max_value() as u128 + 1),
+            BigUint::from(u64::MAX as u128 + 1),
             b"\x1D\x09\x01\x00\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            BigInt::from(u64::max_value() as i128 + 1),
+            BigInt::from(u64::MAX as i128 + 1),
             b"\x1D\x09\x01\x00\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            BigUint::from(u64::max_value() as u128 + 1),
+            BigUint::from(u64::MAX as u128 + 1),
             b"\x1D\x09\x01\x00\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            BigInt::from(i64::min_value() as i128 + 1),
+            BigInt::from(i64::MIN as i128 + 1),
             b"\x0C\x80\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            BigInt::from(i64::min_value() as i128 - 1),
+            BigInt::from(i64::MIN as i128 - 1),
             b"\x0C\x7f\xff\xff\xff\xff\xff\xff\xfe",
         );
         test_serde(
-            BigInt::from(-(u64::max_value() as i128)),
+            BigInt::from(-(u64::MAX as i128)),
             b"\x0C\x00\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            BigInt::from(-(u64::max_value() as i128) - 1),
+            BigInt::from(-(u64::MAX as i128) - 1),
             b"\x0b\xf6\xfe\xff\xff\xff\xff\xff\xff\xff\xff",
         );
         test_serde(
-            BigInt::from(-(u64::max_value() as i128) - 2),
+            BigInt::from(-(u64::MAX as i128) - 2),
             b"\x0b\xf6\xfe\xff\xff\xff\xff\xff\xff\xff\xfe",
         );
         test_serde(
-            BigInt::from((u64::max_value() as i128) * -2),
+            BigInt::from((u64::MAX as i128) * -2),
             b"\x0b\xf6\xfe\x00\x00\x00\x00\x00\x00\x00\x01",
         );
         test_serde(
-            BigInt::from((u64::max_value() as i128) * 2),
+            BigInt::from((u64::MAX as i128) * 2),
             b"\x1d\x09\x01\xff\xff\xff\xff\xff\xff\xff\xfe",
         );
         test_serde(BigInt::from(-4294967295i64), b"\x10\x00\x00\x00\x00");
         test_serde(
-            BigInt::from(i64::min_value() + 2),
+            BigInt::from(i64::MIN + 2),
             b"\x0C\x80\x00\x00\x00\x00\x00\x00\x01",
         );
         test_serde(
-            BigInt::from(i64::min_value() + 1),
+            BigInt::from(i64::MIN + 1),
             b"\x0C\x80\x00\x00\x00\x00\x00\x00\x00",
         );
         test_serde(
-            BigInt::from(i64::min_value()),
+            BigInt::from(i64::MIN),
             b"\x0C\x7f\xff\xff\xff\xff\xff\xff\xff",
         );
 

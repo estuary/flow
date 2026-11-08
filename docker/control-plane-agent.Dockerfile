@@ -17,12 +17,16 @@ RUN apt update -y \
      crun \
      docker.io \
      google-cloud-cli \
-     jq \
      netavark \
      podman \
      slirp4netns \
      uidmap \
      && rm -rf /var/lib/apt/lists/*
+
+# gcloud-crc32c is a Go helper bundled with the SDK, often built with a
+# vulnerable Go toolchain. Only `gcloud storage` uses it, and falls back to a
+# Python checksum without it. The agent uses only `gsutil`.
+RUN rm /usr/lib/google-cloud-sdk/bin/gcloud-crc32c
 
 # Install AWS CLI v2, taken from: https://lukewiwa.com/blog/add_the_aws_cli_to_a_dockerfile/
 COPY --from=docker.io/amazon/aws-cli:latest /usr/local/aws-cli/ /usr/local/aws-cli/
@@ -35,11 +39,15 @@ ARG TARGETARCH
 COPY ${TARGETARCH}/agent /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
 COPY ${TARGETARCH}/flowctl-go /usr/local/bin/
+# Rust crates linked into flowctl-go, for the image's SBOM scan.
+COPY ${TARGETARCH}/flowctl-go.cdx.json /usr/local/share/sbom/
 COPY ${TARGETARCH}/gazette /usr/local/bin/
 COPY ${TARGETARCH}/etcd /usr/local/bin/
 COPY ${TARGETARCH}/agent-api-entrypoint.sh /usr/local/bin/
-RUN command -v flowctl-go \
-    && command -v gazette \
+# Smoke-test that our binaries load in this image (e.g. shared libraries resolve).
+RUN agent --help >/dev/null \
+    && flowctl-go print-config >/dev/null \
+    && gazette print-config >/dev/null \
     && command -v etcd
 
 CMD [ "/usr/local/bin/agent-api-entrypoint.sh" ]

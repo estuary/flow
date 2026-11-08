@@ -1,0 +1,234 @@
+use futures::StreamExt;
+use proto_flow::connector::{Request, Response};
+use tokio::sync::mpsc;
+
+/// Opens `connector.Connector` sessions on behalf of a task.
+pub trait Router: Send + Sync + 'static {
+    /// Open a session for `task_name`'s connector. The first request on
+    /// `request_rx` must set `start` and a protocol request of `task_type`.
+    /// Authentication and connection failures are returned as the response
+    /// channel's first and only item.
+    ///
+    /// The session and its connector are torn down once the caller has both
+    /// dropped `request_rx`'s sender and dropped the returned receiver.
+    /// Holding either keeps the connector running: a unary caller sends EOF
+    /// and then patiently awaits its response. An implementation may tear
+    /// down sooner, when only the returned receiver is dropped.
+    fn open(
+        &self,
+        task_type: ops::TaskType,
+        task_name: &str,
+        request_rx: mpsc::Receiver<Request>,
+    ) -> mpsc::Receiver<tonic::Result<Response>>;
+}
+
+/// Mint the `PROXY_CONNECTOR` metadata presented for a connector stream.
+pub fn connector_bearer(
+    signer: &crate::Signer,
+    task_type: ops::TaskType,
+    task_name: &str,
+) -> tonic::Result<crate::Metadata> {
+    let selector = proto_gazette::broker::LabelSelector {
+        include: Some(labels::build_set([
+            (labels::TASK_NAME, task_name),
+            (labels::TASK_NAME, super::SPEC_TASK_NAME),
+            (labels::TASK_TYPE, task_type.as_str_name()),
+        ])),
+        exclude: None,
+    };
+    let token = signer.sign(
+        proto_flow::capability::PROXY_CONNECTOR,
+        task_name.to_string(),
+        selector,
+        tokens::TimeDelta::minutes(1),
+    )?;
+    crate::Metadata::new().with_bearer_token(&token)
+}
+
+/// `Router` which dials one endpoint and signs every bearer with one signer.
+#[derive(Clone)]
+pub struct EndpointRouter {
+    endpoint: String,
+    signer: crate::Signer,
+}
+
+impl EndpointRouter {
+    pub fn new(endpoint: String, signer: crate::Signer) -> Self {
+        Self { endpoint, signer }
+    }
+
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+}
+
+impl Router for EndpointRouter {
+    fn open(
+        &self,
+        task_type: ops::TaskType,
+        task_name: &str,
+        request_rx: mpsc::Receiver<Request>,
+    ) -> mpsc::Receiver<tonic::Result<Response>> {
+        let (response_tx, response_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
+
+        let metadata = match connector_bearer(&self.signer, task_type, task_name) {
+            Ok(metadata) => metadata,
+            Err(status) => {
+                response_tx
+                    .try_send(Err(status))
+                    .expect("new response channel is open and empty");
+                return response_rx;
+            }
+        };
+        let channel = match crate::dial_channel(&self.endpoint) {
+            Ok(channel) => channel,
+            Err(err) => {
+                response_tx
+                    .try_send(Err(tonic::Status::unavailable(err.to_string())))
+                    .expect("new response channel is open and empty");
+                return response_rx;
+            }
+        };
+        let mut client =
+            super::connector_client::ConnectorClient::with_interceptor(channel, metadata)
+                .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+                .max_encoding_message_size(usize::MAX);
+
+        let error_tx = response_tx.clone();
+
+        // Keep tonic decoding and response delivery in one focused task so
+        // downstream consumers receive buffered, already-decoded messages.
+        tokio::spawn(async move {
+            let forward = async move {
+                let response = match client
+                    .connector(tokio_stream::wrappers::ReceiverStream::new(request_rx))
+                    .await
+                {
+                    Ok(response) => response,
+                    Err(status) => {
+                        _ = response_tx.send(Err(status)).await;
+                        return Ok(());
+                    }
+                };
+                let mut tonic_rx = response.into_inner();
+
+                while let Some(response) = tonic_rx.next().await {
+                    let terminal = response.is_err();
+                    if response_tx.send(response).await.is_err() || terminal {
+                        break;
+                    }
+                }
+                Ok(())
+            };
+
+            // A silent connector parks `forward`, and with it the tonic stream,
+            // indefinitely. Abandon `forward` when the caller drops its receiver:
+            // releasing the stream (after request EOF) resets the HTTP/2 stream,
+            // which is what tears down the remote connector.
+            let result = tokio::select! {
+                result = crate::catch_panic(forward) => result,
+                () = error_tx.closed() => Ok(()),
+            };
+            if let Err(status) = result {
+                _ = error_tx.send(Err(status)).await;
+            }
+        });
+
+        response_rx
+    }
+}
+
+#[cfg(test)]
+mod test {
+    const ISSUER: &str = "data-plane.example";
+    const KEY: &[u8] = b"a reactor's data-plane key";
+
+    fn bearer(key: &[u8], task_name: &str) -> crate::Metadata {
+        super::connector_bearer(
+            &crate::Signer::new(
+                ISSUER.to_string(),
+                tokens::jwt::EncodingKey::from_secret(key),
+            ),
+            ops::TaskType::Capture,
+            task_name,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_connector_bearer_scopes_to_its_task_and_a_spec() {
+        let authenticator = crate::Authenticator::new(
+            ISSUER.to_string(),
+            vec![tokens::jwt::DecodingKey::from_secret(KEY)],
+        );
+        let outcome = |metadata: &crate::Metadata, task_type, task_name: &str| {
+            authenticator
+                .authenticate(&metadata.0, proto_flow::capability::PROXY_CONNECTOR)
+                .and_then(|verified| {
+                    crate::Authorizer::from_verified(verified)
+                        .authorize(super::super::task_label_set(task_type, task_name))
+                })
+                .map_or_else(
+                    |status| format!("{:?}", status.code()),
+                    |_authorized| "ok".to_string(),
+                )
+        };
+
+        let mine = bearer(KEY, "acmeCo/foo");
+        let theirs = bearer(b"another reactor's key", "acmeCo/foo");
+
+        let outcomes = [
+            ("its own task", &mine, ops::TaskType::Capture, "acmeCo/foo"),
+            (
+                "a task-less Spec",
+                &mine,
+                ops::TaskType::Capture,
+                super::super::SPEC_TASK_NAME,
+            ),
+            // A prefix match which did not respect name boundaries would admit
+            // the sibling and the prefix.
+            (
+                "a sibling task",
+                &mine,
+                ops::TaskType::Capture,
+                "acmeCo/foobar",
+            ),
+            (
+                "a prefix of its name",
+                &mine,
+                ops::TaskType::Capture,
+                "acmeCo/fo",
+            ),
+            (
+                "another tenant",
+                &mine,
+                ops::TaskType::Capture,
+                "otherCo/foo",
+            ),
+            // The right name of the wrong task type.
+            (
+                "as a derivation",
+                &mine,
+                ops::TaskType::Derivation,
+                "acmeCo/foo",
+            ),
+            (
+                "as a materialization",
+                &mine,
+                ops::TaskType::Materialization,
+                "acmeCo/foo",
+            ),
+            (
+                "another reactor's key",
+                &theirs,
+                ops::TaskType::Capture,
+                "acmeCo/foo",
+            ),
+        ]
+        .map(|(label, metadata, task_type, task_name)| {
+            (label, outcome(metadata, task_type, task_name))
+        });
+
+        insta::assert_debug_snapshot!(outcomes);
+    }
+}

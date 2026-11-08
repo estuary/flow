@@ -2,7 +2,7 @@
 [![Slack](https://img.shields.io/badge/slack-@estuary-blue.svg?logo=slack)](https://go.estuary.dev/slack) | **[Docs home](https://docs.estuary.dev/)** | **[Free account](https://go.estuary.dev/sign-up)** | **[Data platform comparison reference](https://docs.estuary.dev/getting-started/comparisons)** | **[Contact us](https://www.estuary.dev/contact-us/)**
 
 <p align="center">
-    <img src ="site/static/img/estuary-new.png"
+    <img src =".github/assets/estuary-new.png"
      width="250"/>
          </p>
 
@@ -39,7 +39,7 @@ Have questions? We'd love to hear from you:
 
 ---
 
-![Workflow Overview](site/docs/concepts/concept-images/at-a-glance.png)
+![Workflow Overview](.github/assets/at-a-glance.png)
 
 ## Using Estuary
 
@@ -57,6 +57,8 @@ You can switch seamlessly between them as you build and refine your pipelines, a
 ## Resources
 
 -   📖 [Estuary documentation](https://docs.estuary.dev/)
+    - The docs source is not in this repo. Connector reference pages are in [estuary/connectors](https://github.com/estuary/connectors/tree/main/docs/reference/Connectors), and pull requests there are welcome.
+    - The other pages are in the `estuary/docs` repo, which is internal to the Estuary team. To report a problem with one of them, [open an issue](https://github.com/estuary/flow/issues/new?labels=docs) in this repo.
 
 -   🧐 **Examples and tutorials**
     - [Blog tutorials](https://estuary.dev/blog/tutorial/)

@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/publications/test.rs
+expression: outcomes
+---
+[
+  {
+    "case": "live task",
+    "error": null,
+    "status": "queued"
+  },
+  {
+    "case": "live collection with a live reader",
+    "error": null,
+    "status": "queued"
+  }
+]

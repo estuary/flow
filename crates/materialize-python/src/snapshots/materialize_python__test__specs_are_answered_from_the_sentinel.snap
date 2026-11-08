@@ -1,0 +1,109 @@
+---
+source: crates/materialize-python/src/lib.rs
+expression: "serde_json::to_value(responses).unwrap()"
+---
+[
+  {
+    "spec": {
+      "configSchema": {
+        "properties": {
+          "apiKey": {
+            "secret": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "documentationUrl": "https://docs.estuary.dev",
+      "oauth2": {
+        "accessTokenUrlTemplate": "https://acme.example/token",
+        "authUrlTemplate": "https://acme.example/authorize",
+        "provider": "acme"
+      },
+      "protocol": 3032023,
+      "resourceConfigSchema": {
+        "properties": {
+          "object": {
+            "type": "string",
+            "x-collection-name": true
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "spec": {
+      "configSchema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "documentationUrl": "https://docs.estuary.dev",
+      "protocol": 3032023,
+      "resourceConfigSchema": {
+        "properties": {
+          "delta_updates": {
+            "default": false,
+            "description": "Should updates of this resource be delta updates, which are never loaded?",
+            "title": "Delta Updates",
+            "type": "boolean",
+            "x-delta-updates": true
+          },
+          "schema": {
+            "description": "Schema or namespace of the endpoint resource (optional).",
+            "title": "Alternative Schema",
+            "type": "string",
+            "x-schema-name": true
+          },
+          "table": {
+            "description": "Name of the endpoint resource of this binding.",
+            "title": "Table",
+            "type": "string",
+            "x-collection-name": true
+          }
+        },
+        "required": [
+          "table"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "spec": {
+      "configSchema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "documentationUrl": "https://docs.estuary.dev",
+      "protocol": 3032023,
+      "resourceConfigSchema": {
+        "properties": {
+          "delta_updates": {
+            "default": false,
+            "description": "Should updates of this resource be delta updates, which are never loaded?",
+            "title": "Delta Updates",
+            "type": "boolean",
+            "x-delta-updates": true
+          },
+          "schema": {
+            "description": "Schema or namespace of the endpoint resource (optional).",
+            "title": "Alternative Schema",
+            "type": "string",
+            "x-schema-name": true
+          },
+          "table": {
+            "description": "Name of the endpoint resource of this binding.",
+            "title": "Table",
+            "type": "string",
+            "x-collection-name": true
+          }
+        },
+        "required": [
+          "table"
+        ],
+        "type": "object"
+      }
+    }
+  }
+]

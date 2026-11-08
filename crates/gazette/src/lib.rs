@@ -17,6 +17,8 @@ pub enum Error {
     FetchFragment(#[source] reqwest::Error),
     #[error("failed to read fetched fragment from storage URL")]
     ReadFragment(#[source] std::io::Error),
+    #[error("fragment storage URL served nothing for {0:?}")]
+    FragmentTimeout(std::time::Duration),
     #[error("invalid bearer token")]
     BearerToken(#[source] tonic::metadata::errors::InvalidMetadataValue),
     #[error("unexpected broker status: {0:?}")]
@@ -67,6 +69,7 @@ impl Error {
             // These errors are generally failure of a transport, and can be retried.
             Error::Transport(_) => true,
             Error::ReadFragment(_) => true,
+            Error::FragmentTimeout(_) => true,
             Error::UnexpectedEof => true,
 
             // When no HTTP status is available (e.g. connection refused, DNS failure,

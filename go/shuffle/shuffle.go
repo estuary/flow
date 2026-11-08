@@ -6,11 +6,11 @@ import (
 	"reflect"
 	"time"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/message"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/gogo/protobuf/types"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/message"
 )
 
 // shuffle is an internal description of a source shuffle.
@@ -24,7 +24,7 @@ type shuffle struct {
 	// Path metadata suffix attached to journals read by this shuffle.
 	journalReadSuffix string
 	// Priority of this shuffle with respect to others of the derivation.
-	priority uint32
+	priority int32
 	// Projections of the shuffled source collection.
 	projections []pf.Projection
 	// Read delay of this shuffle with respect to others of the derivation.
@@ -178,10 +178,10 @@ func notBeforeAfter(notBefore, notAfter *types.Timestamp) (message.Clock, messag
 		a message.Clock = math.MaxUint64
 	)
 	if m := notBefore; m != nil {
-		b = message.NewClock(time.Unix(m.Seconds, 0))
+		b = message.NewClock(time.Unix(m.Seconds, int64(m.Nanos)))
 	}
 	if m := notAfter; m != nil {
-		a = message.NewClock(time.Unix(m.Seconds, 0))
+		a = message.NewClock(time.Unix(m.Seconds, int64(m.Nanos)))
 	}
 	return b, a
 }

@@ -1,14 +1,18 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+mod calculate;
+mod db;
+pub mod invoices;
 mod stripe_helpers;
+pub(crate) use calculate::{Adjustment, BillingTerms, DailyUsage, calculate};
+pub use calculate::{Invoice, InvoiceUsage, LineItem};
+pub use db::record_customer_id;
 pub use stripe_helpers::{SearchParams, stripe_search};
 
 pub const TENANT_METADATA_KEY: &str = "estuary.dev/tenant_name";
 // The human billing-contact name is stored under this customer-metadata key
-// rather than Stripe's `Customer.name`, because `Customer.name` is the
-// tenant-slug join key used by the `internal.tenant_alerts` and
-// `internal.free_trial_alerts` views.
+// rather than Stripe's `Customer.name`, which holds the tenant slug.
 pub const CUSTOMER_NAME_METADATA_KEY: &str = "estuary.dev/customer_name";
 const INVOICE_TYPE_KEY: &str = "estuary.dev/invoice_type";
 const BILLING_PERIOD_START_KEY: &str = "estuary.dev/period_start";
@@ -90,13 +94,10 @@ pub fn customer_create_idempotency_key(tenant: &str) -> String {
     format!("flow-customer-create:{tenant}")
 }
 
-/// These 4 pieces of metadata link an invoice in Stripe to a row in `invoices_ext`. This is
-/// an area that could be improved in the future if needed, but presently `invoices_ext` does not
-/// model a single "primary key", which is why we need to use this compound identity. It composes:
-/// * "Final" invoices, which come from `internal.billing_historicals`, and use the natural key of
-///   `(tenant, billed_month)`. `billing_historicals` does not contain a primary key
-/// * "Manual" invoices, which come from `internal.manual_bills` which uses the natural key
-///   `(tenant, date_start, date_end)`, again not modelling a primary key.
+/// Tenant, bill type, and billing period attached to a Flow invoice in Stripe.
+/// These fields support historical backfill matching and batch selection by
+/// `send-invoices`. The bill's `stripe_invoice_id` records its invoice identity.
+/// Manual bill dates can be edited; publishing refreshes a draft's metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvoiceMetadata {
     pub tenant: String,
@@ -184,10 +185,42 @@ impl InvoiceSearch<'_> {
     Copy,
     sqlx::Type,
 )]
-#[sqlx(type_name = "payment_provider_type", rename_all = "lowercase")]
+#[sqlx(type_name = "payment_provider_type", rename_all = "snake_case")]
 pub enum PaymentProvider {
     Stripe,
     External,
+    AwsMarketplace,
+    GcpMarketplace,
+    SnowflakeMarketplace,
+}
+
+/// Billing arrangement of the tenant: `tenants.plan_kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(type_name = "plan_kind_type", rename_all = "snake_case")]
+pub enum PlanKind {
+    SelfServe,
+    Contract,
+    Internal,
+}
+
+/// How usage-based invoices are collected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "SCREAMING_SNAKE_CASE")
+)]
+#[sqlx(type_name = "collection_method_type", rename_all = "snake_case")]
+pub enum CollectionMethod {
+    ChargeDefaultPaymentMethod,
+    SendInvoice,
+}
+
+/// Exclusive end of a one-month trial, using the last day when the next month is shorter.
+pub fn trial_end(trial_start: chrono::NaiveDate) -> chrono::NaiveDate {
+    trial_start
+        .checked_add_months(chrono::Months::new(1))
+        .expect("trial end is within the representable range")
 }
 
 #[cfg(test)]

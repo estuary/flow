@@ -9,12 +9,8 @@ on:
   # cold. rust-cache keys on ${GITHUB_JOB}, so no other workflow warms them.
   push:
     branches: [master]
-    paths-ignore:
-      - "site/**"
   pull_request:
     branches: [master]
-    paths-ignore:
-      - "site/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -83,19 +79,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/cargo-sqlx
-          key: sqlx-cli-${{ runner.os }}-${{ runner.arch }}-0.8.6
+          key: sqlx-cli-${{ runner.os }}-${{ runner.arch }}-0.9.0
 
       - name: Install sqlx-cli
         if: steps.cache-sqlx.outputs.cache-hit != 'true'
-        run: cargo install sqlx-cli@0.8.6 --no-default-features --features postgres
+        run: cargo install sqlx-cli@0.9.0 --no-default-features --features postgres
 
       - run: mise run build:rocksdb
       - run: mise run local:supabase
       - run: mise run ci:sqlx-check
-
-      # Reuses this job's compiled workspace (flow-client --all-features pulls in
-      # control-plane-api) to verify the committed GraphQL SDL hasn't drifted.
-      - run: mise run ci:graphql-schema-check
 
   platform-test:
     name: Platform Test
