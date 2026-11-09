@@ -314,6 +314,89 @@ fn the_vmm_image_is_one_image_throughout() {
     );
 }
 
+#[test]
+fn a_public_vmm_start_has_only_its_launch_mount() {
+    in_child(
+        "a_public_vmm_start_has_only_its_launch_mount",
+        |mut h| async move {
+            std::fs::write(h.dir.join("stderr"), " ").unwrap();
+            let Prepared {
+                mut ctx,
+                config,
+                logs: _,
+                read_through,
+            } = prepare(&h);
+            ctx.plane = crate::Plane::Public;
+            ctx.vmm = Some(config);
+            ctx.task_update = Some(crate::TaskUpdate::for_test());
+            let execution = ctx.execution.clone();
+
+            let endpoint: bytes::Bytes = serde_json::json!({"image": IMAGE, "config": {}})
+                .to_string()
+                .into();
+            let Some((.., proto_flow::connector::request::Kind::Derive(open))) =
+                crate::execution_fixture::every_first_request(
+                    crate::execution_fixture::image_connector_type,
+                    &endpoint,
+                    Some(execution.clone()),
+                )
+                .into_iter()
+                .find(|(label, ..)| *label == "derive Open")
+            else {
+                panic!("the fixture has a derive Open");
+            };
+            let mut start = Box::pin(crate::protocol::start::<crate::derive::Derive>(
+                ctx, None, open,
+            ));
+
+            tokio::select! {
+                () = next_event(&mut h.events, "attached") => (),
+                started = &mut start => {
+                    panic!("the start ended before its VMM was attached: {:?}", started.err())
+                }
+            }
+            // SAFETY: geteuid takes nothing and cannot fail.
+            let mounts = h
+                .dir
+                .join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
+            let mounts: Vec<PathBuf> = std::fs::read_dir(mounts)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect();
+            let [mount] = &mounts[..] else {
+                panic!("the launch's mount must be the only one: {mounts:?}");
+            };
+            let name = mount.file_name().unwrap().to_str().unwrap();
+            let name = name.strip_prefix("mount-").unwrap().to_string();
+            assert!(name.starts_with("fv_"), "{name}");
+            assert!(mount.join("task-update.json").exists());
+
+            let socket = std::fs::read_to_string(h.dir.join("socket")).unwrap();
+            let (gate_tx, _gate_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (peer_tasks, release, _scripted) = serve_scripted(&socket, gate_tx);
+            release.send(()).unwrap();
+            command(&h.dir, "stderr");
+
+            let started = start.await.unwrap();
+            let Some(proto_flow::connector::response::Kind::Started(response)) =
+                &started.started.kind
+            else {
+                panic!("the start's response is Started");
+            };
+            assert_eq!(response.execution, Some(execution));
+            assert!(response.container.is_some());
+            std::mem::drop(started);
+
+            _ = tokio::time::timeout(RELEASED, read_through)
+                .await
+                .expect("the launch's teardown ends within RELEASED");
+            stop_peers(peer_tasks).await;
+            let ended = std::fs::read_to_string(h.dir.join("ended")).unwrap_or_default();
+            assert_eq!(left(&h.dir, &name, ended.trim()), Vec::<String>::new());
+        },
+    );
+}
+
 /// Start a launch refused before its VMM is attached, and wait for its
 /// teardown. Returns its outcome, with its status code, and its task logs.
 async fn refused(h: &Harness) -> (String, Vec<String>) {

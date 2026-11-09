@@ -130,7 +130,8 @@ a defined file layout of resources handed to the connector for its use.
 | `LOCAL_ISSUER`                  | Issuer of local self-signed bearers; public for served test fixtures      |
 | `proto_grpc::connector`         | Client routing, identity, bearer, and stream helpers                      |
 | `LogSink` / `LogDest`           | Routes connector logs and container lifecycle records                     |
-| `protocol::start`               | The start pipeline every connector goes through                          |
+| `protocol::start`               | The start pipeline every connector goes through, dispatching on endpoint and execution |
+| `image::connect`                | Ordinary image start: pull, inspect, admit, and run its container         |
 | `protocol::Protocol`            | Per-protocol trait: Spec request, RPC, and endpoint extraction             |
 | `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets, execution, VMM |
 | `Vmm`, `Vmm::from_env` | VMM capability and configuration from `CONNECTOR_VMM_*` |
@@ -146,8 +147,8 @@ a defined file layout of resources handed to the connector for its use.
 | `vmm::check_spec_execution` | Keeps execution and egress fixed through every session request |
 | `TaskUpdate`                    | Signer and URLs by which a connector updates its config and secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
-| `protocol::create_connector_mount` | Creates the per-run connector mount; see above                        |
-| `Guard`                         | Host resources of one run: container process, refresh task, mount        |
+| `protocol::create_connector_mount` | Creates an ordinary run's connector mount; see above                  |
+| `Guard`                         | Host resources of one run: container process or VMM launch, and an ordinary run's refresh task and mount |
 
 ## Layout
 
@@ -159,7 +160,7 @@ src/
 ├── serve.rs      # per-stream: authn/authz, extract, start, pump, teardown
 ├── protocol.rs   # Protocol trait, StartContext, start pipeline, connector mount
 ├── policy.rs     # pure product policy: image/secret admission, usage, token lifetimes
-├── image.rs      # Estuary image declarations and image-endpoint connection
+├── image.rs      # Estuary image declarations and ordinary image connection
 ├── capture.rs    # Protocol impl: capture endpoints and RPC
 ├── derive.rs     # Protocol impl: derive endpoints and RPC, incl. derive-sqlite
 ├── materialize.rs# Protocol impl: materialize endpoints and RPC, incl. Dekaf
@@ -256,6 +257,13 @@ EOF or status. A client which does not drain responses may park the handler.
   tells a refusal from it.
   `Started.execution` is set only once the VMM's connector-init is dialed and
   the Spec exchanged.
+
+- **`protocol::start` dispatches by endpoint and execution.** Ordinary image
+  policy is checked on the service's plane before mount, environment and
+  credential preparation. The session `Guard` owns the ordinary mount and
+  task-update refresh. `image::connect` runs ordinary images.
+  A VMM start calls `vmm::launch::start`, whose task owns its mount and
+  refresh. The session `Guard` holds the handle that stops the launch.
 
 - **A session's execution is fixed at its start.** `serve::pump` checks later
   built specs against `Started.execution` before forwarding them. Even
@@ -558,6 +566,8 @@ EOF or status. A client which does not drain responses may park the handler.
   It checks the stderr marker, a single dial and successful Spec, premature
   markers, early failures, cancellation, the readiness deadline, and cleanup.
   A guest which dies after readiness fails its first Spec and is released.
+  One public-plane start runs through `protocol::start`, and makes no mount
+  but its launch's.
 
 - **Image admission identifies images by repository.** The public-plane
   refusal of Python captures, derivations and materializations applies to

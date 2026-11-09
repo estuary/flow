@@ -7,6 +7,8 @@ fail  | secrets=absent configuration=preserved
 image inspect | secrets=absent configuration=preserved
 image inspect | secrets=absent configuration=preserved
 image inspect | secrets=absent configuration=preserved
+image inspect | secrets=absent configuration=preserved
+image inspect | secrets=absent configuration=preserved
 network create | secrets=absent configuration=preserved
 network ls | secrets=absent configuration=preserved
 network ls | secrets=absent configuration=preserved
@@ -15,7 +17,11 @@ ps --all | secrets=absent configuration=preserved
 ps --all | secrets=absent configuration=preserved
 pull ghcr.io/estuary/derive-python:synthetic | secrets=absent configuration=preserved
 pull ghcr.io/estuary/derive-python:synthetic | secrets=absent configuration=preserved
+pull ghcr.io/estuary/derive-python:synthetic | secrets=absent configuration=preserved
+pull ghcr.io/estuary/derive-typescript:synthetic | secrets=absent configuration=preserved
 rm --force | secrets=absent configuration=preserved
+run --rm | secrets=absent configuration=preserved
+run --rm | secrets=absent configuration=preserved
 run --rm | secrets=absent configuration=preserved
 run --rm | secrets=absent configuration=preserved
 start --attach | secrets=absent configuration=preserved

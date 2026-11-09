@@ -176,6 +176,8 @@ pub(crate) async fn start<P: Protocol>(
         &ctx.execution,
         spec_execution.as_ref(),
     )?;
+    // Secret decryption attests the image's repository, under either execution.
+    let image_repository = image.map(|image| models::split_image_tag(image).0);
 
     // TODO(johnny): This bit of ugliness is to support frozen
     // derive-typescript/python `:dev` image tags, which are required for the
@@ -189,47 +191,20 @@ pub(crate) async fn start<P: Protocol>(
         Endpoint::Image { image, .. } if models::is_frozen_derive_image(image),
     );
 
-    // VMM eligibility supplies the isolation ordinary public-plane Python
-    // admission requires. Both paths still validate image declarations and secrets.
-    let image_policy = match &endpoint {
-        Endpoint::Image { image, .. } => Some(crate::policy::Image::check(
-            if matches!(execution, crate::vmm::Execution::Vmm { .. }) {
-                crate::Plane::Private
-            } else {
-                ctx.plane
-            },
-            image,
-        )?),
-        Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
-    };
-
-    let mount = match execution {
-        crate::vmm::Execution::Ordinary => Some(create_connector_mount()?),
-        crate::vmm::Execution::Vmm { .. } => None,
-    };
-    let env = match &mount {
-        Some(mount) => connector_env(ctx.plane, ctx.log_level, mount.path())?,
-        None => Default::default(),
-    };
-
-    let refresh = if let Some(mount) = &mount {
-        start_task_update(
-            ctx.task_update.as_ref(),
-            P::TASK_TYPE,
-            &ctx.task_name,
-            build,
-            mount.path(),
-            &ctx.log_sink,
-        )
-        .await?
-    } else {
-        None
-    };
     let sealed_config = match &endpoint {
         Endpoint::Image { config, .. } | Endpoint::InProcess { config, .. } => config,
         Endpoint::Local { config } => &config.config,
     }
     .clone();
+
+    // Declared before the transport so errors release the connector before
+    // its credential refresh and mount.
+    let mut guard = crate::Guard {
+        _process: None,
+        _vmm: None,
+        _refresh: None,
+        _mount: None,
+    };
 
     let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
     if !spec_on_own_rpc {
@@ -239,7 +214,7 @@ pub(crate) async fn start<P: Protocol>(
             .expect("new connector request channel is open");
     }
 
-    // Spawn the connector, branched on its endpoint type.
+    // Spawn the connector, branched on its endpoint type and execution.
     let requests = tokio_stream::wrappers::ReceiverStream::new(connector_rx).boxed();
     let crate::Transport {
         mut connector_rx,
@@ -253,44 +228,88 @@ pub(crate) async fn start<P: Protocol>(
         Endpoint::Image {
             image,
             config: sealed_config,
-        } => {
-            crate::image::connect::<P>(
-                &ctx,
-                execution,
-                build,
-                image,
-                sealed_config,
-                image_policy.as_ref().unwrap(),
-                env,
-                mount.as_ref().map(tempfile::TempDir::path),
-                secrets,
-                network_ports,
-                connector_type,
-                spec_on_own_rpc,
-                requests,
-            )
-            .await
-        }
+        } => match execution {
+            crate::vmm::Execution::Ordinary => {
+                let policy = crate::policy::Image::check(ctx.plane, &image)?;
+                let (mount, env) = ordinary_setup::<P>(&ctx, build, &mut guard).await?;
+
+                crate::image::connect::<P>(
+                    &ctx,
+                    image,
+                    sealed_config,
+                    &policy,
+                    env,
+                    &mount,
+                    secrets,
+                    network_ports,
+                    connector_type,
+                    spec_on_own_rpc,
+                    requests,
+                )
+                .await
+            }
+            crate::vmm::Execution::Vmm {
+                vmm,
+                eligible,
+                egress,
+            } => {
+                let (container, channel, vmm_guard, codec) = crate::vmm::launch::start(
+                    &ctx,
+                    vmm,
+                    eligible,
+                    egress,
+                    network_ports,
+                    &image,
+                    secrets,
+                    build,
+                )
+                .await?;
+
+                // Frozen V1 derivations still exchange Spec on an RPC of its own.
+                let spec = if spec_on_own_rpc {
+                    Some(spec_rpc::<P>(channel.clone(), connector_type).await?)
+                } else {
+                    None
+                };
+                let connector_rx = P::open_rpc(channel, requests).await?.into_inner();
+                Ok(crate::Transport {
+                    connector_rx: connector_rx.boxed(),
+                    container: Some(container),
+                    codec,
+                    process: None,
+                    vmm: Some(vmm_guard),
+                    sealed_config,
+                    spec,
+                })
+            }
+        },
         Endpoint::InProcess {
             connector,
             config: sealed_config,
-        } => crate::policy::check_secrets(
-            &ctx.task_name,
-            secrets
-                .iter()
-                .map(|(name, pointer)| (name.as_str(), pointer.as_str())),
-            crate::policy::SecretIdentity::NoImage,
-        )
-        .map(|()| crate::Transport {
-            connector_rx: connector(requests),
-            container: None,
-            codec: connector_init::Codec::Proto,
-            process: None,
-            vmm: None,
-            sealed_config,
-            spec: None,
-        }),
-        Endpoint::Local { config } => connect_local::<P>(&ctx, config, secrets, env, requests),
+        } => {
+            ordinary_setup::<P>(&ctx, build, &mut guard).await?;
+
+            crate::policy::check_secrets(
+                &ctx.task_name,
+                secrets
+                    .iter()
+                    .map(|(name, pointer)| (name.as_str(), pointer.as_str())),
+                crate::policy::SecretIdentity::NoImage,
+            )
+            .map(|()| crate::Transport {
+                connector_rx: connector(requests),
+                container: None,
+                codec: connector_init::Codec::Proto,
+                process: None,
+                vmm: None,
+                sealed_config,
+                spec: None,
+            })
+        }
+        Endpoint::Local { config } => {
+            let (_mount, env) = ordinary_setup::<P>(&ctx, build, &mut guard).await?;
+            connect_local::<P>(&ctx, config, secrets, env, requests)
+        }
     }?;
 
     let codec = match codec {
@@ -322,11 +341,7 @@ pub(crate) async fn start<P: Protocol>(
     } else {
         // Each uniquely keyed secret is decrypted concurrently.
         let resolved = unseal::resolve(&sealed_config, secrets, config_schema, |name| {
-            resolve_secret::<P>(
-                &ctx,
-                image_policy.as_ref().map(crate::policy::Image::repository),
-                name,
-            )
+            resolve_secret::<P>(&ctx, image_repository.as_deref(), name)
         })
         .await
         .map_err(|err| match err {
@@ -382,10 +397,31 @@ pub(crate) async fn start<P: Protocol>(
         guard: crate::Guard {
             _process: process,
             _vmm: vmm,
-            _refresh: refresh,
-            _mount: mount,
+            ..guard
         },
     })
+}
+
+async fn ordinary_setup<P: Protocol>(
+    ctx: &StartContext,
+    build: Option<&str>,
+    guard: &mut crate::Guard,
+) -> anyhow::Result<(
+    std::path::PathBuf,
+    std::collections::BTreeMap<String, String>,
+)> {
+    let mount = guard._mount.insert(create_connector_mount()?);
+    let env = connector_env(ctx.plane, ctx.log_level, mount.path())?;
+    guard._refresh = start_task_update(
+        ctx.task_update.as_ref(),
+        P::TASK_TYPE,
+        &ctx.task_name,
+        build,
+        mount.path(),
+        &ctx.log_sink,
+    )
+    .await?;
+    Ok((mount.path().to_owned(), env))
 }
 
 /// Initialize and rotate the shared task-update credential contract. A VMM

@@ -96,9 +96,18 @@ case "$step" in
     "volume rm") rm "$ENGINE_TEST_DIR/volume" ;;
     "start --attach") exit 42 ;;
     "run --rm")
+        mount=
         for arg; do
-            if [ "$arg" = boundary ]; then exit 0; fi
+            case "$arg" in
+                boundary) exit 0 ;;
+                --env=CONNECTOR_MOUNT=*) mount=${arg#--env=CONNECTOR_MOUNT=} ;;
+            esac
         done
+        if [ -n "$mount" ]; then
+            printf '%s | holds %s\n' "$*" "$(echo $(ls "$mount"))" |
+                sed -e "s|$mount|\$MOUNT|g" -e 's|--name=fc_[0-9a-f]*|--name=$NAME|' \
+                >>"$ENGINE_TEST_DIR/ordinary"
+        fi
         exit 43
         ;;
     "fail "*) echo synthetic-engine-failure >&2; exit 44 ;;
@@ -126,7 +135,11 @@ esac
         .env("TMPDIR", dir.path())
         .env("DOCKER_CLI", &engine)
         .env("PATH", &path)
-        .env("ENGINE_EXPECTED_PATH", &path);
+        .env("ENGINE_EXPECTED_PATH", &path)
+        // Ordinary runs' snapshotted argv takes these limits' defaults.
+        .env_remove("CONNECTOR_MEMORY_LIMIT")
+        .env_remove("CONNECTOR_CPU_LIMIT")
+        .env_remove("CONNECTOR_CGROUP_PARENT");
     for name in SECRETS {
         child.env(name, "synthetic-platform-secret");
     }
@@ -147,6 +160,12 @@ esac
         .collect();
     calls.sort();
     insta::assert_snapshot!(calls.join("\n"));
+
+    let ordinary = std::fs::read_to_string(dir.path().join("ordinary")).unwrap();
+    insta::assert_snapshot!(ordinary, @r"
+    run --rm --name=$NAME --network=bridge --entrypoint=$MOUNT/flow-connector-init --log-driver=none --mount=type=bind,source=$MOUNT,target=$MOUNT,readonly --memory 1g --cpus 2 --platform=linux/amd64 --env=CONNECTOR_MOUNT=$MOUNT --env=LOG_FORMAT=json --env=LOG_LEVEL=warn --label=image=ghcr.io/estuary/derive-python:synthetic --label=task-name=acmeCo/engine-environment --label=task-type=derivation ghcr.io/estuary/derive-python:synthetic --image-inspect-json-path=$MOUNT/image-inspect.json --port=49092 | holds flow-connector-init image-inspect.json task-update.json
+    run --rm --name=$NAME --network=bridge --entrypoint=$MOUNT/flow-connector-init --log-driver=none --mount=type=bind,source=$MOUNT,target=$MOUNT,readonly --memory 1g --cpus 2 --platform=linux/amd64 --env=CONNECTOR_MOUNT=$MOUNT --env=LOG_FORMAT=json --env=LOG_LEVEL=warn --label=image=ghcr.io/estuary/derive-typescript:synthetic --label=task-name=acmeCo/engine-environment --label=task-type=derivation ghcr.io/estuary/derive-typescript:synthetic --image-inspect-json-path=$MOUNT/image-inspect.json --port=49092 | holds flow-connector-init image-inspect.json task-update.json
+    ");
 }
 
 #[test]
@@ -208,9 +227,66 @@ fn engine_environment_child() {
     else {
         panic!("the synthetic derivation must select VMM execution");
     };
+    let mounts = dir.join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
+    let ordinary = |plane, image: &str| {
+        let config: bytes::Bytes = serde_json::json!({"image": image, "config": {}})
+            .to_string()
+            .into();
+        let Some((.., proto_flow::connector::request::Kind::Derive(open))) =
+            crate::execution_fixture::every_first_request(
+                crate::execution_fixture::image_connector_type,
+                &config,
+                None,
+            )
+            .into_iter()
+            .find(|(label, ..)| *label == "derive Open")
+        else {
+            panic!("the fixture has a derive Open");
+        };
+        let ctx = crate::protocol::StartContext {
+            container_network: String::new(),
+            execution: Default::default(),
+            log_level: ops::LogLevel::UndefinedLevel,
+            log_sink: crate::LogSink::tracing(),
+            plane,
+            process: None,
+            task_name: ctx.task_name.clone(),
+            vmm: None,
+            secret_resolver: std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+            task_update: Some(crate::TaskUpdate::for_test()),
+        };
+        crate::protocol::start::<crate::derive::Derive>(ctx, None, open)
+    };
     runtime.block_on(async {
         let error = super::engine_cmd(&engine, &["fail"]).await.unwrap_err();
         assert!(error.to_string().contains("synthetic-engine-failure"));
+
+        let Err(error) = ordinary(crate::Plane::Public, image).await else {
+            panic!("an ordinary public Python start must be refused");
+        };
+        assert_eq!(
+            format!("{error:#}"),
+            "Python derivations may only run in private data-planes, or within a VMM (`vmm: true`)"
+        );
+        assert!(!mounts.exists(), "a refused start made a mount");
+        let calls = std::fs::read_to_string(dir.join("calls")).unwrap();
+        assert!(!calls.contains("pull"), "{calls}");
+
+        for (plane, image) in [
+            (crate::Plane::Private, image),
+            (
+                crate::Plane::Public,
+                "ghcr.io/estuary/derive-typescript:synthetic",
+            ),
+        ] {
+            let Err(error) = ordinary(plane, image).await else {
+                panic!("the inert ordinary engine must exit before readiness");
+            };
+            assert!(
+                format!("{error:#}").contains("container exited before flow-connector-init"),
+                "{error:#}"
+            );
+        }
         let Err(error) = async {
             let inspection = super::pull_and_inspect(image, &ctx.log_sink).await?;
             let mount = crate::protocol::create_connector_mount()?;
@@ -265,6 +341,5 @@ fn engine_environment_child() {
         assert_eq!(vmm.recover().await, 0);
     });
     assert_eq!(std::fs::read_dir(&state).unwrap().count(), 0);
-    let mounts = dir.join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
     assert_eq!(std::fs::read_dir(mounts).unwrap().count(), 0);
 }
