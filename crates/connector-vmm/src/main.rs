@@ -18,8 +18,7 @@ mod resolver;
 mod ruleset;
 mod sys;
 
-/// Every failure before the VM starts, so that a caller reading the exit code
-/// cannot confuse one with a workload's.
+/// CLI and command failures exit 2. Guest workloads may also return this code.
 const EXIT_FAILED: u8 = 2;
 
 /// Source identity from `mise/tasks/build/identity-lib.sh`.

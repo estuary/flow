@@ -68,7 +68,6 @@ podman create \
   --mount=type=bind,source=/tmp/connector-mounts-0/mount-fv_0123456789abcdef,target=/tmp/connector-mounts-0/mount-fv_0123456789abcdef,readonly \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/sock,target=/sock \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch,target=/scratch-backing \
-  --env=CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-fv_0123456789abcdef \
   --env=LOG_FORMAT=json \
   --env=LOG_LEVEL=info \
   --platform=linux/amd64 \

@@ -269,8 +269,9 @@ fn status(err: &anyhow::Error) -> (tonic::Code, String) {
 fn normalized_calls(root: &launcher::Root, run: &run::Run, name: &str) -> String {
     let calls = launcher::calls(root).join("\n");
     let mount = calls
-        .split(' ')
-        .find_map(|arg| arg.strip_prefix("--env=CONNECTOR_MOUNT="))
+        .split_whitespace()
+        .skip_while(|arg| *arg != "--connector-mount")
+        .nth(1)
         .map(ToString::to_string);
     let token = calls
         .split(' ')

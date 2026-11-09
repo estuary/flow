@@ -200,7 +200,7 @@ fn client_dropped() -> anyhow::Error {
 
 /// Forward requests and responses in independent bursts. A full request
 /// channel parks only its forwarding future, leaving responses free to drain.
-pub(crate) async fn pump<P, R>(
+async fn pump<P, R>(
     mut request_rx: R,
     started: crate::Started<P>,
     response_tx: &mpsc::Sender<tonic::Result<proto::Response>>,

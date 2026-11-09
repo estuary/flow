@@ -71,7 +71,6 @@ In-process connectors do not receive a process environment.
 
 Every image and local connector run receives a **connector mount**, which is
 a defined file layout of resources handed to the connector for its use.
-It exists only under the V2 runtime; the V1 `runtime` crate is untouched.
 
 - `CONNECTOR_MOUNT` names the directory, which MUST exist though MAY be empty.
   A connector tests for the files it wants.

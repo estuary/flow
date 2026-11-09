@@ -75,7 +75,10 @@ case "$step" in
         printf '%s' "$network" >"$ENGINE_TEST_DIR/network"
         ;;
     "create --rm")
+        previous=
         for arg; do
+            if [ "$previous" = --connector-mount ]; then mount=$arg; fi
+            previous=$arg
             case "$arg" in
                 --env=CONNECTOR_MOUNT=*) mount=${arg#--env=CONNECTOR_MOUNT=} ;;
             esac

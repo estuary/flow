@@ -31,9 +31,9 @@ pub struct CaptureDef {
     /// # Run this capture's connector within a VMM.
     /// When true, every invocation of the connector runs within a VMM rather
     /// than an ordinary container. Only connectors which are eligible for VMM
-    /// execution may request it, only on the V2 runtime, and only with
-    /// declared `egress`. A data plane which cannot run the connector within a
-    /// VMM fails the invocation: it never falls back to an ordinary container.
+    /// execution may request it, and only with declared `egress`. A data plane
+    /// which cannot run the connector within a VMM fails the invocation: it
+    /// never falls back to an ordinary container.
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub vmm: bool,
     /// # Egress this capture's connector is held to.

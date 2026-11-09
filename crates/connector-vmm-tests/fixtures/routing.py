@@ -215,7 +215,7 @@ def main():
                                ('mount',str(state/'mount'))]:
             argv += ['--mount', f'type=bind,source={state/source},destination={target}' +
                      (',readonly' if source in ('init','mount') else '')]
-        argv += ['--env', f'CONNECTOR_MOUNT={state}/mount', args.vmm_image, 'run',
+        argv += [args.vmm_image, 'run',
                  '--policy=/init/policy.json', f'--connector-mount={state}/mount',
                  '--memory-mib=512', '--vcpus=2', '--disk-mib=256', '--ingress-port=8080',
                  '--resolver-upstream=192.31.196.241:15353', '--exec',

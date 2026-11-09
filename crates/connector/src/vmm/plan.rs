@@ -176,7 +176,8 @@ pub(crate) struct Plan {
     /// The connector-init socket the launch dials.
     pub socket: String,
     /// What the connector mount must hold, with modes.
-    pub mount_files: Vec<(String, u32)>,
+    pub connector_init: (String, u32),
+    pub image_inspect: (String, u32),
     /// TCP ports of the task's built spec, at which the host reaches the
     /// guest through the container's address.
     pub ports: Vec<u32>,
@@ -208,7 +209,8 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         ports,
     } = launch;
 
-    let image_inspection = connector_init::inspect::Image::parse_from_json_slice(inspection)?;
+    let image_inspection = connector_init::inspect::Image::parse_from_json_slice(inspection)
+        .context("parsing image inspection")?;
     let inspected = crate::image::Declarations::parse(&image_inspection)?;
     if !matches!(
         (inspected.runtime_protocol, eligible.task_type),
@@ -226,10 +228,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         );
     }
 
-    let labels = connector_init::inspect::Image::parse_from_json_slice(inspection)
-        .context("parsing image inspection")?
-        .config
-        .labels;
+    let labels = &image_inspection.config.labels;
     let image_hosts = label_hosts(labels.get(EGRESS_HOSTS_LABEL).map(String::as_str))
         .with_context(|| format!("connector image '{image}'"))?;
     let egress = plan_egress(eligible, &image_hosts, egress, *plane);
@@ -237,7 +236,6 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     let name = format!("fv_{id:016x}");
     let mount = format!("{connector_mounts}/mount-{name}");
 
-    check_mount_value(image).with_context(|| format!("connector image {image:?}"))?;
     check_mount_value(&image_inspection.id).context("inspected connector image ID")?;
     check_share(&mount).with_context(|| format!("connector mount {mount:?}"))?;
     if let Some(PersistentDisk {
@@ -309,7 +307,6 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         ));
     }
     create.extend([
-        format!("--env=CONNECTOR_MOUNT={mount}"),
         "--env=LOG_FORMAT=json".to_string(),
         format!("--env=LOG_LEVEL={}", log_level.as_str_name()),
         format!("--platform={}", crate::container::CONNECTOR_PLATFORM),
@@ -394,10 +391,8 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         egress,
         policy_path: format!("{state}/init/policy.json"),
         socket,
-        mount_files: vec![
-            (format!("{mount}/flow-connector-init"), 0o555),
-            (format!("{mount}/image-inspect.json"), 0o444),
-        ],
+        connector_init: (format!("{mount}/flow-connector-init"), 0o555),
+        image_inspect: (format!("{mount}/image-inspect.json"), 0o444),
         ports,
         ingress,
         // Named and labeled, should podman create it and never start it.
@@ -968,7 +963,8 @@ host grant {grant:?}
             policy,
             policy_path,
             socket,
-            mount_files,
+            connector_init,
+            image_inspect,
             // Shown by `ingress` and `create`.
             ports: _,
             verify,
@@ -993,7 +989,7 @@ host grant {grant:?}
             socket.len(),
             modes(directories),
             String::from_utf8_lossy(policy),
-            modes(mount_files),
+            modes(&[connector_init.clone(), image_inspect.clone()]),
             verify.join(" "),
             ingress.join(" "),
             network.join(" "),

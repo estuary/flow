@@ -293,7 +293,7 @@
         },
         "vmm": {
           "title": "Run this capture's connector within a VMM.",
-          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, only on the V2 runtime, and only with\ndeclared `egress`. A data plane which cannot run the connector within a\nVMM fails the invocation: it never falls back to an ordinary container.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only with declared `egress`. A data plane\nwhich cannot run the connector within a VMM fails the invocation: it\nnever falls back to an ordinary container.",
           "type": "boolean"
         }
       },
@@ -685,7 +685,7 @@
         },
         "vmm": {
           "title": "Run this derivation's connector within a VMM.",
-          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, only on the V2 runtime, and only with\ndeclared `egress`. A data plane which cannot run the connector within a\nVMM fails the invocation: it never falls back to an ordinary container.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only with declared `egress`. A data plane\nwhich cannot run the connector within a VMM fails the invocation: it\nnever falls back to an ordinary container.",
           "type": "boolean"
         }
       },
@@ -1218,7 +1218,7 @@
         },
         "vmm": {
           "title": "Run this materialization's connector within a VMM.",
-          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, only on the V2 runtime, and only with\ndeclared `egress`. A data plane which cannot run the connector within a\nVMM fails the invocation: it never falls back to an ordinary container.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only with declared `egress`. A data plane\nwhich cannot run the connector within a VMM fails the invocation: it\nnever falls back to an ordinary container.",
           "type": "boolean"
         }
       },

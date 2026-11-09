@@ -355,8 +355,8 @@ fn read_only_mounts(connector_mount: &str) -> [(&str, &str); 3] {
     ]
 }
 
-/// Container mounts also enforce read-only access: the connector mount may
-/// carry host credentials, and a writable `/rootfs` would grow podman's storage.
+/// Read-only container mounts protect connector-init, image inspection and
+/// task-update credentials from guest writes, and bound rootfs storage use.
 fn check_read_only(connector_mount: &str) -> anyhow::Result<()> {
     for (path, flag) in read_only_mounts(connector_mount) {
         let c_path = std::ffi::CString::new(path)

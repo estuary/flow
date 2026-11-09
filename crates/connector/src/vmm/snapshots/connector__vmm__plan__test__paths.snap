@@ -16,7 +16,7 @@ expression: table
 ## launch
 a relative mounts directory => refused: connector mount "tmp/connector-mounts-0/mount-fv_0123456789abcdef": is not an absolute path
 a comma in the mounts directory => refused: connector mount "/tmp/connector-mounts-0,rw=true/mount-fv_0123456789abcdef": contains a comma, which podman's --mount cannot carry
-a comma in the image => refused: connector image "ghcr.io/estuary/derive-python:stable,rw=true": contains a comma, which podman's --mount cannot carry
+a comma in the image => plans
 a comma in the persistent disk => refused: persistent disk "/var/lib/disk,rw": contains a comma, which podman's --mount cannot carry
 a relative persistent disk guest path => refused: persistent disk guest path "state": is not an absolute path
 a comma in the persistent disk guest path, which is not a mount option => plans

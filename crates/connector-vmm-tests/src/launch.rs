@@ -143,7 +143,6 @@ pub fn reference(launch: &Launch) -> Vec<String> {
         ));
     }
     argv.extend([
-        format!("--env=CONNECTOR_MOUNT={mount}"),
         "--env=LOG_FORMAT=json".to_string(),
         format!("--env=LOG_LEVEL={log_level}"),
         vmm_image.to_string(),

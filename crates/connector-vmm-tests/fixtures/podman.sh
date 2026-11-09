@@ -149,10 +149,11 @@ fi
 # Verify the launcher's completed mount before podman can use it or teardown
 # can remove it. The platform test supplies the expected static binary.
 if [[ "${step}" == create && -e "${TEST}/expected-connector-init" ]]; then
-    mount= name=
+    mount= name= previous=
     for arg in "$@"; do
+        if [[ "${previous}" == --connector-mount ]]; then mount=${arg}; fi
+        previous=${arg}
         case "${arg}" in
-        --env=CONNECTOR_MOUNT=*) mount=${arg#--env=CONNECTOR_MOUNT=} ;;
         --name=*) name=${arg#--name=} ;;
         esac
     done

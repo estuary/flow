@@ -469,10 +469,9 @@ async fn run_vmm(
     })
     .await?;
 
-    let codec = connector_init::inspect::Image::parse_from_json_slice(inspection)
-        .context("parsing image inspection for runtime codec")?
-        .runtime_codec();
-    let inspected = connector_init::inspect::Image::parse_from_json_slice(inspection)?;
+    let inspected = connector_init::inspect::Image::parse_from_json_slice(inspection)
+        .context("parsing image inspection for runtime codec")?;
+    let codec = inspected.runtime_codec();
     let declarations = crate::image::Declarations::parse(&inspected)?;
     let usage_rate = crate::policy::Image::check(crate::Plane::Private, image)?.usage_rate(
         declarations.runtime_protocol,
@@ -676,9 +675,8 @@ fn write_mount(
     connector_init: &std::path::Path,
     inspection: &[u8],
 ) -> anyhow::Result<()> {
-    let [(init, init_mode), (inspect, inspect_mode)] = &plan.mount_files[..] else {
-        unreachable!("a plan's mount holds connector-init and the inspection")
-    };
+    let (init, init_mode) = &plan.connector_init;
+    let (inspect, inspect_mode) = &plan.image_inspect;
     std::fs::copy(connector_init, init)
         .with_context(|| format!("copying {} to {init}", connector_init.display()))?;
     set_mode(init, *init_mode)?;

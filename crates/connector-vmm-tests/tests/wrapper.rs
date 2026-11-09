@@ -423,8 +423,18 @@ fn connector_mount_is_checked_before_create() {
         "expected-connector-init",
         expected.to_str().unwrap(),
     );
-    let env = format!("--env=CONNECTOR_MOUNT={}", mount.display());
-    call(&setup, &["create", "--name=fv_checked", &env, "vmm-image"]);
+    let mount_path = mount.to_str().unwrap();
+    call(
+        &setup,
+        &[
+            "create",
+            "--name=fv_checked",
+            "vmm-image",
+            "run",
+            "--connector-mount",
+            mount_path,
+        ],
+    );
     assert_eq!(
         std::fs::read_to_string(setup.test.join("checked-mounts")).unwrap(),
         "fv_checked\n"
@@ -432,9 +442,19 @@ fn connector_mount_is_checked_before_create() {
     let before = std::fs::read(setup.stubs.join("log")).unwrap();
 
     std::fs::write(mount.join("flow-connector-init"), "wrong binary").unwrap();
-    let output = spawn(&setup, &["create", "--name=fv_wrong", &env, "vmm-image"])
-        .wait_with_output()
-        .unwrap();
+    let output = spawn(
+        &setup,
+        &[
+            "create",
+            "--name=fv_wrong",
+            "vmm-image",
+            "run",
+            "--connector-mount",
+            mount_path,
+        ],
+    )
+    .wait_with_output()
+    .unwrap();
     assert!(!output.status.success());
     assert_eq!(
         std::fs::read(setup.stubs.join("log")).unwrap(),
