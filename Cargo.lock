@@ -2087,7 +2087,6 @@ dependencies = [
  "async-process",
  "bytes",
  "connector-init",
- "connector-vmm-tests",
  "dekaf-connector",
  "derive-sqlite",
  "egress",

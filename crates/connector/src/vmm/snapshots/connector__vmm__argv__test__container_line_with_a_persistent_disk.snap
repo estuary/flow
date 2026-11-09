@@ -1,8 +1,8 @@
 ---
-source: crates/connector-vmm-tests/src/launch.rs
-expression: "launch(Some((\"/var/lib/flow/disks/acmeCo-state\", \"/acmeCo/state\")))"
+source: crates/connector/src/vmm/argv.rs
+expression: "container(Some(super::PersistentDisk\n{\n    host_dir: \"/var/lib/flow/disks/acmeCo-state\", guest_path: \"/acmeCo/state\",\n}))"
 ---
-run
+create
 --rm
 --name=fv_0123456789abcdef
 --network=fv_0123456789abcdef
@@ -23,7 +23,7 @@ run
 --sysctl=net.ipv4.ip_forward=1
 --sysctl=net.ipv4.conf.default.rp_filter=1
 --sysctl=net.ipv6.conf.default.disable_ipv6=1
---memory=1280m
+--memory=1342177280
 --cpus=2
 --mount=type=volume,source=fv_0123456789abcdef,destination=/rootfs,readonly
 --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/init,target=/init,readonly
@@ -33,6 +33,7 @@ run
 --mount=type=bind,source=/var/lib/flow/disks/acmeCo-state,target=/persistent-disk
 --env=LOG_FORMAT=json
 --env=LOG_LEVEL=warn
+--label=acme=anvils
 ghcr.io/estuary/connector-vmm:dev
 run
 --policy

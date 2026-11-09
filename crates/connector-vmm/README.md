@@ -183,9 +183,9 @@ resolver left enabled. That interface name is what places the container
 behind the host boundary, so no other interface on the host may use the
 prefix. Before creating that network the launcher runs `boundary verify` from
 the same VMM image, in the host's network namespace, and launches only if it
-exits zero; nothing is cached between launches. The reference lines for all
-three are in [`crates/connector-vmm-tests`](../connector-vmm-tests/README.md)'s
-`src/launch.rs`; `crates/connector`'s `vmm::launch` is the launcher.
+exits zero; nothing is cached between launches. `crates/connector`'s
+`vmm::argv` builds the lines for all three, and its `vmm::launch` is the
+launcher.
 
 The launcher must own `/sock` at mode 0700: the VMM sets `umask(0)` so the
 unprivileged launcher can connect to `/sock/init.sock`. The socket outlives the

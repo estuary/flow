@@ -3,6 +3,7 @@
 use anyhow::Context;
 use proto_flow::flow;
 
+pub mod argv;
 pub(crate) mod launch;
 mod plan;
 mod record;
@@ -74,9 +75,6 @@ const REPORTED_BUILD: &str = "flow-connector-vmm build ";
 /// Room for the uv cache, the virtual environment and TMPDIR of a Python
 /// connector's project. The file is sparse, so the host pays for what the guest writes.
 const DEFAULT_DISK_MIB: u64 = 2048;
-/// Container memory above guest RAM: the VMM's own allocations, its virtiofs
-/// servers, guest page tables, and page cache charged to the container.
-const DEFAULT_MEMORY_OVERHEAD_MIB: u32 = 256;
 
 const MIB: u64 = 1 << 20;
 
@@ -114,7 +112,7 @@ impl Vmm {
             Some(raw) => disk_mib(&raw).with_context(|| format!("{DISK_MIB} {raw:?}"))?,
         };
         let overhead_mib = match setting(MEMORY_OVERHEAD_MIB)? {
-            None => DEFAULT_MEMORY_OVERHEAD_MIB,
+            None => argv::DEFAULT_MEMORY_OVERHEAD_MIB,
             Some(raw) => {
                 overhead_mib(&raw).with_context(|| format!("{MEMORY_OVERHEAD_MIB} {raw:?}"))?
             }

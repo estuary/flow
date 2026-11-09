@@ -189,10 +189,10 @@ pub(crate) async fn release(
                     .expect("ingress has a VMM image");
                 // Named and labeled for the record, should podman create it
                 // and never start it.
-                let mut args = super::plan::host_boundary(
+                let mut args = super::argv::host_boundary(
                     image,
                     "revoke",
-                    super::plan::Exited::Removed,
+                    super::argv::Exited::Removed,
                     &[
                         format!("--name={}{}", record.name, record::REVOKE_SUFFIX),
                         format!("--label={}={}", record::OWNER_LABEL, record.token),

@@ -157,8 +157,9 @@ Its companion `connector-vmm-kvm-lib.sh` tracks and releases
 resources. Cargo and tests run as the invoking user; privileged operations
 use `sudo -n`.
 
-`src/launch.rs` defines reference container launch lines also used by
-`connector`'s plan tests. `src/run.rs` owns test VMMs and their resources.
+`src/run.rs` owns test VMMs and their resources. It launches them on the
+launcher's lines, from `connector::vmm_argv`, with each test's flags, `--exec`
+and line edits added.
 Tests removing connector images use `run::stop` to check container and
 image-volume removal before removing the image.
 `src/launcher.rs` and `fixtures/podman.sh` provide launcher control and fault

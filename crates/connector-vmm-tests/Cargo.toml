@@ -9,13 +9,14 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+connector = { path = "../connector" }
+
 libc = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
 flow-client-next = { path = "../flow-client-next" }
-connector = { path = "../connector" }
 proto-flow = { path = "../proto-flow" }
 proto-grpc = { path = "../proto-grpc", features = ["capture_client", "connector_client", "derive_client"] }
 service-kit = { path = "../service-kit" }

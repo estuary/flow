@@ -207,7 +207,7 @@ pub fn fixture(relative: &str) -> PathBuf {
 }
 
 /// Stage the per-connector directory and connector mount as a launcher
-/// would, then run the reference line with `spec`'s additions.
+/// would, then `podman run` the launcher's line with `spec`'s additions.
 pub fn start(run: &Run, spec: Spec) -> Vmm {
     let name = format!("fv_{}", random_hex());
     let state_dir = format!("{ROOT}/state/{name}");
@@ -253,15 +253,16 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
     // The bridge's name puts it behind the host boundary. Twelve of the id's
     // sixteen digits, because an interface name holds fifteen bytes.
     record("network", &name);
-    let network = crate::launch::network(
+    let network = connector::vmm_argv::network(
         &name,
-        &format!("{}{}", crate::launch::BRIDGE_PREFIX, &name[3..15]),
+        &format!("{}{}", connector::vmm_argv::BRIDGE_PREFIX, &name[3..15]),
+        &[],
     );
     podman(&network.iter().map(String::as_str).collect::<Vec<_>>());
 
     record("volume", &name);
     let inspected: serde_json::Value = serde_json::from_str(&inspect).unwrap();
-    let rootfs = crate::launch::rootfs(&name, inspected[0]["Id"].as_str().unwrap());
+    let rootfs = connector::vmm_argv::rootfs(&name, inspected[0]["Id"].as_str().unwrap(), &[]);
     podman(&rootfs.iter().map(String::as_str).collect::<Vec<_>>());
 
     let persistent_dir = spec.persistent_disk.map(|_| {
@@ -272,23 +273,31 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
         dir
     });
 
-    let mut argv = crate::launch::reference(&crate::launch::Launch {
-        name: &name,
-        network: &name,
-        state_dir: &state_dir,
-        connector_mount: &connector_mount,
-        vmm_image: &spec.vmm_image,
-        memory_mib: spec.memory_mib,
-        vcpus: 2,
-        disk_mib: spec.disk_mib,
-        log_level: "warn",
-        persistent_disk: spec.persistent_disk.map(|guest_path| {
-            (
-                persistent_dir.as_deref().expect("created above"),
-                guest_path,
-            )
-        }),
-    });
+    let container_mib = spec.memory_mib + connector::vmm_argv::DEFAULT_MEMORY_OVERHEAD_MIB;
+    let mut argv = connector::vmm_argv::container(
+        "run",
+        &connector::vmm_argv::Container {
+            name: &name,
+            state: &state_dir,
+            connector_mount: &connector_mount,
+            vmm_image: &spec.vmm_image,
+            memory: connector::VmmMemory {
+                bytes: u64::from(container_mib) << 20,
+                guest_mib: spec.memory_mib,
+            },
+            cpus: "2",
+            vcpus: 2,
+            disk_mib: spec.disk_mib,
+            log_level: "warn",
+            persistent_disk: spec.persistent_disk.map(|guest_path| {
+                connector::vmm_argv::PersistentDisk {
+                    host_dir: persistent_dir.as_deref().expect("created above"),
+                    guest_path,
+                }
+            }),
+            options: &[],
+        },
+    );
     if !spec.rm {
         argv.retain(|argument| argument != "--rm");
     }
@@ -435,9 +444,21 @@ pub fn remove_container(name: &str) {
     );
 }
 
+/// `boundary ACTION` as a launcher runs it, but in the network namespace
+/// `network` names: `host`, or `ns:<path>` for the tamper test.
 pub fn boundary(run: &Run, network: &str, action: &str) -> std::process::Output {
     let mut argv = vec!["podman".to_string()];
-    argv.extend(crate::launch::boundary(&run.vmm_image, network, action));
+    argv.extend(connector::vmm_argv::host_boundary(
+        &run.vmm_image,
+        action,
+        connector::vmm_argv::Exited::Removed,
+        &[],
+    ));
+    let host = argv
+        .iter()
+        .position(|arg| arg == "--network=host")
+        .expect("a launcher's boundary runs in the host's network namespace");
+    argv[host] = format!("--network={network}");
     sudo_output(&argv.iter().map(String::as_str).collect::<Vec<_>>(), None)
 }
 
@@ -634,7 +655,12 @@ pub struct Ingress {
 pub fn ingress(run: &Run, vmm: &Vmm, ports: &[u16], cidrs: &[&str]) -> Ingress {
     let owner = format!("{}{}", random_hex(), random_hex());
     record("ingress", &format!("{} {owner}", run.vmm_image));
-    let mut args = crate::launch::boundary(&run.vmm_image, "host", "grant");
+    let mut args = connector::vmm_argv::host_boundary(
+        &run.vmm_image,
+        "grant",
+        connector::vmm_argv::Exited::Removed,
+        &[],
+    );
     args.extend([
         format!("--owner={owner}"),
         format!("--bridge=fvm{}", &vmm.name[3..15]),
@@ -651,7 +677,12 @@ pub fn ingress(run: &Run, vmm: &Vmm, ports: &[u16], cidrs: &[&str]) -> Ingress {
 impl Drop for Ingress {
     fn drop(&mut self) {
         let mut args = vec!["podman".to_string()];
-        args.extend(crate::launch::boundary(&self.image, "host", "revoke"));
+        args.extend(connector::vmm_argv::host_boundary(
+            &self.image,
+            "revoke",
+            connector::vmm_argv::Exited::Removed,
+            &[],
+        ));
         args.push(format!("--owner={}", self.owner));
         let _ = sudo_output(&args.iter().map(String::as_str).collect::<Vec<_>>(), None);
     }

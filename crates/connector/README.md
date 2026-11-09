@@ -137,6 +137,7 @@ a defined file layout of resources handed to the connector for its use.
 | `vmm::vmm_for` | Admission decision for requested execution |
 | `vmm::check_pairing`, `BUILD_IDENTITY` | Whether a VMM image's build, as its verify reports it, is this launcher's |
 | `vmm::plan::plan` | Pure plan of a VMM launch |
+| `vmm_argv` (`vmm::argv`) | Pure podman lines of a VMM launch, shared with `crates/connector-vmm-tests` |
 | `vmm::launch::start` | VMM lifecycle, image admission, and credential mount |
 | `Vmm::spawn_recovery`, `VmmRecovery` | A process's background recovery of its `STATE_DIR`, until dropped |
 | `Vmm::recover`, `Vmm::recovery_metrics` | One recovery pass now; the process's pass metrics |
@@ -163,6 +164,7 @@ src/
 ├── derive.rs     # Protocol impl: derive endpoints and RPC, incl. derive-sqlite
 ├── materialize.rs# Protocol impl: materialize endpoints and RPC, incl. Dekaf
 ├── vmm.rs        # VMM configuration and admission
+├── vmm/argv.rs   # Pure podman lines of a launch
 ├── vmm/plan.rs   # Pure launch planning
 ├── vmm/launch.rs # Claimed launch and credential lifecycle
 ├── vmm/record.rs # Durable ownership and locks
@@ -337,14 +339,12 @@ EOF or status. A client which does not drain responses may park the handler.
   launches, and Podman 4.9 unmounts it even when removing a container that never
   started, breaking a sibling's pending OCI mount. Usage labels keep the
   requested image reference.
-  The lines are those of `crates/connector-vmm-tests`'s `src/launch.rs` plus
-  `--platform`, the usage labels, the owner label (below) and
-  `--cgroup-parent`, which the reference leaves to a launcher, and with the
-  configured limits as written. The plan `podman create`s the container the
-  reference `podman run`s, with the same arguments, and the launch then
-  `podman start --attach`es it by ID; `plan_reproduces_the_reference_lines`
-  holds them to it. `LOG_LEVEL` defaults to `info` on local planes and `warn`
-  elsewhere.
+  `vmm::argv` builds the lines, and `crates/connector-vmm-tests` launches its
+  VMMs with the same builders. The plan adds `--platform`, the usage labels,
+  the owner label (below) and `--cgroup-parent`, and gives the configured
+  limits as written. The plan `podman create`s the container, and the launch
+  then `podman start --attach`es it by ID; the suite `podman run`s it.
+  `LOG_LEVEL` defaults to `info` on local planes and `warn` elsewhere.
 
 - **A VMM launch runs as one task, which holds its ownership record.**
   `vmm::launch` pulls and

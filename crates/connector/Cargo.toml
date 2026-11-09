@@ -53,7 +53,6 @@ validator = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
-connector-vmm-tests = { path = "../connector-vmm-tests" }
 # The readiness tests' stand-in connector-init serves a derive connector.
 proto-grpc = { path = "../proto-grpc", features = ["derive_server"] }
 

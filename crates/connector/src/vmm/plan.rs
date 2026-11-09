@@ -3,16 +3,10 @@
 //! network, rootfs volume and container. Planning is pure. It creates nothing and
 //! probes nothing, so whether this host can carry the plan out is for the
 //! launch.
-//!
-//! `crates/connector-vmm-tests` holds the reference lines the plan reproduces;
-//! the README records where and why it departs from them.
 
+use super::argv::{self, Exited, PersistentDisk};
 use super::{Eligible, TaskEgress, Vmm};
 use anyhow::Context;
-
-/// Must match `boundary::BRIDGE_PREFIX` of `flow-connector-vmm`: a bridge so
-/// named is behind the host boundary, and nothing else puts it there.
-const BRIDGE_PREFIX: &str = "fvm";
 
 /// Image label declaring the hosts a connector may reach beyond those it is
 /// eligible with: a JSON array of host names, each bare or `*.`-prefixed.
@@ -20,32 +14,6 @@ const EGRESS_HOSTS_LABEL: &str = "dev.estuary.egress-hosts";
 
 /// `sun_path` holds 108 bytes, its terminating NUL among them.
 const SOCKET_PATH_MAX: usize = 107;
-
-/// The VMM container's only capabilities: its `create` drops podman's
-/// defaults, and adds these. libkrun's virtiofs server runs in the VMM's
-/// process, as host root, so a guest's file operations on a share are the
-/// VMM's own. The guest's privileges, and guest-init's NO_NEW_PRIVS, are
-/// its kernel's affair, and grant nothing here.
-const CAPABILITIES: &[&str] = &[
-    // The server's chown, for a guest's on a writable share.
-    "CAP_CHOWN",
-    // The launcher's 0700 state directories, and image files whatever their
-    // mode, which the server opens for any guest user.
-    "CAP_DAC_OVERRIDE",
-    // The server's chmod and times, for a guest user on its own files.
-    "CAP_FOWNER",
-    // The server's chmod keeps the setgid bit a guest user sets.
-    "CAP_FSETID",
-    // The tap, its addresses and the VMM's nftables, including the
-    // resolver's sets.
-    "CAP_NET_ADMIN",
-    // The resolver's port 53.
-    "CAP_NET_BIND_SERVICE",
-    // The server creates a nonroot guest user's files as that user, and
-    // refuses them without these.
-    "CAP_SETGID",
-    "CAP_SETUID",
-];
 
 /// What a launch's guest may reach: only these names, each with where it was
 /// first declared, and any address within the task's CIDRs.
@@ -136,13 +104,6 @@ pub(crate) struct Launch<'a> {
     pub egress: &'a TaskEgress,
     /// TCP ports of the task's built spec, or none for a request lacking one.
     pub ports: &'a [u32],
-}
-
-/// The task's persistent storage: a host directory, and where the guest
-/// mounts it.
-pub(crate) struct PersistentDisk<'a> {
-    pub host_dir: &'a str,
-    pub guest_path: &'a str,
 }
 
 #[derive(Debug)]
@@ -249,7 +210,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
             .with_context(|| format!("persistent disk guest path {guest_path:?}"))?;
     }
 
-    let interface = format!("{BRIDGE_PREFIX}{}", &name[3..15]);
+    let interface = format!("{}{}", argv::BRIDGE_PREFIX, &name[3..15]);
     let state = format!("{}/{name}", vmm.state_dir);
     let socket = format!("{state}/sock/init.sock");
     let token = format!("{token:032x}");
@@ -273,70 +234,33 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         .as_ref()
         .expect("vmm_for refuses a VMM which its memory limit cannot size");
 
-    let mut create: Vec<String> = vec![
-        "create".to_string(),
-        "--rm".to_string(),
-        format!("--name={name}"),
-        format!("--network={name}"),
-        "--log-driver=none".to_string(),
-        "--read-only".to_string(),
-        // Without it podman mounts writable tmpfs at /tmp, /run and /var/tmp.
-        "--read-only-tmpfs=false".to_string(),
-        "--device=/dev/kvm".to_string(),
-        "--device=/dev/net/tun".to_string(),
-        "--cap-drop=all".to_string(),
-    ];
-    create.extend(CAPABILITIES.iter().map(|cap| format!("--cap-add={cap}")));
-    create.extend([
-        "--sysctl=net.ipv4.ip_forward=1".to_string(),
-        "--sysctl=net.ipv4.conf.default.rp_filter=1".to_string(),
-        // /proc/sys is read-only in the container, so the tap can only
-        // inherit disabled IPv6 from here.
-        "--sysctl=net.ipv6.conf.default.disable_ipv6=1".to_string(),
-        format!("--memory={}", memory.bytes),
-        format!("--cpus={}", vmm.cpu_limit),
-        format!("--mount=type=volume,source={name},destination=/rootfs,readonly"),
-        format!("--mount=type=bind,source={state}/init,target=/init,readonly"),
-        format!("--mount=type=bind,source={mount},target={mount},readonly"),
-        format!("--mount=type=bind,source={state}/sock,target=/sock"),
-        format!("--mount=type=bind,source={state}/scratch,target=/scratch-backing"),
-    ]);
-    if let Some(PersistentDisk { host_dir, .. }) = persistent_disk {
-        create.push(format!(
-            "--mount=type=bind,source={host_dir},target=/persistent-disk"
-        ));
-    }
-    create.extend([
-        "--env=LOG_FORMAT=json".to_string(),
-        format!("--env=LOG_LEVEL={}", log_level.as_str_name()),
+    let mut options = vec![
         format!("--platform={}", crate::container::CONNECTOR_PLATFORM),
         format!("--label=image={image}"),
         format!("--label=task-name={task_name}"),
         format!("--label=task-type={}", eligible.task_type.as_str_name()),
         owner.clone(),
         state_dir_label.clone(),
-    ]);
+    ];
     if let Some(cgroup_parent) = &vmm.cgroup_parent {
-        create.push(format!("--cgroup-parent={cgroup_parent}"));
+        options.push(format!("--cgroup-parent={cgroup_parent}"));
     }
-    create.extend([
-        vmm_image.to_string(),
-        "run".to_string(),
-        "--policy".to_string(),
-        "/init/policy.json".to_string(),
-        "--connector-mount".to_string(),
-        mount.clone(),
-        "--memory-mib".to_string(),
-        memory.guest_mib.to_string(),
-        "--vcpus".to_string(),
-        vmm.vcpus.to_string(),
-        "--disk-mib".to_string(),
-        vmm.disk_mib.to_string(),
-    ]);
-    if let Some(PersistentDisk { guest_path, .. }) = persistent_disk {
-        create.push("--persistent-disk".to_string());
-        create.push(guest_path.to_string());
-    }
+    let mut create = argv::container(
+        "create",
+        &argv::Container {
+            name: &name,
+            state: &state,
+            connector_mount: &mount,
+            vmm_image,
+            memory: *memory,
+            cpus: &vmm.cpu_limit,
+            vcpus: vmm.vcpus,
+            disk_mib: vmm.disk_mib,
+            log_level: log_level.as_str_name(),
+            persistent_disk: *persistent_disk,
+            options: &options,
+        },
+    );
 
     // Connector-init's control port is never exposed to the host.
     let ports: Vec<u32> = ports
@@ -357,7 +281,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     if !ports.is_empty() || !cidrs.is_empty() {
         // Kept once it exits: its labels may be the only record of a grant
         // whose launch was released before podman created it.
-        ingress = host_boundary(
+        ingress = argv::host_boundary(
             vmm_image,
             "grant",
             Exited::Kept,
@@ -396,7 +320,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         ports,
         ingress,
         // Named and labeled, should podman create it and never start it.
-        verify: host_boundary(
+        verify: argv::host_boundary(
             vmm_image,
             "verify",
             Exited::Removed,
@@ -406,29 +330,9 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
                 state_dir_label.clone(),
             ],
         ),
-        network: vec![
-            "network".to_string(),
-            "create".to_string(),
-            "--driver=bridge".to_string(),
-            format!("--interface-name={interface}"),
-            owner.clone(),
-            state_dir_label.clone(),
-            name.clone(),
-        ],
-        // type=image shares a mounted image across launches. Podman 4.9
-        // unmounts it even when removing a container which never started,
-        // invalidating a sibling's pending OCI mount. The image volume driver
-        // gives this launch its own storage container instead.
-        rootfs: vec![
-            "volume".to_string(),
-            "create".to_string(),
-            "--driver=image".to_string(),
-            // A concurrent pull must not replace the inspected code.
-            format!("--opt=image={}", image_inspection.id),
-            owner,
-            state_dir_label,
-            name.clone(),
-        ],
+        network: argv::network(&name, &interface, &[owner.clone(), state_dir_label.clone()]),
+        // A concurrent pull must not replace the inspected code.
+        rootfs: argv::rootfs(&name, &image_inspection.id, &[owner, state_dir_label]),
         create,
         name,
         interface,
@@ -544,37 +448,6 @@ fn check_mount_value(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// What becomes of a boundary operation's container once it exits.
-#[derive(Clone, Copy, PartialEq)]
-pub(super) enum Exited {
-    Removed,
-    Kept,
-}
-
-/// Run a host-side boundary operation from the same image as the VMM, with
-/// `options` for podman's `run`.
-pub(super) fn host_boundary(
-    image: &str,
-    action: &str,
-    exited: Exited,
-    options: &[String],
-) -> Vec<String> {
-    let mut args: Vec<String> = vec!["run".into()];
-    if exited == Exited::Removed {
-        args.push("--rm".into());
-    }
-    args.extend([
-        "--network=host".into(),
-        "--log-driver=none".into(),
-        "--read-only".into(),
-        "--cap-drop=all".into(),
-        "--cap-add=CAP_NET_ADMIN".into(),
-    ]);
-    args.extend_from_slice(options);
-    args.extend([image.into(), "boundary".into(), action.into()]);
-    args
-}
-
 #[cfg(test)]
 mod test {
     use super::{Launch, PersistentDisk, Plan};
@@ -662,82 +535,52 @@ mod test {
         }
     }
 
-    /// Given the reference's own inputs, the plan's lines are the reference
-    /// lines plus the arguments the reference leaves to a launcher, and the
-    /// plan creates the container the reference runs. The reference sizes the
-    /// container from guest RAM and this plan sizes guest RAM from the
-    /// container's limit, so the inputs are chosen to meet.
+    /// Configuration and ownership inputs beyond the default plan snapshot.
     #[test]
-    fn plan_reproduces_the_reference_lines() {
-        use connector_vmm_tests::launch as reference;
-
-        assert_eq!(super::BRIDGE_PREFIX, reference::BRIDGE_PREFIX);
-        assert_eq!(
-            crate::vmm::DEFAULT_MEMORY_OVERHEAD_MIB,
-            reference::MEMORY_OVERHEAD_MIB
-        );
-
+    fn plan_lines() {
         let vmm = vmm(&[
             ("CONNECTOR_MEMORY_LIMIT", "1280m"),
-            ("CONNECTOR_CPU_LIMIT", "2"),
+            ("CONNECTOR_CPU_LIMIT", "1.5"),
             ("CONNECTOR_VMM_DISK_MIB", "4096"),
+            ("CONNECTOR_VMM_MEMORY_OVERHEAD_MIB", "128"),
             ("CONNECTOR_CGROUP_PARENT", "estuary-connectors.slice"),
         ]);
         let inspection = inspection(json!({}), json!({}));
+        let owner = "--label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff";
+        let state_dir = "--label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm";
+        let matching = |line: &[String], prefixes: &[&str]| -> Vec<String> {
+            line.iter()
+                .filter(|arg| prefixes.iter().any(|prefix| arg.starts_with(prefix)))
+                .cloned()
+                .collect()
+        };
+        let launcher = [
+            "--name=fv_0123456789abcdef-",
+            "--platform=",
+            "--label=",
+            "--cgroup-parent=",
+        ];
 
         for persistent_disk in [
             None,
-            Some(("/var/lib/flow/disks/acmeCo-state", "/acmeCo/state")),
+            Some(PersistentDisk {
+                host_dir: "/var/lib/flow/disks/acmeCo-state",
+                guest_path: "/acmeCo/state",
+            }),
         ] {
             let plan = super::plan(
                 &vmm,
                 &Launch {
-                    persistent_disk: persistent_disk.map(|(host_dir, guest_path)| PersistentDisk {
-                        host_dir,
-                        guest_path,
-                    }),
+                    persistent_disk,
+                    ports: &[8080],
                     ..launch(&inspection)
                 },
             )
             .expect("plans");
+            let with_disk = persistent_disk.is_some();
 
-            let expected = reference::reference(&reference::Launch {
-                name: &plan.name,
-                network: &plan.name,
-                state_dir: &format!("/var/lib/flow/connector-vmm/{}", plan.name),
-                connector_mount: &plan.mount,
-                vmm_image: VMM_IMAGE_ID,
-                memory_mib: 1024,
-                vcpus: 2,
-                disk_mib: 4096,
-                log_level: "warn",
-                persistent_disk,
-            });
-            // Compare byte counts so equivalent memory spellings agree.
-            let expected: Vec<String> = expected
-                .into_iter()
-                .map(|arg| match arg.as_str() {
-                    "--memory=1280m" => format!("--memory={}", 1280 << 20),
-                    _ => arg,
-                })
-                .collect();
-            let launcher_only = |arg: &String| {
-                ["--platform=", "--label=", "--cgroup-parent="]
-                    .iter()
-                    .any(|prefix| arg.starts_with(prefix))
-            };
-            let owner = "--label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff";
-            let state_dir = "--label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm";
-
-            let (added, create): (Vec<String>, Vec<String>) =
-                plan.create.iter().cloned().partition(launcher_only);
             assert_eq!(
-                (create[0].as_str(), expected[0].as_str()),
-                ("create", "run")
-            );
-            assert_eq!(create[1..], expected[1..], "{persistent_disk:?}");
-            assert_eq!(
-                added,
+                matching(&plan.create, &launcher),
                 [
                     "--platform=linux/amd64",
                     "--label=image=ghcr.io/estuary/derive-python:stable",
@@ -748,28 +591,78 @@ mod test {
                     "--cgroup-parent=estuary-connectors.slice",
                 ]
             );
-
-            let (added, network): (Vec<String>, Vec<String>) =
-                plan.network.iter().cloned().partition(launcher_only);
-            assert_eq!(network, reference::network(&plan.name, &plan.interface));
-            assert_eq!(added, [owner, state_dir]);
-            let (added, rootfs): (Vec<String>, Vec<String>) =
-                plan.rootfs.iter().cloned().partition(launcher_only);
-            assert_eq!(rootfs, reference::rootfs(&plan.name, IMAGE_ID));
-            assert_eq!(added, [owner, state_dir]);
-            let (added, verify): (Vec<String>, Vec<String>) = plan
-                .verify
-                .iter()
-                .cloned()
-                .partition(|arg| launcher_only(arg) || arg.starts_with("--name="));
-            assert_eq!(verify, reference::boundary(VMM_IMAGE_ID, "host", "verify"));
+            assert_eq!(matching(&plan.network, &launcher), [owner, state_dir]);
+            assert_eq!(matching(&plan.rootfs, &launcher), [owner, state_dir]);
             assert_eq!(
-                added,
-                [
-                    format!("--name={}-verify", plan.name).as_str(),
-                    owner,
-                    state_dir
-                ]
+                matching(&plan.verify, &launcher),
+                ["--name=fv_0123456789abcdef-verify", owner, state_dir]
+            );
+            assert_eq!(
+                matching(&plan.ingress, &launcher),
+                ["--name=fv_0123456789abcdef-ingress", owner, state_dir]
+            );
+
+            // The requested tags only label the container.
+            assert_eq!(
+                matching(&plan.rootfs, &["--opt="]),
+                ["--opt=image=sha256:0123abcd"]
+            );
+            for line in [&plan.verify, &plan.ingress, &plan.create] {
+                assert!(line.iter().any(|arg| arg == VMM_IMAGE_ID), "{line:?}");
+            }
+            for line in [
+                &plan.verify,
+                &plan.ingress,
+                &plan.network,
+                &plan.rootfs,
+                &plan.create,
+            ] {
+                assert!(
+                    !line.iter().any(|arg| arg.contains("connector-vmm:dev")
+                        || (arg.contains("derive-python") && !arg.starts_with("--label=image="))),
+                    "{line:?}"
+                );
+            }
+
+            assert_eq!(
+                matching(&plan.create, &["--memory=", "--cpus="]),
+                ["--memory=1342177280", "--cpus=1.5"]
+            );
+            let disk_mount =
+                "--mount=type=bind,source=/var/lib/flow/disks/acmeCo-state,target=/persistent-disk";
+            assert_eq!(
+                plan.create.iter().any(|arg| arg == disk_mount),
+                with_disk,
+                "{:?}",
+                plan.create
+            );
+            let image = plan
+                .create
+                .iter()
+                .position(|arg| arg == VMM_IMAGE_ID)
+                .expect("the VMM image");
+            let mut vmm_run = vec![
+                "run",
+                "--policy",
+                "/init/policy.json",
+                "--connector-mount",
+                "/tmp/connector-mounts-0/mount-fv_0123456789abcdef",
+                // 1280 MiB, less the configured 128 of overhead.
+                "--memory-mib",
+                "1152",
+                "--vcpus",
+                "2",
+                "--disk-mib",
+                "4096",
+            ];
+            if with_disk {
+                vmm_run.extend(["--persistent-disk", "/acmeCo/state"]);
+            }
+            vmm_run.push("--ingress-port=8080");
+            assert_eq!(
+                plan.create[image + 1..],
+                vmm_run,
+                "persistent disk {with_disk}"
             );
         }
     }

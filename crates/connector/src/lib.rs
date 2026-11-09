@@ -43,7 +43,7 @@ pub use router::{LOCAL_ISSUER, ServiceRouter};
 pub use service::{Service, TaskUpdate};
 pub use vmm::{
     BUILD_IDENTITY, Memory as VmmMemory, REPORTED_IDENTITY, Recovery as VmmRecovery,
-    RecoveryMetrics as VmmRecoveryMetrics, Vmm,
+    RecoveryMetrics as VmmRecoveryMetrics, Vmm, argv as vmm_argv,
 };
 
 /// Build a connector router for tests and other offline callers which need no
