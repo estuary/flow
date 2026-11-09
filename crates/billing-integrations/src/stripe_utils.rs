@@ -2,6 +2,22 @@ use billing_types::{InvoiceMetadata, InvoiceType};
 use num_format::{Locale, ToFormattedString};
 use std::ops::{Deref, DerefMut};
 
+pub(crate) fn verify_invoice_customer(
+    invoice: &stripe::Invoice,
+    expected_customer: Option<&str>,
+) -> anyhow::Result<()> {
+    let expected = expected_customer
+        .ok_or_else(|| anyhow::anyhow!("No recorded Stripe customer for invoice {}", invoice.id))?;
+    let actual = invoice.customer.as_ref().map(|customer| customer.id());
+    anyhow::ensure!(
+        actual.as_ref().map(|id| id.as_str()) == Some(expected),
+        "Stripe invoice {} customer {:?} does not match recorded customer {expected}",
+        invoice.id,
+        actual
+    );
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub struct Invoice(stripe::Invoice, InvoiceMetadata);
 
