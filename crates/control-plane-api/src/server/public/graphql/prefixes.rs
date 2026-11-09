@@ -3,6 +3,7 @@ use async_graphql::{Context, types::connection};
 
 /// A prefix to which the user is authorized.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
+#[graphql(complex)]
 pub struct PrefixRef {
     /// The prefix to which the user is authorized.
     pub prefix: models::Prefix,
@@ -12,12 +13,21 @@ pub struct PrefixRef {
     /// entirely from the `bundles` column rather than the legacy column.
     ///
     /// Exists solely so the dashboard's read/write/admin prefix-bucket
-    /// store keeps working until it migrates to consuming `capabilities`
+    /// store keeps working until it migrates to consuming `capabilityBits`
     /// directly. Once that migration lands, this field and its derivation
     /// can be deleted.
     pub user_capability: models::Capability,
     /// Fine-grained capabilities the user has at this prefix.
+    #[graphql(deprecation = "Use capabilityBits instead.")]
     pub capabilities: Vec<models::authz::Capability>,
+}
+
+#[async_graphql::ComplexObject]
+impl PrefixRef {
+    /// Fine-grained capabilities the user has at this prefix.
+    async fn capability_bits(&self) -> &[models::authz::Capability] {
+        &self.capabilities
+    }
 }
 
 #[derive(Debug, Clone, async_graphql::InputObject)]
