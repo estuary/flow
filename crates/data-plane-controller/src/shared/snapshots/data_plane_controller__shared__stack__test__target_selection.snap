@@ -1,0 +1,63 @@
+---
+source: crates/data-plane-controller/src/shared/stack.rs
+expression: cases
+---
+[
+    (
+        "tier 0",
+        Some(
+            (
+                "reactor:tier-0",
+                5,
+            ),
+        ),
+    ),
+    (
+        "tier 1",
+        Some(
+            (
+                "reactor:tier-50",
+                5,
+            ),
+        ),
+    ),
+    (
+        "tier 50",
+        Some(
+            (
+                "reactor:tier-50",
+                5,
+            ),
+        ),
+    ),
+    (
+        "tier 80",
+        Some(
+            (
+                "reactor:tier-100",
+                5,
+            ),
+        ),
+    ),
+    (
+        "pinned target wins over a lower band",
+        Some(
+            (
+                "reactor:pinned",
+                -1,
+            ),
+        ),
+    ),
+    (
+        "no target for the role",
+        None,
+    ),
+    (
+        "already at target",
+        None,
+    ),
+    (
+        "scaled down",
+        None,
+    ),
+]

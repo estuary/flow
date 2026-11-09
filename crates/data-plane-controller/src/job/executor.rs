@@ -169,8 +169,9 @@ impl automations::Executor for Executor {
         let row_state =
             fetch_row_state(pool, task_id, &self.controller_config.secrets_provider).await?;
         let releases = fetch_releases(pool, row_state.data_plane_id).await?;
+        let targets = fetch_targets(pool, row_state.data_plane_id).await?;
 
-        self.on_poll(task_id, state, inbox, releases, row_state)
+        self.on_poll(task_id, state, inbox, releases, targets, row_state)
             .await
     }
 }
@@ -209,6 +210,7 @@ impl Executor {
         state: &mut Option<State>,
         inbox: &mut VecDeque<(models::Id, Option<Message>)>,
         releases: Vec<stack::Release>,
+        targets: Vec<stack::Target>,
         row_state: State,
     ) -> anyhow::Result<Outcome> {
         if state.is_none() {
@@ -217,7 +219,10 @@ impl Executor {
         let state_ref = state.as_mut().unwrap();
 
         let sleep = match state_ref.status {
-            Status::Idle => self.on_idle(state_ref, inbox, releases, row_state).await?,
+            Status::Idle => {
+                self.on_idle(state_ref, inbox, releases, targets, row_state)
+                    .await?
+            }
             status => {
                 // Refresh desired links on every poll. Generation comparison is
                 // required in addition to config comparison: A -> B -> A between
@@ -299,6 +304,7 @@ impl Executor {
         state: &mut State,
         inbox: &mut VecDeque<(models::Id, Option<Message>)>,
         releases: Vec<stack::Release>,
+        targets: Vec<stack::Target>,
         row_state: State,
     ) -> anyhow::Result<std::time::Duration> {
         while let Some((from_id, message)) = inbox.pop_front() {
@@ -366,7 +372,7 @@ impl Executor {
             state.pending_refresh = false;
             Ok(POLL_AGAIN)
         } else if !state.pending_converge
-            && (state.stack.config.model).evaluate_release_steps(&releases)
+            && (state.stack.config.model).evaluate_release_steps(&releases, &targets)
         {
             // We intended to converge, but will first write back the updated config.
             state.status = Status::Idle;
@@ -544,6 +550,8 @@ async fn fetch_releases(
             max_tier
         FROM data_plane_releases
         WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')
+        -- The first match applies, so a data-plane's own releases win.
+        ORDER BY data_plane_id = '00:00:00:00:00:00:00:00', max_tier, prev_image, next_image
         "#,
         data_plane_id as models::Id,
     )
@@ -552,6 +560,41 @@ async fn fetch_releases(
     .context("failed to fetch data-plane releases")?;
 
     Ok(rows)
+}
+
+async fn fetch_targets(
+    pool: &sqlx::PgPool,
+    data_plane_id: models::Id,
+) -> anyhow::Result<Vec<stack::Target>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            role,
+            max_tier,
+            image,
+            step,
+            data_plane_id != '00:00:00:00:00:00:00:00' AS "plane_specific!"
+        FROM data_plane_targets
+        WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')
+        "#,
+        data_plane_id as models::Id,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to fetch data-plane targets")?;
+
+    rows.into_iter()
+        .map(|row| {
+            Ok(stack::Target {
+                role: serde_json::from_value(serde_json::Value::String(row.role))
+                    .context("invalid data-plane target role")?,
+                max_tier: row.max_tier,
+                image: row.image,
+                step: row.step,
+                plane_specific: row.plane_specific,
+            })
+        })
+        .collect()
 }
 
 async fn encrypt_hmac_keys(kms_key: &str, keys: Vec<String>) -> anyhow::Result<serde_json::Value> {

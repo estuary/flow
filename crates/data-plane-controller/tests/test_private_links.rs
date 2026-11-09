@@ -51,6 +51,7 @@ async fn test_private_links() {
                 &mut state,
                 &mut inbox,
                 Vec::new(),
+                Vec::new(),
                 row_state.clone(),
             )
             .await
@@ -95,6 +96,7 @@ async fn test_private_links() {
                 models::Id::new([42; 8]), // Task ID.
                 &mut state,
                 &mut inbox,
+                Vec::new(),
                 Vec::new(),
                 row_state.clone(),
             )
@@ -149,6 +151,7 @@ async fn generation_only_change_queues_converge() {
             &mut state,
             &mut inbox,
             Vec::new(),
+            Vec::new(),
             row_state,
         )
         .await
@@ -178,6 +181,7 @@ async fn generation_only_change_queues_converge() {
             models::Id::new([42; 8]),
             &mut state,
             &mut inbox,
+            Vec::new(),
             Vec::new(),
             row_state,
         )
