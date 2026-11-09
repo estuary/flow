@@ -96,6 +96,7 @@ connector-init over a guest's vsock connection.
   if this checkout was unmodified, and images whose verify reports another
   commit's build, or none, refused before any network. Other launcher tests
   enforce pairing only on such a run, and allow unpaired images otherwise.
+  `repeated_specs_through_the_podman_api` covers the reactor's API attachment.
   `recovery_revokes_with_an_unpaired_image` revokes a record's grant with
   the image it names, without a verify.
   Release state-machine tests in `connector` cover

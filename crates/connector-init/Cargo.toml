@@ -31,7 +31,6 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tokio-vsock = { workspace = true }
 tonic = { workspace = true }
-tonic-health = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 

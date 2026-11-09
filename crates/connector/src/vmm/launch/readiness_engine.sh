@@ -75,6 +75,9 @@ case "$1 ${2:-}" in
             cat "$dir/stderr" >&2
             echo written >>"$dir/events"
             ;;
+        close-stderr)
+            exec 2>&-
+            ;;
         exit | rm)
             echo "$command" >"$dir/ended"
             exit "$status"

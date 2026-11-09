@@ -420,8 +420,8 @@ credentials, `task-update.json`.
 | "pulling VMM image ..." or "inspecting VMM image ..." (FailedPrecondition) | The engine has no `CONNECTOR_VMM_IMAGE` and cannot pull it, or cannot name its ID. |
 | "VMM image ... is not paired with this launcher's build: ..." | `CONNECTOR_VMM_IMAGE` is not the image of this launcher's build: another commit's image, or a launcher or image built from a modified tree, without mise, or before pairing. The rest of the message says which. |
 | "this data plane cannot size a VMM: CONNECTOR_MEMORY_LIMIT ..." | The memory limit cannot size a VMM's guest (see [Configuration](#configuration)). Ordinary tasks are unaffected. |
-| "flow-connector-vmm: KVM is unavailable to this VMM: ..." then "the VMM exited (exit status: 2) before flow-connector-init answered its health check" | `/dev/kvm` missing or unusable in the VMM container. |
-| "the VMM exited (exit status: 0) before flow-connector-init answered its health check" | Possible cause: connector-init's idle watchdog ended the guest because no connector RPC reached it within 5 seconds of its start. Check debug logs for connector-init's start and exit times. |
+| "flow-connector-vmm: KVM is unavailable to this VMM: ..." then "the VMM exited (exit status: 2) before flow-connector-init was ready" | `/dev/kvm` missing or unusable in the VMM container. |
+| "the VMM exited (exit status: 0) before flow-connector-init was ready" | Possible cause: connector-init's idle watchdog ended the guest because no connector RPC reached it within 5 seconds of its start. Check debug logs for connector-init's start and exit times. |
 | "timeout waiting for the VMM to become ready" | No readiness within 60 seconds. |
 
 Egress: each launch logs the egress it applies, with each name's source, and

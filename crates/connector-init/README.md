@@ -13,9 +13,8 @@ codec the image speaks.
   structured) and a current-thread Tokio runtime, then calls `run`.
   Runtime errors are logged and exit with status 1.
 - `src/lib.rs`: `Args` and `run`. Binds the listener, writes the readiness
-  byte, parses the image inspection, and serves the three services and
-  `tonic-health`'s standard `grpc.health.v1.Health` until the `watchdog` sees
-  no connector RPC for a while.
+  byte, parses the image inspection, and serves the three services until the
+  `watchdog` sees no connector RPC for a while.
 - `src/inspect.rs`: the `docker inspect` output the launcher writes into the
   container; retains the image ID used to pin VMM roots and yields the image's
   real argv and its `FLOW_RUNTIME_CODEC`.
@@ -44,15 +43,11 @@ signal, and nothing else here may write a line beginning with a space. That
 includes usage errors, so `main` re-frames clap's output behind the binary's
 name rather than letting clap print its indented argument lists.
 
-A VMM's launcher ignores the byte, since anything in the guest may write to
-its console, and waits instead for the server's health (`""`) to answer
-SERVING. Health is served only with the proxies, once the image is parsed, so
-that answer means init serves the connector's protocol. It runs no connector.
+The VMM launcher waits for the same byte before dialing the Unix socket that
+libkrun forwards to the guest's vsock listener.
 
 ## Testing
 
-`src/health_test.rs` runs `run` over TCP with an entrypoint that cannot be
-executed: health is SERVING, and a capture RPC fails to start the connector.
 `src/main.rs` checks in a subprocess that a listener bind failure exits with
 status 1 and reports its cause.
 

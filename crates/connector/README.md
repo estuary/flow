@@ -542,28 +542,22 @@ EOF or status. A client which does not drain responses may park the handler.
   reserved port 49092 is never authorized. The control socket's parent has mode
   0700, restricting access to the launcher's host UID and root.
 
-- **A VMM is ready when connector-init's health is SERVING.** The launch
-  dials `init.sock` and calls standard `grpc.health.v1.Health/Check` for the
-  whole server, retrying failures every 100ms within one 60-second deadline.
-  The `start --attach` client's exit ends the wait, and its error carries the
-  client's exit status. Stderr is only logging.
-
-- **A dial left unanswered for 1s is abandoned for another.** libkrun holds a
-  dial made before the guest listens, unanswered, until its vsock reaper
-  closes it 5s later. connector-init's watchdog ends it 5s after it starts
-  serving unless a connector RPC has begun, so waiting such a dial out leaves
-  the Spec too little time: the VMM exits before readiness, or drops the Spec.
+- **Connector-init's stderr space gates a VMM's dial.** Init emits it after
+  its guest listener is bound and listening. The launch waits for that byte,
+  then dials `init.sock` once. Waiting and dialing share a 60-second deadline;
+  the dial also has a 5-second connect timeout. The attached client's exit or
+  cancellation ends the wait. Diagnostics are drained before the terminal
+  error. The session's first Spec RPC starts the connector and must succeed
+  before the runtime reports Started.
 
 - **VMM release deadlines use a paused clock in tests.** `vmm/release.rs`
   checks each command's deadline and snapshots failure-state transitions.
   The KVM suite checks real command termination and subsequent recovery.
 - **VMM readiness is tested without KVM.** `vmm/launch/readiness_tests.rs`
-  exercises the real launcher with a scripted engine and Unix socket peers,
-  checking startup, cancellation, the dial's deadline, a health which is not
-  SERVING, a dial held unanswered as libkrun holds one, and resource cleanup.
-  A scripted peer also serves derive Spec: health flapping from NOT_SERVING
-  to SERVING is redialed, and a guest which dies once SERVING, before or
-  while its first Spec is held, fails that Spec and is released.
+  exercises the real launcher with a scripted engine and Unix socket peers.
+  It checks the stderr marker, a single dial and successful Spec, premature
+  markers, early failures, cancellation, the readiness deadline, and cleanup.
+  A guest which dies after readiness fails its first Spec and is released.
 
 - **Image admission identifies images by repository.** The public-plane
   refusal of Python captures, derivations and materializations applies to

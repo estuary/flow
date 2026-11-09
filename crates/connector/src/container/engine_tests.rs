@@ -257,6 +257,10 @@ fn engine_environment_child() {
             error
                 .to_string()
                 .contains("exited (exit status: 42) before flow-connector-init")
+                || error
+                    .to_string()
+                    .contains("closed stderr before flow-connector-init started"),
+            "{error:#}"
         );
         assert_eq!(vmm.recover().await, 0);
     });

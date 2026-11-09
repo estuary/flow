@@ -47,7 +47,6 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
-tonic-health = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 validator = { workspace = true }

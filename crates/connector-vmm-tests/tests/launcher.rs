@@ -991,6 +991,30 @@ fn spec_through_the_vmm() {
     );
 }
 
+/// Exercise stderr readiness through the API attachment used by reactors.
+#[test]
+fn repeated_specs_through_the_podman_api() {
+    let (run, root, runtime) = setup();
+    let api = launcher::Api::start(&root, false);
+    launcher::remote(&root, &api.url);
+    let router = router(vmm(&root, &run.vmm_image));
+
+    for attempt in 0..4 {
+        let logs = Logs::default();
+        let started = unary(&runtime, &router, &logs, spec(&run.derive_python_image))
+            .unwrap_or_else(|err| panic!("API launch {attempt}: {err:#}\n{:#?}", logs.messages()));
+        assert_started(&started);
+        for call in launcher::calls(&root) {
+            if let Some(name) = call
+                .strip_prefix("network create ")
+                .and_then(|args| args.rsplit(' ').next())
+            {
+                assert_eq!(launcher::leftovers(&root, Some(name)), Vec::<String>::new());
+            }
+        }
+    }
+}
+
 /// A Spec of `image` as the Python connector of `task_type`, whose project
 /// is empty. A Python connector answers Spec from its task's declared spec,
 /// without staging or running the project.
@@ -1713,9 +1737,9 @@ fn a_failed_start_ends_the_wait_for_readiness() {
     let err =
         held(&root, "readiness", &mut response_rx).expect_err("a failed start is never ready");
     assert!(
-        err.contains(
-            "the VMM exited (exit status: 125) before flow-connector-init answered its health check"
-        ) && err.contains("podman.sh: failing start, as the test asks"),
+        (err.contains("the VMM exited (exit status: 125) before flow-connector-init was ready")
+            || err.contains("the VMM closed stderr before flow-connector-init started"))
+            && err.contains("podman.sh: failing start, as the test asks"),
         "{err}"
     );
     std::mem::drop((request_tx, response_rx));
@@ -2176,9 +2200,8 @@ fn a_vmm_which_fails_refuses_the_launch() {
     let (code, message) = status(&err);
     assert_eq!(code, tonic::Code::Unknown, "{message}");
     assert!(
-        message.contains(
-            "the VMM exited (exit status: 2) before flow-connector-init answered its health check"
-        ),
+        message.contains("the VMM exited (exit status: 2) before flow-connector-init was ready")
+            || message.contains("the VMM closed stderr before flow-connector-init started"),
         "{message}"
     );
     let messages = logs.messages();
