@@ -672,7 +672,7 @@ impl automations::Outcome for Outcome {
             dekaf_registry_address,
         }) = self.publish_exports
         {
-            let encrypted_hmac_keys = encrypt_hmac_keys(&self.kms_key, hmac_keys.clone()).await?;
+            let encrypted_hmac_keys = encrypt_hmac_keys(&self.kms_key, hmac_keys).await?;
 
             _ = sqlx::query!(
                 r#"
@@ -682,14 +682,14 @@ impl automations::Outcome for Outcome {
                     cidr_blocks = $5,
                     gcp_psc_endpoints = $6,
                     gcp_service_account_email = $7,
-                    hmac_keys = $8,
-                    encrypted_hmac_keys = $9,
-                    bastion_tunnel_private_key = $10,
-                    azure_application_name = $11,
-                    azure_link_endpoints = $12,
-                    azure_application_client_id = $13,
-                    dekaf_address = $14,
-                    dekaf_registry_address = $15
+                    hmac_keys = '{}',
+                    encrypted_hmac_keys = $8,
+                    bastion_tunnel_private_key = $9,
+                    azure_application_name = $10,
+                    azure_link_endpoints = $11,
+                    azure_application_client_id = $12,
+                    dekaf_address = $13,
+                    dekaf_registry_address = $14
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -699,7 +699,6 @@ impl automations::Outcome for Outcome {
                 &cidr_blocks,
                 &gcp_psc_endpoints,
                 gcp_service_account_email,
-                &hmac_keys,
                 &encrypted_hmac_keys,
                 bastion_tunnel_private_key,
                 azure_application_name,

@@ -1,7 +1,7 @@
 mod alerts;
 pub mod connectors;
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use crate::DiscoverExecutor;
@@ -417,14 +417,8 @@ impl TestHarness {
             select 1 as "something: bool";
             "##).fetch_one(&self.pool).await.expect("failed to setup test connectors");
 
-        self.add_data_plane(
-            "ops/dp/public/test",
-            "test.dp.estuary-data.com",
-            vec!["dGVzdA==".to_string()],
-        )
-        .await;
-        sqlx::query("UPDATE data_planes SET hmac_keys = ARRAY['dGVzdA=='] WHERE data_plane_name = 'ops/dp/public/test'")
-            .execute(&self.pool).await.unwrap();
+        self.add_data_plane("ops/dp/public/test", "test.dp.estuary-data.com", true)
+            .await;
     }
 
     /// Ideally, we'd get a whole separate database for each integration test
@@ -1120,10 +1114,11 @@ impl TestHarness {
     /// Refreshes the authorization Snapshot used by the discovers and
     /// publications executors.
     pub async fn refresh_snapshot(&self) {
-        let data = control_plane_api::snapshot::try_fetch(&self.pool, &mut Default::default())
+        let snapshot = self
+            .control_plane
+            .fetch_snapshot()
             .await
             .expect("failed to fetch authorization snapshot");
-        let snapshot = control_plane_api::Snapshot::new(tokens::now(), data);
         (self.snapshot_replace)(snapshot);
     }
 
@@ -1244,12 +1239,19 @@ impl TestHarness {
     /// `ops/dp/public/test` plane, and tests use it to exercise discovers
     /// against other planes — for example one outside the tenant's grants,
     /// or one without HMAC keys.
+    ///
+    /// Data-plane rows survive harness resets, so an existing plane is
+    /// updated to have (or lack) HMAC keys per `keyed`.
     pub async fn add_data_plane(
         &mut self,
         data_plane_name: &str,
         data_plane_fqdn: &str,
-        hmac_keys: Vec<String>,
+        keyed: bool,
     ) {
+        // SOPS-encrypted HMAC keys, as in control-plane-api's `data_planes.sql` fixture.
+        const ENCRYPTED_HMAC_KEYS: &str = r#"{"hmac_keys":["ENC[AES256_GCM,data:kgzvBY4pczo=,iv:lA0c8tGWTC866p25il82vspY50Kl8oGWqJzNaw/zWyc=,tag:xA68U8wdFjlixqI8/zjQkA==,type:str]","ENC[AES256_GCM,data:q5Y5mbUzwRQ=,iv:bla/xToMmLdlf9N7z9Z2pxyWmpa0lQf9wizKspnyaTU=,tag:CR2QyhoO5crrDM6ZRoPPIw==,type:str]"],"sops":{"age":[{"recipient":"age1z2qskpk8ww2rx5frxzykryufkfm9sj03v56m3qu54y0lgndytp3sdg24vs","enc":"-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBtZ2ZwQks2T2Zna3h4OFov\nVjJTSzl4TGVyRnIrVk40bndWNVVmZFJQcXdZCkZpY3BlYnRKWUhZYlFnNk50dHh3\nbHlNY0R2bFI1S3pKVkJhbURHM3hYZFEKLS0tIDR0OTMrZEJkRHhKb0FaaXV1K2Uy\nNFd0bHd4TGFMK0xFUUFQVUtta3JHTlEKFBocCSHvSypsA7UcD7emwNDDS4Q3g2si\nqG+pyMMp2yObmT5iN/VAodv4un8Vr1LvcsKxEGXwTOjOnFCAk+I1Kw==\n-----END AGE ENCRYPTED FILE-----\n"}],"lastmodified":"2026-01-15T01:29:57Z","mac":"ENC[AES256_GCM,data:LTZlM4OPKZRu4J9HYUHn5fF6OBP8APXibP47sa/ADpMPA09h1q7Ivg+EAwJlqX9Ee9h8B7iEZD6CMxEyuz94T+nqiklBt4jZIQYq9GPd4xBp1EUvzSITmkvILYkkHh+A+vYU0cH/CemPv/w87wNt+QeNtsQj2xowufsr7RXCyXQ=,iv:z7t+spQvkzLMZZ3LA3eWmtZZdWKPVghKCP5M3HsQ6og=,tag:zrgfUxvTWsRuC8/2kEu6zw==,type:str]","unencrypted_suffix":"_unencrypted","version":"3.11.0"}}"#;
+        let encrypted_hmac_keys = if keyed { ENCRYPTED_HMAC_KEYS } else { "{}" };
+
         sqlx::query!(
             r#"insert into data_planes (
                 data_plane_name,
@@ -1265,6 +1267,7 @@ impl TestHarness {
                 broker_address,
                 reactor_address,
                 hmac_keys,
+                encrypted_hmac_keys,
                 enable_l2
             ) values (
                 $1, $2,
@@ -1272,11 +1275,12 @@ impl TestHarness {
                 'ops/L1/inferred', 'ops/L1/stats', 'ops/L1/events',
                 'from-L1-inferred', 'from-L1-stats', 'from-L1-events',
                 'broker:address', 'reactor:address',
-                $3, false
-            ) on conflict do nothing"#,
+                '{}', $3::text::json, false
+            ) on conflict (data_plane_name) do update set
+                encrypted_hmac_keys = excluded.encrypted_hmac_keys"#,
             data_plane_name as &str,
             data_plane_fqdn as &str,
-            &hmac_keys as &[String],
+            encrypted_hmac_keys,
         )
         .execute(&self.pool)
         .await
@@ -1868,11 +1872,11 @@ impl TestHarness {
         let jwt_secret = vec![0u8; 32]; // Test JWT secret
         let id_gen = models::IdGenerator::new(1);
 
-        let snapshot_data =
-            control_plane_api::snapshot::try_fetch(&self.pool, &mut Default::default())
-                .await
-                .expect("failed to fetch Snapshot");
-        let snapshot = control_plane_api::Snapshot::new(tokens::now(), snapshot_data);
+        let snapshot = self
+            .control_plane
+            .fetch_snapshot()
+            .await
+            .expect("failed to fetch Snapshot");
         let snapshot_watch = tokens::fixed(Ok(snapshot)).ready_owned().await;
 
         let app = Arc::new(control_plane_api::App::new(
@@ -2013,6 +2017,9 @@ pub struct TestControlPlane {
     /// Replaces the Snapshot behind the shared manually-driven watch, which
     /// `inner` also holds as its `snapshot_watch`.
     snapshot_replace: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
+    /// Decrypted HMAC keys retained across Snapshot fetches, so that each
+    /// fetch doesn't run `sops` for every keyed data-plane.
+    decrypted_hmac_keys: Arc<tokio::sync::Mutex<HashMap<String, (models::RawValue, Vec<String>)>>>,
 }
 
 /// A `Finalize` that can inject build failures in order to test failure scenarios.
@@ -2063,7 +2070,16 @@ impl TestControlPlane {
             controller_config: Arc::new(
                 Mutex::new(crate::controllers::ControllerConfig::default()),
             ),
+            decrypted_hmac_keys: Default::default(),
         }
+    }
+
+    async fn fetch_snapshot(&self) -> anyhow::Result<control_plane_api::Snapshot> {
+        let mut decrypted_hmac_keys = self.decrypted_hmac_keys.lock().await;
+        let data =
+            control_plane_api::snapshot::try_fetch(&self.inner.pool, &mut decrypted_hmac_keys)
+                .await?;
+        Ok(control_plane_api::Snapshot::new(tokens::now(), data))
     }
 
     pub fn set_controller_config(&self, config: crate::controllers::ControllerConfig) {
@@ -2370,10 +2386,7 @@ impl ControlPlane for TestControlPlane {
         // against the shared manually-driven watch, whose Snapshot predates
         // fixtures the test created since the last refresh. Re-take it
         // before pinning, exactly as the executor poll paths do.
-        let data =
-            control_plane_api::snapshot::try_fetch(&self.inner.pool, &mut Default::default())
-                .await?;
-        (self.snapshot_replace)(control_plane_api::Snapshot::new(tokens::now(), data));
+        (self.snapshot_replace)(self.fetch_snapshot().await?);
         let refresh = self.inner.snapshot_watch.token();
 
         let publication = DraftPublication {
