@@ -979,11 +979,7 @@ async fn test_runtime_v2_new_derivations() {
 // but is not readable by the tests' users.
 async fn add_private_plane(harness: &mut TestHarness) {
     harness
-        .add_data_plane(
-            "ops/dp/private/other",
-            "ops-dp-private-other.dp.test",
-            vec!["c2VjcmV0".to_string()],
-        )
+        .add_data_plane("ops/dp/private/other", "ops-dp-private-other.dp.test", true)
         .await;
 }
 
@@ -1439,7 +1435,7 @@ async fn test_publication_sibling_mapping_unreadable_plane() {
         .add_data_plane(
             "ops/dp/public/unlisted",
             "ops-dp-public-unlisted.dp.test",
-            vec!["c2VjcmV0".to_string()],
+            true,
         )
         .await;
 
@@ -1578,11 +1574,7 @@ async fn test_publication_system_user_data_plane_filter() {
     // A plane outside every grant of the system user, which holds admin only
     // to `ops/` and `estuary_support/`.
     harness
-        .add_data_plane(
-            "acmeCo/dp/other",
-            "acmeco-dp-other.dp.test",
-            vec!["c2VjcmV0".to_string()],
-        )
+        .add_data_plane("acmeCo/dp/other", "acmeco-dp-other.dp.test", true)
         .await;
 
     let denied = harness

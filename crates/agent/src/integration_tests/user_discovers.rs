@@ -816,11 +816,7 @@ async fn test_discover_no_data_plane() {
     // A plane outside the tenant's `ops/dp/public/` read grant: it exists but
     // is not readable.
     harness
-        .add_data_plane(
-            "ops/dp/private/other",
-            "ops-dp-private-other.dp.test",
-            vec!["c2VjcmV0".to_string()],
-        )
+        .add_data_plane("ops/dp/private/other", "ops-dp-private-other.dp.test", true)
         .await;
     // A readable plane with no HMAC keys at all is carried by the Snapshot,
     // but cannot sign anything a discover would need. It is treated the same
@@ -829,16 +825,9 @@ async fn test_discover_no_data_plane() {
         .add_data_plane(
             "ops/dp/public/keyless",
             "ops-dp-public-keyless.dp.test",
-            Vec::new(),
+            false,
         )
         .await;
-    // Data-plane fixtures survive harness resets, so restore this case on every setup.
-    sqlx::query(
-        "UPDATE data_planes SET hmac_keys = '{}' WHERE data_plane_name = 'ops/dp/public/keyless'",
-    )
-    .execute(&harness.pool)
-    .await
-    .unwrap();
 
     for (case, data_plane_name) in [
         ("unauthorized plane", "ops/dp/private/other"),
