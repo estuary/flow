@@ -1384,6 +1384,14 @@ mod tests {
             (
                 bill(InvoiceType::Manual, Some("in_recorded")),
                 false,
+                ok(stripe::Invoice {
+                    customer: Some(stripe::Expandable::Id("cus_other".parse().unwrap())),
+                    ..stripe_invoice("in_recorded", Draft)
+                }),
+            ),
+            (
+                bill(InvoiceType::Manual, Some("in_recorded")),
+                false,
                 ok(stripe_invoice("in_recorded", Open)),
             ),
             // A recorded invoice that was deleted isn't recreated for a manual
@@ -1429,6 +1437,7 @@ mod tests {
         }
         insta::assert_snapshot!(outcomes.join("\n"), @r#"
         Manual recreate=false: update: in_recorded; customer cus_acme
+        Manual recreate=false: error: Stripe invoice in_recorded customer Some(CustomerId("cus_other")) does not match recorded customer cus_acme
         Manual recreate=false: skip: Skipping invoice already processed in a previous billing run
         Manual recreate=false: skip: Skipping invoice already processed in a previous billing run
         Final recreate=false: error: Recorded invoice in_recorded no longer exists in Stripe. Pass --recreate-existing to create a replacement.
@@ -1632,82 +1641,6 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../supabase/migrations")]
-    async fn mismatched_customer_prevents_publish_and_cleanup(pool: sqlx::PgPool) {
-        sqlx::query("insert into tenants (id, tenant, stripe_customer_id) values (internal.id_generator(), $1, 'cus_acme')")
-            .bind(TENANT)
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query(
-            "insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id) values ($1, 10000, 'Ownership check', '2026-07-15', '2026-09-14', 'in_recorded'), ($1, 10000, 'Unrelated bill', '2025-01-01', '2025-01-31', 'in_unrelated')",
-        )
-        .bind(TENANT)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        let cmd = PublishInvoice {
-            connection_string: String::new(),
-            stripe_api_key: String::new(),
-            tenants: vec![TENANT.to_string()],
-            all_tenants: false,
-            month: "2026-08-01".parse().unwrap(),
-            recreate_existing: true,
-            fail_fast: true,
-            charge_type: ChargeType::AutoCharge,
-            concurrency: 1,
-            clean_up: true,
-            dry_run: false,
-        };
-        for (invoice_type, status, cleanup) in [
-            (InvoiceType::Manual, stripe::InvoiceStatus::Draft, false),
-            (InvoiceType::Final, stripe::InvoiceStatus::Draft, false),
-            (InvoiceType::Final, stripe::InvoiceStatus::Open, false),
-            (InvoiceType::Manual, stripe::InvoiceStatus::Draft, true),
-        ] {
-            let mut candidate = bill(invoice_type, Some("in_recorded"));
-            let mut response = stripe_invoice("in_recorded", status);
-            response.customer = Some(stripe::Expandable::Id("cus_other".parse().unwrap()));
-            let mut responses = vec![ok(response)];
-            let mut expected_requests = vec!["GET /v1/invoices/in_recorded"];
-            if cleanup {
-                candidate.plan_kind = PlanKind::Internal;
-            } else {
-                responses.insert(0, ok(customer()));
-                expected_requests.insert(0, "GET /v1/customers/cus_acme");
-            }
-            let (client, requests) = stripe_stub(responses).await;
-            let provider = StripeBillingProvider::from_client(client.clone());
-            let result = process_invoice(&cmd, &provider, &client, &pool, &candidate).await;
-            if cleanup {
-                assert!(matches!(result.unwrap(), InvoiceResult::InternalTenant));
-            } else {
-                assert!(format!("{:#}", result.err().unwrap()).contains("does not match"));
-            }
-            assert_eq!(*requests.lock().unwrap(), expected_requests);
-        }
-
-        let customer_id: Option<String> =
-            sqlx::query_scalar("select stripe_customer_id from tenants where tenant = $1")
-                .bind(TENANT)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        let invoice_ids: Vec<Option<String>> = sqlx::query_scalar(
-            "select stripe_invoice_id from internal.manual_bills where tenant = $1 order by date_start",
-        )
-        .bind(TENANT)
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-        assert_eq!(customer_id.as_deref(), Some(CUSTOMER_ID));
-        assert_eq!(
-            invoice_ids,
-            [Some("in_unrelated".into()), Some("in_recorded".into())]
-        );
-    }
-
-    #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn stale_draft_id_is_cleared_only_after_delete(pool: sqlx::PgPool) {
         sqlx::query("insert into tenants (id, tenant, stripe_customer_id) values (internal.id_generator(), $1, 'cus_acme')")
             .bind(TENANT)
@@ -1715,7 +1648,7 @@ mod tests {
             .await
             .unwrap();
         sqlx::query(
-            "insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id) values ($1, 10000, 'Cleanup candidate', '2025-01-01', '2025-01-31', 'in_stale')",
+            "insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id) values ($1, 10000, 'Cleanup candidate', '2025-01-01', '2025-01-31', 'in_stale'), ($1, 10000, 'Unrelated bill', '2026-07-15', '2026-09-14', 'in_unrelated')",
         )
         .bind(TENANT)
         .execute(&pool)
@@ -1729,29 +1662,45 @@ mod tests {
             StatusCode::INTERNAL_SERVER_ERROR,
             serde_json::json!({"error":{"message":"failure"}}),
         );
-        let deleted = ok(stripe_invoice("in_stale", stripe::InvoiceStatus::Draft));
+        let draft = ok(stripe_invoice("in_stale", stripe::InvoiceStatus::Draft));
+        let foreign_draft = stripe::Invoice {
+            customer: Some(stripe::Expandable::Id("cus_other".parse().unwrap())),
+            ..stripe_invoice("in_stale", stripe::InvoiceStatus::Draft)
+        };
 
-        for (delete_response, expected) in [(failed_delete, Some("in_stale")), (deleted, None)] {
-            let (client, requests) = stripe_stub(vec![
-                ok(stripe_invoice("in_stale", stripe::InvoiceStatus::Draft)),
-                delete_response,
-            ])
-            .await;
+        for (responses, expected_requests, expected) in [
+            (
+                vec![ok(foreign_draft)],
+                vec!["GET /v1/invoices/in_stale"],
+                Some("in_stale"),
+            ),
+            (
+                vec![draft.clone(), failed_delete],
+                vec!["GET /v1/invoices/in_stale", "DELETE /v1/invoices/in_stale"],
+                Some("in_stale"),
+            ),
+            (
+                vec![draft.clone(), draft],
+                vec!["GET /v1/invoices/in_stale", "DELETE /v1/invoices/in_stale"],
+                None,
+            ),
+        ] {
+            let (client, requests) = stripe_stub(responses).await;
             let provider = StripeBillingProvider::from_client(client.clone());
             clean_up_stale_draft(&provider, &client, &pool, &invoice, false).await;
 
-            assert_eq!(
-                *requests.lock().unwrap(),
-                ["GET /v1/invoices/in_stale", "DELETE /v1/invoices/in_stale",]
-            );
-            let id: Option<String> = sqlx::query_scalar(
-                "select stripe_invoice_id from internal.manual_bills where tenant = $1 and date_start = '2025-01-01'",
+            assert_eq!(*requests.lock().unwrap(), expected_requests);
+            let ids: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+                "select stripe_customer_id, (select stripe_invoice_id from internal.manual_bills where tenant = $1 and date_start = '2025-01-01'), (select stripe_invoice_id from internal.manual_bills where tenant = $1 and date_start = '2026-07-15') from tenants where tenant = $1",
             )
             .bind(TENANT)
             .fetch_one(&pool)
             .await
             .unwrap();
-            assert_eq!(id.as_deref(), expected);
+            assert_eq!(
+                (ids.0.as_deref(), ids.1.as_deref(), ids.2.as_deref()),
+                (Some(CUSTOMER_ID), expected, Some("in_unrelated")),
+            );
         }
     }
 
