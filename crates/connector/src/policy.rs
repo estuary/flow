@@ -211,7 +211,7 @@ pub(crate) fn egress_cidrs(
             anyhow::bail!("the task declares egress.cidrs, which only private data planes accept")
         }
         crate::Plane::Public | crate::Plane::Private | crate::Plane::Local => {
-            egress::cidrs("task egress.cidrs", cidrs)
+            models::egress::cidrs("task egress.cidrs", cidrs)
         }
     }
 }

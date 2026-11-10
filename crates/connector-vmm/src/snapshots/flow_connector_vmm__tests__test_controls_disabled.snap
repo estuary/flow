@@ -2,44 +2,51 @@
 source: crates/connector-vmm/src/main.rs
 expression: table
 ---
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --debug --exec /bin/sh -c "exit 7"
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --debug --exec /bin/sh -c "exit 7"
 flow-connector-vmm: error: unexpected argument '--debug' found
 flow-connector-vmm:
-flow-connector-vmm: Usage: flow-connector-vmm run --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm: Usage: flow-connector-vmm run --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --exec /bin/sh -c "exit 7" --debug
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --exec /bin/sh -c "exit 7" --debug
 flow-connector-vmm: error: unexpected argument '--exec' found
 flow-connector-vmm:
-flow-connector-vmm: Usage: flow-connector-vmm run --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm: Usage: flow-connector-vmm run --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --exec
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --exec
 flow-connector-vmm: error: unexpected argument '--exec' found
 flow-connector-vmm:
-flow-connector-vmm: Usage: flow-connector-vmm run --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm: Usage: flow-connector-vmm run --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --resolver-upstream 192.0.2.53:53
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --resolver-upstream 192.0.2.53:53
 flow-connector-vmm: error: unexpected argument '--resolver-upstream' found
 flow-connector-vmm:
-flow-connector-vmm: Usage: flow-connector-vmm run --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm: Usage: flow-connector-vmm run --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --run-as-root
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --ttl-floor-secs 3 --ttl-cap-secs 10
+flow-connector-vmm: error: unexpected argument '--ttl-floor-secs' found
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm run --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --run-as-root
 flow-connector-vmm: error: unexpected argument '--run-as-root' found
 flow-connector-vmm:
-flow-connector-vmm: Usage: flow-connector-vmm run --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm: Usage: flow-connector-vmm run --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --as-root-exec id
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --as-root-exec id
 flow-connector-vmm: error: unexpected argument '--as-root-exec' found
 flow-connector-vmm:
-flow-connector-vmm: Usage: flow-connector-vmm run --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm: Usage: flow-connector-vmm run --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.

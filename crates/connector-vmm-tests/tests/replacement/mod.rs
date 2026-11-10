@@ -30,14 +30,6 @@ struct Generation {
     name: String,
     footprint: launcher::Footprint,
     token: String,
-    policy: String,
-}
-
-fn policy(root: &launcher::Root, name: &str) -> String {
-    run::sudo(&[
-        "cat",
-        &format!("{}/{name}/init/policy.json", root.state_dir),
-    ])
 }
 
 /// A generation's owner, launched as the task declaring only `host`, its
@@ -104,18 +96,12 @@ fn start(
         "{name}: the task's name, and the record's token as its owner label"
     );
 
-    let policy = policy(&root, &name);
-    let allowed: serde_json::Value = serde_json::from_str(&policy).expect("policy is JSON");
-    let allowed: Vec<&str> = allowed["allowedNames"]
-        .as_array()
-        .expect("allowedNames")
-        .iter()
-        .map(|name| name.as_str().expect("a name"))
-        .collect();
+    let policy = launcher::egress_flags(&root, &name);
     let other = if host == API { SVC } else { API };
     assert!(
-        allowed.contains(&host) && !allowed.contains(&other),
-        "{label}'s policy {policy}"
+        policy.contains(&format!("--egress-host={host}"))
+            && !policy.contains(&format!("--egress-host={other}")),
+        "{label}'s policy {policy:?}"
     );
 
     let (now_a, now_b) = (endpoint::accepted(&d.a), endpoint::accepted(&d.b));
@@ -131,7 +117,7 @@ fn start(
 
     evidence.note(format!(
         "{label} ready {}ms name {name} id {} token {token} owner {} processes {:?} \
-         egress [{host}] accepts A+{} B+{} policy {policy}",
+         egress [{host}] accepts A+{} B+{} policy {policy:?}",
         ready.as_millis(),
         footprint.id,
         owner.host_pid,
@@ -146,7 +132,6 @@ fn start(
         name,
         footprint,
         token,
-        policy,
     }
 }
 
@@ -160,11 +145,10 @@ fn check_live(runtime: &tokio::runtime::Runtime, g: &Generation, evidence: &Evid
         "{}'s owner holds its record",
         g.label
     );
-    assert_eq!(policy(&g.root, &g.name), g.policy, "{}'s policy", g.label);
     let served = served(runtime, &g.root.state_dir, &g.name);
     evidence.note(format!(
         "{} {when}: whole (same processes {:?}, id, network, netns, cgroup, layer, bridge, veths, \
-         state, record, mount), token and policy unchanged, {served}",
+         state, record, mount), token unchanged, {served}",
         g.label, g.footprint.processes
     ));
 }

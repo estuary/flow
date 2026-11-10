@@ -8,16 +8,16 @@
 //!
 //! 1. Anything but a standard query of exactly one question: dropped
 //!    unanswered.
-//! 2. A class other than IN: `REFUSED`. Only IN is the namespace
-//!    `allowedNames` describes, and CHAOS asks the upstream about itself.
+//! 2. A class other than IN: `REFUSED`. Only IN is the namespace the
+//!    policy's names describe, and CHAOS asks the upstream about itself.
 //! 3. `AAAA`: `NOERROR` with no answer, never forwarded. No IPv6 reaches the
 //!    tap, so an address that resolved would only be something the guest fails
 //!    to connect to, slowly. This precedes the name gate because the guest's
 //!    own resolver needs the empty answer to move on to its `A` query.
-//! 4. A name that is neither admitted by `allowedNames` nor an unexpired
-//!    remembered CNAME target, with `allowAll` off: `REFUSED`, nothing sent
-//!    upstream, nothing added to the set. With `declaredCidrs`, such an
-//!    unnamed question is still forwarded if it is `A`: its answer decides.
+//! 4. A name that is neither admitted by the policy's names nor an unexpired
+//!    remembered CNAME target: `REFUSED`, nothing sent upstream, nothing
+//!    added to the set. With declared CIDRs, such an unnamed question is
+//!    still forwarded if it is `A`: its answer decides.
 //!    A truncated upstream answer returns `SERVFAIL` for every query type.
 //!    No partial answer authorizes addresses or remembers targets.
 //! 5. A type other than `A`: forwarded, and answered as the upstream answered.
@@ -25,14 +25,14 @@
 //! 6. `A`: forwarded. One answer address the policy does not reach condemns
 //!    the whole answer: a partial answer would teach the guest which name
 //!    resolves inward. An address within the excluded prefixes is never
-//!    reached. One within `declaredCidrs` always is. One elsewhere in the
+//!    reached. One within a declared CIDR always is. One elsewhere in the
 //!    baseline never is. A public address is reached only from a named
 //!    question.
 //! 7. Otherwise each `A` and `CNAME` TTL is clamped independently and
-//!    rewritten in place, every address outside `declaredCidrs` is authorized
+//!    rewritten in place, every address outside the declared CIDRs is authorized
 //!    and every target of a named question remembered until at least its
 //!    clamped TTL, and the set is updated and acknowledged before the answer
-//!    is sent. The ruleset already admits addresses within `declaredCidrs`,
+//!    is sent. The ruleset already admits addresses within declared CIDRs,
 //!    so they take no room in the set. An unnamed question's targets are not
 //!    remembered, so that its answer names nothing a later public answer
 //!    could be authorized by.
@@ -40,7 +40,8 @@
 mod dns;
 mod nftset;
 
-use egress::{AllowedName, Policy};
+use crate::policy::Policy;
+use models::egress::AllowedName;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -72,7 +73,6 @@ pub struct Config {
     listen: SocketAddr,
     upstream: SocketAddr,
     debug: bool,
-    allow_all: bool,
     allowed_names: Vec<AllowedName>,
     declared: Vec<ipnetwork::Ipv4Network>,
     ttl_floor: u32,
@@ -96,13 +96,12 @@ impl Config {
             listen,
             upstream,
             debug,
-            allow_all: policy.allow_all,
             allowed_names: policy.allowed_names.clone(),
             declared: policy.declared_cidrs.clone(),
             ttl_floor: policy.ttl_floor_secs,
             ttl_cap: policy.ttl_cap_secs,
-            baseline: egress::baseline(vmm_subnets),
-            excluded: egress::excluded(vmm_subnets),
+            baseline: crate::policy::baseline(vmm_subnets),
+            excluded: crate::policy::excluded(vmm_subnets),
         }
     }
 
@@ -620,9 +619,6 @@ impl Resolver {
     }
 
     fn allowed(&self, name: &str, now: Instant) -> bool {
-        if self.config.allow_all {
-            return true;
-        }
         if self
             .config
             .allowed_names
@@ -685,22 +681,23 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
-    const POLICY: &str = r#"{
-        "egress": "public",
-        "allowedNames": [
-            "pypi.org",
-            "*.mirror.acmeco.example",
-            "artifacts.acmeco.example",
-            "metadata.acmeco.example",
-            "cdnonly.acmeco.example",
-            "dup.acmeco.example",
-            "long.acmeco.example",
-            "short.acmeco.example",
-            "chaos.acmeco.example"
-        ],
-        "ttlFloorSecs": 90,
-        "ttlCapSecs": 3600
-    }"#;
+    fn policy() -> crate::policy::Policy {
+        crate::policy::tests::policy(
+            &[
+                "pypi.org",
+                "*.mirror.acmeco.example",
+                "artifacts.acmeco.example",
+                "metadata.acmeco.example",
+                "cdnonly.acmeco.example",
+                "dup.acmeco.example",
+                "long.acmeco.example",
+                "short.acmeco.example",
+                "chaos.acmeco.example",
+            ],
+            &[],
+            Some((90, 3600)),
+        )
+    }
 
     const TYPE_SOA: u16 = 6;
     const TYPE_PTR: u16 = 12;
@@ -873,14 +870,10 @@ mod tests {
         let mut table = String::new();
         for cidrs in [vec![], vec!["168.63.129.16/32"], vec!["0.0.0.0/0"]] {
             for named in [false, true] {
-                let policy = serde_json::json!({
-                    "egress": "public",
-                    "allowedNames": if named { vec!["pypi.org"] } else { vec![] },
-                    "declaredCidrs": cidrs,
-                })
-                .to_string();
+                let names: &[&str] = if named { &["pypi.org"] } else { &[] };
+                let policy = crate::policy::tests::policy(names, &cidrs, None);
                 let recorder = Recorder::default();
-                let mut resolver = resolver_under(&policy, upstream, recorder.clone());
+                let mut resolver = resolver_under(policy, upstream, recorder.clone());
                 let handled = resolver
                     .handle(&query(1, "pypi.org", dns::TYPE_A), Instant::now())
                     .unwrap();
@@ -1006,11 +999,14 @@ mod tests {
     }
 
     fn resolver(upstream: SocketAddr, writer: Recorder) -> Resolver {
-        resolver_under(POLICY, upstream, writer)
+        resolver_under(policy(), upstream, writer)
     }
 
-    fn resolver_under(policy: &str, upstream: SocketAddr, writer: Recorder) -> Resolver {
-        let policy = egress::parse(policy.as_bytes()).expect("fixture parses");
+    fn resolver_under(
+        policy: crate::policy::Policy,
+        upstream: SocketAddr,
+        writer: Recorder,
+    ) -> Resolver {
         let config = Config::new(
             &policy,
             &[],
@@ -1402,22 +1398,22 @@ mod tests {
     }
 
     /// Declared CIDRs admit any name whose `A` answer lies wholly within
-    /// them, beside the names `allowedNames` admits at public addresses. An
+    /// them, beside the names the policy admits at public addresses. An
     /// address in neither condemns the answer, and nothing within the CIDRs
     /// takes room in the set.
     #[test]
     fn cidr_decisions() {
-        const POLICY: &str = r#"{
-            "egress": "public",
-            "allowedNames": [
+        let policy = crate::policy::tests::policy(
+            &[
                 "pypi.org",
                 "db.acmeco.example",
                 "outside.acmeco.example",
                 "mixed.acmeco.example",
-                "cdn.acmeco.example"
+                "cdn.acmeco.example",
             ],
-            "declaredCidrs": ["10.0.0.0/8", "192.168.4.7/32"]
-        }"#;
+            &["10.0.0.0/8", "192.168.4.7/32"],
+            None,
+        );
         let outside = Ipv4Addr::new(172, 16, 0, 5);
         let script = vec![
             (
@@ -1512,7 +1508,7 @@ mod tests {
         ];
         let recorder = Recorder::default();
         let (upstream, received) = recorded_upstream(script, Duration::ZERO);
-        let mut resolver = resolver_under(POLICY, upstream, recorder.clone());
+        let mut resolver = resolver_under(policy, upstream, recorder.clone());
 
         let steps: Vec<(&str, u64, Vec<u8>)> = vec![
             (
@@ -1625,8 +1621,7 @@ mod tests {
     /// subnet.
     #[test]
     fn every_address_decisions() {
-        let policy = egress::parse(br#"{"egress":"public","declaredCidrs":["0.0.0.0/0"]}"#)
-            .expect("fixture parses");
+        let policy = crate::policy::tests::policy(&[], &["0.0.0.0/0"], None);
         let bridge: ipnetwork::Ipv4Network = "10.89.0.4/24".parse().expect("test constant");
         let script = vec![
             (
@@ -2138,9 +2133,8 @@ mod tests {
 
     #[test]
     fn start_refuses_the_wildcard() {
-        let policy = egress::parse(POLICY.as_bytes()).expect("fixture parses");
         let config = Config::new(
-            &policy,
+            &policy(),
             &[],
             SocketAddr::from((Ipv4Addr::UNSPECIFIED, 53)),
             SocketAddr::from((Ipv4Addr::LOCALHOST, 53)),
@@ -2165,12 +2159,8 @@ mod tests {
     #[test]
     fn a_slow_lookup_does_not_backdate_authorization() {
         const DELAY: Duration = Duration::from_millis(1_100);
-        const POLICY: &str = r#"{
-            "egress": "public",
-            "allowedNames": ["cdnonly.acmeco.example"],
-            "ttlFloorSecs": 1,
-            "ttlCapSecs": 3600
-        }"#;
+        let policy =
+            crate::policy::tests::policy(&["cdnonly.acmeco.example"], &[], Some((1, 3600)));
         let script = vec![
             (
                 ("cdnonly.acmeco.example", dns::TYPE_A),
@@ -2187,7 +2177,7 @@ mod tests {
         ];
         let recorder = Recorder::default();
         let mut resolver =
-            resolver_under(POLICY, recorded_upstream(script, DELAY).0, recorder.clone());
+            resolver_under(policy, recorded_upstream(script, DELAY).0, recorder.clone());
 
         let arrived = Instant::now();
         let handled = resolver

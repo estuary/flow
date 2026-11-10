@@ -14,6 +14,7 @@ mod ingress;
 mod krun;
 mod launch;
 mod net;
+mod policy;
 mod resolver;
 mod ruleset;
 mod sys;
@@ -54,9 +55,8 @@ enum Command {
 
     /// Compile a policy into its nftables ruleset and write it to stdout.
     PrintRuleset {
-        /// The policy JSON, as the launcher writes it into /init/policy.json.
-        #[arg(long, value_name = "PATH")]
-        policy: std::path::PathBuf,
+        #[command(flatten)]
+        policy: policy::Args,
 
         /// An IPv4 subnet of the VMM's own interfaces, excluded alongside the
         /// baseline. Repeatable. Stands in for the getifaddrs read that `run`
@@ -108,8 +108,8 @@ fn run(args: &Args) -> anyhow::Result<()> {
             policy,
             vmm_subnet: vmm_subnets,
         } => {
-            let policy = egress::load(policy)?;
-            print!("{}", ruleset::render(&policy, vmm_subnets, &[])?);
+            let policy = policy::check(policy)?;
+            print!("{}", ruleset::render(&policy, vmm_subnets, &[]));
             Ok(())
         }
         Command::Boundary { action } => boundary::run(action),
@@ -170,6 +170,7 @@ mod tests {
             run(&["--exec", "/bin/sh", "-c", "exit 7", "--debug"]),
             run(&["--exec"]),
             run(&["--resolver-upstream", "192.0.2.53:53"]),
+            run(&["--ttl-floor-secs", "3", "--ttl-cap-secs", "10"]),
             run(&["--run-as-root"]),
             run(&["--as-root-exec", "id"]),
         ] {
@@ -233,17 +234,10 @@ mod tests {
 
     fn cases() -> Vec<Vec<&'static str>> {
         vec![
+            vec!["flow-connector-vmm", "print-ruleset"],
             vec![
                 "flow-connector-vmm",
                 "print-ruleset",
-                "--policy",
-                "/init/policy.json",
-            ],
-            vec![
-                "flow-connector-vmm",
-                "print-ruleset",
-                "--policy",
-                "/init/policy.json",
                 "--vmm-subnet",
                 "10.89.0.4/24",
                 "--vmm-subnet",
@@ -252,21 +246,39 @@ mod tests {
             vec![
                 "flow-connector-vmm",
                 "print-ruleset",
-                "--policy",
-                "/init/policy.json",
                 "--vmm-subnet",
                 "fd00::/8",
             ],
             vec![
                 "flow-connector-vmm",
                 "print-ruleset",
-                "--policy",
-                "/init/policy.json",
                 "--vmm-subnet",
                 "10.89.0.0/33",
             ],
-            vec!["flow-connector-vmm", "print-ruleset"],
+            vec![
+                "flow-connector-vmm",
+                "print-ruleset",
+                "--egress-host",
+                "pypi.org",
+                "--egress-cidr",
+                "10.0.0.0/8",
+            ],
             run(&[]),
+            run(&[
+                "--egress-host",
+                "pypi.org",
+                "--egress-host",
+                "*.ACMEco.example",
+                "--egress-cidr",
+                "192.168.4.7/32",
+                "--egress-cidr",
+                "10.0.0.0/8",
+            ]),
+            run(&["--egress-host", "*.com"]),
+            run(&["--egress-host", "169.254.169.254"]),
+            run(&["--egress-cidr", "10.1.2.3/8"]),
+            run(&["--egress-cidr", "fd00::/8"]),
+            run(&["--policy", "/init/policy.json"]),
             run(&["--persistent-disk", "/acmeCo/state"]),
             with("--connector-mount", "relative/mount"),
             with("--connector-mount", "/"),
@@ -274,15 +286,10 @@ mod tests {
             with("--memory-mib", "4294967296"),
             with("--disk-mib", "-1"),
             run(&["--vcpus", "4"]),
-            vec!["flow-connector-vmm", "run", "--policy", "/init/policy.json"],
+            vec!["flow-connector-vmm", "run"],
             as_check_launch(run(&[])),
             as_check_launch(with("--vcpus", "256")),
-            vec![
-                "flow-connector-vmm",
-                "check-launch",
-                "--policy",
-                "/init/policy.json",
-            ],
+            vec!["flow-connector-vmm", "check-launch"],
             vec!["flow-connector-vmm"],
             vec!["flow-connector-vmm", "boundary", "install"],
             vec!["flow-connector-vmm", "boundary", "verify"],
@@ -315,8 +322,6 @@ mod tests {
         const REQUIRED: &[&str] = &[
             "flow-connector-vmm",
             "run",
-            "--policy",
-            "/init/policy.json",
             "--connector-mount",
             "/tmp/connector-mounts-0/mount-acme",
             "--memory-mib",
@@ -353,8 +358,8 @@ mod tests {
                 policy,
                 vmm_subnet: vmm_subnets,
             } => format!(
-                "ok: print-ruleset policy={} vmm_subnets={:?}\n",
-                policy.display(),
+                "ok: print-ruleset {} vmm_subnets={:?}\n",
+                describe_policy(policy),
                 vmm_subnets
                     .iter()
                     .map(ipnetwork::Ipv4Network::to_string)
@@ -366,11 +371,18 @@ mod tests {
         }
     }
 
+    fn describe_policy(policy: &crate::policy::Args) -> String {
+        format!(
+            "egress_hosts={:?} egress_cidrs={:?} ttl={}..{}",
+            policy.egress_host, policy.egress_cidr, policy.ttl_floor_secs, policy.ttl_cap_secs,
+        )
+    }
+
     fn describe_launch(command: &str, args: &crate::launch::Args) -> String {
         format!(
-            "ok: {command} policy={} connector_mount={} memory_mib={} vcpus={} disk_mib={} \
+            "ok: {command} {} connector_mount={} memory_mib={} vcpus={} disk_mib={} \
              persistent_disk={:?} debug={} resolver_upstream={:?} exec={:?}\n",
-            args.policy.display(),
+            describe_policy(&args.policy),
             args.connector_mount,
             args.memory_mib,
             args.vcpus,

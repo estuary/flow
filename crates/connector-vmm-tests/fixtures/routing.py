@@ -191,11 +191,8 @@ def main():
         name = f'vm{index}'
         bridge = f'fvm{index:012x}'
         state = root/name
-        for directory in ['init', 'sock', 'scratch', 'mount']:
+        for directory in ['sock', 'scratch', 'mount']:
             (state/directory).mkdir(parents=True)
-        (state/'init/policy.json').write_text(json.dumps({
-            'egress': 'public', 'allowedNames': ['ok.acmeco.example', 'private.acmeco.example'],
-            'declaredCidrs': list(cidrs)}))
         shutil.copyfile(args.connector_init, state/'mount/flow-connector-init')
         (state/'mount/flow-connector-init').chmod(0o555)
         (state/'mount/image-inspect.json').write_text(engine('image', 'inspect', args.connector_image))
@@ -211,13 +208,14 @@ def main():
                 '--sysctl=net.ipv4.conf.default.rp_filter=1',
                 '--sysctl=net.ipv6.conf.default.disable_ipv6=1', '--memory=768m', '--cpus=2',
                 '--mount', f'type=volume,source={name},destination=/rootfs,readonly']
-        for source, target in [('init','/init'), ('sock','/sock'), ('scratch','/scratch-backing'),
+        for source, target in [('sock','/sock'), ('scratch','/scratch-backing'),
                                ('mount',str(state/'mount'))]:
             argv += ['--mount', f'type=bind,source={state/source},destination={target}' +
-                     (',readonly' if source in ('init','mount') else '')]
-        argv += [args.vmm_image, 'run',
-                 '--policy=/init/policy.json', f'--connector-mount={state}/mount',
+                     (',readonly' if source == 'mount' else '')]
+        argv += [args.vmm_image, 'run', f'--connector-mount={state}/mount',
                  '--memory-mib=512', '--vcpus=2', '--disk-mib=256', '--ingress-port=8080',
+                 '--egress-host=ok.acmeco.example', '--egress-host=private.acmeco.example',
+                 *[f'--egress-cidr={cidr}' for cidr in cidrs],
                  '--resolver-upstream=192.31.196.241:15353', '--exec',
                  '/usr/local/bin/python', '-u', '-c', GUEST]
         engine(*argv)

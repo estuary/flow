@@ -50,7 +50,7 @@ connector-init over a guest's vsock connection.
 - `tests/kvm.rs`: guest boot, devices, filesystem and connector-mount
   isolation, working directories, RPC, teardown, egress allowlists and expiry,
   declared CIDRs over TCP and UDP with their host grant's lifecycle, host-only declared TCP
-  ingress with bidirectional traffic under `egress: none`, and host isolation
+  ingress with bidirectional traffic under the empty policy, and host isolation
   after a VMM removes its own rules. Connector-mount tests check that host
   file replacements become visible inside the guest. `no_new_privileges`
   runs controlled setuid, setgid and file-capability programs from the

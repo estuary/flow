@@ -26,7 +26,6 @@ create
 --memory=1342177280
 --cpus=2
 --mount=type=volume,source=fv_0123456789abcdef,destination=/rootfs,readonly
---mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/init,target=/init,readonly
 --mount=type=bind,source=/tmp/connector-mounts-0/mount-acme,target=/tmp/connector-mounts-0/mount-acme,readonly
 --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/sock,target=/sock
 --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch,target=/scratch-backing
@@ -35,8 +34,6 @@ create
 --label=acme=anvils
 ghcr.io/estuary/connector-vmm:dev
 run
---policy
-/init/policy.json
 --connector-mount
 /tmp/connector-mounts-0/mount-acme
 --memory-mib

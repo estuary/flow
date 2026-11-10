@@ -41,7 +41,7 @@ declare -A args=()
 while (($# > 0)); do
     flag="${1%%=*}"
     case "${flag}" in
-    --policy | --connector-mount | --memory-mib | --vcpus | --disk-mib | --ingress-port) ;;
+    --connector-mount | --memory-mib | --vcpus | --disk-mib | --ingress-port | --egress-host | --egress-cidr) ;;
     --persistent-disk)
         fail "--persistent-disk is unsupported: the fake cannot mount a share inside ${ROOTFS}"
         ;;

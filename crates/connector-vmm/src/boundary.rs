@@ -310,8 +310,8 @@ fn expected() -> Vec<serde_json::Value> {
 
     vec![
         serde_json::json!({ "table": { "family": "inet", "name": TABLE } }),
-        set("baseline", egress::baseline(&[])),
-        set("excluded", egress::excluded(&[])),
+        set("baseline", crate::policy::baseline(&[])),
+        set("excluded", crate::policy::excluded(&[])),
         chain("inet", "prerouting", PREROUTING_PRIORITY),
         chain("inet", "input", FILTER_PRIORITY),
         chain("inet", "forward", FILTER_PRIORITY),

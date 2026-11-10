@@ -152,8 +152,7 @@ const CREATE: &[&str] = &[
     "--device=/dev/net/tun",
     "sha256:0000",
     "run",
-    "--policy",
-    "/init/policy.json",
+    "--egress-host=pypi.org",
 ];
 const START: &[&str] = &[
     "start",
@@ -211,17 +210,17 @@ fn only_the_fakes_launches_may_chroot() {
     }
     insta::assert_snapshot!(report(&setup), @r"
     --- calls
-    create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
-    create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun fake-id run --policy /init/policy.json
+    create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --egress-host=pypi.org
+    create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun fake-id run --egress-host=pypi.org
     run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN fake-id boundary verify
     --- resources
     container fv_0000000000000001
     container fv_0000000000000001
     --- ran
-    sudo -n podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
-    podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --policy /init/policy.json
-    sudo -n podman create --cap-add=CAP_SYS_CHROOT --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun fake-id run --policy /init/policy.json
-    podman create --cap-add=CAP_SYS_CHROOT --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun fake-id run --policy /init/policy.json
+    sudo -n podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --egress-host=pypi.org
+    podman create --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun sha256:0000 run --egress-host=pypi.org
+    sudo -n podman create --cap-add=CAP_SYS_CHROOT --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun fake-id run --egress-host=pypi.org
+    podman create --cap-add=CAP_SYS_CHROOT --rm --name=fv_0000000000000001 --network=fv_0000000000000001 --device=/dev/kvm --device=/dev/net/tun fake-id run --egress-host=pypi.org
     sudo -n podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN fake-id boundary verify
     podman run --rm --network=host --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN fake-id boundary verify
     ");

@@ -1342,8 +1342,8 @@ fn destinations(run: &run::Run) -> Destinations {
 }
 
 struct Probed {
-    /// The policy the launcher wrote for the VMM.
-    policy: String,
+    /// The egress flags the launcher passed to the VMM.
+    policy: Vec<String>,
     results: Vec<(String, String)>,
     /// Every session log, as `LEVEL: message`.
     messages: Vec<String>,
@@ -1351,7 +1351,7 @@ struct Probed {
 
 /// Launch derive-python's Spec on a `plane` service, as a task whose egress is
 /// `egress`, with the guest probing `cases` before connector-init starts. The
-/// launcher plans and writes the policy; this test's podman only appends the
+/// launcher plans and passes the policy; this test's podman only appends the
 /// VMM's test controls, for the nameserver and the probe.
 fn probe_egress(
     (run, root, runtime): &(run::Run, launcher::Root, tokio::runtime::Runtime),
@@ -1401,9 +1401,7 @@ fn probe_egress(
     };
     launcher::wait_held(root, "start", STARTED);
     let name = launcher::vmm_name(root).expect("the launch created a network");
-    let policy_path = format!("{}/{name}/init/policy.json", root.state_dir);
-    let policy = std::fs::read_to_string(&policy_path)
-        .unwrap_or_else(|e| panic!("reading {policy_path}: {e}"));
+    let policy = launcher::egress_flags(root, &name);
     std::mem::drop(hold);
 
     let started = runtime
@@ -1502,7 +1500,13 @@ fn task_egress_on_a_public_plane() {
 
     assert_eq!(
         probed.policy,
-        r#"{"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example","*.svc.acmeco.example","leak.acmeco.example"],"egress":"public"}"#
+        [
+            "--egress-host=pypi.org",
+            "--egress-host=files.pythonhosted.org",
+            "--egress-host=api.acmeco.example",
+            "--egress-host=*.svc.acmeco.example",
+            "--egress-host=leak.acmeco.example",
+        ]
     );
     assert_results(
         &probed,
@@ -1623,7 +1627,7 @@ fn empty_egress_on_a_private_plane() {
         &d,
     );
 
-    assert_eq!(probed.policy, r#"{"allowedNames":[],"egress":"public"}"#);
+    assert_eq!(probed.policy, Vec::<String>::new());
     assert_results(
         &probed,
         &[

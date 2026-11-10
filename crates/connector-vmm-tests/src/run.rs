@@ -58,10 +58,40 @@ pub struct Run {
     pub decoys: Vec<Ipv4Addr>,
 }
 
+/// The policies tests launch with, as the flags a launcher passes.
+pub mod policy {
+    /// What `egress: {}` launches with: no name and no range.
+    pub const EMPTY: &[&str] = &[];
+    pub const SMOKE: &[&str] = &["--egress-host=pypi.org"];
+    pub const ALLOWLIST: &[&str] = &[
+        "--egress-host=ok.acmeco.example",
+        "--egress-host=*.wild.acmeco.example",
+    ];
+    pub const CIDRS: &[&str] = &[
+        "--egress-host=ok.acmeco.example",
+        "--egress-cidr=198.18.255.241/32",
+    ];
+    pub const AZURE: &[&str] = &[
+        "--egress-host=name.acmeco.example",
+        "--egress-cidr=168.63.129.16/32",
+    ];
+    pub const EVERY_ADDRESS: &[&str] = &["--egress-cidr=0.0.0.0/0"];
+    pub const TTL: &[&str] = &[
+        "--egress-host=*.acmeco.example",
+        "--ttl-floor-secs=30",
+        "--ttl-cap-secs=60",
+    ];
+    pub const CAPACITY: &[&str] = &[
+        "--egress-host=*.acmeco.example",
+        "--ttl-floor-secs=3",
+        "--ttl-cap-secs=3600",
+    ];
+}
+
 /// What a test launches. `Spec::probes` is the common case.
 pub struct Spec<'a> {
     pub vmm_image: String,
-    pub policy: &'a str,
+    pub policy: &'a [&'a str],
     pub connector_image: String,
     pub memory_mib: u32,
     pub disk_mib: u64,
@@ -77,7 +107,7 @@ pub struct Spec<'a> {
 }
 
 impl<'a> Spec<'a> {
-    pub fn probes(run: &Run, policy: &'a str) -> Self {
+    pub fn probes(run: &Run, policy: &'a [&'a str]) -> Self {
         let mut exec: Vec<String> = PROBES.iter().map(ToString::to_string).collect();
         exec.push("serve".to_string());
 
@@ -215,14 +245,15 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
 
     record("dir", &state_dir);
     sudo(&["install", "-d", "-m", "0711", &state_dir]);
-    for dir in ["init", "scratch"] {
-        sudo(&["install", "-d", "-m", "0700", &format!("{state_dir}/{dir}")]);
-    }
+    sudo(&[
+        "install",
+        "-d",
+        "-m",
+        "0700",
+        &format!("{state_dir}/scratch"),
+    ]);
     // Traversable by the unprivileged suite, which dials init.sock in here.
     sudo(&["install", "-d", "-m", "0711", &format!("{state_dir}/sock")]);
-    let policy = std::fs::read(fixture(&format!("policies/{}", spec.policy)))
-        .unwrap_or_else(|e| panic!("reading policy {}: {e}", spec.policy));
-    sudo_write(&format!("{state_dir}/init/policy.json"), &policy, "0444");
 
     record("dir", &connector_mount);
     sudo(&[
@@ -302,6 +333,7 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
         argv.retain(|argument| argument != "--rm");
     }
     (spec.edit)(&mut argv);
+    argv.extend(spec.policy.iter().map(ToString::to_string));
     argv.extend(spec.flags);
     if let Some(exec) = spec.exec {
         argv.push("--exec".to_string());

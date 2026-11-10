@@ -888,7 +888,7 @@ fn walk_execution(
         // Each host and CIDR on its own, so that every invalid one is reported.
         let hosts_scope = scope.push_prop("hosts");
         for (index, host) in hosts.iter().enumerate() {
-            if let Err(detail) = egress::hosts("egress.hosts", std::slice::from_ref(host)) {
+            if let Err(detail) = models::egress::hosts("egress.hosts", std::slice::from_ref(host)) {
                 Error::InvalidEgressHost {
                     entity,
                     name: name.to_string(),
@@ -899,7 +899,7 @@ fn walk_execution(
         }
         let cidrs_scope = scope.push_prop("cidrs");
         for (index, cidr) in cidrs.iter().enumerate() {
-            if let Err(detail) = egress::cidrs("egress.cidrs", std::slice::from_ref(cidr)) {
+            if let Err(detail) = models::egress::cidrs("egress.cidrs", std::slice::from_ref(cidr)) {
                 Error::InvalidEgressCidr {
                     entity,
                     name: name.to_string(),

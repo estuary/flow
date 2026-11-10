@@ -13,15 +13,11 @@ socket: /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock/init.sock (62 bytes
 
 ## directories
 0711 /var/lib/flow/connector-vmm/fv_0123456789abcdef
-0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/init
 0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock
 0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch
 
 ## egress
 VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); task.acmeco.example (task egress.hosts)
-
-## /var/lib/flow/connector-vmm/fv_0123456789abcdef/init/policy.json
-{"allowedNames":["pypi.org","files.pythonhosted.org","task.acmeco.example"],"egress":"public"}
 
 ## connector mount
 0555 /tmp/connector-mounts-0/mount-fv_0123456789abcdef/flow-connector-init
@@ -64,7 +60,6 @@ podman create \
   --memory=1073741824 \
   --cpus=2 \
   --mount=type=volume,source=fv_0123456789abcdef,destination=/rootfs,readonly \
-  --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/init,target=/init,readonly \
   --mount=type=bind,source=/tmp/connector-mounts-0/mount-fv_0123456789abcdef,target=/tmp/connector-mounts-0/mount-fv_0123456789abcdef,readonly \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/sock,target=/sock \
   --mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch,target=/scratch-backing \
@@ -78,8 +73,6 @@ podman create \
   --label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm \
   fedcba98765432100123456789abcdef00112233445566778899aabbccddeeff \
   run \
-  --policy \
-  /init/policy.json \
   --connector-mount \
   /tmp/connector-mounts-0/mount-fv_0123456789abcdef \
   --memory-mib \
@@ -89,4 +82,7 @@ podman create \
   --disk-mib \
   2048 \
   --ingress-port=8080 \
-  --ingress-port=9090
+  --ingress-port=9090 \
+  --egress-host=pypi.org \
+  --egress-host=files.pythonhosted.org \
+  --egress-host=task.acmeco.example

@@ -18,7 +18,7 @@ path = "src/main.rs"
 test-controls = []
 
 [dependencies]
-egress = { path = "../egress" }
+models = { path = "../models" }
 
 anyhow = { workspace = true }
 clap = { workspace = true }

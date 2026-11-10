@@ -32,13 +32,13 @@ pub fn bridge(value: &str) -> Result<String, String> {
 }
 
 pub fn cidr(value: &str) -> Result<String, String> {
-    egress::cidrs("--cidr", &[value.to_string()])
+    models::egress::cidrs("--cidr", &[value.to_string()])
         .map(|_| value.to_string())
         .map_err(|error| format!("{error:#}"))
 }
 
 pub fn grant(owner: &str, bridge: &str, ports: &[u16], cidrs: &[String]) -> anyhow::Result<()> {
-    let cidrs = egress::cidrs("--cidr", cidrs)?;
+    let cidrs = models::egress::cidrs("--cidr", cidrs)?;
     crate::boundary::run(&crate::boundary::Action::Verify)?;
     crate::sys::run(
         "nft",
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn host_permissions_with_cidrs() {
-        let cidrs = egress::cidrs(
+        let cidrs = models::egress::cidrs(
             "--cidr",
             &["192.168.4.7/32".to_string(), "10.0.0.0/8".to_string()],
         )
@@ -124,7 +124,7 @@ mod tests {
             "00112233445566778899aabbccddeeff",
             "fvm0123456789ab",
             &[],
-            &egress::cidrs("--cidr", &["0.0.0.0/0".to_string()]).unwrap(),
+            &models::egress::cidrs("--cidr", &["0.0.0.0/0".to_string()]).unwrap(),
         ));
         insta::assert_snapshot!(table);
     }

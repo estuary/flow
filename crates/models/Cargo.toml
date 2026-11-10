@@ -24,7 +24,9 @@ caseless = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 humantime-serde = { workspace = true }
+ipnetwork = { workspace = true }
 lazy_static = { workspace = true }
+psl = { workspace = true }
 regex = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }

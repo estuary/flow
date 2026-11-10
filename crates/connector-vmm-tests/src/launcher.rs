@@ -83,6 +83,19 @@ pub fn calls(root: &Root) -> Vec<String> {
     }
 }
 
+/// The egress flags the launcher passed when it created the VMM `name`.
+pub fn egress_flags(root: &Root, name: &str) -> Vec<String> {
+    let named = format!("--name={name}");
+    calls(root)
+        .iter()
+        .find(|call| call.starts_with("create ") && call.split(' ').any(|arg| arg == named))
+        .unwrap_or_else(|| panic!("no create call names {name}"))
+        .split(' ')
+        .filter(|arg| arg.starts_with("--egress-"))
+        .map(ToString::to_string)
+        .collect()
+}
+
 pub fn vmm_name(root: &Root) -> Option<String> {
     calls(root).iter().find_map(|call| {
         call.strip_prefix("network create ")

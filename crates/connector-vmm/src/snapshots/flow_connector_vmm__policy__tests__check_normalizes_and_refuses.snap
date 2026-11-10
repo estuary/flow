@@ -1,0 +1,27 @@
+---
+source: crates/connector-vmm/src/policy.rs
+expression: table
+---
+[] [] ttl=90..3600
+accepted: allowedNames=[] declaredCidrs=[] ttl=90..3600
+
+["PyPI.ORG", "pypi.org", "*.ACMEco.example"] ["192.168.4.0/24", "10.0.0.0/8", "10.2.0.0/16"] ttl=90..3600
+accepted: allowedNames=[Exact("pypi.org"), Subdomains("acmeco.example")] declaredCidrs=["10.0.0.0/8", "192.168.4.0/24"] ttl=90..3600
+
+[] ["10.89.0.0/24", "0.0.0.0/0"] ttl=3..10
+accepted: allowedNames=[] declaredCidrs=["0.0.0.0/0"] ttl=3..10
+
+["*.com"] [] ttl=90..3600
+--egress-host "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+[] ["10.1.2.3/8"] ttl=90..3600
+--egress-cidr "10.1.2.3/8" sets bits below its prefix length; write 10.0.0.0/8, or 10.1.2.3/32 for one address
+
+[] [] ttl=0..3600
+--ttl-floor-secs is 0, which would hold a resolved address forever
+
+[] [] ttl=7200..3600
+--ttl-floor-secs 7200 is above --ttl-cap-secs 3600
+
+[] [] ttl=90..604800
+--ttl-cap-secs 604800 is above the maximum 86400

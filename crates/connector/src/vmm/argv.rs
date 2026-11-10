@@ -37,7 +37,7 @@ const CAPABILITIES: &[&str] = &[
 pub struct Container<'a> {
     /// `fv_<16 hex>`, which also names its network and rootfs volume.
     pub name: &'a str,
-    /// The launch's own state directory, holding the `init/`, `sock/` and
+    /// The launch's own state directory, holding the `sock/` and
     /// `scratch/` the container binds.
     pub state: &'a str,
     /// Shared at that same path into the container and the guest.
@@ -103,7 +103,6 @@ pub fn container(command: &str, container: &Container) -> Vec<String> {
         format!("--memory={}", memory.bytes),
         format!("--cpus={cpus}"),
         format!("--mount=type=volume,source={name},destination=/rootfs,readonly"),
-        format!("--mount=type=bind,source={state}/init,target=/init,readonly"),
         format!("--mount=type=bind,source={mount},target={mount},readonly"),
         format!("--mount=type=bind,source={state}/sock,target=/sock"),
         format!("--mount=type=bind,source={state}/scratch,target=/scratch-backing"),
@@ -121,8 +120,6 @@ pub fn container(command: &str, container: &Container) -> Vec<String> {
     args.extend([
         vmm_image.to_string(),
         "run".to_string(),
-        "--policy".to_string(),
-        "/init/policy.json".to_string(),
         "--connector-mount".to_string(),
         mount.to_string(),
         "--memory-mib".to_string(),

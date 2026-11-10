@@ -175,7 +175,7 @@ proxies and a wrapper's own settings still reach it.
   so both `STATE_DIR` and `TMPDIR` must name the same directories for the
   launcher and for podman.
 - **One user per `STATE_DIR`.** The launcher's UID creates `fv_<id>` (0711)
-  with `init/`, `sock/` and `scratch/` (all 0700), and the mount
+  with `sock/` and `scratch/` (both 0700), and the mount
   directories (0711) with `flow-connector-init` (0555) and
   `image-inspect.json` (0444). The VMM makes `init.sock` mode 0777 inside the
   0700 `sock/`, which the launcher's UID dials. A launch under another UID

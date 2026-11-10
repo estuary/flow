@@ -157,7 +157,7 @@ fn stderr_probe(vmm: &run::Vmm, name: &str) -> serde_json::Value {
 #[test]
 fn launch() {
     let run = run::load();
-    let (vmm, _guest) = start(&run, run::Spec::probes(&run, "none.json"));
+    let (vmm, _guest) = start(&run, run::Spec::probes(&run, run::policy::EMPTY));
     assert_launch(&vmm, &["/scratch-backing", "/sock"]);
     insta::assert_snapshot!(mount_matrix(&vmm));
     run::assert_framing(&vmm, true);
@@ -168,7 +168,7 @@ fn launch_with_persistent_disk() {
     let run = run::load();
     let spec = run::Spec {
         persistent_disk: Some("/acmeCo/state"),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let (vmm, _guest) = start(&run, spec);
     assert_launch(&vmm, &["/persistent-disk", "/scratch-backing", "/sock"]);
@@ -264,7 +264,7 @@ fn refuses_a_writable_root() {
     let run = run::load();
     let spec = run::Spec {
         edit: |argv| argv.retain(|argument| argument != "--read-only"),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let mut vmm = run::start(&run, spec);
     assert_refused(
@@ -285,7 +285,7 @@ fn refuses_a_writable_root_image() {
                 }
             }
         },
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let mut vmm = run::start(&run, spec);
     assert_refused(
@@ -307,7 +307,7 @@ fn refuses_a_writable_connector_mount() {
                 }
             }
         },
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let mut vmm = run::start(&run, spec);
     let want = format!(
@@ -336,7 +336,7 @@ fn assert_refused(vmm: &mut run::Vmm, want: String) {
 #[test]
 fn readiness() {
     let run = run::load();
-    let vmm = run::start(&run, run::Spec::probes(&run, "none.json"));
+    let vmm = run::start(&run, run::Spec::probes(&run, run::policy::EMPTY));
     let ready = run::wait_ready(&vmm, READY);
     eprintln!("readiness {ready:?} after podman run");
     run::assert_framing(&vmm, true);
@@ -387,7 +387,7 @@ fn image_user_through_linked_account_files() {
 
     let spec = run::Spec {
         connector_image: image.clone(),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let (vmm, mut guest) = start(&run, spec);
     let status = probe(
@@ -512,7 +512,7 @@ fn no_new_privileges() {
 
     let spec = run::Spec {
         connector_image: user_image.clone(),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let (vmm, mut guest) = start(&run, spec);
     table.push_str("the guest's view:\n");
@@ -560,7 +560,7 @@ fn no_new_privileges() {
 
     let spec = run::Spec {
         connector_image: root_image.clone(),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let (vmm, mut guest) = start(&run, spec);
     let workload = probe(
@@ -723,7 +723,7 @@ fn image_environment() {
 
     let spec = run::Spec {
         connector_image: image.clone(),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let (vmm, mut guest) = start(&run, spec);
     let kernel = probe(
@@ -795,7 +795,7 @@ fn image_uv_cache_dir() {
 
         let spec = run::Spec {
             connector_image: image.clone(),
-            ..run::Spec::probes(&run, "none.json")
+            ..run::Spec::probes(&run, run::policy::EMPTY)
         };
         let (vmm, mut guest) = start(&run, spec);
         let env = probe(&mut guest, "env", "env", serde_json::json!({}));
@@ -822,7 +822,7 @@ fn spec_rpc_through_init_sock() {
         vmm_image: run.production_vmm_image.clone(),
         connector_image: run.hello_world_image.clone(),
         exec: None,
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let vmm = run::start(&run, spec);
     run::wait_ready(&vmm, READY);
@@ -925,7 +925,7 @@ fn production_guest() {
         vmm_image: run.production_vmm_image.clone(),
         connector_image: image.clone(),
         exec: None,
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let vmm = run::start(&run, spec);
     run::wait_ready(&vmm, READY);
@@ -996,6 +996,11 @@ fn production_refuses_test_controls() {
             &run.production_vmm_image,
             &["--exec", "/bin/true"],
         ),
+        (
+            "production",
+            &run.production_vmm_image,
+            &["--ttl-floor-secs", "3"],
+        ),
         ("production", &run.production_vmm_image, &["--run-as-root"]),
         (
             "production",
@@ -1013,8 +1018,6 @@ fn production_refuses_test_controls() {
             "--network=none",
             image,
             "run",
-            "--policy",
-            "/init/policy.json",
             "--connector-mount",
             "/connector-mounts-0/mount-acme",
             "--memory-mib",
@@ -1041,6 +1044,7 @@ fn production_refuses_test_controls() {
     production --debug: exit Some(2), flow-connector-vmm: error: unexpected argument '--debug' found
     production --resolver-upstream 192.0.2.53:53: exit Some(2), flow-connector-vmm: error: unexpected argument '--resolver-upstream' found
     production --exec /bin/true: exit Some(2), flow-connector-vmm: error: unexpected argument '--exec' found
+    production --ttl-floor-secs 3: exit Some(2), flow-connector-vmm: error: unexpected argument '--ttl-floor-secs' found
     production --run-as-root: exit Some(2), flow-connector-vmm: error: unexpected argument '--run-as-root' found
     production --as-root-exec id: exit Some(2), flow-connector-vmm: error: unexpected argument '--as-root-exec' found
     test --exec /bin/true: exit Some(2), flow-connector-vmm: / is writable; the VMM container must be launched with `--read-only`
@@ -1063,7 +1067,7 @@ fn dns_udp_sizes() {
     ] {
         dns::set(&nameserver, name, vec![dns::Record::A(address, 300); count]);
     }
-    let mut spec = run::Spec::probes(&run, "capacity.json");
+    let mut spec = run::Spec::probes(&run, run::policy::CAPACITY);
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
     for (name, edns, want) in [
@@ -1113,7 +1117,7 @@ fn dns_udp_sizes() {
 #[test]
 fn scratch_reclaims() {
     let run = run::load();
-    let (vmm, mut guest) = start(&run, run::Spec::probes(&run, "none.json"));
+    let (vmm, mut guest) = start(&run, run::Spec::probes(&run, run::policy::EMPTY));
     let pid = run::pid(&vmm);
     let features = probe(
         &mut guest,
@@ -1188,9 +1192,9 @@ fn azure_platform_egress() {
     let endpoint = listen(&run, azure);
     let datagrams = echo(&run, azure);
     for (policy, cidrs) in [
-        ("capacity.json", vec![]),
-        ("azure.json", vec!["168.63.129.16/32"]),
-        ("every-address.json", vec!["0.0.0.0/0"]),
+        (run::policy::CAPACITY, vec![]),
+        (run::policy::AZURE, vec!["168.63.129.16/32"]),
+        (run::policy::EVERY_ADDRESS, vec!["0.0.0.0/0"]),
     ] {
         let mut spec = run::Spec::probes(&run, policy);
         spec.flags = upstream(&nameserver);
@@ -1222,7 +1226,7 @@ fn azure_platform_egress() {
                 } else {
                     "connected"
                 },
-                "{policy} compromised={compromised}"
+                "{policy:?} compromised={compromised}"
             );
             assert_eq!(
                 udp(
@@ -1233,7 +1237,7 @@ fn azure_platform_egress() {
                     BLOCKED
                 ),
                 if cidrs.is_empty() { "timeout" } else { "pong" },
-                "{policy} compromised={compromised}"
+                "{policy:?} compromised={compromised}"
             );
         }
     }
@@ -1243,7 +1247,7 @@ fn azure_platform_egress() {
 #[test]
 fn storage() {
     let run = run::load();
-    let mut spec = run::Spec::probes(&run, "none.json");
+    let mut spec = run::Spec::probes(&run, run::policy::EMPTY);
     spec.memory_mib = 512;
     spec.disk_mib = 768;
     let (mut vmm, mut guest) = start(&run, spec);
@@ -1415,7 +1419,7 @@ fn read_only_root() {
     let spec = run::Spec {
         connector_image: run.root_guest_image.clone(),
         exec: Some(vec!["/bin/sh".to_string(), "-c".to_string(), script]),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let (vmm, mut guest) = start(&run, spec);
 
@@ -1494,7 +1498,7 @@ fn working_dir() {
         let image = build(name, working_dir);
         let spec = run::Spec {
             connector_image: image.clone(),
-            ..run::Spec::probes(&run, "none.json")
+            ..run::Spec::probes(&run, run::policy::EMPTY)
         };
         let (vmm, mut guest) = start(&run, spec);
         let same = probe(
@@ -1527,7 +1531,7 @@ fn working_dir() {
     let image = build("covered", "/tmp/project");
     let spec = run::Spec {
         connector_image: image.clone(),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let mut vmm = run::start(&run, spec);
     let status = run::wait_exit(&mut vmm, READY);
@@ -1558,7 +1562,7 @@ fn persistent_disk() {
     let run = run::load();
     let spec = run::Spec {
         persistent_disk: Some("/acmeCo/state"),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let (vmm, mut guest) = start(&run, spec);
     let dir = vmm.persistent_dir.clone().expect("a persistent directory");
@@ -1715,7 +1719,7 @@ fn guest_users_files_and_storage() {
         let spec = run::Spec {
             connector_image: image,
             persistent_disk: Some("/state"),
-            ..run::Spec::probes(&run, "none.json")
+            ..run::Spec::probes(&run, run::policy::EMPTY)
         };
         let (vmm, mut guest) = start(&run, spec);
         let ran = probe(
@@ -1788,7 +1792,7 @@ fn guest_users_files_and_storage() {
 #[test]
 fn control_channel() {
     let run = run::load();
-    let (vmm, mut guest) = start(&run, run::Spec::probes(&run, "none.json"));
+    let (vmm, mut guest) = start(&run, run::Spec::probes(&run, run::policy::EMPTY));
     let pid = run::pid(&vmm);
 
     // The mapped port is served by the VMM listening, so a connection the
@@ -1859,7 +1863,7 @@ fn teardown() {
     let run = run::load();
     let spec = run::Spec {
         rm: false,
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let (vmm, mut guest) = start(&run, spec);
     let pid = run::pid(&vmm);
@@ -1988,7 +1992,7 @@ fn oom_panic() {
              'a = [bytearray(64 << 20) for _ in range(1000)]'"
                 .to_string(),
         ]),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let mut vmm = run::start(&run, spec);
     let status = run::wait_exit(&mut vmm, Duration::from_secs(60));
@@ -2006,7 +2010,7 @@ fn oom_panic() {
     run::assert_framing(&vmm, false);
 }
 
-/// `public` with `allowedNames`: an exact name and a wildcard against
+/// Permitted names: an exact name and a wildcard against
 /// controlled endpoints, and everything a connector must not reach.
 #[test]
 fn egress_allowlist() {
@@ -2036,7 +2040,7 @@ fn egress_allowlist() {
     let spec = run::Spec {
         connector_image: run.root_guest_image.clone(),
         flags: upstream(&nameserver),
-        ..run::Spec::probes(&run, "allowlist.json")
+        ..run::Spec::probes(&run, run::policy::ALLOWLIST)
     };
     let (root_vmm, mut root_guest) = start(&run, spec);
     let icmp = probe(
@@ -2054,7 +2058,7 @@ fn egress_allowlist() {
     std::mem::drop(root_guest);
     run::stop(root_vmm);
 
-    let mut spec = run::Spec::probes(&run, "allowlist.json");
+    let mut spec = run::Spec::probes(&run, run::policy::ALLOWLIST);
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
     let pid = run::pid(&vmm);
@@ -2289,7 +2293,7 @@ fn egress_ttl() {
         "short.acmeco.example",
         vec![dns::Record::A(ip, 1)],
     );
-    let mut spec = run::Spec::probes(&run, "ttl.json");
+    let mut spec = run::Spec::probes(&run, run::policy::TTL);
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
     let answer = query(&mut guest, "authorize", "short.acmeco.example", 1);
@@ -2353,7 +2357,7 @@ fn egress_ttl() {
 #[test]
 fn egress_cname() {
     let run = run::load();
-    let [dns_ip, unresolved_ip, _, _, target_ip, spare_ip] = run.endpoints[..] else {
+    let [dns_ip, _, _, _, target_ip, spare_ip] = run.endpoints[..] else {
         panic!("expected six endpoints in run.json");
     };
     let nameserver = scripted(&run, dns_ip);
@@ -2389,7 +2393,7 @@ fn egress_cname() {
         vec![dns::Record::A(spare_ip, 60)],
     );
 
-    let mut spec = run::Spec::probes(&run, "capacity.json");
+    let mut spec = run::Spec::probes(&run, run::policy::CAPACITY);
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
 
@@ -2460,68 +2464,12 @@ fn egress_cname() {
         "the remembered target's subdomain went upstream"
     );
     run::assert_framing(&vmm, true);
-    drop(guest);
-    drop(vmm);
-
-    // allowAll lifts the name gate, never the baseline.
-    dns::set(
-        &nameserver,
-        "private.anywhere.example",
-        vec![dns::Record::A(Ipv4Addr::new(10, 1, 2, 3), 300)],
-    );
-    dns::set(
-        &nameserver,
-        "public.anywhere.example",
-        vec![dns::Record::A(dns_ip, 300)],
-    );
-    let unresolved = listen(&run, unresolved_ip);
-    let mut spec = run::Spec::probes(&run, "allow-all.json");
-    spec.flags = upstream(&nameserver);
-    let (vmm, mut guest) = start(&run, spec);
-    let pid = run::pid(&vmm);
-
-    let private = query(
-        &mut guest,
-        "allow-all-private-refused",
-        "private.anywhere.example",
-        1,
-    );
-    assert_eq!(private["status"], "rcode:5", "allow-all-private-refused");
-    let public = query(
-        &mut guest,
-        "allow-all-unlisted-name",
-        "public.anywhere.example",
-        1,
-    );
-    assert_eq!(public["status"], "ok", "allow-all-unlisted-name: {public}");
-    assert_eq!(
-        tcp(
-            &mut guest,
-            "allow-all-unresolved-address",
-            unresolved_ip,
-            unresolved.addr.port(),
-            2.0
-        ),
-        "connected",
-        "allow-all-unresolved-address"
-    );
-    let metadata = Ipv4Addr::new(169, 254, 169, 254);
-    assert_eq!(
-        tcp(&mut guest, "allow-all-metadata", metadata, 80, BLOCKED),
-        "timeout",
-        "allow-all-metadata"
-    );
-    let flows = guest_flows(pid);
-    assert!(
-        flows.iter().all(|flow| flow.dst != metadata),
-        "the metadata service got through under allowAll: {flows:?}"
-    );
-    run::assert_framing(&vmm, true);
 }
 
-/// `egress: none`: nothing resolves and nothing leaves.
+/// The empty policy, which `egress: {}` launches with: nothing resolves and
+/// nothing leaves.
 #[test]
-fn egress_none() {
+fn egress_empty() {
     let run = run::load();
     let nameserver = scripted(&run, run.endpoints[0]);
     let target = listen(&run, run.endpoints[0]);
@@ -2531,46 +2479,47 @@ fn egress_none() {
         vec![dns::Record::A(run.endpoints[0], 300)],
     );
 
-    let mut spec = run::Spec::probes(&run, "none.json");
-    // Ignored: no resolver runs without public egress.
+    let mut spec = run::Spec::probes(&run, run::policy::EMPTY);
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
     let pid = run::pid(&vmm);
 
     let resolved = probe(
         &mut guest,
-        "resolve-none",
+        "resolve-empty",
         "resolve",
         serde_json::json!({"name": "ok.acmeco.example"}),
     );
     assert!(
         resolved.as_str().is_some_and(|r| r.starts_with("error:")),
-        "resolve-none: {resolved}"
+        "resolve-empty: {resolved}"
     );
-    let raw = query(&mut guest, "query-none", "ok.acmeco.example", 1);
-    assert_eq!(raw["status"], "timeout", "query-none");
+    let raw = query(&mut guest, "query-empty", "ok.acmeco.example", 1);
+    assert_eq!(raw["status"], "rcode:5", "query-empty");
     let port = target.addr.port();
     assert_eq!(
-        tcp(&mut guest, "connect-none", run.endpoints[0], port, BLOCKED),
+        tcp(&mut guest, "connect-empty", run.endpoints[0], port, BLOCKED),
         "timeout",
-        "connect-none"
+        "connect-empty"
     );
     assert_eq!(
         tcp(
             &mut guest,
-            "connect-none-metadata",
+            "connect-empty-metadata",
             Ipv4Addr::new(169, 254, 169, 254),
             80,
             BLOCKED
         ),
         "timeout",
-        "connect-none-metadata"
+        "connect-empty-metadata"
     );
 
     let flows = guest_flows(pid);
     assert!(
-        flows.is_empty(),
-        "guest flows got through with egress none: {flows:?}"
+        flows
+            .iter()
+            .all(|flow| flow.proto == "udp" && flow.dst == VMM_TAP && flow.dport == Some(53)),
+        "guest flows other than its refused queries got through: {flows:?}"
     );
     let counters = host::counters(&vmm.name);
     assert_eq!(
@@ -2578,11 +2527,7 @@ fn egress_none() {
         0,
         "masqueraded packets: {counters:?}"
     );
-    for rule in [
-        "forward/forward-drop",
-        "forward/baseline",
-        "input/input-drop",
-    ] {
+    for rule in ["forward/forward-drop", "forward/baseline", "input/tap-dns"] {
         assert!(
             counter(&counters, rule) > 0,
             "{rule} never matched: {counters:?}"
@@ -2594,7 +2539,7 @@ fn egress_none() {
     );
     assert!(
         endpoint::accepted(&target).is_empty(),
-        "connect-none arrived"
+        "connect-empty arrived"
     );
     run::assert_framing(&vmm, true);
 }
@@ -2604,7 +2549,7 @@ fn egress_none() {
 #[test]
 fn public_https_smoke() {
     let run = run::load();
-    let (vmm, mut guest) = start(&run, run::Spec::probes(&run, "smoke.json"));
+    let (vmm, mut guest) = start(&run, run::Spec::probes(&run, run::policy::SMOKE));
 
     let resolved = probe(
         &mut guest,
@@ -2641,7 +2586,7 @@ fn connector_mount() {
     let first = generation(1);
     let spec = run::Spec {
         task_update: Some(&first),
-        ..run::Spec::probes(&run, "none.json")
+        ..run::Spec::probes(&run, run::policy::EMPTY)
     };
     let (vmm, mut guest) = start(&run, spec);
     let mount = run::GUEST_CONNECTOR_MOUNT;
@@ -2900,7 +2845,7 @@ fn boundary_holds_across_reinstalls() {
     let endpoint_ip = run.endpoints[0];
     let public = listen(&run, endpoint_ip);
     let decoy = listen(&run, run.decoys[0]);
-    let (vmm, mut guest) = start(&run, run::Spec::probes(&run, "allow-all.json"));
+    let (vmm, mut guest) = start(&run, run::Spec::probes(&run, run::policy::EMPTY));
     flush(&vmm);
     attacker_nat(&vmm);
 
@@ -2985,11 +2930,11 @@ fn ingress_from_host() {
         &run,
         run::Spec {
             flags: vec!["--ingress-port=8080".to_string()],
-            ..run::Spec::probes(&run, "none.json")
+            ..run::Spec::probes(&run, run::policy::EMPTY)
         },
     );
     let _sibling_permissions = run::ingress(&run, &sibling, &[8080], &[]);
-    for policy in ["none.json", "allow-all.json"] {
+    for policy in [run::policy::EMPTY, run::policy::ALLOWLIST] {
         let (vmm, mut guest) = start(
             &run,
             run::Spec {
@@ -3054,7 +2999,7 @@ fn ingress_from_host() {
                     Duration::from_millis(500)
                 )
                 .is_err(),
-                "undeclared port admitted ({policy}, compromised={compromised})"
+                "undeclared port admitted ({policy:?}, compromised={compromised})"
             );
             let remote = format!(
                 "import socket\ns=socket.socket(); s.settimeout(0.5)\ntry:\n s.connect(('{ip}', 8080)); print('connected')\nexcept OSError:\n print('blocked')"
@@ -3103,7 +3048,7 @@ fn ingress_from_host() {
             stream.read_to_string(&mut reply).unwrap();
             assert_eq!(
                 reply, "reply:ingest documents",
-                "{policy}, compromised={compromised}"
+                "{policy:?}, compromised={compromised}"
             );
 
             let gateway = network_field(&vmm, "Gateway");
@@ -3219,7 +3164,7 @@ fn egress_cidrs() {
     let udp_granted = echo(&run, granted);
     let udp_beside = echo(&run, beside);
 
-    let mut spec = run::Spec::probes(&run, "cidrs.json");
+    let mut spec = run::Spec::probes(&run, run::policy::CIDRS);
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
     let permissions = run::ingress(&run, &vmm, &[], &["198.18.255.241/32"]);
@@ -3293,7 +3238,7 @@ fn egress_cidrs() {
     }
 
     // A sibling with no grant of its own, as compromised as this VMM.
-    let (sibling, mut sibling_guest) = start(&run, run::Spec::probes(&run, "cidrs.json"));
+    let (sibling, mut sibling_guest) = start(&run, run::Spec::probes(&run, run::policy::CIDRS));
     flush(&sibling);
     attacker_nat(&sibling);
     assert_eq!(
@@ -3392,10 +3337,10 @@ fn egress_every_address() {
     let tcp_public = listen(&run, public);
     let tcp_decoy = listen(&run, decoy);
     let udp_decoy = echo(&run, decoy);
-    let (sibling, _sibling_guest) = start(&run, run::Spec::probes(&run, "none.json"));
+    let (sibling, _sibling_guest) = start(&run, run::Spec::probes(&run, run::policy::EMPTY));
     let sibling_ip = network_field(&sibling, "IPAddress");
 
-    let mut spec = run::Spec::probes(&run, "every-address.json");
+    let mut spec = run::Spec::probes(&run, run::policy::EVERY_ADDRESS);
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
     let _permissions = run::ingress(&run, &vmm, &[], &["0.0.0.0/0"]);

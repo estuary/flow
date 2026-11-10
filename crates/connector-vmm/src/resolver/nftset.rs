@@ -490,8 +490,8 @@ mod tests {
     /// them. Neither can move without the other.
     #[test]
     fn names_match_the_ruleset() {
-        let policy = egress::parse(br#"{"egress":"public"}"#).expect("fixture parses");
-        let text = crate::ruleset::render(&policy, &[], &[]).expect("fixture renders");
+        let policy = crate::policy::tests::policy(&[], &[], None);
+        let text = crate::ruleset::render(&policy, &[], &[]);
 
         assert!(
             text.contains(&format!("table inet {} {{", super::TABLE)),

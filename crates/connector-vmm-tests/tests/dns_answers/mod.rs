@@ -16,7 +16,7 @@ fn dns_answer_changes() {
     let forbidden = listen(&run, forbidden_ip);
     let name = "name.acmeco.example";
     dns::set(&nameserver, name, vec![dns::Record::A(allowed_ip, 3600)]);
-    let mut spec = run::Spec::probes(&run, "capacity.json");
+    let mut spec = run::Spec::probes(&run, run::policy::CAPACITY);
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
 

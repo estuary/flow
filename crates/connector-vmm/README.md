@@ -31,8 +31,9 @@ for when a host's provisioning runs it.
 - `src/net.rs`: the addresses the tap, the ruleset and the resolver are pinned
   to, plus the tap, the ruleset apply and the upstream nameserver.
 - `src/console.rs`: the console descriptors and the `--debug` tee.
-- The policy JSON, its host-name rules and the baseline come from
-  [`crates/egress`](../egress/README.md).
+- `src/policy.rs`: the `--egress-host` and `--egress-cidr` flags, the policy
+  they validate into, and the `baseline` and `excluded` prefixes. Host-name
+  and CIDR rules are `models::egress`'s.
 - `src/ruleset.rs`: policy in, `inet flow_egress` text out, for the VMM's own
   network namespace.
 - `src/boundary.rs`: the host's `inet` and `bridge` `flow_vmm_boundary` tables,
@@ -107,7 +108,6 @@ because libkrun applies `HOME` and `TERM` last-wins.
 | mount | | what it is |
 |---|---|---|
 | `/` | ro | the VMM image. `--read-only`, checked at startup. |
-| `/init` | ro | `policy.json` and nothing else, read once. |
 | connector mount | ro | shared into the guest at `/connector-mount`, checked at startup. `crates/connector` is the authority for its contents and the environment contract; `image::krun_config` gives those variables precedence over the image's. |
 | `/rootfs` | ro | a private image-backed volume, mounted `readonly`, checked at startup and served read-only as the guest's root. |
 | `/sock` | rw | libkrun binds `init.sock` here. |
@@ -140,7 +140,7 @@ server runs as host root and performs a guest's file operations itself.
 |---|---|
 | `CAP_NET_ADMIN` | the tap, `ip` and `nft`, and the resolver's set updates |
 | `CAP_NET_BIND_SERVICE` | the resolver's port 53; podman leaves `ip_unprivileged_port_start` at 1024 |
-| `CAP_DAC_OVERRIDE` | the launcher's mode-0700 `/init`, `/sock` and `/scratch-backing`, and image files of any mode, which the server opens for any guest user |
+| `CAP_DAC_OVERRIDE` | the launcher's mode-0700 `/sock` and `/scratch-backing`, and image files of any mode, which the server opens for any guest user |
 | `CAP_SETUID`, `CAP_SETGID` | the server creates a nonroot guest user's files on a writable share as that user, and refuses them without these |
 | `CAP_FOWNER` | the server's chmod and times on such a user's files |
 | `CAP_FSETID` | its chmod keeps a setgid bit such a user sets |
@@ -309,7 +309,7 @@ the host will have, and every owner installs identical tables.
 |---|---|
 | inet prerouting (raw) | IPv6; a source that does not route back out of the bridge it came in on; IP fragments (none arrive while conntrack reassembles) |
 | inet input | everything addressed to the host, except UDP/53 to the bridge gateway and TCP replies to authorized host ingress |
-| inet forward | anything to another VMM bridge or back out of its own; `egress::excluded` destinations; `egress::baseline` destinations without a granted mark; TCP/25; IPv6 into a VMM; any packet into a VMM that is not a reply |
+| inet forward | anything to another VMM bridge or back out of its own; `policy::excluded` destinations; `policy::baseline` destinations without a granted mark; TCP/25; IPv6 into a VMM; any packet into a VMM that is not a reply |
 | inet output | IPv6, and connections from the host into a VMM without a reply state or an ingress authorization |
 | bridge prerouting, output | frames that are neither IPv4 nor ARP |
 | bridge forward | every frame from one port of a VMM bridge to another |
@@ -369,15 +369,17 @@ it the same way.
 
 ## The policy
 
-`/init/policy.json` is parsed by `egress::load`. Its fields, the host-name
-rules of `allowedNames` and the baseline are documented in
-[`crates/egress`](../egress/README.md).
+A launcher passes the policy as flags of `run`: `--egress-host` for each name
+the guest may reach and `--egress-cidr` for each IPv4 range, both repeatable.
+`policy::check` validates and normalizes them with `models::egress::hosts` and
+`models::egress::cidrs`, whose doc comments hold the rules. With neither flag
+the resolver forwards no queries and grants no destinations.
 
-`egress: none` renders the same skeleton with the acceptance chain, the
-`resolved` set and the guest's DNS rule all absent. `allowAll` adds one accept
-at the head of the acceptance chain and removes the requirement that a
-destination be *named* - not the requirement that it be public.
-`declaredCidrs` adds the `declared` and `excluded` sets.
+An `--egress-cidr` adds the `declared` and `excluded` sets to the ruleset.
+
+A resolved address stays reachable for its record's TTL, clamped to between 90
+seconds and an hour. `--ttl-floor-secs` and `--ttl-cap-secs` change those
+bounds only in a `test-controls` build.
 
 ## The ruleset, in one paragraph
 
@@ -385,31 +387,54 @@ One table, `inet flow_egress`, replaced wholesale on every apply. The forward
 chain drops by policy and works through anti-spoof, established/related, IPv6,
 anything that is not TCP or UDP, the `excluded` prefixes, the baseline
 exclusions outside `@declared` and tcp/25, before jumping to `egress_accept`
-where the only three accepts live: `allowAll`, `@resolved` and `@declared`. `@resolved` is empty until the
+where the only two accepts live: `@resolved` and `@declared`. `@resolved` is empty until the
 resolver puts something in it. The input chain drops by policy and lets exactly
 one thing in from the tap: the guest's DNS query to the VMM. The output chain
 lets nothing out to the tap that is not an established reply, so nothing in the
 VMM can open a connection to the guest. Declared TCP ports are DNATed from the
 uplink to the guest before the egress exclusions. Their replies use the
-established connection, including with `egress: none`. Postrouting masquerades
+established connection, whatever the egress policy. Postrouting masquerades
 the guest out of the uplink.
 
 ## Public destinations only, unless a CIDR is declared
 
-Without `declaredCidrs`, a connector may reach public unicast addresses and
+Without a declared CIDR, a connector may reach public unicast addresses and
 nothing else. Every private address is treated as sensitive even where the
 service behind it authenticates, and there is no known sensitive public-IP
 service, so the boundary is drawn at reachability rather than at a list of
 things worth protecting.
 
-`egress::baseline` is that boundary: every prefix IANA's IPv4 Special-Purpose
+`policy::baseline` is that boundary: every prefix IANA's IPv4 Special-Purpose
 Address Registry marks as not globally reachable, plus multicast and Azure's
-host-node virtual IP (listed in [`crates/egress`](../egress/README.md)), plus the VMM's own interface subnets
+host-node virtual IP, plus the VMM's own interface subnets
 read at start. A declared CIDR lifts it where they meet, except for
-`egress::excluded`: the prefixes which are not routed destinations or hold the
+`policy::excluded`: the prefixes which are not routed destinations or hold the
 metadata service or the tap, plus the VMM's own subnets.
 
-`allowAll` lifts none of it. A resolver answer naming a baseline address
+| prefix | what it is | within a CIDR |
+|---|---|---|
+| `0.0.0.0/8` | "this network"; `0.0.0.0/32` is this host | excluded |
+| `10.0.0.0/8` | private use (RFC 1918) | reachable |
+| `100.64.0.0/10` | shared address space, carrier NAT (RFC 6598) | reachable |
+| `127.0.0.0/8` | loopback | excluded |
+| `168.63.129.16/32` | [Azure platform virtual IP](https://learn.microsoft.com/en-us/azure/virtual-network/what-is-ip-address-168-63-129-16) (WireServer, DNS, DHCP, health probes) | reachable |
+| `169.254.0.0/16` | link local, and every cloud's instance metadata service | excluded |
+| `172.16.0.0/12` | private use (RFC 1918) | reachable |
+| `192.0.0.0/24` | IETF protocol assignments: DS-Lite, NAT64/DNS64 discovery | reachable |
+| `192.0.2.0/24` | documentation (TEST-NET-1), and the tap `192.0.2.0/30` | excluded |
+| `192.88.99.0/24` | deprecated 6to4 relay anycast | reachable |
+| `192.168.0.0/16` | private use (RFC 1918) | reachable |
+| `198.18.0.0/15` | benchmarking (RFC 2544); several vendors use it as private space | reachable |
+| `198.51.100.0/24` | documentation (TEST-NET-2) | reachable |
+| `203.0.113.0/24` | documentation (TEST-NET-3) | reachable |
+| `224.0.0.0/4` | multicast; not a unicast destination | excluded |
+| `240.0.0.0/4` | reserved, including `255.255.255.255` | excluded |
+
+Three registry entries are deliberately absent because IANA marks them
+globally reachable: `192.31.196.0/24` (AS112-v4), `192.52.193.0/24` (AMT) and
+`192.175.48.0/24` (AS112 direct delegation).
+
+A resolver answer naming a baseline address
 outside the CIDRs, or an excluded one, is refused rather than added to
 `@resolved`. In the rendered text the guarantee is positional:
 `ip daddr @excluded counter drop` and the baseline drop precede every rule
@@ -436,7 +461,7 @@ lost socket or a panic prints one framed line and aborts the process.
 The query gate and TTL authorization rules are documented in
 `src/resolver/mod.rs`. Only answer-section records authorize destinations;
 remembered CNAME targets match exactly. Address and target counts share the
-ruleset's `RESOLVED_SIZE` cap. With `declaredCidrs`, an unlisted name's `A`
+ruleset's `RESOLVED_SIZE` cap. With a declared CIDR, an unlisted name's `A`
 question also goes upstream, and its answer stands only if every address lies
 within the CIDRs. Such an answer remembers no CNAME target, so it cannot make
 a later public answer authorized, and addresses within the CIDRs take no room
@@ -474,11 +499,11 @@ per-query decision lines are separate, and test-only.
 
 - **`declared` matches every port.** The rule is `ip daddr @declared`, so a
   declared CIDR admits TCP and UDP on any port; the earlier drops still take
-  everything else, and tcp/25. `egress::cidrs` leaves its prefixes disjoint,
+  everything else, and tcp/25. `models::egress::cidrs` leaves its prefixes disjoint,
   so the set needs no `auto-merge`.
-- **`ttlFloorSecs` may not be zero.** An nft set element with `timeout 0s`
+- **The TTL floor may not be zero.** An nft set element with `timeout 0s`
   never expires, so a zero floor would turn one answer into a permanent hole
-  in `resolved`. `ttlCapSecs` is bounded for the same reason.
+  in `resolved`. The TTL cap is bounded for the same reason.
 - **IPv6 is dropped, not filtered.** The guest has it disabled, the forward
   chain drops it outright, and `--vmm-subnet` refuses an IPv6 argument because
   there is nothing for it to exclude.
@@ -506,7 +531,7 @@ control.
   the addresses that come back.
 - DNS exfiltration through permitted names is accepted. A permitted name may be
   queried for any record type, and a connector that wants to leak data through
-  a name it is allowed to resolve can. With `declaredCidrs`, any name may be
+  a name it is allowed to resolve can. With a declared CIDR, any name may be
   queried for `A`.
 - A remembered CNAME target is whatever an allowed zone pointed at. That is not
   new reach: whoever controls an allowed zone could already answer its own name

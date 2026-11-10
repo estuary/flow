@@ -12,7 +12,7 @@ fn dns_capacity() {
     let addresses: Vec<Ipv4Addr> = (0..CAP)
         .map(|index| Ipv4Addr::from(u32::from(Ipv4Addr::new(192, 31, 200, 0)) + index as u32))
         .collect();
-    let mut spec = run::Spec::probes(&run, "capacity.json");
+    let mut spec = run::Spec::probes(&run, run::policy::CAPACITY);
     spec.flags = upstream(&nameserver);
     let (vmm, mut guest) = start(&run, spec);
     // Fill addresses are never contacted, and cannot escape if a probe changes.

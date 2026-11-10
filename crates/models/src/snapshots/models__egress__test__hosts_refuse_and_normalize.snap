@@ -1,0 +1,139 @@
+---
+source: crates/models/src/egress.rs
+expression: table
+---
+# non-ASCII
+["café.example"]
+egress.hosts "café.example" is not ASCII; write the punycode (xn--) form, which is what a query carries
+
+# trailing dot
+["pypi.org."]
+egress.hosts "pypi.org." has a trailing dot; write the name without it
+
+# single label
+["localhost"]
+egress.hosts "localhost" is a single label, which cannot resolve publicly
+
+# all-numeric top label
+["169.254.169.254"]
+egress.hosts "169.254.169.254" ends in an all-numeric label; egress.hosts takes names, not addresses
+
+# empty label
+["files..acmeco.example"]
+egress.hosts "files..acmeco.example" has an empty label
+
+# hyphen-bounded label
+["-files.acmeco.example"]
+egress.hosts "-files.acmeco.example" has a label bounded by a hyphen: "-files"
+
+# underscore
+["build_cache.acmeco.example"]
+egress.hosts "build_cache.acmeco.example" has a label outside [a-z0-9-]: "build_cache"
+
+# empty string
+[""]
+egress.hosts contains an empty name
+
+# lowercased and deduplicated
+["PyPI.ORG", "pypi.org", "artifacts.acmeco.example"]
+accepted: [Exact("pypi.org"), Exact("artifacts.acmeco.example")]
+
+# a name and its wildcard are distinct grants
+["acmeco.example", "*.acmeco.example"]
+accepted: [Exact("acmeco.example"), Subdomains("acmeco.example")]
+
+# wildcard lowercased and deduplicated
+["*.ACMEco.example", "*.acmeco.example"]
+accepted: [Subdomains("acmeco.example")]
+
+# wildcard alone
+["*"]
+egress.hosts "*" has a wildcard other than a leading "*.", the only form supported
+
+# wildcard with no base
+["*."]
+egress.hosts "*." has a trailing dot; write the name without it
+
+# two wildcard labels
+["*.*.acmeco.example"]
+egress.hosts "*.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# doubled star
+["**.acmeco.example"]
+egress.hosts "**.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# star without its dot
+["*acmeco.example"]
+egress.hosts "*acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# star inside a label
+["api*.acmeco.example"]
+egress.hosts "api*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# wildcard label in the middle
+["api.*.acmeco.example"]
+egress.hosts "api.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# wildcard label last
+["acmeco.*"]
+egress.hosts "acmeco.*" has a wildcard other than a leading "*.", the only form supported
+
+# wildcard with a trailing dot
+["*.acmeco.example."]
+egress.hosts "*.acmeco.example." has a trailing dot; write the name without it
+
+# wildcard over an invalid label
+["*.-acmeco.example"]
+egress.hosts "*.-acmeco.example" has a label bounded by a hyphen: "-acmeco"
+
+# wildcard over a top-level domain
+["*.com"]
+egress.hosts "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# wildcard over an ICANN second-level suffix
+["*.co.uk"]
+egress.hosts "*.co.uk" is a wildcard over the public suffix "co.uk", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# wildcard over a private suffix
+["*.github.io"]
+egress.hosts "*.github.io" is a wildcard over the public suffix "github.io", in the Public Suffix List's private section; names beneath a public suffix belong to unrelated registrants
+
+# wildcard over a domain registered beneath a private suffix
+["*.acmeco.github.io"]
+accepted: [Subdomains("acmeco.github.io")]
+
+# wildcard over a domain holding private suffixes: only the base is checked
+["*.amazonaws.com"]
+accepted: [Subdomains("amazonaws.com")]
+
+# wildcard over a suffix made by a wildcard rule
+["*.acmeco.ck"]
+egress.hosts "*.acmeco.ck" is a wildcard over the public suffix "acmeco.ck", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# wildcard over an exception to a wildcard rule
+["*.www.ck"]
+accepted: [Subdomains("www.ck")]
+
+# wildcard over a domain holding a wildcard rule: only the base is checked
+["*.kawasaki.jp"]
+accepted: [Subdomains("kawasaki.jp")]
+
+# wildcard over an exception beneath that wildcard rule
+["*.city.kawasaki.jp"]
+accepted: [Subdomains("city.kawasaki.jp")]
+
+# wildcard over an internationalized suffix, in punycode
+["*.xn--55qx5d.cn"]
+egress.hosts "*.xn--55qx5d.cn" is a wildcard over the public suffix "xn--55qx5d.cn", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# wildcard over an unlisted top-level domain
+["*.example"]
+egress.hosts "*.example" is a wildcard over the public suffix "example", by the Public Suffix List's default rule, which makes every top-level label a suffix; names beneath a public suffix belong to unrelated registrants
+
+# wildcard beneath an unlisted top-level domain
+["*.acmeco.example"]
+accepted: [Subdomains("acmeco.example")]
+
+# exact names are not checked against the list
+["s3.amazonaws.com", "github.io", "co.uk"]
+accepted: [Exact("s3.amazonaws.com"), Exact("github.io"), Exact("co.uk")]

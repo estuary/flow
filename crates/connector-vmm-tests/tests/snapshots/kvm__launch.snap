@@ -11,7 +11,6 @@ $CONNECTOR_MOUNT ext4 ro
 /etc/hostname tmpfs ro,nosuid,nodev,noexec
 /etc/hosts tmpfs ro,nosuid,nodev,noexec
 /etc/resolv.conf tmpfs ro,nosuid,nodev,noexec
-/init ext4 ro
 /proc proc rw,nosuid,nodev,noexec
 /proc/acpi tmpfs ro
 /proc/bus proc ro,nosuid,nodev,noexec

@@ -1,8 +1,8 @@
 ---
 source: crates/connector-vmm/src/ruleset.rs
-expression: render(DECLARED)
+expression: render(&declared())
 ---
-# flow-connector-vmm egress ruleset: egress=public allowAll=false allowedNames=1 declaredCidrs=3 ttlFloorSecs=90 ttlCapSecs=3600
+# flow-connector-vmm egress ruleset: allowedNames=1 declaredCidrs=3 ttlFloorSecs=90 ttlCapSecs=3600
 table inet flow_egress {}
 delete table inet flow_egress
 

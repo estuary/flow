@@ -1,9 +1,7 @@
 //! Compile a policy into a complete nftables ruleset without touching the kernel.
 
-use egress::{Mode, Policy};
-use std::fmt::Write;
-
 use crate::net::{GUEST_IP, TAP, UPLINK, VMM_IP};
+use crate::policy::Policy;
 
 /// The most addresses the resolver may hold at once. Kept beside the rendered
 /// text because the resolver's own cap has to agree with it.
@@ -12,185 +10,87 @@ pub const RESOLVED_SIZE: usize = 1024;
 /// `vmm_subnets` are the VMM's own interface subnets, folded into the
 /// baseline. `run` reads them from `getifaddrs`; `print-ruleset` takes them
 /// from `--vmm-subnet`.
+///
+/// The table is declared and then deleted before it is defined: `nft delete`
+/// on a table that was never created is an error, and a second apply must
+/// replace the first rather than append to it.
+///
+/// Sets:
+/// - `baseline` and `excluded` take `auto-merge` because the VMM's bridge
+///   sits inside 10.0.0.0/8 and the tap inside 192.0.2.0/24, and nft rejects
+///   overlapping interval elements.
+/// - `excluded` is the part of the baseline a declared CIDR does not lift.
+///   Without one it is within `baseline` and goes unrendered.
+/// - `resolved` is filled by the resolver, one element per answered address,
+///   with the clamped TTL as its timeout.
+/// - `declared` needs no merge: `models::egress::cidrs` leaves the prefixes
+///   disjoint.
+///
+/// `forward`:
+/// - "replies" precedes the private-address exclusions, so replies to
+///   permitted egress and ingress pass. Ingress works independently of the
+///   guest's egress policy.
+/// - "tcp-udp-only" kills ICMP, which is why it sits after "replies": ICMP
+///   errors belonging to a tracked connection are still useful.
+///
+/// `input`:
+/// - "anti-spoof" is ahead of "replies", and that ordering is the point: a
+///   guest that guessed the resolver's source port and a query id could
+///   otherwise forge an upstream answer, and conntrack would call it
+///   established.
+/// - "tap-dns" is the only packet the guest may address to the VMM, and the
+///   one local exception to public-only destinations.
+///
+/// `output` has policy accept: the VMM's own uplink traffic (the resolver's
+/// queries upstream) must keep working. Only the tap side is constrained, and
+/// there to replies, so nothing in the VMM can open a connection to the guest.
 pub fn render(
     policy: &Policy,
     vmm_subnets: &[ipnetwork::Ipv4Network],
     ingress_ports: &[u16],
-) -> anyhow::Result<String> {
-    let baseline = egress::baseline(vmm_subnets);
-    let public = policy.egress == Mode::Public;
-    // `egress: none` renders no declared CIDRs: the chain that would match
-    // them does not exist.
-    let declared: &[ipnetwork::Ipv4Network] = if public { &policy.declared_cidrs } else { &[] };
-    let mut out = String::new();
+) -> String {
+    let allowed_names = policy.allowed_names.len();
+    let declared_cidrs = policy.declared_cidrs.len();
+    let ttl_floor_secs = policy.ttl_floor_secs;
+    let ttl_cap_secs = policy.ttl_cap_secs;
+    let baseline = join(&crate::policy::baseline(vmm_subnets));
 
-    writeln!(
-        out,
-        "# flow-connector-vmm egress ruleset: egress={} allowAll={} allowedNames={} \
-         declaredCidrs={} ttlFloorSecs={} ttlCapSecs={}",
-        if public { "public" } else { "none" },
-        policy.allow_all,
-        policy.allowed_names.len(),
-        policy.declared_cidrs.len(),
-        policy.ttl_floor_secs,
-        policy.ttl_cap_secs,
-    )?;
-    // Declare-then-delete: `nft delete` on a table that was never created is
-    // an error, and a second apply must replace the first rather than append
-    // to it.
-    out.push_str(
-        "table inet flow_egress {}\n\
-         delete table inet flow_egress\n\n\
-         table inet flow_egress {\n",
-    );
+    let mut excluded_set = String::new();
+    let mut declared_set = String::new();
+    let mut baseline_drops = "\t\tip daddr @baseline counter drop comment \"baseline\"\n";
+    let mut declared_accept = "";
 
-    // auto-merge because the VMM's bridge sits inside 10.0.0.0/8 and the tap
-    // inside 192.0.2.0/24, and nft rejects overlapping interval elements.
-    out.push_str(
-        "\tset baseline {\n\
-         \t\ttype ipv4_addr\n\
-         \t\tflags interval\n\
-         \t\tauto-merge\n",
-    );
-    writeln!(out, "\t\telements = {{ {} }}", join(&baseline))?;
-    out.push_str("\t}\n\n");
+    if !policy.declared_cidrs.is_empty() {
+        let excluded = join(&crate::policy::excluded(vmm_subnets));
+        let declared = join(&policy.declared_cidrs);
 
-    if !declared.is_empty() {
-        // The part of the baseline a declared CIDR does not lift. Without
-        // one it is within `baseline` and goes unrendered.
-        out.push_str(
-            "\tset excluded {\n\
-             \t\ttype ipv4_addr\n\
-             \t\tflags interval\n\
-             \t\tauto-merge\n",
+        excluded_set = format!(
+            r#"	set excluded {{
+		type ipv4_addr
+		flags interval
+		auto-merge
+		elements = {{ {excluded} }}
+	}}
+
+"#
         );
-        writeln!(
-            out,
-            "\t\telements = {{ {} }}",
-            join(&egress::excluded(vmm_subnets))
-        )?;
-        out.push_str("\t}\n\n");
-    }
-    if public {
-        // Filled by the resolver, one element per answered address, with the
-        // clamped TTL as its timeout.
-        writeln!(
-            out,
-            "\tset resolved {{\n\
-             \t\ttype ipv4_addr\n\
-             \t\tflags timeout\n\
-             \t\tsize {RESOLVED_SIZE}\n\
-             \t}}\n"
-        )?;
-    }
-    if !declared.is_empty() {
-        // `egress::cidrs` leaves the prefixes disjoint, so they need no merge.
-        out.push_str(
-            "\tset declared {\n\
-             \t\ttype ipv4_addr\n\
-             \t\tflags interval\n",
+        declared_set = format!(
+            r#"	set declared {{
+		type ipv4_addr
+		flags interval
+		elements = {{ {declared} }}
+	}}
+
+"#
         );
-        writeln!(out, "\t\telements = {{ {} }}", join(declared))?;
-        out.push_str("\t}\n\n");
+        baseline_drops = r#"		ip daddr @excluded counter drop comment "excluded"
+		ip daddr @baseline ip daddr != @declared counter drop comment "baseline"
+"#;
+        declared_accept = "\t\tip daddr @declared counter accept comment \"declared\"\n";
     }
 
-    out.push_str("\tchain forward {\n");
-    out.push_str("\t\ttype filter hook forward priority filter; policy drop;\n");
-    writeln!(
-        out,
-        "\t\tiifname \"{TAP}\" ip saddr != {GUEST_IP} counter drop comment \"anti-spoof\""
-    )?;
-    // Replies to permitted egress and ingress precede the private-address
-    // exclusions. Ingress works independently of the guest's egress policy.
-    out.push_str("\t\tct state established,related counter accept comment \"replies\"\n");
-    out.push_str("\t\tmeta nfproto ipv6 counter drop comment \"no-ipv6\"\n");
-    if !ingress_ports.is_empty() {
-        let ports = ingress_ports
-            .iter()
-            .map(u16::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
-        writeln!(
-            out,
-            "\t\tiifname \"{UPLINK}\" oifname \"{TAP}\" ip daddr {GUEST_IP} ct status dnat tcp dport {{ {ports} }} counter accept comment \"ingress\""
-        )?;
-    }
-    // Kills ICMP, which is why it sits after the established/related accept:
-    // ICMP errors belonging to a tracked connection are still useful.
-    out.push_str("\t\tmeta l4proto != { tcp, udp } counter drop comment \"tcp-udp-only\"\n");
-    if declared.is_empty() {
-        out.push_str("\t\tip daddr @baseline counter drop comment \"baseline\"\n");
-    } else {
-        out.push_str("\t\tip daddr @excluded counter drop comment \"excluded\"\n");
-        out.push_str(
-            "\t\tip daddr @baseline ip daddr != @declared counter drop comment \"baseline\"\n",
-        );
-    }
-    out.push_str("\t\ttcp dport 25 counter drop comment \"smtp\"\n");
-
-    if public {
-        out.push_str("\t\tct state new counter jump egress_accept comment \"egress\"\n");
-        // A jump that returns without a verdict lands here, and on the policy.
-    }
-    out.push_str("\t\tcounter comment \"forward-drop\"\n");
-    out.push_str("\t}\n\n");
-
-    if public {
-        out.push_str("\tchain egress_accept {\n");
-        if policy.allow_all {
-            out.push_str("\t\tcounter accept comment \"allow-all\"\n");
-        }
-        out.push_str("\t\tip daddr @resolved counter accept comment \"resolved\"\n");
-        if !declared.is_empty() {
-            out.push_str("\t\tip daddr @declared counter accept comment \"declared\"\n");
-        }
-        out.push_str("\t}\n\n");
-    }
-
-    out.push_str("\tchain input {\n");
-    out.push_str("\t\ttype filter hook input priority filter; policy drop;\n");
-    out.push_str("\t\tiif lo counter accept comment \"loopback\"\n");
-    // Ahead of the conntrack accept, and that ordering is the point: a guest
-    // that guessed the resolver's source port and a query id could otherwise
-    // forge an upstream answer, and conntrack would call it established.
-    writeln!(
-        out,
-        "\t\tiifname \"{TAP}\" ip saddr != {GUEST_IP} counter drop comment \"anti-spoof\""
-    )?;
-    out.push_str("\t\tct state established,related counter accept comment \"replies\"\n");
-    if public {
-        // The only packet the guest may address to the VMM, and the one local
-        // exception to public-only destinations. With `egress: none` no
-        // resolver runs, so the rule is absent and the query is dropped rather
-        // than refused, which makes the guest pay its resolver's full retry
-        // budget instead of failing fast into a retry loop.
-        writeln!(
-            out,
-            "\t\tiifname \"{TAP}\" ip saddr {GUEST_IP} ip daddr {VMM_IP} udp dport 53 \
-             counter accept comment \"tap-dns\""
-        )?;
-    }
-    out.push_str("\t\tcounter comment \"input-drop\"\n");
-    out.push_str("\t}\n\n");
-
-    // Policy accept: the VMM's own uplink traffic (the resolver's queries
-    // upstream) must keep working. Only the tap side is constrained, and there
-    // to replies, so nothing in the VMM can open a connection to the guest.
-    out.push_str("\tchain output {\n");
-    out.push_str("\t\ttype filter hook output priority filter; policy accept;\n");
-    writeln!(
-        out,
-        "\t\toifname \"{TAP}\" ct state != established counter drop comment \"no-inbound\""
-    )?;
-    out.push_str("\t}\n\n");
-
-    out.push_str("\tchain postrouting {\n");
-    out.push_str("\t\ttype nat hook postrouting priority srcnat; policy accept;\n");
-    writeln!(
-        out,
-        "\t\tip saddr {GUEST_IP} oifname \"{UPLINK}\" counter masquerade comment \"masquerade\""
-    )?;
-    out.push_str("\t}\n");
+    let mut ingress_accept = String::new();
+    let mut ingress_dnat = String::new();
 
     if !ingress_ports.is_empty() {
         let ports = ingress_ports
@@ -198,14 +98,76 @@ pub fn render(
             .map(u16::to_string)
             .collect::<Vec<_>>()
             .join(", ");
-        writeln!(
-            out,
-            "\n\tchain prerouting {{\n\t\ttype nat hook prerouting priority dstnat; policy accept;\n\t\tiifname \"{UPLINK}\" fib daddr type local tcp dport {{ {ports} }} counter dnat ip to {GUEST_IP} comment \"ingress\"\n\t}}"
-        )?;
+
+        ingress_accept = format!(
+            r#"		iifname "{UPLINK}" oifname "{TAP}" ip daddr {GUEST_IP} ct status dnat tcp dport {{ {ports} }} counter accept comment "ingress"
+"#
+        );
+        ingress_dnat = format!(
+            r#"
+	chain prerouting {{
+		type nat hook prerouting priority dstnat; policy accept;
+		iifname "{UPLINK}" fib daddr type local tcp dport {{ {ports} }} counter dnat ip to {GUEST_IP} comment "ingress"
+	}}
+"#
+        );
     }
 
-    out.push_str("}\n");
-    Ok(out)
+    format!(
+        r#"# flow-connector-vmm egress ruleset: allowedNames={allowed_names} declaredCidrs={declared_cidrs} ttlFloorSecs={ttl_floor_secs} ttlCapSecs={ttl_cap_secs}
+table inet flow_egress {{}}
+delete table inet flow_egress
+
+table inet flow_egress {{
+	set baseline {{
+		type ipv4_addr
+		flags interval
+		auto-merge
+		elements = {{ {baseline} }}
+	}}
+
+{excluded_set}	set resolved {{
+		type ipv4_addr
+		flags timeout
+		size {RESOLVED_SIZE}
+	}}
+
+{declared_set}	chain forward {{
+		type filter hook forward priority filter; policy drop;
+		iifname "{TAP}" ip saddr != {GUEST_IP} counter drop comment "anti-spoof"
+		ct state established,related counter accept comment "replies"
+		meta nfproto ipv6 counter drop comment "no-ipv6"
+{ingress_accept}		meta l4proto != {{ tcp, udp }} counter drop comment "tcp-udp-only"
+{baseline_drops}		tcp dport 25 counter drop comment "smtp"
+		ct state new counter jump egress_accept comment "egress"
+		counter comment "forward-drop"
+	}}
+
+	chain egress_accept {{
+		ip daddr @resolved counter accept comment "resolved"
+{declared_accept}	}}
+
+	chain input {{
+		type filter hook input priority filter; policy drop;
+		iif lo counter accept comment "loopback"
+		iifname "{TAP}" ip saddr != {GUEST_IP} counter drop comment "anti-spoof"
+		ct state established,related counter accept comment "replies"
+		iifname "{TAP}" ip saddr {GUEST_IP} ip daddr {VMM_IP} udp dport 53 counter accept comment "tap-dns"
+		counter comment "input-drop"
+	}}
+
+	chain output {{
+		type filter hook output priority filter; policy accept;
+		oifname "{TAP}" ct state != established counter drop comment "no-inbound"
+	}}
+
+	chain postrouting {{
+		type nat hook postrouting priority srcnat; policy accept;
+		ip saddr {GUEST_IP} oifname "{UPLINK}" counter masquerade comment "masquerade"
+	}}
+{ingress_dnat}}}
+"#
+    )
 }
 
 fn join(prefixes: &[ipnetwork::Ipv4Network]) -> String {
@@ -218,6 +180,8 @@ fn join(prefixes: &[ipnetwork::Ipv4Network]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::policy::tests::policy;
+
     /// Interface addresses with host bits set, overlapping the baseline to
     /// exercise canonicalization and `auto-merge`.
     fn vmm_subnets() -> Vec<ipnetwork::Ipv4Network> {
@@ -227,150 +191,94 @@ mod tests {
             .collect()
     }
 
-    fn render(document: &str) -> String {
-        let policy = egress::parse(document.as_bytes()).expect("fixture parses");
-        super::render(&policy, &vmm_subnets(), &[]).expect("fixture renders")
+    fn render(policy: &crate::policy::Policy) -> String {
+        super::render(policy, &vmm_subnets(), &[])
     }
 
-    const PUBLIC: &str = r#"{"egress":"public"}"#;
-    const NONE: &str = r#"{"egress":"none"}"#;
-    const ALLOW_ALL: &str = r#"{"egress":"public","allowAll":true}"#;
+    fn empty() -> crate::policy::Policy {
+        policy(&[], &[], None)
+    }
+
     /// Private, public and single-address prefixes, one of which covers the
     /// VMM's own bridge.
-    const DECLARED: &str = r#"{
-        "egress": "public",
-        "allowedNames": ["pypi.org"],
-        "declaredCidrs": ["192.168.4.7/32", "10.0.0.0/8", "93.184.216.0/24"]
-    }"#;
-    const EVERY_ADDRESS: &str = r#"{
-        "egress": "public",
-        "declaredCidrs": ["0.0.0.0/0"]
-    }"#;
-    const ALLOWED_NAMES: &str = r#"{
-        "egress": "public",
-        "allowedNames": ["PyPI.ORG", "pypi.org", "files.pythonhosted.org", "artifacts.acmeco.example"],
-        "ttlFloorSecs": 120,
-        "ttlCapSecs": 1800
-    }"#;
-    /// Lists configured under `egress: none` are dormant, not refused. The
-    /// header comment is the only place they appear.
-    const NONE_DORMANT: &str = r#"{
-        "egress": "none",
-        "allowedNames": ["pypi.org"],
-        "declaredCidrs": ["93.184.216.0/24"]
-    }"#;
+    fn declared() -> crate::policy::Policy {
+        policy(
+            &["pypi.org"],
+            &["192.168.4.7/32", "10.0.0.0/8", "93.184.216.0/24"],
+            None,
+        )
+    }
 
-    #[test]
-    fn ingress_without_egress() {
-        let policy = egress::parse(NONE.as_bytes()).unwrap();
-        insta::assert_snapshot!(super::render(&policy, &vmm_subnets(), &[8080, 9090]).unwrap());
+    fn every_address() -> crate::policy::Policy {
+        policy(&[], &["0.0.0.0/0"], None)
+    }
+
+    fn allowed_names() -> crate::policy::Policy {
+        policy(
+            &[
+                "PyPI.ORG",
+                "pypi.org",
+                "files.pythonhosted.org",
+                "artifacts.acmeco.example",
+            ],
+            &[],
+            Some((120, 1800)),
+        )
     }
 
     #[test]
-    fn public_ruleset() {
-        insta::assert_snapshot!(render(PUBLIC));
+    fn ingress_ruleset() {
+        insta::assert_snapshot!(super::render(&empty(), &vmm_subnets(), &[8080, 9090]));
     }
 
     #[test]
-    fn none_ruleset() {
-        insta::assert_snapshot!(render(NONE));
-    }
-
-    #[test]
-    fn allow_all_ruleset() {
-        insta::assert_snapshot!(render(ALLOW_ALL));
+    fn empty_ruleset() {
+        insta::assert_snapshot!(render(&empty()));
     }
 
     #[test]
     fn declared_ruleset() {
-        insta::assert_snapshot!(render(DECLARED));
+        insta::assert_snapshot!(render(&declared()));
     }
 
     #[test]
     fn every_address_ruleset() {
-        insta::assert_snapshot!(render(EVERY_ADDRESS));
+        insta::assert_snapshot!(render(&every_address()));
     }
 
     #[test]
     fn allowed_names_ruleset() {
-        insta::assert_snapshot!(render(ALLOWED_NAMES));
-    }
-
-    #[test]
-    fn none_dormant_ruleset() {
-        insta::assert_snapshot!(render(NONE_DORMANT));
+        insta::assert_snapshot!(render(&allowed_names()));
     }
 
     /// Every accept must be accounted for, and entry to egress_accept must
     /// follow the baseline drop.
     #[test]
     fn every_accept_is_accounted_for() {
-        let expected: &[(&str, &[&str])] = &[
-            (
-                PUBLIC,
-                &[
-                    "forward:replies",
-                    "egress_accept:resolved",
-                    "input:loopback",
-                    "input:replies",
-                    "input:tap-dns",
-                ],
-            ),
-            (
-                NONE,
-                &["forward:replies", "input:loopback", "input:replies"],
-            ),
-            (
-                NONE_DORMANT,
-                &["forward:replies", "input:loopback", "input:replies"],
-            ),
-            (
-                ALLOW_ALL,
-                &[
-                    "forward:replies",
-                    "egress_accept:allow-all",
-                    "egress_accept:resolved",
-                    "input:loopback",
-                    "input:replies",
-                    "input:tap-dns",
-                ],
-            ),
-            (
-                DECLARED,
-                &[
-                    "forward:replies",
-                    "egress_accept:resolved",
-                    "egress_accept:declared",
-                    "input:loopback",
-                    "input:replies",
-                    "input:tap-dns",
-                ],
-            ),
-            (
-                EVERY_ADDRESS,
-                &[
-                    "forward:replies",
-                    "egress_accept:resolved",
-                    "egress_accept:declared",
-                    "input:loopback",
-                    "input:replies",
-                    "input:tap-dns",
-                ],
-            ),
-            (
-                ALLOWED_NAMES,
-                &[
-                    "forward:replies",
-                    "egress_accept:resolved",
-                    "input:loopback",
-                    "input:replies",
-                    "input:tap-dns",
-                ],
-            ),
+        const NAMED: &[&str] = &[
+            "forward:replies",
+            "egress_accept:resolved",
+            "input:loopback",
+            "input:replies",
+            "input:tap-dns",
+        ];
+        const DECLARED: &[&str] = &[
+            "forward:replies",
+            "egress_accept:resolved",
+            "egress_accept:declared",
+            "input:loopback",
+            "input:replies",
+            "input:tap-dns",
+        ];
+        let expected: [(&str, crate::policy::Policy, &[&str]); 4] = [
+            ("empty", empty(), NAMED),
+            ("declared", declared(), DECLARED),
+            ("every address", every_address(), DECLARED),
+            ("allowed names", allowed_names(), NAMED),
         ];
 
-        for (document, accepts) in expected {
-            let text = render(document);
+        for (document, policy, accepts) in &expected {
+            let text = render(policy);
 
             let actual = accepted(&text);
             let actual: Vec<&str> = actual.iter().map(String::as_str).collect();
@@ -415,23 +323,6 @@ mod tests {
                 !text.contains("goto egress_accept"),
                 "a goto into egress_accept in {document}"
             );
-        }
-    }
-
-    #[test]
-    fn egress_none_drops_the_public_machinery() {
-        for document in [NONE, NONE_DORMANT] {
-            let text = render(document);
-
-            for absent in [
-                "chain egress_accept",
-                "set resolved",
-                "set declared",
-                "set excluded",
-                "tap-dns",
-            ] {
-                assert!(!text.contains(absent), "{absent:?} survives {document}");
-            }
         }
     }
 

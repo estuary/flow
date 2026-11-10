@@ -16,7 +16,7 @@ mod derive_sqlite;
 mod derive_typescript;
 pub mod discovers;
 pub mod draft_error;
-mod egress;
+pub mod egress;
 mod id;
 mod journals;
 mod labels;

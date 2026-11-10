@@ -4,23 +4,23 @@ expression: table
 ---
 # no label: the defaults alone
 labels {} ports {}
-=> {"allowedNames":["pypi.org","files.pythonhosted.org","task.acmeco.example"],"egress":"public"}
+=> --egress-host=pypi.org --egress-host=files.pythonhosted.org --egress-host=task.acmeco.example
 
 # hosts beyond the defaults, lowercased, without repeats
 labels {"dev.estuary.egress-hosts":"[\"api.acmeco.example\", \"*.ACMEco.example\", \"PyPI.org\", \"api.acmeco.example\"]"} ports {}
-=> {"allowedNames":["pypi.org","files.pythonhosted.org","api.acmeco.example","*.acmeco.example","task.acmeco.example"],"egress":"public"}
+=> --egress-host=pypi.org --egress-host=files.pythonhosted.org --egress-host=api.acmeco.example --egress-host=*.acmeco.example --egress-host=task.acmeco.example
 
 # an empty label
 labels {"dev.estuary.egress-hosts":""} ports {}
-=> {"allowedNames":["pypi.org","files.pythonhosted.org","task.acmeco.example"],"egress":"public"}
+=> --egress-host=pypi.org --egress-host=files.pythonhosted.org --egress-host=task.acmeco.example
 
 # a blank label
 labels {"dev.estuary.egress-hosts":"  "} ports {}
-=> {"allowedNames":["pypi.org","files.pythonhosted.org","task.acmeco.example"],"egress":"public"}
+=> --egress-host=pypi.org --egress-host=files.pythonhosted.org --egress-host=task.acmeco.example
 
 # an empty array
 labels {"dev.estuary.egress-hosts":"[]"} ports {}
-=> {"allowedNames":["pypi.org","files.pythonhosted.org","task.acmeco.example"],"egress":"public"}
+=> --egress-host=pypi.org --egress-host=files.pythonhosted.org --egress-host=task.acmeco.example
 
 # not JSON
 labels {"dev.estuary.egress-hosts":"pypi.org, files.pythonhosted.org"} ports {}
@@ -60,7 +60,7 @@ labels {"dev.estuary.egress-hosts":"[\"*.github.io\"]"} ports {}
 
 # a wildcard beneath a private suffix
 labels {"dev.estuary.egress-hosts":"[\"*.acmeco.github.io\"]"} ports {}
-=> {"allowedNames":["pypi.org","files.pythonhosted.org","*.acmeco.github.io","task.acmeco.example"],"egress":"public"}
+=> --egress-host=pypi.org --egress-host=files.pythonhosted.org --egress-host=*.acmeco.github.io --egress-host=task.acmeco.example
 
 # a single label
 labels {"dev.estuary.egress-hosts":"[\"localhost\"]"} ports {}
@@ -68,15 +68,15 @@ labels {"dev.estuary.egress-hosts":"[\"localhost\"]"} ports {}
 
 # a public port
 labels {"dev.estuary.port-public.8080":"true"} ports {"8080/tcp":{}}
-=> {"allowedNames":["pypi.org","files.pythonhosted.org","task.acmeco.example"],"egress":"public"}
+=> --egress-host=pypi.org --egress-host=files.pythonhosted.org --egress-host=task.acmeco.example
 
 # a private port
 labels {} ports {"8080/tcp":{},"9090":{}}
-=> {"allowedNames":["pypi.org","files.pythonhosted.org","task.acmeco.example"],"egress":"public"}
+=> --egress-host=pypi.org --egress-host=files.pythonhosted.org --egress-host=task.acmeco.example
 
 # only a UDP port, which ordinary launches ignore too
 labels {} ports {"9000/udp":{}}
-=> {"allowedNames":["pypi.org","files.pythonhosted.org","task.acmeco.example"],"egress":"public"}
+=> --egress-host=pypi.org --egress-host=files.pythonhosted.org --egress-host=task.acmeco.example
 
 # another protocol
 labels {"FLOW_RUNTIME_PROTOCOL":"capture"} ports {}

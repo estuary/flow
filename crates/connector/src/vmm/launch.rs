@@ -660,7 +660,6 @@ fn prepare(plan: &plan::Plan, disk_mib: u64) -> anyhow::Result<()> {
             .with_context(|| format!("creating {dir}"))?;
         set_mode(dir, *mode)?;
     }
-    write_file(&plan.policy_path, &plan.policy, 0o444)?;
     check_scratch(&plan.scratch, disk_mib)
 }
 

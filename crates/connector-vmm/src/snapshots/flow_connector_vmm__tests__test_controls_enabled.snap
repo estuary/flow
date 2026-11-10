@@ -2,30 +2,35 @@
 source: crates/connector-vmm/src/main.rs
 expression: table
 ---
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --debug --exec /bin/sh -c "exit 7"
-ok: run policy=/init/policy.json connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None debug=true resolver_upstream=None exec=Some(["/bin/sh", "-c", "exit 7"])
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --debug --exec /bin/sh -c "exit 7"
+ok: run egress_hosts=[] egress_cidrs=[] ttl=90..3600 connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None debug=true resolver_upstream=None exec=Some(["/bin/sh", "-c", "exit 7"])
 
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --exec /bin/sh -c "exit 7" --debug
-ok: run policy=/init/policy.json connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None debug=false resolver_upstream=None exec=Some(["/bin/sh", "-c", "exit 7", "--debug"])
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --exec /bin/sh -c "exit 7" --debug
+ok: run egress_hosts=[] egress_cidrs=[] ttl=90..3600 connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None debug=false resolver_upstream=None exec=Some(["/bin/sh", "-c", "exit 7", "--debug"])
 
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --exec
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --exec
 flow-connector-vmm: error: a value is required for '--exec <ARGV>...' but none was supplied
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --resolver-upstream 192.0.2.53:53
-ok: run policy=/init/policy.json connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None debug=false resolver_upstream=Some("192.0.2.53:53") exec=None
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --resolver-upstream 192.0.2.53:53
+ok: run egress_hosts=[] egress_cidrs=[] ttl=90..3600 connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None debug=false resolver_upstream=Some("192.0.2.53:53") exec=None
 
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --run-as-root
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --ttl-floor-secs 3 --ttl-cap-secs 10
+ok: run egress_hosts=[] egress_cidrs=[] ttl=3..10 connector_mount=/tmp/connector-mounts-0/mount-acme memory_mib=1024 vcpus=2 disk_mib=512 persistent_disk=None debug=false resolver_upstream=None exec=None
+
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --run-as-root
 flow-connector-vmm: error: unexpected argument '--run-as-root' found
 flow-connector-vmm:
-flow-connector-vmm: Usage: flow-connector-vmm run --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm: Usage: flow-connector-vmm run --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 
-$ flow-connector-vmm run --policy /init/policy.json --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --as-root-exec id
+$ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --as-root-exec id
 flow-connector-vmm: error: unexpected argument '--as-root-exec' found
 flow-connector-vmm:
-flow-connector-vmm: Usage: flow-connector-vmm run --policy <PATH> --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N>
+flow-connector-vmm:   tip: a similar argument exists: '--ttl-floor-secs'
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm run --connector-mount <PATH> --memory-mib <N> --vcpus <N> --disk-mib <N> --ttl-floor-secs <SECS>
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.

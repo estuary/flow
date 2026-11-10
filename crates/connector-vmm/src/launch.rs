@@ -1,4 +1,4 @@
-//! The ordered sequence `run` executes, from a policy on disk to a running VM.
+//! The ordered sequence `run` executes, from its arguments to a running VM.
 //!
 //! `check` is the prefix `run` shares with `check-launch`. `run` resolves
 //! paths, descriptors and image config into a `Machine`. `enter` issues
@@ -10,7 +10,7 @@ use crate::net;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::os::fd::{AsRawFd, RawFd};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// The guest init, carried in the VMM's own image and injected into the guest
 /// root as an overlay file. The leading slash is the guest path; the overlay
@@ -61,9 +61,8 @@ const SCRATCH_FD: RawFd = 3;
 
 #[derive(clap::Args, Debug)]
 pub struct Args {
-    /// The egress policy JSON, as the launcher writes it into /init/policy.json.
-    #[arg(long, value_name = "PATH")]
-    pub policy: PathBuf,
+    #[command(flatten)]
+    pub policy: crate::policy::Args,
 
     /// The connector mount, at the absolute path it has on the host. Shared
     /// into the guest read-only at /connector-mount, which CONNECTOR_MOUNT in
@@ -144,7 +143,7 @@ pub struct Console {
 }
 
 pub struct Checked {
-    pub policy: egress::Policy,
+    pub policy: crate::policy::Policy,
     pub inspect: image::InspectConfig,
     pub mount_points: Vec<String>,
 }
@@ -154,7 +153,7 @@ pub struct Checked {
 pub fn check(args: &Args) -> anyhow::Result<Checked> {
     check_read_only(&args.connector_mount)?;
     net::check_ipv6_disabled("default")?;
-    let policy = egress::load(&args.policy)?;
+    let policy = crate::policy::check(&args.policy)?;
     let inspect =
         image::read_inspect(&Path::new(&args.connector_mount).join("image-inspect.json"))?;
 
@@ -192,7 +191,7 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
     // The guest's first packet has to meet a finished ruleset, so the whole
     // network is up before anything else happens.
     let vmm_subnets = net::vmm_subnets()?;
-    let ruleset = crate::ruleset::render(&policy, &vmm_subnets, &args.ingress_port)?;
+    let ruleset = crate::ruleset::render(&policy, &vmm_subnets, &args.ingress_port);
     net::create_tap()?;
     net::check_ipv6_disabled(net::TAP)?;
     net::apply_ruleset(&ruleset)?;
@@ -237,22 +236,20 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
         error: libc::STDERR_FILENO,
     };
 
-    if policy.egress == egress::Mode::Public {
-        let upstream = match args.resolver_upstream {
-            Some(upstream) => upstream,
-            None => net::upstream_nameserver()?,
-        };
-        // Returns once the resolver is listening, so a failure here is still a
-        // pre-VM failure. After it, the resolver ends the process itself.
-        crate::resolver::start(crate::resolver::Config::new(
-            &policy,
-            &vmm_subnets,
-            SocketAddr::new(net::VMM_IP.into(), 53),
-            upstream,
-            args.debug,
-        ))?;
-        stage(args.debug, "resolver-listening");
-    }
+    let upstream = match args.resolver_upstream {
+        Some(upstream) => upstream,
+        None => net::upstream_nameserver()?,
+    };
+    // Returns once the resolver is listening, so a failure here is still a
+    // pre-VM failure. After it, the resolver ends the process itself.
+    crate::resolver::start(crate::resolver::Config::new(
+        &policy,
+        &vmm_subnets,
+        SocketAddr::new(net::VMM_IP.into(), 53),
+        upstream,
+        args.debug,
+    ))?;
+    stage(args.debug, "resolver-listening");
 
     // The socket libkrun binds inherits this, so `init.sock` is mode 0777 and
     // an unprivileged process can dial it. The `sock/` directory's mode is the
@@ -340,7 +337,6 @@ fn sweep(scratch: RawFd) -> anyhow::Result<RawFd> {
     Ok(SCRATCH_FD)
 }
 
-/// `/init` is excluded because its policy is read once before VM setup.
 fn read_only_mounts(connector_mount: &str) -> [(&str, &str); 3] {
     [
         ("/", "--read-only"),

@@ -431,7 +431,7 @@ pub(crate) enum Execution<'a> {
 /// The egress a task declares, validated and normalized.
 #[derive(Debug)]
 pub(crate) struct TaskEgress {
-    pub hosts: Vec<egress::AllowedName>,
+    pub hosts: Vec<models::egress::AllowedName>,
     pub cidrs: Vec<ipnetwork::Ipv4Network>,
 }
 
@@ -498,7 +498,7 @@ pub(crate) fn vmm_for<'a>(
     }
     let invalid = |err: anyhow::Error| refuse(tonic::Status::invalid_argument(format!("{err:#}")));
     let egress = TaskEgress {
-        hosts: egress::hosts("task egress.hosts", hosts).map_err(invalid)?,
+        hosts: models::egress::hosts("task egress.hosts", hosts).map_err(invalid)?,
         cidrs: crate::policy::egress_cidrs(plane, cidrs).map_err(invalid)?,
     };
 

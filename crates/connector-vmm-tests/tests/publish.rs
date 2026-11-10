@@ -723,7 +723,7 @@ fn build(setup: &Setup) -> String {
     control(
         setup,
         "vmm-help",
-        "Usage: flow-connector-vmm run [OPTIONS]\n      --policy <PATH>\n",
+        "Usage: flow-connector-vmm run [OPTIONS]\n      --egress-host <NAME>\n",
     );
     control(setup, "flowctl", &format!("{head}\n"));
     control(setup, "flowctl-go", &format!("{head}\n"));

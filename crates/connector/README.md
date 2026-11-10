@@ -317,8 +317,8 @@ EOF or status. A client which does not drain responses may park the handler.
   order and without repeats, each name remembered with where it came from.
   A missing, blank or empty label adds nothing; anything else that isn't
   valid names is refused, on every plane. Names follow
-  [`crates/egress`](../egress/README.md), whose `public_policy` writes the
-  VMM's `policy.json`. Ordinary launches never read the label.
+  `models::egress::hosts`, and the launch passes each to the VMM as an
+  `--egress-host` flag. Ordinary launches never read the label.
 
 - **Empty egress permits nothing, on every plane.** Egress declaring no
   host and no CIDR (`egress: {}`) is planned as no names and no CIDRs, so the
@@ -328,8 +328,8 @@ EOF or status. A client which does not drain responses may park the handler.
   name with its source, to the task's logs.
 
 - **A task's CIDRs open private destinations, guest and host alike.** On a
-  private or local plane, `egress.cidrs` is written into the policy as
-  `declaredCidrs`, and the launch's host grant carries a `--cidr` for each
+  private or local plane, each range of `egress.cidrs` is passed to the VMM
+  as an `--egress-cidr` flag, and the launch's host grant carries a `--cidr` for each
   range, because the host boundary drops private destinations for every VMM
   otherwise. The grant is the one described below for ingress, so it is
   installed, recorded and revoked with it, and a launch with CIDRs but no

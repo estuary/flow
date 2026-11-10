@@ -19,7 +19,7 @@ const SOCKET_PATH_MAX: usize = 107;
 /// first declared, and any address within the task's CIDRs.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Egress {
-    pub names: Vec<(egress::AllowedName, Source)>,
+    pub names: Vec<(models::egress::AllowedName, Source)>,
     pub cidrs: Vec<ipnetwork::Ipv4Network>,
 }
 
@@ -123,17 +123,14 @@ pub(crate) struct Plan {
     /// The connector mount, shared at that same path into the container and
     /// the guest.
     pub mount: String,
-    /// The state directory, then the three the container binds, each with
+    /// The state directory, then the two the container binds, each with
     /// its mode. `sock/` is traversable so that an unprivileged process can
     /// dial the socket, which the VMM leaves at mode 0777.
     pub directories: Vec<(String, u32)>,
     /// Where the VMM opens its `O_TMPFILE` scratch disk.
     pub scratch: String,
-    /// What the guest may reach, from which `policy` is written.
+    /// What the guest may reach, which `create` passes to the VMM.
     pub egress: Egress,
-    /// Written to `policy_path`, the VMM's `/init/policy.json`.
-    pub policy: Vec<u8>,
-    pub policy_path: String,
     /// The connector-init socket the launch dials.
     pub socket: String,
     /// What the connector mount must hold, with modes.
@@ -296,24 +293,24 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         ingress.extend(cidrs.iter().map(|cidr| format!("--cidr={cidr}")));
     }
     create.extend(ports.iter().map(|port| format!("--ingress-port={port}")));
+    create.extend(
+        egress
+            .names
+            .iter()
+            .map(|(name, _)| format!("--egress-host={name}")),
+    );
+    create.extend(cidrs.iter().map(|cidr| format!("--egress-cidr={cidr}")));
 
     Ok(Plan {
         directories: vec![
             (state.clone(), 0o711),
-            (format!("{state}/init"), 0o700),
             (format!("{state}/sock"), 0o700),
             (format!("{state}/scratch"), 0o700),
         ],
         scratch: format!("{state}/scratch"),
         record: super::record::path(&vmm.state_dir, &name),
         token,
-        policy: {
-            let names: Vec<egress::AllowedName> =
-                egress.names.iter().map(|(name, _)| name.clone()).collect();
-            egress::public_policy(&names, &egress.cidrs)
-        },
         egress,
-        policy_path: format!("{state}/init/policy.json"),
         socket,
         connector_init: (format!("{mount}/flow-connector-init"), 0o555),
         image_inspect: (format!("{mount}/image-inspect.json"), 0o444),
@@ -366,7 +363,7 @@ pub(super) fn check_state_dir(state_dir: &str) -> anyhow::Result<()> {
 /// task, in that order and without repeats, and to the task's CIDRs.
 fn plan_egress(
     eligible: &Eligible,
-    image_hosts: &[egress::AllowedName],
+    image_hosts: &[models::egress::AllowedName],
     task: &TaskEgress,
     plane: crate::Plane,
 ) -> Egress {
@@ -389,10 +386,10 @@ fn plan_egress(
         .iter()
         .map(ToString::to_string)
         .collect();
-    let defaults =
-        egress::hosts("default hosts", &defaults).expect("eligible default hosts are valid");
+    let defaults = models::egress::hosts("default hosts", &defaults)
+        .expect("eligible default hosts are valid");
 
-    let mut names: Vec<(egress::AllowedName, Source)> = Vec::new();
+    let mut names: Vec<(models::egress::AllowedName, Source)> = Vec::new();
     for (hosts, source) in [
         (defaults.as_slice(), Source::Connector),
         (image_hosts, Source::Image),
@@ -411,7 +408,7 @@ fn plan_egress(
 }
 
 /// A missing, blank or empty label declares nothing.
-fn label_hosts(label: Option<&str>) -> anyhow::Result<Vec<egress::AllowedName>> {
+fn label_hosts(label: Option<&str>) -> anyhow::Result<Vec<models::egress::AllowedName>> {
     let Some(label) = label.map(str::trim).filter(|label| !label.is_empty()) else {
         return Ok(Vec::new());
     };
@@ -419,7 +416,7 @@ fn label_hosts(label: Option<&str>) -> anyhow::Result<Vec<egress::AllowedName>> 
         format!("image label '{EGRESS_HOSTS_LABEL}' must be a JSON array of host names: {label:?}")
     })?;
 
-    egress::hosts(&format!("image label '{EGRESS_HOSTS_LABEL}'"), &hosts)
+    models::egress::hosts(&format!("image label '{EGRESS_HOSTS_LABEL}'"), &hosts)
 }
 
 /// A host path bound into the container, and on into the guest.
@@ -530,8 +527,8 @@ mod test {
         let hosts: Vec<String> = hosts.iter().map(ToString::to_string).collect();
         let cidrs: Vec<String> = cidrs.iter().map(ToString::to_string).collect();
         crate::vmm::TaskEgress {
-            hosts: egress::hosts("task egress.hosts", &hosts).expect("valid task hosts"),
-            cidrs: egress::cidrs("task egress.cidrs", &cidrs).expect("valid task CIDRs"),
+            hosts: models::egress::hosts("task egress.hosts", &hosts).expect("valid task hosts"),
+            cidrs: models::egress::cidrs("task egress.cidrs", &cidrs).expect("valid task CIDRs"),
         }
     }
 
@@ -643,8 +640,6 @@ mod test {
                 .expect("the VMM image");
             let mut vmm_run = vec![
                 "run",
-                "--policy",
-                "/init/policy.json",
                 "--connector-mount",
                 "/tmp/connector-mounts-0/mount-fv_0123456789abcdef",
                 // 1280 MiB, less the configured 128 of overhead.
@@ -658,7 +653,12 @@ mod test {
             if with_disk {
                 vmm_run.extend(["--persistent-disk", "/acmeCo/state"]);
             }
-            vmm_run.push("--ingress-port=8080");
+            vmm_run.extend([
+                "--ingress-port=8080",
+                "--egress-host=pypi.org",
+                "--egress-host=files.pythonhosted.org",
+                "--egress-host=task.acmeco.example",
+            ]);
             assert_eq!(
                 plan.create[image + 1..],
                 vmm_run,
@@ -754,25 +754,18 @@ mod test {
 
         insta::assert_snapshot!(describe(&plan));
 
-        let policy = egress::parse(&plan.policy).expect("the VMM's parser accepts the policy");
-        assert_eq!(policy.egress, egress::Mode::Public);
-        assert!(!policy.allow_all);
-        let names: Vec<String> = policy
-            .allowed_names
-            .iter()
-            .map(ToString::to_string)
-            .collect();
         assert_eq!(
-            names,
+            egress_flags(&plan),
             [
-                "pypi.org",
-                "files.pythonhosted.org",
-                "api.acmeco.example",
-                "*.cdn.acmeco.example",
-                "*.svc.acmeco.example",
+                "--egress-host=pypi.org",
+                "--egress-host=files.pythonhosted.org",
+                "--egress-host=api.acmeco.example",
+                "--egress-host=*.cdn.acmeco.example",
+                "--egress-host=*.svc.acmeco.example",
+                "--egress-cidr=10.0.0.0/8",
+                "--egress-cidr=192.168.4.0/24",
             ]
         );
-        assert_eq!(policy.declared_cidrs, task_egress.cidrs);
         assert!(plan.ports.is_empty());
     }
 
@@ -834,12 +827,20 @@ host grant {grant:?}
 ",
                         plane.as_str_name(),
                         plan.egress,
-                        String::from_utf8(plan.policy).unwrap(),
+                        egress_flags(&plan).join(" "),
                     ));
                 }
             }
         }
         insta::assert_snapshot!(table);
+    }
+
+    fn egress_flags(plan: &Plan) -> Vec<&str> {
+        plan.create
+            .iter()
+            .map(String::as_str)
+            .filter(|arg| arg.starts_with("--egress-"))
+            .collect()
     }
 
     fn describe(plan: &Plan) -> String {
@@ -853,8 +854,6 @@ host grant {grant:?}
             directories,
             scratch,
             egress,
-            policy,
-            policy_path,
             socket,
             connector_init,
             image_inspect,
@@ -877,11 +876,10 @@ host grant {grant:?}
             "name: {name}\ninterface: {interface}\nstate: {state}\nrecord: {record}\n\
              token: {token}\nmount: {mount}\nscratch: {scratch}\n\
              socket: {socket} ({} bytes)\n\
-             \n## directories\n{}\n## egress\n{egress}\n\n## {policy_path}\n{}\n\n## connector mount\n{}\
+             \n## directories\n{}\n## egress\n{egress}\n\n## connector mount\n{}\
              \n## verify\npodman {}\n\n## ingress\n{}\n\n## network\npodman {}\n\n## rootfs\npodman {}\n\n## create\npodman {}\n",
             socket.len(),
             modes(directories),
-            String::from_utf8_lossy(policy),
             modes(&[connector_init.clone(), image_inspect.clone()]),
             verify.join(" "),
             ingress.join(" "),
@@ -966,7 +964,7 @@ host grant {grant:?}
         for (name, labels, ports) in cases {
             let inspection = inspection(labels.clone(), ports.clone());
             let outcome = match super::plan(&vmm, &launch(&inspection)) {
-                Ok(plan) => String::from_utf8(plan.policy).unwrap(),
+                Ok(plan) => egress_flags(&plan).join(" "),
                 Err(error) => format!("refused: {error:#}"),
             };
             table.push_str(&format!(
