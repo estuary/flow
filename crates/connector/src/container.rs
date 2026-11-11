@@ -171,7 +171,7 @@ where
 
     tracing::debug!(docker_args=?docker_args, "invoking docker");
 
-    let mut process: async_process::Child = async_process::Command::new(docker_cli())
+    let mut process: async_process::Child = engine_command(&docker_cli())
         .args(docker_args)
         .stdin(async_process::Stdio::null())
         .stdout(async_process::Stdio::null())
@@ -328,11 +328,30 @@ fn connector_cpu_limit() -> String {
         .unwrap_or_else(|| "2".to_string())
 }
 
+#[cfg(test)]
+#[path = "container/engine_tests.rs"]
+mod engine_tests;
+
+/// Engine clients and operator wrappers need their ambient configuration,
+/// but not the reactor's signing, decryption, or Flow login authority.
+fn engine_command(program: &str) -> async_process::Command {
+    let mut command = async_process::Command::new(program);
+    for name in [
+        "CONSUMER_AUTH_KEYS",
+        "BROKER_AUTH_KEYS",
+        "SOPS_AGE_KEY",
+        "FLOW_AUTH_TOKEN",
+    ] {
+        command.env_remove(name);
+    }
+    command
+}
+
 async fn docker_cmd<S>(args: &[S]) -> anyhow::Result<Vec<u8>>
 where
     S: AsRef<std::ffi::OsStr> + std::fmt::Debug,
 {
-    let output = async_process::output(async_process::Command::new(docker_cli()).args(args))
+    let output = async_process::output(engine_command(&docker_cli()).args(args))
         .await
         .with_context(|| format!("failed to run docker command {args:?}"))?;
 
