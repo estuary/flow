@@ -187,67 +187,14 @@ where
     // our inner flow-connector-init process to produce its startup log.
     let (ready_tx, ready_rx) = oneshot::channel::<()>();
 
-    // Service process stderr by decoding ops::Logs into the log sink.
     let stderr = process.stderr.take().unwrap();
-    let (pump_sink, pump_image) = (log_sink.clone(), image.clone());
-    tokio::spawn(async move {
-        let mut stderr = tokio::io::BufReader::new(stderr);
-        let mut line = String::new();
-        let mut ready_tx = Some(ready_tx);
-
-        let decoder = ops::decode::Decoder::new(std::time::SystemTime::now);
-        loop {
-            // `flow-connector-init` binds its port and then writes a single
-            // whitespace byte: our only signal that the container is up. Anything
-            // before it is `docker run` talking -- pull progress, or a failure
-            // such as a name conflict -- and mistaking that for readiness races
-            // us into inspecting a container which doesn't exist yet.
-            let first = match stderr.fill_buf().await {
-                Ok([]) => None, // Clean EOF.
-                Ok(buf) => Some(buf[0]),
-                Err(error) => {
-                    tracing::error!(%error, "failed to read from connector stderr");
-                    None
-                }
-            };
-            let Some(first) = first else { break };
-
-            if first == b' ' && ready_tx.is_some() {
-                stderr.consume(1); // Discard.
-                _ = ready_tx.take().unwrap().send(()); // Signal that we're ready.
-                continue;
-            }
-
-            line.clear();
-
-            match stderr.read_line(&mut line).await {
-                Err(error) => {
-                    tracing::error!(%error, "failed to read from connector stderr");
-                    break;
-                }
-                Ok(0) => break, // Clean EOF.
-                Ok(_) => (),
-            }
-
-            let (log, consume) = decoder.line_to_log(&line, stderr.buffer());
-            stderr.consume(consume);
-            pump_sink.send(transform_log(log)).await;
-        }
-        // An un-sent `ready_tx` cancels on drop, telling `run()` that stderr
-        // closed before the container came up. That case never logged a
-        // "started connector container", so it gets no "stopped" either --
-        // otherwise this pairs with it, and is the last record of the
-        // container that the caller's sink sees.
-        if ready_tx.is_none() {
-            pump_sink
-                .send(crate::build_log(
-                    ops::LogLevel::Debug,
-                    "stopped connector container",
-                    [("image", crate::json_field(&pump_image))],
-                ))
-                .await;
-        }
-    });
+    tokio::spawn(pump_stderr(
+        tokio::io::BufReader::new(stderr),
+        ready_tx,
+        log_sink.clone(),
+        image.clone(),
+        transform_log,
+    ));
 
     // Wait for container to become ready, or close its stderr (likely due to a crash),
     // or for a minute to elapse (timeout).
@@ -303,6 +250,84 @@ where
         channel,
         process,
     })
+}
+
+/// Decode a connector's stderr into `log_sink` until it closes, signalling
+/// `ready_tx` at flow-connector-init's readiness byte.
+pub(crate) async fn pump_stderr<R, F>(
+    mut stderr: tokio::io::BufReader<R>,
+    ready_tx: oneshot::Sender<()>,
+    log_sink: LogSink,
+    image: String,
+    transform_log: F,
+) where
+    R: tokio::io::AsyncRead + Unpin,
+    F: Fn(ops::Log) -> ops::Log,
+{
+    let mut line = String::new();
+    let mut ready_tx = Some(ready_tx);
+
+    let decoder = ops::decode::Decoder::new(std::time::SystemTime::now);
+    loop {
+        let first = match stderr.fill_buf().await {
+            Ok([]) => None,
+            Ok(buf) => Some(buf[0]),
+            Err(error) => {
+                tracing::error!(%error, "failed to read from connector stderr");
+                None
+            }
+        };
+        let Some(first) = first else { break };
+
+        if first == b' ' && ready_tx.is_some() {
+            stderr.consume(1);
+            _ = ready_tx.take().unwrap().send(());
+            continue;
+        }
+
+        line.clear();
+
+        match stderr.read_line(&mut line).await {
+            Err(error) => {
+                tracing::error!(%error, "failed to read from connector stderr");
+                break;
+            }
+            Ok(0) => break,
+            Ok(_) => (),
+        }
+
+        // The decoder folds the buffered lines which follow a raw line into
+        // its message. Until readiness, one of them may hold the marker.
+        let lookahead = match ready_tx {
+            Some(_) => before_marked_line(stderr.buffer()),
+            None => stderr.buffer(),
+        };
+        let (log, consume) = decoder.line_to_log(&line, lookahead);
+        stderr.consume(consume);
+        log_sink.send(transform_log(log)).await;
+    }
+    // An un-sent `ready_tx` cancels on drop, telling the launch that stderr
+    // closed before the connector came up. That case never logged a
+    // "started connector container", so it gets no "stopped" either --
+    // otherwise this pairs with it, and is the last record of the
+    // container that the pump sends.
+    if ready_tx.is_none() {
+        log_sink
+            .send(crate::build_log(
+                ops::LogLevel::Debug,
+                "stopped connector container",
+                [("image", crate::json_field(&image))],
+            ))
+            .await;
+    }
+}
+
+/// The lines of `buffer`, which begins a line, before the first of them which
+/// begins with a space.
+fn before_marked_line(buffer: &[u8]) -> &[u8] {
+    let marked =
+        (0..buffer.len()).find(|&i| buffer[i] == b' ' && (i == 0 || buffer[i - 1] == b'\n'));
+    &buffer[..marked.unwrap_or(buffer.len())]
 }
 
 /// Generate a name for a connector container which is unique on this host.
@@ -556,6 +581,10 @@ pub(crate) async fn pull_and_inspect(
         inspection,
     })
 }
+
+#[cfg(test)]
+#[path = "container/stderr_tests.rs"]
+mod stderr_tests;
 
 #[cfg(test)]
 mod test {

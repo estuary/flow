@@ -44,6 +44,15 @@ owns its container, image, and local-connector implementation independently.
   is also a teardown signal: it's raced against both connector startup and the
   running session.
 
+## Image startup readiness
+
+`container::pump_stderr` recognizes connector-init's leading stderr space
+before network inspection and dialing. Its decoder lookahead stops before
+a line beginning with that marker until readiness, so a preceding raw engine
+diagnostic cannot consume the signal. After readiness, indented lines remain
+ordinary log content. Tests exercise coalesced and delayed markers while the
+stderr stream remains open, and EOF before readiness.
+
 ## Connector process environment
 
 Image and local connectors receive the same runtime-owned environment contract.
