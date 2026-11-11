@@ -39,6 +39,7 @@ ipnetwork = { workspace = true }
 libc = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
+rustix = { workspace = true, features = ["fs", "process"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

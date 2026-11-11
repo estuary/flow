@@ -252,22 +252,13 @@ pub(crate) fn claim(state_dir: &str, name: &str, claim: &[u8]) -> std::io::Resul
 
     // Linking an unnamed file by descriptor takes CAP_DAC_READ_SEARCH;
     // linking it through /proc takes nothing.
-    let from = std::ffi::CString::new(format!("/proc/self/fd/{}", file.as_raw_fd()))
-        .expect("a /proc path has no NUL");
-    let to = std::ffi::CString::new(path(state_dir, name)).map_err(std::io::Error::other)?;
-    // SAFETY: both paths are NUL-terminated and outlive the call.
-    let linked = unsafe {
-        libc::linkat(
-            libc::AT_FDCWD,
-            from.as_ptr(),
-            libc::AT_FDCWD,
-            to.as_ptr(),
-            libc::AT_SYMLINK_FOLLOW,
-        )
-    };
-    if linked != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
+    rustix::fs::linkat(
+        rustix::fs::CWD,
+        format!("/proc/self/fd/{}", file.as_raw_fd()),
+        rustix::fs::CWD,
+        path(state_dir, name),
+        rustix::fs::AtFlags::SYMLINK_FOLLOW,
+    )?;
     sync_dir(state_dir)?;
     Ok(file)
 }

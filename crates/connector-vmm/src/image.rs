@@ -5,7 +5,6 @@
 //! array - written by the runtime into the connector mount.
 
 use std::io::Read;
-use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::path::Path;
 
 /// What the guest init needs to know about the workload before it execs it.
@@ -244,37 +243,29 @@ pub fn krun_config(config: &ImageConfig, cmd: &[String], overrides: &[(&str, Str
 /// A missing passwd or group file, or a link to nothing, is normal for a
 /// scratch-based image; it just means no name can resolve.
 fn read_db(root: &std::fs::File, path: &std::ffi::CStr) -> anyhow::Result<String> {
-    // SAFETY: open_how is three integers, for which zero is valid.
-    let mut how: libc::open_how = unsafe { std::mem::zeroed() };
-    how.flags = (libc::O_RDONLY | libc::O_CLOEXEC) as u64;
     // RESOLVE_IN_ROOT also refuses magic links today, but its documentation
     // reserves the right to change that.
-    how.resolve = libc::RESOLVE_IN_ROOT | libc::RESOLVE_NO_MAGICLINKS;
+    let resolve = rustix::fs::ResolveFlags::IN_ROOT | rustix::fs::ResolveFlags::NO_MAGICLINKS;
 
     // EAGAIN is the kernel declining to vouch for a `..` that raced a rename
     // or mount anywhere on the host, and asking the caller to retry.
     let mut tries = 0;
     let fd = loop {
-        // SAFETY: `path` is NUL-terminated and `how` outlives the call, which
-        // is given its size.
-        let fd = unsafe {
-            libc::syscall(
-                libc::SYS_openat2,
-                root.as_raw_fd(),
-                path.as_ptr(),
-                &how,
-                std::mem::size_of::<libc::open_how>(),
-            )
+        let e = match rustix::fs::openat2(
+            root,
+            path,
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+            resolve,
+        ) {
+            Ok(fd) => break fd,
+            Err(e) => e,
         };
-        if fd >= 0 {
-            break fd as RawFd;
-        }
-        let e = std::io::Error::last_os_error();
         tries += 1;
-        if e.raw_os_error() == Some(libc::EAGAIN) && tries < 32 {
+        if e == rustix::io::Errno::AGAIN && tries < 32 {
             continue;
         }
-        if e.kind() == std::io::ErrorKind::NotFound {
+        if e == rustix::io::Errno::NOENT {
             return Ok(String::new());
         }
         anyhow::bail!(
@@ -284,8 +275,7 @@ fn read_db(root: &std::fs::File, path: &std::ffi::CStr) -> anyhow::Result<String
     };
 
     let mut content = String::new();
-    // SAFETY: openat2 returned a descriptor nothing else owns.
-    unsafe { std::fs::File::from_raw_fd(fd) }
+    std::fs::File::from(fd)
         .read_to_string(&mut content)
         .map_err(|e| anyhow::anyhow!("reading the image's {}: {e}", path.to_string_lossy()))?;
     Ok(content)

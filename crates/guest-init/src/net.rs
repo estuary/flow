@@ -6,7 +6,7 @@
 
 use std::ffi::CString;
 use std::net::Ipv4Addr;
-use std::os::raw::c_int;
+use std::os::fd::{AsFd, AsRawFd};
 
 use crate::sys::{self, Result};
 
@@ -14,11 +14,12 @@ use crate::sys::{self, Result};
 const INTERFACE: &str = "eth0";
 
 pub fn configure(address: Ipv4Addr, prefix_len: u8, gateway: Ipv4Addr) -> Result<()> {
-    // Safety: no pointer arguments.
-    let socket = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
-    if socket < 0 {
-        return Err(sys::last_error("socket(AF_INET, SOCK_DGRAM)"));
-    }
+    let socket = rustix::net::socket(
+        rustix::net::AddressFamily::INET,
+        rustix::net::SocketType::DGRAM,
+        None,
+    )
+    .map_err(|e| format!("socket(AF_INET, SOCK_DGRAM): {e}"))?;
 
     let mut request: libc::ifreq = unsafe { std::mem::zeroed() };
     for (slot, byte) in request.ifr_name.iter_mut().zip(INTERFACE.bytes()) {
@@ -27,7 +28,7 @@ pub fn configure(address: Ipv4Addr, prefix_len: u8, gateway: Ipv4Addr) -> Result
 
     request.ifr_ifru.ifru_addr = sockaddr(address);
     ioctl(
-        socket,
+        socket.as_fd(),
         libc::SIOCSIFADDR as libc::Ioctl,
         &request,
         "SIOCSIFADDR",
@@ -35,7 +36,7 @@ pub fn configure(address: Ipv4Addr, prefix_len: u8, gateway: Ipv4Addr) -> Result
 
     request.ifr_ifru.ifru_netmask = sockaddr(netmask(prefix_len));
     ioctl(
-        socket,
+        socket.as_fd(),
         libc::SIOCSIFNETMASK as libc::Ioctl,
         &request,
         "SIOCSIFNETMASK",
@@ -43,7 +44,7 @@ pub fn configure(address: Ipv4Addr, prefix_len: u8, gateway: Ipv4Addr) -> Result
 
     request.ifr_ifru.ifru_flags = (libc::IFF_UP | libc::IFF_RUNNING) as libc::c_short;
     ioctl(
-        socket,
+        socket.as_fd(),
         libc::SIOCSIFFLAGS as libc::Ioctl,
         &request,
         "SIOCSIFFLAGS",
@@ -58,15 +59,11 @@ pub fn configure(address: Ipv4Addr, prefix_len: u8, gateway: Ipv4Addr) -> Result
     route.rt_flags = libc::RTF_UP | libc::RTF_GATEWAY;
     route.rt_dev = device.as_ptr().cast_mut();
     ioctl(
-        socket,
+        socket.as_fd(),
         libc::SIOCADDRT as libc::Ioctl,
         &route,
         "SIOCADDRT(default)",
-    )?;
-
-    // Safety: a descriptor this function owns.
-    unsafe { libc::close(socket) };
-    Ok(())
+    )
 }
 
 /// The tap carries IPv4 only and the VMM's ruleset has no IPv6 rules, so an
@@ -87,10 +84,15 @@ pub fn disable_ipv6() -> Result<()> {
 /// `libc::Ioctl` is the request type of the target's `ioctl`, which musl
 /// declares as `c_int` where glibc uses `c_ulong`; the `SIOC*` constants are
 /// `c_ulong` either way, so the cast is at the call sites.
-fn ioctl<T>(socket: c_int, request: libc::Ioctl, argument: &T, what: &str) -> Result<()> {
+fn ioctl<T>(
+    socket: std::os::fd::BorrowedFd<'_>,
+    request: libc::Ioctl,
+    argument: &T,
+    what: &str,
+) -> Result<()> {
     // Safety: `argument` is the struct this ioctl expects, by the caller's
     // construction, and is only read for the duration of the call.
-    if unsafe { libc::ioctl(socket, request, argument as *const T) } < 0 {
+    if unsafe { libc::ioctl(socket.as_raw_fd(), request, argument as *const T) } < 0 {
         return Err(sys::last_error(format!("ioctl {what} on {INTERFACE}")));
     }
     Ok(())

@@ -18,7 +18,8 @@ const TEMP_DIRS: [(&str, &str); 2] = [("/scratch/tmp", TMP), ("/scratch/var-tmp"
 const ETC: &str = "/scratch/etc";
 
 /// Not `noexec`: uv runs a project's environment from `TMPDIR`.
-const SCRATCH_FLAGS: libc::c_ulong = libc::MS_NODEV | libc::MS_NOSUID;
+const SCRATCH_FLAGS: rustix::mount::MountFlags =
+    rustix::mount::MountFlags::NODEV.union(rustix::mount::MountFlags::NOSUID);
 
 /// The virtiofs tag the VMM gives the task's persistent disk share.
 const PERSISTENT_DISK: &str = "persistent-disk";
@@ -33,7 +34,7 @@ const CONNECTOR_MOUNT: &str = "connector-mount";
 /// temporary directories are shared and sticky, as a container's are.
 pub fn mount_scratch() -> Result<()> {
     check_mount_target(SCRATCH)?;
-    sys::mount("/dev/vda", SCRATCH, "ext4", SCRATCH_FLAGS, "discard")?;
+    sys::mount("/dev/vda", SCRATCH, "ext4", SCRATCH_FLAGS, Some(c"discard"))?;
 
     for (dir, target) in TEMP_DIRS {
         make_dir(dir, 0o1777)?;
@@ -52,7 +53,11 @@ pub fn write_etc(nameserver: Ipv4Addr, guest_ip: Ipv4Addr) -> Result<String> {
 
     copy_tree(Path::new("/etc"), Path::new(ETC))?;
     write_etc_files(ETC, &resolv_conf, &hosts)?;
-    bind(ETC, "/etc", libc::MS_RDONLY | SCRATCH_FLAGS)?;
+    bind(
+        ETC,
+        "/etc",
+        rustix::mount::MountFlags::RDONLY | SCRATCH_FLAGS,
+    )?;
     Ok(hostname.to_string())
 }
 
@@ -136,8 +141,10 @@ pub fn mount_connector_mount(guest_path: &str) -> Result<()> {
         CONNECTOR_MOUNT,
         guest_path,
         "virtiofs",
-        libc::MS_RDONLY | libc::MS_NODEV | libc::MS_NOSUID,
-        "",
+        rustix::mount::MountFlags::RDONLY
+            | rustix::mount::MountFlags::NODEV
+            | rustix::mount::MountFlags::NOSUID,
+        None,
     )
 }
 
@@ -150,22 +157,18 @@ pub fn mount_persistent_disk(guest_path: &str) -> Result<()> {
         PERSISTENT_DISK,
         guest_path,
         "virtiofs",
-        libc::MS_NODEV | libc::MS_NOSUID | libc::MS_NOEXEC,
-        "",
+        rustix::mount::MountFlags::NODEV
+            | rustix::mount::MountFlags::NOSUID
+            | rustix::mount::MountFlags::NOEXEC,
+        None,
     )
 }
 
 /// `MS_BIND` ignores every other flag, so the flags take a remount.
-fn bind(source: &str, target: &str, flags: libc::c_ulong) -> Result<()> {
+fn bind(source: &str, target: &str, flags: rustix::mount::MountFlags) -> Result<()> {
     check_mount_target(target)?;
-    sys::mount(source, target, "", libc::MS_BIND, "")?;
-    sys::mount(
-        target,
-        target,
-        "",
-        libc::MS_REMOUNT | libc::MS_BIND | flags,
-        "",
-    )
+    sys::mount_bind(source, target)?;
+    sys::mount_remount(target, rustix::mount::MountFlags::BIND | flags)
 }
 
 /// The mode is set apart from `mkdir`, whose mode the umask narrows.
@@ -416,9 +419,12 @@ mod tests {
         "#);
 
         let fifo = temp.path().join("fifo");
-        let fifo_c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
-        // Safety: a NUL-terminated path that outlives the call.
-        assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o644) }, 0);
+        rustix::fs::mkfifoat(
+            rustix::fs::CWD,
+            &fifo,
+            rustix::fs::Mode::from_raw_mode(0o644),
+        )
+        .unwrap();
         let refused = super::copy_tree(&fifo, &temp.path().join("fifo-copy"));
         insta::assert_snapshot!(
             format!("{refused:?}").replace(temp.path().to_str().unwrap(), "$TEMP"),

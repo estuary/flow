@@ -254,8 +254,7 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
     // The socket libkrun binds inherits this, so `init.sock` is mode 0777 and
     // an unprivileged process can dial it. The `sock/` directory's mode is the
     // access control, and it belongs to the launcher.
-    // SAFETY: umask takes no pointers and cannot fail.
-    unsafe { libc::umask(0) };
+    rustix::process::umask(rustix::fs::Mode::empty());
 
     let machine = Machine {
         vcpus: args.vcpus,
@@ -355,18 +354,10 @@ fn read_only_mounts(connector_mount: &str) -> [(&str, &str); 3] {
 /// task-update credentials from guest writes, and bound rootfs storage use.
 fn check_read_only(connector_mount: &str) -> anyhow::Result<()> {
     for (path, flag) in read_only_mounts(connector_mount) {
-        let c_path = std::ffi::CString::new(path)
-            .map_err(|e| anyhow::anyhow!("{path} cannot be a C string: {e}"))?;
-        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        let stat = rustix::fs::statvfs(path)
+            .map_err(|e| anyhow::anyhow!(e).context(format!("statvfs {path}")))?;
 
-        // SAFETY: a NUL-terminated path and a `statvfs` the call fills in,
-        // both alive across it.
-        if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } < 0 {
-            return Err(
-                anyhow::anyhow!(std::io::Error::last_os_error()).context(format!("statvfs {path}"))
-            );
-        }
-        if stat.f_flag & libc::ST_RDONLY == 0 {
+        if !stat.f_flag.contains(rustix::fs::StatVfsMountFlags::RDONLY) {
             anyhow::bail!("{}", writable_mount(path, flag));
         }
     }

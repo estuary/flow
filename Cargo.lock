@@ -2104,6 +2104,7 @@ dependencies = [
  "proto-gazette",
  "proto-grpc",
  "rand 0.9.5",
+ "rustix 1.1.6",
  "rustls",
  "serde",
  "serde_json",
@@ -2161,6 +2162,7 @@ dependencies = [
  "libc",
  "libloading",
  "models",
+ "rustix 1.1.6",
  "serde",
  "serde_json",
  "tempfile",
@@ -2181,6 +2183,7 @@ dependencies = [
  "proto-flow",
  "proto-grpc",
  "regex",
+ "rustix 1.1.6",
  "serde",
  "serde_json",
  "service-kit",
@@ -4315,6 +4318,7 @@ dependencies = [
  "clap",
  "insta",
  "libc",
+ "rustix 1.1.6",
  "tempfile",
 ]
 

@@ -355,10 +355,10 @@ fn a_public_vmm_start_has_only_its_launch_mount() {
                     panic!("the start ended before its VMM was attached: {:?}", started.err())
                 }
             }
-            // SAFETY: geteuid takes nothing and cannot fail.
-            let mounts = h
-                .dir
-                .join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
+            let mounts = h.dir.join(format!(
+                "connector-mounts-{}",
+                rustix::process::geteuid().as_raw()
+            ));
             let mounts: Vec<PathBuf> = std::fs::read_dir(mounts)
                 .unwrap()
                 .map(|entry| entry.unwrap().path())
@@ -448,10 +448,10 @@ async fn refused(h: &Harness) -> (String, Vec<String>) {
 
     let state = std::fs::read_dir(h.dir.join("state")).unwrap().count();
     assert_eq!(state, 0, "the launch released its state and record");
-    // SAFETY: geteuid takes nothing and cannot fail.
-    let mounts = h
-        .dir
-        .join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
+    let mounts = h.dir.join(format!(
+        "connector-mounts-{}",
+        rustix::process::geteuid().as_raw()
+    ));
     assert_eq!(
         std::fs::read_dir(mounts).unwrap().count(),
         0,
@@ -770,7 +770,6 @@ fn in_child<F>(test: &str, scenario: impl FnOnce(Harness) -> F)
 where
     F: std::future::Future<Output = ()>,
 {
-    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::PermissionsExt;
 
     if let Some(dir) = std::env::var_os(DIR) {
@@ -811,10 +810,12 @@ where
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
     }
     for fifo in ["events", "control"] {
-        let path = std::ffi::CString::new(dir.path().join(fifo).as_os_str().as_bytes()).unwrap();
-        // SAFETY: `path` is a NUL-terminated string which outlives the call.
-        let made = unsafe { libc::mkfifo(path.as_ptr(), 0o600) };
-        assert_eq!(made, 0, "{fifo}: {}", std::io::Error::last_os_error());
+        rustix::fs::mkfifoat(
+            rustix::fs::CWD,
+            dir.path().join(fifo),
+            rustix::fs::Mode::from_raw_mode(0o600),
+        )
+        .unwrap_or_else(|e| panic!("{fifo}: {e}"));
     }
     std::fs::create_dir(dir.path().join("state")).unwrap();
     std::fs::set_permissions(
@@ -1385,8 +1386,10 @@ impl proto_grpc::derive::connector_server::Connector for Scripted {
 fn left(dir: &Path, name: &str, ended: &str) -> Vec<String> {
     let mut left = Vec::new();
 
-    // SAFETY: geteuid takes nothing and cannot fail.
-    let mounts = dir.join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
+    let mounts = dir.join(format!(
+        "connector-mounts-{}",
+        rustix::process::geteuid().as_raw()
+    ));
     for owned in [dir.join("state"), mounts] {
         for entry in std::fs::read_dir(&owned).unwrap() {
             left.push(entry.unwrap().path().display().to_string());

@@ -227,7 +227,10 @@ fn engine_environment_child() {
     else {
         panic!("the synthetic derivation must select VMM execution");
     };
-    let mounts = dir.join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
+    let mounts = dir.join(format!(
+        "connector-mounts-{}",
+        rustix::process::geteuid().as_raw()
+    ));
     let ordinary = |plane, image: &str| {
         let config: bytes::Bytes = serde_json::json!({"image": image, "config": {}})
             .to_string()

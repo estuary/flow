@@ -624,13 +624,16 @@ fn a_cancelled_gate_stops_its_client_and_removes_its_container() {
         .trim()
         .parse()
         .unwrap();
-    // SAFETY: kill takes a pid and a signal, and touches no memory.
-    assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+    let client = rustix::process::Pid::from_raw(client).expect("a client PID");
+    rustix::process::kill_process(
+        rustix::process::Pid::from_child(&child),
+        rustix::process::Signal::TERM,
+    )
+    .expect("signalling the publish");
     let output = child.wait_with_output().unwrap();
     let run = finish(&setup, output.status, &output.stderr);
 
-    // SAFETY: as above; signal 0 only checks that the process exists.
-    let client_alive = unsafe { libc::kill(client, 0) } == 0;
+    let client_alive = rustix::process::test_kill_process(client).is_ok();
     let left = std::fs::read_dir(setup.stubs.join("containers"))
         .unwrap()
         .count();

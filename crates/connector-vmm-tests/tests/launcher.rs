@@ -509,8 +509,10 @@ impl Owner {
         ];
 
         let mut command = if namespaced {
-            // SAFETY: both take nothing and cannot fail.
-            let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+            let (uid, gid) = (
+                rustix::process::getuid().as_raw(),
+                rustix::process::getgid().as_raw(),
+            );
             // The owner itself runs unprivileged, as the test does, and finds
             // flow-connector-init on the suite's PATH.
             let path = std::env::var("PATH").expect("PATH");
@@ -589,9 +591,10 @@ impl Owner {
     }
 
     fn kill(mut self) -> std::process::ExitStatus {
-        // SAFETY: kill takes plain integers.
-        let killed = unsafe { libc::kill(self.host_pid, libc::SIGKILL) };
-        assert_eq!(killed, 0, "killing owner {}", self.host_pid);
+        let pid =
+            rustix::process::Pid::from_raw(self.host_pid).expect("the owner reported its PID");
+        rustix::process::kill_process(pid, rustix::process::Signal::KILL)
+            .unwrap_or_else(|e| panic!("killing owner {}: {e}", self.host_pid));
         self.child.wait().expect("waiting for a killed owner")
     }
 
@@ -617,11 +620,9 @@ impl Drop for Owner {
             }
             // Unknown until the owner reports it, and kill(0) would signal
             // this process's whole group.
-            if self.host_pid > 0 {
-                // SAFETY: kill takes plain integers.
-                unsafe { libc::kill(self.host_pid, libc::SIGKILL) };
-            } else {
-                _ = self.child.kill();
+            match rustix::process::Pid::from_raw(self.host_pid) {
+                Some(pid) => _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL),
+                None => _ = self.child.kill(),
             }
             _ = self.child.wait();
             return;
@@ -937,8 +938,11 @@ fn spec_through_the_vmm() {
     }
     let (run, root, runtime) = setup();
     std::fs::write(format!("{}/require-clean-environment", root.dir), "").unwrap();
-    // SAFETY: geteuid takes nothing and cannot fail.
-    assert_ne!(unsafe { libc::geteuid() }, 0, "the suite runs unprivileged");
+    assert_ne!(
+        rustix::process::geteuid().as_raw(),
+        0,
+        "the suite runs unprivileged"
+    );
     let user = run::podman(&[
         "image",
         "inspect",

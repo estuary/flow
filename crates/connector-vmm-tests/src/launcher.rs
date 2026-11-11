@@ -16,8 +16,10 @@ pub struct Root {
 pub fn root() -> Root {
     let dir = format!("{}/launcher-{}", run::ROOT, run::random_hex());
     run::record("dir", &dir);
-    // SAFETY: both take nothing and cannot fail.
-    let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+    let (uid, gid) = (
+        rustix::process::getuid().as_raw(),
+        rustix::process::getgid().as_raw(),
+    );
     run::sudo(&[
         "install",
         "-d",
@@ -61,10 +63,11 @@ pub fn root() -> Root {
 pub fn mounts(root: &Root) -> String {
     use std::os::unix::fs::DirBuilderExt;
 
-    // SAFETY: geteuid takes nothing and cannot fail.
-    let mounts = format!("{}/connector-mounts-{}", root.tmp_dir, unsafe {
-        libc::geteuid()
-    });
+    let mounts = format!(
+        "{}/connector-mounts-{}",
+        root.tmp_dir,
+        rustix::process::geteuid().as_raw()
+    );
     if let Err(err) = std::fs::DirBuilder::new().mode(0o700).create(&mounts)
         && err.kind() != std::io::ErrorKind::AlreadyExists
     {
@@ -288,8 +291,10 @@ impl Api {
             // task's release lists what's two levels beneath it, as the test.
             let parent = format!("{}/launcher-{}", run::ROOT, &run::random_hex()[..8]);
             run::record("dir", &parent);
-            // SAFETY: both take nothing and cannot fail.
-            let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+            let (uid, gid) = (
+                rustix::process::getuid().as_raw(),
+                rustix::process::getgid().as_raw(),
+            );
             run::sudo(&[
                 "install",
                 "-d",
@@ -342,8 +347,10 @@ impl Api {
 impl Drop for Api {
     fn drop(&mut self) {
         // sudo relays it to the service, which stops.
-        // SAFETY: kill takes plain integers.
-        unsafe { libc::kill(self.service.id() as libc::pid_t, libc::SIGTERM) };
+        _ = rustix::process::kill_process(
+            rustix::process::Pid::from_child(&self.service),
+            rustix::process::Signal::TERM,
+        );
         _ = self.service.wait();
     }
 }
@@ -835,8 +842,7 @@ mod test {
         assert!(!super::path_exists(&path(file.join("beneath"))));
 
         // Root looks inside a sealed directory regardless.
-        // SAFETY: geteuid takes nothing and cannot fail.
-        if unsafe { libc::geteuid() } != 0 {
+        if rustix::process::geteuid().as_raw() != 0 {
             let inside = path(sealed.join("inside"));
             std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o000)).unwrap();
             let looked = std::panic::catch_unwind(|| super::path_exists(&inside));
@@ -863,12 +869,12 @@ mod test {
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
-        let pid = child.id() as libc::pid_t;
-        let mut status = 0;
-        // SAFETY: `status` is the int waitpid writes. WUNTRACED returns once
-        // the child stops, as well as if it exits.
-        let waited = unsafe { libc::waitpid(pid, &mut status, libc::WUNTRACED) };
-        let stopped = waited == pid && libc::WIFSTOPPED(status);
+        // WUNTRACED returns once the child stops, as well as if it exits.
+        let waited = rustix::process::waitpid(
+            Some(rustix::process::Pid::from_child(&child)),
+            rustix::process::WaitOptions::UNTRACED,
+        );
+        let stopped = matches!(waited, Ok(Some((_, status))) if status.stopped());
 
         child.kill().unwrap();
         child.wait().unwrap();

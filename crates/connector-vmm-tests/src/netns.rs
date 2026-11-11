@@ -7,7 +7,7 @@
 //! the host, where the host boundary rightly refuses a VMM's traffic.
 
 use std::net::{SocketAddr, TcpListener, UdpSocket};
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixListener;
 
 pub enum Namespace<'a> {
@@ -61,37 +61,36 @@ fn bind(namespace: Namespace, kind: &str, addr: SocketAddr) -> OwnedFd {
     receive(&channel).unwrap_or_else(|e| panic!("receiving the {kind} {addr} descriptor: {e}"))
 }
 
+/// Exactly one descriptor. Any others the message carried are closed on return.
 fn receive(channel: &std::os::unix::net::UnixStream) -> std::io::Result<OwnedFd> {
-    use std::os::fd::AsRawFd;
-
     let mut byte = [0u8; 2];
-    let mut iov = libc::iovec {
-        iov_base: byte.as_mut_ptr().cast(),
-        iov_len: byte.len(),
-    };
-    // Room for exactly one descriptor, aligned as a cmsghdr requires.
-    let mut control = [0u64; 4];
-    // SAFETY: an all-zero msghdr is valid; the pointers set below outlive
-    // the recvmsg call.
-    let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
-    message.msg_iov = &mut iov;
-    message.msg_iovlen = 1;
-    message.msg_control = control.as_mut_ptr().cast();
-    message.msg_controllen = std::mem::size_of_val(&control);
+    let mut space = [std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+    let mut control = rustix::net::RecvAncillaryBuffer::new(&mut space);
 
     channel.set_nonblocking(false)?;
-    // SAFETY: `message` describes buffers owned by this frame.
-    if unsafe { libc::recvmsg(channel.as_raw_fd(), &mut message, libc::MSG_CMSG_CLOEXEC) } < 0 {
-        return Err(std::io::Error::last_os_error());
+    let received = rustix::net::recvmsg(
+        channel,
+        &mut [std::io::IoSliceMut::new(&mut byte)],
+        &mut control,
+        rustix::net::RecvFlags::CMSG_CLOEXEC,
+    )?;
+    if received.flags.contains(rustix::net::ReturnFlags::CTRUNC) {
+        return Err(std::io::Error::other(
+            "the message carried more than its control buffer holds",
+        ));
     }
-    // SAFETY: recvmsg filled `control` and set its length in `message`;
-    // CMSG_FIRSTHDR returns null or a header within it.
-    let header = unsafe { libc::CMSG_FIRSTHDR(&message).as_ref() }
-        .filter(|h| h.cmsg_level == libc::SOL_SOCKET && h.cmsg_type == libc::SCM_RIGHTS)
-        .ok_or_else(|| std::io::Error::other("no descriptor in the message"))?;
-    // SAFETY: an SCM_RIGHTS header's data is the descriptors it carries,
-    // which this process now owns.
-    let fd = unsafe { std::ptr::read_unaligned(libc::CMSG_DATA(header).cast::<libc::c_int>()) };
-    // SAFETY: the descriptor was just received, and nothing else owns it.
-    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+
+    let mut fds: Vec<OwnedFd> = Vec::new();
+    for message in control.drain() {
+        if let rustix::net::RecvAncillaryMessage::ScmRights(rights) = message {
+            fds.extend(rights);
+        }
+    }
+    match <[OwnedFd; 1]>::try_from(fds) {
+        Ok([fd]) => Ok(fd),
+        Err(fds) => Err(std::io::Error::other(format!(
+            "{} descriptors in the message, not 1",
+            fds.len()
+        ))),
+    }
 }

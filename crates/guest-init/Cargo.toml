@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { workspace = true }
 libc = { workspace = true }
+rustix = { workspace = true, features = ["fs", "mount", "net", "thread"] }
 
 [dev-dependencies]
 insta = { workspace = true }

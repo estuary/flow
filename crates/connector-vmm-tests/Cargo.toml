@@ -12,6 +12,7 @@ license.workspace = true
 connector = { path = "../connector" }
 
 libc = { workspace = true }
+rustix = { workspace = true, features = ["net", "process"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

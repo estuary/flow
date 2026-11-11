@@ -505,7 +505,10 @@ pub(crate) fn create_connector_mount() -> anyhow::Result<tempfile::TempDir> {
 /// directory explicitly, so image-defined UIDs need no access to this ancestor.
 pub(crate) fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
     #[cfg(unix)]
-    let parent = tmp.join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
+    let parent = tmp.join(format!(
+        "connector-mounts-{}",
+        rustix::process::geteuid().as_raw()
+    ));
     #[cfg(not(unix))]
     let parent = tmp.join("connector-mounts");
 
@@ -516,7 +519,7 @@ pub(crate) fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<std::pat
         Ok(()) => (),
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
             #[cfg(unix)]
-            check_directory_owner(&parent, unsafe { libc::geteuid() })
+            check_directory_owner(&parent, rustix::process::geteuid().as_raw())
                 .with_context(|| format!("connector mounts directory {}", parent.display()))?;
         }
         Err(err) => {

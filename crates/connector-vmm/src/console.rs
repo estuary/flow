@@ -7,7 +7,7 @@
 //! the runtime reads, and it has to stay byte for byte.
 
 use std::io::Write;
-use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
+use std::os::fd::{IntoRawFd, RawFd};
 
 /// Console input is /dev/null. Transfer ownership with `into_raw_fd` because
 /// libkrun holds the descriptor for the VM's lifetime.
@@ -33,26 +33,22 @@ pub fn output(debug: bool) -> anyhow::Result<RawFd> {
         return Ok(libc::STDOUT_FILENO);
     }
 
-    let mut fds = [0 as RawFd; 2];
-    // SAFETY: `fds` is the two-element array pipe() writes.
-    if unsafe { libc::pipe(fds.as_mut_ptr()) } < 0 {
-        return Err(anyhow::anyhow!(std::io::Error::last_os_error()).context("console tee pipe"));
-    }
-    let [read_fd, write_fd] = fds;
+    let (reader, writer) =
+        rustix::pipe::pipe().map_err(|e| anyhow::anyhow!(e).context("console tee pipe"))?;
+    let reader = std::fs::File::from(reader);
 
     std::thread::Builder::new()
         .name("console-tee".to_string())
-        .spawn(move || tee(read_fd))
+        .spawn(move || tee(reader))
         .map_err(|e| anyhow::anyhow!("spawning the console tee: {e}"))?;
 
-    Ok(write_fd)
+    Ok(writer.into_raw_fd())
 }
 
-fn tee(read_fd: RawFd) {
+fn tee(reader: std::fs::File) {
     use std::io::BufRead;
 
-    // SAFETY: `read_fd` is owned by this thread from here on.
-    let reader = std::io::BufReader::new(unsafe { std::fs::File::from_raw_fd(read_fd) });
+    let reader = std::io::BufReader::new(reader);
 
     for line in reader.split(b'\n') {
         let Ok(line) = line else { return };
@@ -71,7 +67,7 @@ fn tee(read_fd: RawFd) {
 
 #[cfg(test)]
 mod tests {
-    use std::os::fd::RawFd;
+    use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 
     #[test]
     fn the_console_input_stays_open() {
@@ -86,6 +82,28 @@ mod tests {
 
         // SAFETY: this test owns the descriptor it just created.
         unsafe { libc::close(fd) };
+    }
+
+    #[test]
+    fn the_debug_console_output_stays_open() {
+        let fd = super::output(true).expect("the tee starts");
+
+        assert!(is_open(fd), "the console output was closed on return");
+
+        // SAFETY: `output` hands over a descriptor nothing else owns. Dropping
+        // it ends the tee.
+        let writer = unsafe { OwnedFd::from_raw_fd(fd) };
+        let status = rustix::fs::fcntl_getfl(&writer).expect("F_GETFL");
+        let fd_flags = rustix::io::fcntl_getfd(&writer).expect("F_GETFD");
+        assert_eq!(
+            status & rustix::fs::OFlags::RWMODE,
+            rustix::fs::OFlags::WRONLY,
+            "the pipe's write end"
+        );
+        assert!(
+            !fd_flags.contains(rustix::io::FdFlags::CLOEXEC),
+            "pipe() sets no FD_CLOEXEC"
+        );
     }
 
     fn is_open(fd: RawFd) -> bool {

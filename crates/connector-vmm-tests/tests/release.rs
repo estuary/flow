@@ -277,8 +277,7 @@ fn an_owned_launch_of_a_test_keeps_everything() {
 #[test]
 fn records_which_cannot_be_looked_for_keep_everything() {
     // Root looks inside a sealed directory regardless.
-    // SAFETY: geteuid takes nothing and cannot fail.
-    if unsafe { libc::geteuid() } == 0 {
+    if rustix::process::geteuid().as_raw() == 0 {
         return;
     }
     let setup = setup();

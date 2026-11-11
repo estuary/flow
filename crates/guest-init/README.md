@@ -86,5 +86,5 @@ the workload and becoming it. The VMM injects it into the guest root at
 - **Its stderr never begins a line with a space.** The launcher reads that as
   the connector's readiness signal, and everything written here precedes it, so
   clap's indented argument lists are re-framed rather than printed as they come.
-- **Static, and `libc` plus `clap` only.** The connector image it is injected
-  into may hold no libc, no shell and no dynamic loader at all.
+- **Static, and `libc`, `rustix` and `clap` only.** The connector image it is
+  injected into may hold no libc, no shell and no dynamic loader at all.

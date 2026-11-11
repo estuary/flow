@@ -604,7 +604,8 @@ fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<String> {
 pub(super) fn check_state_owner(path: &std::path::Path) -> anyhow::Result<()> {
     use std::os::unix::fs::MetadataExt;
 
-    let metadata = crate::protocol::check_directory_owner(path, unsafe { libc::geteuid() })?;
+    let metadata =
+        crate::protocol::check_directory_owner(path, rustix::process::geteuid().as_raw())?;
     if metadata.mode() & 0o777 != 0o700 {
         anyhow::bail!("must have mode 0700, private to the launcher's user");
     }
@@ -812,8 +813,7 @@ mod test {
             "symlink".to_string(),
             super::check_state_owner(&link).map_err(|err| err.to_string()),
         ));
-        // SAFETY: geteuid takes nothing and cannot fail.
-        let other_uid = unsafe { libc::geteuid() } ^ 1;
+        let other_uid = rustix::process::geteuid().as_raw() ^ 1;
         assert!(crate::protocol::check_directory_owner(tmp.path(), other_uid).is_err());
         insta::assert_debug_snapshot!(outcomes);
     }
@@ -821,8 +821,7 @@ mod test {
     /// Set fixture modes explicitly so cases do not depend on the umask.
     #[test]
     fn connector_mounts() {
-        // SAFETY: geteuid takes nothing and cannot fail.
-        let name = format!("connector-mounts-{}", unsafe { libc::geteuid() });
+        let name = format!("connector-mounts-{}", rustix::process::geteuid().as_raw());
         let dir = |mode: u32| {
             move |path: &Path| {
                 std::fs::create_dir(path).unwrap();

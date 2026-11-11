@@ -3,63 +3,34 @@
 //! Every failure becomes one line of text: there is no logger here, and the
 //! launcher sees only those lines and the exit code.
 
-use std::ffi::CString;
-use std::os::raw::c_ulong;
-
 pub type Result<T> = std::result::Result<T, String>;
 
-/// `<what>: <errno text>`, e.g. `mount ext4 /dev/vda at /scratch: Invalid
-/// argument (os error 22)`.
+/// `<what>: <errno text>`, e.g. `setuid(1000): Operation not permitted (os
+/// error 1)`.
 pub fn last_error(what: impl std::fmt::Display) -> String {
     format!("{what}: {}", std::io::Error::last_os_error())
-}
-
-/// Paths and mount options are built from our own constants and from values
-/// the CLI has already parsed as addresses, integers or absolute paths, so an
-/// interior NUL is an impossible state rather than an error to handle.
-fn cstring(value: &str) -> CString {
-    CString::new(value).expect("flow-guest-init builds its own strings; none contain NUL")
 }
 
 pub fn mount(
     source: &str,
     target: &str,
     fstype: &str,
-    flags: c_ulong,
-    options: &str,
+    flags: rustix::mount::MountFlags,
+    options: Option<&std::ffi::CStr>,
 ) -> Result<()> {
-    let (source_c, target_c, fstype_c, options_c) = (
-        cstring(source),
-        cstring(target),
-        cstring(fstype),
-        cstring(options),
-    );
-    // Safety: four NUL-terminated strings that outlive the call.
-    let rc = unsafe {
-        libc::mount(
-            source_c.as_ptr(),
-            target_c.as_ptr(),
-            if fstype.is_empty() {
-                std::ptr::null()
-            } else {
-                fstype_c.as_ptr()
-            },
-            flags,
-            if options.is_empty() {
-                std::ptr::null()
-            } else {
-                options_c.as_ptr().cast()
-            },
-        )
-    };
-    if rc < 0 {
-        let what = match fstype {
-            "" => format!("mount {source} at {target} (flags {flags:#x})"),
-            _ => format!("mount {fstype} {source} at {target}"),
-        };
-        return Err(last_error(what));
-    }
-    Ok(())
+    rustix::mount::mount(source, target, fstype, flags, options)
+        .map_err(|e| format!("mount {fstype} {source} at {target}: {e}"))
+}
+
+pub fn mount_bind(source: &str, target: &str) -> Result<()> {
+    rustix::mount::mount_bind(source, target)
+        .map_err(|e| format!("bind mount {source} at {target}: {e}"))
+}
+
+/// Bind remounts ignore filesystem options.
+pub fn mount_remount(target: &str, flags: rustix::mount::MountFlags) -> Result<()> {
+    rustix::mount::mount_remount(target, flags, c"")
+        .map_err(|e| format!("remount {target} ({flags:?}): {e}"))
 }
 
 pub fn write_file(path: &str, content: &str) -> Result<()> {

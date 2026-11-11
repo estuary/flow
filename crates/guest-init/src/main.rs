@@ -65,12 +65,8 @@ fn exec_workload(args: &cli::Args) -> Result<std::convert::Infallible, String> {
     drop_privileges(args.uid, args.gid, &args.supplementary_gids)?;
     // The image's setuid and setgid bits and file capabilities would otherwise
     // grant privilege: its root is not `nosuid` in the guest.
-    //
-    // Safety: no pointers. prctl reads its variadic arguments as `c_ulong`s.
-    let (on, unused): (libc::c_ulong, libc::c_ulong) = (1, 0);
-    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, on, unused, unused, unused) } < 0 {
-        return Err(sys::last_error("prctl(PR_SET_NO_NEW_PRIVS)"));
-    }
+    rustix::thread::set_no_new_privs(true)
+        .map_err(|e| format!("prctl(PR_SET_NO_NEW_PRIVS): {e}"))?;
 
     let program = std::ffi::CString::new(args.argv[0].as_str())
         .map_err(|e| format!("workload argv[0] {:?}: {e}", args.argv[0]))?;
@@ -117,7 +113,8 @@ fn exec_exit_code(errno: Option<i32>) -> u8 {
 }
 
 /// setgroups before setgid before setuid: after the uid is dropped there is no
-/// privilege left to do the other two.
+/// privilege left to do the other two. libc's calls apply to every thread of
+/// the process; rustix's apply only to the calling thread.
 fn drop_privileges(uid: u32, gid: u32, groups: &[u32]) -> Result<(), String> {
     // Safety: setgroups reads `groups.len()` gids from a slice that outlives
     // the call, and the other two take no pointers.

@@ -7,7 +7,7 @@
 //! its own process. It belongs to this VM and is discarded with it; nothing
 //! carries across a replacement VMM.
 
-use std::os::fd::RawFd;
+use std::os::fd::{AsRawFd, IntoRawFd, RawFd};
 use std::path::Path;
 
 const MIB: u64 = 1024 * 1024;
@@ -27,34 +27,24 @@ const MKFS_OPTIONS: &[&str] = &[
     "-F",
 ];
 
+/// A raw descriptor, because `launch::sweep` moves and closes it by number.
 pub fn create(backing_dir: &Path, disk_mib: u64) -> anyhow::Result<RawFd> {
-    let dir = std::ffi::CString::new(backing_dir.as_os_str().as_encoded_bytes())
-        .map_err(|e| anyhow::anyhow!("{} cannot be a C string: {e}", backing_dir.display()))?;
+    let fd = rustix::fs::open(
+        backing_dir,
+        rustix::fs::OFlags::TMPFILE | rustix::fs::OFlags::RDWR | rustix::fs::OFlags::EXCL,
+        rustix::fs::Mode::from_raw_mode(0o600),
+    )
+    .map_err(|e| anyhow::anyhow!(e).context(format!("O_TMPFILE in {}", backing_dir.display())))?;
+    rustix::fs::ftruncate(&fd, disk_mib * MIB).map_err(|e| {
+        anyhow::anyhow!(e).context(format!("sizing the scratch disk to {disk_mib} MiB"))
+    })?;
 
-    // SAFETY: `dir` outlives the call and the flags are a valid O_TMPFILE open.
-    let fd = unsafe {
-        libc::open(
-            dir.as_ptr(),
-            libc::O_TMPFILE | libc::O_RDWR | libc::O_EXCL,
-            0o600,
-        )
-    };
-    if fd < 0 {
-        return Err(anyhow::anyhow!(std::io::Error::last_os_error())
-            .context(format!("O_TMPFILE in {}", backing_dir.display())));
-    }
-    // SAFETY: `fd` is open and owned by this process.
-    if unsafe { libc::ftruncate(fd, (disk_mib * MIB) as libc::off_t) } < 0 {
-        return Err(anyhow::anyhow!(std::io::Error::last_os_error())
-            .context(format!("sizing the scratch disk to {disk_mib} MiB")));
-    }
-
-    let argv = mkfs_argv(&proc_path(fd));
+    let argv = mkfs_argv(&proc_path(fd.as_raw_fd()));
     let (program, args) = argv.split_first().expect("mkfs_argv is never empty");
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     crate::sys::run(program, &args, None)?;
 
-    Ok(fd)
+    Ok(fd.into_raw_fd())
 }
 
 pub fn mkfs_argv(path: &str) -> Vec<String> {

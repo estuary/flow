@@ -29,7 +29,7 @@
 //!   garbage collected yet.
 
 use std::net::Ipv4Addr;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::time::{Duration, Instant};
 
 /// The table and set the ruleset renders. `tests::names_match_the_ruleset`
@@ -42,8 +42,6 @@ const SET: &str = "resolved";
 /// this module cannot describe, which is fatal, so the bound has to be on the
 /// whole call rather than on each receive.
 const TIMEOUT: Duration = Duration::from_secs(5);
-
-const NETLINK_NETFILTER: libc::c_int = 12;
 
 const NLM_F_REQUEST: u16 = 0x001;
 const NLM_F_ACK: u16 = 0x004;
@@ -100,40 +98,19 @@ enum Failure {
 
 impl Netlink {
     pub fn open() -> anyhow::Result<Self> {
-        // SAFETY: a socket call with constant arguments; the descriptor is
-        // taken by OwnedFd below, or the call failed and there is none.
-        let raw = unsafe {
-            libc::socket(
-                libc::AF_NETLINK,
-                libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-                NETLINK_NETFILTER,
-            )
-        };
-        if raw < 0 {
-            return Err(anyhow::anyhow!(std::io::Error::last_os_error())
-                .context("opening a netlink socket"));
-        }
-        // SAFETY: `raw` is a fresh descriptor this call owns.
-        let socket = unsafe { OwnedFd::from_raw_fd(raw) };
+        let socket = rustix::net::socket_with(
+            rustix::net::AddressFamily::NETLINK,
+            rustix::net::SocketType::RAW,
+            rustix::net::SocketFlags::CLOEXEC,
+            Some(rustix::net::netlink::NETFILTER),
+        )
+        .map_err(|e| anyhow::anyhow!(e).context("opening a netlink socket"))?;
 
         // Port 0 and no groups: the kernel, and it assigns our port.
-        // SAFETY: sockaddr_nl is plain data for which all-zero is the valid
-        // "unbound, addressed to the kernel" value.
-        let mut address: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
-        address.nl_family = libc::AF_NETLINK as u16;
-        // SAFETY: `address` is a correctly sized sockaddr_nl that outlives the
-        // call, and the descriptor is open.
-        let connected = unsafe {
-            libc::connect(
-                socket.as_raw_fd(),
-                std::ptr::addr_of!(address).cast(),
-                std::mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t,
-            )
-        };
-        if connected < 0 {
-            return Err(anyhow::anyhow!(std::io::Error::last_os_error())
-                .context("connecting the netlink socket to the kernel"));
-        }
+        rustix::net::connect(&socket, &rustix::net::netlink::SocketAddrNetlink::new(0, 0))
+            .map_err(|e| {
+                anyhow::anyhow!(e).context("connecting the netlink socket to the kernel")
+            })?;
 
         Ok(Netlink {
             socket,
@@ -142,28 +119,14 @@ impl Netlink {
     }
 
     /// Each receive waits only for what is left of the batch's deadline.
-    fn set_receive_timeout(&self, remaining: Duration) -> std::io::Result<()> {
-        // A zero timeval means "block forever", so never round down to one.
+    fn set_receive_timeout(&self, remaining: Duration) -> rustix::io::Result<()> {
+        // Socket timeouts have microsecond resolution.
         let remaining = remaining.max(Duration::from_micros(1));
-        let timeout = libc::timeval {
-            tv_sec: remaining.as_secs() as libc::time_t,
-            tv_usec: remaining.subsec_micros() as libc::suseconds_t,
-        };
-        // SAFETY: `timeout` is a correctly sized timeval that outlives the
-        // call, and the descriptor is open.
-        let set = unsafe {
-            libc::setsockopt(
-                self.socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_RCVTIMEO,
-                std::ptr::addr_of!(timeout).cast(),
-                std::mem::size_of::<libc::timeval>() as libc::socklen_t,
-            )
-        };
-        if set < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(())
+        rustix::net::sockopt::set_socket_timeout(
+            &self.socket,
+            rustix::net::sockopt::Timeout::Recv,
+            Some(remaining),
+        )
     }
 
     fn transaction(
@@ -179,18 +142,10 @@ impl Netlink {
         let last = first + deletes.len() as u32 + 2;
         self.sequence = last + 1;
 
-        // SAFETY: the slice outlives the call and its length is its own.
-        let sent = unsafe {
-            libc::send(
-                self.socket.as_raw_fd(),
-                batch.as_ptr().cast(),
-                batch.len(),
-                0,
-            )
-        };
-        if sent < 0 {
+        if let Err(error) = rustix::net::send(&self.socket, &batch, rustix::net::SendFlags::empty())
+        {
             return Err(Failure::Other(
-                anyhow::anyhow!(std::io::Error::last_os_error()).context("sending a netlink batch"),
+                anyhow::anyhow!(error).context("sending a netlink batch"),
             ));
         }
         self.read_acknowledgments(first, last, deletes.len(), deadline)
@@ -220,22 +175,28 @@ impl Netlink {
                     anyhow::anyhow!(error).context("setting the netlink receive timeout"),
                 ));
             }
-            // SAFETY: the buffer outlives the call and its length is its own.
-            let read = unsafe {
-                libc::recv(
-                    self.socket.as_raw_fd(),
-                    buffer.as_mut_ptr().cast(),
-                    buffer.len(),
-                    0,
-                )
-            };
-            if read <= 0 {
-                let error = std::io::Error::last_os_error();
-                return Err(Failure::Other(anyhow::anyhow!(
-                    "no acknowledgment for the netlink batch: {error}"
-                )));
-            }
-            let read = read as usize;
+            // TRUNC makes recv report a datagram's full length, so a reply
+            // larger than the buffer is refused rather than parsed in part.
+            let read =
+                match rustix::net::recv(&self.socket, &mut buffer, rustix::net::RecvFlags::TRUNC) {
+                    Ok((_, 0)) => {
+                        return Err(Failure::Other(anyhow::anyhow!(
+                            "no acknowledgment for the netlink batch: an empty datagram"
+                        )));
+                    }
+                    Ok((_, read)) if read > buffer.len() => {
+                        return Err(Failure::Other(anyhow::anyhow!(
+                            "netlink reply of {read} bytes overflows the {}-byte buffer",
+                            buffer.len()
+                        )));
+                    }
+                    Ok((_, read)) => read,
+                    Err(error) => {
+                        return Err(Failure::Other(anyhow::anyhow!(
+                            "no acknowledgment for the netlink batch: {error}"
+                        )));
+                    }
+                };
             let mut offset = 0;
 
             while offset + NLMSG_HEADER_LEN <= read {
