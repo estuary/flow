@@ -35,11 +35,16 @@ fn parse_chrono_duration(s: &str) -> Result<chrono::Duration, String> {
 /// per-prefix or per-task via `alert_configs`; all others are global.
 #[derive(Clone, Debug, clap::Parser)]
 pub struct ControllerConfig {
-    /// Default retention window for rows in the `shard_failures` table.
-    /// Overridable via `shardFailed.condition.per` in `alert_configs`.
-    #[clap(long, env = "SHARD_FAILURE_RETENTION", default_value = "8h")]
+    /// Failure history used for shard restart backoff. Records are retained
+    /// longer when the alert window requires it.
+    #[clap(long, env = "SHARD_FAILURE_RETENTION", default_value = "2h")]
     #[arg(value_parser = parse_chrono_duration)]
     pub shard_failure_retention: chrono::Duration,
+    /// Default window for counting failures toward a ShardFailed alert.
+    /// Overridable via `shardFailed.condition.per` in `alert_configs`.
+    #[clap(long, env = "SHARD_FAILURE_ALERT_WINDOW", default_value = "2h")]
+    #[arg(value_parser = parse_chrono_duration)]
+    pub shard_failure_alert_window: chrono::Duration,
     /// How long shard health must be Ok before resolving a ShardFailed alert.
     #[clap(long, env = "RESOLVE_SHARD_FAILED_ALERT_AFTER", default_value = "2h")]
     #[arg(value_parser = parse_chrono_duration)]
@@ -107,7 +112,7 @@ impl ControllerConfig {
                 enabled: Some(true),
                 condition: Some(models::ShardFailedCondition {
                     failures: Some(self.alert_after_shard_failures),
-                    per: Some(self.shard_failure_retention.to_std().unwrap_or_default()),
+                    per: Some(self.shard_failure_alert_window.to_std().unwrap_or_default()),
                 }),
             }),
             task_chronically_failing: Some(models::TaskChronicallyFailingConfig {
@@ -147,9 +152,8 @@ pub struct ResolvedAlertConfig {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedShardFailedConfig {
-    /// Failure records are retained and pruned even if the ShardFailed alert is
-    /// not emitted, because retry behavior still depends on recent failures.
-    pub retention: chrono::Duration,
+    /// Window over which failures count toward the alert.
+    pub window: chrono::Duration,
     pub alert: ResolvedShardFailedAlert,
 }
 
@@ -234,7 +238,7 @@ fn resolve_shard_failed(
     };
 
     Ok(ResolvedShardFailedConfig {
-        retention: required_duration(per, "shardFailed.condition.per")?,
+        window: required_duration(per, "shardFailed.condition.per")?,
         alert,
     })
 }

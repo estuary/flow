@@ -516,6 +516,9 @@ impl TestHarness {
             ),
             del_alert_history as (
                 delete from alert_history
+            ),
+            del_shard_failures as (
+                delete from shard_failures
             )
             delete from inferred_schemas;"#,
             system_user_id

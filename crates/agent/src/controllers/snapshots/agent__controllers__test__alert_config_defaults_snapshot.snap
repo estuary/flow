@@ -6,7 +6,7 @@ expression: "serde_json::to_value(&defaults).unwrap()"
   "shardFailed": {
     "condition": {
       "failures": 3,
-      "per": "8h"
+      "per": "2h"
     },
     "enabled": true
   },
