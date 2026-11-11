@@ -315,8 +315,8 @@ fn build_partition_apply<D: PartitionDoc>(
 /// `W`: the minimum slice of the 32-bit key-hash space that any partition
 /// journal must cover. A journal may be split if both new sides would
 /// cover at least this much space.  This caps automatic splitting
-/// at 8 evenly-sized journals (split depth 3) per logical partition.
-pub const MIN_PARTITION_WIDTH: u64 = 1 << 29;
+/// at 32 evenly-sized journals (split depth 5) per logical partition.
+pub const MIN_PARTITION_WIDTH: u64 = 1 << 27;
 
 /// Outcome of a [`split_partition`] attempt, for the caller to act on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -724,8 +724,8 @@ mod test {
     fn test_build_partition_split_apply_at_threshold() {
         let template = split_test_template();
 
-        // Parent at exactly width 2W: [0x40000000, 0x7fffffff].
-        let parent = split_test_parent(0x40000000, 0x7fffffff, 42);
+        // Parent at exactly width 2W: [0x40000000, 0x4fffffff].
+        let parent = split_test_parent(0x40000000, 0x4fffffff, 42);
         let (rhs_name, request) = build_partition_split_apply(&template, &parent).unwrap();
 
         let [lhs, rhs] = request.changes.as_slice() else {
@@ -766,7 +766,7 @@ mod test {
         assert_eq!(key_range_width(0, u32::MAX), 1 << 32); // Full range doesn't overflow.
         assert_eq!(key_range_width(0, 0), 1);
         assert_eq!(
-            key_range_width(0x40000000, 0x7fffffff),
+            key_range_width(0x40000000, 0x4fffffff),
             2 * MIN_PARTITION_WIDTH
         );
     }

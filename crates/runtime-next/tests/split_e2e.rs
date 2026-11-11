@@ -42,8 +42,8 @@ const PAYLOAD_LEN: usize = 4096;
 /// what its rate refills over the transaction.
 const DRAIN_DOCS_PER_TXN: usize = 48;
 
-/// All eight leaves at the `MIN_PARTITION_WIDTH` floor.
-const FLOOR_PARTITIONS: usize = 8;
+/// All 32 leaves at the `MIN_PARTITION_WIDTH` floor.
+const FLOOR_PARTITIONS: usize = 32;
 
 /// A generator of document keys, bucketed by which floor-width partition
 /// the key's hash routes to. Keys flow through the same packed-key encoding
@@ -93,8 +93,7 @@ impl KeyPool {
                 return id;
             }
             let (id, hash) = self.next();
-            // Top three hash bits index the 2^29 floor-width bucket.
-            self.buckets[(hash >> 29) as usize].push_back(id);
+            self.buckets[(hash as u64 / publisher::MIN_PARTITION_WIDTH) as usize].push_back(id);
         }
     }
 }
@@ -420,8 +419,8 @@ async fn journal_auto_split_converges_to_floor() {
     assert_eq!(parts.len(), 1, "control: a single partition: {parts:?}");
 
     // ---- Sustained over-rate load splits down to the floor. ----
-    // Run the actor loop with uniformly-keyed load until seven midpoint
-    // splits have taken the one full-range partition to eight.
+    // Run the actor loop with uniformly-keyed load until 31 midpoint
+    // splits have taken the one full-range partition to 32.
     let deadline = Instant::now() + Duration::from_secs(45);
     while split_count < FLOOR_PARTITIONS - 1 {
         assert!(
@@ -451,7 +450,7 @@ async fn journal_auto_split_converges_to_floor() {
     assert_eq!(
         parts.len(),
         FLOOR_PARTITIONS,
-        "seven midpoint splits yield eight partitions: {parts:?}",
+        "31 midpoint splits yield 32 partitions: {parts:?}",
     );
     for (index, (name, begin, end)) in parts.iter().enumerate() {
         let expect_begin = index as u64 * publisher::MIN_PARTITION_WIDTH;
@@ -516,7 +515,9 @@ async fn journal_auto_split_converges_to_floor() {
     // (RHS) journals and not only the original full-range journal.
     let mut post_floor_appended = BTreeSet::new();
     for _ in 0..5 {
-        let ids: Vec<String> = (0..DOCS_PER_TXN).map(|_| keys.next().0).collect();
+        let ids: Vec<String> = (0..FLOOR_PARTITIONS)
+            .map(|bucket| keys.next_for_bucket(bucket))
+            .collect();
         publish_txn(&mut publisher, &ids, &payload).await;
         let now = Instant::now();
         let samples = take_samples(&mut publisher);
