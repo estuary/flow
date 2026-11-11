@@ -1,5 +1,5 @@
-//! The resolver's writes to the `resolved` set, as nfnetlink batches built by
-//! hand.
+//! The resolver's writes to the `resolved` set, as nfnetlink batches of
+//! `netlink_packet_netfilter` messages.
 //!
 //! One batch shape: `NFNL_MSG_BATCH_BEGIN`, one `NFT_MSG_DELSETELEM` per
 //! address being refreshed, one `NFT_MSG_NEWSETELEM` carrying every address
@@ -8,7 +8,7 @@
 //! is never absent from the set and a connection through it is never
 //! interrupted.
 //!
-//! Encoding the fixed batch shape directly avoids spawning `nft` per answer.
+//! Sending the fixed batch shape directly avoids spawning `nft` per answer.
 //!
 //! What the kernel was measured to do, on 7.0.0-1011-gcp with nftables 1.0.9:
 //!
@@ -27,7 +27,13 @@
 //!   about rather than absorbing.
 //! - An expired element never blocks an insert, whether or not it has been
 //!   garbage collected yet.
+//! - Each acknowledgment is its own datagram. The kernel queues all of a
+//!   batch's acknowledgments before the first receive. On 7.0.0-1014-gcp, a
+//!   batch of 259 messages overflowed the default 212992-byte receive buffer,
+//!   and the receive failed with `ENOBUFS`.
 
+use netlink_packet_core::Parseable as _;
+use netlink_packet_netfilter::nftables;
 use std::net::Ipv4Addr;
 use std::os::fd::OwnedFd;
 use std::time::{Duration, Instant};
@@ -42,30 +48,6 @@ const SET: &str = "resolved";
 /// this module cannot describe, which is fatal, so the bound has to be on the
 /// whole call rather than on each receive.
 const TIMEOUT: Duration = Duration::from_secs(5);
-
-const NLM_F_REQUEST: u16 = 0x001;
-const NLM_F_ACK: u16 = 0x004;
-const NLM_F_EXCL: u16 = 0x200;
-const NLM_F_CREATE: u16 = 0x400;
-const NLMSG_ERROR: u16 = 2;
-const NLMSG_HEADER_LEN: usize = 16;
-
-const NFNL_SUBSYS_NFTABLES: u16 = 10;
-const NFNL_MSG_BATCH_BEGIN: u16 = 16;
-const NFNL_MSG_BATCH_END: u16 = 17;
-const NFT_MSG_NEWSETELEM: u16 = 12;
-const NFT_MSG_DELSETELEM: u16 = 14;
-const NFPROTO_UNSPEC: u8 = 0;
-const NFPROTO_INET: u8 = 1;
-
-const NFTA_SET_ELEM_LIST_TABLE: u16 = 1;
-const NFTA_SET_ELEM_LIST_SET: u16 = 2;
-const NFTA_SET_ELEM_LIST_ELEMENTS: u16 = 3;
-const NFTA_LIST_ELEM: u16 = 1;
-const NFTA_SET_ELEM_KEY: u16 = 1;
-const NFTA_SET_ELEM_TIMEOUT: u16 = 4;
-const NFTA_DATA_VALUE: u16 = 1;
-const NLA_F_NESTED: u16 = 0x8000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Element {
@@ -148,22 +130,17 @@ impl Netlink {
                 anyhow::anyhow!(error).context("sending a netlink batch"),
             ));
         }
-        self.read_acknowledgments(first, last, deletes.len(), deadline)
+        self.read_acknowledgments(Acknowledgments::new(first, last, deletes.len()), deadline)
     }
 
-    /// Every sequence of the batch must be acknowledged without error, and the
-    /// `NFNL_MSG_BATCH_END` acknowledgment must be among them.
     fn read_acknowledgments(
         &self,
-        first: u32,
-        last: u32,
-        deletes: usize,
+        mut acknowledgments: Acknowledgments,
         deadline: Instant,
     ) -> Result<(), Failure> {
-        let mut acknowledged = vec![false; (last - first + 1) as usize];
         let mut buffer = [0u8; 8192];
 
-        while !acknowledged[(last - first) as usize] {
+        loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return Err(Failure::Other(anyhow::anyhow!(
@@ -197,40 +174,96 @@ impl Netlink {
                         )));
                     }
                 };
-            let mut offset = 0;
-
-            while offset + NLMSG_HEADER_LEN <= read {
-                let length = u32::from_ne_bytes(buffer[offset..offset + 4].try_into().unwrap());
-                let kind = u16::from_ne_bytes(buffer[offset + 4..offset + 6].try_into().unwrap());
-                let sequence =
-                    u32::from_ne_bytes(buffer[offset + 8..offset + 12].try_into().unwrap());
-                let length = length as usize;
-                if length < NLMSG_HEADER_LEN || offset + length > read {
-                    return Err(Failure::Other(anyhow::anyhow!(
-                        "netlink reply of {length} bytes at offset {offset} is malformed"
-                    )));
-                }
-
-                // Replies to an abandoned batch carry an older sequence.
-                if kind == NLMSG_ERROR && (first..=last).contains(&sequence) {
-                    let code =
-                        i32::from_ne_bytes(buffer[offset + 16..offset + 20].try_into().unwrap());
-                    if code != 0 {
-                        return Err(classify(sequence, first, deletes, -code));
-                    }
-                    acknowledged[(sequence - first) as usize] = true;
-                }
-                offset += length.next_multiple_of(4);
+            if acknowledgments.receive(&buffer[..read])? {
+                return Ok(());
             }
         }
+    }
+}
 
-        if let Some(index) = acknowledged.iter().position(|seen| !seen) {
+/// Tracks every acknowledgment from `first` through the batch-end `last`.
+struct Acknowledgments {
+    first: u32,
+    last: u32,
+    deletes: usize,
+    seen: Vec<bool>,
+}
+
+impl Acknowledgments {
+    fn new(first: u32, last: u32, deletes: usize) -> Self {
+        Acknowledgments {
+            first,
+            last,
+            deletes,
+            seen: vec![false; (last - first + 1) as usize],
+        }
+    }
+
+    /// Reads every message of one datagram. `Ok(true)` means the batch
+    /// committed: the `NFNL_MSG_BATCH_END` acknowledgment has arrived, and so
+    /// has a successful one for every other sequence.
+    fn receive(&mut self, datagram: &[u8]) -> Result<bool, Failure> {
+        let mut offset = 0;
+
+        while offset < datagram.len() {
+            let message = netlink_packet_core::NetlinkBuffer::new_checked(&datagram[offset..])
+                .map_err(|error| {
+                    Failure::Other(
+                        anyhow::anyhow!(error)
+                            .context(format!("netlink reply at offset {offset} is malformed")),
+                    )
+                })?;
+            let length = message.length() as usize;
+            // The kernel pads every message to a 4-byte boundary, the last
+            // one included.
+            let next = offset + length.next_multiple_of(4);
+            if next > datagram.len() {
+                return Err(Failure::Other(anyhow::anyhow!(
+                    "netlink reply of {length} bytes at offset {offset} overruns its {}-byte datagram once padded",
+                    datagram.len()
+                )));
+            }
+            offset = next;
+
+            // Replies to an abandoned batch carry an older sequence. Nothing
+            // but an acknowledgment of this batch is decoded further.
+            let sequence = message.sequence_number();
+            if message.message_type() != netlink_packet_core::NLMSG_ERROR
+                || !(self.first..=self.last).contains(&sequence)
+            {
+                continue;
+            }
+            let payload = message.payload();
+            let acknowledgment = netlink_packet_core::ErrorBuffer::new_checked(&payload)
+                .and_then(|buffer| netlink_packet_core::ErrorMessage::parse(&buffer))
+                .map_err(|error| {
+                    Failure::Other(anyhow::anyhow!(error).context(format!(
+                        "acknowledgment of netlink message {sequence} is malformed"
+                    )))
+                })?;
+
+            if let Some(code) = acknowledgment.code {
+                // Reject malformed error codes that cannot be a negated errno.
+                let Some(errno) = code.get().checked_neg().filter(|errno| *errno > 0) else {
+                    return Err(Failure::Other(anyhow::anyhow!(
+                        "acknowledgment of netlink message {sequence} carries error code {code}, which is not a negated errno"
+                    )));
+                };
+                return Err(classify(sequence, self.first, self.deletes, errno));
+            }
+            self.seen[(sequence - self.first) as usize] = true;
+        }
+
+        if self.seen.last() == Some(&false) {
+            return Ok(false);
+        }
+        if let Some(index) = self.seen.iter().position(|seen| !seen) {
             return Err(Failure::Other(anyhow::anyhow!(
                 "the netlink batch committed without acknowledging message {}",
-                first + index as u32
+                self.first + index as u32
             )));
         }
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -292,125 +325,97 @@ pub fn encode_batch(
     adds: &[Element],
     first: u32,
 ) -> Vec<u8> {
-    let mut batch = Vec::new();
-    let marker = generation_message(NFPROTO_UNSPEC, NFNL_SUBSYS_NFTABLES);
-    let mut sequence = first;
+    const REQUEST: u16 = netlink_packet_core::NLM_F_REQUEST | netlink_packet_core::NLM_F_ACK;
 
-    message(
-        NFNL_MSG_BATCH_BEGIN,
-        NLM_F_REQUEST | NLM_F_ACK,
-        sequence,
-        &marker,
-        &mut batch,
+    // The markers name the nfnetlink subsystem the batch is for. The messages
+    // between them name the table's family.
+    let marker = netlink_packet_netfilter::NetfilterHeader::new(
+        netlink_packet_netfilter::NetfilterProtoFamily::Unspec,
+        0,
+        u8::from(netlink_packet_netfilter::NetfilterSubsystem::NfTables).into(),
     );
+    let inet = netlink_packet_netfilter::NetfilterHeader::new(
+        netlink_packet_netfilter::NetfilterProtoFamily::Inet,
+        0,
+        0,
+    );
+    let list = |elements: Vec<nftables::ListAttribute<nftables::SetElementAttribute>>| {
+        nftables::SetElementMessage {
+            attributes: vec![
+                nftables::SetElementList::Table(table.to_string()),
+                nftables::SetElementList::Set(set.to_string()),
+                nftables::SetElementList::Elements(elements),
+            ],
+        }
+    };
+    let key = |address: Ipv4Addr| {
+        nftables::SetElementAttribute::Key(nftables::DataAttribute::Value(
+            address.octets().to_vec(),
+        ))
+    };
 
+    let mut messages = vec![(
+        netlink_packet_netfilter::NetfilterMessage::new(
+            marker.clone(),
+            netlink_packet_netfilter::none::ControlMessage::BatchBegin,
+        ),
+        REQUEST,
+    )];
     for address in deletes {
-        sequence += 1;
-        let element = element(*address, None);
-        let body = set_elements(table, set, &element);
-        message(
-            (NFNL_SUBSYS_NFTABLES << 8) | NFT_MSG_DELSETELEM,
-            NLM_F_REQUEST | NLM_F_ACK,
-            sequence,
-            &body,
-            &mut batch,
-        );
+        let element = nftables::ListAttribute::Element(vec![key(*address)]);
+        messages.push((
+            netlink_packet_netfilter::NetfilterMessage::new(
+                inet.clone(),
+                nftables::NfTablesMessage::DeleteSetElement(list(vec![element])),
+            ),
+            REQUEST,
+        ));
     }
+    let elements = adds
+        .iter()
+        .map(|add| {
+            let milliseconds = add.timeout.as_millis().min(u64::MAX as u128) as u64;
+            nftables::ListAttribute::Element(vec![
+                key(add.address),
+                nftables::SetElementAttribute::Timeout(milliseconds),
+            ])
+        })
+        .collect();
+    messages.push((
+        netlink_packet_netfilter::NetfilterMessage::new(
+            inet,
+            nftables::NfTablesMessage::NewSetElement(list(elements)),
+        ),
+        REQUEST | netlink_packet_core::NLM_F_CREATE | netlink_packet_core::NLM_F_EXCL,
+    ));
+    messages.push((
+        netlink_packet_netfilter::NetfilterMessage::new(
+            marker,
+            netlink_packet_netfilter::none::ControlMessage::BatchEnd,
+        ),
+        REQUEST,
+    ));
 
-    let mut elements = Vec::new();
-    for add in adds {
-        elements.extend(element(add.address, Some(add.timeout)));
+    let mut batch = Vec::new();
+    for ((message, flags), sequence) in messages.into_iter().zip(first..) {
+        let mut message = netlink_packet_core::NetlinkMessage::from(message);
+        message.header.flags = flags;
+        message.header.sequence_number = sequence;
+        message.finalize();
+
+        // `finalize` records the unpadded length in the header. Each message
+        // starts on a 4-byte boundary.
+        let start = batch.len();
+        let length = message.buffer_len();
+        batch.resize(start + length.next_multiple_of(4), 0);
+        message.serialize(&mut batch[start..start + length]);
     }
-    sequence += 1;
-    let body = set_elements(table, set, &elements);
-    message(
-        (NFNL_SUBSYS_NFTABLES << 8) | NFT_MSG_NEWSETELEM,
-        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
-        sequence,
-        &body,
-        &mut batch,
-    );
-
-    sequence += 1;
-    message(
-        NFNL_MSG_BATCH_END,
-        NLM_F_REQUEST | NLM_F_ACK,
-        sequence,
-        &marker,
-        &mut batch,
-    );
     batch
-}
-
-/// `nfgenmsg`: family, version, and a big-endian resource id.
-fn generation_message(family: u8, resource: u16) -> Vec<u8> {
-    let mut body = vec![family, 0];
-    body.extend(resource.to_be_bytes());
-    body
-}
-
-fn set_elements(table: &str, set: &str, elements: &[u8]) -> Vec<u8> {
-    let mut body = generation_message(NFPROTO_INET, 0);
-    attribute(NFTA_SET_ELEM_LIST_TABLE, &nul_terminated(table), &mut body);
-    attribute(NFTA_SET_ELEM_LIST_SET, &nul_terminated(set), &mut body);
-    attribute(
-        NFTA_SET_ELEM_LIST_ELEMENTS | NLA_F_NESTED,
-        elements,
-        &mut body,
-    );
-    body
-}
-
-/// One `NFTA_LIST_ELEM`. A delete carries the key alone; an insert carries the
-/// timeout as big-endian milliseconds beside it.
-fn element(address: Ipv4Addr, timeout: Option<Duration>) -> Vec<u8> {
-    let mut key = Vec::new();
-    attribute(NFTA_DATA_VALUE, &address.octets(), &mut key);
-
-    let mut body = Vec::new();
-    attribute(NFTA_SET_ELEM_KEY | NLA_F_NESTED, &key, &mut body);
-
-    if let Some(timeout) = timeout {
-        let milliseconds = timeout.as_millis().min(u64::MAX as u128) as u64;
-        attribute(
-            NFTA_SET_ELEM_TIMEOUT,
-            &milliseconds.to_be_bytes(),
-            &mut body,
-        );
-    }
-
-    let mut element = Vec::new();
-    attribute(NFTA_LIST_ELEM | NLA_F_NESTED, &body, &mut element);
-    element
-}
-
-fn nul_terminated(value: &str) -> Vec<u8> {
-    let mut bytes = value.as_bytes().to_vec();
-    bytes.push(0);
-    bytes
-}
-
-/// `nlattr`: a 4-byte header and a payload padded to a 4-byte boundary.
-fn attribute(kind: u16, payload: &[u8], out: &mut Vec<u8>) {
-    out.extend(((payload.len() + 4) as u16).to_ne_bytes());
-    out.extend(kind.to_ne_bytes());
-    out.extend(payload);
-    out.resize(out.len().next_multiple_of(4), 0);
-}
-
-/// `nlmsghdr` and its body, padded to a 4-byte boundary.
-fn message(kind: u16, flags: u16, sequence: u32, body: &[u8], out: &mut Vec<u8>) {
-    out.extend(((NLMSG_HEADER_LEN + body.len()) as u32).to_ne_bytes());
-    out.extend(kind.to_ne_bytes());
-    out.extend(flags.to_ne_bytes());
-    out.extend(sequence.to_ne_bytes());
-    out.extend(0u32.to_ne_bytes());
-    out.extend(body);
-    out.resize(out.len().next_multiple_of(4), 0);
 }
 
 #[cfg(test)]
 mod tests {
+    use netlink_packet_netfilter::nftables;
     use std::net::Ipv4Addr;
     use std::time::Duration;
 
@@ -444,6 +449,27 @@ mod tests {
             timeout: Duration::from_secs(90),
         }];
         let batch = super::encode_batch(super::TABLE, super::SET, &[], &adds, 1);
+        insta::assert_snapshot!(annotate(&batch));
+    }
+
+    #[test]
+    fn batch_encoding_edges() {
+        let adds = [
+            super::Element {
+                address: address(34),
+                timeout: Duration::from_micros(1_500_999),
+            },
+            super::Element {
+                address: address(35),
+                timeout: Duration::from_millis(0x0102_0304_0506_0708),
+            },
+            super::Element {
+                address: address(36),
+                timeout: Duration::MAX,
+            },
+        ];
+        let deletes = [address(34), address(35)];
+        let batch = super::encode_batch(super::TABLE, super::SET, &deletes, &adds, 7);
         insta::assert_snapshot!(annotate(&batch));
     }
 
@@ -551,13 +577,246 @@ mod tests {
         );
     }
 
+    /// A batch of two deletes runs from sequence 7 (the opening marker) to 11
+    /// (the closing one). Each case is the datagrams one receive sees.
+    #[test]
+    fn acknowledgments() {
+        const NLMSG_ERROR: u16 = 2;
+        const NLMSG_DONE: u16 = 3;
+        const NEWSETELEM: u16 = 10 << 8 | 12;
+        let replies = |sequences: &[u32]| -> Vec<u8> {
+            sequences
+                .iter()
+                .flat_map(|sequence| reply(*sequence, 0))
+                .collect()
+        };
+        let cases: Vec<(&str, Vec<Vec<u8>>)> = vec![
+            (
+                "one per datagram, as the kernel sends them",
+                (7..=11).map(|sequence| reply(sequence, 0)).collect(),
+            ),
+            ("coalesced", vec![replies(&[7, 8, 9, 10, 11])]),
+            (
+                "split unevenly and out of order",
+                vec![replies(&[9, 7]), replies(&[10, 8, 11])],
+            ),
+            (
+                "inner successes without the closing marker's",
+                vec![replies(&[7, 8, 9, 10])],
+            ),
+            (
+                "the closing marker's before another",
+                vec![replies(&[7, 8, 9]), replies(&[11])],
+            ),
+            (
+                "replies to abandoned batches, and messages that are not acknowledgments",
+                vec![
+                    [
+                        reply(6, -libc::ENOENT),
+                        reply(12, -libc::EPERM),
+                        raw(NLMSG_ERROR, 5, &[], 16),
+                        raw(NEWSETELEM, 8, &[0xff; 4], 20),
+                        raw(NLMSG_DONE, 11, &[], 16),
+                    ]
+                    .concat(),
+                    replies(&[7, 8, 9, 10, 11]),
+                ],
+            ),
+            (
+                "ENOENT on delete 0",
+                vec![replies(&[7]), reply(8, -libc::ENOENT)],
+            ),
+            (
+                "ENOENT on delete 1",
+                vec![replies(&[7, 8]), reply(9, -libc::ENOENT)],
+            ),
+            ("EEXIST on a delete", vec![reply(8, -libc::EEXIST)]),
+            ("ENOENT on the insert", vec![reply(10, -libc::ENOENT)]),
+            ("EEXIST on the insert", vec![reply(10, -libc::EEXIST)]),
+            ("EPERM on the opening marker", vec![reply(7, -libc::EPERM)]),
+            ("error code i32::MIN", vec![reply(8, i32::MIN)]),
+            ("a positive error code", vec![reply(8, libc::ENOENT)]),
+            ("a header cut short", vec![reply(7, 0)[..12].to_vec()]),
+            (
+                "a length below the header's",
+                vec![raw(NLMSG_ERROR, 7, &[0; 20], 8)],
+            ),
+            (
+                "a length beyond the datagram",
+                vec![raw(NLMSG_ERROR, 7, &[0; 20], 64)],
+            ),
+            ("no error code", vec![raw(NLMSG_ERROR, 7, &[], 16)]),
+            (
+                "3 bytes of error code",
+                vec![raw(NLMSG_ERROR, 7, &[0; 4], 19)],
+            ),
+            ("trailing bytes", vec![[reply(7, 0), vec![0; 8]].concat()]),
+            (
+                "an unpadded last message",
+                vec![raw(NLMSG_ERROR, 7, &[0; 21], 37)],
+            ),
+        ];
+        let mut rendered = String::new();
+
+        for (label, datagrams) in cases {
+            let mut acknowledgments = super::Acknowledgments::new(7, 11, 2);
+            rendered.push_str(&format!("# {label}\n"));
+
+            // A failure ends the transaction, so nothing after it is read.
+            for datagram in datagrams {
+                let (outcome, failed) = match acknowledgments.receive(&datagram) {
+                    Ok(false) => ("waiting".to_string(), false),
+                    Ok(true) => ("committed".to_string(), false),
+                    Err(super::Failure::Absent(index)) => (format!("absent delete {index}"), true),
+                    Err(super::Failure::Other(error)) => (format!("{error:#}"), true),
+                };
+                rendered.push_str(&format!("{} bytes -> {outcome}\n", datagram.len()));
+                if failed {
+                    break;
+                }
+            }
+            rendered.push('\n');
+        }
+        insta::assert_snapshot!(rendered);
+    }
+
+    #[test]
+    fn malformed_datagrams_do_not_panic() {
+        let datagram = [reply(7, 0), reply(8, -libc::ENOENT), reply(11, 0)].concat();
+
+        for end in 0..=datagram.len() {
+            let _ = super::Acknowledgments::new(7, 11, 2).receive(&datagram[..end]);
+        }
+        for length in 0..=64u32 {
+            let mut datagram = datagram.clone();
+            datagram[..4].copy_from_slice(&length.to_ne_bytes());
+            let _ = super::Acknowledgments::new(7, 11, 2).receive(&datagram);
+        }
+    }
+
+    /// Replies shaped as the kernel sent them, through `retry`. Each message
+    /// is acknowledged in its own datagram, a failing one with its errno, and
+    /// an aborted batch never acknowledges its closing marker. Replies left
+    /// unread by a failed attempt are read by the next, as on the socket.
+    #[test]
+    fn kernel_replies_drive_the_retry() {
+        let cases = [
+            ("one of two deletes expired", vec![address(1)], 0),
+            ("the set is gone", vec![], -libc::ENOENT),
+            (
+                "an insert of a live element",
+                vec![address(1), address(2)],
+                -libc::EEXIST,
+            ),
+        ];
+        let mut rendered = String::new();
+
+        for (label, held, insert) in cases {
+            let mut queue = std::collections::VecDeque::new();
+            let mut first = 1;
+            rendered.push_str(&format!("# {label}\n"));
+
+            let outcome = super::retry(&[address(1), address(2)], |deletes| {
+                let (batch, last) = (first, first + deletes.len() as u32 + 2);
+                first = last + 1;
+                rendered.push_str(&format!("attempt {batch}..={last} deletes {deletes:?}\n"));
+
+                let mut codes = vec![0];
+                for delete in deletes {
+                    codes.push(if held.contains(delete) {
+                        0
+                    } else {
+                        -libc::ENOENT
+                    });
+                }
+                codes.push(insert);
+                if codes.iter().all(|code| *code == 0) {
+                    codes.push(0);
+                }
+                queue.extend(
+                    (batch..)
+                        .zip(codes)
+                        .map(|(sequence, code)| reply(sequence, code)),
+                );
+
+                let mut acknowledgments = super::Acknowledgments::new(batch, last, deletes.len());
+                while let Some(datagram) = queue.pop_front() {
+                    if acknowledgments.receive(&datagram)? {
+                        return Ok(());
+                    }
+                }
+                Err(super::Failure::Other(anyhow::anyhow!("no commit")))
+            });
+            match outcome {
+                Ok(()) => rendered.push_str("-> committed\n\n"),
+                Err(error) => rendered.push_str(&format!("-> {error:#}\n\n")),
+            }
+        }
+        insta::assert_snapshot!(rendered);
+    }
+
+    /// At the ruleset's capacity, the insert's element list still fits its
+    /// 16-bit attribute length, so every element decodes back.
+    #[test]
+    fn batch_encoding_at_capacity() {
+        let adds: Vec<super::Element> = (0..crate::ruleset::RESOLVED_SIZE as u32)
+            .map(|index| super::Element {
+                address: Ipv4Addr::from(0x0a00_0000 + index),
+                timeout: Duration::from_secs(60),
+            })
+            .collect();
+        let deletes: Vec<Ipv4Addr> = adds.iter().map(|add| add.address).collect();
+        let batch = super::encode_batch(super::TABLE, super::SET, &deletes, &adds, 1);
+
+        let mut messages = Vec::new();
+        let mut offset = 0;
+        while offset < batch.len() {
+            let message = netlink_packet_core::NetlinkMessage::<
+                netlink_packet_netfilter::NetfilterMessage,
+            >::deserialize(&batch[offset..])
+            .unwrap();
+            offset += (message.header.length as usize).next_multiple_of(4);
+            messages.push(message);
+        }
+        assert_eq!(messages.len(), deletes.len() + 3);
+
+        let netlink_packet_core::NetlinkPayload::InnerMessage(insert) =
+            &messages[deletes.len() + 1].payload
+        else {
+            panic!("the insert is not an inner message");
+        };
+        let netlink_packet_netfilter::NetfilterMessageInner::NfTables(
+            nftables::NfTablesMessage::NewSetElement(insert),
+        ) = &insert.inner
+        else {
+            panic!("the insert is not NFT_MSG_NEWSETELEM");
+        };
+        let nftables::SetElementList::Elements(elements) = &insert.attributes[2] else {
+            panic!("the insert's third attribute is not its elements");
+        };
+        assert_eq!(elements.len(), crate::ruleset::RESOLVED_SIZE);
+        assert_eq!(
+            elements.last(),
+            Some(&nftables::ListAttribute::Element(vec![
+                nftables::SetElementAttribute::Key(nftables::DataAttribute::Value(vec![
+                    10, 0, 3, 255
+                ])),
+                nftables::SetElementAttribute::Timeout(60_000),
+            ]))
+        );
+    }
+
     /// The batch, message by message and attribute by attribute, with the
-    /// bytes beside each field.
+    /// bytes beside each field. Numbers are the kernel UAPI headers' own
+    /// (`linux/netlink.h`, `linux/netfilter/nfnetlink.h` and
+    /// `linux/netfilter/nf_tables.h`), so this reads the bytes independently
+    /// of the library that wrote them.
     fn annotate(batch: &[u8]) -> String {
+        const NLMSG_HEADER_LEN: usize = 16;
         let mut rendered = String::new();
         let mut offset = 0;
 
-        while offset + super::NLMSG_HEADER_LEN <= batch.len() {
+        while offset + NLMSG_HEADER_LEN <= batch.len() {
             let length = u32::from_ne_bytes(batch[offset..offset + 4].try_into().unwrap()) as usize;
             let kind = u16::from_ne_bytes(batch[offset + 4..offset + 6].try_into().unwrap());
             let flags = u16::from_ne_bytes(batch[offset + 6..offset + 8].try_into().unwrap());
@@ -568,7 +827,7 @@ mod tests {
                 message_name(kind),
                 flag_names(flags),
             ));
-            let body = &batch[offset + super::NLMSG_HEADER_LEN..offset + length];
+            let body = &batch[offset + NLMSG_HEADER_LEN..offset + length];
             rendered.push_str(&format!(
                 "     nfgenmsg family={} version={} res_id={}\n",
                 body[0],
@@ -583,18 +842,19 @@ mod tests {
     }
 
     fn attributes(mut payload: &[u8], level: usize, rendered: &mut String) {
+        const NLA_F_NESTED: u16 = 0x8000;
         let indent = 5 + level * 2;
 
         while payload.len() >= 4 {
             let length = u16::from_ne_bytes(payload[0..2].try_into().unwrap()) as usize;
             let kind = u16::from_ne_bytes(payload[2..4].try_into().unwrap());
-            let nested = kind & super::NLA_F_NESTED != 0;
+            let nested = kind & NLA_F_NESTED != 0;
             let value = &payload[4..length];
 
             rendered.push_str(&format!(
                 "{:indent$}{} len={length}{}\n",
                 "",
-                attribute_name(kind & !super::NLA_F_NESTED, level),
+                attribute_name(kind & !NLA_F_NESTED, level),
                 if nested {
                     String::new()
                 } else {
@@ -610,12 +870,12 @@ mod tests {
 
     fn message_name(kind: u16) -> String {
         match kind {
-            super::NFNL_MSG_BATCH_BEGIN => "NFNL_MSG_BATCH_BEGIN".to_string(),
-            super::NFNL_MSG_BATCH_END => "NFNL_MSG_BATCH_END".to_string(),
+            16 => "NFNL_MSG_BATCH_BEGIN".to_string(),
+            17 => "NFNL_MSG_BATCH_END".to_string(),
             _ => {
                 let name = match kind & 0xFF {
-                    super::NFT_MSG_NEWSETELEM => "NFT_MSG_NEWSETELEM",
-                    super::NFT_MSG_DELSETELEM => "NFT_MSG_DELSETELEM",
+                    12 => "NFT_MSG_NEWSETELEM",
+                    14 => "NFT_MSG_DELSETELEM",
                     _ => "?",
                 };
                 format!("{name}(subsys={})", kind >> 8)
@@ -628,13 +888,13 @@ mod tests {
     /// name applies.
     fn attribute_name(kind: u16, level: usize) -> &'static str {
         match (level, kind) {
-            (0, super::NFTA_SET_ELEM_LIST_TABLE) => "NFTA_SET_ELEM_LIST_TABLE",
-            (0, super::NFTA_SET_ELEM_LIST_SET) => "NFTA_SET_ELEM_LIST_SET",
-            (0, super::NFTA_SET_ELEM_LIST_ELEMENTS) => "NFTA_SET_ELEM_LIST_ELEMENTS",
-            (1, super::NFTA_LIST_ELEM) => "NFTA_LIST_ELEM",
-            (2, super::NFTA_SET_ELEM_KEY) => "NFTA_SET_ELEM_KEY",
-            (2, super::NFTA_SET_ELEM_TIMEOUT) => "NFTA_SET_ELEM_TIMEOUT (be64 ms)",
-            (3, super::NFTA_DATA_VALUE) => "NFTA_DATA_VALUE",
+            (0, 1) => "NFTA_SET_ELEM_LIST_TABLE",
+            (0, 2) => "NFTA_SET_ELEM_LIST_SET",
+            (0, 3) => "NFTA_SET_ELEM_LIST_ELEMENTS",
+            (1, 1) => "NFTA_LIST_ELEM",
+            (2, 1) => "NFTA_SET_ELEM_KEY",
+            (2, 4) => "NFTA_SET_ELEM_TIMEOUT (be64 ms)",
+            (3, 1) => "NFTA_DATA_VALUE",
             _ => "?",
         }
     }
@@ -642,10 +902,10 @@ mod tests {
     fn flag_names(flags: u16) -> String {
         let mut names = Vec::new();
         for (flag, name) in [
-            (super::NLM_F_REQUEST, "REQUEST"),
-            (super::NLM_F_ACK, "ACK"),
-            (super::NLM_F_EXCL, "EXCL"),
-            (super::NLM_F_CREATE, "CREATE"),
+            (0x001, "REQUEST"),
+            (0x004, "ACK"),
+            (0x200, "EXCL"),
+            (0x400, "CREATE"),
         ] {
             if flags & flag != 0 {
                 names.push(name);
@@ -656,5 +916,36 @@ mod tests {
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// An `NLMSG_ERROR` framed as the kernel frames an acknowledgment: the
+    /// code, then the header of the message it answers.
+    fn reply(sequence: u32, code: i32) -> Vec<u8> {
+        let mut error = netlink_packet_core::ErrorMessage::default();
+        error.code = std::num::NonZeroI32::new(code);
+        error.header = vec![0; 16];
+        let mut header = netlink_packet_core::NetlinkHeader::default();
+        header.sequence_number = sequence;
+
+        let mut message = netlink_packet_core::NetlinkMessage::<
+            netlink_packet_netfilter::NetfilterMessage,
+        >::new(header, netlink_packet_core::NetlinkPayload::Error(error));
+        message.finalize();
+        let mut bytes = vec![0; message.buffer_len()];
+        message.serialize(&mut bytes);
+        bytes
+    }
+
+    /// A message the library would not write: any type, any body, and a
+    /// length field free to contradict both.
+    fn raw(kind: u16, sequence: u32, body: &[u8], length: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend(length.to_ne_bytes());
+        bytes.extend(kind.to_ne_bytes());
+        bytes.extend(0u16.to_ne_bytes());
+        bytes.extend(sequence.to_ne_bytes());
+        bytes.extend(0u32.to_ne_bytes());
+        bytes.extend(body);
+        bytes
     }
 }

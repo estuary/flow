@@ -47,7 +47,9 @@ for when a host's provisioning runs it.
 - `src/resolver/dns.rs`: reads a message with `domain`, rewrites TTLs in
   place, synthesizes the replies the resolver invents. Never re-encodes a
   message.
-- `src/resolver/nftset.rs`: the nfnetlink batch, by hand.
+- `src/resolver/nftset.rs`: the nfnetlink batch, as typed
+  `netlink-packet-netfilter` messages, and its acknowledgments, read with
+  `netlink-packet-core`'s checked decoders.
 - `docker/connector-vmm.Dockerfile`, `docker/connector-vmm-fake.Dockerfile` and
   `fake-entrypoint.sh`: the two images; see [Images](#images).
 
@@ -475,7 +477,8 @@ the kernel's own. That ordering, rather than any bound on elapsed time, is what
 makes an exclusive insert safe: an address recorded as expired is certainly gone
 from the kernel. `nftset::Netlink` refreshes addresses with atomic
 delete-and-add batches under one deadline for the whole call; `nftset::retry`
-handles elements expiring before the delete commits. The netlink module
+handles elements expiring before the delete commits. `nftset::Acknowledgments`
+decides from the kernel's replies whether a batch committed. The netlink module
 documents acknowledgment and timeout behavior observed in the kernel.
 
 DNS is UDP-only. The guest's `resolv.conf` enables `options edns0`, and

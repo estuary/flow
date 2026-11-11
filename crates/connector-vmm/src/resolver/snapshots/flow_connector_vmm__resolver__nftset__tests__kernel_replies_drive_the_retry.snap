@@ -1,0 +1,18 @@
+---
+source: crates/connector-vmm/src/resolver/nftset.rs
+expression: rendered
+---
+# one of two deletes expired
+attempt 1..=5 deletes [93.184.216.1, 93.184.216.2]
+attempt 6..=9 deletes [93.184.216.1]
+-> committed
+
+# the set is gone
+attempt 1..=5 deletes [93.184.216.1, 93.184.216.2]
+attempt 6..=9 deletes [93.184.216.2]
+attempt 10..=12 deletes []
+-> netlink message 11 of the batch failed: No such file or directory (os error 2)
+
+# an insert of a live element
+attempt 1..=5 deletes [93.184.216.1, 93.184.216.2]
+-> netlink message 4 of the batch failed: File exists (os error 17)

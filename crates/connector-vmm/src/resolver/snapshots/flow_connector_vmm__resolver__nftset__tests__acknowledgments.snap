@@ -1,0 +1,75 @@
+---
+source: crates/connector-vmm/src/resolver/nftset.rs
+expression: rendered
+---
+# one per datagram, as the kernel sends them
+36 bytes -> waiting
+36 bytes -> waiting
+36 bytes -> waiting
+36 bytes -> waiting
+36 bytes -> committed
+
+# coalesced
+180 bytes -> committed
+
+# split unevenly and out of order
+72 bytes -> waiting
+108 bytes -> committed
+
+# inner successes without the closing marker's
+144 bytes -> waiting
+
+# the closing marker's before another
+108 bytes -> waiting
+36 bytes -> the netlink batch committed without acknowledging message 10
+
+# replies to abandoned batches, and messages that are not acknowledgments
+124 bytes -> waiting
+180 bytes -> committed
+
+# ENOENT on delete 0
+36 bytes -> waiting
+36 bytes -> absent delete 0
+
+# ENOENT on delete 1
+72 bytes -> waiting
+36 bytes -> absent delete 1
+
+# EEXIST on a delete
+36 bytes -> netlink message 8 of the batch failed: File exists (os error 17)
+
+# ENOENT on the insert
+36 bytes -> netlink message 10 of the batch failed: No such file or directory (os error 2)
+
+# EEXIST on the insert
+36 bytes -> netlink message 10 of the batch failed: File exists (os error 17)
+
+# EPERM on the opening marker
+36 bytes -> netlink message 7 of the batch failed: Operation not permitted (os error 1)
+
+# error code i32::MIN
+36 bytes -> acknowledgment of netlink message 8 carries error code -2147483648, which is not a negated errno
+
+# a positive error code
+36 bytes -> acknowledgment of netlink message 8 carries error code 2, which is not a negated errno
+
+# a header cut short
+12 bytes -> netlink reply at offset 0 is malformed: invalid netlink buffer length caused by invalid netlink buffer: length is 12 but netlink packets are at least 16 bytes
+
+# a length below the header's
+36 bytes -> netlink reply at offset 0 is malformed: invalid netlink buffer length caused by invalid netlink buffer: length field says 8 but netlink packets are at least 36 bytes
+
+# a length beyond the datagram
+36 bytes -> netlink reply at offset 0 is malformed: invalid netlink buffer length caused by invalid netlink buffer: length field says 64 the buffer is 36 bytes long
+
+# no error code
+16 bytes -> acknowledgment of netlink message 7 is malformed: invalid ErrorBuffer length caused by invalid ErrorBuffer: length is 0 but ErrorBuffer are at least 4 bytes
+
+# 3 bytes of error code
+20 bytes -> acknowledgment of netlink message 7 is malformed: invalid ErrorBuffer length caused by invalid ErrorBuffer: length is 3 but ErrorBuffer are at least 4 bytes
+
+# trailing bytes
+44 bytes -> netlink reply at offset 36 is malformed: invalid netlink buffer length caused by invalid netlink buffer: length is 8 but netlink packets are at least 16 bytes
+
+# an unpadded last message
+37 bytes -> netlink reply of 37 bytes at offset 0 overruns its 37-byte datagram once padded

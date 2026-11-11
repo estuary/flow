@@ -26,6 +26,8 @@ domain = { workspace = true }
 ipnetwork = { workspace = true }
 libc = { workspace = true }
 libloading = { workspace = true }
+netlink-packet-core = { workspace = true }
+netlink-packet-netfilter = { workspace = true }
 rustix = { workspace = true, features = ["fs", "net", "pipe", "process"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
