@@ -1,6 +1,11 @@
-//! Just enough DNS to gate answers: walk a message, read the A and CNAME
-//! records of its answer section, patch their TTLs in place, and synthesize
-//! the replies the resolver invents on its own.
+//! Just enough DNS to gate answers: read a message's header and question,
+//! read the A and CNAME records of its answer section, patch their TTLs in
+//! place, and synthesize the replies the resolver invents on its own.
+//!
+//! `domain` parses, borrowing the message and reading only the sections asked
+//! for, so the authority and additional sections are never parsed. It bounds
+//! a name at 255 bytes on the wire and 255 compression pointers, each of which
+//! must point backwards.
 //!
 //! Nothing here re-encodes a message. Rewriting a TTL is a four-byte store at
 //! a known offset, and anything not understood is forwarded byte for byte,
@@ -12,8 +17,10 @@
 //! wire keep whatever case they arrived with. A dot or backslash inside a label
 //! is written as its RFC 1035 decimal escape, so the dots of a produced name
 //! are exactly its label boundaries on the wire and callers may compare names
-//! as strings.
+//! as strings. `domain`'s own rendering escapes differently, so names are
+//! rendered here from their labels.
 
+use anyhow::Context;
 use std::net::Ipv4Addr;
 
 pub const TYPE_A: u16 = 1;
@@ -21,28 +28,24 @@ pub const TYPE_CNAME: u16 = 5;
 pub const TYPE_AAAA: u16 = 28;
 pub const CLASS_IN: u16 = 1;
 
+pub const OPCODE_QUERY: u8 = 0;
+
 pub const RCODE_NOERROR: u16 = 0;
 pub const RCODE_SERVFAIL: u16 = 2;
 pub const RCODE_REFUSED: u16 = 5;
 
-const HEADER_LEN: usize = 12;
-pub const FLAG_RESPONSE: u16 = 0x8000;
-pub const FLAG_TRUNCATED: u16 = 0x0200;
-/// The opcode's four bits, all clear for a standard QUERY.
-pub const FLAGS_OPCODE: u16 = 0x7800;
+const FLAG_RESPONSE: u16 = 0x8000;
 const FLAG_RECURSION_AVAILABLE: u16 = 0x0080;
 /// Opcode and the recursion-desired bit, which a reply echoes back.
 const FLAGS_ECHOED: u16 = 0x7900;
 
-/// A name is at most 255 bytes on the wire, and a compression chain must not
-/// be allowed to assemble anything longer than that.
-const NAME_MAX: usize = 255;
-
 pub struct Header {
     pub id: u16,
-    pub flags: u16,
+    pub response: bool,
+    pub opcode: u8,
+    pub truncated: bool,
+    pub rcode: u16,
     pub qdcount: u16,
-    pub ancount: u16,
 }
 
 pub struct Question {
@@ -67,33 +70,32 @@ pub enum Kind {
 }
 
 pub fn header(message: &[u8]) -> anyhow::Result<Header> {
-    if message.len() < HEADER_LEN {
-        anyhow::bail!(
-            "message of {} bytes is shorter than a header",
-            message.len()
-        );
-    }
+    let message = parse(message)?;
+    let header = message.header();
+
     Ok(Header {
-        id: be16(message, 0),
-        flags: be16(message, 2),
-        qdcount: be16(message, 4),
-        ancount: be16(message, 6),
+        id: header.id(),
+        response: header.qr(),
+        opcode: header.opcode().to_int(),
+        truncated: header.tc(),
+        rcode: header.rcode().to_int().into(),
+        qdcount: message.header_counts().qdcount(),
     })
 }
 
 /// The first question. The resolver acts only on a query carrying exactly one.
 pub fn first_question(message: &[u8]) -> anyhow::Result<Question> {
-    let mut name = String::new();
-    let cursor = read_name(message, HEADER_LEN, &mut name)?;
+    let mut questions = parse(message)?.question();
+    let question = questions
+        .next()
+        .context("message has no question")?
+        .context("question")?;
 
-    if cursor + 4 > message.len() {
-        anyhow::bail!("question truncated");
-    }
     Ok(Question {
-        name,
-        qtype: be16(message, cursor),
-        qclass: be16(message, cursor + 2),
-        end: cursor + 4,
+        name: render_name(question.qname()),
+        qtype: question.qtype().to_int(),
+        qclass: question.qclass().to_int(),
+        end: questions.pos(),
     })
 }
 
@@ -102,69 +104,47 @@ pub fn first_question(message: &[u8]) -> anyhow::Result<Question> {
 /// guest resolves from the answer section, so nothing else can authorize a
 /// destination.
 pub fn answer_records(message: &[u8]) -> anyhow::Result<Vec<Record>> {
-    let header = header(message)?;
-    let mut cursor = HEADER_LEN;
-
-    for _ in 0..header.qdcount {
-        cursor = read_name(message, cursor, &mut String::new())? + 4;
-        if cursor > message.len() {
-            anyhow::bail!("question truncated");
-        }
-    }
-
+    let mut answer = parse(message)?.answer().context("question section")?;
     let mut records = Vec::new();
-    for _ in 0..header.ancount {
-        cursor = read_name(message, cursor, &mut String::new())?;
-        if cursor + 10 > message.len() {
-            anyhow::bail!("resource record truncated");
-        }
-        let rtype = be16(message, cursor);
-        let rclass = be16(message, cursor + 2);
-        let ttl_offset = cursor + 4;
-        let rdlength = be16(message, cursor + 8) as usize;
-        cursor += 10;
 
-        if cursor + rdlength > message.len() {
-            anyhow::bail!("resource record data truncated");
-        }
-        if rclass == CLASS_IN {
-            let ttl = be32(message, ttl_offset);
+    while let Some(record) = answer.next() {
+        let record = record.context("answer record")?;
+        // The section now stands just past the record's data, which follows
+        // its 32-bit TTL and 16-bit data length.
+        let ttl_offset = answer.pos() - usize::from(record.rdlen()) - 6;
 
-            if rtype == TYPE_A && rdlength == 4 {
-                let address = Ipv4Addr::new(
-                    message[cursor],
-                    message[cursor + 1],
-                    message[cursor + 2],
-                    message[cursor + 3],
-                );
-                records.push(Record {
-                    kind: Kind::Address(address),
-                    ttl,
-                    ttl_offset,
-                });
-            } else if rtype == TYPE_CNAME {
-                let mut target = String::new();
-                // The data is one name and nothing else. A name allowed to
-                // run on would take its last labels from the next record's
-                // owner, and the target remembered would be one the answer
-                // never named.
-                if read_name(message, cursor, &mut target)? != cursor + rdlength {
-                    anyhow::bail!(
-                        "CNAME record data is not exactly one name (rdlength {rdlength})"
-                    );
-                }
+        if record.class().to_int() != CLASS_IN {
+            continue;
+        }
+        let kind = match record.rtype().to_int() {
+            TYPE_A if record.rdlen() == 4 => {
+                let a = record
+                    .to_record::<domain::rdata::A>()?
+                    .expect("an A record parses as A");
+                Kind::Address(a.data().addr())
+            }
+            TYPE_CNAME => {
+                // Bound the target to one name so the next record's owner
+                // cannot become part of a remembered target.
+                let cname = record
+                    .to_record::<domain::rdata::Cname<_>>()
+                    .context("CNAME record data")?
+                    .expect("a CNAME record parses as CNAME");
+                let target = cname.data().cname();
 
                 // The root is not a name anything can be re-queried under.
-                if !target.is_empty() {
-                    records.push(Record {
-                        kind: Kind::Target(target),
-                        ttl,
-                        ttl_offset,
-                    });
+                if target.is_root() {
+                    continue;
                 }
+                Kind::Target(render_name(target))
             }
-        }
-        cursor += rdlength;
+            _ => continue,
+        };
+        records.push(Record {
+            kind,
+            ttl: record.ttl().as_secs(),
+            ttl_offset,
+        });
     }
     Ok(records)
 }
@@ -179,7 +159,10 @@ pub fn set_ttl(message: &mut [u8], record: &Record, ttl: u32) {
 /// requestor must already handle as "no EDNS here".
 pub fn respond(query: &[u8], question: &Question, rcode: u16) -> Vec<u8> {
     let mut response = query[..question.end].to_vec();
-    let flags = (be16(query, 2) & FLAGS_ECHOED) | FLAG_RESPONSE | FLAG_RECURSION_AVAILABLE | rcode;
+    let flags = (u16::from_be_bytes([query[2], query[3]]) & FLAGS_ECHOED)
+        | FLAG_RESPONSE
+        | FLAG_RECURSION_AVAILABLE
+        | rcode;
 
     response[2..4].copy_from_slice(&flags.to_be_bytes());
     response[4..6].copy_from_slice(&1u16.to_be_bytes());
@@ -187,73 +170,30 @@ pub fn respond(query: &[u8], question: &Question, rcode: u16) -> Vec<u8> {
     response
 }
 
-/// Reads a name, lowercasing and escaping it and following compression
-/// pointers, and returns the offset one past the name as it appears at `start`
-/// (a pointer is two bytes, whatever it points at).
-fn read_name(message: &[u8], start: usize, name: &mut String) -> anyhow::Result<usize> {
-    let mut cursor = start;
-    let mut end = None;
+fn parse(message: &[u8]) -> anyhow::Result<&domain::base::Message<[u8]>> {
+    domain::base::Message::from_slice(message)
+        .with_context(|| format!("message of {} bytes", message.len()))
+}
 
-    loop {
-        let Some(&length) = message.get(cursor) else {
-            anyhow::bail!("name runs past the end of the message");
-        };
-        if length & 0xC0 == 0xC0 {
-            if cursor + 1 >= message.len() {
-                anyhow::bail!("compression pointer truncated");
-            }
-            // RFC 1035 pointers name a prior occurrence. Requiring that makes
-            // each jump strictly decrease the offset, so a cycle cannot form
-            // and the walk needs no separate budget.
-            let target = (be16(message, cursor) & 0x3FFF) as usize;
-            if target >= cursor {
-                anyhow::bail!("compression pointer at {cursor} does not point backwards");
-            }
-            end.get_or_insert(cursor + 2);
-            cursor = target;
-            continue;
+fn render_name<Octs: AsRef<[u8]>>(name: &domain::base::ParsedName<Octs>) -> String {
+    let mut rendered = String::new();
+
+    for label in name.iter().filter(|label| !label.is_root()) {
+        if !rendered.is_empty() {
+            rendered.push('.');
         }
-        if length & 0xC0 != 0 {
-            anyhow::bail!("reserved label length {length:#x}");
-        }
-        cursor += 1;
-        if length == 0 {
-            return Ok(end.unwrap_or(cursor));
-        }
-        let Some(label) = message.get(cursor..cursor + length as usize) else {
-            anyhow::bail!("label runs past the end of the message");
-        };
-        if name.len() + 1 + label.len() > NAME_MAX {
-            anyhow::bail!("name is longer than {NAME_MAX} bytes");
-        }
-        if !name.is_empty() {
-            name.push('.');
-        }
-        for byte in label {
+        for byte in label.as_slice() {
             // Unescaped, a label `eu.mirror` beneath `acmeco.example` would
             // read as a name beneath `mirror.acmeco.example`, and the gate
             // would admit it by an entry for a zone the query never reaches.
             match byte {
-                b'.' => name.push_str("\\046"),
-                b'\\' => name.push_str("\\092"),
-                _ => name.push(byte.to_ascii_lowercase() as char),
+                b'.' => rendered.push_str("\\046"),
+                b'\\' => rendered.push_str("\\092"),
+                _ => rendered.push(byte.to_ascii_lowercase() as char),
             }
         }
-        cursor += length as usize;
     }
-}
-
-fn be16(bytes: &[u8], offset: usize) -> u16 {
-    u16::from_be_bytes([bytes[offset], bytes[offset + 1]])
-}
-
-fn be32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_be_bytes([
-        bytes[offset],
-        bytes[offset + 1],
-        bytes[offset + 2],
-        bytes[offset + 3],
-    ])
+    rendered
 }
 
 #[cfg(test)]
@@ -304,6 +244,48 @@ mod tests {
         out
     }
 
+    fn record(owner: &[u8], rtype: u16, class: u16, rdata: &[u8]) -> Vec<u8> {
+        let mut out = owner.to_vec();
+        out.extend(rtype.to_be_bytes());
+        out.extend(class.to_be_bytes());
+        out.extend(300u32.to_be_bytes());
+        out.extend((rdata.len() as u16).to_be_bytes());
+        out.extend(rdata);
+        out
+    }
+
+    fn wire_name(lengths: &[usize], byte: u8) -> Vec<u8> {
+        let mut out = Vec::new();
+        for &length in lengths {
+            out.push(length as u8);
+            out.extend(vec![byte; length]);
+        }
+        out.push(0);
+        out
+    }
+
+    /// An answer whose `A` owner reaches the question's name through
+    /// `pointers` compression pointers: its own, then a chain held as the data
+    /// of a record of an unknown type, each naming the one before it.
+    fn pointer_chain(pointers: usize) -> Vec<u8> {
+        // Two bytes of owner pointer, then type, class, TTL and data length.
+        let data = message("acmeco.example", super::TYPE_A, 0, &[]).len() + 12;
+        let pointer = |offset: usize| (0xC000 | offset as u16).to_be_bytes();
+
+        let mut chain = vec![0xC0, 12];
+        for index in 1..pointers - 1 {
+            chain.extend(pointer(data + 2 * (index - 1)));
+        }
+        let mut answer = record(&[0xC0, 12], 65280, super::CLASS_IN, &chain);
+        answer.extend(record(
+            &pointer(data + 2 * (pointers - 2)),
+            super::TYPE_A,
+            super::CLASS_IN,
+            &[93, 184, 216, 34],
+        ));
+        message("acmeco.example", super::TYPE_A, 2, &answer)
+    }
+
     #[test]
     fn parsing() {
         let mut table = String::new();
@@ -313,6 +295,10 @@ mod tests {
 
             match super::answer_records(&message) {
                 Ok(records) => {
+                    for record in &records {
+                        let field = &message[record.ttl_offset..record.ttl_offset + 4];
+                        assert_eq!(field, record.ttl.to_be_bytes(), "{label}");
+                    }
                     let rendered: Vec<String> = records
                         .iter()
                         .map(|record| match &record.kind {
@@ -533,7 +519,82 @@ mod tests {
                 message.truncate(message.len() - 6);
                 message
             }),
+            (
+                "a 255-byte owner",
+                owned(&wire_name(&[63, 63, 63, 61], b'a')),
+            ),
+            (
+                "a 256-byte owner",
+                owned(&wire_name(&[63, 63, 63, 62], b'a')),
+            ),
+            (
+                "a 257-byte owner",
+                owned(&wire_name(&[63, 63, 63, 63], b'a')),
+            ),
+            ("an owner compressed past 255 bytes", {
+                let mut owner = wire_name(&[63, 63, 63, 60], b'a');
+                owner.pop();
+                owner.extend([0xC0, 12]);
+                owned(&owner)
+            }),
+            ("255 compression pointers", pointer_chain(255)),
+            ("256 compression pointers", pointer_chain(256)),
+            ("a compression pointer to itself", {
+                let at = message("acmeco.example", super::TYPE_A, 0, &[]).len();
+                owned(&[0xC0, at as u8])
+            }),
+            ("A records of three and five bytes are skipped", {
+                let mut answer = record(&[0xC0, 12], super::TYPE_A, super::CLASS_IN, &[1, 2, 3]);
+                answer.extend(record(
+                    &[0xC0, 12],
+                    super::TYPE_A,
+                    super::CLASS_IN,
+                    &[1, 2, 3, 4, 5],
+                ));
+                answer.extend(a_record("acmeco.example", address, 300, super::CLASS_IN));
+                message("acmeco.example", super::TYPE_A, 3, &answer)
+            }),
+            ("the data of another type is not read", {
+                let mut answer = record(&[0xC0, 12], 65280, super::CLASS_IN, &[0xC0, 0xFF, 0x80]);
+                answer.extend(a_record("acmeco.example", address, 300, super::CLASS_IN));
+                message("acmeco.example", super::TYPE_A, 2, &answer)
+            }),
+            ("a malformed authority section is not read", {
+                let mut message = message(
+                    "acmeco.example",
+                    super::TYPE_A,
+                    1,
+                    &a_record("acmeco.example", address, 300, super::CLASS_IN),
+                );
+                message[8..10].copy_from_slice(&1u16.to_be_bytes());
+                message.extend([0xC0, 0xFF, 0x80]);
+                message
+            }),
+            (
+                "a CNAME target in mixed case, with a dot and a backslash in labels",
+                message(
+                    "acmeco.example",
+                    super::TYPE_A,
+                    1,
+                    &cname_record("acmeco.example", b"\x09EU.Mirror\x03a\\b\x07Example\x00"),
+                ),
+            ),
+            (
+                "a CNAME target as a forward compression pointer",
+                message(
+                    "acmeco.example",
+                    super::TYPE_A,
+                    1,
+                    &cname_record("acmeco.example", &[0xC0, 0xFF]),
+                ),
+            ),
         ]
+    }
+
+    /// A one-record answer whose `A` owner is these bytes.
+    fn owned(owner: &[u8]) -> Vec<u8> {
+        let answer = record(owner, super::TYPE_A, super::CLASS_IN, &[93, 184, 216, 34]);
+        message("acmeco.example", super::TYPE_A, 1, &answer)
     }
 
     #[test]
@@ -556,6 +617,109 @@ mod tests {
         assert_eq!(question.name, r"eu\046mirror.a\092b.example");
     }
 
+    /// Any other byte is ASCII-lowercased and kept as the `char` of its value,
+    /// so a control or non-ASCII byte is still one character of the name.
+    #[test]
+    fn other_label_bytes_are_kept() {
+        let mut message = message("aaaaaaa.example", super::TYPE_A, 0, &[]);
+        message[13..20].copy_from_slice(&[b'Q', b'z', b' ', 0x00, b'\n', 0xC9, 0xFF]);
+        let question = super::first_question(&message).expect("the question parses");
+
+        assert_eq!(question.name, "qz \u{0}\n\u{c9}\u{ff}.example");
+    }
+
+    /// The bound is the name's 255 bytes on the wire. Escapes lengthen the
+    /// rendered name well past that without lengthening the name.
+    #[test]
+    fn a_name_is_bounded_on_the_wire() {
+        let question = |last: usize| {
+            let mut message = message("acmeco.example", super::TYPE_A, 0, &[]);
+            message.truncate(12);
+            message.extend(wire_name(&[63, 63, 63, last], b'\\'));
+            message.extend(super::TYPE_A.to_be_bytes());
+            message.extend(super::CLASS_IN.to_be_bytes());
+            message
+        };
+        let name = super::first_question(&question(61))
+            .expect("a 255-byte name parses")
+            .name;
+
+        assert_eq!(name.len(), 4 * 250 + 3, "250 escaped bytes and 3 dots");
+        assert!(super::first_question(&question(62)).is_err());
+    }
+
+    /// Every truncation and one-byte substitution of a few well-formed
+    /// answers. Each read ends without panicking, and every TTL offset names
+    /// the TTL that was read.
+    #[test]
+    fn malformed_messages_are_read_in_bounds() {
+        let cname_then_a = {
+            // The CNAME's data starts after the question's 20-byte name, its
+            // type and class, and the CNAME's own owner pointer and header.
+            let mut answer = record(
+                &[0xC0, 12],
+                super::TYPE_CNAME,
+                super::CLASS_IN,
+                &[3, b'c', b'd', b'n', 0xC0, 16],
+            );
+            answer.extend(record(
+                &[0xC0, 48],
+                super::TYPE_A,
+                super::CLASS_IN,
+                &[93, 184, 216, 34],
+            ));
+            message("www.acmeco.example", super::TYPE_A, 2, &answer)
+        };
+        let with_edns = {
+            let mut answer = record(&[0xC0, 12], 65280, super::CLASS_IN, &[0xDE, 0xAD]);
+            answer.extend(record(&[0xC0, 12], super::TYPE_A, 3, &[10, 0, 0, 1]));
+            answer.extend(a_record(
+                "acmeco.example",
+                Ipv4Addr::new(93, 184, 216, 34),
+                60,
+                super::CLASS_IN,
+            ));
+            let mut message = message("acmeco.example", super::TYPE_A, 3, &answer);
+            message[10..12].copy_from_slice(&1u16.to_be_bytes());
+            message.extend([0, 0, 41, 4, 208, 0, 0, 0x80, 0, 0, 4, 0, 10, 0, 0]);
+            message
+        };
+        let (mut read, mut refused) = (0, 0);
+
+        for seed in [cname_then_a, with_edns, pointer_chain(8)] {
+            let mut variants: Vec<Vec<u8>> =
+                (0..seed.len()).map(|len| seed[..len].to_vec()).collect();
+            for index in 0..seed.len() {
+                for byte in [0x00, 0x01, 0x04, 0x0C, 0x3F, 0x40, 0x80, 0xBF, 0xC0, 0xFF] {
+                    let mut variant = seed.clone();
+                    variant[index] = byte;
+                    variants.push(variant);
+                }
+            }
+            for variant in variants {
+                if let Ok(question) = super::first_question(&variant) {
+                    let reply = super::respond(&variant, &question, super::RCODE_REFUSED);
+                    super::header(&reply).expect("a synthesized reply has a header");
+                }
+                let Ok(records) = super::answer_records(&variant) else {
+                    refused += 1;
+                    continue;
+                };
+                read += 1;
+                let mut rewritten = variant.clone();
+                for record in &records {
+                    let field = &variant[record.ttl_offset..record.ttl_offset + 4];
+                    assert_eq!(field, record.ttl.to_be_bytes());
+                    super::set_ttl(&mut rewritten, record, 0x0102_0304);
+                }
+                // A pointer may name bytes of a rewritten TTL, so the second
+                // read need only end.
+                _ = super::answer_records(&rewritten);
+            }
+        }
+        assert!(read > 0 && refused > 0, "read {read}, refused {refused}");
+    }
+
     #[test]
     fn a_synthesized_reply_keeps_the_question() {
         let query = {
@@ -572,10 +736,10 @@ mod tests {
 
         let header = super::header(&reply).expect("the reply parses");
         assert_eq!(header.id, 0x1234);
-        assert_eq!(header.flags & 0x000F, super::RCODE_REFUSED);
-        assert_ne!(header.flags & super::FLAG_RESPONSE, 0);
+        assert_eq!(header.rcode, super::RCODE_REFUSED);
+        assert!(header.response);
         assert_eq!(header.qdcount, 1);
-        assert_eq!(header.ancount, 0);
+        assert_eq!(&reply[6..12], &[0; 6], "no records in any section");
         assert_eq!(reply.len(), question.end, "every section past the question");
 
         let echoed = super::first_question(&reply).expect("the question survives");

@@ -20,8 +20,9 @@
 //!    still forwarded if it is `A`: its answer decides.
 //!    A truncated upstream answer returns `SERVFAIL` for every query type.
 //!    No partial answer authorizes addresses or remembers targets.
-//! 5. A type other than `A`: forwarded, and answered as the upstream answered.
-//!    It authorizes no address and remembers no target.
+//! 5. A type other than `A`, or an answer whose rcode is not `NOERROR`:
+//!    answered as the upstream answered, byte for byte. It authorizes no
+//!    address and remembers no target.
 //! 6. `A`: forwarded. One answer address the policy does not reach condemns
 //!    the whole answer: a partial answer would teach the guest which name
 //!    resolves inward. An address within the excluded prefixes is never
@@ -248,7 +249,8 @@ pub struct Decision {
 pub enum Outcome {
     /// Not a class-IN standard query of one question. Nothing went upstream.
     Unsupported,
-    /// A permitted name asked as a type other than `A`, authorizing nothing.
+    /// Answered as the upstream answered, authorizing nothing: a type other
+    /// than `A`, or an rcode other than `NOERROR`.
     Forwarded,
     /// The UDP answer requires TCP, which this resolver does not support.
     Truncated,
@@ -375,7 +377,7 @@ impl Resolver {
             Ok(header) => header,
             Err(error) => return Ok(dropped(String::new(), 0, &error)),
         };
-        if header.flags & (dns::FLAG_RESPONSE | dns::FLAGS_OPCODE) != 0 || header.qdcount != 1 {
+        if header.response || header.opcode != dns::OPCODE_QUERY || header.qdcount != 1 {
             return Ok(Handled {
                 decision: decision(String::new(), 0, Outcome::Unsupported),
                 answer: None,
@@ -416,19 +418,18 @@ impl Resolver {
                 });
             }
         };
+        let answered = dns::header(&response).expect("forward validated the header");
         // A truncated RRset cannot authorize its partial addresses or targets.
-        if dns::header(&response)
-            .expect("forward validated the header")
-            .flags
-            & dns::FLAG_TRUNCATED
-            != 0
-        {
+        if answered.truncated {
             return Ok(Handled {
                 decision: decision(name, qtype, Outcome::Truncated),
                 answer: Some(dns::respond(query, &question, dns::RCODE_SERVFAIL)),
             });
         }
-        if question.qtype != dns::TYPE_A {
+        // Only a `NOERROR` answer to `A` is read. An error rcode says the
+        // answer does not resolve the question, so none of it is authorized,
+        // remembered or rewritten, whatever its records hold.
+        if answered.rcode != dns::RCODE_NOERROR || question.qtype != dns::TYPE_A {
             return Ok(Handled {
                 decision: decision(name, qtype, Outcome::Forwarded),
                 answer: Some(response),
@@ -566,7 +567,7 @@ impl Resolver {
 
     /// `Err` is a reason to drop this one query. A fresh socket per query,
     /// connected so the kernel discards anything not from the upstream, and an
-    /// id and question that must match what was asked.
+    /// id, opcode and sole question that must match what was asked.
     fn forward(
         &mut self,
         query: &[u8],
@@ -594,13 +595,25 @@ impl Resolver {
         let response = self.scratch[..read].to_vec();
 
         let header = dns::header(&response).map_err(|e| format!("upstream answer: {e:#}"))?;
-        if header.flags & dns::FLAG_RESPONSE == 0 {
+        if !header.response {
             return Err("upstream sent a query, not a response".to_string());
         }
         if header.id != id {
             return Err(format!(
                 "upstream answered id {:#06x}, not {id:#06x}",
                 header.id
+            ));
+        }
+        if header.opcode != dns::OPCODE_QUERY {
+            return Err(format!(
+                "upstream answered opcode {}, not QUERY",
+                header.opcode
+            ));
+        }
+        if header.qdcount != 1 {
+            return Err(format!(
+                "upstream answered {} questions, not one",
+                header.qdcount
             ));
         }
         let answered = dns::first_question(&response)
@@ -1711,8 +1724,8 @@ mod tests {
         let header = dns::header(answer).expect("the resolver answers with a parsable message");
         format!(
             "answer: rcode={} ancount={} bytes={}",
-            header.flags & 0x000F,
-            header.ancount,
+            header.rcode,
+            u16::from_be_bytes([answer[6], answer[7]]),
             answer.len(),
         )
     }
@@ -2077,6 +2090,388 @@ mod tests {
         address
     }
 
+    fn answering_upstream(answer: fn(&[u8]) -> Vec<u8>) -> SocketAddr {
+        let socket =
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("binding a fake upstream");
+        let address = socket.local_addr().expect("the fake upstream's address");
+
+        std::thread::spawn(move || {
+            let mut buffer = [0u8; 4096];
+            loop {
+                let Ok((read, peer)) = socket.recv_from(&mut buffer) else {
+                    return;
+                };
+                let _ = socket.send_to(&answer(&buffer[..read]), peer);
+            }
+        });
+        address
+    }
+
+    fn with_rcode(mut message: Vec<u8>, rcode: u8) -> Vec<u8> {
+        message[3] = (message[3] & 0xF0) | rcode;
+        message
+    }
+
+    /// `asked` under `query`'s id, so that only its question differs.
+    fn reasked(query: &[u8], mut asked: Vec<u8>) -> Vec<u8> {
+        asked[0..2].copy_from_slice(&query[0..2]);
+        asked
+    }
+
+    /// Every type but `AAAA` goes upstream only for an admitted name, as the
+    /// guest sent it, and comes back as the upstream sent it. A class other
+    /// than IN goes nowhere, whatever the name.
+    #[test]
+    fn every_query_type_is_gated_by_name() {
+        const NAMED: &str = "eu.mirror.acmeco.example";
+        let qtypes = [
+            dns::TYPE_A,
+            2, // NS
+            dns::TYPE_CNAME,
+            TYPE_SOA,
+            TYPE_PTR,
+            TYPE_MX,
+            TYPE_TXT,
+            33,    // SRV
+            65,    // HTTPS
+            255,   // ANY
+            65280, // unassigned
+        ];
+        let script = qtypes
+            .iter()
+            .map(|qtype| ((NAMED, *qtype), Vec::new()))
+            .collect();
+        let recorder = Recorder::default();
+        let (upstream, received) = recorded_upstream(script, Duration::ZERO);
+        let mut resolver = resolver(upstream, recorder.clone());
+
+        let mut queries = Vec::new();
+        for qtype in qtypes {
+            for name in [NAMED, "evil.example"] {
+                queries.push((dns::CLASS_IN, query(1, name, qtype)));
+            }
+        }
+        for class in [CLASS_CHAOS, 4, 254, 255] {
+            queries.push((class, in_class(query(1, NAMED, dns::TYPE_A), class)));
+        }
+
+        let mut log = String::new();
+        for (class, message) in queries {
+            let handled = resolver.handle(&message, Instant::now()).unwrap();
+            let heard = std::mem::take(&mut *received.lock().expect("recorder"));
+            if !heard.is_empty() {
+                assert_eq!(
+                    heard,
+                    vec![message.clone()],
+                    "the query goes upstream as it came"
+                );
+                assert_eq!(
+                    handled.answer.as_ref(),
+                    Some(&respond(&message, &[])),
+                    "the answer comes back as it went"
+                );
+            }
+            writeln!(
+                log,
+                "class={class} {} upstream={}",
+                handled.decision,
+                heard.len()
+            )
+            .unwrap();
+        }
+        assert!(recorder.calls().is_empty());
+        insta::assert_snapshot!(log);
+    }
+
+    /// An answer is acted on only as a response to this query: its id, its
+    /// opcode and its sole question. The question's name matches in any case.
+    #[test]
+    fn an_answer_must_match_its_query() {
+        fn answer(incoming: &[u8]) -> Vec<u8> {
+            respond(incoming, &[Rr::A("pypi.org", public(10), 300)])
+        }
+        let cases: [(&str, fn(&[u8]) -> Vec<u8>); 10] = [
+            ("a matching answer", answer),
+            ("the question in another case", |incoming| {
+                answer(&reasked(incoming, query(0, "PyPI.Org", dns::TYPE_A)))
+            }),
+            ("a query, not a response", |incoming| {
+                flagged(answer(incoming), 0x0180)
+            }),
+            ("another id", |incoming| {
+                let mut answer = answer(incoming);
+                answer[0] ^= 0xFF;
+                answer
+            }),
+            ("the STATUS opcode", |incoming| {
+                flagged(answer(incoming), 0x9180)
+            }),
+            ("no question", |incoming| {
+                let mut answer = answer(incoming);
+                answer[4..6].copy_from_slice(&0u16.to_be_bytes());
+                answer
+            }),
+            ("two questions", |incoming| {
+                answer(&reasked(
+                    incoming,
+                    two_questions(0, "pypi.org", "evil.example"),
+                ))
+            }),
+            ("another name", |incoming| {
+                answer(&reasked(incoming, query(0, "files.pypi.org", dns::TYPE_A)))
+            }),
+            ("another type", |incoming| {
+                answer(&reasked(incoming, query(0, "pypi.org", TYPE_MX)))
+            }),
+            ("another class", |incoming| {
+                let asked = in_class(query(0, "pypi.org", dns::TYPE_A), CLASS_CHAOS);
+                answer(&reasked(incoming, asked))
+            }),
+        ];
+
+        let mut log = String::new();
+        for (label, answer) in cases {
+            let recorder = Recorder::default();
+            let mut resolver = resolver(answering_upstream(answer), recorder.clone());
+            let handled = resolver
+                .handle(&query(1, "pypi.org", dns::TYPE_A), Instant::now())
+                .unwrap();
+            writeln!(
+                log,
+                "# {label}\n{}\n{} set-writes={}\n",
+                handled.decision,
+                summarize(&handled),
+                recorder.calls().len()
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(log);
+    }
+
+    /// An answer with an error rcode is returned as the upstream sent it,
+    /// whatever its answer section holds: malformed records and inward
+    /// addresses included. Nothing in it is rewritten, authorized or
+    /// remembered. A truncated one is still `SERVFAIL`.
+    #[test]
+    fn an_error_rcode_is_returned_unchanged() {
+        let cases: [(&str, &str, fn(&[u8]) -> Vec<u8>); 6] = [
+            (
+                "NXDOMAIN after a CNAME",
+                "artifacts.acmeco.example",
+                |query| {
+                    let records = [
+                        Rr::Cname("artifacts.acmeco.example", "assets.acmeco.example", 30),
+                        Rr::A("assets.acmeco.example", public(40), 30),
+                    ];
+                    with_rcode(respond(query, &records), 3)
+                },
+            ),
+            (
+                "SERVFAIL holding a private address",
+                "artifacts.acmeco.example",
+                |query| {
+                    let records = [Rr::A(
+                        "artifacts.acmeco.example",
+                        Ipv4Addr::new(169, 254, 169, 254),
+                        30,
+                    )];
+                    with_rcode(respond(query, &records), 2)
+                },
+            ),
+            (
+                "REFUSED holding a CNAME that runs past its data",
+                "artifacts.acmeco.example",
+                |query| {
+                    let records = [
+                        Rr::CnameData("artifacts.acmeco.example", &[3, b'c', b'd', b'n'], 30),
+                        Rr::A("evil.example", public(66), 30),
+                    ];
+                    with_rcode(respond(query, &records), 5)
+                },
+            ),
+            (
+                "NXDOMAIN claiming records it does not carry",
+                "artifacts.acmeco.example",
+                |query| {
+                    let mut answer = with_rcode(respond(query, &[]), 3);
+                    answer[6..8].copy_from_slice(&3u16.to_be_bytes());
+                    answer.extend([0xC0, 0xFF]);
+                    answer
+                },
+            ),
+            (
+                "an unlisted name's NXDOMAIN holding an address outside the CIDRs",
+                "warehouse.corp.example",
+                |query| {
+                    let records = [Rr::A(
+                        "warehouse.corp.example",
+                        Ipv4Addr::new(172, 16, 0, 5),
+                        30,
+                    )];
+                    with_rcode(respond(query, &records), 3)
+                },
+            ),
+            (
+                "a truncated NXDOMAIN",
+                "artifacts.acmeco.example",
+                |query| {
+                    let records = [Rr::A("artifacts.acmeco.example", public(40), 30)];
+                    let mut answer = with_rcode(respond(query, &records), 3);
+                    answer[2] |= 0x02;
+                    answer
+                },
+            ),
+        ];
+
+        let mut log = String::new();
+        for (label, name, answer) in cases {
+            let policy =
+                crate::policy::tests::policy(&["artifacts.acmeco.example"], &["10.0.0.0/8"], None);
+            let recorder = Recorder::default();
+            let mut resolver = resolver_under(policy, answering_upstream(answer), recorder.clone());
+            let expiry = Instant::now() + Duration::from_secs(86_400);
+            resolver.addresses.insert(public(10), expiry);
+            resolver
+                .targets
+                .insert("held.cdn.example".to_string(), expiry);
+            let before = (resolver.addresses.clone(), resolver.targets.clone());
+
+            let query = query(1, name, dns::TYPE_A);
+            let handled = resolver.handle(&query, Instant::now()).unwrap();
+            assert_eq!(
+                (&resolver.addresses, &resolver.targets),
+                (&before.0, &before.1),
+                "{label}: existing promises are unchanged and nothing is added"
+            );
+            assert!(recorder.calls().is_empty(), "{label}: no kernel update");
+            writeln!(
+                log,
+                "# {label}\n{}\n{} unchanged={}\n",
+                handled.decision,
+                summarize(&handled),
+                handled.answer.as_ref() == Some(&answer(&query))
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(log);
+    }
+
+    /// A resolved answer keeps every byte the upstream sent but the TTLs of
+    /// its class-IN `A` and `CNAME` answers: the question's case, a signature,
+    /// a record of an unassigned type, another class's record, and the
+    /// authority and additional sections, malformed or not.
+    #[test]
+    fn a_resolved_answer_changes_only_its_ttls() {
+        let query = query(1, "PyPI.ORG", dns::TYPE_A);
+        let (sent, rewritten) = crafted_answer(&query);
+        let recorder = Recorder::default();
+        let mut resolver = resolver(
+            answering_upstream(|query| crafted_answer(query).0),
+            recorder.clone(),
+        );
+
+        let handled = resolver.handle(&query, Instant::now()).unwrap();
+        let answer = handled.answer.as_ref().expect("an answer is returned");
+
+        assert_eq!(answer.len(), sent.len());
+        for (index, (byte, sent)) in answer.iter().zip(&sent).enumerate() {
+            if !rewritten.iter().any(|ttl| (*ttl..ttl + 4).contains(&index)) {
+                assert_eq!(byte, sent, "byte {index}");
+            }
+        }
+        for ttl in rewritten {
+            assert_eq!(
+                answer[ttl..ttl + 4],
+                90u32.to_be_bytes(),
+                "30 upstream, floor 90"
+            );
+        }
+        insta::assert_snapshot!(handled.decision, @"name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/90] targets=[edge.acmeco.example/90] refreshed=[]");
+    }
+
+    /// An answer to `query` with one record of each kind the resolver must
+    /// leave alone, and the offsets of the two TTLs it rewrites.
+    fn crafted_answer(query: &[u8]) -> (Vec<u8>, Vec<usize>) {
+        fn push(message: &mut Vec<u8>, owner: &[u8], rtype: u16, class: u16, data: &[u8]) -> usize {
+            message.extend(owner);
+            message.extend(rtype.to_be_bytes());
+            message.extend(class.to_be_bytes());
+            let ttl = message.len();
+            message.extend(30u32.to_be_bytes());
+            message.extend((data.len() as u16).to_be_bytes());
+            message.extend(data);
+            ttl
+        }
+        let mut message = query.to_vec();
+        message[2..4].copy_from_slice(&0x8180u16.to_be_bytes());
+        message[6..12].copy_from_slice(&[0, 5, 0, 1, 0, 2]);
+
+        let mut target = Vec::new();
+        encode_name("Edge.AcmeCo.Example", &mut target);
+        // After the CNAME's two-byte owner pointer and ten bytes of header.
+        let target_at = (0xC000 | (message.len() + 12) as u16).to_be_bytes();
+        let rewritten = vec![
+            push(
+                &mut message,
+                &[0xC0, 12],
+                dns::TYPE_CNAME,
+                dns::CLASS_IN,
+                &target,
+            ),
+            push(
+                &mut message,
+                &target_at,
+                dns::TYPE_A,
+                dns::CLASS_IN,
+                &public(10).octets(),
+            ),
+        ];
+        // RRSIG, its data opaque.
+        push(
+            &mut message,
+            &[0xC0, 12],
+            46,
+            dns::CLASS_IN,
+            &[0, 1, 8, 2, 0xC0, 0xFF, 0x80],
+        );
+        push(
+            &mut message,
+            &[0xC0, 12],
+            65280,
+            dns::CLASS_IN,
+            &[0xDE, 0xAD, 0xC0],
+        );
+        push(
+            &mut message,
+            &[0xC0, 12],
+            dns::TYPE_A,
+            CLASS_CHAOS,
+            &[10, 0, 0, 1],
+        );
+        // Authority: an SOA whose data is not one.
+        push(
+            &mut message,
+            &[0xC0, 12],
+            TYPE_SOA,
+            dns::CLASS_IN,
+            &[0xC0, 0xFF, 0x80],
+        );
+        // Additional: an inward address, then OPT with the DO bit and a cookie.
+        let mut glue = Vec::new();
+        encode_name("glue.acmeco.example", &mut glue);
+        push(
+            &mut message,
+            &glue,
+            dns::TYPE_A,
+            dns::CLASS_IN,
+            &[10, 0, 0, 1],
+        );
+        message.extend([0, 0, 41, 4, 208, 0, 0, 0x80, 0, 0, 12, 0, 10, 0, 8]);
+        message.extend([1, 2, 3, 4, 5, 6, 7, 8]);
+
+        (message, rewritten)
+    }
+
     #[test]
     fn a_malformed_query_is_dropped() {
         let recorder = Recorder::default();
@@ -2124,7 +2519,7 @@ mod tests {
         assert!(recorder.calls().is_empty(), "no address was authorized");
         assert!(resolver.targets.is_empty(), "no target was remembered");
         insta::assert_snapshot!(log, @r"
-        name=cdnonly.acmeco.example qtype=1 outcome=dropped=CNAME record data is not exactly one name (rdlength 4) addresses=[] targets=[] refreshed=[]
+        name=cdnonly.acmeco.example qtype=1 outcome=dropped=CNAME record data: unexpected end of input addresses=[] targets=[] refreshed=[]
         answer: none
         name=cdn.evil.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
         answer: rcode=5 ancount=0 bytes=34
@@ -2324,6 +2719,6 @@ mod tests {
 
     fn rcode(handled: &Handled) -> u16 {
         let answer = handled.answer.as_ref().expect("an answer is returned");
-        dns::header(answer).expect("parsable").flags & 0x000F
+        dns::header(answer).expect("parsable").rcode
     }
 }

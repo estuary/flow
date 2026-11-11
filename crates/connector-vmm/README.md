@@ -44,8 +44,9 @@ for when a host's provisioning runs it.
   ports with a reserved packet mark.
 - `src/resolver/mod.rs`: the thread, the gate, the CNAME memory and the
   lifetime of an authorization.
-- `src/resolver/dns.rs`: reads a message, rewrites TTLs in place, synthesizes
-  the replies the resolver invents. Never re-encodes a message.
+- `src/resolver/dns.rs`: reads a message with `domain`, rewrites TTLs in
+  place, synthesizes the replies the resolver invents. Never re-encodes a
+  message.
 - `src/resolver/nftset.rs`: the nfnetlink batch, by hand.
 - `docker/connector-vmm.Dockerfile`, `docker/connector-vmm-fake.Dockerfile` and
   `fake-entrypoint.sh`: the two images; see [Images](#images).
@@ -479,7 +480,8 @@ documents acknowledgment and timeout behavior observed in the kernel.
 
 DNS is UDP-only. The guest's `resolv.conf` enables `options edns0`, and
 queries preserve the client's EDNS advertisement upstream. Complete UDP
-answers pass the query and address gates. A truncated answer returns
+answers pass the query and address gates. Responses with nonzero header
+rcodes pass through unchanged and authorize nothing. A truncated answer returns
 `SERVFAIL`, without authorizing addresses or remembering CNAME targets,
 including for non-A queries. This avoids a TCP retry the firewall cannot
 serve. Large answers that require TCP are unsupported; EDNS does not remove

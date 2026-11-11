@@ -1,0 +1,30 @@
+---
+source: crates/connector-vmm/src/resolver/mod.rs
+expression: log
+---
+class=1 name=eu.mirror.acmeco.example qtype=1 outcome=resolved addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=1 name=eu.mirror.acmeco.example qtype=2 outcome=forwarded addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=2 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=1 name=eu.mirror.acmeco.example qtype=5 outcome=forwarded addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=5 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=1 name=eu.mirror.acmeco.example qtype=6 outcome=forwarded addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=6 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=1 name=eu.mirror.acmeco.example qtype=12 outcome=forwarded addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=12 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=1 name=eu.mirror.acmeco.example qtype=15 outcome=forwarded addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=15 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=1 name=eu.mirror.acmeco.example qtype=16 outcome=forwarded addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=16 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=1 name=eu.mirror.acmeco.example qtype=33 outcome=forwarded addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=33 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=1 name=eu.mirror.acmeco.example qtype=65 outcome=forwarded addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=65 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=1 name=eu.mirror.acmeco.example qtype=255 outcome=forwarded addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=255 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=1 name=eu.mirror.acmeco.example qtype=65280 outcome=forwarded addresses=[] targets=[] refreshed=[] upstream=1
+class=1 name=evil.example qtype=65280 outcome=refused-name addresses=[] targets=[] refreshed=[] upstream=0
+class=3 name=eu.mirror.acmeco.example qtype=1 outcome=unsupported addresses=[] targets=[] refreshed=[] upstream=0
+class=4 name=eu.mirror.acmeco.example qtype=1 outcome=unsupported addresses=[] targets=[] refreshed=[] upstream=0
+class=254 name=eu.mirror.acmeco.example qtype=1 outcome=unsupported addresses=[] targets=[] refreshed=[] upstream=0
+class=255 name=eu.mirror.acmeco.example qtype=1 outcome=unsupported addresses=[] targets=[] refreshed=[] upstream=0

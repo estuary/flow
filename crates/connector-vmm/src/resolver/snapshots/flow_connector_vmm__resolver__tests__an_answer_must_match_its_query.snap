@@ -1,0 +1,43 @@
+---
+source: crates/connector-vmm/src/resolver/mod.rs
+expression: log
+---
+# a matching answer
+name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=50 set-writes=1
+
+# the question in another case
+name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=50 set-writes=1
+
+# a query, not a response
+name=pypi.org qtype=1 outcome=dropped=upstream sent a query, not a response addresses=[] targets=[] refreshed=[]
+answer: none set-writes=0
+
+# another id
+name=pypi.org qtype=1 outcome=dropped=upstream answered id 0xff01, not 0x0001 addresses=[] targets=[] refreshed=[]
+answer: none set-writes=0
+
+# the STATUS opcode
+name=pypi.org qtype=1 outcome=dropped=upstream answered opcode 2, not QUERY addresses=[] targets=[] refreshed=[]
+answer: none set-writes=0
+
+# no question
+name=pypi.org qtype=1 outcome=dropped=upstream answered 0 questions, not one addresses=[] targets=[] refreshed=[]
+answer: none set-writes=0
+
+# two questions
+name=pypi.org qtype=1 outcome=dropped=upstream answered 2 questions, not one addresses=[] targets=[] refreshed=[]
+answer: none set-writes=0
+
+# another name
+name=pypi.org qtype=1 outcome=dropped=upstream answered \"files.pypi.org\"/1, not \"pypi.org\"/1 addresses=[] targets=[] refreshed=[]
+answer: none set-writes=0
+
+# another type
+name=pypi.org qtype=1 outcome=dropped=upstream answered \"pypi.org\"/15, not \"pypi.org\"/1 addresses=[] targets=[] refreshed=[]
+answer: none set-writes=0
+
+# another class
+name=pypi.org qtype=1 outcome=dropped=upstream answered \"pypi.org\"/1, not \"pypi.org\"/1 addresses=[] targets=[] refreshed=[]
+answer: none set-writes=0
