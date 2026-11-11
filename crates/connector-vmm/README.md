@@ -378,6 +378,12 @@ the guest may reach and `--egress-cidr` for each IPv4 range, both repeatable.
 `models::egress::cidrs`, whose doc comments hold the rules. With neither flag
 the resolver forwards no queries and grants no destinations.
 
+The resolver compares each name with a question's name as read from the wire,
+lowercased and without its root. An exact name matches only itself, so `db`
+never admits `db.corp.example`: no search list is applied. A wildcard matches
+whole labels beneath its base. `resolver::dns` escapes a dot or backslash
+inside a label, so one label cannot pose as two.
+
 An `--egress-cidr` adds the `declared` and `excluded` sets to the ruleset.
 
 A resolved address stays reachable for its record's TTL, clamped to between 90

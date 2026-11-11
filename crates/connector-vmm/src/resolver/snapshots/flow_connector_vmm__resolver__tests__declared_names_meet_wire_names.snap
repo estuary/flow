@@ -1,0 +1,88 @@
+---
+source: crates/connector-vmm/src/resolver/mod.rs
+expression: "log_steps(&mut resolver, &received, &recorder, steps)"
+---
+# a name declared with a root dot, asked in mixed case (t+0s)
+name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=50
+upstream: [pypi.org/1]
+set: delete [] add [93.184.216.10 timeout 300s]
+
+# a single-label name, at a private address (t+1s)
+name=db qtype=1 outcome=refused-private=10.1.2.3 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=20
+upstream: [db/1]
+
+# that label beneath a search domain (t+2s)
+name=db.corp.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=33
+upstream: []
+
+# SRV for underscore labels, whose answer holds an A record (t+3s)
+name=_ldap._tcp.acmeco.example qtype=33 outcome=forwarded addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=78
+upstream: [_ldap._tcp.acmeco.example/33]
+
+# TXT for those labels, in capitals (t+4s)
+name=_ldap._tcp.acmeco.example qtype=16 outcome=forwarded addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=0 bytes=43
+upstream: [_ldap._tcp.acmeco.example/16]
+
+# A for a label holding an underscore (t+5s)
+name=build_cache.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.12/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=86
+upstream: [build_cache.acmeco.example/1]
+set: delete [] add [93.184.216.12 timeout 300s]
+
+# a numeric top label (t+6s)
+name=api.123 qtype=1 outcome=resolved addresses=[93.184.216.13/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=48
+upstream: [api.123/1]
+set: delete [] add [93.184.216.13 timeout 300s]
+
+# a label below a wildcard declared with a root dot (t+7s)
+name=eu.mirror.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.14/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=82
+upstream: [eu.mirror.acmeco.example/1]
+set: delete [] add [93.184.216.14 timeout 300s]
+
+# labels nested below that wildcard, in mixed case (t+8s)
+name=a.b.eu.mirror.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.15/300] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=90
+upstream: [a.b.eu.mirror.acmeco.example/1]
+set: delete [] add [93.184.216.15 timeout 300s]
+
+# the wildcard's own base (t+9s)
+name=mirror.acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
+upstream: []
+
+# a label that only ends like the wildcard's base (t+10s)
+name=eumirror.acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=41
+upstream: []
+
+# a dot inside a label, posing as the wildcard's subdomain (t+11s)
+name=eu\\046mirror.acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=42
+upstream: []
+
+# a dot inside one label, posing as a two-label name (t+12s)
+name=api\\046123 qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=25
+upstream: []
+
+# a dot inside a label, posing as underscore labels (t+13s)
+name=_ldap\\046_tcp.acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=43
+upstream: []
+
+# an escaped dot spelled out in one label (t+14s)
+name=pypi\\092046org qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=29
+upstream: []
+
+# a backslash ending a label (t+15s)
+name=pypi\\092.org qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=27
+upstream: []

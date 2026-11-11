@@ -11,8 +11,14 @@ accepted: allowedNames=[Exact("pypi.org"), Subdomains("acmeco.example")] declare
 [] ["10.89.0.0/24", "0.0.0.0/0"] ttl=3..10
 accepted: allowedNames=[] declaredCidrs=["0.0.0.0/0"] ttl=3..10
 
+["DB.", "db", "_ldap._tcp.acmeco.example", "*.Mirror.AcmeCo.example.", "api.123"] [] ttl=90..3600
+accepted: allowedNames=[Exact("db"), Exact("_ldap._tcp.acmeco.example"), Subdomains("mirror.acmeco.example"), Exact("api.123")] declaredCidrs=[] ttl=90..3600
+
 ["*.com"] [] ttl=90..3600
 --egress-host "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+["0x7f000001"] [] ttl=90..3600
+--egress-host "0x7f000001" is the IPv4 address 127.0.0.1; --egress-host takes names, not addresses
 
 [] ["10.1.2.3/8"] ttl=90..3600
 --egress-cidr "10.1.2.3/8" sets bits below its prefix length; write 10.0.0.0/8, or 10.1.2.3/32 for one address

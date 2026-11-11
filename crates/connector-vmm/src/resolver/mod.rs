@@ -765,6 +765,20 @@ mod tests {
         message
     }
 
+    /// An `A` query whose name is these labels, each of any bytes.
+    fn labeled_query(id: u16, labels: &[&[u8]]) -> Vec<u8> {
+        let mut message = query(id, "acmeco.example", dns::TYPE_A);
+        message.truncate(12);
+        for label in labels {
+            message.push(label.len() as u8);
+            message.extend(*label);
+        }
+        message.push(0);
+        message.extend(dns::TYPE_A.to_be_bytes());
+        message.extend(dns::CLASS_IN.to_be_bytes());
+        message
+    }
+
     fn flagged(mut message: Vec<u8>, flags: u16) -> Vec<u8> {
         message[2..4].copy_from_slice(&flags.to_be_bytes());
         message
@@ -1360,6 +1374,138 @@ mod tests {
                 "the remembered target once it has expired",
                 400,
                 query(29, "assets.acmeco.example", dns::TYPE_A),
+            ),
+        ];
+
+        insta::assert_snapshot!(log_steps(&mut resolver, &received, &recorder, steps));
+    }
+
+    #[test]
+    fn declared_names_meet_wire_names() {
+        const TYPE_SRV: u16 = 33;
+        let policy = crate::policy::tests::policy(
+            &[
+                "PyPI.ORG.",
+                "DB.",
+                "_ldap._tcp.acmeco.example",
+                "build_cache.acmeco.example",
+                "*.Mirror.AcmeCo.example.",
+                "api.123",
+            ],
+            &[],
+            None,
+        );
+        let script = vec![
+            (
+                ("pypi.org", dns::TYPE_A),
+                vec![Rr::A("pypi.org", public(10), 300)],
+            ),
+            (
+                ("db", dns::TYPE_A),
+                vec![Rr::A("db", Ipv4Addr::new(10, 1, 2, 3), 300)],
+            ),
+            (
+                ("_ldap._tcp.acmeco.example", TYPE_SRV),
+                vec![Rr::A("ldap.acmeco.example", public(11), 300)],
+            ),
+            (("_ldap._tcp.acmeco.example", TYPE_TXT), vec![]),
+            (
+                ("build_cache.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("build_cache.acmeco.example", public(12), 300)],
+            ),
+            (
+                ("api.123", dns::TYPE_A),
+                vec![Rr::A("api.123", public(13), 300)],
+            ),
+            (
+                ("eu.mirror.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("eu.mirror.acmeco.example", public(14), 300)],
+            ),
+            (
+                ("a.b.eu.mirror.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("a.b.eu.mirror.acmeco.example", public(15), 300)],
+            ),
+        ];
+        let recorder = Recorder::default();
+        let (upstream, received) = recorded_upstream(script, Duration::ZERO);
+        let mut resolver = resolver_under(policy, upstream, recorder.clone());
+
+        let steps: Vec<(&str, u64, Vec<u8>)> = vec![
+            (
+                "a name declared with a root dot, asked in mixed case",
+                0,
+                query(1, "PyPI.Org", dns::TYPE_A),
+            ),
+            (
+                "a single-label name, at a private address",
+                1,
+                query(2, "DB", dns::TYPE_A),
+            ),
+            (
+                "that label beneath a search domain",
+                2,
+                query(3, "db.corp.example", dns::TYPE_A),
+            ),
+            (
+                "SRV for underscore labels, whose answer holds an A record",
+                3,
+                query(4, "_ldap._tcp.acmeco.example", TYPE_SRV),
+            ),
+            (
+                "TXT for those labels, in capitals",
+                4,
+                query(5, "_LDAP._TCP.acmeco.example", TYPE_TXT),
+            ),
+            (
+                "A for a label holding an underscore",
+                5,
+                query(6, "build_cache.acmeco.example", dns::TYPE_A),
+            ),
+            ("a numeric top label", 6, query(7, "api.123", dns::TYPE_A)),
+            (
+                "a label below a wildcard declared with a root dot",
+                7,
+                query(8, "eu.mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "labels nested below that wildcard, in mixed case",
+                8,
+                query(9, "a.b.EU.Mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "the wildcard's own base",
+                9,
+                query(10, "mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a label that only ends like the wildcard's base",
+                10,
+                query(11, "eumirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a dot inside a label, posing as the wildcard's subdomain",
+                11,
+                labeled_query(12, &[b"eu.mirror", b"acmeco", b"example"]),
+            ),
+            (
+                "a dot inside one label, posing as a two-label name",
+                12,
+                labeled_query(13, &[b"api.123"]),
+            ),
+            (
+                "a dot inside a label, posing as underscore labels",
+                13,
+                labeled_query(14, &[b"_ldap._tcp", b"acmeco", b"example"]),
+            ),
+            (
+                "an escaped dot spelled out in one label",
+                14,
+                labeled_query(15, &[br"pypi\046org"]),
+            ),
+            (
+                "a backslash ending a label",
+                15,
+                labeled_query(16, &[br"pypi\", b"org"]),
             ),
         ];
 

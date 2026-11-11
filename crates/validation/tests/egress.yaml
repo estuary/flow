@@ -22,7 +22,14 @@ test://example/catalog.yaml:
             module: python module placeholder
         vmm: true
         egress:
-          hosts: [Api.AcmeCo.example, "*.svc.acmeco.example", api.acmeco.example]
+          hosts:
+            - Api.AcmeCo.example
+            - "*.svc.acmeco.example"
+            - api.acmeco.example
+            - DB.
+            - _ldap._tcp.acmeco.example
+            - "*.Mirror.AcmeCo.example."
+            - api.123
         shards:
           flags:
             enable-runtime-v2: "true"
@@ -157,6 +164,8 @@ test://example/catalog.yaml:
           - "*.github.io"
           - api..acmeco.example
           - "api.*.acmeco.example"
+          - "127.1"
+          - api.acmeco.example..
         cidrs:
           - 10.0.0.0/8
           - fd00::/8
@@ -219,7 +228,14 @@ driver:
       execution:
         vmm: true
         egress:
-          hosts: [Api.AcmeCo.example, "*.svc.acmeco.example", api.acmeco.example]
+          hosts:
+            - Api.AcmeCo.example
+            - "*.svc.acmeco.example"
+            - api.acmeco.example
+            - DB.
+            - _ldap._tcp.acmeco.example
+            - "*.Mirror.AcmeCo.example."
+            - api.123
       connectorType: IMAGE
       config:
         image: ghcr.io/estuary/derive-python:stable

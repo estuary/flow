@@ -317,8 +317,10 @@ EOF or status. A client which does not drain responses may park the handler.
   order and without repeats, each name remembered with where it came from.
   A missing, blank or empty label adds nothing; anything else that isn't
   valid names is refused, on every plane. Names follow
-  `models::egress::hosts`, and the launch passes each to the VMM as an
-  `--egress-host` flag. Ordinary launches never read the label.
+  `models::egress::hosts`, which lowercases and drops a root dot. A built
+  spec carries the task's names as written, and the launch passes each name
+  of the union, normalized, to the VMM as an `--egress-host` flag. Ordinary
+  launches never read the label.
 
 - **Empty egress permits nothing, on every plane.** Egress declaring no
   host and no CIDR (`egress: {}`) is planned as no names and no CIDRs, so the

@@ -10,11 +10,14 @@ pub struct Egress {
     /// These add to the hosts the connector and its image already declare.
     /// When both `hosts` and `cidrs` are empty, the connector may reach no
     /// external destination at all. `api.acmeco.example` matches
-    /// only itself. `*.acmeco.example` matches every name beneath
+    /// only itself, and `db` matches only `db`, not `db.acmeco.example`.
+    /// `*.acmeco.example` matches every name beneath
     /// `acmeco.example`, at any depth, but not `acmeco.example` itself: list
     /// both to reach both. A wildcard may not cover a public suffix, such as
-    /// `*.com`. Names are case-insensitive, have no trailing dot, and are
-    /// written in punycode (`xn--`) where they are not ASCII.
+    /// `*.com`. Labels hold ASCII letters, digits, `-` and `_`. Names are
+    /// case-insensitive, may end in one root dot, and are written in punycode
+    /// (`xn--`) where they are not ASCII. An IP address, in any spelling, is
+    /// not a name.
     ///
     /// A permitted name is reachable on any port, but only at public
     /// addresses, or at addresses within `cidrs`. Loopback, link-local and
@@ -55,16 +58,16 @@ impl std::fmt::Display for AllowedName {
 }
 
 /// Validate and normalize host names wherever they are declared, naming
-/// `field` in every refusal. Lowercases, and drops repeats after the first.
+/// `field` in every refusal. Drops a root dot, lowercases, and drops repeats
+/// after the first.
 ///
-/// A permitted name gates a resolver on the question name, so a name that no
-/// query can carry is a rule that can never fire. Each refusal below is a name
-/// that would otherwise sit in a declaration looking like access.
+/// A resolver compares the normalized names with question names, which it
+/// reads lowercased and without the root.
 pub fn hosts(field: &str, raw: &[String]) -> anyhow::Result<Vec<AllowedName>> {
     let mut names: Vec<AllowedName> = Vec::with_capacity(raw.len());
 
     for name in raw {
-        let allowed = check_name(field, name, &name.to_ascii_lowercase())?;
+        let allowed = check_name(field, name)?;
 
         if !names.contains(&allowed) {
             names.push(allowed);
@@ -97,41 +100,37 @@ pub fn cidrs(field: &str, raw: &[String]) -> anyhow::Result<Vec<ipnetwork::Ipv4N
     Ok(kept)
 }
 
-fn check_name(field: &str, original: &str, name: &str) -> anyhow::Result<AllowedName> {
-    if name.is_empty() {
+fn check_name(field: &str, original: &str) -> anyhow::Result<AllowedName> {
+    if original.is_empty() {
         anyhow::bail!("{field} contains an empty name");
     }
-    if !name.is_ascii() {
+    if !original.is_ascii() {
         anyhow::bail!(
             "{field} {original:?} is not ASCII; write the punycode (xn--) form, \
              which is what a query carries"
         );
     }
-    let (base, wildcard) = match name.strip_prefix("*.") {
+    let (base, wildcard) = match original.strip_prefix("*.") {
         Some(base) => (base, true),
-        None => (name, false),
+        None => (original, false),
     };
+    let base = base.strip_suffix('.').unwrap_or(base);
     if base.contains('*') {
         anyhow::bail!(
             "{field} {original:?} has a wildcard other than a leading \"*.\", \
              the only form supported"
         );
     }
-    if name.ends_with('.') {
-        anyhow::bail!("{field} {original:?} has a trailing dot; write the name without it");
-    }
-    if name.len() > 253 {
+    // A wildcard's 253 includes its `*.`, which leaves room for the label
+    // any name beneath its base must add.
+    let length = base.len() + if wildcard { 2 } else { 0 };
+    if length > 253 {
         anyhow::bail!(
-            "{field} {original:?} is {} bytes; a name is at most 253",
-            name.len()
+            "{field} {original:?} is {length} bytes; a name is at most 253, \
+             not counting a root dot"
         );
     }
-
-    let labels: Vec<&str> = base.split('.').collect();
-    if !wildcard && labels.len() < 2 {
-        anyhow::bail!("{field} {original:?} is a single label, which cannot resolve publicly");
-    }
-    for label in &labels {
+    for label in base.split('.') {
         if label.is_empty() {
             anyhow::bail!("{field} {original:?} has an empty label");
         }
@@ -140,30 +139,28 @@ fn check_name(field: &str, original: &str, name: &str) -> anyhow::Result<Allowed
         }
         if !label
             .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
         {
-            anyhow::bail!("{field} {original:?} has a label outside [a-z0-9-]: {label:?}");
-        }
-        if label.starts_with('-') || label.ends_with('-') {
-            anyhow::bail!("{field} {original:?} has a label bounded by a hyphen: {label:?}");
+            anyhow::bail!("{field} {original:?} has a label outside [A-Za-z0-9_-]: {label:?}");
         }
     }
+    let base = base.to_ascii_lowercase();
 
-    // RFC 1123's rule against an all-numeric top label, which here catches
-    // somebody writing an address where a name goes.
-    let top = labels.last().expect("split yields at least one label");
-    if top.bytes().all(|b| b.is_ascii_digit()) {
+    // WHATWG also recognizes shortened, integer, octal and hex IPv4 literals.
+    // Ignore its other errors: DNS names such as `api.123` are valid here.
+    if let Ok(url::Host::Ipv4(address)) = url::Host::parse(&base) {
+        let over = if wildcard { "a wildcard over " } else { "" };
         anyhow::bail!(
-            "{field} {original:?} ends in an all-numeric label; \
+            "{field} {original:?} is {over}the IPv4 address {address}; \
              {field} takes names, not addresses"
         );
     }
 
     if !wildcard {
-        return Ok(AllowedName::Exact(base.to_string()));
+        return Ok(AllowedName::Exact(base));
     }
-    check_wildcard_base(field, original, base)?;
-    Ok(AllowedName::Subdomains(base.to_string()))
+    check_wildcard_base(field, original, &base)?;
+    Ok(AllowedName::Subdomains(base))
 }
 
 /// A wildcard over a public suffix grants names controlled by unrelated
@@ -316,7 +313,7 @@ mod test {
         dev.estuary.egress-hosts "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
         dev.estuary.egress-hosts "api.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
         dev.estuary.egress-hosts contains an empty name
-        dev.estuary.egress-hosts "169.254.169.254" ends in an all-numeric label; dev.estuary.egress-hosts takes names, not addresses
+        dev.estuary.egress-hosts "169.254.169.254" is the IPv4 address 169.254.169.254; dev.estuary.egress-hosts takes names, not addresses
         "#);
     }
 
@@ -339,35 +336,99 @@ mod test {
     fn host_cases() -> Vec<(&'static str, &'static [&'static str])> {
         vec![
             ("non-ASCII", &["café.example"]),
-            ("trailing dot", &["pypi.org."]),
-            ("single label", &["localhost"]),
-            ("all-numeric top label", &["169.254.169.254"]),
-            ("empty label", &["files..acmeco.example"]),
-            ("hyphen-bounded label", &["-files.acmeco.example"]),
-            ("underscore", &["build_cache.acmeco.example"]),
-            ("empty string", &[""]),
+            (
+                "punycode is ASCII, and not decoded",
+                &["xn--caf-dma.example", "xn--zz.example"],
+            ),
             (
                 "lowercased and deduplicated",
                 &["PyPI.ORG", "pypi.org", "artifacts.acmeco.example"],
             ),
+            (
+                "a root dot is dropped before deduplicating",
+                &["PyPI.ORG.", "pypi.org", "pypi.org."],
+            ),
+            ("the root alone", &["."]),
+            ("two root dots", &["pypi.org.."]),
+            ("a leading dot", &[".pypi.org"]),
+            ("empty label", &["files..acmeco.example"]),
+            ("empty string", &[""]),
+            ("leading whitespace", &[" pypi.org"]),
+            ("trailing whitespace", &["pypi.org "]),
+            ("a URL", &["https://pypi.org"]),
+            ("a port", &["pypi.org:443"]),
+            ("a path", &["pypi.org/simple"]),
+            ("a backslash", &[r"pypi\.org"]),
+            ("an escaped dot", &[r"pypi\046org"]),
+            (
+                "underscores anywhere in a label",
+                &[
+                    "_sip._tcp.acmeco.example",
+                    "build_cache.acmeco.example",
+                    "_",
+                ],
+            ),
+            (
+                "hyphens anywhere in a label",
+                &[
+                    "-files.acmeco.example",
+                    "files-.acmeco.example",
+                    "-.acmeco.example",
+                ],
+            ),
+            (
+                "single labels are exact names, without a search list",
+                &["DB.", "db", "db.corp.example", "localhost"],
+            ),
+            (
+                "numeric labels that are no address",
+                &[
+                    "api.123",
+                    "api.1e3",
+                    "api.inf",
+                    "api.nan",
+                    "api.0x1f",
+                    "1e3.example",
+                    "123.example",
+                    "1.2.3.4.5",
+                ],
+            ),
+            ("an address", &["192.0.2.1"]),
+            ("an address with a root dot", &["169.254.169.254."]),
+            ("a shortened address", &["127.1"]),
+            ("an address as one integer", &["2130706433"]),
+            ("a hex address", &["0x7f000001"]),
+            ("a hex address in capitals", &["0X7F000001"]),
+            ("an octal address", &["0177.0.0.1"]),
+            ("a bare number", &["123"]),
+            ("an IPv6 address", &["::1"]),
+            ("a bracketed IPv6 address", &["[::1]"]),
+            ("a wildcard over an address", &["*.192.0.2.1"]),
+            ("a wildcard over a shortened address", &["*.127.1"]),
             (
                 "a name and its wildcard are distinct grants",
                 &["acmeco.example", "*.acmeco.example"],
             ),
             (
                 "wildcard lowercased and deduplicated",
-                &["*.ACMEco.example", "*.acmeco.example"],
+                &["*.ACMEco.example", "*.acmeco.example", "*.acmeco.example."],
             ),
             ("wildcard alone", &["*"]),
             ("wildcard with no base", &["*."]),
+            ("wildcard over the root", &["*.."]),
             ("two wildcard labels", &["*.*.acmeco.example"]),
             ("doubled star", &["**.acmeco.example"]),
             ("star without its dot", &["*acmeco.example"]),
             ("star inside a label", &["api*.acmeco.example"]),
             ("wildcard label in the middle", &["api.*.acmeco.example"]),
             ("wildcard label last", &["acmeco.*"]),
-            ("wildcard with a trailing dot", &["*.acmeco.example."]),
-            ("wildcard over an invalid label", &["*.-acmeco.example"]),
+            ("wildcard over an invalid label", &["*.acmeco.example:443"]),
+            (
+                "wildcard over hyphen- and underscore-edged labels",
+                &["*.-acmeco_.example"],
+            ),
+            ("wildcard over a single label", &["*.corp"]),
+            ("wildcard beneath a single label", &["*.acmeco.corp"]),
             ("wildcard over a top-level domain", &["*.com"]),
             ("wildcard over an ICANN second-level suffix", &["*.co.uk"]),
             ("wildcard over a private suffix", &["*.github.io"]),
@@ -406,9 +467,59 @@ mod test {
             ),
             (
                 "exact names are not checked against the list",
-                &["s3.amazonaws.com", "github.io", "co.uk"],
+                &["s3.amazonaws.com", "github.io", "co.uk", "com"],
             ),
         ]
+    }
+
+    #[test]
+    fn hosts_bound_labels_and_names() {
+        let label = |length: usize| "a".repeat(length);
+        // Three 63-byte labels, then one of `last` bytes.
+        let name = |last: usize| format!("{0}.{0}.{0}.{1}", label(63), label(last));
+
+        let rows: Vec<String> = [
+            ("a 63-byte label", format!("{}.acmeco.example", label(63))),
+            ("a 64-byte label", format!("{}.acmeco.example", label(64))),
+            ("a 253-byte name", name(61)),
+            ("a 253-byte name and a root dot", format!("{}.", name(61))),
+            ("a 254-byte name", name(62)),
+            ("a 254-byte name and a root dot", format!("{}.", name(62))),
+            ("a 253-byte wildcard", format!("*.{}", name(59))),
+            (
+                "a 253-byte wildcard and a root dot",
+                format!("*.{}.", name(59)),
+            ),
+            ("a 254-byte wildcard", format!("*.{}", name(60))),
+            (
+                "a 254-byte wildcard and a root dot",
+                format!("*.{}.", name(60)),
+            ),
+        ]
+        .into_iter()
+        .map(|(what, raw)| {
+            let outcome = match super::hosts("egress.hosts", std::slice::from_ref(&raw)) {
+                Ok(names) => format!("accepted as {} bytes", names[0].to_string().len()),
+                Err(error) => format!("{error:#}")
+                    .replace(&raw, "<name>")
+                    .replace(&label(64), "<64 bytes>"),
+            };
+            format!("{what} ({} bytes) => {outcome}", raw.len())
+        })
+        .collect();
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+        a 63-byte label (78 bytes) => accepted as 78 bytes
+        a 64-byte label (79 bytes) => egress.hosts "<name>" has a label longer than 63 bytes: "<64 bytes>"
+        a 253-byte name (253 bytes) => accepted as 253 bytes
+        a 253-byte name and a root dot (254 bytes) => accepted as 253 bytes
+        a 254-byte name (254 bytes) => egress.hosts "<name>" is 254 bytes; a name is at most 253, not counting a root dot
+        a 254-byte name and a root dot (255 bytes) => egress.hosts "<name>" is 254 bytes; a name is at most 253, not counting a root dot
+        a 253-byte wildcard (253 bytes) => accepted as 253 bytes
+        a 253-byte wildcard and a root dot (254 bytes) => accepted as 253 bytes
+        a 254-byte wildcard (254 bytes) => egress.hosts "<name>" is 254 bytes; a name is at most 253, not counting a root dot
+        a 254-byte wildcard and a root dot (255 bytes) => egress.hosts "<name>" is 254 bytes; a name is at most 253, not counting a root dot
+        "#);
     }
 
     use serde_json::json;

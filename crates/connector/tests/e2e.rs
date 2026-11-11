@@ -1376,7 +1376,7 @@ mod execution {
 
         insta::assert_snapshot!(rows.join("\n"), @r#"
     ["api.acmeco.example", "*.com"]: Status(InvalidArgument): task egress.hosts "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
-    ["api.acmeco.example:443"]: Status(InvalidArgument): task egress.hosts "api.acmeco.example:443" has a label outside [a-z0-9-]: "example:443"
+    ["api.acmeco.example:443"]: Status(InvalidArgument): task egress.hosts "api.acmeco.example:443" has a label outside [A-Za-z0-9_-]: "example:443"
     ["api.acmeco.example", "*.svc.acmeco.example"]: Status(FailedPrecondition): CONNECTOR_VMM_STATE_DIR /nonexistent/connector-vmm-tests/state: No such file or directory (os error 2)
     "#);
     }

@@ -33,7 +33,7 @@ flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 
 $ flow-connector-vmm run --connector-mount /tmp/connector-mounts-0/mount-acme --memory-mib 1024 --vcpus 2 --disk-mib 512 --egress-host 169.254.169.254
-flow-connector-vmm: error: invalid value '169.254.169.254' for '--egress-host <NAME>': --egress-host "169.254.169.254" ends in an all-numeric label; --egress-host takes names, not addresses
+flow-connector-vmm: error: invalid value '169.254.169.254' for '--egress-host <NAME>': --egress-host "169.254.169.254" is the IPv4 address 169.254.169.254; --egress-host takes names, not addresses
 flow-connector-vmm:
 flow-connector-vmm: For more information, try '--help'.
 

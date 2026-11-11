@@ -36,19 +36,19 @@ labels {"dev.estuary.egress-hosts":"[\"pypi.org\", 443]"} ports {}
 
 # a URL
 labels {"dev.estuary.egress-hosts":"[\"https://api.acmeco.example\"]"} ports {}
-=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "https://api.acmeco.example" has a label outside [a-z0-9-]: "https://api"
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "https://api.acmeco.example" has a label outside [A-Za-z0-9_-]: "https://api"
 
 # a port
 labels {"dev.estuary.egress-hosts":"[\"api.acmeco.example:443\"]"} ports {}
-=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "api.acmeco.example:443" has a label outside [a-z0-9-]: "example:443"
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "api.acmeco.example:443" has a label outside [A-Za-z0-9_-]: "example:443"
 
 # an address
 labels {"dev.estuary.egress-hosts":"[\"93.184.216.34\"]"} ports {}
-=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "93.184.216.34" ends in an all-numeric label; image label 'dev.estuary.egress-hosts' takes names, not addresses
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "93.184.216.34" is the IPv4 address 93.184.216.34; image label 'dev.estuary.egress-hosts' takes names, not addresses
 
 # a CIDR
 labels {"dev.estuary.egress-hosts":"[\"93.184.216.0/24\"]"} ports {}
-=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "93.184.216.0/24" has a label outside [a-z0-9-]: "0/24"
+=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "93.184.216.0/24" has a label outside [A-Za-z0-9_-]: "0/24"
 
 # everything
 labels {"dev.estuary.egress-hosts":"[\"*\"]"} ports {}
@@ -64,7 +64,7 @@ labels {"dev.estuary.egress-hosts":"[\"*.acmeco.github.io\"]"} ports {}
 
 # a single label
 labels {"dev.estuary.egress-hosts":"[\"localhost\"]"} ports {}
-=> refused: connector image 'ghcr.io/estuary/derive-python:stable': image label 'dev.estuary.egress-hosts' "localhost" is a single label, which cannot resolve publicly
+=> --egress-host=pypi.org --egress-host=files.pythonhosted.org --egress-host=localhost --egress-host=task.acmeco.example
 
 # a public port
 labels {"dev.estuary.port-public.8080":"true"} ports {"8080/tcp":{}}

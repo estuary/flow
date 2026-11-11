@@ -770,6 +770,78 @@ mod test {
     }
 
     #[test]
+    fn built_hosts_reach_the_vmm_normalized() {
+        let execution = proto_flow::flow::ConnectorExecution {
+            vmm: true,
+            egress: Some(proto_flow::flow::connector_execution::Egress {
+                hosts: [
+                    "Api.AcmeCo.example",
+                    "api.acmeco.example.",
+                    "DB.",
+                    "_ldap._tcp.acmeco.example",
+                    "*.Mirror.AcmeCo.example.",
+                    "api.123",
+                    "PyPI.org.",
+                ]
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+                cidrs: Vec::new(),
+            }),
+        };
+        let vmm = vmm(&[]);
+        let crate::vmm::Execution::Vmm { egress, .. } = crate::vmm::vmm_for(
+            Some(&vmm),
+            crate::Plane::Public,
+            ops::TaskType::Derivation,
+            Some(IMAGE),
+            &execution,
+            Some(&execution),
+        )
+        .expect("a valid declaration") else {
+            panic!("VMM execution");
+        };
+        let inspection = inspection(json!({}), json!({}));
+        let plan = super::plan(
+            &vmm,
+            &Launch {
+                egress: &egress,
+                ..launch(&inspection)
+            },
+        )
+        .expect("plans");
+
+        let flags = egress_flags(&plan);
+        assert_eq!(
+            flags,
+            [
+                "--egress-host=pypi.org",
+                "--egress-host=files.pythonhosted.org",
+                "--egress-host=api.acmeco.example",
+                "--egress-host=db",
+                "--egress-host=_ldap._tcp.acmeco.example",
+                "--egress-host=*.mirror.acmeco.example",
+                "--egress-host=api.123",
+            ]
+        );
+
+        let values: Vec<String> = flags
+            .iter()
+            .map(|flag| flag.strip_prefix("--egress-host=").unwrap().to_string())
+            .collect();
+        let planned: Vec<models::egress::AllowedName> = plan
+            .egress
+            .names
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        assert_eq!(
+            models::egress::hosts("--egress-host", &values).expect("the VMM accepts each flag"),
+            planned
+        );
+    }
+
+    #[test]
     fn egress_by_plane_and_declaration() {
         let vmm = vmm(&[]);
         let label = json!({"dev.estuary.egress-hosts": r#"["api.acmeco.example"]"#});
