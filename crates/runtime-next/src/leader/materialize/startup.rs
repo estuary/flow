@@ -1230,7 +1230,7 @@ mod tests {
     // ---- reconcile ----
 
     use crate::leader::fixtures::{
-        authoritative_checkpoint, clk, close_only_checkpoint, frontier, pf, producer_tags,
+        authoritative_checkpoint, clk, close_only_checkpoint, frontier, pf, prod, producer_tags,
     };
 
     const FLOOR: uuid::Clock = frontier_mapping::COMMITTED_CLOSE_FLOOR;
@@ -1282,6 +1282,74 @@ mod tests {
         let p0 = &resume_frontier.journals[0].producers[0];
         assert_eq!(p0.offset, -500);
         assert!(p0.hinted_commit > p0.last_commit);
+    }
+
+    /// A hinted producer with an open span but no commit isn't projected as a
+    /// hint. P(cc) is a dead capture producer: its term appended CONTINUEs at
+    /// offset 5_000 and failed before its ACK, so only the crashed transaction's
+    /// hinted Frontier read it. As a hint it would resolve at offset zero, and
+    /// the next session would replay its journal from offset zero.
+    #[test]
+    fn resume_frontier_drops_never_committed_hinted_producers() {
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(50), uuid::Clock::zero(), -1_000)],
+        );
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![
+                pf(0xbb, clk(200), uuid::Clock::zero(), -6_000),
+                pf(
+                    0xcc,
+                    uuid::OBSERVED_COMMIT_FLOOR,
+                    uuid::Clock::zero(),
+                    5_000,
+                ),
+            ],
+        );
+        let scanned = baseline(clk(50), committed, clk(60), hinted, [], None);
+
+        let (resume_frontier, idempotent_replay) = scanned.session_state();
+        assert!(idempotent_replay, "P(bb)'s hint is replayed");
+        assert_eq!(resume_frontier.unresolved_hints, 1);
+        assert_eq!(
+            resume_frontier.journals[0]
+                .producers
+                .iter()
+                .map(|p| (p.producer, p.last_commit, p.hinted_commit, p.offset))
+                .collect::<Vec<_>>(),
+            vec![(prod(0xbb), clk(50), clk(200), -1_000)],
+            "P(cc) is absent, to be read afresh from the -1_000 cut",
+        );
+
+        // With only P(cc) hinted beyond the committed Frontier, there's
+        // nothing to replay.
+        let scanned = baseline(
+            clk(50),
+            frontier(
+                "j/one",
+                0,
+                vec![pf(0xbb, clk(50), uuid::Clock::zero(), -1_000)],
+            ),
+            clk(60),
+            frontier(
+                "j/one",
+                0,
+                vec![pf(
+                    0xcc,
+                    uuid::OBSERVED_COMMIT_FLOOR,
+                    uuid::Clock::zero(),
+                    5_000,
+                )],
+            ),
+            [],
+            None,
+        );
+        let (resume_frontier, idempotent_replay) = scanned.session_state();
+        assert!(!idempotent_replay);
+        assert_eq!(resume_frontier.journals[0].producers.len(), 1);
     }
 
     /// The two-session recovery handoff. Session 1 replays the crashed
