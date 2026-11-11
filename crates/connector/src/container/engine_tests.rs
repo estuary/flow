@@ -151,7 +151,12 @@ fn engine_environment_child() {
             tokio::select! {
                 result = &mut start => panic!("startup ended: {:?}", result.err()),
                 () = async {
-                    while !dir.join("pid").exists() { tokio::task::yield_now().await; }
+                    // Cancellation must wait for the shell's PID write to finish.
+                    while !std::fs::read_to_string(dir.join("pid"))
+                        .is_ok_and(|pid| pid.ends_with('\n'))
+                    {
+                        tokio::task::yield_now().await;
+                    }
                 } => (),
             }
         } else {
