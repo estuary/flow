@@ -639,7 +639,9 @@ impl DataPlane {
 }
 
 /// A Release wins over a Target, so it can route an upgrade through an image
-/// the Target would skip. Scaled-down Deployments aren't rolled to Targets.
+/// the Target would skip. A Deployment running its Target's image stays, or a
+/// Release from that image and the Target would undo each other forever.
+/// Scaled-down Deployments aren't rolled to Targets.
 fn next_image<'r>(
     deployment: &Deployment,
     releases: &'r [Release],
@@ -647,24 +649,28 @@ fn next_image<'r>(
 ) -> Option<(&'r str, i32)> {
     let tier = deployment.tier as i16;
 
+    let target = if deployment.desired == 0 {
+        None
+    } else {
+        targets
+            .iter()
+            .filter(|t| t.role == deployment.role && t.max_tier >= tier)
+            .min_by_key(|t| (!t.plane_specific, t.max_tier))
+    };
+
+    if let Some(target) = target
+        && target.image == deployment.oci_image
+    {
+        return None;
+    }
     if let Some(release) = releases
         .iter()
         .find(|r| r.prev_image == deployment.oci_image && r.max_tier >= tier)
     {
         return Some((&release.next_image, release.step));
     }
-    if deployment.desired == 0 {
-        return None;
-    }
 
-    let target = targets
-        .iter()
-        .filter(|t| t.role == deployment.role && t.max_tier >= tier)
-        .min_by_key(|t| (!t.plane_specific, t.max_tier))?;
-
-    if target.image == deployment.oci_image {
-        return None;
-    }
+    let target = target?;
     Some((&target.image, target.step))
 }
 
@@ -1307,6 +1313,51 @@ mod test {
     }
 
     #[test]
+    fn simulate_pin_against_release() {
+        let State { mut stack, .. } =
+            serde_json::from_str(include_str!("state_fixture.json")).unwrap();
+        let model = &mut stack.config.model;
+        model.deployments.retain(|d| d.role == Role::Gazette);
+        model.deployments[0].oci_image = "ghcr.io/gazette/broker:v2".to_string();
+
+        // A plane pinned to v1 against an active v1 -> v2 release rolls back to
+        // v1 once, and stays there.
+        let releases = &[Release {
+            prev_image: "ghcr.io/gazette/broker:v1".to_string(),
+            next_image: "ghcr.io/gazette/broker:v2".to_string(),
+            step: 5,
+            max_tier: 100,
+        }];
+        let mut pin = target(Role::Gazette, 100, "ghcr.io/gazette/broker:v1", 5);
+        pin.plane_specific = true;
+
+        let mut outcomes = vec![model.deployments.clone()];
+        for _ in 0..20 {
+            let changed = model.evaluate_release_steps(releases, &[pin.clone()]);
+            outcomes.push(model.deployments.clone());
+
+            if !changed {
+                break;
+            }
+            model.deployments.retain_mut(Deployment::mark_current);
+        }
+
+        let last: Vec<_> = outcomes
+            .last()
+            .unwrap()
+            .iter()
+            .map(|d| d.oci_image.as_str())
+            .collect();
+        assert_eq!(last, vec!["ghcr.io/gazette/broker:v1"]);
+        assert!(
+            outcomes.len() < 20,
+            "the rollout settles instead of cycling"
+        );
+
+        insta::assert_json_snapshot!(&outcomes);
+    }
+
+    #[test]
     fn simulate_release_overrides_target() {
         let State { mut stack, .. } =
             serde_json::from_str(include_str!("state_fixture.json")).unwrap();
@@ -1367,8 +1418,22 @@ mod test {
             pinned(target(Role::Reactor, 100, "reactor:pinned", -1)),
         ];
         let at_target = &[target(Role::Reactor, 0, &reactor.oci_image, 5)];
+        let release = &[Release {
+            prev_image: reactor.oci_image.clone(),
+            next_image: "reactor:released".to_string(),
+            step: 5,
+            max_tier: 100,
+        }];
 
         let cases = vec![
+            (
+                "release from the target's image is ignored",
+                next_image(&at_tier(0), release, at_target),
+            ),
+            (
+                "release wins over another target",
+                next_image(&at_tier(0), release, targets),
+            ),
             ("tier 0", next_image(&at_tier(0), &[], targets)),
             ("tier 1", next_image(&at_tier(1), &[], targets)),
             ("tier 50", next_image(&at_tier(50), &[], targets)),

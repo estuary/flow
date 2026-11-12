@@ -4,6 +4,19 @@ expression: cases
 ---
 [
     (
+        "release from the target's image is ignored",
+        None,
+    ),
+    (
+        "release wins over another target",
+        Some(
+            (
+                "reactor:released",
+                5,
+            ),
+        ),
+    ),
+    (
         "tier 0",
         Some(
             (
