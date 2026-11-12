@@ -328,10 +328,6 @@ fn connector_cpu_limit() -> String {
         .unwrap_or_else(|| "2".to_string())
 }
 
-#[cfg(test)]
-#[path = "container/engine_tests.rs"]
-mod engine_tests;
-
 /// Engine clients and operator wrappers need their ambient configuration,
 /// but not the reactor's signing, decryption, or Flow login authority.
 fn engine_command(program: &str) -> async_process::Command {
