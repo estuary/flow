@@ -17,16 +17,20 @@ pub struct PrefixRef {
     /// directly. Once that migration lands, this field and its derivation
     /// can be deleted.
     pub user_capability: models::Capability,
-    /// Fine-grained capabilities the user has at this prefix.
-    pub capability_bits: Vec<models::authz::Capability>,
+    #[graphql(skip)]
+    pub bits: models::authz::CapabilitySet,
 }
 
 #[async_graphql::ComplexObject]
 impl PrefixRef {
+    /// Fine-grained capabilities the user has at this prefix.
+    async fn capability_bits(&self) -> Vec<models::authz::Capability> {
+        self.bits.iter().collect()
+    }
+
     /// Capability bundles that cover the user's capability bits at this prefix.
     async fn capabilities(&self) -> Vec<models::authz::CapabilityBundle> {
-        let bits: models::authz::CapabilitySet = self.capability_bits.iter().copied().collect();
-        models::authz::bundles_covering(bits).collect()
+        models::authz::bundles_covering(self.bits).collect()
     }
 }
 
@@ -106,7 +110,7 @@ impl PrefixesQuery {
                 .map(|(prefix, (bits, legacy))| PrefixRef {
                     prefix: models::Prefix::new(*prefix),
                     user_capability: *legacy,
-                    capability_bits: bits.iter().collect(),
+                    bits: *bits,
                 })
                 .collect();
 
@@ -141,7 +145,7 @@ mod tests {
             super::PrefixRef {
                 prefix: models::Prefix::new("acmeCo/"),
                 user_capability: models::Capability::None,
-                capability_bits: bits.iter().collect(),
+                bits,
             },
             async_graphql::EmptyMutation,
             async_graphql::EmptySubscription,
@@ -155,7 +159,7 @@ mod tests {
         {
           "data": {
             "capabilities": [
-              "viewer"
+              "Viewer"
             ],
             "capabilityBits": [
               "CatalogRead",

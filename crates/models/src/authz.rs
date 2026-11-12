@@ -104,7 +104,7 @@ impl std::fmt::Display for Capability {
 #[cfg_attr(
     feature = "async-graphql",
     derive(async_graphql::Enum),
-    graphql(rename_items = "snake_case")
+    graphql(rename_items = "PascalCase")
 )]
 pub enum CapabilityBundle {
     Viewer,
