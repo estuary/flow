@@ -643,6 +643,7 @@ mod test {
                         imageTag
                         protocol
                         endpointSpecSchema
+                        supportsSecrets
                         resourceSpecSchema
                     }
 

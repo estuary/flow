@@ -29,6 +29,8 @@ pub struct ConnectorSpec {
     disable_backfill: bool,
     /// The default interval between invocations of a capture using this connector. Formatted as HH:MM:SS. Only applicable to non-streaming (polling) capture connectors.
     default_capture_interval: Option<String>,
+    /// Whether the endpoint configuration's secret fields can be supplied through a task's `secrets` stanza. When false, secrets must be encrypted into the config with sops. True for a schema without secret fields, and false for Dekaf.
+    supports_secrets: bool,
 }
 
 /// Internal key for the DataLoader, not exposed in GraphQL.
@@ -55,9 +57,11 @@ impl async_graphql::dataloader::Loader<ConnectorSpecKey> for PgDataLoader {
               ct.endpoint_spec_schema as "endpoint_spec_schema: JsonRawValue",
               ct.resource_spec_schema as "resource_spec_schema: JsonRawValue",
               ct.disable_backfill,
-              ct.default_capture_interval::text as "default_capture_interval"
+              ct.default_capture_interval::text as "default_capture_interval",
+              c.image_name
             from unnest($1::flowid[]) as input(id)
             join connector_tags ct on input.id = ct.id
+            join connectors c on c.id = ct.connector_id
             "#,
             ids as Vec<Id>,
         )
@@ -70,6 +74,14 @@ impl async_graphql::dataloader::Loader<ConnectorSpecKey> for PgDataLoader {
             .map(|row| {
                 let key = ConnectorSpecKey(row.id);
 
+                // Computed on read, so rule changes apply to every tag without a re-spec.
+                // Dekaf reads only a `sops` config, whatever its schema.
+                let supports_secrets = !row.image_name.starts_with(models::DEKAF_IMAGE_NAME_PREFIX)
+                    && row.endpoint_spec_schema.as_ref().is_some_and(|pg| {
+                        serde_json::from_str::<serde_json::Value>(pg.0.get())
+                            .is_ok_and(|schema| validation::supports_secrets(&schema).is_ok())
+                    });
+
                 let val = ConnectorSpec {
                     id: row.id,
                     image_tag: row.image_tag,
@@ -78,6 +90,7 @@ impl async_graphql::dataloader::Loader<ConnectorSpecKey> for PgDataLoader {
                     endpoint_spec_schema: row
                         .endpoint_spec_schema
                         .map(|pg| async_graphql::Json(pg.0)),
+                    supports_secrets,
                     resource_spec_schema: row
                         .resource_spec_schema
                         .map(|pg| async_graphql::Json(pg.0)),

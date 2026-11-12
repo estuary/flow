@@ -23,6 +23,7 @@ pub use custom::CAPTURE_PYTHON_IMAGE;
 pub use derivation::derive_spec_request;
 pub use errors::Error;
 pub use materialization::materialization_spec_request;
+pub use secrets::supports_secrets;
 
 /// Portion of the binding namespace reserved for runtime-internal bindings
 /// (today: the capture connector-state pseudo-binding). Internal additions must

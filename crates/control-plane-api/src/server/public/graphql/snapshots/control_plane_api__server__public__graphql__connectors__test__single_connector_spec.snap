@@ -26,7 +26,8 @@ expression: response
           }
         },
         "type": "object"
-      }
+      },
+      "supportsSecrets": true
     },
     "fallbackToDefault": {
       "endpointSpecSchema": {
@@ -50,7 +51,8 @@ expression: response
           }
         },
         "type": "object"
-      }
+      },
+      "supportsSecrets": true
     },
     "unknownImage": null
   }

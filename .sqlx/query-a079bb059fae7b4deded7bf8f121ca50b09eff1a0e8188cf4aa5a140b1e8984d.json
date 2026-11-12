@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n              ct.id as \"id: Id\",\n              ct.image_tag,\n              ct.protocol as \"protocol: ConnectorProto\",\n              ct.documentation_url,\n              ct.endpoint_spec_schema as \"endpoint_spec_schema: JsonRawValue\",\n              ct.resource_spec_schema as \"resource_spec_schema: JsonRawValue\",\n              ct.disable_backfill,\n              ct.default_capture_interval::text as \"default_capture_interval\"\n            from unnest($1::flowid[]) as input(id)\n            join connector_tags ct on input.id = ct.id\n            ",
+  "query": "select\n              ct.id as \"id: Id\",\n              ct.image_tag,\n              ct.protocol as \"protocol: ConnectorProto\",\n              ct.documentation_url,\n              ct.endpoint_spec_schema as \"endpoint_spec_schema: JsonRawValue\",\n              ct.resource_spec_schema as \"resource_spec_schema: JsonRawValue\",\n              ct.disable_backfill,\n              ct.default_capture_interval::text as \"default_capture_interval\",\n              c.image_name\n            from unnest($1::flowid[]) as input(id)\n            join connector_tags ct on input.id = ct.id\n            join connectors c on c.id = ct.connector_id\n            ",
   "describe": {
     "columns": [
       {
@@ -85,6 +85,17 @@
         "name": "default_capture_interval",
         "type_info": "Text",
         "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "image_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "connectors",
+            "name": "image_name"
+          }
+        }
       }
     ],
     "parameters": {
@@ -114,8 +125,9 @@
       true,
       true,
       false,
-      null
+      null,
+      false
     ]
   },
-  "hash": "f95a992a07839c41ef177ccfb9b34b8cae2b1675050bab48171ef7be89f9f01b"
+  "hash": "a079bb059fae7b4deded7bf8f121ca50b09eff1a0e8188cf4aa5a140b1e8984d"
 }

@@ -811,6 +811,10 @@ type ConnectorSpec {
 	The default interval between invocations of a capture using this connector. Formatted as HH:MM:SS. Only applicable to non-streaming (polling) capture connectors.
 	"""
 	defaultCaptureInterval: String
+	"""
+	Whether the endpoint configuration's secret fields can be supplied through a task's `secrets` stanza. When false, secrets must be encrypted into the config with sops. True for a schema without secret fields, and false for Dekaf.
+	"""
+	supportsSecrets: Boolean!
 }
 
 """

@@ -5,6 +5,9 @@
 //! after, against the configuration schema of the connector's Spec response.
 
 mod plaintext;
+mod supported;
+
+pub use supported::supports_secrets;
 
 use super::{Error, Scope};
 use std::collections::BTreeMap;
