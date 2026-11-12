@@ -1,0 +1,73 @@
+query ResolveReadablePrefixes($prefixes: [String!]!, $after: String) {
+    prefixes(by: { minCapability: none }, filter: { prefix: { in: $prefixes } }, after: $after, first: 100) {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            node {
+                prefix
+                capabilities
+            }
+        }
+    }
+}
+
+fragment SelectFragmentStore on FragmentStore {
+    provider
+    prefix
+    bucket
+    region
+    storageAccountName
+    containerName
+    accountTenantId
+    endpoint
+}
+
+query ResolveStorageMappings($prefixes: [String!]!, $after: String) {
+    storageMappings(filter: { catalogPrefix: { in: $prefixes } }, after: $after, first: 100) {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            node {
+                catalogPrefix
+                fragmentStores {
+                    ...SelectFragmentStore
+                }
+            }
+        }
+    }
+}
+
+fragment SelectLiveSpec on LiveSpec {
+    liveSpecId
+    catalogType
+    dataPlaneId
+    lastPubId
+    lastBuildId
+    model
+    builtSpec
+    inferredSchema {
+        schema
+        md5
+    }
+}
+
+query ResolveLiveSpecs($names: [Name!]!, $after: String) {
+    liveSpecs(by: { names: $names }, after: $after, first: 50) {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            node {
+                catalogName
+                liveSpec {
+                    ...SelectLiveSpec
+                }
+            }
+        }
+    }
+}
