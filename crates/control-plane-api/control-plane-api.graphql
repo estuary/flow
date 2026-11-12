@@ -393,32 +393,6 @@ enum Capability {
 	admin
 }
 
-enum CapabilityBit {
-	CatalogRead
-	JournalRead
-	JournalAppend
-	SpecEdit
-	CreateGrant
-	DeleteGrant
-	ManageInviteLinks
-	ViewDataPlanePrivateNetworking
-	ModifyDataPlanePrivateNetworking
-	ViewBilling
-	EditBilling
-	QueryServiceAccounts
-	CreateServiceAccount
-	CreateApiKey
-	RevokeApiKey
-	ViewSecret
-	EditSecret
-	DecryptSecret
-	Delegate
-	Assume
-	CreateSandbox
-	ManageAlerts
-	ManageLegal
-}
-
 """
 A stable, named bundle of capability bits. Grants and token capability
 masks name bundles rather than bits, so bits may be added, split, or
@@ -2388,15 +2362,11 @@ type PrefixRef {
 	entirely from the `bundles` column rather than the legacy column.
 	
 	Exists solely so the dashboard's read/write/admin prefix-bucket
-	store keeps working until it migrates to consuming `capabilityBits`
+	store keeps working until it migrates to consuming `capabilities`
 	directly. Once that migration lands, this field and its derivation
 	can be deleted.
 	"""
 	userCapability: Capability!
-	"""
-	Fine-grained capabilities the user has at this prefix.
-	"""
-	capabilityBits: [CapabilityBit!]!
 	"""
 	Capability bundles that cover the user's capability bits at this prefix.
 	"""
