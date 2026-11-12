@@ -1,7 +1,7 @@
 # connector-vmm-tests
 
 Integration tests for connector execution in real KVM guests. Unit tests in
-`connector`, `connector-vmm`, and `guest-init` cover configuration and state
+`connector`, `connector-vmm`, and `connector-guest-init` cover configuration and state
 transitions; this suite checks their interaction with the kernel, container
 engine, and platform.
 
@@ -149,7 +149,7 @@ verifies the host boundary, stages controlled endpoints, and writes the run
 configuration. It builds two VMM images which differ only in
 `flow-connector-vmm`: the packaged build, which `--platform` uses, and the
 suite's, built with connector-vmm's `test-controls` feature in a target
-directory of its own. It checks that both carry this run's `flow-guest-init`,
+directory of its own. It checks that both carry this run's `flow-connector-guest-init`,
 and that they and the fake report this run's `FLOW_BUILD_IDENTITY` from
 `boundary verify`. A run from a modified checkout has `--platform`'s reactor
 and flowctl allow unpaired VMM images, since none could pair.

@@ -133,10 +133,10 @@ trap 'release || exit 1' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-echo "=== Building flow-connector-vmm, flow-guest-init, flow-connector-init and the Python connectors ==="
+echo "=== Building flow-connector-vmm, flow-connector-guest-init, flow-connector-init and the Python connectors ==="
 rustup target add x86_64-unknown-linux-musl >/dev/null
 cargo build --locked --release -p connector-vmm 9>&-
-cargo build --locked --release --target x86_64-unknown-linux-musl -p connector-init -p guest-init \
+cargo build --locked --release --target x86_64-unknown-linux-musl -p connector-init -p connector-guest-init \
     -p capture-python -p derive-python -p materialize-python 9>&-
 
 # The two files docker/connector-vmm.Dockerfile reads from a package directory.
@@ -144,7 +144,7 @@ cargo build --locked --release --target x86_64-unknown-linux-musl -p connector-i
 rm -rf "${RUN_DIR}"
 mkdir -p "${RUN_DIR}/package/amd64" "${BUILDX_CACHE}"
 cp "${CARGO_TARGET_DIR}/release/flow-connector-vmm" \
-    "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-guest-init" \
+    "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-connector-guest-init" \
     "${RUN_DIR}/package/amd64/"
 
 # The libkrun stage takes minutes uncached and seconds cached. `mode=min` is
@@ -330,12 +330,12 @@ printf 'FROM %s\nCOPY flow-connector-vmm /usr/local/bin/flow-connector-vmm\n' "$
 image_sha() {
     sudo -n podman run --rm --network=none --entrypoint sha256sum "$1" "$2" | cut -d' ' -f1
 }
-GUEST_INIT_SHA=$(sha256sum <"${RUN_DIR}/package/amd64/flow-guest-init" | cut -d' ' -f1)
+GUEST_INIT_SHA=$(sha256sum <"${RUN_DIR}/package/amd64/flow-connector-guest-init" | cut -d' ' -f1)
 PRODUCTION_SHA=$(sha256sum <"${RUN_DIR}/package/amd64/flow-connector-vmm" | cut -d' ' -f1)
 TEST_SHA=$(sha256sum <"${RUN_DIR}/test-controls/flow-connector-vmm" | cut -d' ' -f1)
 for image in "${VMM_IMAGE}" "${TEST_VMM_IMAGE}"; do
-    [ "$(image_sha "${image}" /flow-guest-init)" = "${GUEST_INIT_SHA}" ] \
-        || fail "${image}'s /flow-guest-init is not this run's build"
+    [ "$(image_sha "${image}" /flow-connector-guest-init)" = "${GUEST_INIT_SHA}" ] \
+        || fail "${image}'s /flow-connector-guest-init is not this run's build"
 done
 [ "$(image_sha "${VMM_IMAGE}" /usr/local/bin/flow-connector-vmm)" = "${PRODUCTION_SHA}" ] \
     || fail "${VMM_IMAGE}'s flow-connector-vmm is not this run's release build"
@@ -344,7 +344,7 @@ done
 [ "$(image_build "${TEST_VMM_IMAGE}")" = "${BUILD}" ] \
     || fail "${TEST_VMM_IMAGE} reports '$(image_build "${TEST_VMM_IMAGE}")', not this run's '${BUILD}'"
 [ "${PRODUCTION_SHA}" != "${TEST_SHA}" ] || fail "the test-controls build is the release build"
-echo "flow-guest-init ${GUEST_INIT_SHA}, in both images"
+echo "flow-connector-guest-init ${GUEST_INIT_SHA}, in both images"
 echo "flow-connector-vmm ${PRODUCTION_SHA} in ${VMM_IMAGE}, ${TEST_SHA} in ${TEST_VMM_IMAGE}"
 
 echo "=== Building the fake VMM image ==="

@@ -898,7 +898,7 @@ fn an_early_failure_preserves_a_partial_diagnostic() {
             let report = launch(
                 &mut h,
                 Launch {
-                    stderr: "flow-guest-init: could not exec connector-init",
+                    stderr: "flow-connector-guest-init: could not exec connector-init",
                     peer: Peer::Absent,
                     then: Then::Exit,
                 },
@@ -914,7 +914,7 @@ fn an_early_failure_preserves_a_partial_diagnostic() {
                 report
                     .logs
                     .iter()
-                    .any(|log| log == "flow-guest-init: could not exec connector-init"),
+                    .any(|log| log == "flow-connector-guest-init: could not exec connector-init"),
                 "{:?}",
                 report.logs
             );

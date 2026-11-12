@@ -1384,7 +1384,7 @@ fn storage() {
 
 /// The root is read-only outside the guest. A root workload's writes fail
 /// though its own view mounts `/` read-write, and still fail once it has
-/// unmounted what flow-guest-init bound over the image.
+/// unmounted what flow-connector-guest-init bound over the image.
 #[test]
 fn read_only_root() {
     let run = run::load();
@@ -1538,14 +1538,14 @@ fn working_dir() {
     let stderr = run::stderr_text(&vmm);
     let reported: Vec<&str> = stderr
         .lines()
-        .filter(|line| line.starts_with("flow-guest-init:"))
+        .filter(|line| line.starts_with("flow-connector-guest-init:"))
         .collect();
     assert_eq!(
         (status.code(), reported),
         (
             Some(125),
             vec![
-                "flow-guest-init: re-entering the working directory /tmp/project after mounting: \
+                "flow-connector-guest-init: re-entering the working directory /tmp/project after mounting: \
                  No such file or directory (os error 2)"
             ]
         ),

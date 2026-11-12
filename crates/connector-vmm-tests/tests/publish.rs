@@ -118,7 +118,7 @@ fn setup() -> Setup {
     }
     for arch in ["amd64", "arm64"] {
         std::fs::create_dir_all(package.join(arch)).unwrap();
-        for file in ["flow-connector-vmm", "flow-guest-init", "flowctl"] {
+        for file in ["flow-connector-vmm", "flow-connector-guest-init", "flowctl"] {
             std::fs::write(package.join(arch).join(file), format!("{arch} {file}\n")).unwrap();
         }
         std::fs::write(
@@ -678,7 +678,7 @@ fn build(setup: &Setup) -> String {
                 "derive-typescript",
                 "materialize-python",
                 "flow-connector-init",
-                "flow-guest-init",
+                "flow-connector-guest-init",
                 "flow-parser",
             ],
         ),

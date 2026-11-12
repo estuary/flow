@@ -142,7 +142,7 @@ fn framed(message: &str) -> String {
     let mut framed = String::with_capacity(message.len());
 
     for line in message.trim_end().lines() {
-        framed.push_str("flow-guest-init:");
+        framed.push_str("flow-connector-guest-init:");
         if !line.is_empty() {
             framed.push(' ');
             framed.push_str(line);
@@ -179,7 +179,7 @@ mod tests {
         insta::assert_snapshot!(table);
     }
 
-    const CHILD_MARKER: &str = "FLOW_GUEST_INIT_HOSTNAME_CHILD";
+    const CHILD_MARKER: &str = "FLOW_CONNECTOR_GUEST_INIT_HOSTNAME_CHILD";
     const CHILD_TEST: &str = "tests::default_hostname_child";
     const REPORT: &str = "HOSTNAME is ";
 

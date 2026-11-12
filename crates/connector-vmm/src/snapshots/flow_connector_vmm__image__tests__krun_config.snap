@@ -5,7 +5,7 @@ expression: table
 ## the full contract
 {
   "Cmd": [
-    "/flow-guest-init",
+    "/flow-connector-guest-init",
     "--guest-ip",
     "192.0.2.2/30",
     "--gateway",
@@ -44,7 +44,7 @@ expression: table
 ## the runtime set no log variables
 {
   "Cmd": [
-    "/flow-guest-init",
+    "/flow-connector-guest-init",
     "--guest-ip",
     "192.0.2.2/30",
     "--gateway",

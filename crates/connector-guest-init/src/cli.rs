@@ -6,7 +6,7 @@ use std::net::Ipv4Addr;
 
 #[derive(clap::Parser, Debug)]
 #[command(
-    name = "flow-guest-init",
+    name = "flow-connector-guest-init",
     about = "Guest init for a connector micro-VM: network, mounts, environment and user, then exec."
 )]
 pub struct Args {
@@ -120,7 +120,7 @@ mod tests {
     }
 
     const FLAGS: &[&str] = &[
-        "flow-guest-init",
+        "flow-connector-guest-init",
         "--guest-ip",
         "192.0.2.2/30",
         "--gateway",
@@ -164,7 +164,7 @@ mod tests {
             with_guest_ip("192.0.2.2"),
             with_guest_ip("192.0.2.2/33"),
             FLAGS.to_vec(),
-            vec!["flow-guest-init"],
+            vec!["flow-connector-guest-init"],
         ]
     }
 

@@ -1,5 +1,5 @@
 ---
-source: crates/guest-init/src/main.rs
+source: crates/connector-guest-init/src/main.rs
 expression: table
 ---
 ENOENT => 127

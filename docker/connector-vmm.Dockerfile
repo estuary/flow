@@ -55,7 +55,7 @@ RUN ln -s libkrun.so.${LIBKRUN_VERSION} /usr/lib64/libkrun.so.1 \
 ARG TARGETARCH
 COPY ${TARGETARCH}/flow-connector-vmm /usr/local/bin/
 # launch::GUEST_INIT, which the VMM maps into the guest root.
-COPY ${TARGETARCH}/flow-guest-init /flow-guest-init
+COPY ${TARGETARCH}/flow-connector-guest-init /flow-connector-guest-init
 
 LABEL dev.estuary.libkrun=${LIBKRUN_VERSION}
 LABEL dev.estuary.libkrunfw=${LIBKRUNFW_VERSION}

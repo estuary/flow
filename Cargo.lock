@@ -2123,6 +2123,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "connector-guest-init"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "insta",
+ "libc",
+ "rustix 1.1.6",
+ "tempfile",
+]
+
+[[package]]
 name = "connector-init"
 version = "0.0.0"
 dependencies = [
@@ -4353,17 +4364,6 @@ dependencies = [
  "graphql_client_codegen",
  "proc-macro2",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "guest-init"
-version = "0.0.0"
-dependencies = [
- "clap",
- "insta",
- "libc",
- "rustix 1.1.6",
- "tempfile",
 ]
 
 [[package]]

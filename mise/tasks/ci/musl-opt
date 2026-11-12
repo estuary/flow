@@ -15,4 +15,4 @@ cargo auditable build \
     -p derive-typescript \
     -p materialize-python \
     -p parser \
-    -p guest-init
+    -p connector-guest-init

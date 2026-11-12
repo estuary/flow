@@ -11,7 +11,7 @@ pub const DEFAULT_MEMORY_OVERHEAD_MIB: u32 = 256;
 /// The VMM container's only capabilities: its line drops podman's
 /// defaults, and adds these. libkrun's virtiofs server runs in the VMM's
 /// process, as host root, so a guest's file operations on a share are the
-/// VMM's own. The guest's privileges, and guest-init's NO_NEW_PRIVS, are
+/// VMM's own. The guest's privileges, and connector-guest-init's NO_NEW_PRIVS, are
 /// its kernel's affair, and grant nothing here.
 const CAPABILITIES: &[&str] = &[
     // The server's chown, for a guest's on a writable share.

@@ -1,5 +1,5 @@
 [package]
-name = "guest-init"
+name = "connector-guest-init"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -9,7 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "flow-guest-init"
+name = "flow-connector-guest-init"
 path = "src/main.rs"
 
 [dependencies]

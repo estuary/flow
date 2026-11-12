@@ -16,8 +16,8 @@ use std::path::Path;
 /// root as an overlay file. The leading slash is the guest path; the overlay
 /// entry below has none, because overlay paths are entries in the root
 /// virtiofs, which is how libkrun serves its own `/init.krun`.
-pub const GUEST_INIT: &str = "/flow-guest-init";
-const GUEST_INIT_OVERLAY: &str = "flow-guest-init";
+pub const GUEST_INIT: &str = "/flow-connector-guest-init";
+const GUEST_INIT_OVERLAY: &str = "flow-connector-guest-init";
 const KRUN_CONFIG_OVERLAY: &str = ".krun_config.json";
 
 /// Where the guest mounts the connector mount, whatever its host path: the
@@ -25,7 +25,7 @@ const KRUN_CONFIG_OVERLAY: &str = ".krun_config.json";
 pub const GUEST_CONNECTOR_MOUNT: &str = "/connector-mount";
 
 /// Mount points, as virtual directories in the root virtiofs. The scratch
-/// disk's must match flow-guest-init's `root::SCRATCH`.
+/// disk's must match flow-connector-guest-init's `root::SCRATCH`.
 const CONNECTOR_MOUNT_POINT: &str = "connector-mount";
 const SCRATCH_MOUNT_POINT: &str = "scratch";
 
@@ -845,7 +845,7 @@ mod tests {
             mount_points: vec!["scratch".to_string(), "connector-mount".to_string()],
             overlays: vec![
                 Overlay {
-                    path: "flow-guest-init",
+                    path: "flow-connector-guest-init",
                     data: b"<the guest init ELF>",
                     mode: 0o100755,
                 },

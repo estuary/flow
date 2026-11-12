@@ -1,10 +1,10 @@
-# guest-init
+# connector-guest-init
 
-`flow-guest-init` is the init of a connector micro-VM. libkrun's own init hands
+`flow-connector-guest-init` is the init of a connector micro-VM. libkrun's own init hands
 it the guest as root, and it gives the connector image what a container runtime
 gives a container today - network, mounts, environment, user - before exec'ing
 the workload and becoming it. The VMM injects it into the guest root at
-`/flow-guest-init` and builds its argv.
+`/flow-connector-guest-init` and builds its argv.
 
 ## Roadmap
 

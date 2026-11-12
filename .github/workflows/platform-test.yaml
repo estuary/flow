@@ -107,7 +107,7 @@ jobs:
 
       # The merge commit's first parent is the base it merges into, so the
       # diff between them is the pull request's whole change. The crates are
-      # those connector-vmm and guest-init build from, by path dependency.
+      # those connector-vmm and connector-guest-init build from, by path dependency.
       - name: Find changes the gate covers
         id: changes
         # -o pipefail, so that a failed git or cargo fails the step rather
@@ -120,9 +120,9 @@ jobs:
             (.packages | map({key: (.manifest_path | rtrimstr("/Cargo.toml")),
               value: [.dependencies[] | select(.path != null and .kind != "dev") | .path]}) | from_entries) as $deps
             | def closure: . as $set | ([$set[], ($set[] | $deps[.][])] | unique) | if . == $set then . else closure end;
-            [.packages[] | select(.name == "connector-vmm" or .name == "guest-init") | .manifest_path | rtrimstr("/Cargo.toml")]
+            [.packages[] | select(.name == "connector-vmm" or .name == "connector-guest-init") | .manifest_path | rtrimstr("/Cargo.toml")]
             | closure | .[] | ltrimstr($root) + "/"')
-          [ -n "${CRATES}" ] || { echo "found no crates for connector-vmm and guest-init" >&2; exit 1; }
+          [ -n "${CRATES}" ] || { echo "found no crates for connector-vmm and connector-guest-init" >&2; exit 1; }
           PREFIXES=(${CRATES}
             Cargo.toml Cargo.lock mise.toml docker/connector-vmm.Dockerfile
             mise/tasks/build/identity-lib.sh mise/tasks/local/stack-env

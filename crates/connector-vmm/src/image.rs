@@ -156,7 +156,7 @@ pub fn resolve_user(
     Ok((uid, gid, vec![gid], home))
 }
 
-/// The argv libkrun's guest init execs: `flow-guest-init` always leads, and
+/// The argv libkrun's guest init execs: `flow-connector-guest-init` always leads, and
 /// everything after `--` is the workload it becomes.
 ///
 /// `krun_set_exec` is deliberately never called. libkrun's init consults `Cmd`

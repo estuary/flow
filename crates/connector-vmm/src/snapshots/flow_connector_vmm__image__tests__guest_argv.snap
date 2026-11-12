@@ -3,7 +3,7 @@ source: crates/connector-vmm/src/image.rs
 expression: table
 ---
 ## default workload
-/flow-guest-init
+/flow-connector-guest-init
 --guest-ip
 192.0.2.2/30
 --gateway
@@ -28,7 +28,7 @@ expression: table
 --vsock-port=49092
 
 ## with a persistent disk
-/flow-guest-init
+/flow-connector-guest-init
 --guest-ip
 192.0.2.2/30
 --gateway
@@ -55,7 +55,7 @@ expression: table
 --vsock-port=49092
 
 ## --exec replaces the workload, not the init
-/flow-guest-init
+/flow-connector-guest-init
 --guest-ip
 192.0.2.2/30
 --gateway
@@ -80,7 +80,7 @@ expression: table
 exit 7
 
 ## root image user, in no supplementary groups
-/flow-guest-init
+/flow-connector-guest-init
 --guest-ip
 192.0.2.2/30
 --gateway

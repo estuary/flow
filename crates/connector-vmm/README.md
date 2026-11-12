@@ -2,7 +2,7 @@
 
 `flow-connector-vmm` is the process that runs one connector inside a micro-VM.
 It owns everything between the container the runtime launches and the guest
-that `flow-guest-init` takes over: the network the guest is given, the ruleset
+that `flow-connector-guest-init` takes over: the network the guest is given, the ruleset
 that bounds it, the disks and shares it sees, and the libkrun call sequence
 that starts it.
 
@@ -98,7 +98,7 @@ the connector mount or `/proc`, reads whatever the image has at that path.
 `image::resolve_user` uses the same databases for supplementary groups,
 matching rootful podman 4.9 over runc. A colon in `User` suppresses memberships:
 `user:` keeps the passwd gid, and `:group` selects uid 0 in that group. The list
-travels as repeated `--supplementary-gid` flags; `guest-init` sets it with
+travels as repeated `--supplementary-gid` flags; `connector-guest-init` sets it with
 `setgroups` before `setgid` and `setuid`.
 
 `HOME` comes from the resolved passwd entry, including empty fields. Without
@@ -115,7 +115,7 @@ because libkrun applies `HOME` and `TERM` last-wins.
 | `/rootfs` | ro | a private image-backed volume, mounted `readonly`, checked at startup and served read-only as the guest's root. |
 | `/sock` | rw | libkrun binds `init.sock` here. |
 | `/scratch-backing` | rw | holds the `O_TMPFILE` scratch, sized by `--disk-mib` and formatted ext4. `src/disk.rs` has the descriptor and format details. Guest discard releases deleted data blocks; the file is reclaimed when the VM exits. |
-| `/persistent-disk` | rw | only with `--persistent-disk`. `guest-init` mounts it `nodev,nosuid,noexec` and does not chown it. |
+| `/persistent-disk` | rw | only with `--persistent-disk`. `connector-guest-init` mounts it `nodev,nosuid,noexec` and does not chown it. |
 
 Scratch uses libkrun's `KRUN_SYNC_NONE`: guest flush requests need no host
 hardware durability because the disk dies with the VM. The newly truncated
@@ -153,7 +153,7 @@ server runs as host root and performs a guest's file operations itself.
 podman 4.9's defaults, are dropped. Nothing here uses the first three.
 Without the last, a root guest cannot set a file capability on its
 persistent disk, which it mounts `nosuid`. These are the VMM's host
-privileges. The guest's root and guest-init's `NO_NEW_PRIVS` are the guest
+privileges. The guest's root and connector-guest-init's `NO_NEW_PRIVS` are the guest
 kernel's, and confer none of them.
 
 **The guest's root is read-only outside the guest, twice.** podman mounts the
@@ -164,7 +164,7 @@ storage. The guest's mount points come from libkrun too: `/scratch`,
 in the root share. A virtual directory hides an image entry of its name, so
 `launch::check` refuses a persistent disk whose guest path begins with one the
 image has, or with one of the VMM's own. The writable layout the guest builds
-from its scratch disk belongs to `guest-init::root`.
+from its scratch disk belongs to `connector-guest-init::root`.
 
 ## What a guest escape reaches
 
@@ -229,14 +229,14 @@ candidate's own `nft`. The client times out after
 `CONNECTOR_VMM_GATE_TIMEOUT` seconds (300). Cleanup uses the exact container
 name and fails if the container may remain.
 
-`ci:connector-vmm-candidate` builds this crate and `guest-init`, builds the
+`ci:connector-vmm-candidate` builds this crate and `connector-guest-init`, builds the
 image from those two files alone, and gates it by ID. A pull request's
 Platform workflow runs it when the pull request changes this crate, a crate
 it builds from, the image, or the build and publication scripts.
 
 `connector-vmm` is Fedora 43 with libkrun built from source, the guest kernel
 from Fedora's `libkrunfw`, and the commands `run` invokes before the VM (`ip`,
-`nft`, `mkfs.ext4`). `flow-guest-init` sits at `launch::GUEST_INIT`. The
+`nft`, `mkfs.ext4`). `flow-connector-guest-init` sits at `launch::GUEST_INIT`. The
 Dockerfile pins libkrun's commit and lockfile, and its version ARGs are also
 the `dev.estuary.libkrun`, `dev.estuary.libkrunfw` and `dev.estuary.nftables`
 labels. Packaging constraints:
