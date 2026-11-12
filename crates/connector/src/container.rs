@@ -254,7 +254,7 @@ where
 
 /// Decode a connector's stderr into `log_sink` until it closes, signalling
 /// `ready_tx` at flow-connector-init's readiness byte.
-pub(crate) async fn pump_stderr<R, F>(
+async fn pump_stderr<R, F>(
     mut stderr: tokio::io::BufReader<R>,
     ready_tx: oneshot::Sender<()>,
     log_sink: LogSink,
@@ -269,6 +269,11 @@ pub(crate) async fn pump_stderr<R, F>(
 
     let decoder = ops::decode::Decoder::new(std::time::SystemTime::now);
     loop {
+        // `flow-connector-init` binds its port and then writes a single
+        // whitespace byte: our only signal that the container is up. Anything
+        // before it is `docker run` talking -- pull progress, or a failure
+        // such as a name conflict -- and mistaking that for readiness races
+        // us into inspecting a container which doesn't exist yet.
         let first = match stderr.fill_buf().await {
             Ok([]) => None,
             Ok(buf) => Some(buf[0]),
@@ -296,21 +301,23 @@ pub(crate) async fn pump_stderr<R, F>(
             Ok(_) => (),
         }
 
-        // The decoder folds the buffered lines which follow a raw line into
-        // its message. Until readiness, one of them may hold the marker.
-        let lookahead = match ready_tx {
-            Some(_) => before_marked_line(stderr.buffer()),
-            None => stderr.buffer(),
+        // The decoder folds buffered lines which follow a raw line into
+        // its message. Until readiness, one of them may begin with the
+        // whitespace byte.
+        let buffer = if ready_tx.is_none() {
+            stderr.buffer()
+        } else {
+            &[]
         };
-        let (log, consume) = decoder.line_to_log(&line, lookahead);
+        let (log, consume) = decoder.line_to_log(&line, buffer);
         stderr.consume(consume);
         log_sink.send(transform_log(log)).await;
     }
-    // An un-sent `ready_tx` cancels on drop, telling the launch that stderr
-    // closed before the connector came up. That case never logged a
+    // An un-sent `ready_tx` cancels on drop, telling `run()` that stderr
+    // closed before the container came up. That case never logged a
     // "started connector container", so it gets no "stopped" either --
     // otherwise this pairs with it, and is the last record of the
-    // container that the pump sends.
+    // container that the caller's sink sees.
     if ready_tx.is_none() {
         log_sink
             .send(crate::build_log(
@@ -320,14 +327,6 @@ pub(crate) async fn pump_stderr<R, F>(
             ))
             .await;
     }
-}
-
-/// The lines of `buffer`, which begins a line, before the first of them which
-/// begins with a space.
-fn before_marked_line(buffer: &[u8]) -> &[u8] {
-    let marked =
-        (0..buffer.len()).find(|&i| buffer[i] == b' ' && (i == 0 || buffer[i - 1] == b'\n'));
-    &buffer[..marked.unwrap_or(buffer.len())]
 }
 
 /// Generate a name for a connector container which is unique on this host.
@@ -583,13 +582,56 @@ pub(crate) async fn pull_and_inspect(
 }
 
 #[cfg(test)]
-#[path = "container/stderr_tests.rs"]
-mod stderr_tests;
-
-#[cfg(test)]
 mod test {
     use futures::StreamExt;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn pump_stderr_signals_buffered_readiness() {
+        use tokio::io::AsyncWriteExt;
+
+        // Write everything before the pump starts, so its first read buffers
+        // the whitespace byte behind a raw line. Holding `writer` open shows
+        // that readiness doesn't wait for EOF.
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        writer
+            .write_all(b"WARN engine: first\n raw after readiness\n  indented continuation\n")
+            .await
+            .unwrap();
+
+        let (log_tx, mut log_rx) = tokio::sync::mpsc::channel(8);
+        let (log_sink, _read_through) = crate::LogSink::response(log_tx);
+        let (ready_tx, ready_rx) = futures::channel::oneshot::channel();
+        let pump = tokio::spawn(super::pump_stderr(
+            tokio::io::BufReader::new(reader),
+            ready_tx,
+            log_sink,
+            "synthetic:local".to_string(),
+            |log| log,
+        ));
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), ready_rx)
+            .await
+            .expect("readiness while stderr is open")
+            .unwrap();
+        drop(writer);
+        pump.await.unwrap();
+
+        let mut logs = Vec::new();
+        while let Some(response) = log_rx.recv().await {
+            let Some(crate::proto::response::Kind::Log(log)) = response.unwrap().kind else {
+                panic!("the pump sends only logs");
+            };
+            logs.push(format!("{:?} {}", log.level(), log.message));
+        }
+        insta::assert_debug_snapshot!(logs, @r###"
+        [
+            "Warn WARN engine: first",
+            "Warn raw after readiness\n  indented continuation",
+            "Debug stopped connector container",
+        ]
+        "###);
+    }
 
     #[tokio::test]
     async fn runs_an_inspected_image() {
