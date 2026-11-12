@@ -2388,7 +2388,7 @@ type PrefixRef {
 	entirely from the `bundles` column rather than the legacy column.
 	
 	Exists solely so the dashboard's read/write/admin prefix-bucket
-	store keeps working until it migrates to consuming `capabilityBits`
+	store keeps working until it migrates to consuming `capabilities`
 	directly. Once that migration lands, this field and its derivation
 	can be deleted.
 	"""
@@ -2396,7 +2396,7 @@ type PrefixRef {
 	"""
 	Fine-grained capabilities the user has at this prefix.
 	"""
-	capabilityBits: [CapabilityBit!]!
+	capabilityBits: [CapabilityBit!]! @deprecated(reason: "Use capabilities instead.")
 	"""
 	Capability bundles that cover the user's capability bits at this prefix.
 	"""
