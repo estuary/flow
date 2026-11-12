@@ -28,11 +28,6 @@ impl Subject {
 pub type CapabilitySet = EnumSet<Capability>;
 
 #[derive(EnumSetType, Debug)]
-#[cfg_attr(
-    feature = "async-graphql",
-    derive(async_graphql::Enum),
-    graphql(name = "CapabilityBit", rename_items = "PascalCase")
-)]
 pub enum Capability {
     CatalogRead,
     JournalRead,

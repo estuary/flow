@@ -13,7 +13,7 @@ pub struct PrefixRef {
     /// entirely from the `bundles` column rather than the legacy column.
     ///
     /// Exists solely so the dashboard's read/write/admin prefix-bucket
-    /// store keeps working until it migrates to consuming `capabilityBits`
+    /// store keeps working until it migrates to consuming `capabilities`
     /// directly. Once that migration lands, this field and its derivation
     /// can be deleted.
     pub user_capability: models::Capability,
@@ -23,11 +23,6 @@ pub struct PrefixRef {
 
 #[async_graphql::ComplexObject]
 impl PrefixRef {
-    /// Fine-grained capabilities the user has at this prefix.
-    async fn capability_bits(&self) -> Vec<models::authz::Capability> {
-        self.bits.iter().collect()
-    }
-
     /// Capability bundles that cover the user's capability bits at this prefix.
     async fn capabilities(&self) -> Vec<models::authz::CapabilityBundle> {
         models::authz::bundles_covering(self.bits).collect()
@@ -151,20 +146,13 @@ mod tests {
             async_graphql::EmptySubscription,
         )
         .finish();
-        let response = schema
-            .execute("{ capabilities capabilityBits userCapability }")
-            .await;
+        let response = schema.execute("{ capabilities userCapability }").await;
 
         insta::assert_json_snapshot!(response, @r#"
         {
           "data": {
             "capabilities": [
               "Viewer"
-            ],
-            "capabilityBits": [
-              "CatalogRead",
-              "JournalRead",
-              "ViewDataPlanePrivateNetworking"
             ],
             "userCapability": "none"
           }
