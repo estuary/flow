@@ -458,6 +458,28 @@ enum CapabilityBit {
 }
 
 """
+A stable, named bundle of capability bits. Grants and token capability
+masks name bundles rather than bits, so bits may be added, split, or
+merged without changing stored grants or minted tokens.
+"""
+enum CapabilityBundle {
+	Viewer
+	Writer
+	Editor
+	Admin
+	Billing
+	TeamAdmin
+	ManageServiceAccounts
+	ManageDataPlane
+	CreateSandbox
+	Delegate
+	Assume
+	ViewBilling
+	EditBilling
+	EditSecret
+}
+
+"""
 Stats for one binding of a capture, keyed by the collection it writes to.
 """
 type CaptureBindingStats {
@@ -2409,7 +2431,7 @@ type PrefixRef {
 	entirely from the `bundles` column rather than the legacy column.
 	
 	Exists solely so the dashboard's read/write/admin prefix-bucket
-	store keeps working until it migrates to consuming `capabilityBits`
+	store keeps working until it migrates to consuming `capabilities`
 	directly. Once that migration lands, this field and its derivation
 	can be deleted.
 	"""
@@ -2417,11 +2439,11 @@ type PrefixRef {
 	"""
 	Fine-grained capabilities the user has at this prefix.
 	"""
-	capabilities: [CapabilityBit!]! @deprecated(reason: "Use capabilityBits instead.")
+	capabilityBits: [CapabilityBit!]! @deprecated(reason: "Use capabilities instead.")
 	"""
-	Fine-grained capabilities the user has at this prefix.
+	Capability bundles that cover the user's capability bits at this prefix.
 	"""
-	capabilityBits: [CapabilityBit!]!
+	capabilities: [CapabilityBundle!]!
 }
 
 type PrefixRefConnection {

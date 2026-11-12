@@ -173,7 +173,7 @@ mod tests {
             "data": null,
             "errors": [
               {
-                "message": "billing access denied. Requires capabilities: billing or admin",
+                "message": "billing access denied. Requires capabilities: edit_billing or billing or admin",
                 "locations": [
                   {
                     "line": 1,
@@ -186,6 +186,9 @@ mod tests {
                 "extensions": {
                   "code": "FORBIDDEN",
                   "requiredBundleOptions": [
+                    [
+                      "edit_billing"
+                    ],
                     [
                       "billing"
                     ],

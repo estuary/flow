@@ -25,7 +25,10 @@
                       "assume",
                       "manage_data_plane",
                       "manage_service_accounts",
-                      "create_sandbox"
+                      "create_sandbox",
+                      "view_billing",
+                      "edit_billing",
+                      "edit_secret"
                     ]
                   }
                 }
@@ -52,7 +55,10 @@
                       "assume",
                       "manage_data_plane",
                       "manage_service_accounts",
-                      "create_sandbox"
+                      "create_sandbox",
+                      "view_billing",
+                      "edit_billing",
+                      "edit_secret"
                     ]
                   }
                 }

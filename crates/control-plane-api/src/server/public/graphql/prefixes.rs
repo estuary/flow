@@ -13,20 +13,25 @@ pub struct PrefixRef {
     /// entirely from the `bundles` column rather than the legacy column.
     ///
     /// Exists solely so the dashboard's read/write/admin prefix-bucket
-    /// store keeps working until it migrates to consuming `capabilityBits`
+    /// store keeps working until it migrates to consuming `capabilities`
     /// directly. Once that migration lands, this field and its derivation
     /// can be deleted.
     pub user_capability: models::Capability,
-    /// Fine-grained capabilities the user has at this prefix.
-    #[graphql(deprecation = "Use capabilityBits instead.")]
-    pub capabilities: Vec<models::authz::Capability>,
+    #[graphql(skip)]
+    pub bits: models::authz::CapabilitySet,
 }
 
 #[async_graphql::ComplexObject]
 impl PrefixRef {
     /// Fine-grained capabilities the user has at this prefix.
-    async fn capability_bits(&self) -> &[models::authz::Capability] {
-        &self.capabilities
+    #[graphql(deprecation = "Use capabilities instead.")]
+    async fn capability_bits(&self) -> Vec<models::authz::Capability> {
+        self.bits.iter().collect()
+    }
+
+    /// Capability bundles that cover the user's capability bits at this prefix.
+    async fn capabilities(&self) -> Vec<models::authz::CapabilityBundle> {
+        models::authz::bundles_covering(self.bits).collect()
     }
 }
 
@@ -106,7 +111,7 @@ impl PrefixesQuery {
                 .map(|(prefix, (bits, legacy))| PrefixRef {
                     prefix: models::Prefix::new(*prefix),
                     user_capability: *legacy,
-                    capabilities: bits.iter().collect(),
+                    bits: *bits,
                 })
                 .collect();
 
@@ -133,6 +138,40 @@ impl PrefixesQuery {
 #[cfg(test)]
 mod tests {
     use crate::test_server;
+
+    #[tokio::test]
+    async fn test_prefix_capability_bundles() {
+        let bits = models::authz::CapabilityBundle::Viewer.capabilities();
+        let schema = async_graphql::Schema::build(
+            super::PrefixRef {
+                prefix: models::Prefix::new("acmeCo/"),
+                user_capability: models::Capability::None,
+                bits,
+            },
+            async_graphql::EmptyMutation,
+            async_graphql::EmptySubscription,
+        )
+        .finish();
+        let response = schema
+            .execute("{ capabilities capabilityBits userCapability }")
+            .await;
+
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "capabilities": [
+              "Viewer"
+            ],
+            "capabilityBits": [
+              "CatalogRead",
+              "JournalRead",
+              "ViewDataPlanePrivateNetworking"
+            ],
+            "userCapability": "none"
+          }
+        }
+        "#);
+    }
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",
