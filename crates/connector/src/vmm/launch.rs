@@ -19,7 +19,6 @@ use anyhow::Context;
 use proto_flow::runtime;
 use std::time::Duration;
 
-const ATTEMPTS: usize = 3;
 /// The deadline for connector-init's readiness byte and the following dial.
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long teardown waits for podman's attached start client to leave, once
@@ -234,151 +233,126 @@ async fn launch(
     })
     .await?;
 
-    for attempt in 1..=ATTEMPTS {
-        let plan = plan::plan(
-            vmm,
-            &plan::Launch {
-                id: rand::random(),
-                token: rand::random(),
-                eligible,
-                image,
-                vmm_image: &vmm_image,
-                inspection: &inspection,
-                connector_mounts: &connector_mounts,
-                log_level: *log_level,
-                plane: *plane,
-                task_name,
-                persistent_disk: None,
-                egress,
-                ports,
-            },
-        )
-        .map_err(|err| crate::invalid_argument(format!("{err:#}")))?;
-
-        // Each attempt plans the same egress.
-        if attempt == 1 {
-            log_sink
-                .send(crate::build_log(
-                    ops::LogLevel::Info,
-                    &plan.egress.to_string(),
-                    [],
-                ))
-                .await;
-        }
-
-        let ingress_image = (!plan.ingress.is_empty()).then_some(vmm_image.as_str());
-        let file = match record::claim(
-            &vmm.state_dir,
-            &plan.name,
-            &record::claim_line(&plan.name, &plan.token, Some(&plan.mount), ingress_image),
-        ) {
-            Ok(file) => file,
-            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(err) => {
-                return Err(precondition(
-                    anyhow::Error::new(err).context(format!("claiming {}", plan.record)),
-                ));
-            }
-        };
-        let owner = owned.insert(Owned {
-            file,
-            path: plan.record.clone(),
-            record: record::Record {
-                name: plan.name.clone(),
-                token: plan.token.clone(),
-                mount: Some(plan.mount.clone()),
-                state: plan.state.clone(),
-                created_mount: false,
-                created_state: false,
-                ingress_image: ingress_image.map(str::to_string),
-            },
-            container: None,
-            attached: None,
-            refresh: None,
-        });
-
-        if !make_dir(owner, record::Dir::Mount, &plan.mount, 0o711).map_err(precondition)? {
-            teardown(input, owned.take()).await;
-            continue;
-        }
-        write_mount(&plan, &connector_init, &inspection).map_err(precondition)?;
-        owner.refresh = crate::protocol::start_task_update(
-            task_update.as_ref(),
-            eligible.task_type,
+    let plan = plan::plan(
+        vmm,
+        &plan::Launch {
+            id: rand::random(),
+            token: rand::random(),
+            eligible,
+            image,
+            vmm_image: &vmm_image,
+            inspection: &inspection,
+            connector_mounts: &connector_mounts,
+            log_level: *log_level,
+            plane: *plane,
             task_name,
-            build.as_deref(),
-            std::path::Path::new(&plan.mount),
-            log_sink,
-        )
-        .await?;
+            persistent_disk: None,
+            egress,
+            ports,
+        },
+    )
+    .map_err(|err| crate::invalid_argument(format!("{err:#}")))?;
 
-        let (state, mode) = &plan.directories[0];
-        if !make_dir(owner, record::Dir::State, state, *mode).map_err(precondition)? {
-            teardown(input, owned.take()).await;
-            continue;
-        }
-        prepare(&plan, vmm.disk_mib).map_err(precondition)?;
+    log_sink
+        .send(crate::build_log(
+            ops::LogLevel::Info,
+            &plan.egress.to_string(),
+            [],
+        ))
+        .await;
 
-        // Uncached, immediately before the network it protects, and from the
-        // VMM image whose tables the host's must equal.
-        let verified = unless_abandoned(launched_tx, async {
-            crate::container::engine_cmd(podman, &plan.verify)
-                .await
-                .map_err(|err| {
-                    precondition(err.context(
-                        "the host's VMM network boundary did not verify, \
-                         so this data plane cannot run VMM connectors",
-                    ))
-                })
-        })
-        .await?;
-        // Verify reports the image's build. The override skips only this.
-        if let Err(reason) = super::check_pairing(super::BUILD_IDENTITY, &verified) {
-            let reason = format!(
-                "VMM image {} is not paired with this launcher's build: {reason}",
-                vmm.image
-            );
-            if !vmm.allow_unpaired_build {
-                return Err(precondition(anyhow::anyhow!(
-                    "{reason}; launchers run only the VMM image built from their own commit"
-                )));
-            }
-            tracing::warn!(%reason, "launching an unpaired VMM image, as CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD permits");
-            log_sink
-                .send(crate::build_log(
-                    ops::LogLevel::Warn,
-                    &format!(
-                        "{reason}; launching it as CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD permits"
-                    ),
-                    [],
+    let ingress_image = (!plan.ingress.is_empty()).then_some(vmm_image.as_str());
+    let file = record::claim(
+        &vmm.state_dir,
+        &plan.name,
+        &record::claim_line(&plan.name, &plan.token, Some(&plan.mount), ingress_image),
+    )
+    .with_context(|| format!("claiming VMM ownership record {}", plan.record))
+    .map_err(precondition)?;
+    let owner = owned.insert(Owned {
+        file,
+        path: plan.record.clone(),
+        record: record::Record {
+            name: plan.name.clone(),
+            token: plan.token.clone(),
+            mount: Some(plan.mount.clone()),
+            state: plan.state.clone(),
+            created_mount: false,
+            created_state: false,
+            ingress_image: ingress_image.map(str::to_string),
+        },
+        container: None,
+        attached: None,
+        refresh: None,
+    });
+
+    make_dir(owner, record::Dir::Mount, &plan.mount, 0o711)
+        .with_context(|| format!("claiming connector mount {}", plan.mount))
+        .map_err(precondition)?;
+    write_mount(&plan, &connector_init, &inspection).map_err(precondition)?;
+    owner.refresh = crate::protocol::start_task_update(
+        task_update.as_ref(),
+        eligible.task_type,
+        task_name,
+        build.as_deref(),
+        std::path::Path::new(&plan.mount),
+        log_sink,
+    )
+    .await?;
+
+    let (state, mode) = &plan.directories[0];
+    make_dir(owner, record::Dir::State, state, *mode)
+        .with_context(|| format!("claiming VMM state directory {state}"))
+        .map_err(precondition)?;
+    prepare(&plan, vmm.disk_mib).map_err(precondition)?;
+
+    // Uncached, immediately before the network it protects, and from the
+    // VMM image whose tables the host's must equal.
+    let verified = unless_abandoned(launched_tx, async {
+        crate::container::engine_cmd(podman, &plan.verify)
+            .await
+            .map_err(|err| {
+                precondition(err.context(
+                    "the host's VMM network boundary did not verify, \
+                     so this data plane cannot run VMM connectors",
                 ))
-                .await;
+            })
+    })
+    .await?;
+    // Verify reports the image's build. The override skips only this.
+    if let Err(reason) = super::check_pairing(super::BUILD_IDENTITY, &verified) {
+        let reason = format!(
+            "VMM image {} is not paired with this launcher's build: {reason}",
+            vmm.image
+        );
+        if !vmm.allow_unpaired_build {
+            return Err(precondition(anyhow::anyhow!(
+                "{reason}; launchers run only the VMM image built from their own commit"
+            )));
         }
-
-        if let Err(err) = crate::container::engine_cmd(podman, &plan.network).await {
-            // Another owner's network or bridge may hold the name.
-            if attempt < ATTEMPTS {
-                tracing::warn!(
-                    error = format!("{err:#}"),
-                    name = %plan.name,
-                    interface = %plan.interface,
-                    "creating a VMM network failed; retrying under a new id"
-                );
-                teardown(input, owned.take()).await;
-                continue;
-            }
-            return Err(err.context("creating the VMM's network"));
-        }
-        if launched_tx.is_closed() {
-            return Err(abandoned());
-        }
-
-        return run_vmm(input, owner, launched_tx, &plan, &inspection).await;
+        tracing::warn!(%reason, "launching an unpaired VMM image, as CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD permits");
+        log_sink
+            .send(crate::build_log(
+                ops::LogLevel::Warn,
+                &format!("{reason}; launching it as CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD permits"),
+                [],
+            ))
+            .await;
     }
-    Err(precondition(anyhow::anyhow!(
-        "found no unclaimed VMM id in {ATTEMPTS} attempts beneath {}",
-        vmm.state_dir
-    )))
+
+    crate::container::engine_cmd(podman, &plan.network)
+        .await
+        .with_context(|| {
+            format!(
+                "creating the VMM network {} on bridge {}",
+                plan.name, plan.interface
+            )
+        })?;
+    if launched_tx.is_closed() {
+        return Err(abandoned());
+    }
+
+    run_vmm(input, owner, launched_tx, &plan, &inspection).await
 }
 
 async fn run_vmm(
@@ -613,16 +587,15 @@ pub(super) fn check_state_owner(path: &std::path::Path) -> anyhow::Result<()> {
 }
 
 /// Make `path` exclusively and mark it in the launch's record as `dir`,
-/// before anything is put in it. False if it already exists, so that it isn't
-/// the launch's to use or to remove.
-fn make_dir(owner: &mut Owned, dir: record::Dir, path: &str, mode: u32) -> anyhow::Result<bool> {
+/// before anything is put in it. An existing path is never the launch's to
+/// use or to remove.
+fn make_dir(owner: &mut Owned, dir: record::Dir, path: &str, mode: u32) -> anyhow::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
 
-    match std::fs::DirBuilder::new().mode(mode).create(path) {
-        Ok(()) => (),
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
-        Err(err) => return Err(anyhow::Error::new(err).context(format!("creating {path}"))),
-    }
+    std::fs::DirBuilder::new()
+        .mode(mode)
+        .create(path)
+        .with_context(|| format!("creating {path}"))?;
     if let Err(err) = record::append(&mut owner.file, &record::created_line(dir)) {
         // Unmarked, no release would remove it: this launch knows it's its own.
         _ = std::fs::remove_dir(path);
@@ -634,7 +607,7 @@ fn make_dir(owner: &mut Owned, dir: record::Dir, path: &str, mode: u32) -> anyho
     }
     // Past the umask.
     set_mode(path, mode)?;
-    Ok(true)
+    Ok(())
 }
 
 fn write_mount(

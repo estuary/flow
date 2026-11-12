@@ -128,6 +128,293 @@ fn a_marker_does_not_require_an_application_response() {
     );
 }
 
+/// Claims are exercised directly because launch IDs are random. The same
+/// directory markers drive teardown's release after a partial setup.
+#[test]
+fn existing_directories_are_preserved_on_release() {
+    in_child(
+        "existing_directories_are_preserved_on_release",
+        |h| async move {
+            use crate::vmm::{record, release};
+
+            let state_dir = h.dir.join("state");
+            let state_dir = state_dir.to_str().unwrap();
+            let mounts = super::connector_mounts(&h.dir).unwrap();
+            let name = "fv_0123456789abcdef";
+            let mount = format!("{mounts}/mount-{name}");
+            let state = format!("{state_dir}/{name}");
+            let claim =
+                record::claim_line(name, "00112233445566778899aabbccddeeff", Some(&mount), None);
+            let mut outcomes = Vec::new();
+            for (dir, path, mode) in [
+                (record::Dir::Mount, &mount, 0o711),
+                (record::Dir::State, &state, 0o700),
+            ] {
+                std::fs::create_dir(path).unwrap();
+                let sentinel = format!("{path}/sentinel");
+                std::fs::write(&sentinel, "another owner's data").unwrap();
+                let mut owner = super::Owned {
+                    file: record::claim(state_dir, name, &claim).unwrap(),
+                    path: record::path(state_dir, name),
+                    record: record::parse(state_dir, name, &claim).unwrap(),
+                    container: None,
+                    attached: None,
+                    refresh: None,
+                };
+                if dir == record::Dir::State {
+                    super::make_dir(&mut owner, record::Dir::Mount, &mount, 0o711).unwrap();
+                    std::fs::write(format!("{mount}/ours"), "partial setup").unwrap();
+                }
+                let err = super::make_dir(&mut owner, dir, path, mode).unwrap_err();
+                assert!(err.to_string().contains(path), "{err:#}");
+                assert_eq!(
+                    err.downcast_ref::<std::io::Error>().unwrap().kind(),
+                    std::io::ErrorKind::AlreadyExists,
+                );
+                release::release(
+                    h.dir.join("engine").to_str().unwrap(),
+                    state_dir,
+                    &owner.path,
+                    &owner.record,
+                )
+                .await
+                .unwrap();
+                assert_eq!(
+                    std::fs::read_to_string(&sentinel).unwrap(),
+                    "another owner's data"
+                );
+                assert!(!Path::new(&owner.path).exists());
+                outcomes.push((dir, owner.record.created_mount, owner.record.created_state));
+                if dir == record::Dir::State {
+                    assert!(!Path::new(&mount).exists(), "our mount was released");
+                }
+                std::fs::remove_dir_all(path).unwrap();
+            }
+            insta::assert_debug_snapshot!(outcomes, @r"
+        [
+            (
+                Mount,
+                false,
+                false,
+            ),
+            (
+                State,
+                true,
+                false,
+            ),
+        ]
+        ");
+        },
+    );
+}
+
+#[test]
+fn create_failures_return_once_and_release_partial_setup() {
+    in_child(
+        "create_failures_return_once_and_release_partial_setup",
+        |h| async move {
+            let mut outcomes = Vec::new();
+            for (fault, partial) in [
+                ("network-error", false),
+                ("network-error", true),
+                ("volume-error", false),
+            ] {
+                let diagnostic = "engine storage unavailable: synthetic failure";
+                std::fs::write(h.dir.join(fault), diagnostic).unwrap();
+                if partial {
+                    std::fs::write(h.dir.join("partial-network"), "").unwrap();
+                }
+                let (outcome, logs) = refused(&h).await;
+                assert!(outcome.contains(diagnostic), "{outcome}");
+                assert!(
+                    outcome.contains(if fault == "network-error" {
+                        "creating the VMM network fv_"
+                    } else {
+                        "creating the VMM's private rootfs volume"
+                    }),
+                    "{outcome}"
+                );
+                let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+                outcomes.push((
+                    fault,
+                    partial,
+                    calls
+                        .lines()
+                        .filter(|call| call.starts_with("network create "))
+                        .count(),
+                    calls
+                        .lines()
+                        .filter(|call| call.starts_with("network rm "))
+                        .count(),
+                    calls
+                        .lines()
+                        .filter(|call| call.starts_with("ps --all "))
+                        .count(),
+                    logs.iter()
+                        .filter(|log| log.starts_with("VMM egress "))
+                        .count(),
+                ));
+                assert!(!h.dir.join("network").exists());
+                assert!(!h.dir.join("volume").exists());
+                assert!(!h.dir.join("container").exists());
+                std::fs::remove_file(h.dir.join(fault)).unwrap();
+                std::fs::remove_file(h.dir.join("calls")).unwrap();
+                if partial {
+                    std::fs::remove_file(h.dir.join("partial-network")).unwrap();
+                }
+            }
+            insta::assert_debug_snapshot!(outcomes, @r#"
+        [
+            (
+                "network-error",
+                false,
+                1,
+                0,
+                1,
+                1,
+            ),
+            (
+                "network-error",
+                true,
+                1,
+                1,
+                1,
+                1,
+            ),
+            (
+                "volume-error",
+                false,
+                1,
+                1,
+                1,
+                1,
+            ),
+        ]
+        "#);
+        },
+    );
+}
+
+#[test]
+fn a_network_created_after_a_client_failure_is_recovered() {
+    in_child(
+        "a_network_created_after_a_client_failure_is_recovered",
+        |h| async move {
+            std::fs::write(h.dir.join("network-error"), "API connection lost").unwrap();
+            let (outcome, _) = refused(&h).await;
+            assert!(outcome.contains("API connection lost"), "{outcome}");
+            let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+            let creates: Vec<_> = calls
+                .lines()
+                .filter(|call| call.starts_with("network create "))
+                .collect();
+            let [create] = creates[..] else {
+                panic!("one create: {calls}")
+            };
+            let name = create.split_whitespace().last().unwrap();
+            // The service completes after teardown has removed the record.
+            std::fs::write(h.dir.join("network"), name).unwrap();
+            let problems = crate::vmm::release::recover(
+                h.dir.join("engine").to_str().unwrap(),
+                h.dir.join("state").to_str().unwrap(),
+            )
+            .await;
+            assert_eq!(problems, []);
+            assert!(!h.dir.join("network").exists());
+            let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+            assert_eq!(
+                calls
+                    .lines()
+                    .filter(|call| call.starts_with("network rm "))
+                    .count(),
+                1
+            );
+        },
+    );
+}
+
+#[test]
+fn cancellation_waits_for_network_creation_before_release() {
+    in_child(
+        "cancellation_waits_for_network_creation_before_release",
+        |mut h| async move {
+            std::fs::write(h.dir.join("hold-network"), "").unwrap();
+            let Prepared {
+                mut ctx,
+                config,
+                logs,
+                read_through,
+            } = prepare(&h);
+            ctx.task_update = Some(crate::TaskUpdate::for_test());
+            let eligible = crate::vmm::eligible(ops::TaskType::Derivation, IMAGE).unwrap();
+            let mut start = Box::pin(super::start(
+                &ctx,
+                &config,
+                eligible,
+                crate::vmm::TaskEgress {
+                    hosts: Vec::new(),
+                    cidrs: Vec::new(),
+                },
+                Vec::new(),
+                IMAGE,
+                &crate::EMPTY_SECRETS,
+                None,
+            ));
+            tokio::select! {
+                () = next_event(&mut h.events, "network-create") => (),
+                result = &mut start => panic!("the create was not held: {:?}", result.err()),
+            }
+            let records: Vec<_> = std::fs::read_dir(h.dir.join("state"))
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .filter(|path| path.extension().is_some_and(|ext| ext == "owner"))
+                .collect();
+            let [record] = &records[..] else {
+                panic!("one record: {records:?}")
+            };
+            let mount = super::connector_mounts(&h.dir).unwrap();
+            let name = record.file_stem().unwrap().to_str().unwrap();
+            let mount = Path::new(&mount).join(format!("mount-{name}"));
+            assert!(mount.join("task-update.json").exists());
+            drop(start);
+            assert!(
+                crate::vmm::record::take(record.to_str().unwrap())
+                    .unwrap()
+                    .is_none(),
+                "the create still holds its record"
+            );
+            command(&h.dir, "release-network");
+            drop(ctx);
+            _ = tokio::time::timeout(RELEASED, read_through)
+                .await
+                .expect("the launch completes teardown");
+            logs.await.unwrap();
+            assert!(!record.exists());
+            assert!(!mount.exists());
+            assert!(!h.dir.join("network").exists());
+            let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+            assert_eq!(
+                calls
+                    .lines()
+                    .filter(|call| call.starts_with("network create "))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                calls
+                    .lines()
+                    .filter(|call| call.starts_with("network rm "))
+                    .count(),
+                1
+            );
+            assert!(
+                !calls.contains("volume create"),
+                "cancellation stops setup: {calls}"
+            );
+        },
+    );
+}
+
 #[test]
 fn recovery_retries_failed_ingress_removal() {
     in_child("recovery_retries_failed_ingress_removal", |h| async move {

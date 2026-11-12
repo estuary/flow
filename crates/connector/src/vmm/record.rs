@@ -474,8 +474,19 @@ mod test {
             0o600,
         );
         assert_eq!(
-            super::claim(state_dir, NAME, &line).unwrap_err().kind(),
+            super::claim(
+                state_dir,
+                NAME,
+                &claim_line(NAME, "ffeeddccbbaa99887766554433221100", Some(MOUNT), None),
+            )
+            .unwrap_err()
+            .kind(),
             std::io::ErrorKind::AlreadyExists,
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            line,
+            "the owner is unchanged"
         );
         assert!(super::take(&path).unwrap().is_none(), "held by its owner");
 

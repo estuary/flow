@@ -36,7 +36,16 @@ case "$1 ${2:-}" in
     ;;
 "network create")
     for arg; do name=$arg; done
-    printf '%s\n' "$name" >"$dir/network"
+    if [ -e "$dir/hold-network" ]; then
+        exec 3<>"$dir/control"
+        echo network-create >>"$dir/events"
+        read -r command <&3
+        [ "$command" = release-network ] || exit 46
+    fi
+    if [ ! -e "$dir/network-error" ] || [ -e "$dir/partial-network" ]; then
+        printf '%s\n' "$name" >"$dir/network"
+    fi
+    if [ -e "$dir/network-error" ]; then cat "$dir/network-error" >&2; exit 125; fi
     ;;
 "network ls")
     if [ -e "$dir/network" ]; then cat "$dir/network"; fi
@@ -45,6 +54,7 @@ case "$1 ${2:-}" in
     rm "$dir/network"
     ;;
 "volume create")
+    if [ -e "$dir/volume-error" ]; then cat "$dir/volume-error" >&2; exit 125; fi
     for arg; do name=$arg; done
     printf '%s\n' "$name" >"$dir/volume"
     ;;

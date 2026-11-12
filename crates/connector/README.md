@@ -360,13 +360,13 @@ EOF or status. A client which does not drain responses may park the handler.
   `vmm::launch` pulls and
   inspects the image with `CONNECTOR_VMM_PODMAN` (skipping the pull of a
   `:local` tag, as ordinary launches do), resolves the VMM image's ID
-  (below), and plans. It then claims its id by
-  making `<STATE_DIR>/fv_<id>.owner` (a new id if it exists), makes the
+  (below), and plans one randomly generated id. It then claims its id by
+  making `<STATE_DIR>/fv_<id>.owner`, makes the
   connector mount and `fv_<id>` state directory, writes the planned files,
   runs `boundary verify` and pairs the build it reports (below), creates the
-  network (a new id and record, at most
-  three tries, if that fails), creates the rootfs volume and container, and
-  starts it. Pulls,
+  network, creates the rootfs volume and container, and starts it. A failed
+  claim or create returns an error and releases only this launch's resources;
+  it never retries under another id. Pulls,
   inspection, verification and the readiness dial race the start's
   abandonment; the commands which create the network, volume and container are never
   interrupted, so each client has exited before teardown looks for what it
@@ -520,7 +520,7 @@ EOF or status. A client which does not drain responses may park the handler.
   nor pairs: it revokes a grant with the image its record names.
 
 - **A launch runs one VMM image, by ID.** It resolves `CONNECTOR_VMM_IMAGE`
-  to an image ID once, before its first attempt, pulling the image only if
+  to an image ID once, before planning, pulling the image only if
   it's missing, as `podman run` would. Its verify, grant and container then
   run that ID, and its record names it for the grant's revoke. So a tag
   moved meanwhile cannot have one build pair and another run. Records which
@@ -567,6 +567,9 @@ EOF or status. A client which does not drain responses may park the handler.
   exercises the real launcher with a scripted engine and Unix socket peers.
   It checks the stderr marker, a single dial and successful Spec, premature
   markers, early failures, cancellation, the readiness deadline, and cleanup.
+  Create faults check one network attempt, engine diagnostics, partial setup,
+  cancellation during creation, and recovery after a late network create.
+  Collision tests use the exclusive record and directory claims directly.
   A guest which dies after readiness fails its first Spec and is released.
   One public-plane start runs through `protocol::start`, and makes no mount
   but its launch's.
