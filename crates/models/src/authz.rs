@@ -101,6 +101,11 @@ impl std::fmt::Display for Capability {
     derive(sqlx::Type),
     sqlx(type_name = "capability_bundle", rename_all = "snake_case")
 )]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "snake_case")
+)]
 pub enum CapabilityBundle {
     Viewer,
     Writer,
@@ -113,6 +118,9 @@ pub enum CapabilityBundle {
     CreateSandbox,
     Delegate,
     Assume,
+    ViewBilling,
+    EditBilling,
+    EditSecret,
 }
 
 impl CapabilityBundle {
@@ -200,8 +208,19 @@ impl CapabilityBundle {
             Self::Delegate => Delegate.into(),
             Self::Assume => Assume.into(),
             Self::CreateSandbox => CreateSandbox.into(),
+            Self::ViewBilling => ViewBilling.into(),
+            Self::EditBilling => EditBilling.into(),
+            Self::EditSecret => EditSecret.into(),
         }
     }
+}
+
+/// Returns bundles whose capabilities are all contained in `bits`.
+pub fn bundles_covering(bits: CapabilitySet) -> impl Iterator<Item = CapabilityBundle> {
+    <CapabilityBundle as strum::VariantArray>::VARIANTS
+        .iter()
+        .copied()
+        .filter(move |bundle| bits.is_superset(bundle.capabilities()))
 }
 
 pub fn bits_for_legacy(capability: super::Capability) -> CapabilitySet {
@@ -216,5 +235,59 @@ pub fn bits_for_legacy(capability: super::Capability) -> CapabilitySet {
 impl From<super::Capability> for CapabilitySet {
     fn from(capability: super::Capability) -> Self {
         bits_for_legacy(capability)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn bundles_covering() {
+        let cases = [
+            ("empty", super::CapabilitySet::empty()),
+            ("partial", super::Capability::CatalogRead.into()),
+            ("single_bit", super::Capability::ViewBilling.into()),
+            ("exact", super::CapabilityBundle::Viewer.capabilities()),
+            (
+                "overlapping",
+                super::CapabilityBundle::Writer.capabilities()
+                    | super::CapabilityBundle::Billing.capabilities(),
+            ),
+        ];
+        let results =
+            cases.map(|(name, bits)| (name, super::bundles_covering(bits).collect::<Vec<_>>()));
+        insta::assert_json_snapshot!(results, @r#"
+        [
+          [
+            "empty",
+            []
+          ],
+          [
+            "partial",
+            []
+          ],
+          [
+            "single_bit",
+            [
+              "view_billing"
+            ]
+          ],
+          [
+            "exact",
+            [
+              "viewer"
+            ]
+          ],
+          [
+            "overlapping",
+            [
+              "viewer",
+              "writer",
+              "billing",
+              "view_billing",
+              "edit_billing"
+            ]
+          ]
+        ]
+        "#);
     }
 }
