@@ -84,7 +84,7 @@ impl Fixture {
             replication: 1,
             labels: Some(labels::build_set([(
                 labels::CONTENT_TYPE,
-                disk_daemon::CONTENT_TYPE_DISK,
+                labels::CONTENT_TYPE_DISK,
             )])),
             fragment: Some(broker::journal_spec::Fragment {
                 length: 1 << 20, // 1 MiB

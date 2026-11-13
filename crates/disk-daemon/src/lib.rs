@@ -12,9 +12,6 @@ pub use proto_flow::disk as proto;
 /// Fixed granularity of device requests, chunks, hole punching, and bitmaps.
 pub const BLOCK_SIZE: u32 = 4096;
 
-/// Required journal content type.
-pub const CONTENT_TYPE_DISK: &str = "application/x-journal-backed-disk";
-
 /// A chunk the live device applied, which the promoted attachment appends to its
 /// journal: a device write or punch, or a horizon copy.
 ///

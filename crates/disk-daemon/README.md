@@ -671,8 +671,7 @@ credentials. Rotating the key requires a restart.
 
 Paths are relative to `src/`.
 
-- `lib.rs`: Protocol export, `BLOCK_SIZE`, `CONTENT_TYPE_DISK`, `LiveChunk`, and
-  `Floor`.
+- `lib.rs`: Protocol export, `BLOCK_SIZE`, `LiveChunk`, and `Floor`.
 - `daemon.rs`: Flags, broker client and token, socket, `Disk` service, and
   drain.
 - `client.rs`: The Rust client: `Client`, `Standby`, `Disk`, and `Error`.
