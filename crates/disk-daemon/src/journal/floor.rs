@@ -48,7 +48,13 @@ pub(super) async fn store(
         let listing = match futures::StreamExt::next(&mut watch).await {
             Some(Ok(listing)) => listing,
             Some(Err(gazette::RetryError { attempt, inner })) if inner.is_transient() => {
-                tracing::warn!(journal, attempt, %inner, "listing failed (will retry)");
+                service_kit::event!(
+                    tracing::Level::WARN,
+                    "broker",
+                    attempt,
+                    inner = inner.to_string(),
+                    "listing failed (will retry)"
+                );
                 continue;
             }
             Some(Err(gazette::RetryError { inner, .. })) => {
@@ -87,7 +93,13 @@ pub(super) async fn store(
             let backoff = std::time::Duration::from_millis(100)
                 .saturating_mul(2u32.saturating_pow(attempt - 1))
                 .min(std::time::Duration::from_secs(10));
-            tracing::warn!(journal, attempt, %err, "applying the floor failed (will retry)");
+            service_kit::event!(
+                tracing::Level::WARN,
+                "broker",
+                attempt,
+                err = err.to_string(),
+                "applying the floor failed (will retry)"
+            );
             () = tokio::time::sleep(backoff).await;
         }
     }

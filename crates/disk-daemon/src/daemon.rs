@@ -37,6 +37,10 @@ pub struct Args {
     #[arg(long, env = "LOG_FORMAT", default_value = "text")]
     pub log_format: LogFormat,
 
+    /// Serve the admin surface (attachments and `/metrics`) on `127.0.0.1:<port>`.
+    #[arg(long, env = "ADMIN_PORT")]
+    pub admin_port: Option<u16>,
+
     /// Bytes since the recovery floor beyond which a disk opens a recovery horizon,
     /// as a multiple of that disk's live allocated size. They are the encoded size of
     /// the chunks applied since the floor, which is the journal's content
@@ -84,9 +88,11 @@ pub(crate) struct Config {
     pub horizon_policy: crate::device::Policy,
     /// Brokers of every disk journal.
     pub brokers: gazette::journal::Client,
+    /// Attachments in flight, which the admin surface shows.
+    pub registry: service_kit::Registry,
 }
 
-pub async fn run(args: Args) -> anyhow::Result<()> {
+pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<()> {
     let brokers = broker_client(
         &args.broker_address,
         &args.gazette_zone,
@@ -103,6 +109,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             minimum_bytes: args.horizon_minimum_bytes,
         },
         brokers,
+        registry,
     });
 
     tracing::info!(
@@ -128,6 +135,24 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
                 _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received"),
             }
             draining.cancel();
+        });
+    }
+
+    if let Some(admin_port) = args.admin_port {
+        _ = service_kit::metrics::install_recorder();
+
+        let address = std::net::SocketAddr::from(([127, 0, 0, 1], admin_port));
+        let draining = draining.clone();
+        let registry = config.registry.clone();
+
+        tokio::spawn(async move {
+            let shutdown = async move { draining.cancelled().await };
+
+            if let Err(err) =
+                service_kit::admin::serve("disk-daemon", registry, address, shutdown).await
+            {
+                tracing::error!(?err, "the admin surface failed");
+            }
         });
     }
 
@@ -221,14 +246,20 @@ impl proto_grpc::disk::disk_server::Disk for Service {
             .ok_or_else(|| tonic::Status::internal("the client's uid is unknown"))?;
 
         let (responses, stream) = tokio::sync::mpsc::channel(1);
+        let (config, cancel) = (self.config.clone(), self.draining.child_token());
+        let requests = request.into_inner();
 
-        self.attachments.spawn(crate::attachment::run(
-            self.config.clone(),
-            self.draining.child_token(),
-            owner,
-            request.into_inner(),
-            responses,
-        ));
+        self.attachments.spawn(async move {
+            // `Registry::register` must run within the handler's own task.
+            let handler = config.registry.register("attachment");
+            let span = handler.span();
+
+            tracing::Instrument::instrument(
+                crate::attachment::run(config, cancel, owner, requests, responses, handler),
+                span,
+            )
+            .await
+        });
 
         Ok(tonic::Response::new(
             tokio_stream::wrappers::ReceiverStream::new(stream),

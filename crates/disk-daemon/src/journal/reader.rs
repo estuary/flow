@@ -26,7 +26,13 @@ pub async fn open(
         match futures::StreamExt::next(&mut watch).await {
             Some(Ok(listing)) => break listing,
             Some(Err(gazette::RetryError { attempt, inner })) if inner.is_transient() => {
-                tracing::warn!(journal, attempt, %inner, "listing failed (will retry)");
+                service_kit::event!(
+                    tracing::Level::WARN,
+                    "broker",
+                    attempt,
+                    inner = inner.to_string(),
+                    "listing failed (will retry)"
+                );
             }
             // A broker fails a request which doesn't validate with Unknown. The journal
             // name is the listing's only input from the client.
@@ -75,6 +81,8 @@ fn read(
     floor: i64,
     responses: impl futures::Stream<Item = gazette::RetryResult<broker::ReadResponse>> + Send + 'static,
 ) -> impl futures::Stream<Item = anyhow::Result<(broker::ReadResponse, i64)>> + Send + 'static {
+    let metrics = super::Metrics::new(&journal);
+
     coroutines::try_coroutine(move |mut co| async move {
         let mut responses = std::pin::pin!(responses);
         let mut offset = floor;
@@ -91,11 +99,29 @@ fn read(
                          store, from offset {offset} to {}",
                         response.offset,
                     );
+                    if response.offset != offset {
+                        service_kit::event!(
+                            tracing::Level::INFO,
+                            "replay",
+                            from = floor,
+                            to = response.offset,
+                            "journal offset jump",
+                        );
+                    }
                     offset = response.offset + response.content.len() as i64;
+                    metrics
+                        .replayed_bytes
+                        .increment(response.content.len() as u64);
                     () = co.yield_((response, offset)).await;
                 }
                 Some(Err(gazette::RetryError { attempt, inner })) if inner.is_transient() => {
-                    tracing::warn!(journal, attempt, %inner, "journal read failed (will retry)");
+                    service_kit::event!(
+                        tracing::Level::WARN,
+                        "broker",
+                        attempt,
+                        inner = inner.to_string(),
+                        "journal read failed (will retry)"
+                    );
                 }
                 Some(Err(gazette::RetryError {
                     inner: gazette::Error::BrokerStatus(broker::Status::Suspended),

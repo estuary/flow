@@ -105,7 +105,7 @@ Not stack-scoped: cockpit :9090, and the dashboard/UI origin
 Within a data plane's 100-wide block: brokers count up from `base+0`; reactors
 count *down* from `base+99` (so a single reactor lands on `base+99` — e.g. stack
 `flow`'s sole reactor is **10299**); dekaf on `base+50/51/52`; runtime-sidecar
-gRPC `base+60` / admin `base+61`. `local:data-plane` rejects any base that isn't
+gRPC `base+60` / admin `base+61`; disk-daemon admin `base+62`. `local:data-plane` rejects any base that isn't
 one of the stack's 8 valid plane bases (`FLOW_PLANE_BASE + 100·p`).
 
 Dekaf is **opt-in**: `local:stack --dekaf`.
@@ -162,7 +162,7 @@ flow-plane@<dp>.target                     one per data plane (dp = local-<stack
   ├─ flow-reactor@<dp>-<port>             reactor(s), base+99..90
   ├─ flow-runtime-sidecar@<dp>            Rust sidecar, base+60 (gRPC) / +61 (admin)
   ├─ flow-disk-daemon@<dp>                root via Docker, socket disk-<base>/disk.sock,
-  │                                        mounts under /run/flow-disk-<base>
+  │                                        mounts under /run/flow-disk-<base>, base+62 (admin)
   ├─ flow-dekaf@<dp>                      Kafka shim,  base+50/51/52 (only with --dekaf)
   └─ flow-plane-link@<dp>                 oneshot: POSTs to agent to register
 ```

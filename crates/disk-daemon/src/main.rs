@@ -7,7 +7,8 @@ fn main() -> anyhow::Result<()> {
         .expect("failed to install default crypto provider");
 
     let args = disk_daemon::daemon::Args::parse();
-    install_tracing(args.log_format);
+    let registry = service_kit::Registry::new();
+    install_tracing(args.log_format, registry.clone());
 
     // Each promoted disk holds several file descriptors, so the default soft
     // limit of 1024 caps the daemon at a few hundred disks.
@@ -25,14 +26,14 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()?;
 
-    let served = runtime.spawn(disk_daemon::daemon::run(args));
+    let served = runtime.spawn(disk_daemon::daemon::run(args, registry));
     let result = runtime.block_on(served);
     runtime.shutdown_timeout(std::time::Duration::from_secs(5));
 
     result?
 }
 
-fn install_tracing(log_format: disk_daemon::daemon::LogFormat) {
+fn install_tracing(log_format: disk_daemon::daemon::LogFormat, registry: service_kit::Registry) {
     use tracing_subscriber::Layer as _;
     use tracing_subscriber::layer::SubscriberExt as _;
     use tracing_subscriber::util::SubscriberInitExt as _;
@@ -53,6 +54,10 @@ fn install_tracing(log_format: disk_daemon::daemon::LogFormat) {
         };
 
     tracing_subscriber::registry()
-        .with(fmt_layer.with_filter(env_filter))
+        .with(fmt_layer.with_filter(service_kit::trace::layer_filter(
+            env_filter,
+            registry.clone(),
+        )))
+        .with(service_kit::event::layer(registry))
         .init();
 }

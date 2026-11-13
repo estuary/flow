@@ -26,6 +26,8 @@ pub struct Writer {
     floor: Option<i64>,
     /// Write head the broker last confirmed.
     head: i64,
+    /// Metrics, labeled with the disk's journal.
+    metrics: super::Metrics,
 }
 
 impl Writer {
@@ -75,7 +77,13 @@ impl Writer {
                 match futures::StreamExt::next(&mut stream).await {
                     Some(Ok(response)) => break response,
                     Some(Err(gazette::RetryError { attempt, inner })) if inner.is_transient() => {
-                        tracing::warn!(journal, attempt, %inner, "fencing failed (will retry)");
+                        service_kit::event!(
+                            tracing::Level::WARN,
+                            "broker",
+                            attempt,
+                            inner = inner.to_string(),
+                            "fencing failed (will retry)"
+                        );
                     }
                     // This promotion lost a race to another fence, or the
                     // journal lost its registers.
@@ -105,6 +113,14 @@ impl Writer {
             .commit
             .expect("a fence which succeeded reports its commit")
             .end;
+        service_kit::event!(
+            tracing::Level::INFO,
+            "lifecycle",
+            author = format!("{author:?}"),
+            head,
+            reacknowledged = recovered_ack_intent.is_some(),
+            "fenced a disk's journal",
+        );
 
         let appender = publisher::Appender::new(client.clone(), journal.clone())
             .with_check_registers(broker::LabelSelector {
@@ -113,6 +129,7 @@ impl Writer {
             });
 
         let writer = Self {
+            metrics: super::Metrics::new(&journal),
             name: journal,
             appender,
             client,
@@ -142,6 +159,13 @@ impl Writer {
             // candidate's record.
             () = self.flush().await?;
             self.candidate = Some(self.head);
+            self.metrics.horizons_opened.increment(1);
+            service_kit::event!(
+                tracing::Level::INFO,
+                "compaction",
+                offset = self.head,
+                "opened a recovery horizon",
+            );
         }
         match floor {
             Some(crate::Floor::LastCandidate) => self.floor = self.candidate,
@@ -174,6 +198,16 @@ impl Writer {
         self.clock
             .update(uuid::Clock::from_time(std::time::SystemTime::now()));
 
+        self.metrics.deltas.increment(1);
+        self.metrics.delta_bytes.increment(self.delta_bytes);
+        self.metrics.last_delta_bytes.set(self.delta_bytes as f64);
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "commit",
+            delta_bytes = self.delta_bytes,
+            "preparing a delta",
+        );
+
         if self.delta_bytes == 0 {
             return Ok((bytes::Bytes::new(), None));
         }
@@ -205,16 +239,20 @@ impl Writer {
         let Some(floor) = floor else {
             return Ok(());
         };
-        tracing::info!(
-            journal = self.name,
+        service_kit::event!(
+            tracing::Level::INFO,
+            "compaction",
             floor,
             head = self.head,
             "storing the recovery floor",
         );
 
-        floor::store(&self.client, &self.name, floor)
+        () = floor::store(&self.client, &self.name, floor)
             .await
-            .with_context(|| format!("storing the recovery floor of {}", self.name))
+            .with_context(|| format!("storing the recovery floor of {}", self.name))?;
+        self.metrics.floors_stored.increment(1);
+
+        Ok(())
     }
 
     async fn flush(&mut self) -> anyhow::Result<()> {

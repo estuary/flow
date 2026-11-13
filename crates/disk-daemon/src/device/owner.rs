@@ -25,10 +25,14 @@ pub(super) fn spawn(
     live_tx: tokio::sync::mpsc::Sender<anyhow::Result<crate::LiveChunk>>,
 ) -> anyhow::Result<std::thread::JoinHandle<anyhow::Result<()>>> {
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let span = tracing::Span::current();
 
     let thread = std::thread::Builder::new()
         .name("disk-owner".to_string())
-        .spawn(move || run(dev_id, cdev, image, live_tx, ready_tx))
+        .spawn(move || {
+            let _entered = span.entered();
+            run(dev_id, cdev, image, live_tx, ready_tx)
+        })
         .with_context(|| format!("spawning the owner of device {dev_id}"))?;
 
     if let Err(std::sync::mpsc::RecvError) = ready_rx.recv() {
@@ -146,6 +150,8 @@ fn serve(
                 let mut data = vec![0; len];
                 () = std::os::unix::fs::FileExt::read_exact_at(cdev, &mut data, offset)
                     .context("taking write data from the device")?;
+                image.metrics.writes.increment(1);
+                image.metrics.write_bytes.increment(len as u64);
 
                 (
                     Some(chunk::encode_write(range.start, data.into())),

@@ -23,7 +23,15 @@ impl Standby {
         blocks: u32,
     ) -> anyhow::Result<Self> {
         let (read, span) = journal::open(&client, &journal).await?;
-        let (device, content_tx) = device::Standby::open(image_dir, blocks, horizon_policy)?;
+        service_kit::event!(
+            tracing::Level::INFO,
+            "lifecycle",
+            floor = span.start,
+            head = span.end,
+            "opening a disk",
+        );
+        let (device, content_tx) =
+            device::Standby::open(image_dir, blocks, horizon_policy, &journal)?;
 
         let mut standby = Self {
             device,

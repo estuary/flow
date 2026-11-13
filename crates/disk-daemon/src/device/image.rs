@@ -9,13 +9,21 @@ pub(super) struct Image {
     file: std::fs::File,
     /// What the applied chunks allocated, and the horizon they complete.
     compactor: compactor::Compactor,
+    /// Metrics, labeled with the disk's journal.
+    pub metrics: super::Metrics,
 }
 
 impl Image {
-    pub fn new(file: std::fs::File, size_blocks: u32, horizon_policy: compactor::Policy) -> Self {
+    pub fn new(
+        file: std::fs::File,
+        size_blocks: u32,
+        horizon_policy: compactor::Policy,
+        journal: &str,
+    ) -> Self {
         Self {
             file,
             compactor: compactor::Compactor::new(size_blocks, horizon_policy),
+            metrics: super::Metrics::new(journal),
         }
     }
 
@@ -44,6 +52,9 @@ impl Image {
             () = self
                 .read(range.start, &mut copied_data)
                 .context("copying horizon blocks out of the image")?;
+            self.metrics
+                .copied_bytes
+                .increment(copied_data.len() as u64);
 
             served.push(
                 self.compactor
@@ -73,6 +84,8 @@ mod test {
     /// Small enough that a property case runs in microseconds.
     const BLOCKS: u32 = 64;
 
+    const JOURNAL: &str = "acmeCo/disk/one";
+
     /// Opens a horizon over any disk once anything was applied, and copies as
     /// many bytes as each write changes.
     const COPIES: compactor::Policy = compactor::Policy {
@@ -83,7 +96,7 @@ mod test {
 
     #[test]
     fn test_serve_read_and_replay() {
-        let mut image = Image::new(fresh_image(), BLOCKS, COPIES);
+        let mut image = Image::new(fresh_image(), BLOCKS, COPIES, JOURNAL);
         let mut live = Vec::new();
 
         // A served write applies to the image before `serve` returns.
@@ -98,7 +111,7 @@ mod test {
         live.extend(served);
 
         // A replay of every live chunk rebuilds the same image.
-        let mut replayed = Image::new(fresh_image(), BLOCKS, COPIES);
+        let mut replayed = Image::new(fresh_image(), BLOCKS, COPIES, JOURNAL);
         for (offset, live) in live.into_iter().enumerate() {
             () = replayed
                 .replay(&live.chunk, live.floor_candidate.then_some(offset as i64))
@@ -140,8 +153,8 @@ mod test {
         }
 
         fn replays_rebuild_the_image(ops: Vec<Op>) -> bool {
-            let mut image = Image::new(fresh_image(), BLOCKS, COPIES);
-            let mut replayed = Image::new(fresh_image(), BLOCKS, COPIES);
+            let mut image = Image::new(fresh_image(), BLOCKS, COPIES, JOURNAL);
+            let mut replayed = Image::new(fresh_image(), BLOCKS, COPIES, JOURNAL);
 
             for op in &ops {
                 let chunk = match *op {
