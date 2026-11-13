@@ -1,5 +1,3 @@
-use itertools::Itertools;
-use serde::Deserialize;
 use std::sync::Arc;
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -189,31 +187,12 @@ async fn mint_restricted_token(
         )));
     }
 
-    // Store canonical names so token authorization uses the same mask we validate.
+    // Token authorization resolves canonical bundle names and ignores unknown names.
     let capability_mask = capability_mask.map(|mask| {
         mask.into_iter()
             .map(|name| heck::ToSnakeCase::to_snake_case(name.as_str()))
             .collect::<Vec<_>>()
     });
-
-    let invalid_capabilities = capability_mask
-        .iter()
-        .flatten()
-        .filter(|mask| {
-            models::authz::CapabilityBundle::deserialize(serde::de::value::StrDeserializer::<
-                serde::de::value::Error,
-            >::new(mask))
-            .is_err()
-        })
-        .collect::<Vec<&String>>();
-    if !invalid_capabilities.is_empty() {
-        return Err(crate::ApiError::Status(tonic::Status::invalid_argument(
-            format!(
-                "Invalid capability requested: {}",
-                invalid_capabilities.iter().join(", ")
-            ),
-        )));
-    }
 
     let iat = tokens::now().timestamp() as u64;
     let exp = iat + RESTRICTED_TOKEN_DURATION.as_secs();
@@ -437,26 +416,31 @@ mod test {
         let alice = uuid::Uuid::from_bytes([0x11; 16]);
         let alice_token = server.make_access_token(alice, Some("alice@example.test"));
 
-        // === Unknown bundle names are rejected after normalization ===
-        // Every offender is listed, and a valid name alongside them does not
-        // rescue the request.
-        let rejected = server
+        // === Unknown bundle names are preserved without granting capabilities ===
+        let minted = server
             .rest_client()
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
                     "grant_type": "token_exchange",
-                    "capability_mask": ["bogus", "NotABundle", "viewer"],
+                    "capability_mask": ["FutureBundle"],
                 }),
                 Some(&alice_token),
             )
             .send()
             .await
             .unwrap();
-        assert_eq!(rejected.status(), reqwest::StatusCode::BAD_REQUEST);
-        insta::assert_snapshot!(
-            rejected.text().await.unwrap(),
-            @"Invalid capability requested: bogus, not_a_bundle"
+        assert_eq!(minted.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = minted.json().await.unwrap();
+        let claims = server.verify_access_token(body["access_token"].as_str().unwrap());
+        insta::assert_json_snapshot!(claims.capability_mask, @r#"
+        [
+          "future_bundle"
+        ]
+        "#);
+        assert_eq!(
+            claims.subject().capability_mask,
+            Some(models::authz::CapabilitySet::empty())
         );
 
         // === Bundle names are normalized in the minted token ===
@@ -467,7 +451,7 @@ mod test {
                 "/api/v1/auth/token",
                 &serde_json::json!({
                     "grant_type": "token_exchange",
-                    "capability_mask": ["viewer", "Admin", "TeamAdmin", "TEAM_ADMIN", "team_admin"],
+                    "capability_mask": ["viewer", "Admin", "TeamAdmin", "TEAM_ADMIN", "team_admin", "FutureBundle"],
                 }),
                 Some(&alice_token),
             )
@@ -503,7 +487,8 @@ mod test {
             "admin",
             "team_admin",
             "team_admin",
-            "team_admin"
+            "team_admin",
+            "future_bundle"
           ]
         }
         "#);
