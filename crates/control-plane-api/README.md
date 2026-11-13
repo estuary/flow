@@ -4,6 +4,10 @@
 service, its dashboard consent contract, and reuse of existing refresh-token
 storage.
 
+Token exchange accepts snake_case and GraphQL PascalCase capability bundle names
+in `capability_mask` (for example, `team_admin` and `TeamAdmin`). The shared
+`models::authz::CapabilityBundle` parser handles both minting and authorization.
+
 Service-account API keys are minted by `server/public/graphql/service_accounts.rs`.
 Like refresh-token creation, API-key creation rejects access tokens carrying a
 capability mask or prefix mask, because the new credential would not preserve
