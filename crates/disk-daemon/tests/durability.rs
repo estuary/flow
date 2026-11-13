@@ -181,7 +181,7 @@ async fn an_interrupted_second_transaction(
         Progress::Acknowledged => {
             let ack_intent = support::prepare(&mut disk).await;
 
-            () = disk.acknowledge().await.unwrap();
+            () = disk.acknowledge();
             ack_intent
         }
         Progress::Committed => {
@@ -228,7 +228,7 @@ async fn a_write_behind_a_prepared_delta_waits_for_its_ack(
     let mut writer = support::spawn_writer(&device, 16 << 20, 8 << 20, true);
     () = support::wait_for_parked_writes(&device).await;
 
-    () = disk.acknowledge().await.unwrap();
+    () = disk.acknowledge();
     () = disk.acknowledged().await.unwrap();
     () = support::wait_for_writer(&mut writer).await;
     () = disk.close().await.unwrap();
@@ -369,7 +369,7 @@ async fn a_commit_left_in_flight_is_awaited_by_whatever_comes_next(
     () = first.write(&device);
 
     _ = support::prepare(&mut disk).await;
-    () = disk.acknowledge().await.unwrap();
+    () = disk.acknowledge();
 
     // A second `acknowledged` has nothing to wait for, and the next prepare is empty.
     () = disk.acknowledged().await.unwrap();
@@ -382,7 +382,7 @@ async fn a_commit_left_in_flight_is_awaited_by_whatever_comes_next(
     () = closed.write(&device);
 
     _ = support::prepare(&mut disk).await;
-    () = disk.acknowledge().await.unwrap();
+    () = disk.acknowledge();
     () = disk.close().await.unwrap();
 
     let (disk, device) = fixture

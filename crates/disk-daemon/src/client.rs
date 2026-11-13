@@ -264,22 +264,27 @@ impl Disk {
     /// Commit the prepared delta, after saving its ACK intent atomically
     /// with the corresponding application state, per [`Disk::prepare`].
     ///
-    /// Returns once sent, allowing the next application transaction to begin.
+    /// Never waits, so the next application transaction can begin at once.
     /// [`Disk::acknowledged`], the next prepare, or close waits for
-    /// confirmation and reports any failure.
-    ///
-    /// Panics if a cancelled [`Disk::prepare`] never returned its ACK intent.
-    pub async fn acknowledge(&mut self) -> Result<()> {
+    /// confirmation and reports any failure, including a failure to send.
+    pub fn acknowledge(&mut self) {
         assert!(
-            !matches!(self.awaiting, Awaiting::Prepared),
-            "acknowledge of a prepare which did not return its ACK intent"
+            matches!(self.awaiting, Awaiting::Nothing),
+            "acknowledge without a completed prepare"
         );
-        () = self
-            .send(proto::request::Request::Acknowledge(proto::Acknowledge {}))
-            .await?;
+        let request = proto::Request {
+            request: Some(proto::request::Request::Acknowledge(proto::Acknowledge {})),
+        };
+        match self.requests.try_send(request) {
+            Ok(()) => (),
+            // The attachment ended, so the request wasn't sent. The daemon's reason is
+            // in the reply stream, and `Disk::acknowledged` reads and reports it.
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => (),
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                unreachable!("an earlier request is still unsent")
+            }
+        }
         self.awaiting = Awaiting::Acknowledged;
-
-        Ok(())
     }
 
     /// Waits for the daemon to confirm the commit of the last
