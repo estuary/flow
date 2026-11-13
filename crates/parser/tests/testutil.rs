@@ -51,6 +51,64 @@ pub fn run_test(config: &ParseConfig, input: Input) -> CommandResult {
     return run_parser(config, input, true);
 }
 
+/// Runs the parser CLI reading its data from `file_path` via `--file` rather than
+/// piping bytes through stdin.
+pub fn run_parser_reading_file(config: &ParseConfig, file_path: &str, debug: bool) -> CommandResult {
+    use std::io::BufRead;
+    use std::process::{Command, Stdio};
+
+    let tmp = TempDir::new("jsonl-parser-test").unwrap();
+    let cfg_path = tmp.path().join("config.json");
+    let mut cfg_file = File::create(&cfg_path).unwrap();
+    serde_json::to_writer_pretty(&mut cfg_file, config).expect("failed to write config");
+    std::mem::drop(cfg_file);
+
+    let debug_env = if debug {
+        vec![("PARSER_LOG", "parser=debug")]
+    } else {
+        vec![]
+    };
+
+    let output = Command::cargo_bin("flow-parser")
+        .expect("to find flow-parser binary")
+        .args(&[
+            "parse",
+            "--config-file",
+            cfg_path.to_str().unwrap(),
+            "--file",
+            file_path,
+        ])
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .envs(debug_env)
+        .output()
+        .expect("failed to run parser process");
+
+    let exit_code = output.status.code().unwrap_or_else(|| {
+        println!("child process exited abnormally: {:?}", output.status);
+        -1
+    });
+    let mut parsed = Vec::new();
+    for line in output.stdout.lines() {
+        parsed.push(
+            serde_json::from_str(&line.unwrap()).expect("failed to deserialize parser output"),
+        );
+    }
+    let raw_stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if debug {
+        println!("parser stderr:\n{}", stderr);
+    }
+
+    CommandResult {
+        parsed,
+        exit_code,
+        raw_stdout,
+    }
+}
+
 pub fn run_parser(config: &ParseConfig, input: Input, debug: bool) -> CommandResult {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
