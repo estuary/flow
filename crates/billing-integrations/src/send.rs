@@ -76,6 +76,7 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
             let result = retrieve_recorded_invoice(
                 stripe_client,
                 row.stripe_invoice_id.as_deref(),
+                row.stripe_customer_id.as_deref(),
                 &metadata,
             )
             .await;
@@ -158,6 +159,7 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
 async fn retrieve_recorded_invoice(
     stripe_client: &Client,
     recorded_id: Option<&str>,
+    expected_customer: Option<&str>,
     metadata: &billing_types::InvoiceMetadata,
 ) -> anyhow::Result<Option<Invoice>> {
     let Some(recorded_id) = recorded_id else {
@@ -167,6 +169,7 @@ async fn retrieve_recorded_invoice(
         .parse()
         .with_context(|| format!("Invalid recorded Stripe invoice ID {recorded_id}"))?;
     let invoice = StripeInvoice::retrieve(stripe_client, &invoice_id, &["customer"]).await?;
+    crate::stripe_utils::verify_invoice_customer(&invoice, expected_customer)?;
     Ok(Some(Invoice::with_metadata(invoice, metadata.clone())))
 }
 
@@ -617,36 +620,66 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn recorded_id_is_retrieved_directly_and_keeps_database_context() {
-        let response_invoice = stripe::Invoice {
-            id: "in_recorded".parse().unwrap(),
-            status: Some(stripe::InvoiceStatus::Draft),
-            collection_method: Some(stripe::CollectionMethod::SendInvoice),
-            metadata: None,
-            ..Default::default()
-        };
-        let (client, requests) = stripe_stub(vec![(
-            axum::http::StatusCode::OK,
-            serde_json::to_value(&response_invoice).unwrap(),
-        )])
-        .await;
-        let metadata = billing_types::InvoiceMetadata {
-            tenant: "db-tenant/".to_string(),
-            invoice_type: InvoiceType::Manual,
-            period_start: "2026-07-15".to_string(),
-            period_end: "2026-09-14".to_string(),
-        };
-        let invoice = retrieve_recorded_invoice(&client, Some("in_recorded"), &metadata)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(invoice.tenant(), "db-tenant/");
-        assert!(invoice.is_manual());
-        assert_eq!(invoice.metadata().period_start, "2026-07-15");
-        assert_eq!(
-            *requests.lock().unwrap(),
-            ["GET /v1/invoices/in_recorded?expand[0]=customer"]
-        );
+    async fn recorded_id_retrieval_checks_customer_and_keeps_database_context() {
+        let cases = [
+            (Some("cus_recorded"), Some("cus_recorded"), false, true),
+            (Some("cus_recorded"), Some("cus_recorded"), true, true),
+            (Some("cus_other"), Some("cus_recorded"), false, false),
+            (Some("cus_other"), Some("cus_recorded"), true, false),
+            (None, Some("cus_recorded"), false, false),
+            (Some("cus_recorded"), None, false, false),
+            (None, None, false, false),
+        ];
+        for (actual_customer, expected_customer, expanded, accepted) in cases {
+            let customer = actual_customer.map(|id| {
+                if expanded {
+                    stripe::Expandable::Object(Box::new(stripe::Customer {
+                        id: id.parse().unwrap(),
+                        ..Default::default()
+                    }))
+                } else {
+                    stripe::Expandable::Id(id.parse().unwrap())
+                }
+            });
+            let response_invoice = stripe::Invoice {
+                id: "in_recorded".parse().unwrap(),
+                status: Some(stripe::InvoiceStatus::Draft),
+                collection_method: Some(stripe::CollectionMethod::SendInvoice),
+                customer,
+                metadata: None,
+                ..Default::default()
+            };
+            let (client, requests) = stripe_stub(vec![(
+                axum::http::StatusCode::OK,
+                serde_json::to_value(&response_invoice).unwrap(),
+            )])
+            .await;
+            let metadata = billing_types::InvoiceMetadata {
+                tenant: "acmeCo/".to_string(),
+                invoice_type: InvoiceType::Manual,
+                period_start: "2026-07-15".to_string(),
+                period_end: "2026-09-14".to_string(),
+            };
+            let result = retrieve_recorded_invoice(
+                &client,
+                Some("in_recorded"),
+                expected_customer,
+                &metadata,
+            )
+            .await;
+            if accepted {
+                let invoice = result.unwrap().unwrap();
+                assert_eq!(invoice.tenant(), "acmeCo/");
+                assert!(invoice.is_manual());
+                assert_eq!(invoice.metadata().period_start, "2026-07-15");
+            } else {
+                assert!(result.unwrap_err().to_string().contains("customer"));
+            }
+            assert_eq!(
+                *requests.lock().unwrap(),
+                ["GET /v1/invoices/in_recorded?expand[0]=customer"]
+            );
+        }
     }
 
     #[test]
