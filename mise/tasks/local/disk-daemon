@@ -19,6 +19,7 @@ if [ $((BASE_PORT % 100)) -ne 0 ]; then
 fi
 
 HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
+ADMIN_PORT=$((BASE_PORT + 62))
 
 # Named for the plane's port block, not its name. A Unix socket address holds 107
 # bytes, which a long stack name would push the socket path past. Its socket is
@@ -37,6 +38,7 @@ MOUNT_DIR="/run/flow-disk-${BASE_PORT}"
     cat <<EOF
 
 # Disk-daemon environment for ${DATA_PLANE}
+ADMIN_PORT=${ADMIN_PORT}
 BROKER_ADDRESS=https://broker-${DATA_PLANE}.flow.localhost:${BASE_PORT}
 DATA_PLANE_AUTH_KEYS=${HMAC_KEY}
 DATA_PLANE_FQDN=${DATA_PLANE}.dp.estuary-data.com
@@ -71,4 +73,4 @@ link_unit flow-disk-daemon@.service
 systemctl --user daemon-reload
 systemctl --user restart "flow-disk-daemon@${DATA_PLANE}.service"
 
-echo "Created flow-disk-daemon@${DATA_PLANE} serving ${DISK_DAEMON_DIR}/disk.sock"
+echo "Created flow-disk-daemon@${DATA_PLANE} serving ${DISK_DAEMON_DIR}/disk.sock (admin: http://127.0.0.1:${ADMIN_PORT}/)"
