@@ -317,10 +317,10 @@ async fn walk_materialization(
             field_config_json_map: binding.field_config_json_map.clone(),
             backfill: binding.backfill,
             group_by: binding.group_by.clone(),
-            collection_index: interner.intern_ref(
+            collection_index: interner.intern(
                 binding
                     .collection
-                    .as_ref()
+                    .clone()
                     .expect("active binding resolved its source collection"),
             ),
         })
@@ -997,17 +997,26 @@ fn walk_materialization_binding<'a>(
         }
     }
 
-    // Tweak `source_spec` so that the `key` and `projections` are consistent with `group_by`.
-    source_spec.key = group_by_ptrs;
-    for projection in source_spec.projections.iter_mut() {
-        projection.is_primary_key = group_by_fields.contains(&projection.field);
+    // `key` and `projections` of the binding's collection must be consistent
+    // with `group_by`. A `group_by` which differs from the collection key
+    // deep-copies the collection, and the binding no longer shares it.
+    if source_spec.key != group_by_ptrs
+        || source_spec.projections.iter().any(|projection| {
+            projection.is_primary_key != group_by_fields.contains(&projection.field)
+        })
+    {
+        let source_spec = proto_flow::Arc::make_mut(&mut source_spec);
+        source_spec.key = group_by_ptrs;
+        for projection in source_spec.projections.iter_mut() {
+            projection.is_primary_key = group_by_fields.contains(&projection.field);
+        }
     }
 
     // The binding inlines its collection while it's detached from a request:
     // interning happens in `walk_materialization`, which holds the shared table.
     let validate = materialize::request::validate::Binding {
         resource_config_json: super::strip_resource_meta(&model.resource),
-        collection: Some(proto_flow::Arc::new(source_spec)),
+        collection: Some(source_spec),
         field_config_json_map,
         backfill: model.backfill,
         group_by: group_by_fields,

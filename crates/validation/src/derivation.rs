@@ -955,7 +955,7 @@ fn walk_derive_transform<'a>(
     let validate = ValidateContext {
         validate: derive::request::validate::Transform {
             name: model.name.to_string(),
-            collection: Some(proto_flow::Arc::new(source_spec)),
+            collection: Some(source_spec),
             lambda_config_json: model.lambda.to_string().into(),
             shuffle_lambda_config_json: shuffle_lambda_config_json.into(),
             backfill: model.backfill,

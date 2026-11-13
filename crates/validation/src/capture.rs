@@ -234,7 +234,8 @@ async fn walk_capture(
     let scope_bindings = scope.push_prop("bindings");
 
     // Target collections of this capture, resolved once each.
-    let mut targets: BTreeMap<models::Collection, flow::CollectionSpec> = BTreeMap::new();
+    let mut targets: BTreeMap<models::Collection, proto_flow::Arc<flow::CollectionSpec>> =
+        BTreeMap::new();
 
     // Map enumerated binding models into their (possibly fixed) models, paired
     // with the stripped resource config of each *active* binding: one which
@@ -284,7 +285,7 @@ async fn walk_capture(
                 resource_config_json,
                 collection: None,
                 backfill: model.backfill,
-                collection_index: interner.intern_ref(&targets[&model.target]),
+                collection_index: interner.intern(targets[&model.target].clone()),
             })
         })
         .collect();
@@ -437,7 +438,7 @@ async fn walk_capture(
             collection: None,
             backfill: model.backfill,
             state_key,
-            collection_index: interner.intern_ref(&targets[&model.target]),
+            collection_index: interner.intern(targets[&model.target].clone()),
         };
 
         bindings_path.push(path);
@@ -586,7 +587,7 @@ fn walk_capture_binding<'a>(
     disable: bool,
     live_bindings_model: &BTreeMap<Vec<String>, &models::CaptureBinding>,
     live_bindings_spec: &LiveBindings,
-    targets: &mut BTreeMap<models::Collection, flow::CollectionSpec>,
+    targets: &mut BTreeMap<models::Collection, proto_flow::Arc<flow::CollectionSpec>>,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (
