@@ -28,7 +28,9 @@
                       "create_sandbox",
                       "view_billing",
                       "edit_billing",
-                      "edit_secret"
+                      "edit_secret",
+                      "view_data_plane_private_networking",
+                      "modify_data_plane_private_networking"
                     ]
                   }
                 }
@@ -58,7 +60,9 @@
                       "create_sandbox",
                       "view_billing",
                       "edit_billing",
-                      "edit_secret"
+                      "edit_secret",
+                      "view_data_plane_private_networking",
+                      "modify_data_plane_private_networking"
                     ]
                   }
                 }

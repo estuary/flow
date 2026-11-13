@@ -477,6 +477,8 @@ enum CapabilityBundle {
 	ViewBilling
 	EditBilling
 	EditSecret
+	ViewDataPlanePrivateNetworking
+	ModifyDataPlanePrivateNetworking
 }
 
 """

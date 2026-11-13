@@ -121,6 +121,8 @@ pub enum CapabilityBundle {
     ViewBilling,
     EditBilling,
     EditSecret,
+    ViewDataPlanePrivateNetworking,
+    ModifyDataPlanePrivateNetworking,
 }
 
 impl CapabilityBundle {
@@ -211,6 +213,8 @@ impl CapabilityBundle {
             Self::ViewBilling => ViewBilling.into(),
             Self::EditBilling => EditBilling.into(),
             Self::EditSecret => EditSecret.into(),
+            Self::ViewDataPlanePrivateNetworking => ViewDataPlanePrivateNetworking.into(),
+            Self::ModifyDataPlanePrivateNetworking => ModifyDataPlanePrivateNetworking.into(),
         }
     }
 }
@@ -274,7 +278,8 @@ mod tests {
           [
             "exact",
             [
-              "viewer"
+              "viewer",
+              "view_data_plane_private_networking"
             ]
           ],
           [
@@ -284,7 +289,8 @@ mod tests {
               "writer",
               "billing",
               "view_billing",
-              "edit_billing"
+              "edit_billing",
+              "view_data_plane_private_networking"
             ]
           ]
         ]
