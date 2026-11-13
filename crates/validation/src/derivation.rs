@@ -16,7 +16,7 @@ type LiveTransforms<'a> = BTreeMap<
     &'a str,
     (
         &'a flow::collection_spec::derivation::Transform,
-        Option<&'a flow::CollectionSpec>,
+        Option<&'a proto_flow::Arc<flow::CollectionSpec>>,
     ),
 >;
 
@@ -732,7 +732,7 @@ async fn walk_derivation(
         .filter_map(|(transform, collection)| {
             Some(flow::collection_spec::derivation::Transform {
                 collection: None,
-                collection_index: interner.intern_ref((*collection)?),
+                collection_index: interner.intern((*collection)?.clone()),
                 ..(*transform).clone()
             })
         })

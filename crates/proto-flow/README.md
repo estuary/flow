@@ -21,7 +21,9 @@ feature and then runs `cargo fmt`). Never hand-edit `src/*.rs`.
 - `src/internal.rs` — `get_internal` / `set_internal` / `with_internal` over
   the `internal: Bytes` field carried by connector Requests and Responses.
 - `src/linked.rs` — accessors which resolve a binding or transform to its
-  `CollectionSpec` over both the inlined and `collection_index` encodings.
+  `CollectionSpec` over both the inline and indirect (`collection_index`)
+  forms, the `indirect` / `inline` conversions between them, and the
+  `Interner` which builds a `linked_collections` table.
 - `tests/regression.rs` — snapshots the JSON and wire encodings of every
   message we care about, plus a `size_of` table. These snapshots are the
   contract: a diff in one means the encoding changed.

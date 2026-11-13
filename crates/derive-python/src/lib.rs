@@ -93,6 +93,7 @@ pub fn run() -> anyhow::Result<()> {
             };
 
             let (source, _identity) = resolved.context("transform missing source collection")?;
+            let source: &flow::CollectionSpec = source;
 
             Ok((name.as_str(), source, lambda))
         })
@@ -190,6 +191,7 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
             }
 
             let (source, _identity) = resolved.context("transform missing source collection")?;
+            let source: &flow::CollectionSpec = source;
 
             Ok((name.as_str(), source, lambda))
         })

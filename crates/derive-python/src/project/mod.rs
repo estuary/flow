@@ -311,6 +311,7 @@ fn resolve_transforms<'a>(
     let transforms = transforms
         .map(|(name, resolved)| {
             let (source, _identity) = resolved.context("transform missing source collection")?;
+            let source: &flow::CollectionSpec = source;
             Ok((name, source))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;

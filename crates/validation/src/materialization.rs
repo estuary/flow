@@ -15,7 +15,7 @@ type LiveBindings<'a> = BTreeMap<
     &'a [String],
     (
         &'a flow::materialization_spec::Binding,
-        Option<&'a flow::CollectionSpec>,
+        Option<&'a proto_flow::Arc<flow::CollectionSpec>>,
     ),
 >;
 
@@ -1063,7 +1063,7 @@ fn inactive_bindings(
         .filter_map(|(binding, collection)| {
             Some(flow::materialization_spec::Binding {
                 collection: None,
-                collection_index: interner.intern_ref((*collection)?),
+                collection_index: interner.intern((*collection)?.clone()),
                 ..(*binding).clone()
             })
         })

@@ -194,8 +194,7 @@ pub fn get_binding_for_topic(
         })
         .map(
             |(binding, resolved)| proto_flow::flow::materialization_spec::Binding {
-                collection: resolved
-                    .map(|(collection, _identity)| proto_flow::Arc::new(collection.clone())),
+                collection: resolved.map(|(collection, _identity)| collection.clone()),
                 collection_index: 0,
                 ..binding.clone()
             },
