@@ -8471,6 +8471,7 @@ dependencies = [
  "ops",
  "pbjson-types",
  "pin-project-lite",
+ "prost",
  "proto-flow",
  "proto-gazette",
  "proto-grpc",

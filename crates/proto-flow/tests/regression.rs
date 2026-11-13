@@ -1718,3 +1718,62 @@ fn test_unknown_json_fields_are_ignored() {
     .unwrap();
     assert_eq!("acmeCo/materialization", materialization.name);
 }
+
+// TRANSITIONAL: delete once no deployed binary predates `shuffle.Task`
+// carrying its specs as `bytes`.
+//
+// `shuffle.Task.derivation` and `.materialization` were message-typed, and
+// became `bytes` on the same tags. A message field and a `bytes` field share
+// the length-delimited wire type, so the two encodings are identical. That lets
+// Session and Slice binaries on either side of the change interoperate in both
+// directions, with no dual-decode phase. `PriorTask` is the message-typed
+// `Task`, and this test pins that equivalence.
+#[test]
+fn test_shuffle_task_spec_bytes_match_prior_messages() {
+    use proto_flow::shuffle;
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    struct PriorTask {
+        #[prost(oneof = "PriorVariant", tags = "1, 2, 3")]
+        task: Option<PriorVariant>,
+    }
+    #[derive(Clone, PartialEq, prost::Oneof)]
+    enum PriorVariant {
+        #[prost(message, tag = "1")]
+        CollectionPartitions(shuffle::CollectionPartitions),
+        #[prost(message, tag = "2")]
+        Derivation(flow::CollectionSpec),
+        #[prost(message, tag = "3")]
+        Materialization(flow::MaterializationSpec),
+    }
+
+    let derivation = ex_derivation_spec();
+    let materialization = ex_materialization_spec();
+
+    for (prior, current) in [
+        (
+            PriorVariant::Derivation(derivation.clone()),
+            shuffle::task::Task::Derivation(derivation.encode_to_vec().into()),
+        ),
+        (
+            PriorVariant::Materialization(materialization.clone()),
+            shuffle::task::Task::Materialization(materialization.encode_to_vec().into()),
+        ),
+    ] {
+        let prior = PriorTask { task: Some(prior) };
+        let current = shuffle::Task {
+            task: Some(current),
+        };
+
+        // A prior sender's Task decodes as current spec bytes.
+        assert_eq!(
+            shuffle::Task::decode(prior.encode_to_vec().as_slice()).unwrap(),
+            current,
+        );
+        // A current sender's Task decodes as prior spec messages.
+        assert_eq!(
+            PriorTask::decode(current.encode_to_vec().as_slice()).unwrap(),
+            prior,
+        );
+    }
+}
