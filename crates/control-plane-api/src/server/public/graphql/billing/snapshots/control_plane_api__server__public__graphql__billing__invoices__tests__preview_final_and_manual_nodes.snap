@@ -1,0 +1,118 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/invoices.rs
+expression: edges
+---
+[
+  {
+    "node": {
+      "amountDue": 750,
+      "dateEnd": "2024-03-31",
+      "dateStart": "2024-03-01",
+      "extra": null,
+      "invoiceType": "MANUAL",
+      "lineItems": [
+        {
+          "count": 1,
+          "description": "Manual charge",
+          "rate": 700,
+          "subtotal": 700
+        }
+      ],
+      "subtotal": 700
+    }
+  },
+  {
+    "node": {
+      "amountDue": null,
+      "dateEnd": "2024-03-31",
+      "dateStart": "2024-03-01",
+      "extra": {
+        "billed_month": "2024-03-01T00:00:00+00:00",
+        "billed_prefix": "previewusage/",
+        "daily_usage": [
+          {
+            "data_gb": 1.5,
+            "data_subtotal": 100,
+            "task_hours": 1.5,
+            "task_subtotal": 28,
+            "ts": "2024-03-08T00:00:00+00:00"
+          }
+        ],
+        "free_tier_credit": 0,
+        "line_items": [
+          {
+            "count": 1,
+            "description": "Recurring service charge",
+            "rate": 1000,
+            "subtotal": 1000
+          },
+          {
+            "count": 2,
+            "description": "Data processing (at $0.50/GB)",
+            "rate": 50,
+            "subtotal": 100
+          },
+          {
+            "count": 2,
+            "description": "Task usage (at $0.14/hour)",
+            "rate": 14,
+            "subtotal": 28
+          }
+        ],
+        "processed_data_gb": 1.5,
+        "recurring_fee": 1000,
+        "subtotal": 1128,
+        "task_usage_hours": 1.5,
+        "trial_credit": 0,
+        "trial_start": "2020-01-01"
+      },
+      "invoiceType": "PREVIEW",
+      "lineItems": [
+        {
+          "count": 1,
+          "description": "Recurring service charge",
+          "rate": 1000,
+          "subtotal": 1000
+        },
+        {
+          "count": 2,
+          "description": "Data processing (at $0.50/GB)",
+          "rate": 50,
+          "subtotal": 100
+        },
+        {
+          "count": 2,
+          "description": "Task usage (at $0.14/hour)",
+          "rate": 14,
+          "subtotal": 28
+        }
+      ],
+      "subtotal": 1128
+    }
+  },
+  {
+    "node": {
+      "amountDue": 2600,
+      "dateEnd": "2024-02-29",
+      "dateStart": "2024-02-01",
+      "extra": {
+        "billed_month": "2024-02-01T00:00:00Z",
+        "line_items": [
+          {
+            "description": "Frozen charge",
+            "subtotal": 2500
+          }
+        ],
+        "subtotal": 2500
+      },
+      "invoiceType": "FINAL",
+      "lineItems": [
+        {
+          "description": "Frozen charge",
+          "subtotal": 2500
+        }
+      ],
+      "subtotal": 2500
+    }
+  }
+]

@@ -819,9 +819,35 @@ pub(crate) async fn load_invoices(
             tenants.payment_provider,
             tenants.plan_kind,
             tenants.trial_start as tenant_trial_start,
-            invoices_ext.stripe_invoice_id,
+            invoices.stripe_invoice_id,
             tenants.stripe_customer_id
-        from internal.invoices_ext
+        from (
+            select
+                date_trunc('month', (report ->> 'billed_month')::timestamptz)::date as date_start,
+                (date_trunc('month', (report ->> 'billed_month')::timestamptz)
+                    + interval '1 month' - interval '1 day')::date as date_end,
+                tenant::text as billed_prefix,
+                coalesce(nullif(report -> 'line_items', 'null'::jsonb), '[]'::jsonb) as line_items,
+                coalesce(nullif(report -> 'subtotal', 'null'::jsonb), to_jsonb(0))::bigint as subtotal,
+                report as extra,
+                'final'::text as invoice_type,
+                stripe_invoice_id
+            from internal.billing_historicals
+            union all
+            select
+                date_start,
+                date_end,
+                tenant::text,
+                jsonb_build_array(jsonb_build_object(
+                    'description', description, 'count', 1,
+                    'rate', usd_cents, 'subtotal', usd_cents
+                )),
+                usd_cents,
+                'null'::jsonb,
+                'manual'::text,
+                stripe_invoice_id
+            from internal.manual_bills
+        ) as invoices
         join tenants on tenants.tenant = billed_prefix
         left join lateral(
             select
@@ -1795,18 +1821,25 @@ mod tests {
             "{err:#}"
         );
 
-        let recorded: Vec<(chrono::NaiveDate, chrono::NaiveDate, String, Option<String>)> =
-            sqlx::query_as(
-                r#"
-                select date_start, date_end, invoice_type, stripe_invoice_id
-                from internal.invoices_ext
-                where billed_prefix = 'acmeCo/' and invoice_type != 'preview'
-                order by invoice_type
-                "#,
+        let mut recorded: Vec<_> = load_invoices(
+            &pool,
+            "2026-08-01".parse().unwrap(),
+            &["acmeCo/".to_string()],
+            &[],
+        )
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|invoice| {
+            (
+                invoice.date_start,
+                invoice.date_end,
+                invoice.invoice_type.to_string(),
+                invoice.stripe_invoice_id,
             )
-            .fetch_all(&pool)
-            .await
-            .unwrap();
+        })
+        .collect();
+        recorded.sort_by(|left, right| left.2.cmp(&right.2));
         insta::assert_debug_snapshot!(recorded, @r#"
         [
             (
