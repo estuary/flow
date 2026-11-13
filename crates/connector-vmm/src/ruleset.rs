@@ -226,29 +226,36 @@ mod tests {
         )
     }
 
+    /// The declared policy's whole ruleset, then how each other policy's
+    /// differs from it: the lines it lacks, and those it has instead.
     #[test]
-    fn ingress_ruleset() {
-        insta::assert_snapshot!(super::render(&empty(), &vmm_subnets(), &[8080, 9090]));
-    }
-
-    #[test]
-    fn empty_ruleset() {
-        insta::assert_snapshot!(render(&empty()));
-    }
-
-    #[test]
-    fn declared_ruleset() {
-        insta::assert_snapshot!(render(&declared()));
-    }
-
-    #[test]
-    fn every_address_ruleset() {
-        insta::assert_snapshot!(render(&every_address()));
-    }
-
-    #[test]
-    fn allowed_names_ruleset() {
-        insta::assert_snapshot!(render(&allowed_names()));
+    fn rulesets() {
+        let base = render(&declared());
+        let mut table = format!("# declared\n{base}");
+        for (name, other) in [
+            ("empty", render(&empty())),
+            ("every address", render(&every_address())),
+            ("allowed names", render(&allowed_names())),
+            (
+                "empty, with ingress",
+                super::render(&empty(), &vmm_subnets(), &[8080, 9090]),
+            ),
+        ] {
+            table.push_str(&format!("\n# {name}\n"));
+            for line in base
+                .lines()
+                .filter(|line| !other.lines().any(|o| o == *line))
+            {
+                table.push_str(&format!("- {line}\n"));
+            }
+            for line in other
+                .lines()
+                .filter(|line| !base.lines().any(|b| b == *line))
+            {
+                table.push_str(&format!("+ {line}\n"));
+            }
+        }
+        insta::assert_snapshot!(table);
     }
 
     /// Every accept must be accounted for, and entry to egress_accept must

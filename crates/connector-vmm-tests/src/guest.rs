@@ -56,21 +56,3 @@ pub fn call(
     assert_eq!(response["probe"], probe, "the guest answered another probe");
     response["result"].take()
 }
-
-/// Whether the guest's side of the channel has gone, within `timeout`: EOF or
-/// a reset both mean the connection it was holding no longer exists.
-pub fn closed_within(guest: &mut Guest, timeout: Duration) -> bool {
-    guest
-        .writer
-        .set_read_timeout(Some(timeout))
-        .expect("setting a read timeout");
-    let mut rest = String::new();
-    match guest.reader.read_line(&mut rest) {
-        Ok(0) => true,
-        Ok(_) => false,
-        Err(error) => !matches!(
-            error.kind(),
-            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-        ),
-    }
-}

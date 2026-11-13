@@ -818,9 +818,7 @@ mod test {
         }
     }
 
-    const CAPTURE: &str = "ghcr.io/estuary/capture-python:stable";
     const DERIVE: &str = "ghcr.io/estuary/derive-python:stable";
-    const MATERIALIZE: &str = "ghcr.io/estuary/materialize-python:stable";
 
     /// Which images may request VMM execution as which task type: an exact
     /// repository, whatever its tag or digest, as its own type only.
@@ -893,9 +891,9 @@ mod test {
         insta::assert_snapshot!(rows.join("\n"));
     }
 
-    /// Every task type's own eligible image, on every plane, with and without
+    /// An eligible derivation, on every plane, with and without
     /// VMM capability, as ordinary or VMM execution, with egress missing,
-    /// empty, or declared. Public-plane refusal of ordinary Python is the
+    /// empty, or declared. `vmm_for_matrix` covers the other task types. Public-plane refusal of ordinary Python is the
     /// image policy's, which `policy::Image::check` decides after this.
     #[test]
     fn vmm_for_egress() {
@@ -933,34 +931,27 @@ mod test {
             crate::Plane::Local,
         ] {
             for capability in [None, Some(&capable)] {
-                for (task_type, image) in [
-                    (ops::TaskType::Capture, CAPTURE),
-                    (ops::TaskType::Derivation, DERIVE),
-                    (ops::TaskType::Materialization, MATERIALIZE),
-                ] {
-                    for (name, execution) in &executions {
-                        let outcome = match vmm_for(
-                            capability,
-                            plane,
-                            task_type,
-                            Some(image),
-                            execution,
-                            None,
-                        ) {
-                            Ok(super::Execution::Vmm { egress, .. }) => {
-                                let hosts: Vec<String> =
-                                    egress.hosts.iter().map(ToString::to_string).collect();
-                                format!("vmm, task hosts {hosts:?}")
-                            }
-                            result => outcome(result),
-                        };
-                        rows.push(format!(
-                            "{plane:<7} {capable:<7} {task_type:<15} {name:<29} => {outcome}",
-                            plane = plane.as_str_name(),
-                            capable = if capability.is_some() { "capable" } else { "-" },
-                            task_type = task_type.as_str_name(),
-                        ));
-                    }
+                for (name, execution) in &executions {
+                    let outcome = match vmm_for(
+                        capability,
+                        plane,
+                        ops::TaskType::Derivation,
+                        Some(DERIVE),
+                        execution,
+                        None,
+                    ) {
+                        Ok(super::Execution::Vmm { egress, .. }) => {
+                            let hosts: Vec<String> =
+                                egress.hosts.iter().map(ToString::to_string).collect();
+                            format!("vmm, task hosts {hosts:?}")
+                        }
+                        result => outcome(result),
+                    };
+                    rows.push(format!(
+                        "{plane:<7} {capable:<7} {name:<29} => {outcome}",
+                        plane = plane.as_str_name(),
+                        capable = if capability.is_some() { "capable" } else { "-" },
+                    ));
                 }
             }
         }

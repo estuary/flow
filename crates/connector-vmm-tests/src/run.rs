@@ -69,10 +69,6 @@ pub mod policy {
         "--egress-host=ok.acmeco.example",
         "--egress-cidr=198.18.255.241/32",
     ];
-    pub const AZURE: &[&str] = &[
-        "--egress-host=name.acmeco.example",
-        "--egress-cidr=168.63.129.16/32",
-    ];
     pub const EVERY_ADDRESS: &[&str] = &["--egress-cidr=0.0.0.0/0"];
     pub const TTL: &[&str] = &[
         "--egress-host=*.acmeco.example",

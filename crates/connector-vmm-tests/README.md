@@ -33,7 +33,7 @@ connector-init over a guest's vsock connection.
 ## Coverage and entry points
 
 - `tests/kvm.rs`: guest boot, devices, filesystem and connector-mount
-  isolation, working directories, RPC, teardown, egress allowlists and expiry,
+  isolation, working directories, RPC, egress allowlists and expiry,
   declared CIDRs over TCP and UDP with their host grant's lifecycle, host-only declared TCP
   ingress with bidirectional traffic under the empty policy, and host isolation
   after a VMM removes its own rules. `ci:connector-vmm-gate` covers the
@@ -45,38 +45,27 @@ connector-init over a guest's vsock connection.
   `spec_rpc_through_init_sock`, `production_guest` and
   `production_refuses_test_controls` run the packaged VMM image, with
   connector-init as the workload where they boot a guest.
-- `kvm::dns_udp_sizes`: classic UDP and EDNS size limits with controlled
-  upstream truncation, raw queries, and the guest's libc resolver.
-- `kvm::azure_platform_egress`: DNS refusal and direct TCP/UDP exclusion,
-  including after the VMM removes its rules, plus explicit `/32` and `/0` grants.
-- `kvm::scratch_reclaims`: negotiated DISCARD without FLUSH and host backing
-  blocks reclaimed after guest deletion, allowing retained ext4 metadata.
 - `kvm::guest_users_files_and_storage`: under the VMM container's explicit
   capabilities, a nonroot image user and root each read the image's mode
   0600 and 0700 entries as the image permits, and create, chmod, set times
   on, chown, rename and remove persistent-disk entries, which the host sees
   owned by the guest's uid and gid.
-- `tests/dns_answers/`, `tests/dns_capacity/`: refused answers and capacity
-  overflow must not partially authorize addresses in the kernel. Resolver
-  unit tests cover TTL retention, CNAME capacity, and reclamation with explicit
-  expiry states; `kvm::egress_ttl` checks real kernel expiry.
+- Resolver unit tests in `connector-vmm` cover refused answers, capacity,
+  UDP sizes, TTL retention and reclamation; `kvm::egress_ttl` checks real
+  kernel expiry.
 - `tests/launcher.rs`: launches through `connector::Service`,
   socket and credential-source access restricted to the launcher's UID, task
   egress as the union of the connector's, image's and task's hosts, Spec of
   each Python connector built from this checkout, release of an abandoned
   session,
-  ownership, and recovery after process death, a destroyed runtime or a stalled container query,
+  ownership, and recovery after process death or a destroyed runtime,
   including labeled resources whose record is gone. Recovery runs as single
   passes (`connector::Vmm::recover`), in processes killed mid-pass, or as a
   `connector::VmmRecovery` whose later passes, with no launch, catch late
   creates and retry failures. Late ingress grants are created, and started,
   apart through a rootful podman API service each test starts over the
   host's store (`launcher::Api`), with recovery reaching it too, and the
-  service's own events order them. A create the service accepted, of a
-  launch's container or of its `--rm` boundary verify's, and holds on a POSIX
-  lock of a private store's containers (`/proc/locks` shows the service
-  waiting), outlives its killed client and its launch's release, and lands
-  for a later pass to remove.
+  service's own events order them.
   `repeated_specs_through_the_podman_api` covers the reactor's API attachment.
   `connector`'s `readiness_tests.rs` covers readiness, cancellation, ingress
   ports and refused launches against a scripted engine, and its release
@@ -90,17 +79,10 @@ connector-init over a guest's vsock connection.
   - a capture project (`examples/capture-python`'s): local and control-plane
     Discover, preview, publication, and its cursor resumed by a session
     restarted after its VMM is killed, and by a later publication's;
-  - a derivation project which lists the `uv.lock` the test makes for it,
-    whose sessions install it frozen, and whose connector state survives a
-    killed VMM;
   - a materialization project (`examples/materialize-python`'s) into that
     example's API, served in a container and reached by a declared CIDR:
     a multi-session preview with standard and delta updates, then live
-    greetings replayed into the idempotent API after a killed VMM;
-  - `flowctl generate --task` of each project, starters of each type, and the
-    legacy derivation from one catalog of nested projects. A task refused
-    its VMM, on a machine without VMM capability or for want of declared
-    egress, fails `generate` and `preview` without a launch.
+    greetings replayed into the idempotent API after a killed VMM.
 
   Projects run this checkout's images, which the task builds as `:local`.
   The podman wrapper verifies each connector mount synchronously before
@@ -133,8 +115,7 @@ injection. `launcher::before_connector_init` runs a test's script in the
 workload before connector-init. Recovery holds match the seeded orphans'
 tokens so a failed launch can release its own resources. `launcher::remote`
 has the wrapper drive an API service instead of podman itself; a test's own
-service stops with it, or after five idle minutes should the test die, and
-a private store's directories are on the resource list. `src/host.rs` reads
+service stops with it, or after five idle minutes should the test die. `src/host.rs` reads
 kernel state; `src/guest.rs` talks to the stdlib Python probe server in
 `fixtures/probes.py`.
 
@@ -142,8 +123,7 @@ kernel state; `src/guest.rs` talks to the stdlib Python probe server in
 `src/netns.rs` and `fixtures/bind.py` bind sockets in the endpoint namespace.
 The endpoints use addresses under `192.31.196.240/28`, routed one hop from
 the host so host-isolation rules apply. Excluded decoys use
-`198.18.255.240/28` and the simulated Azure platform address
-`168.63.129.16/32`; a declared CIDR may reach them, as it would private
+`198.18.255.240/28`; a declared CIDR may reach them, as it would private
 space. All ranges are blackholed beneath their test routes;
 the namespace routes only back to the host.
 

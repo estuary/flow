@@ -264,7 +264,7 @@ pub fn remote(root: &Root, url: &str) {
 /// `API_IDLE` seconds idle if its test dies first.
 pub struct Api {
     pub url: String,
-    /// Where it is, holding its log and any private store.
+    /// Where it is, holding its log.
     pub dir: String,
     service: std::process::Child,
 }
@@ -272,46 +272,15 @@ pub struct Api {
 const API_IDLE: u32 = 300;
 
 impl Api {
-    pub fn start(root: &Root, private: bool) -> Self {
+    pub fn start(root: &Root) -> Self {
         let dir = format!("{}/api", root.dir);
         std::fs::create_dir(&dir).unwrap_or_else(|e| panic!("creating {dir}: {e}"));
-        let store: Vec<String> = if private {
-            // podman refuses a runroot longer than 50 bytes, as `dir` is. The
-            // task's release lists what's two levels beneath it, as the test.
-            let parent = format!("{}/launcher-{}", run::ROOT, &run::random_hex()[..8]);
-            run::record("dir", &parent);
-            let (uid, gid) = (
-                rustix::process::getuid().as_raw(),
-                rustix::process::getgid().as_raw(),
-            );
-            run::sudo(&[
-                "install",
-                "-d",
-                "-o",
-                &uid.to_string(),
-                "-g",
-                &gid.to_string(),
-                "-m",
-                "0755",
-                &parent,
-                &format!("{parent}/r"),
-            ]);
-            vec![
-                format!("--root={dir}/store"),
-                format!("--runroot={parent}/r"),
-                "--storage-driver=vfs".to_string(),
-                "--events-backend=file".to_string(),
-            ]
-        } else {
-            Vec::new()
-        };
         let url = format!("unix://{dir}/api.sock");
         let log = format!("{dir}/service.log");
         let log = std::fs::File::create(&log).unwrap_or_else(|e| panic!("creating {log}: {e}"));
 
         let service = std::process::Command::new("sudo")
             .args(["-n", "podman"])
-            .args(&store)
             .args(["system", "service", &format!("--time={API_IDLE}"), &url])
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone().expect("cloning the service's log"))
