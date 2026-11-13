@@ -30,102 +30,47 @@ images from this checkout, so it does not test a published image.
 to skip when its kernel module cannot load. The KVM suite still exercises
 connector-init over a guest's vsock connection.
 
-## Coverage and entry points
+## Tests
 
-- `tests/kvm.rs`: guest boot, devices, filesystem and connector-mount
-  isolation, working directories, RPC, egress allowlists and expiry,
-  declared CIDRs over TCP and UDP with their host grant's lifecycle, host-only declared TCP
-  ingress with bidirectional traffic under the empty policy, and host isolation
-  after a VMM removes its own rules. `ci:connector-vmm-gate` covers the
-  boundary's refusal of tampering. Connector-mount tests check that host
-  file replacements become visible inside the guest. `no_new_privileges`
-  runs controlled setuid, setgid and file-capability programs from the
-  workload, and as the same user in a plain podman container as the control.
-  Root workloads come from images whose `User` is root.
-  `spec_rpc_through_init_sock`, `production_guest` and
-  `production_refuses_test_controls` run the packaged VMM image, with
-  connector-init as the workload where they boot a guest.
-- `kvm::guest_users_files_and_storage`: under the VMM container's explicit
-  capabilities, a nonroot image user and root each read the image's mode
-  0600 and 0700 entries as the image permits, and create, chmod, set times
-  on, chown, rename and remove persistent-disk entries, which the host sees
-  owned by the guest's uid and gid.
-- Resolver unit tests in `connector-vmm` cover refused answers, capacity,
-  UDP sizes, TTL retention and reclamation; `kvm::egress_ttl` checks real
-  kernel expiry.
-- `tests/launcher.rs`: launches through `connector::Service`,
-  socket and credential-source access restricted to the launcher's UID, task
-  egress as the union of the connector's, image's and task's hosts, Spec of
-  each Python connector built from this checkout, release of an abandoned
-  session,
-  ownership, and recovery after process death or a destroyed runtime,
-  including labeled resources whose record is gone. Recovery runs as single
-  passes (`connector::Vmm::recover`), in processes killed mid-pass, or as a
-  `connector::VmmRecovery` whose later passes, with no launch, catch late
-  creates and retry failures. Late ingress grants are created, and started,
-  apart through a rootful podman API service each test starts over the
-  host's store (`launcher::Api`), with recovery reaching it too, and the
-  service's own events order them.
-  `repeated_specs_through_the_podman_api` covers the reactor's API attachment.
-  `connector`'s `readiness_tests.rs` covers readiness, cancellation, ingress
-  ports and refused launches against a scripted engine, and its release
-  state-machine tests cover failure combinations.
-- `tests/platform.rs`: through flowctl and the reactor, with fixtures under
-  `fixtures/platform/`:
-  - the legacy `module` derivation, on the published `derive-python:stable`:
-    preview, publication, derived documents, logs, cleanup, and
-    `flowctl generate` placing a nested catalog's files beside the
-    derivation's specification;
-  - a capture project (`examples/capture-python`'s): local and control-plane
-    Discover, preview, publication, and its cursor resumed by a session
-    restarted after its VMM is killed, and by a later publication's;
-  - a materialization project (`examples/materialize-python`'s) into that
-    example's API, served in a container and reached by a declared CIDR:
-    a multi-session preview with standard and delta updates, then live
-    greetings replayed into the idempotent API after a killed VMM.
-
-  Projects run this checkout's images, which the task builds as `:local`.
-  The podman wrapper verifies each connector mount synchronously before
-  container creation.
-- `tests/release.rs`: the task's resource cleanup, tested against stand-in
+- `tests/kvm.rs`: one VMM per test, launched on the launcher's lines
+  (`connector::vmm_argv`): guest boot, users, mounts and storage, RPC over
+  `init.sock`, egress allowlists, CIDRs and TTL expiry against the real
+  kernel, host ingress, and host isolation after a VMM removes its own
+  rules.
+- `tests/launcher.rs`: launches through `connector::Service` against real
+  podman: socket and credential access by UID, task egress, Spec of each
+  Python connector, ownership records, and recovery after killed owners,
+  killed recoveries and late ingress grants.
+- `tests/platform.rs` (`--platform`): a Python capture, derivation and
+  materialization through flowctl and a local stack's reactor, with
+  fixtures under `fixtures/platform/`.
+- `tests/release.rs`: the task's resource cleanup, against stand-in
   commands.
-- `tests/publish.rs`: `ci:docker-images` and `ci:connector-vmm-gate` against
-  a stand-in docker. The VMM image is never pushed after a refused gate or a
-  tag which names another image.
+- `tests/publish.rs`: `ci:docker-images` never pushes a VMM image which did
+  not pass `ci:connector-vmm-gate`, against a stand-in docker.
+
+Unit tests own what needs no VM: `connector`'s `readiness_tests.rs`
+(readiness, cancellation and refused launches against a scripted engine)
+and `connector-vmm`'s resolver, ruleset and boundary tests.
 
 ## Harness
 
-`mise/tasks/ci/connector-vmm-kvm` builds the binaries and images, installs or
-verifies the host boundary, stages controlled endpoints, and writes the run
-configuration. It builds two VMM images which differ only in
-`flow-connector-vmm`: the packaged build, which `--platform` uses, and the
-suite's, built with connector-vmm's `test-controls` feature in a target
-directory of its own. It checks that both carry this run's `flow-connector-guest-init`.
-Its companion `connector-vmm-kvm-lib.sh` tracks and releases
-resources. Cargo and tests run as the invoking user; privileged operations
-use `sudo -n`.
-
-`src/run.rs` owns test VMMs and their resources. It launches them on the
-launcher's lines, from `connector::vmm_argv`, with each test's flags, `--exec`
-and line edits added.
-Tests removing connector images use `run::stop` to check container and
-image-volume removal before removing the image.
-`src/launcher.rs` and `fixtures/podman.sh` provide launcher control and fault
-injection. `launcher::before_connector_init` runs a test's script in the
-workload before connector-init. Recovery holds match the seeded orphans'
-tokens so a failed launch can release its own resources. `launcher::remote`
-has the wrapper drive an API service instead of podman itself; a test's own
-service stops with it, or after five idle minutes should the test die. `src/host.rs` reads
-kernel state; `src/guest.rs` talks to the stdlib Python probe server in
-`fixtures/probes.py`.
-
-`src/dns.rs` and `src/endpoint.rs` serve controlled DNS, TCP and UDP traffic.
-`src/netns.rs` and `fixtures/bind.py` bind sockets in the endpoint namespace.
-The endpoints use addresses under `192.31.196.240/28`, routed one hop from
-the host so host-isolation rules apply. Excluded decoys use
-`198.18.255.240/28`; a declared CIDR may reach them, as it would private
-space. All ranges are blackholed beneath their test routes;
-the namespace routes only back to the host.
+- `mise/tasks/ci/connector-vmm-kvm` builds the binaries and images, installs
+  or verifies the host boundary, stages the endpoints, and writes the run
+  configuration. It builds the packaged VMM image, which `--platform` uses,
+  and one with connector-vmm's `test-controls` feature for the suite.
+  `connector-vmm-kvm-lib.sh` tracks and releases resources.
+- `src/run.rs` owns test VMMs and their resources.
+- `src/launcher.rs` and `fixtures/podman.sh` wrap podman for the launcher
+  tests: recorded calls, holds, faults, and `launcher::Api`, a test-owned
+  podman API service.
+- `src/host.rs` reads kernel state. `src/guest.rs` talks to the probe server
+  in `fixtures/probes.py`.
+- `src/dns.rs`, `src/endpoint.rs`, `src/netns.rs` and `fixtures/bind.py`
+  serve controlled DNS, TCP and UDP in a network namespace one routed hop
+  from the host. Endpoints use `192.31.196.240/28`, which the ruleset
+  treats as public, and excluded decoys use `198.18.255.240/28`. Both are
+  blackholed beneath their test routes.
 
 ## Resources and diagnostics
 

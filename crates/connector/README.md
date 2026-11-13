@@ -235,336 +235,54 @@ EOF or status. A client which does not drain responses may park the handler.
   shard hosting a recorded recovery log, and only for a `Sqlite` derivation;
   any other connector type rejects it as `InvalidArgument`.
 
-- **Every start is admitted by `vmm_for`, before anything runs.** It sees the
-  requested execution, the endpoint, the protocol, and the service's VMM
-  capability, after endpoint extraction and before any image is pulled or
-  process started, and returns the `Execution` the start's image connector
-  runs under. A VMM request must name an eligible image of its own protocol,
-  by exact repository whatever its tag or digest: `capture-python`,
-  `derive-python` and `materialize-python` of `ghcr.io/estuary/`. It must
-  declare `egress`, and run on a service with VMM capability. It is then
-  launched in a VMM or fails; it never falls back to an ordinary container.
-  A local or in-process endpoint cannot request it. A start whose execution
-  declares `egress` without a VMM is refused first, whatever its endpoint:
-  only a VMM enforces egress, and a declaration is never quietly dropped. A
-  VMM start's declared hosts and CIDRs are validated here too, before
-  anything is pulled, and `policy::egress_cidrs` refuses any CIDR on a public
-  plane. Catalog validation checks only their syntax: it does not know the
-  plane. Each refusal here, and an unready host's (below), is marked by
-  `proto_grpc::connector::refuse_execution`. A connector's own error status
-  may have any code, so the mark is how a client such as `flowctl generate`
-  tells a refusal from it.
-  `Started.execution` is set only once the VMM's connector-init is dialed and
-  the Spec exchanged.
-
-- **`protocol::start` dispatches by endpoint and execution.** Ordinary image
-  policy is checked on the service's plane before mount, environment and
-  credential preparation. The session `Guard` owns the ordinary mount and
-  task-update refresh. `image::connect` runs ordinary images.
-  A VMM start calls `vmm::launch::start`, whose task owns its mount and
-  refresh. The session `Guard` holds the handle that stops the launch.
-
-- **A session's execution is fixed at its start.** `serve::pump` checks later
-  built specs against `Started.execution` before forwarding them. Even
-  narrower egress would differ from the running VMM's policy, so a mismatch
-  ends the session with `InvalidArgument`.
-
-- **VMM configuration is read once, and checked whole.** `Vmm::from_env`
-  reads nothing else when `CONNECTOR_VMM_STATE_DIR` is unset or empty. It
-  is an absolute host path without a
-  comma, at most 72 bytes so that `<dir>/fv_<16 hex>/sock/init.sock` fits a
-  Unix socket address. `CONNECTOR_VMM_DISK_MIB` (2048),
-  `CONNECTOR_VMM_MEMORY_OVERHEAD_MIB` (256) and `CONNECTOR_VMM_PODMAN`
-  (`podman`, the rootful engine however this process reaches it) take defaults. A malformed
-  value fails service construction, except `CONNECTOR_MEMORY_LIMIT` (below).
-  Whether the host can actually run a VMM is a question for each launch, not
-  for configuration.
-
-- **Engine subprocesses omit platform authority.** `container::engine_command`
-  removes `CONSUMER_AUTH_KEYS`, `BROKER_AUTH_KEYS`, `SOPS_AGE_KEY` and
-  `FLOW_AUTH_TOKEN` from ordinary and VMM engine clients, including operator
-  wrappers. Other environment settings remain inherited for engine selection,
-  registry authentication, remote connections and wrapper configuration.
-  This reduces secret copies in subprocesses; it does not restrict rootful
-  engine authority or change VMM isolation. `container/engine_tests.rs` covers
-  invocation paths.
-
-- **A VMM container gets an ordinary connector's limits.** `--memory` is
-  `CONNECTOR_MEMORY_LIMIT`, parsed once into bytes and passed as that decimal
-  byte count; `--cpus` is `CONNECTOR_CPU_LIMIT`, verbatim. The guest is sized
-  within them: RAM is the cap's whole MiB less the overhead, and vCPUs are the
-  CPU limit rounded up. The CPU limit is a decimal number of CPUs.
-
-- **The memory limit is read as the engines read it.** `vmm::memory_bytes`
-  is docker/go-units' `RAMInBytes` at v0.5.0, which the Docker CLI and
-  podman link (its master reads the same spellings): any decimal Go's
-  `ParseFloat` reads, such as `.5g`, `+1g` or `1e3m`, and the byte count it
-  computes. It refuses hexadecimal floats, and counts the engines would wrap
-  past 2^63 into no limit. The VMM's podman gets that count, never the
-  spelling. Ordinary connectors run under any limit their engine takes. So a
-  limit which cannot size a VMM (one refused here, zero, which the engines
-  read as no limit, at most the overhead, or a guest above 32 bits of MiB) is
-  no configuration error: `vmm_for` refuses each VMM start with
-  `FailedPrecondition`, before anything is pulled.
-
-- **A VMM connector reaches its own hosts, its image's, and its task's.**
-  Each eligible connector carries default hosts (Python's package index), the
-  image may add more as a JSON array of names in its
-  `dev.estuary.egress-hosts` label, and the task may add more in its
-  execution's `egress.hosts`. `vmm::plan::Egress` is their union, in that
-  order and without repeats, each name remembered with where it came from.
-  A missing, blank or empty label adds nothing; anything else that isn't
-  valid names is refused, on every plane. Names follow
-  `models::egress::hosts`, which lowercases and drops a root dot. A built
-  spec carries the task's names as written, and the launch passes each name
-  of the union, normalized, to the VMM as an `--egress-host` flag. Ordinary
-  launches never read the label.
-
-- **Empty egress permits nothing, on every plane.** Egress declaring no
-  host and no CIDR (`egress: {}`) is planned as no names and no CIDRs, so the
-  VMM's resolver refuses every name and no address is reachable: not the
-  connector's defaults, nor its image's label. Any other declaration is held
-  to the union above. Each launch logs which applies, and every permitted
-  name with its source, to the task's logs.
-
-- **A task's CIDRs open private destinations, guest and host alike.** On a
-  private or local plane, each range of `egress.cidrs` is passed to the VMM
-  as an `--egress-cidr` flag, and the launch's host grant carries a `--cidr` for each
-  range, because the host boundary drops private destinations for every VMM
-  otherwise. The grant is the one described below for ingress, so it is
-  installed, recorded and revoked with it, and a launch with CIDRs but no
-  declared port still has one.
-
-- **A VMM launch is planned before anything is created.** `vmm::plan::plan`
-  turns the configuration and the connector's image inspection into the
-  policy, the `fv_<16 hex>` state directories and socket, the files the
-  connector mount must hold, and four podman lines: `boundary verify` from
-  the VMM image, the VMM's own `fvm<12 hex>` bridge network, its private rootfs
-  volume, and its `run`. The volume uses the inspected image ID so a concurrent
-  pull cannot replace the code after its metadata and policy were read. It uses
-  Podman's `image` volume driver for a private storage container, mounted
-  read-only at `/rootfs`. A `type=image` mount shares the image's mount across
-  launches, and Podman 4.9 unmounts it even when removing a container that never
-  started, breaking a sibling's pending OCI mount. Usage labels keep the
-  requested image reference.
-  `vmm::argv` builds the lines, and `crates/connector-vmm-tests` launches its
-  VMMs with the same builders. The plan adds `--platform`, the usage labels,
-  the owner label (below) and `--cgroup-parent`, and gives the configured
-  limits as written. The plan `podman create`s the container, and the launch
-  then `podman start --attach`es it by ID; the suite `podman run`s it.
-  `LOG_LEVEL` defaults to `info` on local planes and `warn` elsewhere.
-
-- **A VMM launch runs as one task, which holds its ownership record.**
-  `vmm::launch` pulls and
-  inspects the image with `CONNECTOR_VMM_PODMAN` (skipping the pull of a
-  `:local` tag, as ordinary launches do), resolves the VMM image's ID
-  (below), and plans one randomly generated id. It then claims its id by
-  making `<STATE_DIR>/fv_<id>.owner`, makes the
-  connector mount and `fv_<id>` state directory, writes the planned files,
-  runs `boundary verify`, creates the
-  network, creates the rootfs volume and container, and starts it. A failed
-  claim or create returns an error and releases only this launch's resources;
-  it never retries under another id. Pulls,
-  inspection, verification and the readiness dial race the start's
-  abandonment; the commands which create the network, volume and container are never
-  interrupted, so each client has exited before teardown looks for what it
-  made.
-
-- **A launch owns only what it proves it made, and its record says so.** The
-  record is written at mode 0600, `flock`ed and synced as an unnamed `O_TMPFILE`, then
-  linked under its name, so it is never seen unlocked or empty, and its claim
-  is exclusive. It is append-only JSON lines: a claim naming the id, a random
-  owner token and the connector mount, then a line marking each directory
-  made by exclusive `mkdir`, written before anything is put in it. The network
-  rootfs volume and container carry the token as their `dev.estuary.vmm-owner` label, which
-  podman stores as it creates them, and are found by it and nothing else: a
-  name never proves ownership. Each also carries its `STATE_DIR` as its
-  `dev.estuary.vmm-state-dir` label, and is named for the launch, as `fv_<id>`.
-  So are the containers of its boundary runs: the ingress grant's
-  `fv_<id>-ingress`, and `fv_<id>-verify` and `fv_<id>-revoke`, which `--rm`
-  removes only if they start, and which a release names and labels from its
-  record. A directory that already exists is not marked,
-  and so never removed. Recovery also writes records, for grants (below):
-  a claim naming the token and the ID of the grant's image, and no mount,
-  which marks nothing. A record which reads as anything other than these (another
-  version, an id or mount of the wrong shape, a repeated or unknown line)
-  directs no removal at all, and is kept and reported; a last line without
-  its newline is an append that never finished.
-
-- **The record's lock is the owner's liveness, PIDs aside.** The kernel drops
-  a `flock` with the last descriptor of its open file, however its process
-  ends, across PID namespaces and containers sharing the host filesystem. The
-  lock says nothing of the creates the owner asked for. A podman client
-  survives its launcher's death, sudo's too, and the podman service finishes
-  a request after its client has gone. So whoever takes the lock may release
-  a launch before its last create lands, and a later recovery pass removes
-  what that create made (below). `STATE_DIR` must be a local
-  filesystem with `flock` and `O_TMPFILE`, and persistent if records are to
-  survive a reboot.
-
-- **Release is one state machine, for teardown and recovery alike.**
-  `vmm::release` finds the containers labeled with the record's token and
-  removes them by ID; if that query or removal fails, nothing else is touched,
-  since the mount, state and network may still be in use. The ingress grant's
-  container is kept once it exits, so it is among them. Its grant is revoked
-  next, by its owner token: a start of the grant's container which podman has
-  yet to serve then fails, rather than grant again. A failed revoke keeps the
-  record. Then networks by the
-  label, removed by name (podman 4.9 skips its in-use check when given an ID);
-  then rootfs volumes by the same label, removed without force; then the marked
-  mount and state. The record is removed, under its lock, only
-  once all of them are gone. Otherwise it is kept unchanged and let go, and a
-  later release, which repeats every check, retries it.
-
-- **Teardown stops the VMM, then releases, and the session waits for it.** A
-  dropped `Guard`, an abandoned start, or a failure at any step leads to the
-  same teardown: `podman rm --force` by the ID `create` printed (killing a
-  client does not stop its container, and a client run through sudo outlives a
-  kill of sudo), at most ten seconds for the `start --attach` client to leave,
-  then the release. What remains is an error log to the session and to
-  tracing, naming the record kept for it. The task holds a clone of the
-  session's log sink, so the stream's terminal status or EOF follows teardown.
-  If the task is dropped instead, with its runtime, nothing runs: its lock goes,
-  and its record is recovered.
-
-- **A stopped shard's VMM waits for recovery.** A reactor stops a shard by
-  dropping its task service, and that service's runtime with it, so the
-  launch's task is dropped rather than torn down. The VMM ends within seconds
-  of its RPC (connector-init's idle watchdog) and `--rm` removes its
-  container, whose bridge goes with it, but its network definition, state,
-  record and connector mount wait for recovery. A Validate or Spec, whose
-  session ends before its runtime, is torn down by its owner. An exiting
-  flowctl waits up to 30 seconds for its own launches' teardowns
-  (`Vmm::drain_launches`); one killed, or past that, leaves them to recovery.
-
-- **Recovery runs for the process lifetime.** `Vmm::spawn_recovery`
-  runs one pass at once, then another 30 seconds after each ends, so passes
-  never overlap, until its `VmmRecovery` is dropped, which abandons the pass
-  under way. A process runs one, from whatever lives as long as it does: a
-  reactor's connector proxy task service (`TaskServiceConfig.vmm_recovery`),
-  not a shard's, so it runs with no shards at all; and a VMM-capable flowctl
-  invocation, at best, until it exits. A pass first makes the checks of
-  `STATE_DIR` a launch makes, and touches nothing if they fail. It tries the
-  lock of every `fv_<16 hex>.owner` beneath `STATE_DIR`, skipping those
-  held, by a live owner or another releaser, and releases the rest. It then
-  lists the containers, networks and volumes labeled with its `STATE_DIR`,
-  and removes each whose launch's record is gone: a podman service may create
-  one after the release that removed its record. Each kind is listed before
-  its records are looked for. A launch claims its record before its first
-  create, so a live launch's resource always has its record. A record of any
-  content keeps its resources, and is not read. Processes sharing a
-  `STATE_DIR` each recover it; whichever takes a lock releases that record.
-
-- **A grant whose record is gone is recorded before it is removed.** A grant's
-  container may be created, and started, after the release of its launch has
-  revoked its token and removed its record; a remote `podman run` sends its
-  create and start apart. Its labels are then the grant's only evidence.
-  `release::release_grant` inspects it, checks its `STATE_DIR` label and
-  token, and claims a record of the launch's name naming that token and the
-  ID of the container's image, atomically and locked. The image ID preserves
-  revocation across tag updates. Release removes the container before
-  revoking permissions, so pending starts fail. It removes the record after
-  cleanup succeeds. A competing claimant leaves the grant to the record's
-  owner. Until recording succeeds, pruning must preserve the helper as the
-  grant's only evidence.
-
-- **Recovery reports to its process, and counts its problems.** What a pass
-  leaves (a resource it couldn't remove or list, a malformed record) goes to
-  tracing, not to any session: it may be no live task's. Each problem is
-  logged when first seen, then again only once ten minutes have passed while
-  it persists. `Vmm::recovery_metrics` counts failed passes, the problems the
-  last pass left, and when a pass last left none; a reactor exports them
-  (`go/bindings/metrics.go`). Neither fails a launch or a readiness check.
-
-- **Nothing without a record or the `STATE_DIR` label is touched.** `fv_*`
-  containers, networks and state directories left by a launcher that wrote no
-  records, or no `dev.estuary.vmm-state-dir` label, and mounts not named
-  `mount-fv_<id>`, are not this crate's to judge. With every launcher
-  stopped, an operator may remove `fv_*` containers and networks lacking a
-  `dev.estuary.vmm-owner` label, `STATE_DIR/fv_*` directories lacking a
-  matching `.owner`, and `connector-mounts-*/mount-*` directories not named
-  `mount-fv_*`.
-
-- **The host is checked where the launcher shares it.** Before any network:
-  `CONNECTOR_VMM_STATE_DIR` must be a directory, the launch's `scratch/` must
-  take an `O_TMPFILE` sized to `CONNECTOR_VMM_DISK_MIB` (sparse, then closed),
-  a static `flow-connector-init` must be found beside this program or on `PATH`
-  (as the VMM's guest runs it; there is no fallback image), and
-  `boundary verify` from the VMM image must pass, uncached, immediately before
-  the network is created. `/dev/kvm` is left to podman, whose `/dev` may not be
-  this process's. A refused plan is `InvalidArgument`, an unready host
-  `FailedPrecondition`, and a failed pull, network, run, readiness or dial an
-  ordinary launch's error.
-
-- **A launch runs the VMM image of its own build.** The image is
-  `ghcr.io/estuary/connector-vmm:<FLOW_VERSION>` (`vmm::DEFAULT_IMAGE`).
-  `FLOW_VERSION` is `git describe` of the source in a release build
-  (`ci:gnu-opt`), which is also the tag `ci:docker-images` publishes that
-  build's image under. It is `.cargo/config.toml`'s `dev` otherwise.
-  `CONNECTOR_VMM_IMAGE` names another image, for development and tests;
-  nothing checks that image against the launcher.
-
-- **A launch runs one VMM image, by ID.** It resolves its image reference
-  to an image ID once, before planning, pulling the image only if
-  it's missing, as `podman run` would. Its verify, grant and container then
-  run that ID, and its record names it for the grant's revoke. So a tag
-  moved meanwhile cannot have one image verify and another run. Records which
-  name a tag, from launchers before this, are recovered with the tag.
-
-- **A VMM's connector mount follows the shared contract.** Its mode-0711
-  `mount-fv_<id>` directory lives beneath the launcher's private mode-0700
-  `$TMPDIR/connector-mounts-<euid>` parent. The child is bound read-only at
-  its own path into the container and at `/connector-mount` in the guest,
-  which `CONNECTOR_MOUNT` names. TMPDIR must name the same directory for the
-  launcher and engine. The shared parent helper rejects links, another user's
-  directory and directories writable by others, then sets mode 0700.
-  When credentials are configured, the launch writes and rotates
-  `task-update.json` there until teardown starts. `STATE_DIR` must also be a
-  real directory owned by the launcher, mode 0700. Recovery uses the same UID
-  and record format across launcher restarts.
-
-- **VMM control uses `init.sock`; container networking uses the built spec's TCP ports.**
-  A VMM's ingress is the `network_ports` of its initial request's built spec
-  (Apply or Open), less connector-init's, whatever its image exposes. A
-  request lacking a built spec (Spec, Discover, Validate) has none. A VMM with
-  ports reports its container IPv4 address, and the image's advertised ports
-  as an ordinary container does; one without reports no address. The host
-  proxy dials that address; the VMM forwards to the guest. Ports are not
-  published on host interfaces. Host permissions are
-  keyed by the VMM bridge and declared port, owned by the launch token, and
-  recorded with the VMM image used to revoke them during teardown or recovery.
-  Ingress and its replies work independently of egress policy. Connector-init's
-  reserved port 49092 is never authorized. The control socket's parent has mode
-  0700, restricting access to the launcher's host UID and root.
-
-- **Connector-init's stderr space gates a VMM's dial.** Init emits it after
-  its guest listener is bound and listening. The launch waits for that byte,
-  then dials `init.sock` once. Waiting and dialing share a 60-second deadline;
-  the dial also has a 5-second connect timeout. The attached client's exit or
-  cancellation ends the wait. Diagnostics are drained before the terminal
-  error. The session's first Spec RPC starts the connector and must succeed
-  before the runtime reports Started.
-
-- **VMM release deadlines use a paused clock in tests.** `vmm/release.rs`
-  checks each command's deadline and snapshots failure-state transitions.
-  The KVM suite checks real command termination and subsequent recovery.
-- **VMM readiness is tested without KVM.** `vmm/launch/readiness_tests.rs`
-  exercises the real launcher with a scripted engine and Unix socket peers.
-  It checks the stderr marker, a single dial and successful Spec, premature
-  markers, early failures, cancellation, the readiness deadline, and cleanup.
-  Create faults check one network attempt, engine diagnostics, partial setup,
-  cancellation during creation, and recovery after a late network create.
-  Collision tests use the exclusive record and directory claims directly.
-  A guest which dies after readiness fails its first Spec and is released.
-  One public-plane start runs through `protocol::start`, and makes no mount
-  but its launch's.
-
-- **Image admission identifies images by repository.** The public-plane
-  refusal of Python captures, derivations and materializations applies to
-  every tag, digest, and bare spelling of their repositories, for ordinary
-  launches. A VMM launch admits them through VMM eligibility, and applies the
-  same image declarations, usage-rate validation, and task-secret checks as
-  ordinary execution.
-
 - **A response-stream error is terminal.** Panics in the spawned handler are
 converted into a terminal gRPC status rather than appearing as clean EOF.
+
+## VMM execution
+
+A task with `vmm: true` runs its connector in a micro-VM, launched as a
+rootful podman container of `flow-connector-vmm`
+([`crates/connector-vmm`](../connector-vmm/README.md)). Each step names the
+module that documents it.
+
+1. **Configure.** `Vmm::from_env` reads `CONNECTOR_VMM_*` once.
+   `CONNECTOR_VMM_STATE_DIR` enables VMM execution. The image is
+   `ghcr.io/estuary/connector-vmm:<FLOW_VERSION>` (`vmm::DEFAULT_IMAGE`),
+   the tag `ci:docker-images` publishes for the same build, unless
+   `CONNECTOR_VMM_IMAGE` names another for development.
+2. **Admit.** `vmm::vmm_for` decides each start's `Execution` before
+   anything is pulled. A VMM start names an eligible Python image of its own
+   protocol, declares `egress`, and never falls back to an ordinary
+   container. Egress without a VMM is refused. Refusals carry
+   `proto_grpc::connector::refuse_execution`'s mark.
+   `vmm::check_spec_execution` holds every later built spec to the session's
+   execution.
+3. **Plan.** `vmm::plan::plan` is the pure plan of a launch: its id, paths,
+   podman lines (`vmm::argv`), and egress. Egress is the union of the
+   connector's default hosts, the image's `dev.estuary.egress-hosts` label
+   and the task's `egress.hosts`; `egress: {}` permits nothing. The guest is
+   sized within `CONNECTOR_MEMORY_LIMIT` and `CONNECTOR_CPU_LIMIT`
+   (`vmm::memory_bytes`).
+4. **Launch.** `vmm::launch::start` runs one task per launch. It claims
+   `<STATE_DIR>/fv_<id>.owner`, resolves the VMM image to an ID, runs
+   `boundary verify`, creates the network, volume and container, waits for
+   connector-init's readiness byte on stderr, and dials `init.sock`.
+5. **Own.** `vmm::record` is the durable ownership record. Its `flock` is
+   the owner's liveness. Resources carry the launch's token and `STATE_DIR`
+   as labels, and nothing without a record or that label is touched.
+6. **Release.** `vmm::release` is one state machine for teardown and
+   recovery. A failed removal keeps the record for a later pass.
+7. **Recover.** `Vmm::spawn_recovery` runs passes for the process's life
+   (`vmm::recovery`), releasing what dead owners left, including labeled
+   resources whose record is gone.
+
+Ingress is the built spec's `network_ports`, granted on the host by the
+launch's token and revoked with the image its record names. The connector
+mount follows the contract above, at `/connector-mount` in the guest.
+`container::engine_command` removes platform credentials from every engine
+subprocess's environment.
+
+`vmm/launch/readiness_tests.rs` drives the launcher against a scripted
+engine without KVM, and `vmm/release.rs` tests release with a paused clock.
+[`crates/connector-vmm-tests`](../connector-vmm-tests/README.md) runs real
+VMs.
