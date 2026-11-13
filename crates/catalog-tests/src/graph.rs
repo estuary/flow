@@ -144,13 +144,11 @@ impl Graph {
             }
 
             let transforms: Vec<Transform> = derivation
-                .transforms
-                .iter()
-                .map(|t| {
-                    let source = t
-                        .collection
-                        .as_ref()
-                        .context("built transform is missing its source collection")?;
+                .resolved_transforms()
+                .map(|(t, resolved)| {
+                    let (source, _) = resolved.with_context(|| {
+                        format!("built transform {} has no source collection", t.name)
+                    })?;
 
                     anyhow::Ok(Transform {
                         source: crate::partitions::template_name(source)?.to_string(),
