@@ -57,6 +57,16 @@ These values override same-named entries of a local connector's model-provided
 
 In-process connectors do not receive a process environment.
 
+## Engine process environment
+
+`container::engine_command` removes `CONSUMER_AUTH_KEYS`, `BROKER_AUTH_KEYS`,
+`SOPS_AGE_KEY` and `FLOW_AUTH_TOKEN` from container engine clients and operator
+wrappers. This covers pull, inspect, init extraction, run and network lookup.
+Other settings remain inherited, including registry authentication, remote
+connections, proxies, certificates and wrapper configuration. This reduces
+copies of platform authority in host subprocesses; it does not alter container
+isolation or the local connector process environment.
+
 ## Connector mount
 
 Every image and local connector run receives a **connector mount**, which is
