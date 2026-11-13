@@ -120,16 +120,6 @@ pub fn hold(root: &Root, step: &str) -> Hold {
     hold_as(root, "hold", step, 1)
 }
 
-/// Hold only queries for the named resources, leaving failed launches free
-/// to clean up their own resources while recovery remains held.
-pub fn hold_naming(root: &Root, step: &str, naming: &[&str]) -> Hold {
-    let hold = hold(root, step);
-    let path = format!("{}-naming", hold.path);
-    std::fs::write(&path, format!("{}\n", naming.join("\n")))
-        .unwrap_or_else(|e| panic!("creating {path}: {e}"));
-    hold
-}
-
 /// Holds the `nth` call of `step` once its command has finished, before the
 /// launcher hears of it, as `after-<step>`: a launcher killed there has
 /// nothing left for the command to change.
@@ -165,7 +155,6 @@ fn hold_as(root: &Root, control: &str, step: &str, nth: u32) -> Hold {
 impl Drop for Hold {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
-        let _ = std::fs::remove_file(format!("{}-naming", self.path));
         let Ok(entries) = std::fs::read_dir(&self.dir) else {
             return;
         };

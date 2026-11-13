@@ -10,7 +10,7 @@ IMAGE="${usage_image:-${1:?usage: connector-vmm-gate IMAGE}}"
 read -ra ENGINE <<<"${CONNECTOR_VMM_GATE_ENGINE:-docker}"
 
 # The candidate's own nft must list what its binary installed. Tampering is
-# defined here independently of the binary, as in kvm::boundary_detects_tampering.
+# defined here independently of the binary.
 # shellcheck disable=SC2016
 GATE='
 set -uo pipefail
@@ -34,7 +34,6 @@ refused() {
     fi
 }
 
-"${vmm}" boundary verify 2>/dev/null | grep "^flow-connector-vmm build "
 refused "verify before install" "table is absent" "${vmm}" boundary verify
 ok "install" "${vmm}" boundary install
 ok "a second install" "${vmm}" boundary install

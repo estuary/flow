@@ -36,7 +36,8 @@ connector-init over a guest's vsock connection.
   isolation, working directories, RPC, teardown, egress allowlists and expiry,
   declared CIDRs over TCP and UDP with their host grant's lifecycle, host-only declared TCP
   ingress with bidirectional traffic under the empty policy, and host isolation
-  after a VMM removes its own rules. Connector-mount tests check that host
+  after a VMM removes its own rules. `ci:connector-vmm-gate` covers the
+  boundary's refusal of tampering. Connector-mount tests check that host
   file replacements become visible inside the guest. `no_new_privileges`
   runs controlled setuid, setgid and file-capability programs from the
   workload, and as the same user in a plain podman container as the control.
@@ -59,12 +60,11 @@ connector-init over a guest's vsock connection.
   overflow must not partially authorize addresses in the kernel. Resolver
   unit tests cover TTL retention, CNAME capacity, and reclamation with explicit
   expiry states; `kvm::egress_ttl` checks real kernel expiry.
-- `tests/launcher.rs`: launches through `connector::Service`, readiness,
+- `tests/launcher.rs`: launches through `connector::Service`,
   socket and credential-source access restricted to the launcher's UID, task
-  egress (refused when omitted, nothing when empty, and the union of the
-  connector's, image's and task's hosts otherwise), Spec of each Python
-  connector built from this checkout, ingress of the built spec's ports and
-  not the image's, cancellation,
+  egress as the union of the connector's, image's and task's hosts, Spec of
+  each Python connector built from this checkout, release of an abandoned
+  session,
   ownership, and recovery after process death, a destroyed runtime or a stalled container query,
   including labeled resources whose record is gone. Recovery runs as single
   passes (`connector::Vmm::recover`), in processes killed mid-pass, or as a
@@ -78,9 +78,9 @@ connector-init over a guest's vsock connection.
   waiting), outlives its killed client and its launch's release, and lands
   for a later pass to remove.
   `repeated_specs_through_the_podman_api` covers the reactor's API attachment.
-  Release state-machine tests in `connector` cover
-  failure combinations; the integration test checks actual command termination
-  and recovery without asserting elapsed time.
+  `connector`'s `readiness_tests.rs` covers readiness, cancellation, ingress
+  ports and refused launches against a scripted engine, and its release
+  state-machine tests cover failure combinations.
 - `tests/platform.rs`: through flowctl and the reactor, with fixtures under
   `fixtures/platform/`:
   - the legacy `module` derivation, on the published `derive-python:stable`:

@@ -238,10 +238,10 @@ labels. Packaging constraints:
   updates when it was pinned, with `1.1.3-5.fc43` in Fedora 43's release
   repository behind it, so the pin does not stop the build as libkrunfw's
   does. `boundary verify` compares the tables as this nft lists them, so a
-  new version is a deliberate move: change the ARG and run
-  `mise run ci:connector-vmm-kvm`. Its verifies,
-  `boundary_detects_tampering` and `boundary_holds_across_reinstalls` must
-  pass with `boundary::expected` unchanged. A listing which spells the same
+  new version is a deliberate move: change the ARG, run
+  `mise run ci:connector-vmm-kvm`, and run `ci:connector-vmm-gate` on the
+  image. The suite's verifies, `boundary_holds_across_reinstalls` and the
+  gate must pass with `boundary::expected` unchanged. A listing which spells the same
   rule differently gets a normalization in `boundary::ours` for that spelling
   alone, as Ubuntu's nft 1.0.9 has for `l4proto` 6, with its own listing
   fixture; a rule which differs in meaning is a failure.
