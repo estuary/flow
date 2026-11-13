@@ -51,6 +51,7 @@ colored_json = { workspace = true }
 derivative = { workspace = true }
 enumset = { workspace = true }
 futures = { workspace = true }
+heck = { workspace = true }
 hex = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }

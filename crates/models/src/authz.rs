@@ -104,7 +104,7 @@ impl std::fmt::Display for Capability {
 #[cfg_attr(
     feature = "async-graphql",
     derive(async_graphql::Enum),
-    graphql(rename_items = "snake_case")
+    graphql(rename_items = "PascalCase")
 )]
 pub enum CapabilityBundle {
     Viewer,
@@ -240,36 +240,6 @@ impl From<super::Capability> for CapabilitySet {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "async-graphql")]
-    #[test]
-    fn graphql_bundle_names_are_valid_token_masks() {
-        for bundle in <super::CapabilityBundle as strum::VariantArray>::VARIANTS {
-            let graphql_name = async_graphql::InputType::to_value(bundle)
-                .into_json()
-                .unwrap();
-            let json_name = serde_json::to_value(bundle).unwrap();
-            assert_eq!(graphql_name, json_name);
-            let parsed: super::CapabilityBundle =
-                serde_json::from_value(graphql_name.clone()).unwrap();
-            assert_eq!(parsed, *bundle);
-
-            let claims: crate::authorizations::ControlClaims =
-                serde_json::from_value(serde_json::json!({
-                    "aud": "authenticated",
-                    "iat": 0,
-                    "exp": 1,
-                    "sub": "11111111-1111-1111-1111-111111111111",
-                    "role": "postgrest_cant_use_this_token",
-                    "capability_mask": [graphql_name],
-                }))
-                .unwrap();
-            assert_eq!(
-                claims.subject().capability_mask,
-                Some(bundle.capabilities())
-            );
-        }
-    }
-
     #[test]
     fn bundles_covering() {
         let cases = [

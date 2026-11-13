@@ -160,7 +160,7 @@ mod tests {
         {
           "data": {
             "capabilities": [
-              "viewer"
+              "Viewer"
             ],
             "capabilityBits": [
               "CatalogRead",

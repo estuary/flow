@@ -463,20 +463,20 @@ masks name bundles rather than bits, so bits may be added, split, or
 merged without changing stored grants or minted tokens.
 """
 enum CapabilityBundle {
-	viewer
-	writer
-	editor
-	admin
-	billing
-	team_admin
-	manage_service_accounts
-	manage_data_plane
-	create_sandbox
-	delegate
-	assume
-	view_billing
-	edit_billing
-	edit_secret
+	Viewer
+	Writer
+	Editor
+	Admin
+	Billing
+	TeamAdmin
+	ManageServiceAccounts
+	ManageDataPlane
+	CreateSandbox
+	Delegate
+	Assume
+	ViewBilling
+	EditBilling
+	EditSecret
 }
 
 """

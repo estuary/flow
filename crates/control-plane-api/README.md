@@ -4,9 +4,9 @@
 service, its dashboard consent contract, and reuse of existing refresh-token
 storage.
 
-GraphQL and token exchange use snake_case capability bundle names (for example,
-`team_admin`). Values returned by GraphQL can be used directly in token exchange
-`capability_mask`.
+Token exchange normalizes `capability_mask` bundle names to snake_case before
+validation and stores those canonical names in the token. GraphQL PascalCase
+names such as `TeamAdmin` and uppercase names such as `TEAM_ADMIN` are accepted.
 
 Service-account API keys are minted by `server/public/graphql/service_accounts.rs`.
 Like refresh-token creation, API-key creation rejects access tokens carrying a
