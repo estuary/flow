@@ -439,7 +439,7 @@ mod test {
                 "/api/v1/auth/token",
                 &serde_json::json!({
                     "grant_type": "token_exchange",
-                    "capability_mask": ["bogus", "Admin", "viewer"],
+                    "capability_mask": ["bogus", "ADMIN", "viewer"],
                 }),
                 Some(&alice_token),
             )
@@ -449,7 +449,7 @@ mod test {
         assert_eq!(rejected.status(), reqwest::StatusCode::BAD_REQUEST);
         insta::assert_snapshot!(
             rejected.text().await.unwrap(),
-            @"Invalid capability requested: bogus, Admin"
+            @"Invalid capability requested: bogus, ADMIN"
         );
 
         // === A valid mask mints a token carrying it verbatim ===
@@ -461,7 +461,7 @@ mod test {
                 "/api/v1/auth/token",
                 &serde_json::json!({
                     "grant_type": "token_exchange",
-                    "capability_mask": ["viewer", "admin"],
+                    "capability_mask": ["viewer", "Admin", "TeamAdmin"],
                 }),
                 Some(&alice_token),
             )
@@ -494,7 +494,8 @@ mod test {
           "email": "alice@example.test",
           "capability_mask": [
             "viewer",
-            "admin"
+            "Admin",
+            "TeamAdmin"
           ]
         }
         "#);
