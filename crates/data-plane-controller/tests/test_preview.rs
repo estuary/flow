@@ -46,6 +46,7 @@ async fn test() {
                 &mut state,
                 &mut inbox,
                 Vec::new(),
+                Vec::new(),
                 row_state.clone(),
             )
             .await

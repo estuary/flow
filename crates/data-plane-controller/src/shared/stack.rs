@@ -277,6 +277,19 @@ pub struct Release {
     pub max_tier: i16,
 }
 
+/// The OCI image which Deployments of a role and band of tiers should run.
+#[derive(Clone, Debug)]
+pub struct Target {
+    pub role: Role,
+    /// Applies to Deployments with tier <= max_tier. The smallest wins.
+    pub max_tier: i16,
+    pub image: String,
+    /// As `Release::step`.
+    pub step: i32,
+    /// Targets of one data-plane win over those of all data-planes.
+    pub plane_specific: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Deployment {
     pub role: Role,
@@ -548,8 +561,9 @@ impl DataPlane {
     /// Evaluate the `rollout` polices attached to Deployments,
     /// and potentially perform a coordinated rollout step which updates the
     /// desired replicas of deployments subject to a rollout.
+    /// An idle Deployment rolls to a matching Release, or else to its Target.
     /// Returns true iff a change was made to any Deployment.
-    pub fn evaluate_release_steps(&mut self, releases: &[Release]) -> bool {
+    pub fn evaluate_release_steps(&mut self, releases: &[Release], targets: &[Target]) -> bool {
         assert!(
             self.deployments
                 .iter()
@@ -584,10 +598,7 @@ impl DataPlane {
                 continue;
             }
 
-            let Some(release) = releases
-                .iter()
-                .find(|r| r.prev_image == last.oci_image && r.max_tier >= last.tier as i16)
-            else {
+            let Some((next_image, step)) = next_image(last, releases, targets) else {
                 continue;
             };
 
@@ -596,11 +607,11 @@ impl DataPlane {
             let mut next = Deployment {
                 current: 0,
                 desired: 0,
-                oci_image: release.next_image.clone(),
+                oci_image: next_image.to_string(),
                 oci_image_override: None,
                 role: last.role.clone(),
                 rollout: Some(Rollout {
-                    step: release.step.abs() as usize,
+                    step: step.abs() as usize,
                     target: last.desired,
                 }),
                 template: last.template.clone(),
@@ -609,11 +620,11 @@ impl DataPlane {
             };
 
             last.rollout = Some(Rollout {
-                step: release.step.abs() as usize,
+                step: step.abs() as usize,
                 target: 0,
             });
 
-            if release.step < 0 {
+            if step < 0 {
                 // Replace by stepping down the `last` deployment now,
                 // and then stepping up `next` after convergence.
                 last.step_rollout();
@@ -630,6 +641,42 @@ impl DataPlane {
         self.deployments.extend(added);
         changed
     }
+}
+
+/// A Release wins over a Target, so it can route an upgrade through an image
+/// the Target would skip. A Deployment running its Target's image stays, or a
+/// Release from that image and the Target would undo each other forever.
+/// Scaled-down Deployments aren't rolled to Targets.
+fn next_image<'r>(
+    deployment: &Deployment,
+    releases: &'r [Release],
+    targets: &'r [Target],
+) -> Option<(&'r str, i32)> {
+    let tier = deployment.tier as i16;
+
+    let target = if deployment.desired == 0 {
+        None
+    } else {
+        targets
+            .iter()
+            .filter(|t| t.role == deployment.role && t.max_tier >= tier)
+            .min_by_key(|t| (!t.plane_specific, t.max_tier))
+    };
+
+    if let Some(target) = target
+        && target.image == deployment.oci_image
+    {
+        return None;
+    }
+    if let Some(release) = releases
+        .iter()
+        .find(|r| r.prev_image == deployment.oci_image && r.max_tier >= tier)
+    {
+        return Some((&release.next_image, release.step));
+    }
+
+    let target = target?;
+    Some((&target.image, target.step))
 }
 
 impl Deployment {
@@ -991,7 +1038,7 @@ mod test {
             max_tier: 100,
         }];
 
-        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases, &[]));
     }
 
     #[test]
@@ -1006,7 +1053,7 @@ mod test {
             max_tier: 100,
         }];
 
-        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases, &[]));
     }
 
     #[test]
@@ -1035,7 +1082,7 @@ mod test {
             },
         ];
 
-        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases, &[]));
     }
 
     #[test]
@@ -1070,7 +1117,7 @@ mod test {
             },
         ];
 
-        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases, &[]));
     }
 
     #[test]
@@ -1085,7 +1132,7 @@ mod test {
             max_tier: 100,
         }];
 
-        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases, &[]));
     }
 
     #[test]
@@ -1114,7 +1161,7 @@ mod test {
             },
         ];
 
-        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases, &[]));
     }
 
     #[test]
@@ -1150,7 +1197,7 @@ mod test {
             },
         ];
 
-        let outcomes = simulate_rollout(&mut stack.config.model, releases);
+        let outcomes = simulate_rollout(&mut stack.config.model, releases, &[]);
 
         // The etcd (tier 30) and gazette (tier 50) deployments should start rollouts.
         // The reactor (tier 80) deployment should NOT start a rollout because its tier exceeds max_tier.
@@ -1200,12 +1247,237 @@ mod test {
         insta::assert_json_snapshot!(&outcomes);
     }
 
-    fn simulate_rollout(model: &mut DataPlane, releases: &[Release]) -> Vec<Vec<Deployment>> {
+    fn target(role: Role, max_tier: i16, image: &str, step: i32) -> Target {
+        Target {
+            role,
+            max_tier,
+            image: image.to_string(),
+            step,
+            plane_specific: false,
+        }
+    }
+
+    #[test]
+    fn simulate_target_rollout() {
+        let State { mut stack, .. } =
+            serde_json::from_str(include_str!("state_fixture.json")).unwrap();
+
+        let targets = &[
+            // Already running its target: no rollout.
+            target(Role::Etcd, 100, "quay.io/coreos/etcd:v3.5.17", -1),
+            // A target may name another repository.
+            target(Role::Reactor, 100, "ghcr.io/estuary/reactor:v1", 3),
+            // Gazette has no target, and keeps its image.
+        ];
+
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, &[], targets));
+    }
+
+    #[test]
+    fn simulate_target_coalescing() {
+        let State { mut stack, .. } =
+            serde_json::from_str(include_str!("state_fixture.json")).unwrap();
+        let model = &mut stack.config.model;
+        model.deployments.retain(|d| d.role == Role::Gazette);
+
+        // The target moves to v2 and v3 during the v1 rollout, so v2 is skipped.
+        let mut outcomes = vec![model.deployments.clone()];
+
+        for round in 0.. {
+            let image = match round {
+                0 => "ghcr.io/gazette/broker:v1",
+                1 => "ghcr.io/gazette/broker:v2",
+                _ => "ghcr.io/gazette/broker:v3",
+            };
+            let changed =
+                model.evaluate_release_steps(&[], &[target(Role::Gazette, 100, image, 5)]);
+            outcomes.push(model.deployments.clone());
+
+            if !changed {
+                break;
+            }
+            model.deployments.retain_mut(Deployment::mark_current);
+        }
+
+        let images: Vec<_> = outcomes
+            .last()
+            .unwrap()
+            .iter()
+            .map(|d| d.oci_image.as_str())
+            .collect();
+        assert_eq!(images, vec!["ghcr.io/gazette/broker:v3"]);
+        assert!(
+            outcomes
+                .iter()
+                .flatten()
+                .all(|d| d.oci_image != "ghcr.io/gazette/broker:v2"),
+            "v2 is skipped",
+        );
+
+        insta::assert_json_snapshot!(&outcomes);
+    }
+
+    #[test]
+    fn simulate_pin_against_release() {
+        let State { mut stack, .. } =
+            serde_json::from_str(include_str!("state_fixture.json")).unwrap();
+        let model = &mut stack.config.model;
+        model.deployments.retain(|d| d.role == Role::Gazette);
+        model.deployments[0].oci_image = "ghcr.io/gazette/broker:v2".to_string();
+
+        // A plane pinned to v1 against an active v1 -> v2 release rolls back to
+        // v1 once, and stays there.
+        let releases = &[Release {
+            prev_image: "ghcr.io/gazette/broker:v1".to_string(),
+            next_image: "ghcr.io/gazette/broker:v2".to_string(),
+            step: 5,
+            max_tier: 100,
+        }];
+        let mut pin = target(Role::Gazette, 100, "ghcr.io/gazette/broker:v1", 5);
+        pin.plane_specific = true;
+
+        let mut outcomes = vec![model.deployments.clone()];
+        for _ in 0..20 {
+            let changed = model.evaluate_release_steps(releases, &[pin.clone()]);
+            outcomes.push(model.deployments.clone());
+
+            if !changed {
+                break;
+            }
+            model.deployments.retain_mut(Deployment::mark_current);
+        }
+
+        let last: Vec<_> = outcomes
+            .last()
+            .unwrap()
+            .iter()
+            .map(|d| d.oci_image.as_str())
+            .collect();
+        assert_eq!(last, vec!["ghcr.io/gazette/broker:v1"]);
+        assert!(
+            outcomes.len() < 20,
+            "the rollout settles instead of cycling"
+        );
+
+        insta::assert_json_snapshot!(&outcomes);
+    }
+
+    #[test]
+    fn simulate_release_overrides_target() {
+        let State { mut stack, .. } =
+            serde_json::from_str(include_str!("state_fixture.json")).unwrap();
+        let model = &mut stack.config.model;
+        model.deployments.retain(|d| d.role == Role::Etcd);
+
+        // etcd must step through v3.6 to reach the v3.7 target.
+        let releases = &[Release {
+            prev_image: "quay.io/coreos/etcd:v3.5.17".to_string(),
+            next_image: "quay.io/coreos/etcd:v3.6".to_string(),
+            step: -1,
+            max_tier: 100,
+        }];
+        let targets = &[target(Role::Etcd, 100, "quay.io/coreos/etcd:v3.7", -1)];
+
+        let outcomes = simulate_rollout(model, releases, targets);
+
+        assert!(
+            outcomes
+                .iter()
+                .flatten()
+                .any(|d| d.oci_image == "quay.io/coreos/etcd:v3.6"),
+            "the release routes through v3.6",
+        );
+        let last: Vec<_> = outcomes
+            .last()
+            .unwrap()
+            .iter()
+            .map(|d| &d.oci_image)
+            .collect();
+        assert_eq!(last, vec!["quay.io/coreos/etcd:v3.7"]);
+
+        insta::assert_json_snapshot!(&outcomes);
+    }
+
+    #[test]
+    fn target_selection() {
+        let State { stack, .. } = serde_json::from_str(include_str!("state_fixture.json")).unwrap();
+        let reactor = stack.config.model.deployments[2].clone();
+
+        let at_tier = |tier: u8| Deployment {
+            tier,
+            ..reactor.clone()
+        };
+        let pinned = |mut t: Target| {
+            t.plane_specific = true;
+            t
+        };
+        let targets = &[
+            target(Role::Reactor, 0, "reactor:tier-0", 5),
+            target(Role::Reactor, 50, "reactor:tier-50", 5),
+            target(Role::Reactor, 100, "reactor:tier-100", 5),
+            target(Role::Gazette, 100, "broker:other-role", 5),
+        ];
+
+        let with_pin = &[
+            targets[0].clone(),
+            pinned(target(Role::Reactor, 100, "reactor:pinned", -1)),
+        ];
+        let at_target = &[target(Role::Reactor, 0, &reactor.oci_image, 5)];
+        let release = &[Release {
+            prev_image: reactor.oci_image.clone(),
+            next_image: "reactor:released".to_string(),
+            step: 5,
+            max_tier: 100,
+        }];
+
+        let cases = vec![
+            (
+                "release from the target's image is ignored",
+                next_image(&at_tier(0), release, at_target),
+            ),
+            (
+                "release wins over another target",
+                next_image(&at_tier(0), release, targets),
+            ),
+            ("tier 0", next_image(&at_tier(0), &[], targets)),
+            ("tier 1", next_image(&at_tier(1), &[], targets)),
+            ("tier 50", next_image(&at_tier(50), &[], targets)),
+            ("tier 80", next_image(&at_tier(80), &[], targets)),
+            (
+                "pinned target wins over a lower band",
+                next_image(&at_tier(0), &[], with_pin),
+            ),
+            (
+                "no target for the role",
+                next_image(&at_tier(0), &[], &targets[3..]),
+            ),
+            ("already at target", next_image(&at_tier(0), &[], at_target)),
+            (
+                "scaled down",
+                next_image(
+                    &Deployment {
+                        desired: 0,
+                        ..at_tier(0)
+                    },
+                    &[],
+                    targets,
+                ),
+            ),
+        ];
+
+        insta::assert_debug_snapshot!(cases);
+    }
+
+    fn simulate_rollout(
+        model: &mut DataPlane,
+        releases: &[Release],
+        targets: &[Target],
+    ) -> Vec<Vec<Deployment>> {
         let mut outcomes = Vec::new();
         outcomes.push(model.deployments.clone());
 
         loop {
-            let changed = model.evaluate_release_steps(releases);
+            let changed = model.evaluate_release_steps(releases, targets);
             outcomes.push(model.deployments.clone());
 
             if !changed {
