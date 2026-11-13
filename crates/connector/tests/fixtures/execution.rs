@@ -162,10 +162,10 @@ pub(crate) fn every_first_request(
                 derive::request::Validate {
                     connector_type: connector_type(Derivation),
                     config_json: config_json.clone(),
-                    collection: Some(flow::CollectionSpec {
+                    collection: Some(proto_flow::Arc::new(flow::CollectionSpec {
                         name: task.to_string(),
                         ..Default::default()
-                    }),
+                    })),
                     ..Default::default()
                 },
             ))),
@@ -176,7 +176,7 @@ pub(crate) fn every_first_request(
             task,
             derive(derive::request::Kind::Open(Box::new(
                 derive::request::Open {
-                    collection: Some(collection_spec),
+                    collection: Some(proto_flow::Arc::new(collection_spec)),
                     ..Default::default()
                 },
             ))),

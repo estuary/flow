@@ -540,13 +540,13 @@ mod test {
                 kind: Some(derive::request::Kind::Validate(validate)),
                 ..
             }) => {
-                validate.last_collection = Some(flow::CollectionSpec {
+                validate.last_collection = Some(proto_flow::Arc::new(flow::CollectionSpec {
                     derivation: Some(Box::new(flow::collection_spec::Derivation {
                         execution: execution.clone(),
                         ..Default::default()
                     })),
                     ..Default::default()
-                })
+                }))
             }
             Kind::Materialize(materialize::Request {
                 kind: Some(materialize::request::Kind::Validate(validate)),

@@ -11,7 +11,8 @@ debug: "stopped connector container"
 
 # raw lines on both sides of the marker, which they must not absorb
 ready: true
-warn: "WARN libkrun: first\nWARN libkrun: second"
+warn: "WARN libkrun: first"
+warn: "WARN libkrun: second"
 warn: "WARN after readiness\nmore raw"
 debug: "stopped connector container"
 
@@ -22,7 +23,9 @@ debug: "stopped connector container"
 
 # a panic, and no readiness
 ready: false
-error: "thread 'main' panicked at crates/connector-vmm/src/resolver/mod.rs:10:5:\nresolver socket lost\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"
+error: "thread 'main' panicked at crates/connector-vmm/src/resolver/mod.rs:10:5:"
+warn: "resolver socket lost"
+warn: "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"
 
 # the engine's own failure, and no readiness
 ready: false
