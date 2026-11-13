@@ -2233,6 +2233,7 @@ dependencies = [
  "flow-client-next",
  "futures",
  "gazette",
+ "heck",
  "hex",
  "hmac 0.12.1",
  "humantime",

@@ -189,6 +189,13 @@ async fn mint_restricted_token(
         )));
     }
 
+    // Store canonical names so token authorization uses the same mask we validate.
+    let capability_mask = capability_mask.map(|mask| {
+        mask.into_iter()
+            .map(|name| heck::ToSnakeCase::to_snake_case(name.as_str()))
+            .collect::<Vec<_>>()
+    });
+
     let invalid_capabilities = capability_mask
         .iter()
         .flatten()
@@ -430,7 +437,7 @@ mod test {
         let alice = uuid::Uuid::from_bytes([0x11; 16]);
         let alice_token = server.make_access_token(alice, Some("alice@example.test"));
 
-        // === Unknown and wrong-case bundle names are rejected ===
+        // === Unknown bundle names are rejected after normalization ===
         // Every offender is listed, and a valid name alongside them does not
         // rescue the request.
         let rejected = server
@@ -439,7 +446,7 @@ mod test {
                 "/api/v1/auth/token",
                 &serde_json::json!({
                     "grant_type": "token_exchange",
-                    "capability_mask": ["bogus", "Admin", "viewer"],
+                    "capability_mask": ["bogus", "NotABundle", "viewer"],
                 }),
                 Some(&alice_token),
             )
@@ -449,19 +456,18 @@ mod test {
         assert_eq!(rejected.status(), reqwest::StatusCode::BAD_REQUEST);
         insta::assert_snapshot!(
             rejected.text().await.unwrap(),
-            @"Invalid capability requested: bogus, Admin"
+            @"Invalid capability requested: bogus, not_a_bundle"
         );
 
-        // === A valid mask mints a token carrying it verbatim ===
-        // Order is preserved and nothing is deduplicated or normalized: the
-        // claim is exactly what was requested.
+        // === Bundle names are normalized in the minted token ===
+        // Order and duplicates are preserved.
         let minted = server
             .rest_client()
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
                     "grant_type": "token_exchange",
-                    "capability_mask": ["viewer", "admin"],
+                    "capability_mask": ["viewer", "Admin", "TeamAdmin", "TEAM_ADMIN", "team_admin"],
                 }),
                 Some(&alice_token),
             )
@@ -494,7 +500,10 @@ mod test {
           "email": "alice@example.test",
           "capability_mask": [
             "viewer",
-            "admin"
+            "admin",
+            "team_admin",
+            "team_admin",
+            "team_admin"
           ]
         }
         "#);
