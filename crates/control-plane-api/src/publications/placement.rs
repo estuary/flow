@@ -153,7 +153,7 @@ mod test {
             models::Id::new([7; 8]),
             models::Id::new([7; 8]),
             models::CollectionDef::example(),
-            proto_flow::flow::CollectionSpec::default(),
+            proto_flow::Arc::<proto_flow::flow::CollectionSpec>::default(),
             None,
         );
 

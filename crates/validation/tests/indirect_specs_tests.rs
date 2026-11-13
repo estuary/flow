@@ -9,7 +9,7 @@ const TRANSITION_YAML: &str = include_str!("indirect_specs_transition.yaml");
 /// binding naming the table entry it resolves through. Bindings which inline
 /// their collection instead render an index of `-`.
 fn summarize<'a, B: 'a>(
-    table: &[flow::CollectionSpec],
+    table: &[proto_flow::Arc<flow::CollectionSpec>],
     bindings: impl Iterator<Item = (&'a B, Option<Resolved<'a>>)>,
     label: impl Fn(&B) -> String,
 ) -> String {

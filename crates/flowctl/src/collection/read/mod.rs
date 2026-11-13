@@ -72,7 +72,7 @@ pub async fn read_collection(
     let task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::CollectionPartitions(
             shuffle::proto::CollectionPartitions {
-                collection: Some(collection_spec),
+                collection: Some(proto_flow::Arc::new(collection_spec)),
                 partition_selector: Some(partition_selector),
                 not_before: bounds.not_before(),
                 not_after: None,

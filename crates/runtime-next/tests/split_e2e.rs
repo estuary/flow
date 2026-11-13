@@ -257,7 +257,8 @@ async fn start_fixture(
         .get_key(&models::Collection::new(collection))
         .expect("built collection")
         .spec
-        .clone()
+        .as_deref()
+        .cloned()
         .expect("collection spec");
 
     let factory: gazette::journal::ClientFactory = std::sync::Arc::new({

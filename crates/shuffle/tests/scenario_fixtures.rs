@@ -2604,7 +2604,9 @@ async fn read_delay_priority_starvation(
         ..Default::default()
     };
     let task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+        task: Some(shuffle::proto::task::Task::Derivation(
+            proto_flow::Arc::new(derivation_spec),
+        )),
     };
 
     let mut session = shuffle::SessionClient::open(
@@ -2800,7 +2802,9 @@ async fn read_delay_merge_order(
     };
 
     let task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+        task: Some(shuffle::proto::task::Task::Derivation(
+            proto_flow::Arc::new(derivation_spec),
+        )),
     };
     // Bindings map each logged entry to its merge position (priority and adjusted clock).
     let (bindings, _, _) = shuffle::Binding::from_task(&task).expect("Binding::from_task");
@@ -2919,7 +2923,9 @@ async fn priority_gating(
         ..Default::default()
     };
     let task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+        task: Some(shuffle::proto::task::Task::Derivation(
+            proto_flow::Arc::new(derivation_spec),
+        )),
     };
 
     let mut session = shuffle::SessionClient::open(
@@ -3030,7 +3036,9 @@ async fn hint_stall_under_priority_gating(
         ..Default::default()
     };
     let task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+        task: Some(shuffle::proto::task::Task::Derivation(
+            proto_flow::Arc::new(derivation_spec),
+        )),
     };
 
     let mut session = shuffle::SessionClient::open(

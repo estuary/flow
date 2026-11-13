@@ -340,7 +340,9 @@ impl Preview {
                                 .and_then(|d| d.shard_template.as_mut())
                         },
                         |spec| shuffle::proto::Task {
-                            task: Some(shuffle::proto::task::Task::Derivation(spec.clone())),
+                            task: Some(shuffle::proto::task::Task::Derivation(
+                                proto_flow::Arc::new(spec.clone()),
+                            )),
                         },
                         fixture,
                         *fixture_validate,
@@ -641,7 +643,7 @@ fn resolve_task(validations: &tables::Validations, task: &str) -> TaskSpec {
         .built_collections
         .get_key(&models::Collection::new(task))
         .unwrap();
-    TaskSpec::Derivation(row.spec.clone().unwrap())
+    TaskSpec::Derivation(row.spec.as_deref().cloned().unwrap())
 }
 
 #[cfg(test)]

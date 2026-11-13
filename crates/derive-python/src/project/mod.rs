@@ -117,8 +117,11 @@ fn project_of(config_json: &[u8]) -> anyhow::Result<Project> {
 
 /// Remove the `_python` sentinel from the configuration of the derivation of
 /// `collection`, before it's handed to user code.
-fn strip_sentinels(collection: Option<&mut flow::CollectionSpec>) {
-    if let Some(derivation) = collection.and_then(|collection| collection.derivation.as_mut()) {
+fn strip_sentinels(collection: Option<&mut proto_flow::Arc<flow::CollectionSpec>>) {
+    if let Some(derivation) = collection
+        .filter(|collection| collection.derivation.is_some())
+        .and_then(|collection| proto_flow::Arc::make_mut(collection).derivation.as_mut())
+    {
         models::custom_connector::strip_sentinel(
             &mut derivation.config_json,
             python_connector::SENTINEL,

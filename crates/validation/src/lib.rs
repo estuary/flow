@@ -190,7 +190,8 @@ pub async fn validate(
         row.is_touch = row.is_touch && model_fixes.is_empty();
         row.model.as_mut().unwrap().derive = Some(model);
         row.model_fixes.extend(model_fixes.into_iter());
-        row.spec.as_mut().unwrap().derivation = Some(Box::new(derivation));
+        proto_flow::Arc::make_mut(row.spec.as_mut().unwrap()).derivation =
+            Some(Box::new(derivation));
         row.validated = Some(validated);
     }
 
@@ -690,7 +691,7 @@ mod test {
             last_pub_id,
             last_build_id,
             model: models::CollectionDef::example(),
-            spec: proto_flow::flow::CollectionSpec {
+            spec: proto_flow::Arc::new(proto_flow::flow::CollectionSpec {
                 name: name.to_string(),
                 write_schema_json: String::from("{}").into(),
                 read_schema_json: String::from("{}").into(),
@@ -701,7 +702,7 @@ mod test {
                 ack_template_json: String::from("{}").into(),
                 partition_template: None,
                 derivation: None,
-            },
+            }),
             dependency_hash: Some("abc123".to_owned()),
         };
 

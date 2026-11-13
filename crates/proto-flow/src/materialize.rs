@@ -84,7 +84,8 @@ pub mod request {
         /// having differing `group_by` rewrite the binding's `key` and
         /// `projections\[*\].is_primary_key` to match, so same name != same spec.
         #[prost(message, repeated, tag = "7")]
-        pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
+        pub linked_collections:
+            ::prost::alloc::vec::Vec<crate::Arc<super::super::flow::CollectionSpec>>,
         /// Secrets of this materialization, mapping a catalog secret name to its JSON
         /// pointer within `config_json`. The runtime resolves and merges each secret
         /// into that location, as an RFC 7396 merge patch, before handing the
@@ -113,10 +114,9 @@ pub mod request {
             /// Collection to be materialized.
             /// Unset if the request uses `linked_collections`, in which case
             /// `collection_index` identifies the bound collection instead.
-            #[prost(message, optional, boxed, tag = "2")]
-            pub collection: ::core::option::Option<
-                ::prost::alloc::boxed::Box<super::super::super::flow::CollectionSpec>,
-            >,
+            #[prost(message, optional, tag = "2")]
+            pub collection:
+                ::core::option::Option<crate::Arc<super::super::super::flow::CollectionSpec>>,
             /// Projection configuration, keyed by the projection field name,
             /// with JSON-encoded and driver-defined configuration objects.
             #[prost(btree_map = "string, bytes", tag = "3")]

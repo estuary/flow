@@ -126,7 +126,7 @@ impl Graph {
     /// derivation and an enabled shard template are added: a disabled task never
     /// runs, so a verify must not gate on a write it will never make.
     pub fn from_built_collections(
-        collections: &[proto_flow::flow::CollectionSpec],
+        collections: &[proto_flow::Arc<proto_flow::flow::CollectionSpec>],
     ) -> anyhow::Result<Self> {
         let mut graph = Graph::new();
 

@@ -233,7 +233,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
         bindings: vec![flow::capture_spec::Binding {
             resource_config_json: json!({"resource": "config"}).to_string().into(),
             resource_path: vec!["some".to_string(), "path".to_string()],
-            collection: Some(Box::new(ex_collection_spec())),
+            collection: Some(proto_flow::Arc::new(ex_collection_spec())),
             backfill: 3,
             state_key: "a%2Fcdc%2Ftable+baz.v3".to_string(),
             collection_index: 0,
@@ -258,7 +258,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
         shard_template: Some(ex_shard_template()),
         transforms: vec![flow::collection_spec::derivation::Transform {
             name: "transform_name".to_string(),
-            collection: Some(Box::new(ex_collection_spec())),
+            collection: Some(proto_flow::Arc::new(ex_collection_spec())),
             lambda_config_json: json!({"lambda": "config"}).to_string().into(),
             partition_selector: Some(ex_label_selector()),
             priority: 1,
@@ -315,7 +315,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         bindings: vec![flow::materialization_spec::Binding {
             resource_config_json: json!({"resource": "config"}).to_string().into(),
             resource_path: vec!["some".to_string(), "path".to_string()],
-            collection: Some(Box::new(ex_collection_spec())),
+            collection: Some(proto_flow::Arc::new(ex_collection_spec())),
             partition_selector: Some(ex_label_selector()),
             priority: 3,
             field_selection: Some(flow::FieldSelection {
@@ -494,7 +494,7 @@ fn ex_capture_requests() -> Vec<(&'static str, capture::Request)> {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: json!({"validate":"config"}).to_string().into(),
             bindings: vec![capture::request::validate::Binding {
-                collection: Some(Box::new(ex_collection_spec())),
+                collection: Some(proto_flow::Arc::new(ex_collection_spec())),
                 resource_config_json: json!({"resource":"config"}).to_string().into(),
                 backfill: 1,
                 collection_index: 0,
@@ -673,10 +673,10 @@ fn ex_derive_requests() -> Vec<(&'static str, derive::Request)> {
         Kind::Validate(Box::new(derive::request::Validate {
             connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
             config_json: json!({"validate":"config"}).to_string().into(),
-            collection: Some(ex_collection_spec()),
+            collection: Some(proto_flow::Arc::new(ex_collection_spec())),
             transforms: vec![derive::request::validate::Transform {
                 name: "stable_name".to_string(),
-                collection: Some(Box::new(ex_collection_spec())),
+                collection: Some(proto_flow::Arc::new(ex_collection_spec())),
                 lambda_config_json: json!({"lambda": "config"}).to_string().into(),
                 shuffle_lambda_config_json: json!({"shuffle": "config"}).to_string().into(),
                 backfill: 2,
@@ -698,7 +698,7 @@ fn ex_derive_requests() -> Vec<(&'static str, derive::Request)> {
             secrets: ex_secrets(),
         })),
         Kind::Open(Box::new(derive::request::Open {
-            collection: Some(ex_collection_spec()),
+            collection: Some(proto_flow::Arc::new(ex_collection_spec())),
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
             state_json: json!({"connector": {"state": 42}}).to_string().into(),
@@ -854,7 +854,7 @@ fn ex_materialize_requests() -> Vec<(&'static str, materialize::Request)> {
             connector_type: flow::materialization_spec::ConnectorType::Image as i32,
             config_json: json!({"validate":"config"}).to_string().into(),
             bindings: vec![materialize::request::validate::Binding {
-                collection: Some(Box::new(ex_collection_spec())),
+                collection: Some(proto_flow::Arc::new(ex_collection_spec())),
                 resource_config_json: json!({"resource":"config"}).to_string().into(),
                 field_config_json_map: ex_field_config(),
                 backfill: 3,

@@ -71,8 +71,8 @@ impl TaskSpec {
             Self::Capture(spec) => spec
                 .bindings
                 .iter_mut()
-                .filter_map(|b| b.collection.as_deref_mut())
-                .map(|c| &mut c.partition_template)
+                .filter_map(|b| b.collection.as_mut())
+                .map(|c| &mut proto_flow::Arc::make_mut(c).partition_template)
                 .collect(),
             Self::Materialization(_) => Vec::new(),
             Self::Derivation(spec) => vec![&mut spec.partition_template],
@@ -143,7 +143,10 @@ pub async fn build(
     }
     for row in built.built_collections {
         if let Some(spec) = row.spec.filter(|spec| spec.derivation.is_some()) {
-            specs.insert(spec.name.clone(), TaskSpec::Derivation(spec));
+            specs.insert(
+                spec.name.clone(),
+                TaskSpec::Derivation(proto_flow::Arc::unwrap_or_clone(spec)),
+            );
         }
     }
     Ok(specs)

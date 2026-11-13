@@ -194,7 +194,7 @@ where
     let initial = derive::Request {
         kind: Some(derive::request::Kind::Open(Box::new(
             derive::request::Open {
-                collection: Some(open_spec),
+                collection: Some(proto_flow::Arc::new(open_spec)),
                 version,
                 range,
                 state_json: connector_state_json,

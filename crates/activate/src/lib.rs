@@ -1036,7 +1036,7 @@ mod test {
                 projections,
                 ..
             },
-        ) = spec
+        ) = spec.as_deref()
         else {
             unreachable!()
         };
@@ -1049,7 +1049,7 @@ mod test {
         let Some(flow::CollectionSpec {
             derivation: Some(derivation),
             ..
-        }) = spec
+        }) = spec.as_deref()
         else {
             unreachable!()
         };
@@ -1070,7 +1070,7 @@ mod test {
         let Some(flow::CollectionSpec {
             derivation: Some(derivation),
             ..
-        }) = spec
+        }) = spec.as_deref()
         else {
             unreachable!()
         };
@@ -1091,7 +1091,7 @@ mod test {
         let Some(flow::CollectionSpec {
             partition_template: Some(ops_logs_template),
             ..
-        }) = spec
+        }) = spec.as_deref()
         else {
             unreachable!()
         };
@@ -1104,7 +1104,7 @@ mod test {
         let Some(flow::CollectionSpec {
             partition_template: Some(ops_stats_template),
             ..
-        }) = spec
+        }) = spec.as_deref()
         else {
             unreachable!()
         };

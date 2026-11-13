@@ -219,9 +219,8 @@ fn parse_open(
         Some(uri) => Database::Durable(uri.to_string()),
     };
 
-    let flow::CollectionSpec { derivation, .. } = collection.unwrap();
-
-    let derivation = derivation.as_deref().unwrap();
+    let collection = collection.unwrap();
+    let derivation = collection.derivation.as_deref().unwrap();
 
     let flow::collection_spec::Derivation {
         config_json,
@@ -383,7 +382,7 @@ mod test {
         };
         Request {
             kind: Some(request::Kind::Open(Box::new(request::Open {
-                collection: Some(collection),
+                collection: Some(proto_flow::Arc::new(collection)),
                 ..Default::default()
             }))),
             ..Default::default()

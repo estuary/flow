@@ -1101,7 +1101,7 @@ mod test {
                     name: "acmeCo/sink".to_string(),
                     bindings: vec![
                         proto_flow::flow::materialization_spec::Binding {
-                            collection: Some(Box::new(collection)),
+                            collection: Some(proto_flow::Arc::new(collection)),
                             partition_selector: Some(Default::default()),
                             ..Default::default()
                         };

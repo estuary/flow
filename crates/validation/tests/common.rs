@@ -103,10 +103,10 @@ impl Outcome {
 macro_rules! indirect {
     ($name:ident, $msg:ty) => {
         fn $name(spec: &mut $msg) {
-            let mut table: Vec<flow::CollectionSpec> = Vec::new();
+            let mut table: Vec<proto_flow::Arc<flow::CollectionSpec>> = Vec::new();
 
             for binding in spec.bindings.iter_mut() {
-                let collection = *binding.collection.take().unwrap();
+                let collection = binding.collection.take().unwrap();
 
                 binding.collection_index = match table.iter().position(|c| *c == collection) {
                     Some(index) => index as u32,
@@ -173,7 +173,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             .bindings
             .iter()
             .map(|binding| flow::capture_spec::Binding {
-                collection: Some(Box::new(flow::CollectionSpec {
+                collection: Some(proto_flow::Arc::new(flow::CollectionSpec {
                     name: binding.target.to_string(),
                     partition_template: Some(proto_gazette::broker::JournalSpec {
                         name: format!("{}/0000000000000001", binding.target),
@@ -260,7 +260,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 .iter()
                 .map(|transform| flow::collection_spec::derivation::Transform {
                     name: transform.name.to_string(),
-                    collection: Some(Box::new(flow::CollectionSpec {
+                    collection: Some(proto_flow::Arc::new(flow::CollectionSpec {
                         name: transform.source.collection().to_string(),
                         partition_template: Some(proto_gazette::broker::JournalSpec {
                             name: format!("{}/0000000000000001", transform.source.collection()),
@@ -315,7 +315,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             mock.last_pub_id,
             mock.last_build_id.unwrap_or(mock.last_pub_id),
             model,
-            built_spec,
+            proto_flow::Arc::new(built_spec),
             None,
         );
     }
@@ -348,7 +348,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             .iter()
             .enumerate()
             .map(|(index, binding)| flow::materialization_spec::Binding {
-                collection: Some(Box::new(flow::CollectionSpec {
+                collection: Some(proto_flow::Arc::new(flow::CollectionSpec {
                     name: binding.source.collection().to_string(),
                     partition_template: Some(proto_gazette::broker::JournalSpec {
                         name: format!("{}/0000000000000001", binding.source.collection()),
