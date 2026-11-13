@@ -456,7 +456,7 @@ three. It refuses while this stack is running, then starts it with a drop-in,
 `flow-reactor@<dp>-<port>.service.d/connector-vmm.conf`, adding the VMM
 settings to the reactor's environment. It previews and publishes a Python
 derivation through flowctl and the reactor, then stops the stack.
-See [`crates/connector-vmm-tests`](../crates/connector-vmm-tests/README.md#coverage-and-entry-points),
+See [`crates/connector-vmm-tests`](../crates/connector-vmm-tests/README.md#tests),
 and [`docs/connector-vmm/operating.md`](../docs/connector-vmm/operating.md)
 for what a production host needs instead.
 
