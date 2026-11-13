@@ -8,7 +8,7 @@ and the rollout and security limits of this support. What tasks declare is in
 ## Three separate states
 
 - **Code availability.** Reactors and flowctl built from this repository can
-  launch VMMs. Nothing does so unless `CONNECTOR_VMM_IMAGE` is set, and no
+  launch VMMs. Nothing does so unless `CONNECTOR_VMM_STATE_DIR` is set, and no
   deployment template in this repository sets it.
 - **Operator preparation.** A host has KVM, a rootful podman, a published VMM
   image, a static `flow-connector-init`, the state and mount paths below, and
@@ -59,11 +59,8 @@ whose podman runs in a PID namespace other than the host's.
   pushed by the platform build from `master`, tagged as that build's version.
   The image pushed is the one `ci:connector-vmm-gate` passed: its boundary
   installed, verified and refused deliberate tampering in a container's own
-  network namespace, and it reports the build of the commit the workflow
-  checked out. The other images publish before that gate runs. A pull request
-  which could change the image runs the same gate on an image it builds,
-  and publishes nothing. Neither proves the image runs a VM: that is the
-  developer-run KVM suite (see [below](#ordinary-tooling-stays-unprivileged)).
+  network namespace. The other images publish before that gate runs. It does
+  not prove the image runs a VM: that is the developer-run KVM suite (see [below](#ordinary-tooling-stays-unprivileged)).
   podman pulls it, with
   the engine's own registry credentials, the first time a boundary command or
   launch needs it. Each launch resolves the tag to an image ID once, and runs
@@ -83,25 +80,13 @@ whose podman runs in a PID namespace other than the host's.
   compares the host's tables with exactly what that image's `install` writes,
   so tables and image are upgraded together (see
   [Upgrading](#upgrading-the-boundary-and-image)).
-- **The launcher and the VMM image are one build.** Every build mise runs,
-  and the local stack's, embeds `FLOW_BUILD_IDENTITY`: the checkout's HEAD
-  commit, suffixed `-dirty` while a tracked file or submodule differs from
-  it, or a file git does not ignore is untracked, and empty outside a git
-  checkout.
-  Reactors, flowctl and `flow-connector-vmm` compile it in, and the VMM
-  image's `boundary verify` prints its own (`flow-connector-vmm build
-  <identity>`). `flowctl build-identity` and `flowctl-go build-identity`
-  print a launcher's. The platform build refuses to package a launcher, or
-  push a VMM image, which does not report the checked-out commit, or a tree
-  its builds changed; flowctl's release build checks its binary likewise. Before every launch, a launcher refuses the image unless both
-  name the same commit and neither is dirty or unidentified (empty, a bare
-  cargo build, or an image older than this check). So `CONNECTOR_VMM_IMAGE` must name the VMM image the platform build
-  made from the reactor's own commit. This catches accidental mismatches; it
-  is not a compatibility proof. `CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=true`
-  skips this check alone, for development, logging a warning to each task it
-  launches; the boundary verify and every other check still apply. Recovery
-  of earlier launches neither verifies nor pairs: it revokes with the image
-  each record names.
+- **The launcher and the VMM image are one build.** A reactor or flowctl
+  launches `ghcr.io/estuary/connector-vmm:<version>`, where `<version>` is
+  the `FLOW_VERSION` it was built as: `git describe` of the source in the
+  platform build, which publishes its VMM image under that tag. A build
+  without `FLOW_VERSION` launches `:dev`. A flowctl release is built as its
+  release tag, and no image is published under a release tag, so a released
+  flowctl needs `CONNECTOR_VMM_IMAGE`.
 
 ## Configuration
 
@@ -111,12 +96,11 @@ commands. Read once, when a service is constructed.
 
 | Variable | Default | Accepted |
 |---|---|---|
-| `CONNECTOR_VMM_IMAGE` | unset: no VMM capability, and nothing below is read | an image reference the engine can pull |
-| `CONNECTOR_VMM_STATE_DIR` | none; required with the image | absolute, UTF-8, no comma, no trailing slash, not `/`, at most 72 bytes |
+| `CONNECTOR_VMM_STATE_DIR` | unset: no VMM capability, and nothing below is read | absolute, UTF-8, no comma, no trailing slash, not `/`, at most 72 bytes |
+| `CONNECTOR_VMM_IMAGE` | `ghcr.io/estuary/connector-vmm:<version>`, this build's image | an image reference the engine can pull; for development and tests |
 | `CONNECTOR_VMM_PODMAN` | `podman` | the program run for every VMM engine command |
 | `CONNECTOR_VMM_DISK_MIB` | `2048` | digits, 1 to 8796093022207 (the scratch disk, sparse) |
 | `CONNECTOR_VMM_MEMORY_OVERHEAD_MIB` | `256` | digits, 1 to 4294967295 |
-| `CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD` | `false` | `true` or `false`. For development only: `true` launches a VMM image whose build is not the launcher's (see [Images and binaries](#images-and-binaries)) |
 
 An empty `CONNECTOR_VMM_*` value means unset. These are shared with ordinary
 connectors and read as they read them:
@@ -217,7 +201,7 @@ host's network namespace:
 
 ```
 podman run --rm --network=host --log-driver=none --read-only \
-  --cap-drop=all --cap-add=CAP_NET_ADMIN <CONNECTOR_VMM_IMAGE> boundary <install|verify|remove>
+  --cap-drop=all --cap-add=CAP_NET_ADMIN ghcr.io/estuary/connector-vmm:<version> boundary <install|verify|remove>
 ```
 
 - **Install** at boot, before any launcher starts. One nft transaction
@@ -243,15 +227,13 @@ podman run --rm --network=host --log-driver=none --read-only \
 ### Upgrading the boundary and image
 
 `verify` from an image passes only against tables identical to what that
-image installs. When a build changes the tables, change the host's tables and
-the launchers' `CONNECTOR_VMM_IMAGE` together: in between, a launch whose
+image installs. When a build changes the tables, change the host's tables
+with the reactors: in between, a launch whose
 image disagrees with the host's tables is refused rather than run.
 Reinstalling identical tables under traffic was measured to drop nothing.
 
-Every reactor upgrade is a VMM image upgrade too: a reactor launches only
-the image of its own build. Deploy each reactor with `CONNECTOR_VMM_IMAGE`
-naming its own build's image; one left on another image refuses VMM starts
-until it is. Keep an older image in the engine's store while records name
+Every reactor upgrade is a VMM image upgrade too: a reactor launches the
+image of its own build. Keep an older image in the engine's store while records name
 it: recovery revokes their grants with it, by an ID no pull restores.
 
 The image pins the upstream versions of libkrun, libkrunfw and nftables.
@@ -269,8 +251,7 @@ KVM: `mise run ci:connector-vmm-kvm` (the component suite) and
 flowctl launch Python captures, derivations and materializations in VMMs).
 No workflow runs them, and neither publication nor activation requires
 their results. Each builds its own images from the checkout, so neither
-tests a published image. `mise run ci:connector-vmm-candidate` gates the
-production image without KVM. See
+tests a published image. See
 [`crates/connector-vmm-tests`](../../crates/connector-vmm-tests/README.md).
 
 ## Lifecycle and recovery
@@ -403,7 +384,7 @@ credentials, `task-update.json`.
 
 | Message | Meaning |
 |---|---|
-| "this data plane does not support VMM execution" | `CONNECTOR_VMM_IMAGE` is unset for the process which served the request. |
+| "this data plane does not support VMM execution" | `CONNECTOR_VMM_STATE_DIR` is unset for the process which served the request. |
 | "connector image '...' is not eligible for VMM execution as a ..." | The task's image or type is not eligible (see [tasks.md](tasks.md#which-tasks-are-eligible)). |
 | "the task declares egress, which ordinary execution cannot enforce" | `egress` without `vmm: true`. Catalog validation reports it first, as "declares egress, which its connector's execution cannot enforce". |
 | "the task requests VMM execution but declares no egress" | `vmm: true` without `egress`. Declare the hosts the task needs, or `egress: {}` for none. |
@@ -411,13 +392,12 @@ credentials, `task-update.json`.
 | "task egress.cidrs ..." or "declares an invalid egress CIDR" | An invalid address range; the message names the rule. |
 | "the task declares egress.cidrs, which only private data planes accept" | `egress.cidrs` on a public data plane, which never accepts one. |
 | "connector Started with execution ..., but ... was requested" | The serving reactor ignored or changed the execution settings: it predates them. See [Rollout](#rollout). |
-| "CONNECTOR_VMM_STATE_DIR is required when CONNECTOR_VMM_IMAGE is set", or another variable named with its value | Configuration refused at service construction. |
+| A `CONNECTOR_VMM_*` variable named with its value | Configuration refused at service construction. |
 | "CONNECTOR_VMM_STATE_DIR ..." (FailedPrecondition) | The state directory is missing, a link, owned by another UID, or not mode 0700. |
 | "opening an O_TMPFILE scratch disk in ..." or "sizing a scratch disk in ..." | The state directory's filesystem cannot hold the scratch disk. |
 | "VMM execution runs a static flow-connector-init beside this program or on its PATH" | No `flow-connector-init` found, or only dynamically linked ones, which the message lists. |
 | "the host's VMM network boundary did not verify, ..." | Tables absent, or from another build; the verifier's lines name each difference. |
-| "pulling VMM image ..." or "inspecting VMM image ..." (FailedPrecondition) | The engine has no `CONNECTOR_VMM_IMAGE` and cannot pull it, or cannot name its ID. |
-| "VMM image ... is not paired with this launcher's build: ..." | `CONNECTOR_VMM_IMAGE` is not the image of this launcher's build: another commit's image, or a launcher or image built from a modified tree, without mise, or before pairing. The rest of the message says which. |
+| "pulling VMM image ..." or "inspecting VMM image ..." (FailedPrecondition) | The engine lacks this build's VMM image and cannot pull it, or cannot name its ID. |
 | "this data plane cannot size a VMM: CONNECTOR_MEMORY_LIMIT ..." | The memory limit cannot size a VMM's guest (see [Configuration](#configuration)). Ordinary tasks are unaffected. |
 | "flow-connector-vmm: KVM is unavailable to this VMM: ..." then "the VMM exited (exit status: 2) before flow-connector-init was ready" | `/dev/kvm` missing or unusable in the VMM container. |
 | "the VMM exited (exit status: 0) before flow-connector-init was ready" | Possible cause: connector-init's idle watchdog ended the guest because no connector RPC reached it within 5 seconds of its start. Check debug logs for connector-init's start and exit times. |
@@ -455,8 +435,6 @@ pass retries it:
   it.
 - "the VMM state directory is unsafe to recover, so nothing is released":
   `CONNECTOR_VMM_STATE_DIR` fails the checks a launch makes of it.
-- "creating a VMM network failed; retrying under a new id": a name or bridge
-  collision; at most three attempts.
 
 A reactor whose recovery has started exports:
 
@@ -486,7 +464,7 @@ A control plane built before this support refuses drafts carrying `vmm` or
 `egress` as unknown fields, so publishing them waits for its upgrade too.
 
 Configure every reactor of a plane alike. Capability is the plane's: a VMM
-task whose request reaches a reactor without `CONNECTOR_VMM_IMAGE`, or whose
+task whose request reaches a reactor without `CONNECTOR_VMM_STATE_DIR`, or whose
 host fails preparation, fails there.
 
 VMM tasks run only on the V2 runtime, so the plane must already run V2 tasks
@@ -520,14 +498,12 @@ the local integration tests:
 - That the plane's `CONNECTOR_MEMORY_LIMIT` fits the
   [VMM grammar](#configuration) and sizes a guest, else VMM starts are
   refused.
-- That each reactor's `CONNECTOR_VMM_IMAGE` names the VMM image of its own
-  build, and `CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD` is unset.
 
 **Rolling back.** Before any reactor returns to a build without this support,
 stop VMM-selected requests from reaching it: disable or delete the plane's VMM
 tasks, and stop publishing them, first, since an older reactor runs them
 ordinarily. To turn VMM
-execution off while keeping the build, unset `CONNECTOR_VMM_IMAGE`; VMM tasks
+execution off while keeping the build, unset `CONNECTOR_VMM_STATE_DIR`; VMM tasks
 then fail, and never fall back to ordinary execution. Rolling the VMM image
 back means reinstalling that image's boundary.
 

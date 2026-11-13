@@ -22,18 +22,6 @@ mod sys;
 /// CLI and command failures exit 2. Guest workloads may also return this code.
 const EXIT_FAILED: u8 = 2;
 
-/// Source identity from `mise/tasks/build/identity-lib.sh`.
-/// Missing or empty identities are unidentified builds.
-const BUILD_IDENTITY: &str = match option_env!("FLOW_BUILD_IDENTITY") {
-    Some(identity) if !identity.is_empty() => identity,
-    _ => "unidentified",
-};
-
-/// Begins the line in which `boundary verify` reports `BUILD_IDENTITY`, for
-/// a launcher to pair its own build with. Must match `REPORTED_BUILD` of
-/// crates/connector.
-const REPORTED_BUILD: &str = "flow-connector-vmm build ";
-
 #[derive(clap::Parser, Debug)]
 #[command(
     name = "flow-connector-vmm",

@@ -462,62 +462,10 @@ fn recovery_retries_failed_ingress_removal() {
     });
 }
 
-/// What `boundary verify` of an image built from a commit which is never
-/// this launcher's prints.
-const OTHER_BUILD: &str =
-    "listed\nflow-connector-vmm build 0000000000000000000000000000000000000000\n";
-
-/// A VMM image whose build is not this launcher's is refused once verify
-/// reports it, before any network, and the launch releases what it made.
-/// Recovery, which revokes with a record's image, never verifies or pairs.
+/// An image whose verify fails is refused.
 #[test]
-fn an_unpaired_image_is_refused_before_its_network() {
-    in_child(
-        "an_unpaired_image_is_refused_before_its_network",
-        |mut h| async move {
-            h.allow_unpaired_build = false;
-            std::fs::write(h.dir.join("verified"), OTHER_BUILD).unwrap();
-            let (outcome, logs) = refused(&h).await;
-            assert!(
-            outcome.starts_with("failed (FailedPrecondition): VMM image synthetic-vmm is not paired with this launcher's build: "),
-            "{outcome}"
-        );
-            assert!(
-                !logs.iter().any(|log| log.contains("not paired")),
-                "refused, not warned: {logs:?}"
-            );
-            let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
-            assert!(calls.contains(" boundary verify\n"), "{calls}");
-            assert!(!calls.contains("network create"), "{calls}");
-
-            let state = h.dir.join("state");
-            let state = state.to_str().unwrap();
-            let name = "fv_0123456789abcdef";
-            let token = "00112233445566778899aabbccddeeff";
-            let line = crate::vmm::record::claim_line(name, token, None, Some("unpaired-vmm:old"));
-            drop(crate::vmm::record::claim(state, name, &line).unwrap());
-            std::fs::write(h.dir.join("ingress"), "").unwrap();
-            std::fs::remove_file(h.dir.join("calls")).unwrap();
-            let engine = h.dir.join("engine");
-            let problems = crate::vmm::release::recover(engine.to_str().unwrap(), state).await;
-            assert_eq!(problems, []);
-            assert!(!h.dir.join("ingress").exists());
-            let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
-            assert!(
-                calls.contains("unpaired-vmm:old boundary revoke --owner="),
-                "{calls}"
-            );
-            assert!(!calls.contains("verify"), "{calls}");
-        },
-    );
-}
-
-/// The override skips pairing alone: an unpaired image launches, with a
-/// warning to the task, and an image whose verify fails is still refused.
-#[test]
-fn the_override_skips_only_pairing() {
-    in_child("the_override_skips_only_pairing", |mut h| async move {
-        std::fs::write(h.dir.join("verified"), OTHER_BUILD).unwrap();
+fn an_unverified_boundary_is_refused() {
+    in_child("an_unverified_boundary_is_refused", |h| async move {
         std::fs::write(h.dir.join("verify-status"), "1").unwrap();
         let (outcome, _logs) = refused(&h).await;
         assert!(
@@ -525,25 +473,6 @@ fn the_override_skips_only_pairing() {
                 "failed (FailedPrecondition): the host's VMM network boundary did not verify"
             ),
             "{outcome}"
-        );
-
-        std::fs::remove_file(h.dir.join("verify-status")).unwrap();
-        let report = launch(
-            &mut h,
-            Launch {
-                stderr: " ",
-                peer: Peer::Serving,
-                then: Then::Await,
-            },
-        )
-        .await;
-        assert_eq!(render(&report), format!("{STARTED}\n"));
-        let warned = "VMM image synthetic-vmm is not paired with this launcher's build: ";
-        assert!(
-            report.logs.iter().any(|log| log.starts_with(warned)
-                && log.ends_with("; launching it as CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD permits")),
-            "{:#?}",
-            report.logs
         );
     });
 }
@@ -1039,8 +968,6 @@ struct Harness {
     events: Events,
     /// TCP ports of the launch's built spec.
     ports: Vec<u32>,
-    /// The scripted verify reports no build unless a test scripts one.
-    allow_unpaired_build: bool,
 }
 
 type Started = anyhow::Result<(
@@ -1077,7 +1004,6 @@ where
                 dir,
                 events,
                 ports: Vec::new(),
-                allow_unpaired_build: true,
             })
             .await
         });
@@ -1393,7 +1319,6 @@ fn prepare(h: &Harness) -> Prepared {
         cpu_limit: "1".to_string(),
         vcpus: 1,
         cgroup_parent: None,
-        allow_unpaired_build: h.allow_unpaired_build,
     };
     Prepared {
         ctx,

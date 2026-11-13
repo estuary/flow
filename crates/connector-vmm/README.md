@@ -210,25 +210,18 @@ mount matrix.
 `linux/amd64` only. It loads `connector-vmm` rather than
 pushing it, while bake publishes the other images. It then runs
 `ci:connector-vmm-gate` on the loaded image's ID. It pushes the same image
-only once the gate passes, the image reports `EXPECTED_COMMIT`'s build, and
-every tag still names that ID. That push is `docker push` of the loaded
+only once the gate passes and every tag still names that ID. That push is `docker push` of the loaded
 image, not bake's, so the provenance attestation bake attaches to the images
 it pushes is not guaranteed for this one. A publication refuses custom bake
-arguments and a package that differs from what `ci:package` recorded. A
-local build with its own arguments may select other targets, and then gates
-nothing.
+arguments. A local build with its own arguments may select other targets, and
+then gates nothing.
 
 The gate needs no KVM and leaves the host's tables alone: in a container's
-own network namespace, with only `CAP_NET_ADMIN`, the candidate's `boundary`
+own network namespace, with only `CAP_NET_ADMIN`, the image's `boundary`
 installs, verifies, and refuses each tampering the gate makes with the
-candidate's own `nft`. The client times out after
+image's own `nft`. The client times out after
 `CONNECTOR_VMM_GATE_TIMEOUT` seconds (300). Cleanup uses the exact container
 name and fails if the container may remain.
-
-`ci:connector-vmm-candidate` builds this crate and `connector-guest-init`, builds the
-image from those two files alone, and gates it by ID. A pull request's
-Platform workflow runs it when the pull request changes this crate, a crate
-it builds from, the image, or the build and publication scripts.
 
 `connector-vmm` is Fedora 43 with libkrun built from source, the guest kernel
 from Fedora's `libkrunfw`, and the commands `run` invokes before the VM (`ip`,
@@ -323,14 +316,6 @@ verify and the container starting would go unnoticed until the next verify.
 A verify and a VMM image come from the same build, so a host upgrades the
 tables and its launchers' VMM image together. Connection rates and distinct
 destinations are not limited.
-
-`verify` first prints `flow-connector-vmm build ` and this binary's build on
-stdout, whatever the tables: `FLOW_BUILD_IDENTITY` as
-`mise/tasks/build/identity-lib.sh` set it at compile time (HEAD's commit,
-suffixed `-dirty` for modified files or untracked source), or `unidentified`
-when it was unset or empty. A launcher pairs it with its own (`crates/connector`'s
-`check_pairing`). `ci:docker-images` and `ci:connector-vmm-candidate` read
-it the same way.
 
 ## The policy
 

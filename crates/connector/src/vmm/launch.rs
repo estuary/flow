@@ -1,8 +1,7 @@
 //! The IO of one VMM launch, from an admitted connector start to a dialed
 //! connector-init: pull and inspect the connector's image with the VMM's
 //! podman, claim the launch's ownership record, prepare its connector mount
-//! and `fv_<id>` state, verify the host boundary and that the VMM image's
-//! build is paired with this launcher's, create the VMM's network,
+//! and `fv_<id>` state, verify the host boundary, create the VMM's network,
 //! volume and container, wait for connector-init's stderr readiness byte,
 //! and dial `init.sock`. A launch recovers nothing of others': `recovery` does.
 //!
@@ -308,7 +307,7 @@ async fn launch(
 
     // Uncached, immediately before the network it protects, and from the
     // VMM image whose tables the host's must equal.
-    let verified = unless_abandoned(launched_tx, async {
+    unless_abandoned(launched_tx, async {
         crate::container::engine_cmd(podman, &plan.verify)
             .await
             .map_err(|err| {
@@ -319,26 +318,6 @@ async fn launch(
             })
     })
     .await?;
-    // Verify reports the image's build. The override skips only this.
-    if let Err(reason) = super::check_pairing(super::BUILD_IDENTITY, &verified) {
-        let reason = format!(
-            "VMM image {} is not paired with this launcher's build: {reason}",
-            vmm.image
-        );
-        if !vmm.allow_unpaired_build {
-            return Err(precondition(anyhow::anyhow!(
-                "{reason}; launchers run only the VMM image built from their own commit"
-            )));
-        }
-        tracing::warn!(%reason, "launching an unpaired VMM image, as CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD permits");
-        log_sink
-            .send(crate::build_log(
-                ops::LogLevel::Warn,
-                &format!("{reason}; launching it as CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD permits"),
-                [],
-            ))
-            .await;
-    }
 
     crate::container::engine_cmd(podman, &plan.network)
         .await
@@ -493,8 +472,8 @@ async fn run_vmm(
 
 /// The ID of the VMM image `image` names, pulling it only if it's missing, as
 /// `podman run` would. A launch verifies, grants and runs this one image, and
-/// records it for its grant's revoke: a tag moved meanwhile cannot pair one
-/// build and launch another.
+/// records it for its grant's revoke: a tag moved meanwhile cannot verify
+/// one image and launch another.
 async fn vmm_image_id(
     podman: &str,
     image: &str,

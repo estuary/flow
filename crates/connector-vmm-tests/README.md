@@ -24,10 +24,7 @@ platform test also requires the local stack's prerequisites and public
 network access. These integration tests are opt-in and developer-run;
 GitHub Actions and `ci:platform-test` do not run them, and nothing requires
 their results. Missing prerequisites fail the task. The task builds its own
-images from this checkout, so it does not test a published image. A pull
-request's no-KVM gate of the production image is
-`ci:connector-vmm-candidate` (see
-[`crates/connector-vmm`](../connector-vmm/README.md#images)).
+images from this checkout, so it does not test a published image.
 
 `--allow-missing-vsock-loopback` permits connector-init's separate vsock test
 to skip when its kernel module cannot load. The KVM suite still exercises
@@ -80,13 +77,7 @@ connector-init over a guest's vsock connection.
   lock of a private store's containers (`/proc/locks` shows the service
   waiting), outlives its killed client and its launch's release, and lands
   for a later pass to remove.
-  `build_pairing` launches with pairing enforced: the run's own image only
-  if this checkout was unmodified, and images whose verify reports another
-  commit's build, or none, refused before any network. Other launcher tests
-  enforce pairing only on such a run, and allow unpaired images otherwise.
   `repeated_specs_through_the_podman_api` covers the reactor's API attachment.
-  `recovery_revokes_with_an_unpaired_image` revokes a record's grant with
-  the image it names, without a verify.
   Release state-machine tests in `connector` cover
   failure combinations; the integration test checks actual command termination
   and recovery without asserting elapsed time.
@@ -116,17 +107,9 @@ connector-init over a guest's vsock connection.
   container creation.
 - `tests/release.rs`: the task's resource cleanup, tested against stand-in
   commands.
-- `tests/publish.rs`: `ci:docker-images`, `ci:connector-vmm-gate` and
-  `ci:package` against a stand-in docker and package binaries. The VMM
-  image is pushed by the ID its gate passed, after the other images, and
-  never after a refused package, gate, tag or reported build. The gate
-  removes its container on success, failure, timeout and cancellation.
-  `ci:package` refuses a test-controls VMM and a launcher or checkout that
-  is not the expected commit's.
-- `tests/identity.rs`: `mise/tasks/build/identity-lib.sh` over git
-  repositories of its own: modified, untracked and ignored files, untracked
-  files and submodule changes which configuration hides from `git status`,
-  and no repository or commit, which leaves an inherited identity unused.
+- `tests/publish.rs`: `ci:docker-images` and `ci:connector-vmm-gate` against
+  a stand-in docker. The VMM image is never pushed after a refused gate or a
+  tag which names another image.
 
 ## Harness
 
@@ -135,10 +118,7 @@ verifies the host boundary, stages controlled endpoints, and writes the run
 configuration. It builds two VMM images which differ only in
 `flow-connector-vmm`: the packaged build, which `--platform` uses, and the
 suite's, built with connector-vmm's `test-controls` feature in a target
-directory of its own. It checks that both carry this run's `flow-connector-guest-init`,
-and that they report this run's `FLOW_BUILD_IDENTITY` from
-`boundary verify`. A run from a modified checkout has `--platform`'s reactor
-and flowctl allow unpaired VMM images, since none could pair.
+directory of its own. It checks that both carry this run's `flow-connector-guest-init`.
 Its companion `connector-vmm-kvm-lib.sh` tracks and releases
 resources. Cargo and tests run as the invoking user; privileged operations
 use `sudo -n`.

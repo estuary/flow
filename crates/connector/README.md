@@ -136,7 +136,6 @@ a defined file layout of resources handed to the connector for its use.
 | `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets, execution, VMM |
 | `Vmm`, `Vmm::from_env` | VMM capability and configuration from `CONNECTOR_VMM_*` |
 | `vmm::vmm_for` | Admission decision for requested execution |
-| `vmm::check_pairing`, `BUILD_IDENTITY` | Whether a VMM image's build, as its verify reports it, is this launcher's |
 | `vmm::plan::plan` | Pure plan of a VMM launch |
 | `vmm_argv` (`vmm::argv`) | Pure podman lines of a VMM launch, shared with `crates/connector-vmm-tests` |
 | `vmm::launch::start` | VMM lifecycle, image admission, and credential mount |
@@ -271,13 +270,12 @@ EOF or status. A client which does not drain responses may park the handler.
   ends the session with `InvalidArgument`.
 
 - **VMM configuration is read once, and checked whole.** `Vmm::from_env`
-  reads nothing else when `CONNECTOR_VMM_IMAGE` is unset or empty. Otherwise
-  `CONNECTOR_VMM_STATE_DIR` is required: an absolute host path without a
+  reads nothing else when `CONNECTOR_VMM_STATE_DIR` is unset or empty. It
+  is an absolute host path without a
   comma, at most 72 bytes so that `<dir>/fv_<16 hex>/sock/init.sock` fits a
   Unix socket address. `CONNECTOR_VMM_DISK_MIB` (2048),
-  `CONNECTOR_VMM_MEMORY_OVERHEAD_MIB` (256), `CONNECTOR_VMM_PODMAN`
-  (`podman`, the rootful engine however this process reaches it) and
-  `CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD` (`false`) take defaults. A malformed
+  `CONNECTOR_VMM_MEMORY_OVERHEAD_MIB` (256) and `CONNECTOR_VMM_PODMAN`
+  (`podman`, the rootful engine however this process reaches it) take defaults. A malformed
   value fails service construction, except `CONNECTOR_MEMORY_LIMIT` (below).
   Whether the host can actually run a VMM is a question for each launch, not
   for configuration.
@@ -363,7 +361,7 @@ EOF or status. A client which does not drain responses may park the handler.
   (below), and plans one randomly generated id. It then claims its id by
   making `<STATE_DIR>/fv_<id>.owner`, makes the
   connector mount and `fv_<id>` state directory, writes the planned files,
-  runs `boundary verify` and pairs the build it reports (below), creates the
+  runs `boundary verify`, creates the
   network, creates the rootfs volume and container, and starts it. A failed
   claim or create returns an error and releases only this launch's resources;
   it never retries under another id. Pulls,
@@ -498,32 +496,19 @@ EOF or status. A client which does not drain responses may park the handler.
   `FailedPrecondition`, and a failed pull, network, run, readiness or dial an
   ordinary launch's error.
 
-- **A launch runs only the VMM image of its own build.** Each build mise
-  runs, and each of the local stack's, gets `FLOW_BUILD_IDENTITY` from
-  `mise/tasks/build/identity-lib.sh`: HEAD's commit, suffixed `-dirty` while
-  a tracked file or submodule differs from it, or a file git does not ignore
-  is untracked, whatever git's configuration hides from its status.
-  Outside a git checkout it is empty, whatever was inherited. The launcher
-  compiles it in as `BUILD_IDENTITY`; `flowctl build-identity` and
-  `flowctl-go build-identity` print it as `REPORTED_IDENTITY`, which
-  `ci:package` checks. `flow-connector-vmm` compiles in its
-  own, and prints it from the `boundary verify` each launch runs.
-  `check_pairing` pairs them only if both name the same commit and neither is
-  dirty. A bare cargo build, an empty identity, or an image older than
-  pairing, has none.
-  An unpaired image is refused with `FailedPrecondition` once its verify
-  passes, before the network is created. This catches a launcher and image
-  built from different sources by accident; it does not prove them
-  compatible. `CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=true`, for development,
-  launches an unpaired image with a warning to the task's logs, and skips
-  nothing else: the verify still gates the launch. Recovery neither verifies
-  nor pairs: it revokes a grant with the image its record names.
+- **A launch runs the VMM image of its own build.** The image is
+  `ghcr.io/estuary/connector-vmm:<FLOW_VERSION>` (`vmm::DEFAULT_IMAGE`).
+  `FLOW_VERSION` is `git describe` of the source in a release build
+  (`ci:gnu-opt`), which is also the tag `ci:docker-images` publishes that
+  build's image under. It is `.cargo/config.toml`'s `dev` otherwise.
+  `CONNECTOR_VMM_IMAGE` names another image, for development and tests;
+  nothing checks that image against the launcher.
 
-- **A launch runs one VMM image, by ID.** It resolves `CONNECTOR_VMM_IMAGE`
+- **A launch runs one VMM image, by ID.** It resolves its image reference
   to an image ID once, before planning, pulling the image only if
   it's missing, as `podman run` would. Its verify, grant and container then
   run that ID, and its record names it for the grant's revoke. So a tag
-  moved meanwhile cannot have one build pair and another run. Records which
+  moved meanwhile cannot have one image verify and another run. Records which
   name a tag, from launchers before this, are recovered with the tag.
 
 - **A VMM's connector mount follows the shared contract.** Its mode-0711

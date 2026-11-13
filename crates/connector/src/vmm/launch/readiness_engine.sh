@@ -20,7 +20,6 @@ case "$1 ${2:-}" in
     for arg; do
         case "$arg" in
         verify)
-            if [ -e "$dir/verified" ]; then cat "$dir/verified"; fi
             exit "$(cat "$dir/verify-status" 2>/dev/null || echo 0)"
             ;;
         grant) touch "$dir/ingress"; exit 0 ;;

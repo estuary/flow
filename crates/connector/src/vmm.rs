@@ -37,9 +37,6 @@ pub struct Vmm {
     pub vcpus: u8,
     /// `CONNECTOR_CGROUP_PARENT`, likewise.
     pub cgroup_parent: Option<String>,
-    /// Launch a VMM image whose build is not paired with this launcher's
-    /// (`check_pairing`). For development only.
-    pub allow_unpaired_build: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,22 +52,10 @@ const PODMAN: &str = "CONNECTOR_VMM_PODMAN";
 const STATE_DIR: &str = "CONNECTOR_VMM_STATE_DIR";
 const DISK_MIB: &str = "CONNECTOR_VMM_DISK_MIB";
 const MEMORY_OVERHEAD_MIB: &str = "CONNECTOR_VMM_MEMORY_OVERHEAD_MIB";
-const ALLOW_UNPAIRED_BUILD: &str = "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD";
 
-/// Source identity from `mise/tasks/build/identity-lib.sh`.
-/// Missing or empty identities are unidentified builds.
-pub const BUILD_IDENTITY: Option<&str> = option_env!("FLOW_BUILD_IDENTITY");
-
-/// Compiled launcher identity, or `unidentified` when missing or empty.
-pub const REPORTED_IDENTITY: &str = match BUILD_IDENTITY {
-    Some(identity) if !identity.is_empty() => identity,
-    _ => "unidentified",
-};
-
-/// Begins the line in which `flow-connector-vmm boundary verify` reports its
-/// own build, as `BUILD_IDENTITY` is, or `unidentified`. Must match its
-/// `REPORTED_BUILD`.
-const REPORTED_BUILD: &str = "flow-connector-vmm build ";
+/// The VMM image published with this launcher's build. `ci:docker-images`
+/// tags each build's image with the `git describe` which `FLOW_VERSION` holds.
+const DEFAULT_IMAGE: &str = concat!("ghcr.io/estuary/connector-vmm:", env!("FLOW_VERSION"));
 
 /// Room for the uv cache, the virtual environment and TMPDIR of a Python
 /// connector's project. The file is sparse, so the host pays for what the guest writes.
@@ -79,7 +64,7 @@ const DEFAULT_DISK_MIB: u64 = 2048;
 const MIB: u64 = 1 << 20;
 
 impl Vmm {
-    /// Read `CONNECTOR_VMM_IMAGE`; unset or empty reads nothing else.
+    /// Read `CONNECTOR_VMM_STATE_DIR`; unset or empty reads nothing else.
     /// Malformed settings fail construction. Memory sizing errors are held
     /// for VMM admission.
     pub fn from_env() -> anyhow::Result<Option<Self>> {
@@ -97,14 +82,12 @@ impl Vmm {
     ) -> anyhow::Result<Option<Self>> {
         let setting = |name: &str| Ok::<_, anyhow::Error>(var(name)?.filter(|v| !v.is_empty()));
 
-        let Some(image) = setting(IMAGE)? else {
+        let Some(state_dir) = setting(STATE_DIR)? else {
             return Ok(None);
         };
+        let image = setting(IMAGE)?.unwrap_or_else(|| DEFAULT_IMAGE.to_string());
         let podman = setting(PODMAN)?.unwrap_or_else(|| "podman".to_string());
 
-        let Some(state_dir) = setting(STATE_DIR)? else {
-            anyhow::bail!("{STATE_DIR} is required when {IMAGE} is set");
-        };
         plan::check_state_dir(&state_dir).with_context(|| format!("{STATE_DIR} {state_dir:?}"))?;
 
         let disk_mib = match setting(DISK_MIB)? {
@@ -116,11 +99,6 @@ impl Vmm {
             Some(raw) => {
                 overhead_mib(&raw).with_context(|| format!("{MEMORY_OVERHEAD_MIB} {raw:?}"))?
             }
-        };
-        let allow_unpaired_build = match setting(ALLOW_UNPAIRED_BUILD)?.as_deref() {
-            None | Some("false") => false,
-            Some("true") => true,
-            Some(raw) => anyhow::bail!("{ALLOW_UNPAIRED_BUILD} {raw:?}: expected true or false"),
         };
 
         // Shared with ordinary connectors, so read as their launch reads them:
@@ -156,7 +134,6 @@ impl Vmm {
             cpu_limit,
             vcpus,
             cgroup_parent,
-            allow_unpaired_build,
         }))
     }
 
@@ -264,63 +241,6 @@ fn go_decimal(number: &str) -> Option<f64> {
         }
     }
     number.replace('_', "").parse().ok()
-}
-
-/// Whether a VMM image whose `boundary verify` printed `verified` is paired
-/// with a launcher built as `launcher` (`BUILD_IDENTITY`): both built from the
-/// same commit, neither from a modified tree. This catches a launcher and
-/// image built from different sources by accident; it does not prove them
-/// compatible. The error says why they are not paired.
-pub(crate) fn check_pairing(launcher: Option<&str>, verified: &[u8]) -> Result<(), String> {
-    let launcher = match launcher.and_then(source) {
-        None => {
-            return Err(format!(
-                "this launcher's build has no source identity ({launcher:?})"
-            ));
-        }
-        Some((commit, true)) => {
-            return Err(format!(
-                "this launcher was built from a tree modified from commit {commit}"
-            ));
-        }
-        Some((commit, false)) => commit,
-    };
-    let verified = String::from_utf8_lossy(verified);
-    let reported: Vec<&str> = verified
-        .lines()
-        .filter_map(|line| line.strip_prefix(REPORTED_BUILD))
-        .collect();
-    let image = match reported[..] {
-        [] => return Err("the image reports no build identity".to_string()),
-        [image] => image,
-        _ => return Err(format!("the image reports builds {reported:?}")),
-    };
-
-    match source(image) {
-        None => Err(format!(
-            "the image's build has no source identity ({image:?})"
-        )),
-        Some((commit, true)) => Err(format!(
-            "the image was built from a tree modified from commit {commit}"
-        )),
-        Some((commit, false)) if commit != launcher => Err(format!(
-            "the image was built from commit {commit}, and this launcher from commit {launcher}"
-        )),
-        Some(_) => Ok(()),
-    }
-}
-
-/// A build identity's commit, and whether its tree was modified.
-fn source(identity: &str) -> Option<(&str, bool)> {
-    let (commit, dirty) = match identity.strip_suffix("-dirty") {
-        Some(commit) => (commit, true),
-        None => (identity, false),
-    };
-    let hex = commit.len() == 40
-        && commit
-            .bytes()
-            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-    hex.then_some((commit, dirty))
 }
 
 /// Guest vCPUs for a CPU quota of `limit`: a decimal number of CPUs, rounded
@@ -562,20 +482,16 @@ mod test {
         let cases: &[(&str, &[&str])] = &[
             ("nothing set", &[]),
             (
-                "no image, so nothing else is read",
-                &[
-                    "CONNECTOR_VMM_STATE_DIR=relative",
-                    "CONNECTOR_VMM_DISK_MIB=x",
-                ],
-            ),
-            ("an empty image", &["CONNECTOR_VMM_IMAGE="]),
-            (
-                "an image without a state directory",
-                &["CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev"],
+                "no state directory, so nothing else is read",
+                &[BASE[0], "CONNECTOR_VMM_DISK_MIB=x"],
             ),
             (
                 "an empty state directory",
                 &[BASE[0], "CONNECTOR_VMM_STATE_DIR="],
+            ),
+            (
+                "an empty image is this build's",
+                &["CONNECTOR_VMM_IMAGE=", BASE[1]],
             ),
             ("defaults", BASE),
             (
@@ -652,18 +568,6 @@ mod test {
             (
                 "a malformed CPU limit",
                 &[BASE[0], BASE[1], "CONNECTOR_CPU_LIMIT=two"],
-            ),
-            (
-                "unpaired builds allowed",
-                &[BASE[0], BASE[1], "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=true"],
-            ),
-            (
-                "unpaired builds refused",
-                &[BASE[0], BASE[1], "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=false"],
-            ),
-            (
-                "a malformed allowance of unpaired builds",
-                &[BASE[0], BASE[1], "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=1"],
             ),
         ];
 
@@ -1242,57 +1146,6 @@ mod test {
                         &execution,
                         None,
                     ))
-                ));
-            }
-        }
-        insta::assert_snapshot!(rows.join("\n"));
-    }
-
-    /// Whether a launcher and the build its VMM image's verify reports are
-    /// paired: the same commit, from unmodified trees.
-    #[test]
-    fn pairing() {
-        const A: &str = "0123456789abcdef0123456789abcdef01234567";
-        const B: &str = "89abcdef0123456789abcdef0123456789abcdef";
-        let a_dirty = format!("{A}-dirty");
-        let reported = |identity: &str| format!("flow-connector-vmm build {identity}\n");
-
-        let launchers: [(&str, Option<&str>); 6] = [
-            ("clean A", Some(A)),
-            ("modified A", Some(&a_dirty)),
-            ("unidentified", None),
-            ("empty", Some("")),
-            ("malformed", Some("v0.6.3-45-gbfc779aa1ce")),
-            (
-                "upper-case A",
-                Some("0123456789ABCDEF0123456789ABCDEF01234567"),
-            ),
-        ];
-        let images: [(&str, String); 10] = [
-            ("clean A", reported(A)),
-            (
-                "clean A, after other output",
-                format!("listed\n{}", reported(A)),
-            ),
-            ("modified A", reported(&a_dirty)),
-            ("clean B", reported(B)),
-            ("unidentified", reported("unidentified")),
-            ("empty", reported("")),
-            ("a tag", reported("v0.6.3")),
-            ("nothing, as older images", String::new()),
-            ("A twice", format!("{}{}", reported(A), reported(A))),
-            ("A without its newline", reported(A).trim_end().to_string()),
-        ];
-
-        let mut rows = Vec::new();
-        for (launcher_name, launcher) in launchers {
-            for (image_name, verified) in &images {
-                let outcome = match super::check_pairing(launcher, verified.as_bytes()) {
-                    Ok(()) => "paired".to_string(),
-                    Err(reason) => format!("unpaired: {reason}"),
-                };
-                rows.push(format!(
-                    "launcher {launcher_name:<12} image {image_name:<27} => {outcome}"
                 ));
             }
         }

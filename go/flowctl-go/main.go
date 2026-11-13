@@ -33,11 +33,6 @@ its responsible shards and will exit only when it can safely do so.
 
 	mbp.AddPrintConfigCmd(parser, iniFilename)
 
-	addCmd(parser.Command, "build-identity", "Print the build VMM launches pair with", `
-Print the build which this binary's VMM launches pair with a VMM image's own:
-a commit, suffixed -dirty for a modified checkout, or unidentified.
-`, &cmdBuildIdentity{})
-
 	apis, err := parser.Command.AddCommand("api", "Low-level APIs for automation", `
 API commands which are designed for use in scripts and automated workflows,
 including the Flow control plane. Users should not need to run API commands

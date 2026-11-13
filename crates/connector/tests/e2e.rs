@@ -1014,7 +1014,6 @@ mod execution {
             cpu_limit: "2".to_string(),
             vcpus: 2,
             cgroup_parent: None,
-            allow_unpaired_build: false,
         }
     }
 

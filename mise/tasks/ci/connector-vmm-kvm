@@ -171,24 +171,6 @@ VMM_IMAGE=$(sudo -n podman load -q -i "${RUN_DIR}/connector-vmm.tar" | grep -oE 
 record image "${VMM_IMAGE}"
 rm -f "${RUN_DIR}/connector-vmm.tar"
 
-# Every launcher and VMM this run builds embeds this build, from mise's
-# stack-env, and pairs only where it names an unmodified tree.
-BUILD="flow-connector-vmm build ${FLOW_BUILD_IDENTITY:-unidentified}"
-case "${FLOW_BUILD_IDENTITY:-}" in
-"" | *-dirty) ALLOW_UNPAIRED_BUILD=true ;;
-*) ALLOW_UNPAIRED_BUILD=false ;;
-esac
-echo "This run's build: ${FLOW_BUILD_IDENTITY:-unidentified} (launchers allow unpaired VMM images: ${ALLOW_UNPAIRED_BUILD})"
-# What a VMM image's `boundary verify` reports of its build, whatever the
-# tables, here in an empty network namespace.
-image_build() {
-    sudo -n podman run --rm --network=none --log-driver=none --read-only \
-        --cap-drop=all --cap-add=CAP_NET_ADMIN "$1" boundary verify 2>/dev/null \
-        | grep '^flow-connector-vmm build ' || true
-}
-[ "$(image_build "${VMM_IMAGE}")" = "${BUILD}" ] \
-    || fail "${VMM_IMAGE} reports '$(image_build "${VMM_IMAGE}")', not this run's '${BUILD}'"
-
 # Before any VMM network exists. Tables another owner installed are used and
 # left alone, if they are exactly this checkout's; any other tables are not
 # this run's to replace.
@@ -241,7 +223,6 @@ if [ "${PLATFORM}" = true ]; then
         echo "CONNECTOR_VMM_IMAGE=${VMM_IMAGE}"
         echo "CONNECTOR_VMM_PODMAN=${PLATFORM_DIR}/podman"
         echo "CONNECTOR_VMM_STATE_DIR=${PLATFORM_DIR}/state"
-        echo "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=${ALLOW_UNPAIRED_BUILD}"
         echo "TMPDIR=${PLATFORM_DIR}/tmp"
         echo "PATH=\"${BIN}:${PATH}\""
     } >"${PLATFORM_DIR}/reactor.env"
@@ -272,13 +253,12 @@ if [ "${PLATFORM}" = true ]; then
         --arg runDir "${RUN_DIR}" \
         --arg dir "${PLATFORM_DIR}" \
         --arg vmmImage "${VMM_IMAGE}" \
-        --argjson allowUnpairedBuild "${ALLOW_UNPAIRED_BUILD}" \
         --arg flowctl "${BIN}/flowctl" \
         --arg connectorInit "${BIN}/flow-connector-init" \
         --arg derivePythonImage "${DERIVE_PYTHON}" \
         --arg reactorUnit "${REACTOR}" \
         --arg examples "${CHECKOUT}/examples" \
-        '{$runDir, $dir, $vmmImage, $allowUnpairedBuild, $flowctl, $connectorInit, $derivePythonImage, $reactorUnit, $examples}' \
+        '{$runDir, $dir, $vmmImage, $flowctl, $connectorInit, $derivePythonImage, $reactorUnit, $examples}' \
         | sudo -n tee "${ROOT}/platform.json" >/dev/null
 
     if [ -n "${FILTER}" ]; then
@@ -331,8 +311,6 @@ done
     || fail "${VMM_IMAGE}'s flow-connector-vmm is not this run's release build"
 [ "$(image_sha "${TEST_VMM_IMAGE}" /usr/local/bin/flow-connector-vmm)" = "${TEST_SHA}" ] \
     || fail "${TEST_VMM_IMAGE}'s flow-connector-vmm is not this run's test-controls build"
-[ "$(image_build "${TEST_VMM_IMAGE}")" = "${BUILD}" ] \
-    || fail "${TEST_VMM_IMAGE} reports '$(image_build "${TEST_VMM_IMAGE}")', not this run's '${BUILD}'"
 [ "${PRODUCTION_SHA}" != "${TEST_SHA}" ] || fail "the test-controls build is the release build"
 echo "flow-connector-guest-init ${GUEST_INIT_SHA}, in both images"
 echo "flow-connector-vmm ${PRODUCTION_SHA} in ${VMM_IMAGE}, ${TEST_SHA} in ${TEST_VMM_IMAGE}"

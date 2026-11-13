@@ -13,12 +13,6 @@ if [ ! -f "${ROCKSDB_LIB_DIR:-}/librocksdb.a" ]; then
     exit 1
 fi
 
-# The identity the reactor's and flowctl's VMM launchers embed, which mise's
-# stack-env sets but systemd's environment lacks. Computed here so that every
-# build agrees, and cargo never rebuilds for its absence.
-source "$(dirname "$0")/identity-lib.sh"
-export_flow_build_identity "$(dirname "$0")/../../.."
-
 # One package set, built by one invocation, shared by every `cargo build` for a
 # local stack: the ExecStartPre of each local/systemd/flow-*@.service, and the
 # Dekaf CI job. Add a binary here rather than building it on its own.

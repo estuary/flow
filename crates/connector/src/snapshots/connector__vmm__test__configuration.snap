@@ -5,23 +5,36 @@ expression: table
 # nothing set
 => None
 
-# no image, so nothing else is read
+# no state directory, so nothing else is read
 CONNECTOR_VMM_DISK_MIB=x
-CONNECTOR_VMM_STATE_DIR=relative
-=> None
-
-# an empty image
-CONNECTOR_VMM_IMAGE=
-=> None
-
-# an image without a state directory
 CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
-=> error: CONNECTOR_VMM_STATE_DIR is required when CONNECTOR_VMM_IMAGE is set
+=> None
 
 # an empty state directory
 CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
 CONNECTOR_VMM_STATE_DIR=
-=> error: CONNECTOR_VMM_STATE_DIR is required when CONNECTOR_VMM_IMAGE is set
+=> None
+
+# an empty image is this build's
+CONNECTOR_VMM_IMAGE=
+CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
+=> Some(
+    Vmm {
+        image: "ghcr.io/estuary/connector-vmm:dev",
+        podman: "podman",
+        state_dir: "/var/lib/flow/connector-vmm",
+        disk_mib: 2048,
+        memory: Ok(
+            Memory {
+                bytes: 1073741824,
+                guest_mib: 768,
+            },
+        ),
+        cpu_limit: "2",
+        vcpus: 2,
+        cgroup_parent: None,
+    },
+)
 
 # defaults
 CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
@@ -41,7 +54,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -71,7 +83,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cgroup_parent: Some(
             "estuary-connectors.slice",
         ),
-        allow_unpaired_build: false,
     },
 )
 
@@ -96,7 +107,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -116,7 +126,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -153,7 +162,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -176,7 +184,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -199,7 +206,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -219,7 +225,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -239,7 +244,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -262,7 +266,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -282,7 +285,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -302,7 +304,6 @@ CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
         cpu_limit: "2",
         vcpus: 2,
         cgroup_parent: None,
-        allow_unpaired_build: false,
     },
 )
 
@@ -311,55 +312,3 @@ CONNECTOR_CPU_LIMIT=two
 CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
 CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
 => error: CONNECTOR_CPU_LIMIT "two": expected a decimal number of CPUs, with at most nine fraction digits
-
-# unpaired builds allowed
-CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=true
-CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
-CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
-=> Some(
-    Vmm {
-        image: "ghcr.io/estuary/connector-vmm:dev",
-        podman: "podman",
-        state_dir: "/var/lib/flow/connector-vmm",
-        disk_mib: 2048,
-        memory: Ok(
-            Memory {
-                bytes: 1073741824,
-                guest_mib: 768,
-            },
-        ),
-        cpu_limit: "2",
-        vcpus: 2,
-        cgroup_parent: None,
-        allow_unpaired_build: true,
-    },
-)
-
-# unpaired builds refused
-CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=false
-CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
-CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
-=> Some(
-    Vmm {
-        image: "ghcr.io/estuary/connector-vmm:dev",
-        podman: "podman",
-        state_dir: "/var/lib/flow/connector-vmm",
-        disk_mib: 2048,
-        memory: Ok(
-            Memory {
-                bytes: 1073741824,
-                guest_mib: 768,
-            },
-        ),
-        cpu_limit: "2",
-        vcpus: 2,
-        cgroup_parent: None,
-        allow_unpaired_build: false,
-    },
-)
-
-# a malformed allowance of unpaired builds
-CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD=1
-CONNECTOR_VMM_IMAGE=ghcr.io/estuary/connector-vmm:dev
-CONNECTOR_VMM_STATE_DIR=/var/lib/flow/connector-vmm
-=> error: CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD "1": expected true or false

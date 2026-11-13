@@ -36,9 +36,6 @@ struct Platform {
     /// the reactor and flowctl share.
     dir: String,
     vmm_image: String,
-    /// Whether the reactor and flowctl launch VMM images unpaired with their
-    /// build: only when this checkout is modified, so none could pair.
-    allow_unpaired_build: bool,
     /// Beside a static `flow-connector-init`, so flowctl's launches find it.
     flowctl: String,
     /// The static build every VMM must be handed in its connector mount.
@@ -162,10 +159,6 @@ fn flowctl_command(
         .env("CONNECTOR_VMM_IMAGE", &platform.vmm_image)
         .env("CONNECTOR_VMM_PODMAN", &at.podman)
         .env("CONNECTOR_VMM_STATE_DIR", &at.state_dir)
-        .env(
-            "CONNECTOR_VMM_ALLOW_UNPAIRED_BUILD",
-            platform.allow_unpaired_build.to_string(),
-        )
         .env("TMPDIR", &at.tmp_dir)
         .envs(env.iter().copied());
     command
@@ -511,7 +504,7 @@ fn a_python_derivation_through_the_platform() {
             "acmeCo/vmm-python/",
             "--dangerous-auto-approve",
         ],
-        &[("CONNECTOR_VMM_IMAGE", "")],
+        &[("CONNECTOR_VMM_STATE_DIR", "")],
     );
     let deadline = Instant::now() + RELEASED;
     for name in &opened {
@@ -813,7 +806,7 @@ fn delete_and_release(platform: &Platform, name: &str) {
             "acmeCo/vmm-python/",
             "--dangerous-auto-approve",
         ],
-        &[("CONNECTOR_VMM_IMAGE", "")],
+        &[("CONNECTOR_VMM_STATE_DIR", "")],
     );
     let deadline = Instant::now() + RELEASED;
     for vmm in launched(&launcher::calls(&root)) {
@@ -1451,7 +1444,7 @@ fn python_projects_generate_their_files() {
         (
             "unavailable",
             starters[0].2.to_string(),
-            &[("CONNECTOR_VMM_IMAGE", "")][..],
+            &[("CONNECTOR_VMM_STATE_DIR", "")][..],
             DECLARED,
             "this data plane does not support VMM execution",
         ),

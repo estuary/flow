@@ -208,8 +208,6 @@ fn engine_environment_child() {
         cpu_limit: "1".to_string(),
         vcpus: 1,
         cgroup_parent: None,
-        // The inert engine's verify reports no build.
-        allow_unpaired_build: true,
     };
     let crate::vmm::Execution::Vmm {
         vmm,

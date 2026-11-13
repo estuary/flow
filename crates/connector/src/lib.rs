@@ -42,8 +42,8 @@ pub(crate) use proto_grpc::{status_to_anyhow, verify, verify_connector};
 pub use router::{LOCAL_ISSUER, ServiceRouter};
 pub use service::{Service, TaskUpdate};
 pub use vmm::{
-    BUILD_IDENTITY, Memory as VmmMemory, REPORTED_IDENTITY, Recovery as VmmRecovery,
-    RecoveryMetrics as VmmRecoveryMetrics, Vmm, argv as vmm_argv,
+    Memory as VmmMemory, Recovery as VmmRecovery, RecoveryMetrics as VmmRecoveryMetrics, Vmm,
+    argv as vmm_argv,
 };
 
 /// Build a connector router for tests and other offline callers which need no

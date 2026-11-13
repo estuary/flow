@@ -76,10 +76,7 @@ pub enum Action {
 pub fn run(action: &Action) -> anyhow::Result<()> {
     match action {
         Action::Install => install(),
-        Action::Verify => {
-            println!("{}{}", crate::REPORTED_BUILD, crate::BUILD_IDENTITY);
-            verify()
-        }
+        Action::Verify => verify(),
         Action::Remove => remove(),
         Action::Grant {
             owner,

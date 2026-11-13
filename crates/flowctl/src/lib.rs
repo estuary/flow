@@ -122,9 +122,6 @@ pub enum Command {
     /// is never part of a published specification.
     #[clap(name = "secret", alias = "secrets")]
     Secrets(secret::Secrets),
-    /// Print the source identity compiled into this launcher.
-    #[clap(hide = true)]
-    BuildIdentity,
 }
 
 pub struct CliContext {
@@ -216,11 +213,6 @@ impl CliContext {
 
 impl Cli {
     pub async fn run(&self, registry: service_kit::Registry) -> anyhow::Result<()> {
-        // Needs no profile: it reports what this binary compiled in.
-        if let Command::BuildIdentity = self.cmd {
-            println!("{}", runtime_local::REPORTED_IDENTITY);
-            return Ok(());
-        }
         let config = config::Config::load(&self.profile)?;
         let output = self.output.clone();
 
@@ -349,7 +341,6 @@ impl Cli {
             Command::Logs(logs) => logs.run(&mut context).await,
             Command::Raw(advanced) => advanced.run(&mut context).await,
             Command::Secrets(secrets) => secrets.run(&mut context).await,
-            Command::BuildIdentity => unreachable!("answered before the context is built"),
         };
 
         // A session can end with its command, before its VMM's teardown has.
