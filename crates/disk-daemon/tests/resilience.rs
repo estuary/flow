@@ -94,7 +94,7 @@ async fn a_broker_outage_delays_prepare_and_commit_confirmation(
     assert!(!ack_intent.is_empty(), "the disk changed");
 
     let outage = Outage::start(fixture);
-    () = disk.acknowledge().await.unwrap();
+    () = disk.acknowledge();
 
     () = assert_stalls(disk.acknowledged(), "the commit's confirmation").await;
     () = assert_stalls(disk.acknowledged(), "the retried confirmation").await;
@@ -200,7 +200,7 @@ async fn a_prepare_behind_a_stalled_attachment_holds_every_completed_write(
         _ = prepared.expect("prepare");
         churn.epoch.store(2 * round + 2, Ordering::SeqCst);
 
-        () = disk.acknowledge().await.unwrap();
+        () = disk.acknowledge();
         () = disk.acknowledged().await.unwrap();
 
         churn.stop.store(true, Ordering::SeqCst);
@@ -390,7 +390,7 @@ async fn disk_soak() {
                 _ = disk.disk.take();
                 killed += 1;
             } else {
-                () = handle.acknowledge().await.unwrap();
+                () = handle.acknowledge();
                 () = handle.acknowledged().await.unwrap();
                 disk.committed = written;
             }
@@ -512,7 +512,7 @@ async fn disk_commits_under_load() {
             churn.stop.store(false, Ordering::SeqCst);
             writers = churn.spawn_writers(&device, &mut rng);
         } else {
-            () = disk.acknowledge().await.unwrap();
+            () = disk.acknowledge();
             () = disk.acknowledged().await.unwrap();
 
             expected = churn.fold(expected, prepare);
@@ -536,7 +536,7 @@ async fn disk_commits_under_load() {
     () = expected.assert_matches(&device);
 
     _ = disk.prepare().await.expect("prepare");
-    () = disk.acknowledge().await.unwrap();
+    () = disk.acknowledge();
     () = disk.close().await.unwrap();
 
     let (disk, device) = fixture

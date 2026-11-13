@@ -550,7 +550,7 @@ pub async fn expect_invalid(
 pub async fn commit(disk: &mut disk_daemon::client::Disk) -> bytes::Bytes {
     let ack_intent = prepare(disk).await;
 
-    () = disk.acknowledge().await.expect("acknowledge");
+    () = disk.acknowledge();
     () = disk.acknowledged().await.expect("the commit landed");
 
     ack_intent
@@ -572,7 +572,7 @@ pub async fn prepare_nothing(disk: &mut disk_daemon::client::Disk) {
         "the disk changed when nothing wrote to it"
     );
 
-    () = disk.acknowledge().await.expect("acknowledge");
+    () = disk.acknowledge();
     () = disk
         .acknowledged()
         .await
