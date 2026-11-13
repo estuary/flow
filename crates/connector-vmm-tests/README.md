@@ -15,18 +15,6 @@ engine, and platform.
   Python captures, derivations and materializations on this checkout's local
   stack. The task starts and stops the stack and refuses to start if it is
   already running.
-- `mise run ci:connector-vmm-kvm --routing-deployment /path/to/est-dry-dock`
-  also runs the dual-NIC static outbound routing regression. The deployment
-  checkout must contain `roles/common/templates/flow-vmm-routing.j2`.
-  This requires host `nft` and Python `jinja2`. It starts a rootful Podman API
-  service with private storage inside an isolated host network namespace.
-  Its ordinary connector and real KVM guests contact a source-recording
-  endpoint through simulated public and static-NAT paths. It applies the
-  rendered deployment script and checks destination enforcement, internal
-  routing, ingress, isolation, concurrent launches, cleanup, route recreation,
-  and API restart/network reload. The resource journal also recovers the lab
-  after its owner dies. See
-  [the investigation](../../docs/connector-vmm/static-outbound.md).
 - `mise exec -- cargo nextest run -p connector-vmm-tests` runs the harness's
   unit tests. The default nextest profile excludes KVM and platform tests.
 
@@ -102,8 +90,6 @@ connector-init over a guest's vsock connection.
   Release state-machine tests in `connector` cover
   failure combinations; the integration test checks actual command termination
   and recovery without asserting elapsed time.
-- `tests/replacement/`: an old generation's cleanup must leave its running
-  replacement intact.
 - `tests/platform.rs`: through flowctl and the reactor, with fixtures under
   `fixtures/platform/`:
   - the legacy `module` derivation, on the published `derive-python:stable`:
@@ -128,8 +114,8 @@ connector-init over a guest's vsock connection.
   Projects run this checkout's images, which the task builds as `:local`.
   The podman wrapper verifies each connector mount synchronously before
   container creation.
-- `tests/release.rs`, `tests/wrapper.rs`: resource cleanup and the podman
-  wrapper, tested against stand-in commands.
+- `tests/release.rs`: the task's resource cleanup, tested against stand-in
+  commands.
 - `tests/publish.rs`: `ci:docker-images`, `ci:connector-vmm-gate` and
   `ci:package` against a stand-in docker and package binaries. The VMM
   image is pushed by the ID its gate passed, after the other images, and
@@ -150,7 +136,7 @@ configuration. It builds two VMM images which differ only in
 `flow-connector-vmm`: the packaged build, which `--platform` uses, and the
 suite's, built with connector-vmm's `test-controls` feature in a target
 directory of its own. It checks that both carry this run's `flow-connector-guest-init`,
-and that they and the fake report this run's `FLOW_BUILD_IDENTITY` from
+and that they report this run's `FLOW_BUILD_IDENTITY` from
 `boundary verify`. A run from a modified checkout has `--platform`'s reactor
 and flowctl allow unpaired VMM images, since none could pair.
 Its companion `connector-vmm-kvm-lib.sh` tracks and releases
@@ -163,9 +149,7 @@ and line edits added.
 Tests removing connector images use `run::stop` to check container and
 image-volume removal before removing the image.
 `src/launcher.rs` and `fixtures/podman.sh` provide launcher control and fault
-injection. The wrapper adds `CAP_SYS_CHROOT`, which the fake's chroot needs
-and the launch line leaves out, to creates of the images the task lists in
-`fake-images`; `launcher::before_connector_init` runs a test's script in the
+injection. `launcher::before_connector_init` runs a test's script in the
 workload before connector-init. Recovery holds match the seeded orphans'
 tokens so a failed launch can release its own resources. `launcher::remote`
 has the wrapper drive an API service instead of podman itself; a test's own

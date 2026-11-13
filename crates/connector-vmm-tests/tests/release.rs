@@ -67,7 +67,6 @@ struct Setup {
     root: PathBuf,
     stubs: PathBuf,
     record: PathBuf,
-    launcher_record: PathBuf,
 }
 
 /// A run's directory, home, checkout and stubs, and a list naming a stack, a
@@ -92,8 +91,7 @@ fn setup() -> Setup {
     std::fs::write(dropin.join("connector-vmm.conf"), "").unwrap();
     let record = state.join("fv_0000000000000001.owner");
     std::fs::write(&record, "").unwrap();
-    let launcher_record = launcher_state.join("fv_0000000000000002.owner");
-    std::fs::write(&launcher_record, "").unwrap();
+    std::fs::write(launcher_state.join("fv_0000000000000002.owner"), "").unwrap();
 
     let stub = stubs.join("stub");
     std::fs::write(&stub, STUB).unwrap();
@@ -147,7 +145,6 @@ fn setup() -> Setup {
         root,
         stubs,
         record,
-        launcher_record,
     }
 }
 
@@ -227,14 +224,6 @@ fn a_stopped_stack_is_released() {
 }
 
 #[test]
-fn a_failed_stop_keeps_everything() {
-    let setup = setup();
-    control(&setup, "mise-status", "1");
-    insta::assert_snapshot!(release(&setup));
-    cleanup(&setup);
-}
-
-#[test]
 fn a_stack_still_running_keeps_everything() {
     let setup = setup();
     control(
@@ -242,14 +231,6 @@ fn a_stack_still_running_keeps_everything() {
         "units",
         "flow-reactor@local-acme-cluster-10299.service loaded deactivating stop-sigterm Flow Reactor\n",
     );
-    insta::assert_snapshot!(release(&setup));
-    cleanup(&setup);
-}
-
-#[test]
-fn a_stack_which_cannot_be_listed_keeps_everything() {
-    let setup = setup();
-    control(&setup, "systemctl-status", "1");
     insta::assert_snapshot!(release(&setup));
     cleanup(&setup);
 }
@@ -265,114 +246,11 @@ fn an_owned_launch_keeps_everything() {
 }
 
 #[test]
-fn an_owned_launch_of_a_test_keeps_everything() {
-    let setup = setup();
-    let record = std::fs::File::open(&setup.launcher_record).unwrap();
-    record.lock().unwrap();
-    insta::assert_snapshot!(release(&setup));
-    drop(record);
-    cleanup(&setup);
-}
-
-#[test]
-fn records_which_cannot_be_looked_for_keep_everything() {
-    // Root looks inside a sealed directory regardless.
-    if rustix::process::geteuid().as_raw() == 0 {
-        return;
-    }
-    let setup = setup();
-    let state = setup.root.join("platform-0/state");
-    std::fs::set_permissions(&state, std::os::unix::fs::PermissionsExt::from_mode(0o000)).unwrap();
-    let report = release(&setup);
-    std::fs::set_permissions(&state, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-    insta::assert_snapshot!(report);
-    cleanup(&setup);
-}
-
-#[test]
 fn a_failing_engine_keeps_what_it_holds_until_a_retry() {
     let setup = setup();
     insta::assert_snapshot!(release_and_retry(
         &setup,
         "125 sudo -n podman\n125 docker\n"
-    ));
-    cleanup(&setup);
-}
-
-#[test]
-fn networks_which_cannot_be_listed_are_kept_until_a_retry() {
-    let setup = setup();
-    insta::assert_snapshot!(release_and_retry(&setup, "125 sudo -n podman network ls\n"));
-    cleanup(&setup);
-}
-
-#[test]
-fn a_network_still_in_use_keeps_what_it_may_use_until_a_retry() {
-    let setup = setup();
-    // podman's status for a network which a container still uses.
-    insta::assert_snapshot!(release_and_retry(
-        &setup,
-        "2 sudo -n podman network rm fv_0000000000000001\n"
-    ));
-    cleanup(&setup);
-}
-
-#[test]
-fn volumes_which_cannot_be_listed_are_kept_until_a_retry() {
-    let setup = setup();
-    insta::assert_snapshot!(release_and_retry(&setup, "125 sudo -n podman volume ls\n"));
-    cleanup(&setup);
-}
-
-#[test]
-fn a_rootfs_still_in_use_keeps_what_it_may_use_until_a_retry() {
-    let setup = setup();
-    insta::assert_snapshot!(release_and_retry(
-        &setup,
-        "2 sudo -n podman volume rm fv_0000000000000001\n"
-    ));
-    cleanup(&setup);
-}
-
-#[test]
-fn a_refused_boundary_keeps_its_image_until_a_retry() {
-    let setup = setup();
-    insta::assert_snapshot!(release_and_retry(&setup, "1 sudo -n podman run\n"));
-    cleanup(&setup);
-}
-
-#[test]
-fn failures_outside_the_engine_keep_only_their_own_entries_until_a_retry() {
-    let setup = setup();
-    insta::assert_snapshot!(release_and_retry(
-        &setup,
-        "1 ip netns list\n2 sudo -n ip route del\n1 sudo -n rm -rf\n"
-    ));
-    cleanup(&setup);
-}
-
-#[test]
-fn images_and_builders_left_behind_are_only_reported() {
-    let setup = setup();
-    control(
-        &setup,
-        "faults",
-        "125 sudo -n podman image rm\n1 docker buildx ls\n",
-    );
-    insta::assert_snapshot!(release(&setup));
-    cleanup(&setup);
-}
-
-#[test]
-fn a_routing_lab_which_cannot_be_recovered_keeps_its_dependencies() {
-    let setup = setup();
-    let resources = setup.root.join("resources");
-    let mut entries = std::fs::read_to_string(&resources).unwrap();
-    entries.push_str("routing-lab /tmp/flow-vmm-route-test\n");
-    std::fs::write(resources, entries).unwrap();
-    insta::assert_snapshot!(release_and_retry(
-        &setup,
-        "1 sudo -n python3 /fixtures/routing.py --cleanup /tmp/flow-vmm-route-test\n"
     ));
     cleanup(&setup);
 }

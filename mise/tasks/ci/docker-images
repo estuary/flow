@@ -106,9 +106,8 @@ TARGET_NAMES=()
 for DOCKERFILE in docker/*.Dockerfile; do
     IMAGE_NAME=$(basename "${DOCKERFILE}" .Dockerfile)
 
-    # The real VMM is amd64-only; the fake is built by the KVM harness.
+    # The VMM is amd64-only.
     case "${IMAGE_NAME}" in
-    connector-vmm-fake) continue ;;
     connector-vmm) IMAGE_SUPPORTED='["linux/amd64"]' ;;
     *) IMAGE_SUPPORTED="${PLATFORMS}" ;;
     esac

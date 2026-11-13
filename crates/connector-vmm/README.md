@@ -6,8 +6,7 @@ that `flow-connector-guest-init` takes over: the network the guest is given, the
 that bounds it, the disks and shares it sees, and the libkrun call sequence
 that starts it.
 
-`run` is the whole launch. `check-launch` checks shared launch prerequisites
-without creating resources; see [Launch constraints](#launch-constraints).
+`run` is the whole launch; see [Launch constraints](#launch-constraints).
 `print-ruleset` compiles a connector's egress policy
 into the nftables ruleset that the VM will run behind, without touching the
 kernel, so the policy can be reviewed and snapshot-tested on any machine.
@@ -22,7 +21,7 @@ for when a host's provisioning runs it.
 - `src/main.rs`: the CLI, the stderr framing, and exit 2 for every failure
   before a VM starts.
 - `src/launch.rs`: the ordered sequence `run` executes, split into `check`,
-  the read-only prefix `check-launch` shares, the IO that builds a `Machine`
+  its read-only checks, the IO that builds a `Machine`
   and the pure `enter` that turns one into libkrun calls.
 - `src/krun.rs`: libkrun's ABI behind a trait, loaded with `dlopen`.
 - `src/image.rs`: the image's OCI config, the guest argv and
@@ -50,17 +49,14 @@ for when a host's provisioning runs it.
 - `src/resolver/nftset.rs`: the nfnetlink batch, as typed
   `netlink-packet-netfilter` messages, and its acknowledgments, read with
   `netlink-packet-core`'s checked decoders.
-- `docker/connector-vmm.Dockerfile`, `docker/connector-vmm-fake.Dockerfile` and
-  `fake-entrypoint.sh`: the two images; see [Images](#images).
+- `docker/connector-vmm.Dockerfile`: the image; see [Images](#images).
 
 ## Launch constraints
 
-`run` and `check-launch` share `launch::Args` and `launch::check`: read-only
-root, image and connector mount, default IPv6, policy, `image-inspect.json`,
-and the mount points a persistent disk's guest path needs.
-These checks need no KVM, libkrun or `CAP_NET_ADMIN`; the fake invokes them
-before staging. Passing covers common prerequisites. Real-only KVM, libkrun,
-network setup and image account resolution follow in `run`.
+`launch::check` runs first: read-only root, image and connector mount, default
+IPv6, policy, `image-inspect.json`, and the mount points a persistent disk's
+guest path needs. KVM, libkrun, network setup and image account resolution
+follow in `run`.
 
 `launch::run` loads libkrun before creating resources, finishes the network
 before booting the guest, and sweeps inherited descriptors before starting any
@@ -211,7 +207,7 @@ mount matrix.
 ## Images
 
 `ci:docker-images` builds `connector-vmm` with the flow tags, for
-`linux/amd64` only, and never the fake. It loads `connector-vmm` rather than
+`linux/amd64` only. It loads `connector-vmm` rather than
 pushing it, while bake publishes the other images. It then runs
 `ci:connector-vmm-gate` on the loaded image's ID. It pushes the same image
 only once the gate passes, the image reports `EXPECTED_COMMIT`'s build, and
@@ -262,40 +258,6 @@ labels. Packaging constraints:
 - `run`'s test controls, `--debug`, `--resolver-upstream` and `--exec`, parse
   only with the `test-controls` feature. Only the KVM suite's own image
   enables it, and `ci:package` refuses a binary that accepts `--exec`.
-
-`connector-vmm-fake` implements `run`'s launch contract without a VM, for
-exercising a launcher where KVM is unavailable. Only `ci:connector-vmm-kvm`
-builds it, from its own package directory; nothing publishes it. `fake-entrypoint.sh`, at the
-real binary's path, invokes Rust `check-launch` before staging. It then serves
-`/sock/init.sock` at mode 0777 and hands the workload `CONNECTOR_MOUNT`,
-`LOG_FORMAT` and `LOG_LEVEL`. `/rootfs` is read-only, so connector-init runs
-chrooted into a copy of it in `/scratch-backing`, from a copy of the connector
-mount at `/connector-mount`, and socat bridges the socket to TCP port 19092,
-outside Linux's default automatic source-port range. The
-copy costs the image's size on the state directory's filesystem for each
-launch, and is given the owner of `/scratch-backing` so an unprivileged
-launcher can remove it. It needs none of the launch line's devices, but
-its chroot needs `CAP_SYS_CHROOT`, which the launch line leaves out and the
-real VMM never uses: the suite's podman wrapper adds it to the fake's
-launches alone, as any engine wrapper running the fake must. `boundary` is
-not faked: the image carries the real binary and
-Ubuntu's `nft`, and the entrypoint runs it, so a launcher verifies with the
-fake exactly as it would with the real image. What it does not stand in for:
-
-- The guest. No VM, tap, ruleset, resolver, scratch disk or guest init, and
-  connector-init also listens on the container's network, as an ordinary
-  connector's does.
-- The connector's image config. The connector runs as root, in `/`, with this
-  image's environment plus the contract's: its own `Env`, `User` and
-  `WorkingDir` are not applied, so only self-contained connectors run under it.
-- The share. The connector mount is a writable copy, and nested mounts within
-  it are not reproduced. `task-update.json` is followed into it once a second,
-  which gives a connector the runtime's rewrites but says nothing about whether
-  the real VMM's share shows them to a guest.
-- Flags a launcher does not pass. `--persistent-disk` and the test-only flags
-  are refused, not ignored.
-- Supervision. socat and the follow loop run beside connector-init, which is
-  PID 1, and nothing notices if either dies.
 
 ## The host boundary
 

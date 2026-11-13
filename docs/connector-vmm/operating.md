@@ -196,8 +196,7 @@ every `fvm*` interface as a VMM's.
 Static outbound routing is a host-provisioning responsibility. The guest is
 masqueraded to its VMM container's bridge address before host policy routing.
 That address must select the plane's designated NAT path while preserving
-explicit internal routes. See [static outbound routing](static-outbound.md)
-for the deployment candidate, packet paths, and isolated regression command.
+explicit internal routes.
 
 Each VMM's nameserver is podman's resolver on its own bridge's gateway, the only
 guest-initiated destination on the host the boundary admits (UDP/53).

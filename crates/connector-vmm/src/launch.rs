@@ -1,7 +1,7 @@
 //! The ordered sequence `run` executes, from its arguments to a running VM.
 //!
-//! `check` is the prefix `run` shares with `check-launch`. `run` resolves
-//! paths, descriptors and image config into a `Machine`. `enter` issues
+//! `check` makes `run`'s read-only checks before anything is created. `run`
+//! resolves paths, descriptors and image config into a `Machine`. `enter` issues
 //! libkrun calls that tests can record without a VM.
 
 use crate::image;
@@ -148,8 +148,7 @@ pub struct Checked {
     pub mount_points: Vec<String>,
 }
 
-/// Shared read-only prerequisites for `run` and `check-launch`.
-/// VM-specific checks remain in `run`.
+/// `run`'s read-only prerequisites, checked before anything is created.
 pub fn check(args: &Args) -> anyhow::Result<Checked> {
     check_read_only(&args.connector_mount)?;
     net::check_ipv6_disabled("default")?;

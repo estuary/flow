@@ -36,8 +36,6 @@ pub struct Run {
     /// `guest_image` whose `User` is root.
     pub root_guest_image: String,
     pub hello_world_image: String,
-    /// `connector-vmm-fake`, built from this checkout.
-    pub fake_image: String,
     /// The published Python derivation connector, pulled by the task.
     pub derive_python_image: String,
     /// The three connectors eligible for VMM execution, built by the task

@@ -6,7 +6,6 @@
 //! same binary, running only `owner_process` (see `Owner`). Like the rest of
 //! the suite, these run only under `mise run ci:connector-vmm-kvm`.
 
-mod replacement;
 #[path = "common/rpc.rs"]
 mod rpc;
 
@@ -264,53 +263,6 @@ fn status(err: &anyhow::Error) -> (tonic::Code, String) {
         Some(status) => (status.0.code(), status.0.message().to_string()),
         None => (tonic::Code::Unknown, format!("{err:#}")),
     }
-}
-
-fn normalized_calls(root: &launcher::Root, run: &run::Run, name: &str) -> String {
-    let calls = launcher::calls(root).join("\n");
-    let mount = calls
-        .split_whitespace()
-        .skip_while(|arg| *arg != "--connector-mount")
-        .nth(1)
-        .map(ToString::to_string);
-    let token = calls
-        .split(' ')
-        .find_map(|arg| arg.strip_prefix("--label=dev.estuary.vmm-owner="))
-        .map(ToString::to_string);
-
-    // Launches run each VMM image by the ID they resolve its name to.
-    let id = |image: &str| run::podman(&["image", "inspect", "--format", "{{.Id}}", image]);
-    let mut calls = calls
-        .replace(id(&run.fake_image).trim(), "<fake image id>")
-        .replace(id(&run.vmm_image).trim(), "<vmm image id>")
-        .replace(&run.fake_image, "<fake image>")
-        .replace(&run.vmm_image, "<vmm image>");
-    calls = regex::Regex::new(r"(--opt=image=)(?:sha256:)?[0-9a-f]{64}")
-        .unwrap()
-        .replace_all(&calls, "${1}<connector image id>")
-        .into_owned();
-    if let Some(mount) = mount {
-        calls = calls.replace(&mount, "<mount>");
-    }
-    if let Some(token) = token {
-        calls = calls.replace(&token, "<token>");
-    }
-    let calls = calls
-        .replace(&root.dir, "<test>")
-        .replace(&format!("fvm{}", &name[3..15]), "fvm<id>")
-        .replace(name, "fv_<id>");
-
-    let id = |word: &str| word.len() == 64 && word.bytes().all(|b| b.is_ascii_hexdigit());
-    calls
-        .lines()
-        .map(|line| {
-            line.split(' ')
-                .map(|word| if id(word) { "<container id>" } else { word })
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 const OWNER: &str = "CONNECTOR_VMM_TESTS_OWNER";
@@ -648,29 +600,6 @@ fn removed(root: &launcher::Root, id: &str) -> bool {
     launcher::calls(root).contains(&removal)
 }
 
-/// The fake, verified with the real boundary, serving a Spec of the real
-/// Python image. The session ends only once its VMM's teardown has.
-#[test]
-fn spec_through_the_fake() {
-    let (run, root, runtime) = setup();
-    let router = router(vmm(&root, &run.fake_image));
-    let logs = Logs::default();
-
-    let started = unary(&runtime, &router, &logs, spec(&run.derive_python_image))
-        .unwrap_or_else(|err| panic!("Spec through the fake: {err:#}\n{:#?}", logs.messages()));
-    assert_started(&started);
-
-    let name = launcher::vmm_name(&root).expect("the launch created a network");
-    assert_eq!(
-        launcher::leftovers(&root, Some(&name)),
-        Vec::<String>::new(),
-        "teardown finished before the session did"
-    );
-    insta::assert_snapshot!(normalized_calls(&root, &run, &name));
-}
-
-/// Retagging after inspection must not replace the rootfs whose metadata
-/// the launcher handed to connector-init.
 #[test]
 fn mounts_the_inspected_image_after_a_tag_changes() {
     let (run, root, runtime) = setup();
@@ -1668,7 +1597,7 @@ fn empty_egress_on_a_private_plane() {
 #[test]
 fn abandoned_before_the_vmm_runs() {
     let (run, root, runtime) = setup();
-    let router = router(vmm(&root, &run.fake_image));
+    let router = router(vmm(&root, &run.vmm_image));
 
     let hold = launcher::hold(&root, "network-create");
     let (request_tx, mut response_rx) = open(&runtime, &router, spec(&run.derive_python_image));
@@ -1691,7 +1620,7 @@ fn abandoned_before_the_vmm_runs() {
 #[test]
 fn abandoned_while_the_container_is_created() {
     let (run, root, runtime) = setup();
-    let router = router(vmm(&root, &run.fake_image));
+    let router = router(vmm(&root, &run.vmm_image));
 
     let hold = launcher::hold(&root, "create");
     let (request_tx, mut response_rx) = open(&runtime, &router, spec(&run.derive_python_image));
@@ -1790,7 +1719,7 @@ fn abandoned_after_readiness() {
 #[test]
 fn a_destroyed_runtime_is_recovered_without_a_launch() {
     let (run, root, runtime) = setup();
-    let vmm = vmm(&root, &run.fake_image);
+    let vmm = vmm(&root, &run.vmm_image);
     let shard = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -1844,7 +1773,7 @@ fn a_destroyed_runtime_is_recovered_without_a_launch() {
 #[test]
 fn a_failed_release_is_kept_and_retried() {
     let (run, root, runtime) = setup();
-    let router = router(vmm(&root, &run.fake_image));
+    let router = router(vmm(&root, &run.vmm_image));
     let logs = Logs::default();
     let logger = |log: &ops::Log| logs.push(log);
 
@@ -1893,7 +1822,7 @@ fn a_failed_release_is_kept_and_retried() {
     assert_eq!(std::fs::read(&record).unwrap(), written, "kept as it was");
     assert!(!launcher::locked(&record), "and let go");
 
-    let recovering = vmm(&root, &run.fake_image);
+    let recovering = vmm(&root, &run.vmm_image);
     assert_eq!(recover(&runtime, &recovering), 1, "the network is in use");
     assert_eq!(std::fs::read(&record).unwrap(), written, "kept again");
     std::mem::drop(sidecar);
@@ -1913,7 +1842,7 @@ fn an_unverified_boundary_refuses_the_launch() {
         run::random_hex()
     );
     run::record("image", &image);
-    let containerfile = format!("FROM {}\nENTRYPOINT [\"/bin/false\"]\n", run.fake_image);
+    let containerfile = format!("FROM {}\nENTRYPOINT [\"/bin/false\"]\n", run.vmm_image);
     let built = run::sudo_output(
         &["podman", "build", "-q", "-t", &image, "-f", "-", &root.dir],
         Some(containerfile.as_bytes()),
@@ -2237,14 +2166,14 @@ fn an_orphaned_command(step: &str, kind: &str, exists: fn(&str) -> bool, makes: 
     let other = launcher::root();
 
     let hold = launcher::hold(&root, step);
-    let owner = Owner::spawn(&run, &root, &root.state_dir, &run.fake_image, false);
+    let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, false);
     launcher::wait_held(&root, step, STARTED);
     let name = launcher::vmm_name(&root).expect("the launch named its network");
     let record = launcher::record(&root.state_dir, &name);
     owner.kill();
 
     let recovery =
-        vmm_at(&other.podman, &root.state_dir, &run.fake_image).spawn_recovery(runtime.handle());
+        vmm_at(&other.podman, &root.state_dir, &run.vmm_image).spawn_recovery(runtime.handle());
     let first = run::eventually("the first pass to end", PASSED, || {
         let metrics = connector::Vmm::recovery_metrics();
         (metrics.last_success != 0).then_some(metrics)
@@ -2306,10 +2235,10 @@ fn a_kill_while_the_rootfs_volume_is_created() {
 fn a_kill_before_the_container_id_is_read() {
     let (run, root, runtime) = setup();
     let other = launcher::root();
-    let successor = vmm_at(&other.podman, &root.state_dir, &run.fake_image);
+    let successor = vmm_at(&other.podman, &root.state_dir, &run.vmm_image);
 
     let hold = launcher::hold(&root, "created");
-    let owner = Owner::spawn(&run, &root, &root.state_dir, &run.fake_image, false);
+    let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, false);
     launcher::wait_held(&root, "created", STARTED);
     let name = launcher::vmm_name(&root).expect("the launch named its network");
     let record = launcher::record(&root.state_dir, &name);
@@ -2332,7 +2261,7 @@ fn a_kill_before_the_container_id_is_read() {
 fn a_kill_before_readiness() {
     let (run, root, runtime) = setup();
     let other = launcher::root();
-    let successor = vmm_at(&other.podman, &root.state_dir, &run.fake_image);
+    let successor = vmm_at(&other.podman, &root.state_dir, &run.vmm_image);
 
     launcher::gate_readiness(&root);
     let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, false);
@@ -2354,7 +2283,7 @@ fn a_kill_before_readiness() {
 fn a_kill_while_serving_spares_live_owners() {
     let (run, root, runtime) = setup();
     let (neighbour, stranger, other) = (launcher::root(), launcher::root(), launcher::root());
-    let successor = vmm_at(&other.podman, &root.state_dir, &run.fake_image);
+    let successor = vmm_at(&other.podman, &root.state_dir, &run.vmm_image);
 
     let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, false);
     owner.started();
@@ -2368,7 +2297,7 @@ fn a_kill_while_serving_spares_live_owners() {
     ]
     .into_iter()
     .map(|(at, state_dir)| {
-        let live = Owner::spawn(&run, at, state_dir, &run.fake_image, false);
+        let live = Owner::spawn(&run, at, state_dir, &run.vmm_image, false);
         live.started();
         let name = launcher::vmm_name(at).expect("the launch named its network");
         let footprint = launcher::footprint(state_dir, &at.tmp_dir, &name);
@@ -2402,9 +2331,9 @@ fn a_kill_while_serving_spares_live_owners() {
 fn an_unknown_container_keeps_everything() {
     let (run, root, runtime) = setup();
     let other = launcher::root();
-    let successor = vmm_at(&other.podman, &root.state_dir, &run.fake_image);
+    let successor = vmm_at(&other.podman, &root.state_dir, &run.vmm_image);
 
-    let owner = Owner::spawn(&run, &root, &root.state_dir, &run.fake_image, false);
+    let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, false);
     owner.started();
     let name = launcher::vmm_name(&root).expect("the launch named its network");
     let record = launcher::record(&root.state_dir, &name);
@@ -2454,12 +2383,12 @@ fn owners_alike_by_pid() {
     let (run, root, runtime) = setup();
     let (neighbour, successor, recoverer) = (launcher::root(), launcher::root(), launcher::root());
 
-    let owner = Owner::spawn(&run, &root, &root.state_dir, &run.fake_image, true);
+    let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, true);
     owner.started();
     let name = launcher::vmm_name(&root).expect("the launch named its network");
     let footprint = launcher::footprint(&root.state_dir, &root.tmp_dir, &name);
 
-    let live = Owner::spawn(&run, &neighbour, &root.state_dir, &run.fake_image, true);
+    let live = Owner::spawn(&run, &neighbour, &root.state_dir, &run.vmm_image, true);
     live.started();
     assert_eq!((owner.pid, live.pid), (1, 1));
     launcher::assert_whole(&footprint);
@@ -2468,13 +2397,13 @@ fn owners_alike_by_pid() {
     let _rpc = hold_rpc(&runtime, &root.state_dir, &name);
 
     owner.kill();
-    let next = Owner::spawn(&run, &successor, &root.state_dir, &run.fake_image, true);
+    let next = Owner::spawn(&run, &successor, &root.state_dir, &run.vmm_image, true);
     next.started();
     assert_eq!(next.pid, 1);
     let next_name = launcher::vmm_name(&successor).expect("the launch named its network");
     let next_footprint = launcher::footprint(&root.state_dir, &successor.tmp_dir, &next_name);
 
-    let recovering = vmm_at(&recoverer.podman, &root.state_dir, &run.fake_image);
+    let recovering = vmm_at(&recoverer.podman, &root.state_dir, &run.vmm_image);
     assert_eq!(recover(&runtime, &recovering), 0);
     assert!(removed(&recoverer, &footprint.id), "recovery removed it");
     assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
@@ -2577,7 +2506,7 @@ fn records_which_prove_nothing() {
     plant(&unrecorded, None, &format!("{mounts}/mount-{unrecorded}"));
 
     assert_eq!(
-        recover(&runtime, &vmm(&root, &run.fake_image)),
+        recover(&runtime, &vmm(&root, &run.vmm_image)),
         4,
         "each malformed record is a problem; the held one is not"
     );
@@ -2625,7 +2554,7 @@ fn labeled_resources_without_a_record() {
     let foreign = new_name();
     make(&foreign, &other.state_dir);
 
-    assert_eq!(recover(&runtime, &vmm(&root, &run.fake_image)), 0);
+    assert_eq!(recover(&runtime, &vmm(&root, &run.vmm_image)), 0);
 
     assert_eq!(exists(&unrecorded), (false, false), "its record is gone");
     assert_eq!(exists(&held), (true, true), "its record is held");
@@ -2842,7 +2771,7 @@ fn a_kill_of_recovery(gate: Gate) {
 
     let (run, root, runtime) = setup();
     let (neighbour, recoverer, other) = (launcher::root(), launcher::root(), launcher::root());
-    let successor = vmm_at(&other.podman, &root.state_dir, &run.fake_image);
+    let successor = vmm_at(&other.podman, &root.state_dir, &run.vmm_image);
     let evidence = Evidence(
         run.run_dir
             .join(format!("recovery-killed-{gate:?}.evidence")),
@@ -3209,7 +3138,7 @@ fn orphan(
     let root = launcher::root();
     let before = records(state_dir);
     let hold = hold(&root);
-    let owner = Owner::spawn(run, &root, state_dir, &run.fake_image, false);
+    let owner = Owner::spawn(run, &root, state_dir, &run.vmm_image, false);
     launcher::wait_held(&root, what, GATE);
     let killed = owner.kill();
     assert_eq!(killed.signal(), Some(libc::SIGKILL));
@@ -3273,9 +3202,7 @@ fn claimed(
 /// take an orphan's record wait holding its lock while the other four,
 /// finding every orphan locked, pass them by. Each orphan is released by
 /// exactly the pass which took it, every launch starts and is left whole, and
-/// the peer serves throughout. The launches and the orphans other than the
-/// serving VMM run the fake image; the peer and the serving orphan are real
-/// VMMs.
+/// the peer serves throughout.
 #[test]
 fn eight_recoveries_race_beside_launches() {
     use std::os::unix::process::ExitStatusExt;
@@ -3373,7 +3300,7 @@ fn eight_recoveries_race_beside_launches() {
                 &run,
                 root,
                 &state_dir,
-                &run.fake_image,
+                &run.vmm_image,
                 false,
                 Some(&barrier),
                 None,
@@ -3608,10 +3535,7 @@ fn eight_recoveries_race_beside_launches() {
     assert_eq!(launcher::remaining(&peer_footprint), Vec::<String>::new());
     let other = launcher::root();
     assert_eq!(
-        recover(
-            &runtime,
-            &vmm_at(&other.podman, &state_dir, &run.fake_image)
-        ),
+        recover(&runtime, &vmm_at(&other.podman, &state_dir, &run.vmm_image)),
         0
     );
     sentinels.assert_intact();
@@ -4100,7 +4024,7 @@ fn a_late_grant_which_ran_is_revoked() {
     let token = format!("{}{}", run::random_hex(), run::random_hex());
     let late = LateGrant::create_as(&run, &api, &root.state_dir, &name, &token, &tag);
     late.start();
-    run::podman(&["tag", &run.fake_image, &tag]);
+    run::podman(&["tag", &run.production_vmm_image, &tag]);
     let moved = run::podman(&["image", "inspect", "--format", "{{.Id}}", &tag]);
     assert_ne!(
         moved.trim(),

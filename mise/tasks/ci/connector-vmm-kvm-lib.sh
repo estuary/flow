@@ -200,9 +200,6 @@ release() {
                 --cap-drop=all --cap-add=CAP_NET_ADMIN "${ingress_image}" \
                 boundary revoke "--owner=${ingress_owner}" || status=$?
             ;;
-        routing-lab)
-            sudo -n python3 "${FIXTURES}/routing.py" --cleanup "${value}" || status=$?
-            ;;
         link) remove_listed link "${value}" sudo -n ip link del "${value}" || status=$? ;;
         # "blackhole <prefix> metric <n>", deliberately split.
         route) remove_listed route "${value}" sudo -n ip route del ${value} || status=$? ;;
@@ -220,7 +217,7 @@ release() {
             echo "ci:connector-vmm-kvm: could not remove ${kind} ${value}" >&2
             kept+=("${kind} ${value}")
             case "${kind}" in
-            container | network | volume | boundary | routing-lab) standing=true ;;
+            container | network | volume | boundary) standing=true ;;
             esac
         fi
     done < <(tac "${ROOT}/resources")

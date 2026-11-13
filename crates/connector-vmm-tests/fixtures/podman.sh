@@ -132,20 +132,6 @@ if [[ "${step}" == create && -e "${TEST}/vmm-flags" ]]; then
     set -- "$@" "${flags[@]}"
 fi
 
-# The fake runs its connector in a chroot, so its launches get CAP_SYS_CHROOT,
-# which the VMM's launch line leaves out. The task lists the fake by ID and tag.
-if [[ "${step}" == create && -e "${TEST%/*}/fake-images" ]]; then
-    mapfile -t fakes <"${TEST%/*}/fake-images"
-    for arg in "$@"; do
-        for fake in "${fakes[@]}"; do
-            if [[ -n "${fake}" && "${arg}" == "${fake}" ]]; then
-                set -- "$1" --cap-add=CAP_SYS_CHROOT "${@:2}"
-                break 2
-            fi
-        done
-    done
-fi
-
 # Verify the launcher's completed mount before podman can use it or teardown
 # can remove it. The platform test supplies the expected static binary.
 if [[ "${step}" == create && -e "${TEST}/expected-connector-init" ]]; then

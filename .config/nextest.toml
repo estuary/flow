@@ -97,11 +97,6 @@ success-output = "final"
 # Every result of a run which takes minutes to set up.
 fail-fast = false
 
-# Replacement launches must survive the old generation's cleanup.
-[[profile.connector-vmm-kvm.overrides]]
-filter = 'binary_id(/connector-vmm-tests::launcher/) and test(=replacement::replacement_races_old_cleanup)'
-slow-timeout = { period = "60s", terminate-after = 8 }
-
 # `ci:connector-vmm-kvm --platform`: tests against the one stack the task
 # started, which wait on VMM boots, dependency installs and shard assignment.
 # The platform test accounts for launches through the shared state directory.

@@ -50,9 +50,6 @@ enum Command {
     /// the process and exits with the guest workload's code.
     Run(launch::Args),
 
-    /// Check shared launch prerequisites without creating resources.
-    CheckLaunch(launch::Args),
-
     /// Compile a policy into its nftables ruleset and write it to stdout.
     PrintRuleset {
         #[command(flatten)]
@@ -99,10 +96,6 @@ fn run(args: &Args) -> anyhow::Result<()> {
         Command::Run(args) => {
             let Err(error) = launch::run(args);
             Err(error)
-        }
-        Command::CheckLaunch(args) => {
-            launch::check(args)?;
-            Ok(())
         }
         Command::PrintRuleset {
             policy,
@@ -182,22 +175,6 @@ mod tests {
         insta::assert_snapshot!("test_controls_enabled", table);
         #[cfg(not(feature = "test-controls"))]
         insta::assert_snapshot!("test_controls_disabled", table);
-    }
-
-    #[test]
-    fn check_launch_parses_as_run_does() {
-        for case in cases() {
-            if case.get(1) != Some(&"run") {
-                continue;
-            }
-            let checked = as_check_launch(case.clone());
-            assert_eq!(
-                outcome(&checked).replace("check-launch", "run"),
-                outcome(&case),
-                "$ {}",
-                command_line(&checked)
-            );
-        }
     }
 
     #[test]
@@ -287,9 +264,6 @@ mod tests {
             with("--disk-mib", "-1"),
             run(&["--vcpus", "4"]),
             vec!["flow-connector-vmm", "run"],
-            as_check_launch(run(&[])),
-            as_check_launch(with("--vcpus", "256")),
-            vec!["flow-connector-vmm", "check-launch"],
             vec!["flow-connector-vmm"],
             vec!["flow-connector-vmm", "boundary", "install"],
             vec!["flow-connector-vmm", "boundary", "verify"],
@@ -347,11 +321,6 @@ mod tests {
         argv
     }
 
-    fn as_check_launch(mut argv: Vec<&'static str>) -> Vec<&'static str> {
-        argv[1] = "check-launch";
-        argv
-    }
-
     fn describe(args: &super::Args) -> String {
         match &args.command {
             super::Command::PrintRuleset {
@@ -366,7 +335,6 @@ mod tests {
                     .collect::<Vec<_>>(),
             ),
             super::Command::Run(args) => describe_launch("run", args),
-            super::Command::CheckLaunch(args) => describe_launch("check-launch", args),
             super::Command::Boundary { action } => format!("ok: boundary {action:?}\n"),
         }
     }
