@@ -4,7 +4,6 @@
 // This prevents "unused function" warnings from being emitted.
 #![allow(dead_code)]
 
-use assert_cmd::cargo::CommandCargoExt;
 use parser::{Input, ParseConfig};
 use serde_json::Value;
 use std::fs::File;
@@ -67,8 +66,7 @@ pub fn run_parser(config: &ParseConfig, input: Input, debug: bool) -> CommandRes
         vec![]
     };
 
-    let mut process = Command::cargo_bin("flow-parser")
-        .expect("to find flow-parser binary")
+    let mut process = Command::new(env!("CARGO_BIN_EXE_flow-parser"))
         .args(&["parse", "--config-file", cfg_path.to_str().unwrap()])
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
