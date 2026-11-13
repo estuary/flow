@@ -214,9 +214,7 @@ pub(super) async fn run<
     resume_frontier.hydrate_gap_floors(&gap_floors);
 
     let shuffle_task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Derivation(
-            proto_flow::Arc::new(spec),
-        )),
+        task: Some(shuffle::proto::task::Task::Derivation(spec_bytes)),
     };
     let session = service
         .shuffle_factory

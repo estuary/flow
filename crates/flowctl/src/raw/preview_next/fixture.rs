@@ -853,6 +853,7 @@ fn parse_line(line: &str, lineno: usize) -> anyhow::Result<Option<Line>> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use prost::Message;
 
     #[test]
     fn test_session_targets() {
@@ -1108,7 +1109,9 @@ mod test {
                         n_bindings
                     ],
                     ..Default::default()
-                },
+                }
+                .encode_to_vec()
+                .into(),
             )),
         }
     }
