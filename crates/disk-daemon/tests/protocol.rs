@@ -30,6 +30,7 @@ async fn disk_protocol() {
             OUT_OF_TURN,
         ),
         ("early-commit", Promoted, Acknowledge, OUT_OF_TURN),
+        ("mount-while-prepared", PreparedNothing, Mount, OUT_OF_TURN),
     ] {
         let journal = format!("acmeCo/disk/{journal}");
 
@@ -61,6 +62,7 @@ enum Violation {
     Prepare,
     /// With no prepared delta to commit.
     Acknowledge,
+    Mount,
 }
 
 /// A refused request fails its attachment and tears down its disk.
@@ -96,6 +98,10 @@ async fn a_refusal_fails_the_attachment(
         Violation::Promote => Some(promote()),
         Violation::Prepare => Some(prepare()),
         Violation::Acknowledge => Some(request::Request::Acknowledge(proto::Acknowledge {})),
+        Violation::Mount => Some(request::Request::Mount(proto::Mount {
+            fstype: "ext4".to_string(),
+            options: String::new(),
+        })),
     };
 
     () = attachment.send_message(proto::Request { request }).await;

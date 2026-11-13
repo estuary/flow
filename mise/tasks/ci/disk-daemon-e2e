@@ -10,6 +10,7 @@ set -euo pipefail
 #  * Linux 6.11 or later
 #  * passwordless sudo -- the integration tests run as root, through `sudo -n`
 #  * e2fsprogs, for the cases which put ext4 on a disk
+#  * setpriv (util-linux), for the cases run as another uid
 #  * etcd on PATH, which mise provides
 #
 

@@ -65,7 +65,11 @@ async fn repeated_failover_hands_the_disk_along(
         () = fixture.wait_for_teardown().await;
         _ = support::abandon_writer(&mut writer).await;
 
-        let (promoted, promoted_device) = standby.promote(Default::default()).await.unwrap();
+        let client::Promoted {
+            disk: promoted,
+            device_path: promoted_device,
+            ..
+        } = standby.promote(Default::default()).await.unwrap();
 
         () = committed.assert_matches(&promoted_device);
         (primary, device) = (promoted, promoted_device);
@@ -111,7 +115,11 @@ async fn a_standby_promotes_across_fences_it_never_saw(
     () = second_writes.write(&second_device);
     _ = support::commit(&mut second).await;
 
-    let (standby, device) = standby.promote(Default::default()).await.unwrap();
+    let client::Promoted {
+        disk: standby,
+        device_path: device,
+        ..
+    } = standby.promote(Default::default()).await.unwrap();
     () = support::Image::zeroed()
         .with(&first_writes)
         .with(&second_writes)
