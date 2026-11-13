@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::sync::Arc;
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -187,10 +188,10 @@ async fn mint_restricted_token(
         )));
     }
 
-    // Token authorization resolves canonical bundle names and ignores unknown names.
     let capability_mask = capability_mask.map(|mask| {
         mask.into_iter()
             .map(|name| heck::ToSnakeCase::to_snake_case(name.as_str()))
+            .unique()
             .collect::<Vec<_>>()
     });
 
@@ -416,7 +417,6 @@ mod test {
         let alice = uuid::Uuid::from_bytes([0x11; 16]);
         let alice_token = server.make_access_token(alice, Some("alice@example.test"));
 
-        // === Unknown bundle names are preserved without granting capabilities ===
         let minted = server
             .rest_client()
             .post(
@@ -444,14 +444,13 @@ mod test {
         );
 
         // === Bundle names are normalized in the minted token ===
-        // Order and duplicates are preserved.
         let minted = server
             .rest_client()
             .post(
                 "/api/v1/auth/token",
                 &serde_json::json!({
                     "grant_type": "token_exchange",
-                    "capability_mask": ["viewer", "Admin", "TeamAdmin", "TEAM_ADMIN", "team_admin", "FutureBundle"],
+                    "capability_mask": ["viewer", "Admin", "TeamAdmin", "FutureBundle", "TEAM_ADMIN", "team_admin", "future_bundle"],
                 }),
                 Some(&alice_token),
             )
@@ -485,8 +484,6 @@ mod test {
           "capability_mask": [
             "viewer",
             "admin",
-            "team_admin",
-            "team_admin",
             "team_admin",
             "future_bundle"
           ]
