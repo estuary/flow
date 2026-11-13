@@ -160,7 +160,8 @@ mod tests {
         {
           "data": {
             "capabilities": [
-              "Viewer"
+              "Viewer",
+              "ViewDataPlanePrivateNetworking"
             ],
             "capabilityBits": [
               "CatalogRead",
