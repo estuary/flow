@@ -70,15 +70,10 @@ impl Client {
         Ok(Self { channel })
     }
 
-    /// Open and promote a disk, returning its handle and the absolute path of its
-    /// block device. `ack_intent` is as for [`Standby::promote`].
+    /// Open and promote a disk. `ack_intent` is as for [`Standby::promote`].
     ///
     /// Use [`Client::standby`] to replay without serving the disk yet.
-    pub async fn open(
-        &self,
-        open: proto::Open,
-        ack_intent: bytes::Bytes,
-    ) -> Result<(Disk, std::path::PathBuf)> {
+    pub async fn open(&self, open: proto::Open, ack_intent: bytes::Bytes) -> Result<Promoted> {
         self.standby(open).await?.promote(ack_intent).await
     }
 
@@ -112,6 +107,16 @@ impl Client {
     }
 }
 
+/// A disk which promotion started.
+pub struct Promoted {
+    /// The disk, of which this caller is now the primary.
+    pub disk: Disk,
+    /// Absolute path of the disk's block device, which this client's uid owns.
+    pub device_path: std::path::PathBuf,
+    /// Replay applied no committed change, so the device reads as zeros.
+    pub blank: bool,
+}
+
 /// A replaying disk that has not claimed its journal or started a device.
 ///
 /// Dropping it cancels the attachment.
@@ -140,9 +145,8 @@ impl Standby {
     }
 
     /// Wait for readiness, then fence, re-acknowledge a recovered ACK intent,
-    /// finish replay, and start the device. Returns the disk's handle and the
-    /// absolute path of its block device. `ack_intent` is the ACK intent saved by
-    /// the last [`Disk::prepare`], or empty if there is none.
+    /// finish replay, and start the device. `ack_intent` is the ACK intent saved
+    /// by the last [`Disk::prepare`], or empty if there is none.
     ///
     /// Fails with [`Error::Fenced`] if another promotion's fence lands while
     /// this one fences. A client which still wants the disk recovers with a new
@@ -150,7 +154,7 @@ impl Standby {
     ///
     /// Fails with `Error::Device` if it can't open the path, or with `Error::Replaced`
     /// if the path names another device than the one the daemon started.
-    pub async fn promote(mut self, ack_intent: bytes::Bytes) -> Result<(Disk, std::path::PathBuf)> {
+    pub async fn promote(mut self, ack_intent: bytes::Bytes) -> Result<Promoted> {
         // The daemon serves `Promote` only once it has sent `Opened`.
         () = self.ready().await?;
 
@@ -162,10 +166,18 @@ impl Standby {
             .await?;
 
         match self.disk.reply().await? {
-            proto::response::Response::Promoted(promoted) => {
-                let device_path = std::path::PathBuf::from(promoted.device_path);
-                self.disk._device = Some(open_device(&device_path, promoted.diskseq)?);
-                Ok((self.disk, device_path))
+            proto::response::Response::Promoted(proto::Promoted {
+                device_path,
+                diskseq,
+                blank,
+            }) => {
+                let device_path = std::path::PathBuf::from(device_path);
+                self.disk._device = Some(open_device(&device_path, diskseq)?);
+                Ok(Promoted {
+                    disk: self.disk,
+                    device_path,
+                    blank,
+                })
             }
             reply => Err(Error::unexpected(reply)),
         }
@@ -223,12 +235,39 @@ enum Awaiting {
 }
 
 impl Disk {
+    /// Mount the filesystem on the device, which the caller formatted, in a
+    /// directory which only this client's uid can reach, and return its root.
+    /// `fstype` must be a block filesystem which the host has loaded. `options`
+    /// are comma-separated mount(8) options: its generic ones, such as
+    /// `noatime`, and `discard`. The daemon adds `nodev,nosuid`.
+    ///
+    /// Mount once, right after promotion and formatting, before the first
+    /// [`Disk::prepare`]. Closing the disk unmounts it, so first close what's open
+    /// on it.
+    pub async fn mount(&mut self, fstype: &str, options: &str) -> Result<std::path::PathBuf> {
+        () = self.acknowledged().await?;
+
+        () = self
+            .send(proto::request::Request::Mount(proto::Mount {
+                fstype: fstype.to_string(),
+                options: options.to_string(),
+            }))
+            .await?;
+
+        match self.reply().await? {
+            proto::response::Response::Mounted(mounted) => Ok(mounted.path.into()),
+            reply => Err(Error::unexpected(reply)),
+        }
+    }
+
     /// Make pending disk changes durable and return their ACK intent, which is
     /// empty if nothing changed. Confirm any prior acknowledgement first.
     ///
     /// Before calling, flush the writes this delta should hold to the device, as
     /// with a `syncfs` of a filesystem on it, and pause writes. The delta holds
-    /// what the device completed before the daemon received `Prepare`.
+    /// what the device completed before the daemon received `Prepare`. A disk
+    /// mounted with [`Disk::mount`] needs no flush, since the daemon syncs its
+    /// filesystem first.
     ///
     /// Keep writes paused until [`Disk::acknowledge`]. The daemon records
     /// nothing while the prepared delta awaits its acknowledgement. A write

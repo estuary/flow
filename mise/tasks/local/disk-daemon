@@ -27,6 +27,11 @@ DISK_DAEMON_DIR="${FLOW_STACK_DIR}/disk-${BASE_PORT}"
 mkdir -p -m 0700 "${DISK_DAEMON_DIR}"
 mkdir -p "${DISK_DAEMON_DIR}/images"
 
+# The daemon creates its mount directory as root. It's outside DISK_DAEMON_DIR,
+# so that local:stop's removal never descends into a mount the daemon left. The
+# daemon clears what it left at its next start.
+MOUNT_DIR="/run/flow-disk-${BASE_PORT}"
+
 {
     emit_common_vars
     cat <<EOF
@@ -37,6 +42,7 @@ DATA_PLANE_AUTH_KEYS=${HMAC_KEY}
 DATA_PLANE_FQDN=${DATA_PLANE}.dp.estuary-data.com
 GAZETTE_ZONE=local
 IMAGE_DIR=${DISK_DAEMON_DIR}/images
+MOUNT_DIR=${MOUNT_DIR}
 RUST_LOG=info
 SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
 UDS_PATH=${DISK_DAEMON_DIR}/disk.sock

@@ -161,7 +161,8 @@ flow-plane@<dp>.target                     one per data plane (dp = local-<stack
   ├─ flow-gazette@<dp>-<port>             broker(s),  base+0..9
   ├─ flow-reactor@<dp>-<port>             reactor(s), base+99..90
   ├─ flow-runtime-sidecar@<dp>            Rust sidecar, base+60 (gRPC) / +61 (admin)
-  ├─ flow-disk-daemon@<dp>                root via Docker, socket disk-<base>/disk.sock
+  ├─ flow-disk-daemon@<dp>                root via Docker, socket disk-<base>/disk.sock,
+  │                                        mounts under /run/flow-disk-<base>
   ├─ flow-dekaf@<dp>                      Kafka shim,  base+50/51/52 (only with --dekaf)
   └─ flow-plane-link@<dp>                 oneshot: POSTs to agent to register
 ```

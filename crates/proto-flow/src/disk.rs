@@ -2,7 +2,7 @@
 /// Open must be the first request and may be sent only once.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Request {
-    #[prost(oneof = "request::Request", tags = "1, 2, 3, 4")]
+    #[prost(oneof = "request::Request", tags = "1, 2, 3, 4, 5")]
     pub request: ::core::option::Option<request::Request>,
 }
 /// Nested message and enum types in `Request`.
@@ -14,15 +14,17 @@ pub mod request {
         #[prost(message, tag = "2")]
         Promote(super::Promote),
         #[prost(message, tag = "3")]
-        Prepare(super::Prepare),
+        Mount(super::Mount),
         #[prost(message, tag = "4")]
+        Prepare(super::Prepare),
+        #[prost(message, tag = "5")]
         Acknowledge(super::Acknowledge),
     }
 }
 /// Responses correspond one-to-one with requests and arrive in request order.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Response {
-    #[prost(oneof = "response::Response", tags = "1, 2, 3, 4")]
+    #[prost(oneof = "response::Response", tags = "1, 2, 3, 4, 5")]
     pub response: ::core::option::Option<response::Response>,
 }
 /// Nested message and enum types in `Response`.
@@ -34,8 +36,10 @@ pub mod response {
         #[prost(message, tag = "2")]
         Promoted(super::Promoted),
         #[prost(message, tag = "3")]
-        Prepared(super::Prepared),
+        Mounted(super::Mounted),
         #[prost(message, tag = "4")]
+        Prepared(super::Prepared),
+        #[prost(message, tag = "5")]
         Acknowledged(super::Acknowledged),
     }
 }
@@ -80,13 +84,35 @@ pub struct Promoted {
     /// keeps device_path naming the same device.
     #[prost(uint64, tag = "2")]
     pub diskseq: u64,
+    /// Replay applied no committed change, so the device reads as zeros.
+    #[prost(bool, tag = "3")]
+    pub blank: bool,
+}
+/// Mount mounts the filesystem on the device, which the client formatted.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Mount {
+    /// Filesystem type, such as "ext4". It must be a block filesystem which the
+    /// host has loaded.
+    #[prost(string, tag = "1")]
+    pub fstype: ::prost::alloc::string::String,
+    /// Comma-separated mount(8) options: its generic ones, such as "noatime",
+    /// and "discard".
+    #[prost(string, tag = "2")]
+    pub options: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Mounted {
+    /// Absolute path of the mounted filesystem's root.
+    #[prost(string, tag = "1")]
+    pub path: ::prost::alloc::string::String,
 }
 /// Prepare closes the current delta, which holds every write the device
 /// completed before Prepare. The client first flushes the writes it means the
 /// delta to hold, as with a syncfs of a filesystem on the device. A write made
 /// while Prepare is in flight may land in either delta, so the client also
 /// pauses writes. Prepare waits for broker confirmation of the delta's records,
-/// which leaves the delta durable but uncommitted.
+/// which leaves the delta durable but uncommitted. A disk which the daemon
+/// mounted needs no flush, since Prepare first syncs its filesystem.
 ///
 /// Preparing before the last Prepared is acknowledged fails with
 /// FAILED_PRECONDITION.

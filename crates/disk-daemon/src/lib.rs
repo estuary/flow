@@ -4,6 +4,7 @@ pub mod daemon;
 mod attachment;
 mod device;
 mod journal;
+mod mount;
 mod replay;
 
 /// Attach RPC and journal-record protocol messages.

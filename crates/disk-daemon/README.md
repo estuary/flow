@@ -121,9 +121,14 @@ answers each one, in order:
 3. **`Promote`** carries the client's stored ACK intent, if it has one. The
    daemon fences the journal with that ACK intent in the same append, and
    replays through the head the fence confirms. Then it ends the rebuild, starts
-   the device, and replies `Promoted` with its path and diskseq
-   (`Standby::promote`, `Promoted::serve`).
-4. **`Prepare`** and **`Acknowledge`** then repeat. See
+   the device, gives it to the client's uid, and replies `Promoted` with its
+   path, diskseq, and whether it's `blank` (`Standby::promote`,
+   `Promoted::serve`).
+4. **`Mount`** may follow once, after the client formats the device. The daemon
+   mounts it at `{--mount-dir}/{device}/fs`, with `nodev,nosuid`, where only the
+   client's uid can reach it (`mount::mount`). It mounts only a block filesystem
+   the host has loaded, with generic options and `discard`.
+5. **`Prepare`** and **`Acknowledge`** then repeat. See
    [Transactions](#transactions).
 
 The daemon's broker token selects only disk journals, so `Open` refuses a
@@ -150,9 +155,10 @@ A primary commits a delta in these steps:
 2. The attachment appends each live chunk as a delta record, without waiting for
    the broker to confirm it (`Writer::append`).
 3. The client flushes the writes the delta must hold, as with a `syncfs`, pauses
-   writes, and sends `Prepare`.
-4. The attachment appends any chunks still in its channel, and waits for the
-   broker to confirm all of the delta's records (`Writer::prepare`). It replies
+   writes, and sends `Prepare`. A mounted disk needs no flush.
+4. The attachment syncs a mounted disk (`mount::sync`). It appends any chunks
+   still in its channel, and waits for the broker to confirm all of the delta's
+   records (`Writer::prepare`). It replies
    `Prepared` with the delta's ACK intent: an encoded `ACK_TXN` record it hasn't
    appended.
 5. The client stores the ACK intent atomically with its own state.
@@ -160,9 +166,9 @@ A primary commits a delta in these steps:
 7. The attachment appends the ACK intent, waits for confirmation, and replies
    `Acknowledged` (`Writer::acknowledge`). The delta is committed.
 
-The flush in step 3 suffices because the owner thread sends a write's chunks
-before completing it. Every write the flush waited on has its chunks in the
-channel or the journal by the time `Prepare` arrives.
+The flush or sync suffices because the owner thread sends a write's chunks
+before completing it. Every write it waited on has its chunks in the channel or
+the journal once it returns.
 
 `Disk::prepare` states the write pause, from step 3 until `Acknowledge` is sent.
 [How the device pauses](#how-the-device-pauses) explains why a write in that
@@ -502,8 +508,9 @@ How teardown goes depends on how far the attachment got:
   (`Standby::discard`). A failed rebuild becomes the attachment's failure.
 - A standby that's cancelled, or whose client leaves before `Promote`, is simply
   dropped. Its rebuilder thread applies what it holds and exits.
-- A primary stops and deletes its device (`Promoted::stop`), first waiting out a
-  device start still in flight. A failed stop or delete fails the attachment, so
+- A primary waits out a device start or mount still in flight, unmounts its
+  filesystem (`mount::unmount`), then stops and deletes its device
+  (`Promoted::stop`). A failed unmount, stop, or delete fails the attachment, so
   `Disk::close` reports it.
 
 After the stop, a filesystem still mounted on the device fails every operation
@@ -532,9 +539,11 @@ takes the lowest number it can lock that no device has. The reaper
 number before it examines the device, so it never deletes a device a live daemon
 owns.
 
-A filesystem mounted on an orphan stays mounted, failing with I/O errors, until
-whoever mounted it unmounts it. A kill with I/O in flight can leave a device the
-kernel can't stop, which stays until the host reboots.
+At startup, the daemon unmounts what a killed daemon left in `--mount-dir`
+(`mount::reset_dir`). A filesystem mounted on an orphan elsewhere stays mounted,
+failing with I/O errors, until whoever mounted it unmounts it. A kill with I/O
+in flight can leave a device the kernel can't stop, which stays until the host
+reboots.
 
 ## Caller responsibilities
 
@@ -599,13 +608,16 @@ The daemon needs:
 - **`CAP_SYS_ADMIN`**, for ublk control commands: adding, configuring, starting,
   stopping, deleting, and inspecting devices. ublk requires it for any device
   not created with `UBLK_F_UNPRIVILEGED_DEV`, which the daemon doesn't use. It
-  also lets the daemon create io_uring rings when `kernel.io_uring_disabled` is
-  1.
+  also lets the daemon mount and unmount filesystems, and create io_uring rings
+  when `kernel.io_uring_disabled` is 1.
+- **`CAP_CHOWN`**, to give each device and mount directory to its client.
 - **`CAP_SYS_RESOURCE`**, for `PR_SET_IO_FLUSHER` on each owner thread. Without
   it the owner thread exits as it starts, and promotion fails.
 - **Read and write access to `/dev/ublk-control` and `/dev/ublkcN`**: the
   control device, and the server side of each device the daemon adds. These
   nodes belong to root by default.
+- **The host's mount namespace**, so that clients see the filesystems it
+  mounts.
 - **The host's devtmpfs at `/dev`.** The daemon opens `/dev/ublkcN` as soon as
   it adds device N, and the client opens `/dev/ublkbN` after `Promoted`. Only
   the host's devtmpfs gains these nodes. A container with its own `/dev` sees
@@ -651,8 +663,8 @@ The socket grants raw block writes to every disk journal in the data plane, and
 whatever later mounts one of those disks parses what was written. So only
 trusted, host-level clients may reach the socket, and neither it nor a device is
 ever passed to a connector. The socket is mode `0666`, so restrict traversal of
-its parent directory. Device nodes belong to root, and granting access to them
-is the deployment's business.
+its parent directory. The daemon gives each device, and its mount, to the uid
+its client connected as.
 
 The daemon signs its own broker token with the data plane's HMAC key. The token
 is scoped to disk journals. Clients supply neither broker endpoints nor
@@ -678,8 +690,10 @@ Paths are relative to `src/`.
 - `attachment/`: An attachment's lifecycle. `run` and `serve` handle request
   order, validation, and how an attachment ends.
   - `standby.rs`: A standby's open, tail, promotion, and discard.
-  - `promoted.rs`: A primary's device start, `Prepare` and `Acknowledge`, and
-    teardown.
+  - `promoted.rs`: A primary's device start, `Mount`, `Prepare` and
+    `Acknowledge`, and teardown.
+- `mount.rs`: Mounting a disk for its client, syncing and unmounting it, and
+  clearing the mount directory at startup.
 - `journal/`: Journal I/O, and `confirm_head`.
   - `reader.rs`: `open`, and the blocking read with its gap check.
   - `writer.rs`: `Writer`: fence, append, prepare, and acknowledge.
@@ -724,6 +738,7 @@ with what the case wrote. Cases with random writes use a fixed seed.
 | `failover.rs` | Repeated failover, and promotion across fences a standby never saw. |
 | `pruning.rs` | Floors that replay finds, and deleting fragments below the floor. |
 | `resilience.rs` | Broker outages, including a prepare behind a stalled attachment, drains, killed daemons, a many-disk soak of random writes, and commits racing random writes. |
+| `mounts.rs` | Mounts, their ownership, refused mounts, commits through a mount, and cleanup. |
 
 ```console
 mise run ci:disk-daemon-e2e  # unit tests, then integration tests
@@ -735,6 +750,7 @@ target runner, while Cargo itself stays unprivileged. They run one at a time,
 since each checks the whole host for leftover devices and mounts.
 
 Beyond the [kernel requirements](#kernel), they need passwordless `sudo`,
-`e2fsprogs` for the ext4 cases, and `etcd` and `gazette`. The task loads
-`ublk_drv` and builds `gazette`, and mise provides `etcd`. CI runs the task in
+`e2fsprogs` for the ext4 cases, `setpriv` (from util-linux) for the cases run as
+another uid, and `etcd` and `gazette`. The task loads `ublk_drv` and builds
+`gazette`, and mise provides `etcd`. CI runs the task in
 `.github/workflows/disk-daemon-test.yaml`.

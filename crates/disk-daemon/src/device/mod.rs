@@ -15,8 +15,8 @@ pub use reap::reap;
 pub struct Standby {
     /// The disk's size in blocks of `crate::BLOCK_SIZE`.
     size_blocks: u32,
-    /// Replays journal content into the image.
-    rebuilder: std::thread::JoinHandle<anyhow::Result<image::Image>>,
+    /// Replays journal content into the image, and returns it and whether it's blank.
+    rebuilder: std::thread::JoinHandle<anyhow::Result<(image::Image, bool)>>,
 }
 
 impl Standby {
@@ -41,13 +41,15 @@ impl Standby {
         let rebuilder = std::thread::Builder::new()
             .name("disk-rebuilder".to_string())
             .spawn(move || {
+                let mut blank = true;
                 while let Some((offset, content)) = content_rx.blocking_recv() {
                     replay.push(offset, content);
                     while let Some((chunk, opens_horizon_at)) = replay.next_committed()? {
                         () = image.replay(&chunk, opens_horizon_at)?;
+                        blank = false;
                     }
                 }
-                Ok(image)
+                Ok((image, blank))
             })
             .context("spawning a disk's rebuilder")?;
 
@@ -72,7 +74,7 @@ impl Standby {
 
         // The rebuilder returns once it has replayed the last content sent.
         drop(content_tx);
-        let image = rebuilder
+        let (image, blank) = rebuilder
             .join()
             .map_err(|_panic| anyhow::anyhow!("a disk's rebuilder panicked"))??;
 
@@ -119,6 +121,7 @@ impl Standby {
             device,
             device_path,
             diskseq,
+            blank,
             live_rx,
         })
     }
@@ -143,6 +146,8 @@ pub struct Started {
     pub device_path: String,
     /// The kernel's diskseq of the block device at `device_path`.
     pub diskseq: u64,
+    /// Replay applied no committed change, so the device reads as zeros.
+    pub blank: bool,
     /// The live chunk of each write, punch, and copy the device applies.
     pub live_rx: tokio::sync::mpsc::Receiver<anyhow::Result<crate::LiveChunk>>,
 }

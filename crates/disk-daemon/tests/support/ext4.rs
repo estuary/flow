@@ -9,14 +9,8 @@ pub struct Mounted {
 
 impl Mounted {
     /// Format `device`, which nothing has written, then mount it under `dir`.
-    ///
-    /// The format leaves the zeroes of a fresh device unwritten, so ext4 has no
-    /// inode tables to zero after it mounts.
     pub fn format(dir: &std::path::Path, device: &std::path::Path) -> Self {
-        () = run(std::process::Command::new("mkfs.ext4")
-            .args(["-q", "-F", "-b", "4096"])
-            .args(["-E", "nodiscard,assume_storage_prezeroed=1"])
-            .arg(device));
+        () = run(&mut mkfs(device));
 
         Self::mount(dir, device)
     }
@@ -72,6 +66,19 @@ impl Drop for Mounted {
             _ = std::fs::remove_dir(&path);
         }
     }
+}
+
+/// The command to format `device`, which nothing has written.
+///
+/// The format leaves the zeroes of a fresh device unwritten, so ext4 has no inode
+/// tables to zero after it mounts.
+pub fn mkfs(device: &std::path::Path) -> std::process::Command {
+    let mut command = std::process::Command::new("mkfs.ext4");
+    command
+        .args(["-q", "-F", "-b", "4096"])
+        .args(["-E", "nodiscard,assume_storage_prezeroed=1"])
+        .arg(device);
+    command
 }
 
 /// Run `command` to completion, and require that it succeed.

@@ -15,8 +15,9 @@ message Request {
   oneof request {
     Open open = 1;
     Promote promote = 2;
-    Prepare prepare = 3;
-    Acknowledge acknowledge = 4;
+    Mount mount = 3;
+    Prepare prepare = 4;
+    Acknowledge acknowledge = 5;
   }
 }
 
@@ -25,8 +26,9 @@ message Response {
   oneof response {
     Opened opened = 1;
     Promoted promoted = 2;
-    Prepared prepared = 3;
-    Acknowledged acknowledged = 4;
+    Mounted mounted = 3;
+    Prepared prepared = 4;
+    Acknowledged acknowledged = 5;
   }
 }
 
@@ -65,6 +67,23 @@ message Promoted {
   // has this diskseq (BLKGETDISKSEQ) before using it. Holding that file open
   // keeps device_path naming the same device.
   uint64 diskseq = 2;
+  // Replay applied no committed change, so the device reads as zeros.
+  bool blank = 3;
+}
+
+// Mount mounts the filesystem on the device, which the client formatted.
+message Mount {
+  // Filesystem type, such as "ext4". It must be a block filesystem which the
+  // host has loaded.
+  string fstype = 1;
+  // Comma-separated mount(8) options: its generic ones, such as "noatime",
+  // and "discard".
+  string options = 2;
+}
+
+message Mounted {
+  // Absolute path of the mounted filesystem's root.
+  string path = 1;
 }
 
 // Prepare closes the current delta, which holds every write the device
@@ -72,7 +91,8 @@ message Promoted {
 // delta to hold, as with a syncfs of a filesystem on the device. A write made
 // while Prepare is in flight may land in either delta, so the client also
 // pauses writes. Prepare waits for broker confirmation of the delta's records,
-// which leaves the delta durable but uncommitted.
+// which leaves the delta durable but uncommitted. A disk which the daemon
+// mounted needs no flush, since Prepare first syncs its filesystem.
 //
 // Preparing before the last Prepared is acknowledged fails with
 // FAILED_PRECONDITION.

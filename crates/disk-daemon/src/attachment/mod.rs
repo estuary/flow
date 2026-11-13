@@ -9,13 +9,14 @@ mod standby;
 pub async fn run(
     config: std::sync::Arc<crate::daemon::Config>,
     cancel: tokio_util::sync::CancellationToken,
+    owner: u32,
     mut requests: tonic::Streaming<proto::Request>,
     responses: mpsc::Sender<tonic::Result<proto::Response>>,
 ) {
     // The promoted attachment lives out here rather than in `serve`, so that a
     // panic or cancel which ends `serve` part-way still leaves it for `stop`.
     let mut promoted = None;
-    let serving = serve(&mut promoted, &config, &mut requests, &responses);
+    let serving = serve(&mut promoted, &config, owner, &mut requests, &responses);
 
     let mut outcome = tokio::select! {
         outcome = proto_grpc::catch_panic(serving) => outcome,
@@ -43,6 +44,7 @@ pub async fn run(
 async fn serve(
     promoted: &mut Option<promoted::Promoted>,
     config: &crate::daemon::Config,
+    owner: u32,
     requests: &mut tonic::Streaming<proto::Request>,
     responses: &mpsc::Sender<tonic::Result<proto::Response>>,
 ) -> anyhow::Result<()> {
@@ -105,7 +107,9 @@ async fn serve(
     };
     let attachment = promoted.insert(standby.promote(ack_intent, device_size).await?);
 
-    attachment.serve(requests, responses).await
+    attachment
+        .serve(owner, &config.mount_dir, requests, responses)
+        .await
 }
 
 async fn recv(

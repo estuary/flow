@@ -460,7 +460,11 @@ async fn a_runaway_delta_fails_its_attachment(
         device_size: DEVICE_SIZE,
         ..fixture.open("acmeCo/disk/runaway-delta").await
     };
-    let (mut disk, device) = client.open(open, Default::default()).await.unwrap();
+    let disk_daemon::client::Promoted {
+        mut disk,
+        device_path: device,
+        ..
+    } = client.open(open, Default::default()).await.unwrap();
 
     // Rewrite the device until three device sizes are written, or the failed
     // attachment's teardown stops the device.

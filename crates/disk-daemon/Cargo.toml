@@ -31,7 +31,7 @@ io-uring = { workspace = true }
 libc = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
-rustix = { workspace = true }
+rustix = { workspace = true, features = ["mount"] }
 rustls = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
@@ -47,5 +47,8 @@ zerocopy = { workspace = true }
 async-process = { path = "../async-process" }
 e2e-support = { path = "../e2e-support" }
 
+hyper-util = { workspace = true }
 insta = { workspace = true }
 quickcheck = { workspace = true }
+rustix = { workspace = true, features = ["thread"] }
+tower = { workspace = true }
