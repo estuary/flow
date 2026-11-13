@@ -240,7 +240,7 @@ fn broker_client(
         sel: proto_gazette::broker::LabelSelector {
             include: Some(labels::build_set([(
                 labels::CONTENT_TYPE,
-                crate::CONTENT_TYPE_DISK,
+                labels::CONTENT_TYPE_DISK,
             )])),
             exclude: None,
         },

@@ -55,6 +55,7 @@ pub const IMAGE_REPO: &str = "estuary.dev/image-repo";
 pub const CONTENT_TYPE: &str = "content-type";
 pub const CONTENT_TYPE_JSON_LINES: &str = "application/x-ndjson";
 pub const CONTENT_TYPE_RECOVERY_LOG: &str = "application/x-gazette-recoverylog";
+pub const CONTENT_TYPE_DISK: &str = "application/x-journal-backed-disk";
 pub const MANAGED_BY: &str = "app.gazette.dev/managed-by";
 
 pub mod partition;

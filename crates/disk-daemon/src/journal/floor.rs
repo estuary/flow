@@ -173,7 +173,7 @@ mod test {
             assert_eq!(change.expect_mod_revision, 42);
             assert_eq!(
                 labels::maybe_one(set, labels::CONTENT_TYPE).unwrap(),
-                crate::CONTENT_TYPE_DISK
+                labels::CONTENT_TYPE_DISK
             );
             let listed = broker::list_response::Journal {
                 spec: Some(spec),
@@ -186,7 +186,7 @@ mod test {
     /// A disk journal's listing at revision 42, carrying `floor` as its replay-from
     /// label if given.
     fn listing(floor: Option<&str>) -> broker::list_response::Journal {
-        let mut set = labels::build_set([(labels::CONTENT_TYPE, crate::CONTENT_TYPE_DISK)]);
+        let mut set = labels::build_set([(labels::CONTENT_TYPE, labels::CONTENT_TYPE_DISK)]);
         if let Some(floor) = floor {
             set = labels::set_value(set, labels::DISK_REPLAY_FROM, floor);
         }
