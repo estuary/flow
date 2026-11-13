@@ -4,11 +4,6 @@
 service, its dashboard consent contract, and reuse of existing refresh-token
 storage.
 
-Token exchange normalizes `capability_mask` names to snake_case, removes
-duplicates, and stores them without validating bundle names. GraphQL PascalCase names such as `TeamAdmin`
-and uppercase names such as `TEAM_ADMIN` are accepted. Authorization resolves
-known names to capability bits; unknown names contribute no capabilities.
-
 Service-account API keys are minted by `server/public/graphql/service_accounts.rs`.
 Like refresh-token creation, API-key creation rejects access tokens carrying a
 capability mask or prefix mask, because the new credential would not preserve
