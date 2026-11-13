@@ -284,7 +284,7 @@ fn validate_bindings<'a>(
             Ok((
                 resource_path,
                 delta_updates,
-                collection,
+                &**collection,
                 binding.group_by.as_slice(),
             ))
         })
@@ -351,7 +351,7 @@ fn spec_bindings(materialization: &flow::MaterializationSpec) -> anyhow::Result<
             Ok((
                 binding.resource_path.clone(),
                 binding.delta_updates,
-                collection,
+                &**collection,
                 keys,
             ))
         })

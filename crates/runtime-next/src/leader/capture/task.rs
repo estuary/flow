@@ -151,7 +151,7 @@ impl Task {
         let mut targets = Vec::<Target>::new();
         // Linked-table identity and CollectionSpec of each target's first
         // binding, for the value-equality requirement below.
-        let mut reps: Vec<(Option<u32>, &flow::CollectionSpec)> = Vec::new();
+        let mut reps: Vec<(Option<u32>, &proto_flow::Arc<flow::CollectionSpec>)> = Vec::new();
         let mut targets_by_name = BTreeMap::<&str, u32>::new();
 
         for (index, (binding, resolved)) in spec.resolved_bindings().enumerate() {
@@ -524,17 +524,6 @@ pub(crate) mod fixture {
         }
     }
 
-    /// Inline `spec`: each binding carries its own copy of its collection and the
-    /// linked table is dropped, so no binding has an identity.
-    pub(crate) fn into_inline(spec: &mut flow::CaptureSpec) {
-        let table = std::mem::take(&mut spec.linked_collections);
-
-        for binding in &mut spec.bindings {
-            binding.collection = Some(table[binding.collection_index as usize].clone());
-            binding.collection_index = 0;
-        }
-    }
-
     /// The Open / Opened pair carrying `spec`, as `Task::new` consumes them.
     pub(crate) fn open(spec: flow::CaptureSpec) -> (Request, Response) {
         let open = Request {
@@ -578,7 +567,7 @@ mod tests {
     /// collection and the linked table is dropped, so no binding has an identity.
     fn mk_inline_task(collections: usize, binding_collections: &[usize]) -> Task {
         let mut spec = fixture::capture_spec(collections, binding_collections);
-        fixture::into_inline(&mut spec);
+        spec.inline();
 
         let (open, opened) = fixture::open(spec);
         Task::new(&open, &opened, 0).unwrap()
@@ -674,7 +663,7 @@ mod tests {
     fn task_requires_equal_specs_within_a_collection() {
         // Inline form: the second binding's copy of collection-0 is tampered.
         let mut spec = fixture::capture_spec(1, &[0, 0]);
-        fixture::into_inline(&mut spec);
+        spec.inline();
         proto_flow::Arc::make_mut(spec.bindings[1].collection.as_mut().unwrap()).uuid_ptr =
             "/_meta/other".to_string();
 

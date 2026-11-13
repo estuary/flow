@@ -11,7 +11,7 @@ type LiveBindings<'a> = BTreeMap<
     &'a [String],
     (
         &'a flow::capture_spec::Binding,
-        Option<&'a flow::CollectionSpec>,
+        Option<&'a proto_flow::Arc<flow::CollectionSpec>>,
     ),
 >;
 
@@ -490,7 +490,7 @@ async fn walk_capture(
         .filter_map(|(binding, collection)| {
             Some(flow::capture_spec::Binding {
                 collection: None,
-                collection_index: interner.intern_ref((*collection)?),
+                collection_index: interner.intern((*collection)?.clone()),
                 ..(*binding).clone()
             })
         })
