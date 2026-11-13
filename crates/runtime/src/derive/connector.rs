@@ -133,6 +133,7 @@ fn extract_endpoint<'r>(
             let inner = open
                 .collection
                 .as_mut()
+                .map(proto_flow::Arc::make_mut)
                 .context("`open` missing required `collection`")?
                 .derivation
                 .as_mut()

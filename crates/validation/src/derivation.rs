@@ -480,7 +480,7 @@ async fn walk_derivation(
                 .collection
                 .take()
                 .expect("active transform resolved its source collection");
-            transform.collection_index = interner.intern(*source);
+            transform.collection_index = interner.intern(source);
             transform
         })
         .collect();
@@ -495,8 +495,15 @@ async fn walk_derivation(
         project_root: project_root.clone(),
         import_map,
         last_collection: live_spec.cloned().map(|mut last| {
-            if let Some(derivation) = last.derivation.as_mut().filter(|_| frozen_image) {
-                derivation.connector_spec = None; // Clear V2 `connector_spec` rolled back to V1.
+            // Clear V2 `connector_spec` rolled back to V1.
+            if frozen_image
+                && last
+                    .derivation
+                    .as_ref()
+                    .is_some_and(|derivation| derivation.connector_spec.is_some())
+            {
+                let last = proto_flow::Arc::make_mut(&mut last);
+                last.derivation.as_mut().unwrap().connector_spec = None;
             }
             last
         }),
@@ -686,7 +693,7 @@ async fn walk_derivation(
             // computed here for `journal_read_suffix`.
             state_key: String::new(),
             collection_index: interner.intern(
-                *source_collection.expect("active transform resolved its source collection"),
+                source_collection.expect("active transform resolved its source collection"),
             ),
         };
 
@@ -701,7 +708,7 @@ async fn walk_derivation(
     let shard_id_prefix = if let Some(flow::CollectionSpec {
         derivation: Some(derivation),
         ..
-    }) = live_spec
+    }) = live_spec.map(|spec| &**spec)
         && let Some(shard_template) = &derivation.shard_template
         && !reset
     {
@@ -948,7 +955,7 @@ fn walk_derive_transform<'a>(
     let validate = ValidateContext {
         validate: derive::request::validate::Transform {
             name: model.name.to_string(),
-            collection: Some(Box::new(source_spec)),
+            collection: Some(proto_flow::Arc::new(source_spec)),
             lambda_config_json: model.lambda.to_string().into(),
             shuffle_lambda_config_json: shuffle_lambda_config_json.into(),
             backfill: model.backfill,

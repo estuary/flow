@@ -715,13 +715,13 @@ mod test {
                 bindings: vec![Default::default(); over],
                 ..Default::default()
             }),
-            shuffle::task::Task::Derivation(flow::CollectionSpec {
+            shuffle::task::Task::Derivation(proto_flow::Arc::new(flow::CollectionSpec {
                 derivation: Some(Box::new(flow::collection_spec::Derivation {
                     transforms: vec![Default::default(); over],
                     ..Default::default()
                 })),
                 ..Default::default()
-            }),
+            })),
         ] {
             let err = Binding::from_task(&shuffle::Task { task: Some(task) }).unwrap_err();
             assert!(

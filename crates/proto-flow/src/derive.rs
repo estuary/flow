@@ -57,7 +57,7 @@ pub mod request {
         pub config_json: ::prost::bytes::Bytes,
         /// Collection to be derived.
         #[prost(message, optional, tag = "3")]
-        pub collection: ::core::option::Option<super::super::flow::CollectionSpec>,
+        pub collection: ::core::option::Option<crate::Arc<super::super::flow::CollectionSpec>>,
         #[prost(message, repeated, tag = "4")]
         pub transforms: ::prost::alloc::vec::Vec<validate::Transform>,
         /// JSON types of shuffle key components extracted by the transforms of this derivation.
@@ -85,7 +85,7 @@ pub mod request {
         >,
         /// Last CollectionSpec which was validated and published.
         #[prost(message, optional, tag = "8")]
-        pub last_collection: ::core::option::Option<super::super::flow::CollectionSpec>,
+        pub last_collection: ::core::option::Option<crate::Arc<super::super::flow::CollectionSpec>>,
         /// Version of the last validated CollectionSpec.
         #[prost(string, tag = "9")]
         pub last_version: ::prost::alloc::string::String,
@@ -106,7 +106,8 @@ pub mod request {
         /// readers resolve `collection_index` and must not assume that entries
         /// are unique on name.
         #[prost(message, repeated, tag = "10")]
-        pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
+        pub linked_collections:
+            ::prost::alloc::vec::Vec<crate::Arc<super::super::flow::CollectionSpec>>,
         /// Secrets of this derivation, mapping a catalog secret name to its JSON
         /// pointer within `config_json`. The runtime resolves and merges each secret
         /// into that location, as an RFC 7396 merge patch, before handing the
@@ -127,10 +128,9 @@ pub mod request {
             /// Sourced collection of this transform.
             /// Unset if the request uses `linked_collections`, in which case
             /// `collection_index` identifies the source collection instead.
-            #[prost(message, optional, boxed, tag = "2")]
-            pub collection: ::core::option::Option<
-                ::prost::alloc::boxed::Box<super::super::super::flow::CollectionSpec>,
-            >,
+            #[prost(message, optional, tag = "2")]
+            pub collection:
+                ::core::option::Option<crate::Arc<super::super::super::flow::CollectionSpec>>,
             /// JSON-encoded object which specifies the shuffle lambda configuration.
             /// If this transform has no shuffle lambda, this is empty.
             #[prost(bytes = "bytes", tag = "3")]
@@ -153,7 +153,7 @@ pub mod request {
     pub struct Open {
         /// Collection to be derived.
         #[prost(message, optional, tag = "1")]
-        pub collection: ::core::option::Option<super::super::flow::CollectionSpec>,
+        pub collection: ::core::option::Option<crate::Arc<super::super::flow::CollectionSpec>>,
         /// Version of the opened MaterializationSpec.
         /// The driver may want to require that this match the version last
         /// provided to a successful Apply RPC. It's possible that it won't,

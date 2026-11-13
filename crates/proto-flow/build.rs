@@ -301,6 +301,77 @@ impl serde::Serialize for {module}::{enum_name} {{
         .collect()
 }
 
+// Fully-qualified name of the message which generated bindings hold through
+// `crate::Arc` rather than by value.
+#[cfg(feature = "generate")]
+const SHARED_MESSAGE: &str = ".flow.CollectionSpec";
+
+// Count the fields of the descriptor set which are typed as SHARED_MESSAGE.
+#[cfg(feature = "generate")]
+fn count_shared_fields(fds: &prost_types::FileDescriptorSet) -> usize {
+    fn of_message(message: &prost_types::DescriptorProto) -> usize {
+        let fields = message
+            .field
+            .iter()
+            .filter(|field| field.type_name() == SHARED_MESSAGE)
+            .count();
+
+        fields + message.nested_type.iter().map(of_message).sum::<usize>()
+    }
+    fds.file
+        .iter()
+        .flat_map(|file| file.message_type.iter())
+        .map(of_message)
+        .sum()
+}
+
+// Rewrite every SHARED_MESSAGE field of prost's output to hold a `crate::Arc`.
+//
+// prost-build can box a field but offers no other control of its type, so
+// this edits the generated source. prost's derive is indifferent: it needs
+// only that the field's type implements `prost::Message`, which `crate::Arc`
+// does. pbjson's output is likewise untouched, because it never names a
+// field's type.
+//
+// Panics unless exactly `expect` fields were rewritten. A SHARED_MESSAGE field
+// which this missed would silently remain an inline copy.
+#[cfg(feature = "generate")]
+fn share_fields(
+    src_dir: &std::path::Path,
+    packages: &std::collections::BTreeSet<String>,
+    expect: usize,
+) {
+    let (_package, name) = SHARED_MESSAGE.rsplit_once('.').unwrap();
+
+    // The message is named relative to the module of each field.
+    let path = format!(r"(?:super::)*(?:flow::)?{name}");
+    // Singular and repeated fields.
+    let field_re = regex::Regex::new(&format!(
+        r"(::core::option::Option|::prost::alloc::vec::Vec)<\s*({path})\s*,?\s*>"
+    ))
+    .unwrap();
+    // Variants of a oneof, which hold their message directly.
+    let variant_re = regex::Regex::new(&format!(r"(\w+)\(\s*({path})\s*,?\s*\)")).unwrap();
+
+    let mut rewritten = 0;
+    for package in packages {
+        let path = src_dir.join(format!("{package}.rs"));
+        let Ok(buf) = std::fs::read_to_string(&path) else {
+            continue; // An extern package, which we don't generate.
+        };
+        rewritten += field_re.find_iter(&buf).count() + variant_re.find_iter(&buf).count();
+
+        let buf = field_re.replace_all(&buf, "$1<crate::Arc<$2>>");
+        let buf = variant_re.replace_all(&buf, "$1(crate::Arc<$2>)");
+        std::fs::write(&path, buf.as_bytes()).unwrap();
+    }
+
+    assert_eq!(
+        rewritten, expect,
+        "{SHARED_MESSAGE} fields rewritten to crate::Arc, versus fields of the descriptor set"
+    );
+}
+
 #[cfg(feature = "generate")]
 fn main() {
     let b = proto_build::Boilerplate::create();
@@ -345,21 +416,9 @@ fn main() {
         config.boxed(path);
     }
 
-    // Inlined `CollectionSpec` copies, which are large and are being replaced
-    // by the `collection_index` encoding (see `src/linked.rs`). Boxing them
-    // sizes a binding or transform to its own fields rather than to a
-    // collection it usually shares with its siblings.
-    for path in [
-        ".flow.CollectionSpec.derivation",
-        ".flow.CaptureSpec.Binding.collection",
-        ".flow.MaterializationSpec.Binding.collection",
-        ".flow.CollectionSpec.Derivation.Transform.collection",
-        ".capture.Request.Validate.Binding.collection",
-        ".materialize.Request.Validate.Binding.collection",
-        ".derive.Request.Validate.Transform.collection",
-    ] {
-        config.boxed(path);
-    }
+    // `CollectionSpec.derivation` is set only for derivations, and is boxed so
+    // that every other collection isn't sized to hold one.
+    config.boxed(".flow.CollectionSpec.derivation");
 
     // A built spec's `ConnectorSpec` is large and read only by the control
     // plane, so it's boxed to keep it out of the size of every built spec.
@@ -383,7 +442,15 @@ fn main() {
     std::fs::write(&b.descriptor_path, prost::Message::encode_to_vec(&fds))
         .expect("write rewritten descriptors");
 
+    let shared_fields = count_shared_fields(&fds);
+    let packages: std::collections::BTreeSet<String> = fds
+        .file
+        .iter()
+        .map(|file| file.package().to_string())
+        .collect();
+
     config.compile_fds(fds).expect("failed to compile protobuf");
+    share_fields(&b.src_dir, &packages, shared_fields);
 
     pbjson_build::Builder::new()
         .out_dir(&b.src_dir)

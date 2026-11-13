@@ -512,7 +512,9 @@ pub(crate) mod fixture {
                     ..Default::default()
                 })
                 .collect(),
-            linked_collections: (0..collections).map(collection).collect(),
+            linked_collections: (0..collections)
+                .map(|index| proto_flow::Arc::new(collection(index)))
+                .collect(),
             shard_template: Some(consumer::ShardSpec {
                 min_txn_duration: Some(std::time::Duration::ZERO.into()),
                 max_txn_duration: Some(std::time::Duration::from_secs(1).into()),
@@ -528,7 +530,7 @@ pub(crate) mod fixture {
         let table = std::mem::take(&mut spec.linked_collections);
 
         for binding in &mut spec.bindings {
-            binding.collection = Some(Box::new(table[binding.collection_index as usize].clone()));
+            binding.collection = Some(table[binding.collection_index as usize].clone());
             binding.collection_index = 0;
         }
     }
@@ -673,7 +675,8 @@ mod tests {
         // Inline form: the second binding's copy of collection-0 is tampered.
         let mut spec = fixture::capture_spec(1, &[0, 0]);
         fixture::into_inline(&mut spec);
-        spec.bindings[1].collection.as_mut().unwrap().uuid_ptr = "/_meta/other".to_string();
+        proto_flow::Arc::make_mut(spec.bindings[1].collection.as_mut().unwrap()).uuid_ptr =
+            "/_meta/other".to_string();
 
         let (open, opened) = fixture::open(spec);
         let err = Task::new(&open, &opened, 0).unwrap_err();
@@ -688,7 +691,7 @@ mod tests {
         // values, and each is referenced by a binding.
         let mut spec = fixture::capture_spec(1, &[0, 0]);
         let mut tampered = spec.linked_collections[0].clone();
-        tampered.uuid_ptr = "/_meta/other".to_string();
+        proto_flow::Arc::make_mut(&mut tampered).uuid_ptr = "/_meta/other".to_string();
         spec.linked_collections.push(tampered);
         spec.bindings[1].collection_index = 1;
 

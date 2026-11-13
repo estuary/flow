@@ -25,16 +25,16 @@ use std::collections::HashMap;
 /// distinct entries which happen to share a name.
 #[derive(Default)]
 pub struct Interner {
-    specs: Vec<flow::CollectionSpec>,
+    specs: Vec<proto_flow::Arc<flow::CollectionSpec>>,
     // Candidate indices into `specs` for each collection name. Names are
     // rarely duplicated, so a linear equality scan over candidates is cheap.
     by_name: HashMap<String, Vec<u32>>,
 }
 
 impl Interner {
-    /// Intern an owned spec, returning its issued index.
-    pub fn intern(&mut self, spec: flow::CollectionSpec) -> u32 {
-        match self.lookup(&spec) {
+    /// Intern a shared spec, returning its issued index.
+    pub fn intern(&mut self, spec: proto_flow::Arc<flow::CollectionSpec>) -> u32 {
+        match self.lookup(&spec.name, |interned| *interned == spec) {
             Some(index) => index,
             None => self.push(spec),
         }
@@ -42,21 +42,25 @@ impl Interner {
 
     /// Intern a borrowed spec, cloning it only if it's not already interned.
     pub fn intern_ref(&mut self, spec: &flow::CollectionSpec) -> u32 {
-        match self.lookup(spec) {
+        match self.lookup(&spec.name, |interned| **interned == *spec) {
             Some(index) => index,
-            None => self.push(spec.clone()),
+            None => self.push(proto_flow::Arc::new(spec.clone())),
         }
     }
 
-    fn lookup(&self, spec: &flow::CollectionSpec) -> Option<u32> {
+    fn lookup(
+        &self,
+        name: &str,
+        is_equal: impl Fn(&proto_flow::Arc<flow::CollectionSpec>) -> bool,
+    ) -> Option<u32> {
         self.by_name
-            .get(&spec.name)?
+            .get(name)?
             .iter()
             .copied()
-            .find(|index| self.specs[*index as usize] == *spec)
+            .find(|index| is_equal(&self.specs[*index as usize]))
     }
 
-    fn push(&mut self, spec: flow::CollectionSpec) -> u32 {
+    fn push(&mut self, spec: proto_flow::Arc<flow::CollectionSpec>) -> u32 {
         let index = self.specs.len() as u32;
         self.by_name
             .entry(spec.name.clone())
@@ -72,7 +76,7 @@ impl Interner {
     /// Interning happens in binding order while the table is conventionally
     /// ordered by name, and the remap reconciles the two. The ordering is
     /// stable, so entries sharing a name keep their interned order.
-    fn finish(self) -> (Vec<flow::CollectionSpec>, Vec<u32>) {
+    fn finish(self) -> (Vec<proto_flow::Arc<flow::CollectionSpec>>, Vec<u32>) {
         let Interner { specs, by_name: _ } = self;
 
         let mut order: Vec<u32> = (0..specs.len() as u32).collect();
@@ -83,10 +87,9 @@ impl Interner {
             remap[*issued as usize] = ordered as u32;
         }
 
-        let mut specs: Vec<Option<flow::CollectionSpec>> = specs.into_iter().map(Some).collect();
         let table = order
             .iter()
-            .map(|issued| specs[*issued as usize].take().unwrap())
+            .map(|issued| specs[*issued as usize].clone())
             .collect();
 
         (table, remap)
@@ -110,7 +113,7 @@ macro_rules! install {
                 if indirect_specs {
                     binding.collection_index = index;
                 } else {
-                    binding.collection = Some(Box::new(table[index as usize].clone()));
+                    binding.collection = Some(table[index as usize].clone());
                     binding.collection_index = 0;
                 }
             })+
@@ -160,12 +163,12 @@ install!(
 mod test {
     use super::*;
 
-    fn collection(name: &str, key: &[&str]) -> flow::CollectionSpec {
-        flow::CollectionSpec {
+    fn collection(name: &str, key: &[&str]) -> proto_flow::Arc<flow::CollectionSpec> {
+        proto_flow::Arc::new(flow::CollectionSpec {
             name: name.to_string(),
             key: key.iter().map(|k| k.to_string()).collect(),
             ..Default::default()
-        }
+        })
     }
 
     fn binding(collection_index: u32) -> flow::capture_spec::Binding {

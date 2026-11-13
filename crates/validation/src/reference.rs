@@ -16,7 +16,7 @@ where
 
     if let Some(row) = built_collections.get_key(ref_name) {
         if let Some(spec) = &row.spec {
-            let mut spec = spec.clone();
+            let mut spec = flow::CollectionSpec::clone(spec);
             spec.derivation = None; // Clear interior derivation, returning just the collection.
             return Some((spec, row));
         } else if let Some(errors) = errors {

@@ -16,6 +16,8 @@ feature and then runs `cargo fmt`). Never hand-edit `src/*.rs`.
 - `build.rs` — the generator. prost produces `src/<pkg>.rs`, pbjson produces
   `src/<pkg>.serde.rs`, and a final pass of regexes rewrites the pbjson output
   (see below).
+- `src/arc.rs` — `proto_flow::Arc`, the shared pointer which holds every
+  `CollectionSpec` field.
 - `src/internal.rs` — `get_internal` / `set_internal` / `with_internal` over
   the `internal: Bytes` field carried by connector Requests and Responses.
 - `src/linked.rs` — accessors which resolve a binding or transform to its
@@ -88,18 +90,12 @@ The policy is a split by lifecycle, not by size:
   `StartCommit`, `Acknowledge`, and every other response. These flow per
   document or per transaction, and boxing one would trade the copy we're
   trying to avoid for an allocation per message.
-- **Inlined `CollectionSpec` copies are boxed** wherever a binding or
-  transform carries one: `CollectionSpec.derivation`, and the `collection`
-  field of the capture, materialization, and derivation bindings in both
-  `flow.proto` and the connector `Validate` requests. A binding is then
-  sized to its own fields rather than to a collection it usually shares with
-  its siblings (and increasingly doesn't inline at all — see
-  `src/linked.rs`).
+- **`CollectionSpec.derivation` is boxed**, so that a collection which isn't
+  a derivation isn't sized to hold one. So are the `connector_spec` fields
+  of built specs, which only the control plane reads.
 
 Deliberately *not* boxed: `Spec` requests (40 bytes), `Projection.inference`,
-the journal and shard templates, and the singular `collection` of
-`derive.Request.{Validate,Open}` — the last already sits inside a boxed
-variant, so boxing it again would only add a hop.
+and the journal and shard templates.
 
 Boxing is invisible to both encodings, so the regression snapshots are again
 the proof: prost's generated code derefs through the box, and pbjson's is
@@ -107,6 +103,14 @@ box-agnostic (it serializes `&Box<T>` as `T`, and type inference supplies the
 `Box` on the way in). None of the `.serde.rs` files changed when the boxing
 landed. The `size_of` table in `tests/regression.rs` is where the effect is
 recorded and pinned.
+
+### Shared `CollectionSpec`
+
+Every field typed as `flow.CollectionSpec` holds a `proto_flow::Arc` of it,
+so a spec is shared by pointer between `tables` rows, bindings, and
+`linked_collections`. Mutation goes through `Arc::make_mut`, which
+deep-copies a shared message. Like boxing, this is invisible to both
+encodings. See `src/arc.rs`, and `share_fields` in `build.rs`.
 
 ### pbjson fixups
 

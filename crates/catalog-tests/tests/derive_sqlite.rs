@@ -17,7 +17,9 @@ use std::sync::{Arc, Mutex};
 
 /// Build a catalog from inline YAML, validating derivations in-process (no
 /// Docker). Returns the built collection specs, keyed by collection name.
-async fn build_collections(yaml: &str) -> BTreeMap<String, proto_flow::flow::CollectionSpec> {
+async fn build_collections(
+    yaml: &str,
+) -> BTreeMap<String, proto_flow::Arc<proto_flow::flow::CollectionSpec>> {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("catalog.flow.yaml");
     std::fs::write(&path, yaml).unwrap();
@@ -134,7 +136,7 @@ fn init_test_process() {
 
 /// Start a resident session for every derivation in `collections`.
 async fn start_sessions(
-    collections: &BTreeMap<String, proto_flow::flow::CollectionSpec>,
+    collections: &BTreeMap<String, proto_flow::Arc<proto_flow::flow::CollectionSpec>>,
     n_shards: u32,
     store: &Arc<Mutex<CollectionStore>>,
 ) -> BTreeMap<String, DerivationSession> {
@@ -614,7 +616,7 @@ async fn start_dying(
     die: &str,
     store: &Arc<Mutex<CollectionStore>>,
 ) -> (
-    BTreeMap<String, proto_flow::flow::CollectionSpec>,
+    BTreeMap<String, proto_flow::Arc<proto_flow::flow::CollectionSpec>>,
     anyhow::Result<DerivationSession>,
 ) {
     init_test_process();

@@ -198,7 +198,7 @@ tables!(
         // Model of the collection as-of `last_pub_id`.
         val model: models::CollectionDef,
         // Built specification of this collection as-of `last_pub_id`.
-        val spec: proto_flow::flow::CollectionSpec,
+        val spec: proto_flow::Arc<proto_flow::flow::CollectionSpec>,
         // Hash of the last_pub_ids of all the dependencies that were used to build the collection
         val dependency_hash: Option<String>,
     }
@@ -294,10 +294,10 @@ tables!(
         // Validated response which was used to build this spec.
         val validated: Option<proto_flow::derive::response::Validated>,
         // Built specification of this collection, or None if it's being deleted.
-        val spec: Option<proto_flow::flow::CollectionSpec>,
+        val spec: Option<proto_flow::Arc<proto_flow::flow::CollectionSpec>>,
         // Previous specification which is being modified or deleted,
         // or None if unchanged OR this is an insertion.
-        val previous_spec: Option<proto_flow::flow::CollectionSpec>,
+        val previous_spec: Option<proto_flow::Arc<proto_flow::flow::CollectionSpec>>,
         // When true this was a "touch" which refreshed the build of the
         // unchanged live model. Its publication ID shouldn't increase.
         val is_touch: bool,
@@ -491,8 +491,8 @@ json_sql_types!(
 proto_sql_types!(
     proto_flow::capture::response::Validated,
     proto_flow::derive::response::Validated,
+    proto_flow::Arc<proto_flow::flow::CollectionSpec>,
     proto_flow::flow::CaptureSpec,
-    proto_flow::flow::CollectionSpec,
     proto_flow::flow::MaterializationSpec,
     proto_flow::flow::TestSpec,
     proto_flow::flow::build_api::Config,

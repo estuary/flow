@@ -23,9 +23,9 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
      4  capture::response::BackfillComplete
    168  derive::Request
     40  derive::request::Spec
-  1104  derive::request::Validate
+   224  derive::request::Validate
    104  derive::request::validate::Transform
-   528  derive::request::Open
+    88  derive::request::Open
    136  derive::request::Read
     32  derive::request::Flush
     56  derive::request::StartCommit

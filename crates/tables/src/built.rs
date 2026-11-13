@@ -143,7 +143,7 @@ impl BuiltRow for crate::BuiltCapture {
 impl BuiltRow for crate::BuiltCollection {
     type ModelDef = models::CollectionDef;
     type Validated = proto_flow::derive::response::Validated;
-    type BuiltSpec = proto_flow::flow::CollectionSpec;
+    type BuiltSpec = proto_flow::Arc<proto_flow::flow::CollectionSpec>;
 
     fn new(
         catalog_name: Self::Key,

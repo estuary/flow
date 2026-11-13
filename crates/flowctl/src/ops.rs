@@ -74,7 +74,9 @@ pub async fn read_task_ops(
     let task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::CollectionPartitions(
             shuffle::proto::CollectionPartitions {
-                collection: Some(ops_collection_spec(collection, &ops_journal).await),
+                collection: Some(proto_flow::Arc::new(
+                    ops_collection_spec(collection, &ops_journal).await,
+                )),
                 partition_selector: Some(broker::LabelSelector {
                     include: Some(include),
                     exclude: None,
@@ -170,7 +172,7 @@ async fn build_ops_specs() -> BTreeMap<String, flow::CollectionSpec> {
         .filter_map(|c| {
             let spec = c.spec.as_ref()?;
             let key = c.collection.as_str().rsplit('/').next()?;
-            matches!(key, "logs" | "stats").then(|| (key.to_string(), spec.clone()))
+            matches!(key, "logs" | "stats").then(|| (key.to_string(), (**spec).clone()))
         })
         .collect()
 }

@@ -96,7 +96,7 @@ fn walk_collection(
     // which is regenerated if `reset` is true or if this is a new collection.
     // Note we must account for historical journal templates which don't have
     // an embedded generation_id suffix.
-    let (journal_name_prefix, generation_id) = match live_spec {
+    let (journal_name_prefix, generation_id) = match live_spec.map(|spec| &**spec) {
         Some(flow::CollectionSpec {
             partition_template: Some(template),
             ..
@@ -330,7 +330,7 @@ fn walk_collection(
         model: Some(model),
         model_fixes,
         previous_spec: live_spec.cloned(),
-        spec: Some(spec),
+        spec: Some(proto_flow::Arc::new(spec)),
         validated: None,
     })
 }

@@ -408,7 +408,9 @@ impl Resolver {
                     last_pub_id,
                     last_build_id,
                     serde_json::from_str::<models::CollectionDef>(model.get())?,
-                    serde_json::from_str::<flow::CollectionSpec>(built_spec.get())?,
+                    serde_json::from_str::<proto_flow::Arc<flow::CollectionSpec>>(
+                        built_spec.get(),
+                    )?,
                     dependency_hash,
                 ),
                 CatalogType::Materialization => live.materializations.insert_row(

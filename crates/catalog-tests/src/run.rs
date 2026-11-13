@@ -138,7 +138,7 @@ pub async fn run_tests(
     built: &tables::Validations,
     options: Options,
 ) -> anyhow::Result<TestResults> {
-    let collections: BTreeMap<String, CollectionSpec> = built
+    let collections: BTreeMap<String, proto_flow::Arc<CollectionSpec>> = built
         .built_collections
         .iter()
         .filter_map(|bc| bc.spec.as_ref().map(|s| (s.name.clone(), s.clone())))
@@ -195,7 +195,7 @@ pub async fn run_tests(
 async fn run_cases(
     graph: &mut Graph,
     sessions: &mut BTreeMap<String, DerivationSession>,
-    collections: &BTreeMap<String, CollectionSpec>,
+    collections: &BTreeMap<String, proto_flow::Arc<CollectionSpec>>,
     store: &Arc<Mutex<CollectionStore>>,
     tests: &[TestSpec],
     timeouts: Timeouts,
@@ -338,7 +338,7 @@ const MAX_CONCURRENT_STARTS: usize = 16;
 /// Start a resident [`DerivationSession`] for every enabled derivation,
 /// concurrently (see [`MAX_CONCURRENT_STARTS`]).
 async fn start_sessions(
-    collections: &BTreeMap<String, CollectionSpec>,
+    collections: &BTreeMap<String, proto_flow::Arc<CollectionSpec>>,
     store: &Arc<Mutex<CollectionStore>>,
     options: &Options,
 ) -> anyhow::Result<BTreeMap<String, DerivationSession>> {
@@ -477,7 +477,7 @@ fn step_scope(test: &TestSpec) -> &str {
 /// Drives the scheduler's Read / Ingest / Verify / Advance against the resident
 /// sessions and the collection store.
 struct LiveDriver<'a> {
-    collections: &'a BTreeMap<String, CollectionSpec>,
+    collections: &'a BTreeMap<String, proto_flow::Arc<CollectionSpec>>,
     last_scope: String, // Most-recently executed step, for reporting.
     poisoned: bool,     // Set on timeout.
     sessions: &'a mut BTreeMap<String, DerivationSession>,

@@ -132,12 +132,12 @@ mod tests {
             None::<models::CollectionDef>,
             Vec::<String>::new(),
             None::<proto_flow::derive::response::Validated>,
-            Some(proto_flow::flow::CollectionSpec {
+            Some(proto_flow::Arc::new(proto_flow::flow::CollectionSpec {
                 name: name.to_string(),
                 derivation: Some(Box::new(derivation)),
                 ..Default::default()
-            }),
-            None::<proto_flow::flow::CollectionSpec>,
+            })),
+            None::<proto_flow::Arc<proto_flow::flow::CollectionSpec>>,
             false,
             None::<String>,
         );
