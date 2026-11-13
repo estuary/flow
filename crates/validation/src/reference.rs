@@ -8,7 +8,10 @@ pub fn walk_reference<'s, 'a, F>(
     ref_name: &models::Collection,
     built_collections: &'a tables::BuiltCollections,
     errors: Option<&mut tables::Errors>,
-) -> Option<(flow::CollectionSpec, &'a tables::BuiltCollection)>
+) -> Option<(
+    proto_flow::Arc<flow::CollectionSpec>,
+    &'a tables::BuiltCollection,
+)>
 where
     F: Fn() -> String,
 {
@@ -16,9 +19,9 @@ where
 
     if let Some(row) = built_collections.get_key(ref_name) {
         if let Some(spec) = &row.spec {
-            let mut spec = flow::CollectionSpec::clone(spec);
-            spec.derivation = None; // Clear interior derivation, returning just the collection.
-            return Some((spec, row));
+            // `walk_all_collections` builds collections without derivations.
+            assert!(spec.derivation.is_none());
+            return Some((spec.clone(), row));
         } else if let Some(errors) = errors {
             Error::DeletedSpecStillInUse {
                 this_entity: this_entity.to_string(),
