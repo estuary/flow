@@ -31,7 +31,8 @@ pub async fn update_activation<C: ControlPlane>(
 ) -> anyhow::Result<Option<NextRun>> {
     let now = control_plane.current_time();
     let config = control_plane.controller_config();
-    let failure_retention = alert_cfg.shard_failed.retention;
+    let alert_window_threshold = now - alert_cfg.shard_failed.window;
+    let retry_window_threshold = now - config.shard_failure_retention;
     let (shard_failed_enabled, alert_after_shard_failures) = match &alert_cfg.shard_failed.alert {
         ResolvedShardFailedAlert::Enabled { failures } => (true, *failures),
         ResolvedShardFailedAlert::Disabled => (false, 0),
@@ -39,7 +40,8 @@ pub async fn update_activation<C: ControlPlane>(
     if !shard_failed_enabled {
         alerts::resolve_alert(alerts_status, AlertType::ShardFailed);
     }
-    let failure_retention_threshold = now - failure_retention;
+    // Keep enough history for both alerting and retry backoff.
+    let failure_retention_threshold = alert_window_threshold.min(retry_window_threshold);
     // Did we receive at least one shard failure message?
     let observed_shard_failures = events
         .iter()
@@ -77,6 +79,8 @@ pub async fn update_activation<C: ControlPlane>(
             control_plane,
             now,
             failure_retention_threshold,
+            alert_window_threshold,
+            retry_window_threshold,
             observed_shard_failures,
             next_pending_pub,
             alert_after_shard_failures,
@@ -143,6 +147,8 @@ async fn handle_shard_failures<C: ControlPlane>(
     control_plane: &C,
     update_started_at: DateTime<Utc>,
     failure_retention_threshold: DateTime<Utc>,
+    alert_window_threshold: DateTime<Utc>,
+    retry_window_threshold: DateTime<Utc>,
     observed_shard_failures: usize,
     next_pending_pub: Option<chrono::DateTime<chrono::Utc>>,
     alert_after_shard_failures: u32,
@@ -167,6 +173,10 @@ async fn handle_shard_failures<C: ControlPlane>(
         all_failures
     };
     status.recent_failure_count = failures.len() as u32;
+    let alert_failure_count = failures
+        .iter()
+        .filter(|f| f.ts > alert_window_threshold)
+        .count() as u32;
 
     // If we've just observed a shard failure and we haven't already determined
     // the time of the next retry, then determine that now.
@@ -186,7 +196,12 @@ async fn handle_shard_failures<C: ControlPlane>(
             tracing::info!("restarting failed ops catalog task shards");
             update_started_at.max(earliest_restart) // always retry ops catalog shards ASAP
         } else {
-            get_next_retry_time(update_started_at, earliest_restart, &failures)
+            get_next_retry_time(
+                update_started_at,
+                earliest_restart,
+                &failures,
+                retry_window_threshold,
+            )
         };
 
         status.next_retry = Some(next);
@@ -231,9 +246,7 @@ async fn handle_shard_failures<C: ControlPlane>(
             .live_spec
             .as_ref()
             .map(|s| s.catalog_type())
-            .filter(|_| {
-                shard_failed_enabled && status.recent_failure_count >= alert_after_shard_failures
-            })
+            .filter(|_| shard_failed_enabled && alert_failure_count >= alert_after_shard_failures)
         {
             // last_failure should always be present, but this just prevents
             // things from blowing up if someone were to manually edit the
@@ -258,7 +271,7 @@ async fn handle_shard_failures<C: ControlPlane>(
                 .unwrap_or((update_started_at, "Unknown"));
             let error = format!(
                 "Observed {} recent task shard failures, the latest at {}. Last failure:\n{}",
-                status.recent_failure_count, last_error, last_message
+                alert_failure_count, last_error, last_message
             );
 
             alerts::set_alert_firing(
@@ -266,7 +279,7 @@ async fn handle_shard_failures<C: ControlPlane>(
                 AlertType::ShardFailed,
                 update_started_at,
                 error,
-                status.recent_failure_count,
+                alert_failure_count,
                 spec_type,
             );
         }
@@ -605,8 +618,14 @@ fn get_next_retry_time(
     now: DateTime<Utc>,
     earliest_allowed: DateTime<Utc>,
     failures: &[ShardFailure],
+    retry_window_threshold: DateTime<Utc>,
 ) -> DateTime<Utc> {
     use itertools::Itertools;
+
+    let failures = failures
+        .iter()
+        .filter(|f| f.ts > retry_window_threshold)
+        .collect_vec();
 
     // Divide the total number of failures by the number of unique shards that
     // have failed. This is to avoid exceedingly steep backoffs when a sharded
@@ -869,6 +888,38 @@ mod test {
         );
     }
 
+    #[test]
+    fn test_retry_window_excludes_old_shards() {
+        let now: DateTime<Utc> = "2026-01-01T12:00:00Z".parse().unwrap();
+        let threshold = now - Duration::hours(2);
+        let recent = ShardFailure {
+            shard: models::status::ShardRef {
+                name: "acme/task".to_string(),
+                key_begin: "00000000".to_string(),
+                r_clock_begin: "00000000".to_string(),
+                build: models::Id::zero(),
+            },
+            ts: now,
+            message: "a test error".to_string(),
+            fields: Default::default(),
+        };
+        let mut expired = recent.clone();
+        expired.ts = threshold;
+        expired.shard.key_begin = "80000000".to_string();
+        let failures = [expired, recent.clone(), recent.clone(), recent];
+
+        // The expired shard must not dilute three failures of the recent shard.
+        let next = get_next_retry_time(now, now, &failures, threshold);
+        assert!(next >= now + Duration::minutes(6));
+        assert!(next <= now + Duration::minutes(9));
+
+        let earliest = now + Duration::minutes(1);
+        assert_eq!(
+            earliest,
+            get_next_retry_time(now, earliest, &failures[..1], threshold),
+        );
+    }
+
     fn backoff_test(expected: Duration, failures: &[(&str, &str)]) {
         let min = expected
             .checked_sub(&Duration::seconds(10))
@@ -908,7 +959,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let now: DateTime<Utc> = "2024-04-05T08:07:08.09Z".parse().unwrap();
-        let next = get_next_retry_time(now, now, &shard_failures);
+        let next = get_next_retry_time(now, now, &shard_failures, DateTime::<Utc>::MIN_UTC);
         next - now
     }
 }
