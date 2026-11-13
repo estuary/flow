@@ -670,6 +670,12 @@ The daemon signs its own broker token with the data plane's HMAC key. The token
 is scoped to disk journals. Clients supply neither broker endpoints nor
 credentials. Rotating the key requires a restart.
 
+### Admin surface
+
+`--admin-port` serves `service-kit`'s admin surface on loopback. It shows each
+attachment's phase and recent events, and serves Prometheus metrics at
+`/metrics`.
+
 ### Where it runs
 
 - **Reactor image.** `docker/reactor.Dockerfile` ships the binary.
@@ -684,8 +690,8 @@ credentials. Rotating the key requires a restart.
 Paths are relative to `src/`.
 
 - `lib.rs`: Protocol export, `BLOCK_SIZE`, `LiveChunk`, and `Floor`.
-- `daemon.rs`: Flags, broker client and token, socket, `Disk` service, and
-  drain.
+- `daemon.rs`: Flags, broker client and token, socket, admin surface, `Disk`
+  service, and drain.
 - `client.rs`: The Rust client: `Client`, `Standby`, `Disk`, and `Error`.
 - `attachment/`: An attachment's lifecycle. `run` and `serve` handle request
   order, validation, and how an attachment ends.

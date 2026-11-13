@@ -12,17 +12,26 @@ pub async fn run(
     owner: u32,
     mut requests: tonic::Streaming<proto::Request>,
     responses: mpsc::Sender<tonic::Result<proto::Response>>,
+    mut handler: service_kit::HandlerGuard,
 ) {
     // The promoted attachment lives out here rather than in `serve`, so that a
     // panic or cancel which ends `serve` part-way still leaves it for `stop`.
     let mut promoted = None;
-    let serving = serve(&mut promoted, &config, owner, &mut requests, &responses);
+    let serving = serve(
+        &mut promoted,
+        &config,
+        owner,
+        &mut requests,
+        &responses,
+        &handler,
+    );
 
     let mut outcome = tokio::select! {
         outcome = proto_grpc::catch_panic(serving) => outcome,
         () = responses.closed() => Err(proto_grpc::anyhow_to_status(crate::cancelled())),
         () = cancel.cancelled() => Err(proto_grpc::anyhow_to_status(crate::cancelled())),
     };
+    handler.set_phase("stopping");
 
     // A client's close waits on teardown, so a failed teardown fails the close.
     if let Some(attachment) = promoted
@@ -34,6 +43,10 @@ pub async fn run(
         }
     }
 
+    match &outcome {
+        Ok(()) => handler.finish_ok(),
+        Err(status) => handler.finish_err(&status.to_string()),
+    }
     if let Err(status) = outcome {
         tracing::warn!(%status, "attachment failed");
         _ = responses.send(Err(status)).await;
@@ -47,6 +60,7 @@ async fn serve(
     owner: u32,
     requests: &mut tonic::Streaming<proto::Request>,
     responses: &mpsc::Sender<tonic::Result<proto::Response>>,
+    handler: &service_kit::HandlerGuard,
 ) -> anyhow::Result<()> {
     let (journal, device_size) = match recv(requests).await? {
         None => return Ok(()),
@@ -60,6 +74,9 @@ async fn serve(
             ));
         }
     };
+    handler.set_label(&journal);
+    handler.set_phase("opening");
+
     // A selector's empty label value matches any value, so listing an empty
     // name would match every journal.
     if journal.is_empty() {
@@ -84,6 +101,7 @@ async fn serve(
     )
     .await?;
     () = send(responses, response::Response::Opened(proto::Opened {})).await?;
+    handler.set_phase("standby");
 
     let (standby, request) = standby.tail(recv(requests)).await?;
     let ack_intent = match request? {
@@ -105,10 +123,11 @@ async fn serve(
             ));
         }
     };
+    handler.set_phase("promoting");
     let attachment = promoted.insert(standby.promote(ack_intent, device_size).await?);
 
     attachment
-        .serve(owner, &config.mount_dir, requests, responses)
+        .serve(owner, &config.mount_dir, requests, responses, handler)
         .await
 }
 

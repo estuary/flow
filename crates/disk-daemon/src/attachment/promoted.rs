@@ -43,7 +43,8 @@ impl Promoted {
         content_tx: mpsc::Sender<(i64, bytes::Bytes)>,
         writer: journal::Writer,
     ) -> Self {
-        let start = tokio::task::spawn_blocking(move || device.start(content_tx));
+        let span = tracing::Span::current();
+        let start = tokio::task::spawn_blocking(move || span.in_scope(|| device.start(content_tx)));
 
         Self {
             phase: Phase::Starting(start),
@@ -61,10 +62,13 @@ impl Promoted {
         mount_dir: &std::path::Path,
         requests: &mut tonic::Streaming<proto::Request>,
         responses: &mpsc::Sender<tonic::Result<proto::Response>>,
+        handler: &service_kit::HandlerGuard,
     ) -> anyhow::Result<()> {
         let Phase::Starting(start) = &mut self.phase else {
             panic!("a promoted attachment is served once");
         };
+        handler.set_phase("starting");
+
         // Awaited in place, so that if serving ends here, `stop` still finds the start
         // and tears down the device it creates.
         let started = start.await;
@@ -91,6 +95,8 @@ impl Promoted {
             }),
         )
         .await?;
+        handler.set_field("device", &device_path);
+        handler.set_phase("serving");
 
         loop {
             let reading = matches!(self.phase, Phase::Serving | Phase::Prepared { .. });
@@ -100,9 +106,12 @@ impl Promoted {
                 request = super::recv(requests), if reading => match request? {
                     None => return Ok(()),
                     Some(request::Request::Mount(mount)) => {
-                        () = self.on_mount(mount, owner, mount_dir, &device_path)?
+                        () = self.on_mount(mount, owner, mount_dir, &device_path)?;
+                        handler.set_phase("mounting");
                     }
-                    Some(request) => () = self.on_request(request, &mut live_rx, responses).await?,
+                    Some(request) => {
+                        () = self.on_request(request, &mut live_rx, responses, handler).await?
+                    }
                 },
                 chunk = live_rx.recv(), if recording => {
                     let live = chunk.context("the disk's device failed")??;
@@ -120,9 +129,19 @@ impl Promoted {
                                     path: root.to_string_lossy().into_owned(),
                                 }),
                             )
-                            .await?
+                            .await?;
+                            service_kit::event!(
+                                tracing::Level::INFO,
+                                "lifecycle",
+                                path = root.display().to_string(),
+                                "mounted a disk",
+                            );
+                            handler.set_field("mount", root.display());
+                            handler.set_phase("serving");
                         }
-                        Phase::Syncing(_) => () = self.prepare(&mut live_rx, responses).await?,
+                        Phase::Syncing(_) => {
+                            () = self.prepare(&mut live_rx, responses, handler).await?
+                        }
                         _ => unreachable!("only a mount or sync ends on its task"),
                     }
                 }
@@ -165,19 +184,21 @@ impl Promoted {
         request: request::Request,
         live_rx: &mut mpsc::Receiver<anyhow::Result<crate::LiveChunk>>,
         responses: &mpsc::Sender<tonic::Result<proto::Response>>,
+        handler: &service_kit::HandlerGuard,
     ) -> anyhow::Result<()> {
         match request {
             request::Request::Prepare(proto::Prepare {})
                 if matches!(self.phase, Phase::Serving) =>
             {
                 let Some(dir) = &self.mount else {
-                    return self.prepare(live_rx, responses).await;
+                    return self.prepare(live_rx, responses, handler).await;
                 };
 
                 let dir = dir.clone();
                 self.phase = Phase::Syncing(tokio::task::spawn_blocking(move || {
                     crate::mount::sync(&dir)
                 }));
+                handler.set_phase("syncing");
 
                 Ok(())
             }
@@ -189,7 +210,10 @@ impl Promoted {
                         "no prepared delta awaits acknowledgement",
                     ));
                 };
+                handler.set_phase("acknowledging");
                 () = self.writer.acknowledge(ack_intent, floor).await?;
+                handler.set_phase("serving");
+
                 () = super::send(
                     responses,
                     response::Response::Acknowledged(proto::Acknowledged {}),
@@ -210,7 +234,10 @@ impl Promoted {
         &mut self,
         live_rx: &mut mpsc::Receiver<anyhow::Result<crate::LiveChunk>>,
         responses: &mpsc::Sender<tonic::Result<proto::Response>>,
+        handler: &service_kit::HandlerGuard,
     ) -> anyhow::Result<()> {
+        handler.set_phase("flushing");
+
         // A write's chunks are sent before it completes, so at most one chunk
         // of the flushed writes still waits here.
         loop {
@@ -229,6 +256,7 @@ impl Promoted {
         };
         () = super::send(responses, response::Response::Prepared(prepared)).await?;
         self.phase = Phase::Prepared { ack_intent, floor };
+        handler.set_phase("prepared");
 
         Ok(())
     }
@@ -262,7 +290,11 @@ impl Promoted {
             return Ok(());
         };
 
+        let span = tracing::Span::current();
+
         tokio::task::spawn_blocking(move || {
+            let _entered = span.entered();
+
             let cleared = mount.map_or(Ok(()), |dir| {
                 crate::mount::unmount(&dir)
                     .inspect_err(|err| tracing::error!(?err, "failed to unmount a disk"))
