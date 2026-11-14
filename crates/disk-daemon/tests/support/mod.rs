@@ -5,7 +5,8 @@ mod ext4;
 mod image;
 mod tree;
 
-pub use ext4::Mounted;
+pub use attachment::Attachment;
+pub use ext4::{Mounted, mkfs};
 pub use image::{DeviceFiles, Image, Writes};
 pub use tree::{BLOCK, Tree, pattern};
 
@@ -55,8 +56,16 @@ impl Fixture {
                 .await
                 .expect("DataPlane start");
 
+        // Other uids traverse it, to reach the mounts of disks they own.
+        let dir = tempfile::tempdir().expect("tempdir");
+        () = std::fs::set_permissions(
+            dir.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o711),
+        )
+        .unwrap();
+
         Self {
-            dir: tempfile::tempdir().expect("tempdir"),
+            dir,
             client: data_plane.journal_client.clone(),
             endpoint: data_plane.gazette.brokers[0].endpoint.clone(),
             auth_keys: data_plane.gazette.auth_keys.clone(),
@@ -84,7 +93,7 @@ impl Fixture {
             replication: 1,
             labels: Some(labels::build_set([(
                 labels::CONTENT_TYPE,
-                disk_daemon::CONTENT_TYPE_DISK,
+                labels::CONTENT_TYPE_DISK,
             )])),
             fragment: Some(broker::journal_spec::Fragment {
                 length: 1 << 20, // 1 MiB
@@ -119,10 +128,11 @@ impl Fixture {
         journal: &str,
         ack_intent: bytes::Bytes,
     ) -> (disk_daemon::client::Disk, std::path::PathBuf) {
-        client
+        let promoted = client
             .open(self.open(journal).await, ack_intent)
             .await
-            .unwrap_or_else(|err| panic!("opening {journal}: {err}"))
+            .unwrap_or_else(|err| panic!("opening {journal}: {err}"));
+        (promoted.disk, promoted.device_path)
     }
 
     /// `Open` of `journal`, without creating it.
@@ -390,6 +400,7 @@ impl Daemon {
         let dir = fixture.dir.path();
         let uds_path = dir.join(format!("{name}.sock"));
         let images = dir.join(format!("{name}-images"));
+        let mounts = Self::mount_dir(fixture, name);
 
         std::fs::create_dir_all(&images).unwrap();
         let mut command = async_process::Command::new(env!("CARGO_BIN_EXE_flow-disk-daemon"));
@@ -398,6 +409,8 @@ impl Daemon {
             .arg(&uds_path)
             .arg("--image-dir")
             .arg(images)
+            .arg("--mount-dir")
+            .arg(mounts)
             .args(["--broker-address", &fixture.endpoint])
             .args(["--data-plane-fqdn", "disk-daemon-test"])
             .args(["--data-plane-auth-keys", &fixture.auth_keys])
@@ -411,6 +424,11 @@ impl Daemon {
         daemon
     }
 
+    /// The directory a daemon `name` of `fixture` mounts disks in.
+    pub fn mount_dir(fixture: &Fixture, name: &str) -> std::path::PathBuf {
+        fixture.dir.path().join(format!("{name}-mounts"))
+    }
+
     /// Connect a client. Its disks share one connection.
     pub async fn client(&self) -> disk_daemon::client::Client {
         disk_daemon::client::Client::connect(&self.uds_path)
@@ -422,6 +440,41 @@ impl Daemon {
     /// express: out of turn, malformed, or pipelined.
     pub async fn attach(&self) -> attachment::Attachment {
         attachment::Attachment::open(self.connect().await.expect("connect")).await
+    }
+
+    /// Connect as `uid`, which the daemon reads from the socket's peer
+    /// credentials. Only the connecting thread takes on `uid`
+    /// (`set_thread_res_uid`), and it keeps root as its saved uid to return to.
+    pub async fn connect_as(&self, uid: u32) -> tonic::transport::Channel {
+        let path = self.uds_path.clone();
+        let stream = std::thread::spawn(move || {
+            let (uid, root) = (
+                rustix::process::Uid::from_raw(uid),
+                rustix::process::Uid::ROOT,
+            );
+            () = rustix::thread::set_thread_res_uid(uid, uid, root).unwrap();
+            let stream = std::os::unix::net::UnixStream::connect(&path);
+            () = rustix::thread::set_thread_res_uid(root, root, root).unwrap();
+            stream.unwrap_or_else(|err| panic!("connecting to {path:?}: {err}"))
+        })
+        .join()
+        .unwrap();
+
+        () = stream.set_nonblocking(true).unwrap();
+        let stream = std::sync::Mutex::new(Some(tokio::net::UnixStream::from_std(stream).unwrap()));
+
+        // The channel's only connection is the one made as `uid`.
+        tonic::transport::Endpoint::from_static("http://disk-daemon")
+            .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
+                let stream = stream.lock().unwrap().take();
+                async move {
+                    stream
+                        .map(hyper_util::rt::TokioIo::new)
+                        .ok_or_else(|| std::io::Error::other("the connection is used"))
+                }
+            }))
+            .await
+            .expect("connect")
     }
 
     /// Name and kernel flags word of each daemon thread.
@@ -528,13 +581,16 @@ impl Drop for Daemon {
 /// Require that an open was refused as invalid, and return its status. `Disk` is not
 /// `Debug`, so `expect_err` can't be used.
 pub async fn expect_invalid(
-    opened: disk_daemon::client::Result<(disk_daemon::client::Disk, std::path::PathBuf)>,
+    opened: disk_daemon::client::Result<disk_daemon::client::Promoted>,
 ) -> tonic::Status {
     let err = match opened {
         Err(err) => err,
-        Ok((disk, device)) => {
-            _ = disk.close().await;
-            panic!("the open was not refused: it returned {device:?}");
+        Ok(promoted) => {
+            _ = promoted.disk.close().await;
+            panic!(
+                "the open was not refused: it returned {:?}",
+                promoted.device_path
+            );
         }
     };
 
@@ -550,7 +606,7 @@ pub async fn expect_invalid(
 pub async fn commit(disk: &mut disk_daemon::client::Disk) -> bytes::Bytes {
     let ack_intent = prepare(disk).await;
 
-    () = disk.acknowledge().await.expect("acknowledge");
+    () = disk.acknowledge();
     () = disk.acknowledged().await.expect("the commit landed");
 
     ack_intent
@@ -572,11 +628,39 @@ pub async fn prepare_nothing(disk: &mut disk_daemon::client::Disk) {
         "the disk changed when nothing wrote to it"
     );
 
-    () = disk.acknowledge().await.expect("acknowledge");
+    () = disk.acknowledge();
     () = disk
         .acknowledged()
         .await
         .expect("the empty delta was acknowledged");
+}
+
+/// Run `command` as `uid` and its group, and return whether it succeeded.
+pub fn run_as(uid: u32, command: &std::process::Command) -> bool {
+    std::process::Command::new("setpriv")
+        .arg(format!("--reuid={uid}"))
+        .arg(format!("--regid={uid}"))
+        .arg("--clear-groups")
+        .arg("--")
+        .arg(command.get_program())
+        .args(command.get_args())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("spawning setpriv")
+        .success()
+}
+
+/// The options `path` is mounted with, if anything is.
+pub fn mount_options(path: &std::path::Path) -> Option<Vec<String>> {
+    let path = path.to_str().expect("paths of a tempdir are UTF-8");
+
+    std::fs::read_to_string("/proc/mounts")
+        .unwrap()
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>())
+        .find(|fields| fields.get(1) == Some(&path))
+        .map(|fields| fields[3].split(',').map(str::to_string).collect())
 }
 
 /// Whether anything is mounted at `path`.

@@ -8,6 +8,7 @@ async fn disk_lifecycle() {
     let daemon = support::Daemon::start(&fixture, "lifecycle").await;
 
     a_disk_which_is_never_written_commits_nothing(&fixture, &daemon).await;
+    a_disk_is_blank_until_a_change_commits(&fixture, &daemon).await;
     a_standby_leaves_a_suspended_journal_asleep(&fixture, &daemon).await;
     an_absent_journal_is_refused_at_open(&fixture, &daemon).await;
     the_next_daemon_reaps_an_orphan(&fixture).await;
@@ -67,6 +68,41 @@ async fn a_disk_which_is_never_written_commits_nothing(
     }
 }
 
+/// A disk promotes blank until a change commits. A write which never commits
+/// leaves it blank.
+async fn a_disk_is_blank_until_a_change_commits(
+    fixture: &support::Fixture,
+    daemon: &support::Daemon,
+) {
+    let journal = "acmeCo/disk/blank";
+    let client = daemon.client().await;
+    let writes = support::Writes::generation(1);
+    let promote = async |ack_intent| {
+        client
+            .open(fixture.open(journal).await, ack_intent)
+            .await
+            .unwrap()
+    };
+
+    let promoted = promote(Default::default()).await;
+    assert!(promoted.blank, "a new disk isn't blank");
+    () = writes.write(&promoted.device_path);
+    () = promoted.disk.close().await.unwrap();
+
+    let mut promoted = promote(Default::default()).await;
+    assert!(
+        promoted.blank,
+        "an uncommitted write left the disk not blank"
+    );
+    () = writes.write(&promoted.device_path);
+    let ack_intent = support::commit(&mut promoted.disk).await;
+    () = promoted.disk.close().await.unwrap();
+
+    let promoted = promote(ack_intent).await;
+    assert!(!promoted.blank, "a committed write left the disk blank");
+    () = promoted.disk.close().await.unwrap();
+}
+
 /// A standby doesn't resume a suspended journal, yet still becomes ready. A partially
 /// suspended journal still serves reads, and a fully suspended one has no content.
 /// Promotion's fence resumes it.
@@ -117,7 +153,11 @@ async fn a_standby_leaves_a_suspended_journal_asleep(
             "the standby of {journal} woke it"
         );
 
-        let (disk, device) = standby.promote(Default::default()).await.unwrap();
+        let disk_daemon::client::Promoted {
+            disk,
+            device_path: device,
+            ..
+        } = standby.promote(Default::default()).await.unwrap();
         assert_eq!(
             level().await,
             suspend::Level::None as i32,

@@ -15,8 +15,8 @@ pub use reap::reap;
 pub struct Standby {
     /// The disk's size in blocks of `crate::BLOCK_SIZE`.
     size_blocks: u32,
-    /// Replays journal content into the image.
-    rebuilder: std::thread::JoinHandle<anyhow::Result<image::Image>>,
+    /// Replays journal content into the image, and returns it and whether it's blank.
+    rebuilder: std::thread::JoinHandle<anyhow::Result<(image::Image, bool)>>,
 }
 
 impl Standby {
@@ -27,6 +27,7 @@ impl Standby {
         image_dir: &std::path::Path,
         size_blocks: u32,
         horizon_policy: compactor::Policy,
+        journal: &str,
     ) -> anyhow::Result<(Self, tokio::sync::mpsc::Sender<(i64, bytes::Bytes)>)> {
         let file = tempfile::tempfile_in(image_dir)
             .with_context(|| format!("creating an image in {image_dir:?}"))?;
@@ -34,20 +35,25 @@ impl Standby {
             .set_len(size_blocks as u64 * crate::BLOCK_SIZE as u64)
             .with_context(|| format!("sizing an image in {image_dir:?}"))?;
 
-        let mut image = image::Image::new(file, size_blocks, horizon_policy);
+        let mut image = image::Image::new(file, size_blocks, horizon_policy, journal);
         let mut replay = crate::replay::Replay::new(image_dir);
         let (content_tx, mut content_rx) = tokio::sync::mpsc::channel(1);
 
+        let span = tracing::Span::current();
         let rebuilder = std::thread::Builder::new()
             .name("disk-rebuilder".to_string())
             .spawn(move || {
+                let _entered = span.entered();
+
+                let mut blank = true;
                 while let Some((offset, content)) = content_rx.blocking_recv() {
                     replay.push(offset, content);
                     while let Some((chunk, opens_horizon_at)) = replay.next_committed()? {
                         () = image.replay(&chunk, opens_horizon_at)?;
+                        blank = false;
                     }
                 }
-                Ok(image)
+                Ok((image, blank))
             })
             .context("spawning a disk's rebuilder")?;
 
@@ -72,7 +78,7 @@ impl Standby {
 
         // The rebuilder returns once it has replayed the last content sent.
         drop(content_tx);
-        let image = rebuilder
+        let (image, blank) = rebuilder
             .join()
             .map_err(|_panic| anyhow::anyhow!("a disk's rebuilder panicked"))??;
 
@@ -115,10 +121,20 @@ impl Standby {
         };
 
         let device_path = device.control.block_path();
+        service_kit::event!(
+            tracing::Level::INFO,
+            "lifecycle",
+            device_path = device_path.clone(),
+            diskseq,
+            blank,
+            "started a disk's device",
+        );
+
         Ok(Started {
             device,
             device_path,
             diskseq,
+            blank,
             live_rx,
         })
     }
@@ -143,6 +159,8 @@ pub struct Started {
     pub device_path: String,
     /// The kernel's diskseq of the block device at `device_path`.
     pub diskseq: u64,
+    /// Replay applied no committed change, so the device reads as zeros.
+    pub blank: bool,
     /// The live chunk of each write, punch, and copy the device applies.
     pub live_rx: tokio::sync::mpsc::Receiver<anyhow::Result<crate::LiveChunk>>,
 }
@@ -175,5 +193,40 @@ impl Device {
             Err(err) => Err(control.abandon(err)),
         }
         .inspect(|()| tracing::info!(dev_id, "tore down a device"))
+    }
+}
+
+struct Metrics {
+    writes: metrics::Counter,
+    write_bytes: metrics::Counter,
+    copied_bytes: metrics::Counter,
+}
+
+impl Metrics {
+    fn new(journal: &str) -> Self {
+        static DESCRIBE: std::sync::Once = std::sync::Once::new();
+        DESCRIBE.call_once(|| {
+            metrics::describe_counter!(
+                "disk_daemon_device_writes",
+                metrics::Unit::Count,
+                "device write requests served",
+            );
+            metrics::describe_counter!(
+                "disk_daemon_device_write_bytes",
+                metrics::Unit::Bytes,
+                "bytes of the device write requests served",
+            );
+            metrics::describe_counter!(
+                "disk_daemon_device_copied_bytes",
+                metrics::Unit::Bytes,
+                "bytes which recovery horizons copied out of the image",
+            );
+        });
+
+        Self {
+            writes: metrics::counter!("disk_daemon_device_writes", "journal" => journal.to_string()),
+            write_bytes: metrics::counter!("disk_daemon_device_write_bytes", "journal" => journal.to_string()),
+            copied_bytes: metrics::counter!("disk_daemon_device_copied_bytes", "journal" => journal.to_string()),
+        }
     }
 }

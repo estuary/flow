@@ -20,6 +20,7 @@ proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = ["disk_client", "disk_server"] }
 publisher = { path = "../publisher" }
+service-kit = { path = "../service-kit" }
 tokens = { path = "../tokens" }
 
 anyhow = { workspace = true }
@@ -29,9 +30,10 @@ clap = { workspace = true }
 futures = { workspace = true }
 io-uring = { workspace = true }
 libc = { workspace = true }
+metrics = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
-rustix = { workspace = true }
+rustix = { workspace = true, features = ["mount"] }
 rustls = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
@@ -47,5 +49,8 @@ zerocopy = { workspace = true }
 async-process = { path = "../async-process" }
 e2e-support = { path = "../e2e-support" }
 
+hyper-util = { workspace = true }
 insta = { workspace = true }
 quickcheck = { workspace = true }
+rustix = { workspace = true, features = ["thread"] }
+tower = { workspace = true }

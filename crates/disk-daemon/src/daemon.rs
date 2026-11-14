@@ -29,9 +29,17 @@ pub struct Args {
     #[arg(long, env = "IMAGE_DIR")]
     pub image_dir: std::path::PathBuf,
 
+    /// Directory disks' filesystems are mounted in.
+    #[arg(long, env = "MOUNT_DIR")]
+    pub mount_dir: std::path::PathBuf,
+
     /// Text or JSON log output.
     #[arg(long, env = "LOG_FORMAT", default_value = "text")]
     pub log_format: LogFormat,
+
+    /// Serve the admin surface (attachments and `/metrics`) on `127.0.0.1:<port>`.
+    #[arg(long, env = "ADMIN_PORT")]
+    pub admin_port: Option<u16>,
 
     /// Bytes since the recovery floor beyond which a disk opens a recovery horizon,
     /// as a multiple of that disk's live allocated size. They are the encoded size of
@@ -74,13 +82,17 @@ pub enum LogFormat {
 pub(crate) struct Config {
     /// Directory for disposable sparse images.
     pub image_dir: std::path::PathBuf,
+    /// Directory disks' filesystems are mounted in.
+    pub mount_dir: std::path::PathBuf,
     /// When a disk opens a recovery horizon, and how fast it completes one.
     pub horizon_policy: crate::device::Policy,
     /// Brokers of every disk journal.
     pub brokers: gazette::journal::Client,
+    /// Attachments in flight, which the admin surface shows.
+    pub registry: service_kit::Registry,
 }
 
-pub async fn run(args: Args) -> anyhow::Result<()> {
+pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<()> {
     let brokers = broker_client(
         &args.broker_address,
         &args.gazette_zone,
@@ -90,20 +102,24 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 
     let config = std::sync::Arc::new(Config {
         image_dir: args.image_dir.clone(),
+        mount_dir: args.mount_dir.clone(),
         horizon_policy: crate::device::Policy {
             open_ratio: args.horizon_open_ratio,
             copy_ratio: args.horizon_copy_ratio,
             minimum_bytes: args.horizon_minimum_bytes,
         },
         brokers,
+        registry,
     });
 
     tracing::info!(
         image_dir = ?args.image_dir,
+        mount_dir = ?args.mount_dir,
         horizon_policy = ?config.horizon_policy,
         zone = args.gazette_zone,
         "disk-daemon starting",
     );
+    () = crate::mount::reset_dir(&args.mount_dir)?;
     () = crate::device::reap().context("starting the reaper")?;
 
     let draining = tokio_util::sync::CancellationToken::new();
@@ -119,6 +135,24 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
                 _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received"),
             }
             draining.cancel();
+        });
+    }
+
+    if let Some(admin_port) = args.admin_port {
+        _ = service_kit::metrics::install_recorder();
+
+        let address = std::net::SocketAddr::from(([127, 0, 0, 1], admin_port));
+        let draining = draining.clone();
+        let registry = config.registry.clone();
+
+        tokio::spawn(async move {
+            let shutdown = async move { draining.cancelled().await };
+
+            if let Err(err) =
+                service_kit::admin::serve("disk-daemon", registry, address, shutdown).await
+            {
+                tracing::error!(?err, "the admin surface failed");
+            }
         });
     }
 
@@ -204,14 +238,28 @@ impl proto_grpc::disk::disk_server::Disk for Service {
         &self,
         request: tonic::Request<tonic::Streaming<crate::proto::Request>>,
     ) -> tonic::Result<tonic::Response<Self::AttachStream>> {
-        let (responses, stream) = tokio::sync::mpsc::channel(1);
+        let owner = request
+            .extensions()
+            .get::<tonic::transport::server::UdsConnectInfo>()
+            .and_then(|info| info.peer_cred)
+            .map(|cred| cred.uid())
+            .ok_or_else(|| tonic::Status::internal("the client's uid is unknown"))?;
 
-        self.attachments.spawn(crate::attachment::run(
-            self.config.clone(),
-            self.draining.child_token(),
-            request.into_inner(),
-            responses,
-        ));
+        let (responses, stream) = tokio::sync::mpsc::channel(1);
+        let (config, cancel) = (self.config.clone(), self.draining.child_token());
+        let requests = request.into_inner();
+
+        self.attachments.spawn(async move {
+            // `Registry::register` must run within the handler's own task.
+            let handler = config.registry.register("attachment");
+            let span = handler.span();
+
+            tracing::Instrument::instrument(
+                crate::attachment::run(config, cancel, owner, requests, responses, handler),
+                span,
+            )
+            .await
+        });
 
         Ok(tonic::Response::new(
             tokio_stream::wrappers::ReceiverStream::new(stream),
@@ -240,7 +288,7 @@ fn broker_client(
         sel: proto_gazette::broker::LabelSelector {
             include: Some(labels::build_set([(
                 labels::CONTENT_TYPE,
-                crate::CONTENT_TYPE_DISK,
+                labels::CONTENT_TYPE_DISK,
             )])),
             exclude: None,
         },
