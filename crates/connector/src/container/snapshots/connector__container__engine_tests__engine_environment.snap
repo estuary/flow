@@ -1,0 +1,31 @@
+---
+source: crates/connector/src/container/engine_tests.rs
+expression: "calls.join(\"\\n\")"
+---
+create --rm
+fail
+image inspect
+image inspect
+image inspect
+image inspect
+image inspect
+network create
+network ls
+network ls
+network rm
+ps --all
+ps --all
+pull ghcr.io/estuary/derive-python:synthetic
+pull ghcr.io/estuary/derive-python:synthetic
+pull ghcr.io/estuary/derive-python:synthetic
+pull ghcr.io/estuary/derive-typescript:synthetic
+rm --force
+run --rm
+run --rm
+run --rm
+run --rm
+start --attach
+volume create
+volume ls
+volume ls
+volume rm

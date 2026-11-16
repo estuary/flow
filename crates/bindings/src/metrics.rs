@@ -46,3 +46,29 @@ impl From<allocator::JemallocGlobalStats> for GlobalMemoryStats {
 pub extern "C" fn get_memory_stats() -> GlobalMemoryStats {
     current_mem_stats().into()
 }
+
+/// This process's VMM recovery passes: `connector::VmmRecoveryMetrics`.
+#[derive(Debug)]
+#[repr(C)]
+pub struct VmmRecoveryStats {
+    pub started: bool,
+    pub failed_passes_total: u64,
+    pub pending: u64,
+    pub last_success_seconds: u64,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn get_vmm_recovery_stats() -> VmmRecoveryStats {
+    let connector::VmmRecoveryMetrics {
+        started,
+        failed_passes,
+        pending,
+        last_success,
+    } = connector::Vmm::recovery_metrics();
+    VmmRecoveryStats {
+        started,
+        failed_passes_total: failed_passes,
+        pending,
+        last_success_seconds: last_success,
+    }
+}

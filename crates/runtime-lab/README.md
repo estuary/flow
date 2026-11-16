@@ -77,6 +77,9 @@ examples/                 # a reference (not run as is): fictitious acmeCo/ cata
 
 ## Non-obvious details
 
+- **Reference connectors run locally.** The controller and reactor create
+  `runtime_local::local_router` without VMM capability: the lab's reference
+  connectors are local subprocesses.
 - **The controller re-executes itself** under `systemd-run --user --scope -p
   Delegate=yes`, which gives it a cgroup subtree it owns outright. It then
   moves itself into `controller/`, because cgroup v2 forbids a node with member
