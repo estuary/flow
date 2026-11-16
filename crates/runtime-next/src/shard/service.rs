@@ -34,6 +34,7 @@ pub struct Service<P: crate::PublisherFactory, L: crate::LoggerFactory> {
     pub logger_factory: L,
     pub registry: service_kit::Registry,
     pub data_plane_signer: Option<proto_grpc::Signer>,
+    pub disks: crate::shard::disk::Disks,
 }
 
 impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
@@ -47,6 +48,7 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
     /// - `logger_factory`: opens a Logger per session, which sinks connector
     ///   logs and reports runtime events.
     /// - `registry`: in-flight handler registry, shared with any co-hosted admin surface.
+    /// - `disks`: `Persistent` for a reactor, or `Ephemeral` for a local harness.
     pub fn new(
         connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
         set_log_level: Option<std::sync::Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
@@ -55,6 +57,7 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
         logger_factory: L,
         registry: service_kit::Registry,
         data_plane_signer: Option<proto_grpc::Signer>,
+        disks: crate::shard::disk::Disks,
     ) -> Self {
         Self {
             connector_router,
@@ -64,6 +67,7 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
             logger_factory,
             registry,
             data_plane_signer,
+            disks,
         }
     }
 

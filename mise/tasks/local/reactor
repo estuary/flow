@@ -27,6 +27,8 @@ SIDECAR_PORT=$((BROKER_PORT + 60))
 
 mise run local:runtime-sidecar "${DATA_PLANE}" "${BROKER_PORT}"
 mise run local:disk-daemon "${DATA_PLANE}" "${BROKER_PORT}"
+# local:disk-daemon names its directory for the port block it's given.
+DISK_DAEMON_UDS_PATH="${FLOW_STACK_DIR}/disk-${BROKER_PORT}/disk.sock"
 
 # Configure all reactor instances
 for i in $(seq 0 $((COUNT - 1))); do
@@ -76,6 +78,7 @@ FLOW_CONFIG_ENCRYPTION_URL=http://config-encryption.flow.localhost:${FLOW_PORT_C
 FLOW_DASHBOARD=${FLOW_DASHBOARD_ORIGIN}
 FLOW_DASHBOARD_ORIGIN=${FLOW_DASHBOARD_ORIGIN}
 FLOW_DATA_PLANE_FQDN=${DATA_PLANE}.dp.estuary-data.com
+FLOW_DISK_DAEMON_UDS_PATH=${DISK_DAEMON_UDS_PATH}
 FLOW_NETWORK=${FLOW_NETWORK}
 FLOW_PORT_DASHBOARD=${FLOW_PORT_DASHBOARD}
 FLOW_SIDECAR_PORT=${SIDECAR_PORT}

@@ -185,6 +185,7 @@ impl DerivationSession {
                 logger_factory.clone(),
                 run.registry.clone(),
                 None, // No AuthN+AuthZ signer (local loopback).
+                runtime_next::shard::Disks::Ephemeral,
             );
             let response_rx = shard_svc.spawn_derive(UnboundedReceiverStream::new(request_rx));
 

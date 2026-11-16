@@ -102,6 +102,10 @@ src/
     ├── service.rs       # gRPC entry, dispatches by task type
     ├── connector.rs     # client of the `connector` crate: route, start, and read
     │                     #   its stream, sinking interleaved connector logs
+    ├── disk/
+    │   ├── mod.rs           # Disks: which shards get a disk, and of what kind
+    │   ├── attach.rs        # attach, format, and mount a disk; prepare and acknowledge deltas
+    │   └── unsupported.rs   # attach.rs's stand-in elsewhere, where no disk attaches
     ├── recovery.rs      # Persist <-> RocksDB WriteBatch encode/decode + scan-time FC: pruning
     ├── rocksdb.rs       # single Persist application path
     ├── split_policy.rs  # append-rate throttling which drives partition splits

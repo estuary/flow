@@ -1,6 +1,7 @@
 pub mod capture;
 pub(crate) mod connector;
 pub mod derive;
+pub mod disk;
 pub mod materialize;
 pub(crate) mod recovery;
 pub mod rocksdb;
@@ -8,6 +9,7 @@ mod service;
 pub mod split_policy;
 
 use anyhow::Context;
+pub use disk::Disks;
 use rocksdb::RocksDB;
 pub use service::Service;
 

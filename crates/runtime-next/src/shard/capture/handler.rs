@@ -556,6 +556,7 @@ mod test {
             crate::TracingLoggerFactory,
             registry,
             None,
+            crate::shard::Disks::Persistent { uds_path: None },
         );
 
         let (controller_tx, controller_rx) = mpsc::unbounded_channel();

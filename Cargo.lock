@@ -7865,6 +7865,7 @@ dependencies = [
  "connector",
  "connector-init",
  "coroutines",
+ "disk-daemon",
  "doc",
  "e2e-support",
  "extractors",
