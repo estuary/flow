@@ -74,6 +74,10 @@ where
     // constant across every session of the loop.
     let producer = crate::new_producer();
 
+    // This shard's disk, attached by the first session which needs it, and
+    // held across every later session of the loop.
+    let mut disk: Option<crate::shard::disk::Attached> = None;
+
     while let Some(result) = controller_rx.next().await {
         let join = match verify.ok(result)? {
             proto::Capture {
@@ -93,6 +97,7 @@ where
             controller_rx,
             controller_tx,
             db,
+            &mut disk,
             join,
             producer,
             report_final_state,
@@ -101,6 +106,9 @@ where
         .await?;
     }
 
+    if let Some(disk) = disk {
+        () = disk.close().await?;
+    }
     Ok(())
 }
 
@@ -109,6 +117,7 @@ async fn serve_session<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     db: crate::shard::RocksDB,
+    disk: &mut Option<crate::shard::disk::Attached>,
     join: proto::Join,
     producer: proto_gazette::uuid::Producer,
     report_final_state: bool,
@@ -127,6 +136,7 @@ where
         controller_rx,
         controller_tx,
         db,
+        disk,
         join,
         producer,
         report_final_state,
@@ -142,6 +152,7 @@ async fn serve_session_inner<R, P: crate::PublisherFactory, L: crate::LoggerFact
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     db: crate::shard::RocksDB,
+    disk: &mut Option<crate::shard::disk::Attached>,
     join: proto::Join,
     producer: proto_gazette::uuid::Producer,
     report_final_state: bool,
@@ -221,8 +232,15 @@ where
         active_backfills,
         mut connector_state_json,
         last_applied,
+        disk_ack_intents,
         ..
     } = recover;
+
+    let mut start = connector::proto::request::Start {
+        log_level: log_level as i32,
+        sqlite_vfs_uri: String::new(),
+        volume: None, // Apply doesn't get a disk
+    };
     let binding_state_keys: Vec<String> =
         spec.bindings.iter().map(|b| b.state_key.clone()).collect();
 
@@ -241,9 +259,19 @@ where
         &next_applied,
         &version,
         &mut connector_state_json,
-        log_level,
+        start.clone(),
     )
     .await?;
+
+    start.volume = service
+        .disks
+        .for_shard(
+            &labeling,
+            spec.disk_journal_template.as_ref(),
+            &disk_ack_intents,
+            disk,
+        )
+        .await?;
 
     let open = capture::Request {
         kind: Some(capture::request::Kind::Open(Box::new(
@@ -271,11 +299,7 @@ where
         &*service.connector_router,
         &logger,
         &labeling.task_name,
-        connector::proto::request::Start {
-            log_level: log_level as i32,
-            sqlite_vfs_uri: String::new(),
-            volume: None,
-        },
+        start,
         connector::proto::request::Kind::Capture(open.clone()),
     )
     .await?;
@@ -349,13 +373,14 @@ where
 
     // Only shard zero drives backfill truncation: it owns the origin of the key
     // and r-clock ranges, so it sees each backfill's full lifecycle even when split.
-    let is_shard_zero = range.key_begin == 0 && range.r_clock_begin == 0;
+    let is_shard_zero = labels::shard::is_zero(&range);
 
-    let (db, shapes) = super::actor::Actor::new(
+    let (db, shapes, attached) = super::actor::Actor::new(
         active_backfills,
         binding_state_keys,
         connector_tx,
         db,
+        disk.take(),
         is_shard_zero,
         metrics,
         logger,
@@ -366,6 +391,7 @@ where
     )
     .serve(connector_rx, controller_rx, head, tail)
     .await?;
+    *disk = attached;
 
     *shapes_by_key = task.shapes_by_key(shapes);
 
@@ -399,7 +425,7 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     next_applied: &bytes::Bytes,
     next_version: &str,
     connector_state_json: &mut bytes::Bytes,
-    log_level: ops::LogLevel,
+    start: connector::proto::request::Start,
 ) -> anyhow::Result<crate::shard::RocksDB> {
     // Spec is unchanged: a prior session already converged Apply and persisted
     // `last_applied`. Skip — captures re-Open every `interval`, and an Apply on
@@ -439,11 +465,7 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             &*service.connector_router,
             logger,
             task_name,
-            connector::proto::request::Start {
-                log_level: log_level as i32,
-                sqlite_vfs_uri: String::new(),
-                volume: None,
-            },
+            start.clone(),
             connector::proto::request::Kind::Capture(capture::Request {
                 kind: Some(capture::request::Kind::Apply(Box::new(apply))),
                 ..Default::default()

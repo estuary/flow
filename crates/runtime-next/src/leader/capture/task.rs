@@ -15,6 +15,8 @@ pub struct Task {
     pub close_policy: close_policy::Policy,
     /// Does the capture connector want explicit acknowledgements?
     pub explicit_acknowledgements: bool,
+    /// True if the spec has a `disk_journal_template`.
+    pub has_disk: bool,
     /// Transactions to complete before stopping, or zero for unbounded.
     /// Set only by the preview / test harness; production leaves it zero.
     /// A non-zero bound also stops the session at connector EOF, where
@@ -103,7 +105,7 @@ impl Task {
             name,
             network_ports: _,
             recovery_log_template: _,
-            disk_journal_template: _,
+            disk_journal_template,
             shard_template,
             inactive_bindings: _,
             redact_salt,
@@ -230,6 +232,7 @@ impl Task {
             targets,
             close_policy,
             explicit_acknowledgements,
+            has_disk: disk_journal_template.is_some(),
             max_transactions,
             redact_salt: redact_salt.clone(),
             restart,
@@ -448,6 +451,7 @@ pub(crate) mod fixture {
                 std::time::Duration::MAX,
             ),
             explicit_acknowledgements,
+            has_disk: false,
             max_transactions: 0,
             redact_salt: bytes::Bytes::new(),
             restart: uuid::Clock::zero(),

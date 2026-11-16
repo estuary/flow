@@ -16,7 +16,11 @@ use tokio::sync::mpsc;
 type PersistFut = BoxFuture<
     'static,
     anyhow::Result<(
-        (crate::shard::RocksDB, Vec<String>),
+        (
+            crate::shard::RocksDB,
+            Vec<String>,
+            Option<crate::shard::disk::Attached>,
+        ),
         Option<proto::persist::ActiveBackfillChange>,
     )>,
 >;
@@ -59,8 +63,13 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     is_shard_zero: bool,
 
     // --- Parked resources: `Some` unless borrowed by an in-flight future. ---
-    // RocksDB is parked with its per-binding state keys.
-    db: Option<(crate::shard::RocksDB, Vec<String>)>,
+    // RocksDB is parked with its per-binding state keys, and with the shard's
+    // disk, if it has one.
+    db: Option<(
+        crate::shard::RocksDB,
+        Vec<String>,
+        Option<crate::shard::disk::Attached>,
+    )>,
     publisher: Option<P>,
     // Inferred per-target write-shapes. Seeded from prior sessions at
     // construction, parked into the drain future, handed back at session end.
@@ -110,6 +119,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         binding_state_keys: Vec<String>,
         connector_tx: mpsc::Sender<connector::proto::Request>,
         db: crate::shard::RocksDB,
+        disk: Option<crate::shard::disk::Attached>,
         is_shard_zero: bool,
         metrics: super::Metrics,
         logger: L,
@@ -134,7 +144,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             token_restart_at,
             logger,
             is_shard_zero,
-            db: Some((db, binding_state_keys)),
+            db: Some((db, binding_state_keys, disk)),
             publisher: Some(publisher),
             shapes: Some(shapes),
             split_policy: crate::shard::split_policy::SplitPolicy::new(),
@@ -161,7 +171,11 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         controller_rx: &mut Ctrl,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
-    ) -> anyhow::Result<(crate::shard::RocksDB, Vec<doc::Shape>)>
+    ) -> anyhow::Result<(
+        crate::shard::RocksDB,
+        Vec<doc::Shape>,
+        Option<crate::shard::disk::Attached>,
+    )>
     where
         Ctrl: futures::Stream<Item = tonic::Result<proto::Capture>> + Send + Unpin + 'static,
     {
@@ -390,12 +404,12 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             }
         }
 
-        let (db, _binding_state_keys) = self.db.take().context("missing RocksDB")?;
+        let (db, _binding_state_keys, disk) = self.db.take().context("missing RocksDB")?;
         // Hand inferred shapes back so the next session continues inference
         // rather than re-widening every binding from `nothing()`.
         let shapes = self.shapes.take().context("missing capture shapes")?;
 
-        Ok((db, shapes))
+        Ok((db, shapes, disk))
     }
 
     /// Drain this transaction's per-journal throttle samples from the publisher
@@ -549,19 +563,28 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 true
             }
 
-            fsm::Action::Persist { persist } => {
+            fsm::Action::Persist { mut persist } => {
                 self.logger
                     .event(crate::LogEvent::Persist { persist: &persist });
 
-                let (db, binding_state_keys) =
+                let (db, binding_state_keys, mut disk) =
                     self.db.take().context("Persist while RocksDB is busy")?;
                 self.persist_fut = Some(
                     async move {
+                        if let Some(disk) = &mut disk {
+                            persist.disk_ack_intents = disk.prepare().await?;
+                        }
                         let db = db
                             .persist(&persist, &binding_state_keys)
                             .await
                             .context("Persisting capture state")?;
-                        Ok(((db, binding_state_keys), persist.active_backfill_change))
+                        if let Some(disk) = &mut disk {
+                            () = disk.acknowledge();
+                        }
+                        Ok((
+                            (db, binding_state_keys, disk),
+                            persist.active_backfill_change,
+                        ))
                     }
                     .boxed(),
                 );
@@ -930,6 +953,7 @@ mod tests {
             state_keys(task),
             connector_tx,
             db,
+            None, // disk
             is_shard_zero,
             super::super::Metrics::new("test/shard"),
             logger,
@@ -1038,7 +1062,7 @@ mod tests {
             ..Default::default()
         }));
 
-        let (db, shapes) = serve
+        let (db, shapes, _disk) = serve
             .await
             .unwrap()
             .unwrap_or_else(|err| panic!("capture session failed: {err:?}"));
@@ -1347,7 +1371,7 @@ mod tests {
         std::mem::drop(conn_resp_tx);
 
         let mut controller_rx = UnboundedReceiverStream::new(controller_rx);
-        let (db, _shapes) = actor
+        let (db, _shapes, _disk) = actor
             .serve(
                 conn_resp_rx,
                 &mut controller_rx,
