@@ -78,6 +78,7 @@ pub(super) async fn run<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     db: crate::shard::RocksDB,
+    disk: &mut Option<crate::shard::disk::Attached>,
     labeling: ops::proto::ShardLabeling,
     leader_producer: proto_gazette::uuid::Producer,
     mut leader_rx: futures::stream::BoxStream<'static, tonic::Result<proto::Derive>>,
@@ -188,8 +189,17 @@ where
         range,
         spec: open_spec,
         version,
-        disk_ack_intents: _,
+        disk_ack_intents,
     } = open;
+
+    let disk_template = spec
+        .derivation
+        .as_ref()
+        .and_then(|derivation| derivation.disk_journal_template.as_ref());
+    let volume = service
+        .disks
+        .for_shard(&labeling, disk_template, &disk_ack_intents, disk)
+        .await?;
 
     let open_spec = flow::CollectionSpec::decode(open_spec.as_ref())
         .context("invalid CollectionSpec in L:Open")?;
@@ -221,7 +231,7 @@ where
         connector::proto::request::Start {
             log_level: log_level as i32,
             sqlite_vfs_uri,
-            volume: None,
+            volume,
         },
         connector::proto::request::Kind::Derive(initial),
     )

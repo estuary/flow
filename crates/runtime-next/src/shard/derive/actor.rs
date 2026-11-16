@@ -4,9 +4,20 @@ use crate::{patches, proto};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, future, future::BoxFuture};
 use proto_flow::derive;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::mpsc;
+
+/// A drain and publish of the output combiner, alongside the prepare of the
+/// shard's disk. It hands back the disk, and the ACK intents of its delta.
+type DrainFut<P> = BoxFuture<
+    'static,
+    anyhow::Result<(
+        drain::Output<P>,
+        Option<crate::shard::disk::Attached>,
+        BTreeMap<String, bytes::Bytes>,
+    )>,
+>;
 
 /// Read-side phase of the shard transaction, driven by leader `L:Load`s.
 /// The output-publishing drain is orthogonal: it runs as `drain_fut` while
@@ -41,7 +52,7 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     db_persist_fut:
         Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, proto::Derive)>>>,
     // Output-combiner drain + publish future, when in flight.
-    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<P>>>>,
+    drain_fut: Option<DrainFut<P>>,
     // Channel for sending to the leader.
     leader_tx: mpsc::UnboundedSender<proto::Derive>,
     // Per-session metrics counters.
@@ -64,6 +75,8 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     task: Arc<Task>,
     // Inferred shape; parked while a drain borrows it.
     inferred_shape: Option<doc::Shape>,
+    // This shard's disk, if it has one; parked while a drain borrows it.
+    disk: Option<Option<crate::shard::disk::Attached>>,
 }
 
 impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
@@ -72,6 +85,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         connector_tx: mpsc::Sender<connector::proto::Request>,
         controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
         db: crate::shard::RocksDB,
+        disk: Option<crate::shard::disk::Attached>,
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
         metrics: super::Metrics,
         logger: L,
@@ -99,6 +113,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             split_fut: None,
             task,
             inferred_shape: Some(inferred_shape),
+            disk: Some(disk),
         }
     }
 
@@ -111,7 +126,11 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         leader_rx: &mut Ldr,
         max_pinned_segments: usize,
         shuffle_reader: shuffle::log::Reader,
-    ) -> anyhow::Result<(crate::shard::RocksDB, doc::Shape)>
+    ) -> anyhow::Result<(
+        crate::shard::RocksDB,
+        doc::Shape,
+        Option<crate::shard::disk::Attached>,
+    )>
     where
         Ctrl: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
         Ldr: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
@@ -250,10 +269,11 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 }
                 // A drain + publish completion.
                 result = maybe_fut(&mut self.drain_fut) => {
-                    let output = result?;
+                    let (output, disk, disk_ack_intents) = result?;
                     accumulator_idle = Some(output.accumulator);
                     self.publisher = Some(output.publisher);
                     self.inferred_shape = Some(output.inferred_shape);
+                    self.disk = Some(disk);
                     self.drain_fut = None;
 
                     // The drain just flushed this transaction's collection appends,
@@ -275,7 +295,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                             drained_docs_total: output.drained_docs,
                             drained_bytes_total: output.drained_bytes,
                             publisher_commit: output.publisher_commit,
-                            disk_ack_intents: Default::default(),
+                            disk_ack_intents,
                         }),
                         ..Default::default()
                     });
@@ -316,8 +336,12 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             .inferred_shape
             .take()
             .context("missing inferred shape")?;
+        let disk = self
+            .disk
+            .take()
+            .context("leader Stopped while a drain is in flight")?;
 
-        Ok((db, inferred_shape))
+        Ok((db, inferred_shape, disk))
     }
 
     fn try_connector_tx(&mut self) -> impl Future<Output = bool> + 'static {
@@ -425,6 +449,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 .inferred_shape
                 .take()
                 .context("L:Store while inferred shape is busy")?;
+            let mut disk = self.disk.take().context("L:Store while disk is busy")?;
 
             self.staged_published_docs = std::mem::take(&mut self.published_docs);
             self.staged_published_bytes = std::mem::take(&mut self.published_bytes);
@@ -434,7 +459,13 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             let logger = self.logger.clone();
             self.drain_fut = Some(
                 async move {
-                    drain::drain_and_publish(
+                    let prepare = async {
+                        match &mut disk {
+                            Some(disk) => disk.prepare().await,
+                            None => Ok(BTreeMap::new()),
+                        }
+                    };
+                    let drain = drain::drain_and_publish(
                         drainer,
                         parser,
                         publisher,
@@ -442,8 +473,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         inferred_shape,
                         metrics,
                         logger,
-                    )
-                    .await
+                    );
+                    let (disk_ack_intents, output) = futures::try_join!(prepare, drain)?;
+
+                    Ok((output, disk, disk_ack_intents))
                 }
                 .boxed(),
             );
@@ -459,6 +492,14 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 )),
                 ..Default::default()
             });
+        } else if let Some(proto::derive::Acknowledge {}) = msg.acknowledge {
+            if let Some(disk) = self
+                .disk
+                .as_mut()
+                .context("L:Acknowledge while disk is busy")?
+            {
+                () = disk.acknowledge();
+            }
         } else if let Some(persist) = msg.persist {
             let seq_no = persist.seq_no;
             let rescan = persist.rescan;
@@ -709,6 +750,7 @@ mod tests {
             actor_to_conn_tx,
             actor_to_controller_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
+            None, // disk
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
             crate::TracingLogger,
@@ -804,6 +846,7 @@ mod tests {
             actor_to_conn_tx,
             actor_to_controller_tx,
             db,
+            None, // disk
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
             crate::TracingLogger,
@@ -984,7 +1027,7 @@ mod tests {
             .unwrap();
         std::mem::drop(leader_to_actor_tx);
 
-        let (db, _inferred_shape) = serve_handle.await.unwrap().unwrap();
+        let (db, _inferred_shape, _disk) = serve_handle.await.unwrap().unwrap();
 
         // Confirm the Persist round-tripped.
         let (_db, recover) = db.scan(Vec::<&str>::new()).await.unwrap();

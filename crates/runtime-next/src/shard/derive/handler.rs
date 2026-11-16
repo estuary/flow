@@ -69,6 +69,10 @@ where
     // across every session of this Shard stream, until the collection is reset.
     let mut inferred_shape: Option<doc::Shape> = None;
 
+    // This shard's disk, attached by the first session which needs it, and
+    // held across every later session of the loop.
+    let mut disk: Option<crate::shard::disk::Attached> = None;
+
     let verify = crate::verify("Derive", "Join", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
@@ -80,6 +84,7 @@ where
                     controller_rx,
                     controller_tx,
                     db,
+                    &mut disk,
                     join,
                     shard_producer,
                     leader_producer,
@@ -98,6 +103,9 @@ where
         };
     }
 
+    if let Some(disk) = disk {
+        () = disk.close().await?;
+    }
     Ok(())
 }
 
@@ -106,6 +114,7 @@ async fn serve_session<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     db: crate::shard::RocksDB,
+    disk: &mut Option<crate::shard::disk::Attached>,
     join: proto::Join,
     shard_producer: proto_gazette::uuid::Producer,
     leader_producer: proto_gazette::uuid::Producer,
@@ -122,6 +131,7 @@ where
         controller_rx,
         controller_tx,
         db,
+        disk,
         join,
         shard_producer,
         leader_producer,
@@ -138,6 +148,7 @@ async fn serve_session_inner<R, P: crate::PublisherFactory, L: crate::LoggerFact
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     db: crate::shard::RocksDB,
+    disk: &mut Option<crate::shard::disk::Attached>,
     join: proto::Join,
     shard_producer: proto_gazette::uuid::Producer,
     leader_producer: proto_gazette::uuid::Producer,
@@ -218,6 +229,7 @@ where
         controller_rx,
         controller_tx,
         db,
+        disk,
         labeling,
         leader_producer,
         leader_rx,
@@ -243,6 +255,7 @@ where
         connector_tx,
         controller_tx.clone(),
         db,
+        disk.take(),
         leader_tx,
         metrics,
         logger,
@@ -261,9 +274,10 @@ where
     .await;
 
     let db = match result {
-        Ok((db, shape)) => {
+        Ok((db, shape, attached)) => {
             handler.finish_ok();
             *inferred_shape = Some(shape);
+            *disk = attached;
             db
         }
         Err(err) => {

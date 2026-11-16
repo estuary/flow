@@ -18,6 +18,7 @@ impl Task {
         let flow::collection_spec::Derivation {
             transforms,
             shard_template,
+            disk_journal_template,
             ..
         } = derivation;
 
@@ -71,6 +72,7 @@ impl Task {
             n_shards: peers.len(),
             peers,
             remote_authoritative: false, // Set after the Opened fan-in.
+            has_disk: disk_journal_template.is_some(),
             shard_ref,
         })
     }
