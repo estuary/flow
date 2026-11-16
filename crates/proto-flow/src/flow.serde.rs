@@ -296,6 +296,9 @@ impl serde::Serialize for CaptureSpec {
         if self.connector_spec.is_some() {
             len += 1;
         }
+        if self.disk_journal_template.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CaptureSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -349,6 +352,9 @@ impl serde::Serialize for CaptureSpec {
         if let Some(v) = self.connector_spec.as_ref() {
             struct_ser.serialize_field("connectorSpec", v)?;
         }
+        if let Some(v) = self.disk_journal_template.as_ref() {
+            struct_ser.serialize_field("diskJournalTemplate", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -384,6 +390,8 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             "secrets",
             "connector_spec",
             "connectorSpec",
+            "disk_journal_template",
+            "diskJournalTemplate",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -402,6 +410,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             LinkedCollections,
             Secrets,
             ConnectorSpec,
+            DiskJournalTemplate,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -449,6 +458,9 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             }
                             "secrets" => Ok(GeneratedField::Secrets),
                             "connectorSpec" | "connector_spec" => Ok(GeneratedField::ConnectorSpec),
+                            "diskJournalTemplate" | "disk_journal_template" => {
+                                Ok(GeneratedField::DiskJournalTemplate)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -482,6 +494,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                 let mut linked_collections__ = None;
                 let mut secrets__ = None;
                 let mut connector_spec__ = None;
+                let mut disk_journal_template__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -578,6 +591,14 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             }
                             connector_spec__ = map_.next_value()?;
                         }
+                        GeneratedField::DiskJournalTemplate => {
+                            if disk_journal_template__.is_some() {
+                                return Err(serde::de::Error::duplicate_field(
+                                    "diskJournalTemplate",
+                                ));
+                            }
+                            disk_journal_template__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -598,6 +619,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                     linked_collections: linked_collections__.unwrap_or_default(),
                     secrets: secrets__.unwrap_or_default(),
                     connector_spec: connector_spec__,
+                    disk_journal_template: disk_journal_template__,
                 })
             }
         }
@@ -1201,6 +1223,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if self.connector_spec.is_some() {
             len += 1;
         }
+        if self.disk_journal_template.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CollectionSpec.Derivation", len)?;
         if self.connector_type != 0 {
             let v = collection_spec::derivation::ConnectorType::try_from(self.connector_type)
@@ -1258,6 +1283,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if let Some(v) = self.connector_spec.as_ref() {
             struct_ser.serialize_field("connectorSpec", v)?;
         }
+        if let Some(v) = self.disk_journal_template.as_ref() {
+            struct_ser.serialize_field("diskJournalTemplate", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -1290,6 +1318,8 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             "secrets",
             "connector_spec",
             "connectorSpec",
+            "disk_journal_template",
+            "diskJournalTemplate",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1306,6 +1336,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             LinkedCollections,
             Secrets,
             ConnectorSpec,
+            DiskJournalTemplate,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1351,6 +1382,9 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             }
                             "secrets" => Ok(GeneratedField::Secrets),
                             "connectorSpec" | "connector_spec" => Ok(GeneratedField::ConnectorSpec),
+                            "diskJournalTemplate" | "disk_journal_template" => {
+                                Ok(GeneratedField::DiskJournalTemplate)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1385,6 +1419,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                 let mut linked_collections__ = None;
                 let mut secrets__ = None;
                 let mut connector_spec__ = None;
+                let mut disk_journal_template__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
@@ -1475,6 +1510,14 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             }
                             connector_spec__ = map_.next_value()?;
                         }
+                        GeneratedField::DiskJournalTemplate => {
+                            if disk_journal_template__.is_some() {
+                                return Err(serde::de::Error::duplicate_field(
+                                    "diskJournalTemplate",
+                                ));
+                            }
+                            disk_journal_template__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1493,6 +1536,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                     linked_collections: linked_collections__.unwrap_or_default(),
                     secrets: secrets__.unwrap_or_default(),
                     connector_spec: connector_spec__,
+                    disk_journal_template: disk_journal_template__,
                 })
             }
         }
@@ -4057,6 +4101,9 @@ impl serde::Serialize for MaterializationSpec {
         if self.connector_spec.is_some() {
             len += 1;
         }
+        if self.disk_journal_template.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -4112,6 +4159,9 @@ impl serde::Serialize for MaterializationSpec {
         if let Some(v) = self.connector_spec.as_ref() {
             struct_ser.serialize_field("connectorSpec", v)?;
         }
+        if let Some(v) = self.disk_journal_template.as_ref() {
+            struct_ser.serialize_field("diskJournalTemplate", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -4147,6 +4197,8 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             "secrets",
             "connector_spec",
             "connectorSpec",
+            "disk_journal_template",
+            "diskJournalTemplate",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4165,6 +4217,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             LinkedCollections,
             Secrets,
             ConnectorSpec,
+            DiskJournalTemplate,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4212,6 +4265,9 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             }
                             "secrets" => Ok(GeneratedField::Secrets),
                             "connectorSpec" | "connector_spec" => Ok(GeneratedField::ConnectorSpec),
+                            "diskJournalTemplate" | "disk_journal_template" => {
+                                Ok(GeneratedField::DiskJournalTemplate)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4245,6 +4301,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                 let mut linked_collections__ = None;
                 let mut secrets__ = None;
                 let mut connector_spec__ = None;
+                let mut disk_journal_template__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -4338,6 +4395,14 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             }
                             connector_spec__ = map_.next_value()?;
                         }
+                        GeneratedField::DiskJournalTemplate => {
+                            if disk_journal_template__.is_some() {
+                                return Err(serde::de::Error::duplicate_field(
+                                    "diskJournalTemplate",
+                                ));
+                            }
+                            disk_journal_template__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4358,6 +4423,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                     linked_collections: linked_collections__.unwrap_or_default(),
                     secrets: secrets__.unwrap_or_default(),
                     connector_spec: connector_spec__,
+                    disk_journal_template: disk_journal_template__,
                 })
             }
         }

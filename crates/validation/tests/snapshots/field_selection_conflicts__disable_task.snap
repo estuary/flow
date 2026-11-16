@@ -20,6 +20,7 @@ expression: "(selections, errors)"
                         },
                     ),
                     secrets: {},
+                    persistent_disk: false,
                     bindings: [
                         MaterializationBinding {
                             resource: RawValue(

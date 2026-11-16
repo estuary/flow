@@ -247,6 +247,7 @@ async fn walk_derivation(
         shuffle_key_types: shuffle_key_types_model,
         redact_salt: model_redact_salt,
         secrets,
+        persistent_disk,
         shards,
     } = model;
 
@@ -758,6 +759,20 @@ async fn walk_derivation(
         &shard_id_prefix,
         recovery_stores,
     );
+    let has_disk = persistent_disk
+        && matches!(
+            using,
+            models::DeriveUsing::Python(models::DeriveUsingPython { module: None, .. })
+        );
+    let disk_journal_template = has_disk.then(|| {
+        assemble::disk_journal_template(
+            build_id,
+            collection,
+            labels::TASK_TYPE_DERIVATION,
+            &shard_id_prefix,
+            recovery_stores,
+        )
+    });
     let shard_template = assemble::shard_template(
         build_id,
         collection,
@@ -780,6 +795,7 @@ async fn walk_derivation(
         linked_collections: Vec::new(),
         secrets: secrets_spec,
         connector_spec: (!no_op && !frozen_image).then(|| Box::new(connector_spec)),
+        disk_journal_template,
     };
     linked::install_derivation(&mut spec, interner, indirect_specs);
 
@@ -789,6 +805,7 @@ async fn walk_derivation(
         shuffle_key_types: shuffle_key_types_model,
         redact_salt: model_redact_salt,
         secrets,
+        persistent_disk,
         shards,
     };
 

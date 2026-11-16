@@ -116,6 +116,10 @@ pub struct MaterializationDef {
     /// A configuration using `secrets` may not also be sealed with `sops`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<Secret, JsonPointer>,
+    /// # Give this materialization a persistent disk.
+    /// Persistent disks are currently only supported for custom connectors.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub persistent_disk: bool,
     /// # Bound collections to materialize into the endpoint.
     pub bindings: Vec<MaterializationBinding>,
     /// # Template for shards of this materialization task.
@@ -271,6 +275,7 @@ impl MaterializationDef {
             target_naming: None,
             endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
             secrets: BTreeMap::new(),
+            persistent_disk: false,
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),
             expect_pub_id: None,

@@ -28,6 +28,10 @@ pub struct CaptureDef {
     /// A configuration using `secrets` may not also be sealed with `sops`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<Secret, JsonPointer>,
+    /// # Give this capture a persistent disk.
+    /// Persistent disks are currently only supported for custom connectors.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub persistent_disk: bool,
     /// # Bound collections to capture from the endpoint.
     pub bindings: Vec<CaptureBinding>,
     /// # Interval of time between invocations of the capture.
@@ -150,6 +154,7 @@ impl CaptureDef {
             }),
             endpoint: CaptureEndpoint::Connector(ConnectorConfig::example()),
             secrets: BTreeMap::new(),
+            persistent_disk: false,
             bindings: vec![CaptureBinding::example()],
             interval: Self::default_interval(),
             shards: ShardTemplate::default(),

@@ -1,6 +1,5 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-assertion_line: 1572
 expression: json_catalogue(ex_materialize_requests())
 ---
 // spec
@@ -358,6 +357,18 @@ expression: json_catalogue(ex_materialize_requests())
             "access": "here"
           }
         }
+      },
+      "diskJournalTemplate": {
+        "name": "recovery/template",
+        "replication": 3,
+        "fragment": {
+          "length": "1048576",
+          "compressionCodec": "SNAPPY",
+          "stores": [
+            "s3://bucket/recovery"
+          ],
+          "refreshInterval": "300s"
+        }
       }
     },
     "version": "11:22:33:44",
@@ -596,6 +607,18 @@ expression: json_catalogue(ex_materialize_requests())
           "refreshTokenResponseMap": {
             "access": "here"
           }
+        }
+      },
+      "diskJournalTemplate": {
+        "name": "recovery/template",
+        "replication": 3,
+        "fragment": {
+          "length": "1048576",
+          "compressionCodec": "SNAPPY",
+          "stores": [
+            "s3://bucket/recovery"
+          ],
+          "refreshInterval": "300s"
         }
       }
     },

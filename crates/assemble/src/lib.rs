@@ -330,6 +330,54 @@ pub fn recovery_log_template(
     }
 }
 
+// disk_journal_template returns a template JournalSpec for creating or
+// updating the persistent disk journals of task shards.
+pub fn disk_journal_template(
+    build_id: models::Id,
+    task_name: &str,
+    task_type: &str,
+    shard_id_prefix: &str,
+    stores: &[models::Store],
+) -> broker::JournalSpec {
+    let replication = 3;
+
+    let compression_codec = compression_codec(models::CompressionCodec::Snappy);
+
+    let flush_interval = Some(std::time::Duration::from_secs(24 * 3600).into());
+    let length = 1 << 29; // 512MB.
+    let path_postfix_template = String::new();
+    let refresh_interval = Some(Duration::from_secs(5 * 60).into());
+    let retention = None;
+    let flags = broker::journal_spec::Flag::ORdwr as u32;
+    let max_append_rate = 1 << 22; // 4MB.
+
+    let labels = labels::build_set([
+        (labels::BUILD, build_id.to_string().as_str()),
+        (labels::CONTENT_TYPE, labels::CONTENT_TYPE_DISK),
+        (labels::MANAGED_BY, labels::MANAGED_BY_FLOW),
+        (labels::TASK_NAME, task_name),
+        (labels::TASK_TYPE, &task_type.to_string()),
+    ]);
+
+    broker::JournalSpec {
+        name: format!("recovery/disk/{shard_id_prefix}"),
+        replication,
+        fragment: Some(broker::journal_spec::Fragment {
+            compression_codec: compression_codec as i32,
+            flush_interval,
+            length,
+            path_postfix_template,
+            refresh_interval,
+            retention,
+            stores: stores.iter().map(|s| s.to_url(task_name).into()).collect(),
+        }),
+        flags,
+        labels: Some(labels),
+        max_append_rate,
+        suspend: None,
+    }
+}
+
 // partition_prefix returns the base Gazette Journal name for logical and
 // physical partitions of the given collection name.
 // At runtime, this base ID is then '/'-joined with logical partition values,
@@ -788,6 +836,18 @@ mod test {
             super::extract_generation_id_suffix("capture/some/task/name"),
             models::Id::zero()
         );
+    }
+
+    #[test]
+    fn test_disk_journal_template() {
+        let template = super::disk_journal_template(
+            models::Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
+            "acmeCo/notes",
+            labels::TASK_TYPE_DERIVATION,
+            "derivation/acmeCo/notes/0102030405060708",
+            &[models::Store::example()],
+        );
+        insta::assert_json_snapshot!(template);
     }
 
     #[test]
