@@ -1,0 +1,37 @@
+[package]
+name = "connector-vmm"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "flow-connector-vmm"
+path = "src/main.rs"
+
+[features]
+# `run`'s --debug, --resolver-upstream and --exec, for the KVM suite's own
+# VMM image.
+test-controls = []
+
+[dependencies]
+models = { path = "../models" }
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+domain = { workspace = true }
+ipnetwork = { workspace = true }
+libc = { workspace = true }
+libloading = { workspace = true }
+netlink-packet-core = { workspace = true }
+netlink-packet-netfilter = { workspace = true }
+rustix = { workspace = true, features = ["fs", "net", "pipe", "process"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+tempfile = { workspace = true }
