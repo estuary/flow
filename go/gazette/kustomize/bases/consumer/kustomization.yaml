@@ -1,0 +1,12 @@
+# Consumer is a base kustomization for a Gazette consumer cluster Deployment
+# and Service. Overlay kustomizations should:
+#
+# * Patch the "app.kubernetes.io/name" labels & selectors of the Deployment
+#   and Service.
+# * Patch CONSUMER_APP_BINARY with the binary name, if it differs from
+#   the "app.kubernetes.io/name" label.
+# * Patch CONSUMER_APP_ARGS with any additional required arguments.
+# * Patch the image, replacing the placeholder "consumer/image".
+resources:
+  - deployment.yaml
+  - service.yaml

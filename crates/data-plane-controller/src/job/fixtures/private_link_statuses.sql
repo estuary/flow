@@ -34,7 +34,7 @@ insert into public.data_planes (
     '555555555555',
     'ops/dp/private/testCo/aws-1',
     'dp.private.testCo',
-    '{c2VjcmV0}',
+    '{}',
     '{}',
     'broker.dp.private.testCo',
     'reactor.dp.private.testCo',

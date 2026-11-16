@@ -1,3 +1,4 @@
+use prost::Message;
 /// Integration tests for the shuffle crate, exercising the full
 /// Session→Slice→Log pipeline against real published documents.
 ///
@@ -82,7 +83,9 @@ fn scan_shard_log(
 /// Exercises `shuffle::Binding::from_materialization_binding()`.
 fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
     shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Materialization(spec.clone())),
+        task: Some(shuffle::proto::task::Task::Materialization(
+            spec.encode_to_vec().into(),
+        )),
     }
 }
 
@@ -2604,7 +2607,9 @@ async fn read_delay_priority_starvation(
         ..Default::default()
     };
     let task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+        task: Some(shuffle::proto::task::Task::Derivation(
+            derivation_spec.encode_to_vec().into(),
+        )),
     };
 
     let mut session = shuffle::SessionClient::open(
@@ -2800,7 +2805,9 @@ async fn read_delay_merge_order(
     };
 
     let task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+        task: Some(shuffle::proto::task::Task::Derivation(
+            derivation_spec.encode_to_vec().into(),
+        )),
     };
     // Bindings map each logged entry to its merge position (priority and adjusted clock).
     let (bindings, _, _) = shuffle::Binding::from_task(&task).expect("Binding::from_task");
@@ -2919,7 +2926,9 @@ async fn priority_gating(
         ..Default::default()
     };
     let task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+        task: Some(shuffle::proto::task::Task::Derivation(
+            derivation_spec.encode_to_vec().into(),
+        )),
     };
 
     let mut session = shuffle::SessionClient::open(
@@ -3030,7 +3039,9 @@ async fn hint_stall_under_priority_gating(
         ..Default::default()
     };
     let task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Derivation(derivation_spec)),
+        task: Some(shuffle::proto::task::Task::Derivation(
+            derivation_spec.encode_to_vec().into(),
+        )),
     };
 
     let mut session = shuffle::SessionClient::open(

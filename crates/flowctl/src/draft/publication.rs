@@ -4,14 +4,14 @@ use anyhow::Context;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/draft/publication-create-mutation.graphql"
 )]
 struct CreatePublicationMutation;
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/draft/publication-poll-query.graphql",
     response_derives = "Debug,PartialEq"
 )]

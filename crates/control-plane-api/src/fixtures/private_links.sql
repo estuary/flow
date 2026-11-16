@@ -13,12 +13,11 @@
 do $$
 declare
   alice_private_dp_id flowid := '444444444444';
+  -- SOPS-encrypted HMAC keys, as in `data_planes.sql`.
+  encrypted_keys json := $sops${"hmac_keys":["ENC[AES256_GCM,data:kgzvBY4pczo=,iv:lA0c8tGWTC866p25il82vspY50Kl8oGWqJzNaw/zWyc=,tag:xA68U8wdFjlixqI8/zjQkA==,type:str]","ENC[AES256_GCM,data:q5Y5mbUzwRQ=,iv:bla/xToMmLdlf9N7z9Z2pxyWmpa0lQf9wizKspnyaTU=,tag:CR2QyhoO5crrDM6ZRoPPIw==,type:str]"],"sops":{"age":[{"recipient":"age1z2qskpk8ww2rx5frxzykryufkfm9sj03v56m3qu54y0lgndytp3sdg24vs","enc":"-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBtZ2ZwQks2T2Zna3h4OFov\nVjJTSzl4TGVyRnIrVk40bndWNVVmZFJQcXdZCkZpY3BlYnRKWUhZYlFnNk50dHh3\nbHlNY0R2bFI1S3pKVkJhbURHM3hYZFEKLS0tIDR0OTMrZEJkRHhKb0FaaXV1K2Uy\nNFd0bHd4TGFMK0xFUUFQVUtta3JHTlEKFBocCSHvSypsA7UcD7emwNDDS4Q3g2si\nqG+pyMMp2yObmT5iN/VAodv4un8Vr1LvcsKxEGXwTOjOnFCAk+I1Kw==\n-----END AGE ENCRYPTED FILE-----\n"}],"lastmodified":"2026-01-15T01:29:57Z","mac":"ENC[AES256_GCM,data:LTZlM4OPKZRu4J9HYUHn5fF6OBP8APXibP47sa/ADpMPA09h1q7Ivg+EAwJlqX9Ee9h8B7iEZD6CMxEyuz94T+nqiklBt4jZIQYq9GPd4xBp1EUvzSITmkvILYkkHh+A+vYU0cH/CemPv/w87wNt+QeNtsQj2xowufsr7RXCyXQ=,iv:z7t+spQvkzLMZZ3LA3eWmtZZdWKPVghKCP5M3HsQ6og=,tag:zrgfUxvTWsRuC8/2kEu6zw==,type:str]","unencrypted_suffix":"_unencrypted","version":"3.11.0"}}$sops$;
 
 begin
 
-  -- `hmac_keys` is populated directly (rather than via `encrypted_hmac_keys`)
-  -- so the snapshot loader treats this row as live without exercising the
-  -- SOPS decrypt path, which other fixtures in this directory already cover.
   insert into public.data_planes (
     id,
     data_plane_name,
@@ -46,8 +45,8 @@ begin
     alice_private_dp_id,
     'ops/dp/private/aliceCo/aws-us-east-1-c1',
     'dp.private.aliceCo',
-    '{c2VjcmV0,b3RoZXI=}',
     '{}',
+    encrypted_keys,
     'broker.dp.private.aliceCo',
     'reactor.dp.private.aliceCo',
     'ops/tasks/private/aliceCo/logs',

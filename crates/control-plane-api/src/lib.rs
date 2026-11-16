@@ -60,9 +60,6 @@ pub use server::{
     snapshot::{self, Snapshot},
 };
 
-// Re-export the GraphQL schema SDL function for flow-client build script
-pub use server::public::graphql::schema_sdl as graphql_schema_sdl;
-
 // TODO(johnny): Move to publications module?
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "flow_type")]

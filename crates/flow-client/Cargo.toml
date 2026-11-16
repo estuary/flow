@@ -8,9 +8,6 @@ homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 
-[build-dependencies]
-control-plane-api = { path = "../control-plane-api", optional = true }
-
 [dependencies]
 gazette = { path = "../gazette" }
 models = { path = "../models" }
@@ -36,7 +33,3 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
-
-[features]
-default = []
-generate = ["control-plane-api"]

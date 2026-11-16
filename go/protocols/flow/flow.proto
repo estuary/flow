@@ -46,7 +46,7 @@ message UUIDParts {
   // Clock is a v1 UUID 60-bit timestamp (60 MSBs), followed by 4 bits of
   // sequence counter.
   fixed64 clock = 2
-      [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
+      [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/message.Clock" ];
 }
 
 // Projection is a mapping between a document location, specified as a
@@ -892,7 +892,7 @@ message TaskNetworkProxyRequest {
     protocol.Header header = 1;
 
     string shard_id = 2 [
-      (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID"
+      (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/consumer/protocol.ShardID"
     ];
     // The port number inside the container that the client wishes to connect to.
     uint32 target_port = 3;

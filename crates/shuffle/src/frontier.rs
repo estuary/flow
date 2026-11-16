@@ -264,6 +264,12 @@ impl JournalFrontier {
     /// implies a committing ACK *above* `M`, so every close of this producer
     /// below `M` is already covered and a re-read would suppress it.
     ///
+    /// An `other.last_commit` at [`OBSERVED_COMMIT_FLOOR`] is an open span
+    /// without a commit, and advances nothing. Taking it would write
+    /// `{last_commit: floor, offset: -M}`. When `M` is zero and the hint is
+    /// then discharged rather than resolved, that entry reads as a span begun
+    /// at offset zero, which `slice::state::resolve_checkpoint` gaps.
+    ///
     /// Returns `(advanced, resolved)`:
     /// - `advanced`: producers whose `last_commit` advanced by any amount.
     /// - `resolved`: producers whose `last_commit` reached `hinted_commit`
@@ -303,7 +309,9 @@ impl JournalFrontier {
             let lhs = lhs.next().unwrap();
             let rhs = rhs.next().unwrap();
 
-            if lhs.hinted_commit > lhs.last_commit && rhs.last_commit > lhs.last_commit {
+            if lhs.hinted_commit > lhs.last_commit
+                && rhs.last_commit > lhs.last_commit.max(OBSERVED_COMMIT_FLOOR)
+            {
                 lhs.last_commit = rhs.last_commit.min(lhs.hinted_commit);
                 lhs.offset = -m;
                 advanced += 1;
@@ -1605,6 +1613,40 @@ mod test {
             pending.journals[0].producers[0].offset, -800,
             "the flip writes -M, the journal's max offset magnitude (P3's 800)",
         );
+        assert_eq!(pending.unresolved_hints, 0);
+    }
+
+    #[test]
+    fn test_resolve_hints_ignores_open_span_progress() {
+        // P1 is hint-only in journal/A's pending entry, so its cut floor M is 0.
+        // Progress reads P1's open span: a floored `last_commit`, which is no
+        // commit and leaves the hint untouched. Taking it would write `{1, H, 0}`,
+        // which recovers gapped from offset zero should the hint be discharged.
+        let hint_clock = Clock::from_unix(200, 0);
+        let mut pending =
+            Frontier::new(vec![jf("journal/A", 0, vec![pf(0x01, 0, 200, 0)])], vec![]).unwrap();
+        let open_span = Frontier::new(
+            vec![jf(
+                "journal/A",
+                0,
+                vec![pf_raw(0x01, OBSERVED_COMMIT_FLOOR.as_u64(), 0, 5_000)],
+            )],
+            vec![],
+        )
+        .unwrap();
+
+        assert_eq!(pending.resolve_hints(&open_span), (0, 0));
+        assert_eq!(pf_tuple(&pending.journals[0].producers[0]), (0, 200, 0));
+        assert_eq!(pending.unresolved_hints, 1);
+
+        // P1's ACK in journal/A resolves the hint.
+        let commit = Frontier::new(
+            vec![jf("journal/A", 0, vec![pf(0x01, 200, 0, -6_000)])],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(pending.resolve_hints(&commit), (1, 1));
+        assert_eq!(pending.journals[0].producers[0].last_commit, hint_clock);
         assert_eq!(pending.unresolved_hints, 0);
     }
 

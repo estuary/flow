@@ -1,8 +1,8 @@
 package flow
 
 import (
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	jsonpatch "github.com/evanphx/json-patch/v5"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // Validate returns an error if the DriverCheckpoint is malformed.

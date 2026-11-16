@@ -1,6 +1,6 @@
 package flow
 
-import pb "go.gazette.dev/core/broker/protocol"
+import pb "github.com/estuary/flow/go/gazette/broker/protocol"
 
 // Validate returns an error if the TestSpec is invalid
 func (m *TestSpec) Validate() error {

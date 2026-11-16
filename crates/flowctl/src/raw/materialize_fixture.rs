@@ -100,7 +100,7 @@ pub async fn do_materialize_fixture(
                     name: this_collection,
                     projections,
                     ..
-                } = resolved.unwrap().0;
+                } = &**resolved.unwrap().0;
 
                 let flow::FieldSelection { keys, values, .. } = field_selection.as_ref().unwrap();
 

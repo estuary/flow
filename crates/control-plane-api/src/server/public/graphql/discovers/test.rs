@@ -269,7 +269,13 @@ async fn submission_selects_staged_or_live_capture(pool: sqlx::PgPool) {
         assert_eq!(after[field], before[field], "{field}");
     }
     // A staged entry takes precedence over the live capture.
-    stage_capture(&pool, draft_id, "aliceCo/in/capture-foo", MODEL).await;
+    stage_capture(
+        &pool,
+        draft_id,
+        "aliceCo/in/capture-foo",
+        &model_with(serde_json::json!({ "autoDiscover": { "addNewBindings": true } })),
+    )
+    .await;
     let staged = submit(
         &server,
         Some(&alice),
@@ -454,30 +460,41 @@ async fn logs_paginate_and_arrive_after_completion(pool: sqlx::PgPool) {
         scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
     )
 )]
-async fn update_only_follows_auto_discover(pool: sqlx::PgPool) {
+async fn update_only_follows_capture_policy(pool: sqlx::PgPool) {
     let _guard = test_server::init();
-    let (server, draft_id, alice, _) = setup(&pool).await;
-    for (name, fields, update_only) in [
-        ("aliceCo/absent-policy", serde_json::json!({}), false),
-        (
-            "aliceCo/null-policy",
-            serde_json::json!({ "autoDiscover": null }),
-            false,
-        ),
-        (
-            "aliceCo/empty-policy",
-            serde_json::json!({ "autoDiscover": {} }),
-            true,
-        ),
-        (
-            "aliceCo/enabled-policy",
-            serde_json::json!({ "autoDiscover": { "addNewBindings": true } }),
-            false,
-        ),
+    let (server, _, alice, _) = setup(&pool).await;
+    for (capture_name, existing) in [
+        ("aliceCo/new-capture", false),
+        ("aliceCo/in/capture-foo", true),
     ] {
-        stage_capture(&pool, draft_id, name, &model_with(fields)).await;
-        let response = submit(&server, Some(&alice), draft_id, name, None).await;
-        assert_eq!(queued(&pool, &response).await.1, update_only, "{name}");
+        for (policy, fields, update_only) in [
+            ("absent", serde_json::json!({}), existing),
+            (
+                "null",
+                serde_json::json!({ "autoDiscover": null }),
+                existing,
+            ),
+            ("empty", serde_json::json!({ "autoDiscover": {} }), true),
+            (
+                "disabled",
+                serde_json::json!({ "autoDiscover": { "addNewBindings": false } }),
+                true,
+            ),
+            (
+                "enabled",
+                serde_json::json!({ "autoDiscover": { "addNewBindings": true } }),
+                false,
+            ),
+        ] {
+            let draft_id = insert_draft(&pool, ALICE).await;
+            stage_capture(&pool, draft_id, capture_name, &model_with(fields)).await;
+            let response = submit(&server, Some(&alice), draft_id, capture_name, None).await;
+            assert_eq!(
+                queued(&pool, &response).await.1,
+                update_only,
+                "{capture_name}: {policy}",
+            );
+        }
     }
 }
 
@@ -789,10 +806,14 @@ async fn submission_redirects_stale_binding_and_data_plane_failures(pool: sqlx::
     unlisted
         .data_planes
         .retain(|plane| plane.data_plane_name != "ops/dp/public/aws-us-west-2-c1");
-    sqlx::query("UPDATE data_planes SET hmac_keys = ARRAY['invalid-base64%%%'], encrypted_hmac_keys = '{}'::json WHERE data_plane_name = 'ops/dp/public/aws-us-west-2-c1'")
-        .execute(&pool)
-        .await
-        .unwrap();
+    // Encrypted keys which decrypt to `["invalid-base64%%%"]`.
+    sqlx::query(
+        r#"UPDATE data_planes SET encrypted_hmac_keys = $1::json WHERE data_plane_name = 'ops/dp/public/aws-us-west-2-c1'"#,
+    )
+    .bind(r#"{"hmac_keys":["ENC[AES256_GCM,data:17DP58nBUBQ1qXC+nVXEAXY=,iv:sh1d9g6ZLhhsarJ77Huu0s0W2yIAomUaAWaVlF0BeOM=,tag:OA5kPjMYygn1tXgJjrQZqQ==,type:str]"],"sops":{"age":[{"enc":"-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB0VXptb1MrenBBVTViMHlG\nOHVYQUsvS0dnQk5WNndnZXFPbGdMVkhOU0hjClBKY01LRDdIY3lScTdSbjBqKzVM\ndGdycE9oNnNOajJQZ3FCbGd6QmNncTgKLS0tIExub1F1WlllUFBiWHBZVkNpbzBu\nWE5Ya0N0dm5qZitPTHRXR0s5ZWVXbVkKzT43NHhPx+NH4Pm/3ZmVQtF3MWHylR63\nWkh5RSU7gGkaIN6nIkfeRkk4mZjd+KAtymO/9emjmG4wNO3u4HEE8w==\n-----END AGE ENCRYPTED FILE-----\n","recipient":"age1z2qskpk8ww2rx5frxzykryufkfm9sj03v56m3qu54y0lgndytp3sdg24vs"}],"lastmodified":"2026-11-06T22:29:14Z","mac":"ENC[AES256_GCM,data:Yi5kp18Q4YBo5upUAn5sXmc9jvCrsAUL3zyy4r9tEsv7AcY6N3/LCDhJ5W64zte2RqMnEsmyUE3C+FoQ2mb3UEpRfzJpAHcl09oAtkm0Qkxa8BGYhk5fTEfc4LaXKW7mPf9IgFJ8lf+rz7fFwcqTAN3gkqoUiSDiyqVvET7YkjI=,iv:JFgFCWRA8gl4Yvb47mBv5KaLTCnKJkHMfPn5khcy8us=,tag:Pf/VePOhDFLzqouGu4KtLQ==,type:str]","unencrypted_suffix":"_unencrypted","version":"3.13.3"}}"#)
+    .execute(&pool)
+    .await
+    .unwrap();
     let unsigned = crate::snapshot::try_fetch(&pool, &mut Default::default())
         .await
         .unwrap();

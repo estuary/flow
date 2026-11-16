@@ -180,6 +180,14 @@ class TestFlowctlTarget(unittest.TestCase):
             self.verdict("ops-catalog/data-plane-template.bundle.json").ships
         )
 
+    def test_graphql_sdl_ships_for_flowctl(self):
+        # flowctl's GraphQL queries compile against this SDL, but the rest of
+        # control-plane-api is not in its closure.
+        self.assertTrue(
+            self.verdict("crates/control-plane-api/control-plane-api.graphql").ships
+        )
+        self.assertFalse(self.verdict("crates/control-plane-api/src/lib.rs").ships)
+
     def test_agent_image_inputs_do_not_apply(self):
         # flowctl-release builds with plain cargo: no mise, no Go, no image.
         for path in (

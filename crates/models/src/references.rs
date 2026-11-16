@@ -12,7 +12,7 @@ use validator::{Validate, ValidationError, ValidationErrors};
 // TOKEN_CHAR is a string production which allows Unicode letters and numbers,
 // and a *very* restricted set of other allowed punctuation symbols.
 // Compare to Gazette's ValidateToken and TokenSymbols:
-// https://github.com/gazette/core/blob/master/broker/protocol/validator.go#L52
+// go/gazette/broker/protocol/validator.go
 const TOKEN_CHAR: &'static str = r"\p{Letter}\p{Number}\-_\.";
 // SPACE_CHAR is a space character.
 // TODO(johnny): this ought to be \p{Z} rather than ' '.

@@ -344,7 +344,7 @@ mod test {
                     serde_json::json!({"namespace": table.namespace, "stream": table.stream})
                         .to_string()
                         .into(),
-                collection: Some(Box::new(collection_of(table))),
+                collection: Some(proto_flow::Arc::new(collection_of(table))),
                 state_key: format!("{}%2F{}", table.namespace, table.stream),
                 ..Default::default()
             })

@@ -35,6 +35,7 @@ pub mod connector_client {
     ///
     /// :Request.Open:
     /// - The Flow runtime opens the capture stream.
+    ///
     /// : Response.Opened:
     ///
     ///  * The connector responds with Opened.
@@ -43,6 +44,7 @@ pub mod connector_client {
     ///
     /// Request.Open and Request.Opened are sent only once, at the
     /// commencement of the stream. Thereafter the protocol loops:
+    ///
     /// : Response.Captured:
     ///
     ///  * The connector tells the runtime of documents,
@@ -50,6 +52,7 @@ pub mod connector_client {
     ///  * If the connector sends multiple Documents messages without an
     ///    interleaving Checkpoint, the Flow runtime MUST commit
     ///    documents of all such messages in a single transaction.
+    ///
     ///
     ///
     /// : Response.SourcedSchema:
@@ -61,6 +64,7 @@ pub mod connector_client {
     ///  * The connector must follow SourcedSchema with a Checkpoint.
     ///
     ///
+    ///
     /// : Response.Checkpoint:
     ///
     ///  * The connector tells the runtime of a checkpoint: a watermark in the
@@ -69,6 +73,7 @@ pub mod connector_client {
     ///  * Whether the checkpoint becomes a commit boundary is at the
     ///    discretion of the Flow runtime. It may combine multiple checkpoints
     ///    into a single transaction.
+    ///
     ///
     ///
     /// : Request.Acknowledge:
@@ -220,6 +225,7 @@ pub mod connector_server {
     ///
     /// :Request.Open:
     /// - The Flow runtime opens the capture stream.
+    ///
     /// : Response.Opened:
     ///
     ///  * The connector responds with Opened.
@@ -228,6 +234,7 @@ pub mod connector_server {
     ///
     /// Request.Open and Request.Opened are sent only once, at the
     /// commencement of the stream. Thereafter the protocol loops:
+    ///
     /// : Response.Captured:
     ///
     ///  * The connector tells the runtime of documents,
@@ -235,6 +242,7 @@ pub mod connector_server {
     ///  * If the connector sends multiple Documents messages without an
     ///    interleaving Checkpoint, the Flow runtime MUST commit
     ///    documents of all such messages in a single transaction.
+    ///
     ///
     ///
     /// : Response.SourcedSchema:
@@ -246,6 +254,7 @@ pub mod connector_server {
     ///  * The connector must follow SourcedSchema with a Checkpoint.
     ///
     ///
+    ///
     /// : Response.Checkpoint:
     ///
     ///  * The connector tells the runtime of a checkpoint: a watermark in the
@@ -254,6 +263,7 @@ pub mod connector_server {
     ///  * Whether the checkpoint becomes a commit boundary is at the
     ///    discretion of the Flow runtime. It may combine multiple checkpoints
     ///    into a single transaction.
+    ///
     ///
     ///
     /// : Request.Acknowledge:

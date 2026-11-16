@@ -80,7 +80,7 @@ fn unary(mut request: Request) -> anyhow::Result<response::Kind> {
         anyhow::bail!("connector returned {response:?} to a Validate, which expects Validated");
     };
     validated.generated_files =
-        python_connector::project_urls(&project_root, generated_module(&task, &project.spec)?);
+        python_connector::project_urls(&project_root, [generated_module(&task, &project.spec)?]);
 
     Ok(response::Kind::Validated(validated))
 }
@@ -135,9 +135,10 @@ fn strip_sentinels(request: &mut Request) {
 /// Stage the project of capture `task` with its generated module and entry
 /// point, and `install` its dependencies.
 fn stage(task: &str, project: &Project, install: Install) -> anyhow::Result<Staged> {
-    let mut generated = generated_module(task, &project.spec)?;
-    generated.push((python_connector::ENTRY.to_string(), main_py(task_dir(task))));
-
+    let generated = [
+        generated_module(task, &project.spec)?,
+        (python_connector::ENTRY.to_string(), main_py(task_dir(task))),
+    ];
     Staged::of_project(project, &generated, install)
 }
 
@@ -185,7 +186,7 @@ fn starter_validated(
         .collect();
 
     let mut generated_files =
-        python_connector::project_urls(project_root, generated_module(task, &project.spec)?);
+        python_connector::project_urls(project_root, [generated_module(task, &project.spec)?]);
 
     generated_files.extend(python_connector::starter_files(
         project,
@@ -255,12 +256,12 @@ fn stock_resource_config_schema() -> serde_json::Value {
     })
 }
 
-/// Files of the module generated for capture `task`, relative to the project:
+/// File of the module generated for capture `task`, relative to the project:
 /// its `EndpointConfig` and `ResourceConfig` types, and its CDK `SPEC`.
-fn generated_module(task: &str, spec: &Spec) -> anyhow::Result<Vec<(String, String)>> {
+fn generated_module(task: &str, spec: &Spec) -> anyhow::Result<(String, String)> {
     let content = generated_module_py(task, spec)
         .context("failed to generate the capture's types from its `spec`")?;
-    Ok(python_connector::module_files(task, content))
+    Ok((python_connector::module_path(task), content))
 }
 
 /// Source of the module generated for `capture` from its declared `spec`.

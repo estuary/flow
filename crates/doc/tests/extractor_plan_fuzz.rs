@@ -276,7 +276,7 @@ fn assert_equivalent(plan_spec: PlanSpec) -> bool {
 #[test]
 fn fuzz_plan_matches_extractor() {
     QuickCheck::new()
-        .r#gen(Gen::new(50))
+        .rng(Gen::new(50))
         .tests(1_000)
         .quickcheck(assert_equivalent as fn(PlanSpec) -> bool);
 }

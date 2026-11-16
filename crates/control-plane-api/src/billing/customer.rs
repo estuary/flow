@@ -5,6 +5,7 @@
 
 use super::BillingProvider;
 use anyhow::Context;
+use std::collections::HashMap;
 
 /// The tenant's Stripe customer, or `None` if it has none. A recorded customer
 /// that was deleted in Stripe is also `None`.
@@ -54,8 +55,23 @@ pub async fn find_or_create_customer(
         ),
         Some(customer) => return Ok(customer),
         None => {
+            let mut metadata =
+                HashMap::from([("created_by_user_email".to_string(), email.to_string())]);
+            if let Some(name) = full_name {
+                metadata.insert("created_by_user_name".to_string(), name.to_string());
+            }
+            // The billing-contact name is stored in metadata, not `Customer.name`; see
+            // `update_customer_billing_profile`. Set it at creation alongside email and
+            // address so a contact captured before the customer existed is reflected,
+            // rather than waiting for the tenant controller to observe a later edit.
+            if let Some(name) = billing_name {
+                metadata.insert(
+                    billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                    name.to_string(),
+                );
+            }
             let customer = provider
-                .create_customer(tenant, email, full_name, billing_name, address)
+                .create_customer(tenant, Some(email), address, metadata)
                 .await?;
             billing_types::record_customer_id(pool, tenant, &customer.id)
                 .await
@@ -169,10 +185,47 @@ mod tests {
         insert_tenant(&pool, None).await;
         let provider = InMemoryBillingProvider::new();
 
-        let created =
-            find_or_create_customer(&pool, &provider, TENANT, "a@b.test", None, None, None)
-                .await
-                .unwrap();
+        let address = stripe::Address {
+            line1: Some("1 Billing Way".to_string()),
+            ..Default::default()
+        };
+        let created = find_or_create_customer(
+            &pool,
+            &provider,
+            TENANT,
+            "billing@example.test",
+            Some("Billing User"),
+            Some("Accounts Payable"),
+            Some(address),
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.email.as_deref(), Some("billing@example.test"));
+        assert_eq!(
+            created.address.as_ref().and_then(|a| a.line1.as_deref()),
+            Some("1 Billing Way")
+        );
+        let metadata = created.metadata.as_ref().unwrap();
+        assert_eq!(
+            metadata
+                .get(billing_types::TENANT_METADATA_KEY)
+                .map(String::as_str),
+            Some(TENANT)
+        );
+        assert_eq!(
+            metadata.get("created_by_user_email").map(String::as_str),
+            Some("billing@example.test")
+        );
+        assert_eq!(
+            metadata.get("created_by_user_name").map(String::as_str),
+            Some("Billing User")
+        );
+        assert_eq!(
+            metadata
+                .get(billing_types::CUSTOMER_NAME_METADATA_KEY)
+                .map(String::as_str),
+            Some("Accounts Payable")
+        );
         assert_eq!(recorded(&pool).await.as_deref(), Some(created.id.as_str()));
 
         // A conflicting customer is never recorded over the existing one.

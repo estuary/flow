@@ -23,6 +23,7 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::CaptureDef,
     alert_cfg: &ResolvedAlertConfig,
+    alert_events: &mut models::status::Alerts,
 ) -> anyhow::Result<Option<NextRun>> {
     publication_status::clear_pending_publication_next_after(&mut status.publications);
 
@@ -174,6 +175,7 @@ pub async fn update<C: ControlPlane>(
         state,
         control_plane,
         alert_cfg,
+        alert_events,
     )
     .await;
 

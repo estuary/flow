@@ -20,7 +20,10 @@ pub enum MigrationTaskMessage {
     Initialize { migration_id: Id },
 }
 
-pub struct MigrationExecutor;
+pub struct MigrationExecutor {
+    /// Watch of the authorization Snapshot, which resolves data-planes.
+    pub snapshot_watch: std::sync::Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
+}
 
 impl Executor for MigrationExecutor {
     const TASK_TYPE: TaskType = task_types::DATA_PLANE_MIGRATION;
@@ -105,10 +108,33 @@ impl Executor for MigrationExecutor {
             "cordon time passed; starting migration"
         );
 
+        // Snapshot refreshes are infallible, so `result()` is Ok once the
+        // watch is ready, which is awaited at startup.
+        let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+
+        let resolve = |name: &str| {
+            snapshot
+                .data_plane_by_catalog_name(name)
+                .filter(|data_plane| data_plane.can_sign())
+        };
+        let (Some(src_data_plane), Some(tgt_data_plane)) =
+            (resolve(&src_plane_name), resolve(&tgt_plane_name))
+        else {
+            snapshot.request_refresh();
+            tracing::warn!(
+                %migration_id,
+                %src_plane_name,
+                %tgt_plane_name,
+                "data-plane is not in the Snapshot or has no HMAC keys; will retry"
+            );
+            return Ok(Action::Sleep(Duration::from_secs(30)));
+        };
+
         migrate_data_planes(
             pool,
-            &src_plane_name,
-            &tgt_plane_name,
+            src_data_plane,
+            tgt_data_plane,
             &catalog_name_or_prefix,
         )
         .await?;

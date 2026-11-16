@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	"github.com/estuary/flow/go/flow"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	mbp "github.com/estuary/flow/go/gazette/mainboilerplate"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
-	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
 type apiDelete struct {

@@ -374,7 +374,6 @@ mod tests {
             test_server::snapshot(pool.clone(), true).await,
         )
         .await;
-        tokio::time::pause();
 
         // Create signed source for the materialization task
         let signed_source = flow_client::workflows::task_dekaf_auth::new_signed_source(

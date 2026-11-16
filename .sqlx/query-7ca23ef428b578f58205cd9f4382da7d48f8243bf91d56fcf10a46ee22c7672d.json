@@ -34,7 +34,8 @@
                 "task_chronically_failing",
                 "task_auto_disabled_failing",
                 "task_idle",
-                "task_auto_disabled_idle"
+                "task_auto_disabled_idle",
+                "bindings_auto_disabled"
               ]
             }
           }
@@ -113,7 +114,8 @@
                 "task_chronically_failing",
                 "task_auto_disabled_failing",
                 "task_idle",
-                "task_auto_disabled_idle"
+                "task_auto_disabled_idle",
+                "bindings_auto_disabled"
               ]
             }
           }

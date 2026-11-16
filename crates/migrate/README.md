@@ -23,7 +23,7 @@ and `MigrationExecutor` (running with the `agent`) performs the migration.
 
 ### Core API
 
-- `migrate_data_planes(pg_pool, src_data_plane, tgt_data_plane, catalog_prefix)` - Main migration function that orchestrates the three-phase migration process
+- `migrate_data_planes(pg_pool, src_data_plane, tgt_data_plane, catalog_prefix)` - Main migration function, given Snapshot `DataPlane`s, which orchestrates the three-phase migration process
 
 ### Automation
 

@@ -6,6 +6,7 @@ package connector
 import (
 	context "context"
 	fmt "fmt"
+	protocol "github.com/estuary/flow/go/gazette/broker/protocol"
 	capture "github.com/estuary/flow/go/protocols/capture"
 	derive "github.com/estuary/flow/go/protocols/derive"
 	materialize "github.com/estuary/flow/go/protocols/materialize"
@@ -14,7 +15,6 @@ import (
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	types "github.com/gogo/protobuf/types"
-	protocol "go.gazette.dev/core/broker/protocol"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"

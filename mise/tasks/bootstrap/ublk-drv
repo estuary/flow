@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Load the ublk_drv kernel module, installing it for the running kernel if needed"
+
+# The disk-daemon serves its disks as ublk devices. Ubuntu ships ublk_drv in
+# linux-modules-extra, which its cloud images and GitHub's runners omit. That
+# package is built per kernel, so each kernel upgrade needs it installed again.
+
+if [[ -e /sys/module/ublk_drv ]]; then
+    exit 0
+fi
+
+if ! modinfo ublk_drv >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
+fi
+sudo modprobe ublk_drv
+
+echo ublk_drv | sudo tee /etc/modules-load.d/ublk.conf >/dev/null

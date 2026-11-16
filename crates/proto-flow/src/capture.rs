@@ -114,7 +114,8 @@ pub mod request {
         /// readers resolve `collection_index` and must not assume that entries
         /// are unique on name.
         #[prost(message, repeated, tag = "7")]
-        pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
+        pub linked_collections:
+            ::prost::alloc::vec::Vec<crate::Arc<super::super::flow::CollectionSpec>>,
         /// Secrets of this capture, mapping a catalog secret name to its JSON
         /// pointer within `config_json`. The runtime resolves and merges each secret
         /// into that location, as an RFC 7396 merge patch, before handing the
@@ -143,10 +144,9 @@ pub mod request {
             /// Collection to be captured.
             /// Unset if the request uses `linked_collections`, in which case
             /// `collection_index` identifies the bound collection instead.
-            #[prost(message, optional, boxed, tag = "2")]
-            pub collection: ::core::option::Option<
-                ::prost::alloc::boxed::Box<super::super::super::flow::CollectionSpec>,
-            >,
+            #[prost(message, optional, tag = "2")]
+            pub collection:
+                ::core::option::Option<crate::Arc<super::super::super::flow::CollectionSpec>>,
             /// Backfill counter for this binding.
             #[prost(uint32, tag = "3")]
             pub backfill: u32,

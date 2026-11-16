@@ -67,7 +67,7 @@ pub struct ShuffleRequest {
     pub shuffle_index: u32,
     /// Derivation which is requesting the shuffle.
     #[prost(message, optional, tag = "10")]
-    pub derivation: ::core::option::Option<super::flow::CollectionSpec>,
+    pub derivation: ::core::option::Option<crate::Arc<super::flow::CollectionSpec>>,
     /// Materialization which is requesting the shuffle.
     #[prost(message, optional, tag = "11")]
     pub materialization: ::core::option::Option<super::flow::MaterializationSpec>,

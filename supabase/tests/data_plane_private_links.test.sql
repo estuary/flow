@@ -21,7 +21,7 @@ begin
     azure_application_name, azure_application_client_id
   ) values (
     v_dp_id, 'ops/dp/private/triggerCo/aws-1', 'dp.private.triggerCo',
-    '{c2VjcmV0}', '{}', 'broker.dp.private.triggerCo', 'reactor.dp.private.triggerCo',
+    '{}', '{}', 'broker.dp.private.triggerCo', 'reactor.dp.private.triggerCo',
     'ops/tasks/private/triggerCo/logs', 'ops/tasks/private/triggerCo/stats',
     'ops/rollups/L1/private/triggerCo/events', 'ops/rollups/L1/private/triggerCo/inferred',
     'ops/rollups/L1/private/triggerCo/stats', 'from.dp.private.triggerCo',

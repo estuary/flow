@@ -1327,7 +1327,7 @@ mod tests {
     async fn fan_in_capture_publishes_per_binding_and_infers_per_collection() {
         let indirect = fixture::capture_spec(M, &(0..N).map(|index| index % M).collect::<Vec<_>>());
         let mut inline = indirect.clone();
-        fixture::into_inline(&mut inline);
+        inline.inline();
 
         // Targets key on the collection's journal identity, which both forms
         // carry, so the forms are indistinguishable from outside.

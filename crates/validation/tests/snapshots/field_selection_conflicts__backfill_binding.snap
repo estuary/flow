@@ -78,6 +78,7 @@ expression: "(selections, errors)"
             [
                 "backfilling binding [\"a\"] due to incompatible field selection (onIncompatibleSchemaChange: backfill)",
             ],
+            [],
         ),
     ],
     [],

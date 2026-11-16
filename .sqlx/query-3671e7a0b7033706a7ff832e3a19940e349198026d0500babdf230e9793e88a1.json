@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                update internal.manual_bills\n                set stripe_invoice_id = $4\n                where tenant = $1\n                  and date_start = $2\n                  and date_end = $3\n                  and stripe_invoice_id is not distinct from $5\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Date",
+        "Date",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3671e7a0b7033706a7ff832e3a19940e349198026d0500babdf230e9793e88a1"
+}

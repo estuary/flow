@@ -1,11 +1,11 @@
 package flow
 
 import (
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/estuary/flow/go/labels"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/proto"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // BuildPartitionSpec builds a JournalSpec from the given |template| and |labels|.

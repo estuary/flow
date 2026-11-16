@@ -39,11 +39,15 @@ ARG TARGETARCH
 COPY ${TARGETARCH}/agent /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
 COPY ${TARGETARCH}/flowctl-go /usr/local/bin/
+# Rust crates linked into flowctl-go, for the image's SBOM scan.
+COPY ${TARGETARCH}/flowctl-go.cdx.json /usr/local/share/sbom/
 COPY ${TARGETARCH}/gazette /usr/local/bin/
 COPY ${TARGETARCH}/etcd /usr/local/bin/
 COPY ${TARGETARCH}/agent-api-entrypoint.sh /usr/local/bin/
-RUN command -v flowctl-go \
-    && command -v gazette \
+# Smoke-test that our binaries load in this image (e.g. shared libraries resolve).
+RUN agent --help >/dev/null \
+    && flowctl-go print-config >/dev/null \
+    && gazette print-config >/dev/null \
     && command -v etcd
 
 CMD [ "/usr/local/bin/agent-api-entrypoint.sh" ]

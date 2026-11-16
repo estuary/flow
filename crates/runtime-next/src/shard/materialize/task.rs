@@ -348,7 +348,10 @@ mod tests {
         // Indirect form: five bindings over two linked collections.
         let spec = flow::MaterializationSpec {
             bindings: [0, 1, 0, 1, 0].into_iter().map(binding).collect(),
-            linked_collections: vec![collection(0), collection(1)],
+            linked_collections: vec![
+                proto_flow::Arc::new(collection(0)),
+                proto_flow::Arc::new(collection(1)),
+            ],
             ..Default::default()
         };
         let task = Task::new(&spec, &shard).unwrap();
@@ -368,7 +371,7 @@ mod tests {
         let spec = flow::MaterializationSpec {
             bindings: (0..3)
                 .map(|_| flow::materialization_spec::Binding {
-                    collection: Some(Box::new(collection(0))),
+                    collection: Some(proto_flow::Arc::new(collection(0))),
                     ..binding(0)
                 })
                 .collect(),

@@ -3,6 +3,7 @@ use async_graphql::{Context, types::connection};
 
 /// A prefix to which the user is authorized.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
+#[graphql(complex)]
 pub struct PrefixRef {
     /// The prefix to which the user is authorized.
     pub prefix: models::Prefix,
@@ -16,8 +17,22 @@ pub struct PrefixRef {
     /// directly. Once that migration lands, this field and its derivation
     /// can be deleted.
     pub user_capability: models::Capability,
+    #[graphql(skip)]
+    pub bits: models::authz::CapabilitySet,
+}
+
+#[async_graphql::ComplexObject]
+impl PrefixRef {
     /// Fine-grained capabilities the user has at this prefix.
-    pub capabilities: Vec<models::authz::Capability>,
+    #[graphql(deprecation = "Use capabilities instead.")]
+    async fn capability_bits(&self) -> Vec<models::authz::Capability> {
+        self.bits.iter().collect()
+    }
+
+    /// Capability bundles that cover the user's capability bits at this prefix.
+    async fn capabilities(&self) -> Vec<models::authz::CapabilityBundle> {
+        models::authz::bundles_covering(self.bits).collect()
+    }
 }
 
 #[derive(Debug, Clone, async_graphql::InputObject)]
@@ -96,7 +111,7 @@ impl PrefixesQuery {
                 .map(|(prefix, (bits, legacy))| PrefixRef {
                     prefix: models::Prefix::new(*prefix),
                     user_capability: *legacy,
-                    capabilities: bits.iter().collect(),
+                    bits: *bits,
                 })
                 .collect();
 
@@ -123,6 +138,40 @@ impl PrefixesQuery {
 #[cfg(test)]
 mod tests {
     use crate::test_server;
+
+    #[tokio::test]
+    async fn test_prefix_capability_bundles() {
+        let bits = models::authz::CapabilityBundle::Viewer.capabilities();
+        let schema = async_graphql::Schema::build(
+            super::PrefixRef {
+                prefix: models::Prefix::new("acmeCo/"),
+                user_capability: models::Capability::None,
+                bits,
+            },
+            async_graphql::EmptyMutation,
+            async_graphql::EmptySubscription,
+        )
+        .finish();
+        let response = schema
+            .execute("{ capabilities capabilityBits userCapability }")
+            .await;
+
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "capabilities": [
+              "Viewer"
+            ],
+            "capabilityBits": [
+              "CatalogRead",
+              "JournalRead",
+              "ViewDataPlanePrivateNetworking"
+            ],
+            "userCapability": "none"
+          }
+        }
+        "#);
+    }
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",
@@ -282,7 +331,7 @@ mod tests {
                   "line": 3
                 }
               ],
-              "message": "status: 'The request does not have valid authentication credentials', self: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+              "message": "code: 'The request does not have valid authentication credentials', message: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
               "path": [
                 "prefixes"
               ]

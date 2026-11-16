@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE tenants\n        SET trial_start = $2\n        WHERE tenant = $1 AND trial_start IS NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Date"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "adeabea15acc15a998d2bdfe5f0769c1c6354378017fbf71517eceef91cd1d2e"
+}

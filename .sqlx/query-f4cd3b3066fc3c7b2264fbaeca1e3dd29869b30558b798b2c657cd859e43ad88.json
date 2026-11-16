@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT tenant::text AS \"tenant!\", plan_kind AS \"plan_kind: crate::PlanKind\", data_tiers, usage_tiers, recurring_usd_cents, trial_start\n           FROM public.tenants\n           WHERE created_at < $2::timestamptz + interval '1 month' AND ($1::text[] IS NULL OR tenant::text = ANY($1))\n           ORDER BY tenant::text",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "plan_kind: crate::PlanKind",
+        "type_info": {
+          "Custom": {
+            "name": "plan_kind_type",
+            "kind": {
+              "Enum": [
+                "self_serve",
+                "contract",
+                "internal"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "plan_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "data_tiers",
+        "type_info": "Int4Array",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "data_tiers"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "usage_tiers",
+        "type_info": "Int4Array",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "usage_tiers"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "recurring_usd_cents",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "recurring_usd_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "trial_start",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "trial_start"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "f4cd3b3066fc3c7b2264fbaeca1e3dd29869b30558b798b2c657cd859e43ad88"
+}

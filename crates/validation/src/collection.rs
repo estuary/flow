@@ -4,6 +4,12 @@ use proto_flow::flow;
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 
+/// Build all collections, none of which has a derivation.
+///
+/// Task validation shares these specs with every binding and transform which
+/// references them, and an inlined collection never carries a derivation.
+/// Derivations are attached only once all tasks are built: `validate` layers
+/// in those it built, and `restore_live_derivations` puts back the rest.
 pub(crate) fn walk_all_collections(
     pub_id: models::Id,
     build_id: models::Id,
@@ -36,6 +42,54 @@ pub(crate) fn walk_all_collections(
     .collect()
 }
 
+/// Restore the derivation of each live-only collection, which
+/// `walk_collection` withheld. The live spec is shared rather than copied.
+pub(crate) fn restore_live_derivations(
+    draft_collections: &tables::DraftCollections,
+    live_collections: &tables::LiveCollections,
+    built_collections: &mut tables::BuiltCollections,
+) {
+    for live in live_collections.iter() {
+        if live.spec.derivation.is_none()
+            || draft_collections.get_by_key(&live.collection).is_some()
+        {
+            continue;
+        }
+        if let Some(built) = built_collections.get_mut_by_key(&live.collection) {
+            built.spec = Some(live.spec.clone());
+        }
+    }
+}
+
+// Deep-copy `spec` without its derivation, which isn't copied.
+fn without_derivation(spec: &flow::CollectionSpec) -> flow::CollectionSpec {
+    let flow::CollectionSpec {
+        name,
+        write_schema_json,
+        read_schema_json,
+        key,
+        uuid_ptr,
+        partition_fields,
+        projections,
+        ack_template_json,
+        partition_template,
+        derivation: _,
+    } = spec;
+
+    flow::CollectionSpec {
+        name: name.clone(),
+        write_schema_json: write_schema_json.clone(),
+        read_schema_json: read_schema_json.clone(),
+        key: key.clone(),
+        uuid_ptr: uuid_ptr.clone(),
+        partition_fields: partition_fields.clone(),
+        projections: projections.clone(),
+        ack_template_json: ack_template_json.clone(),
+        partition_template: partition_template.clone(),
+        derivation: None,
+    }
+}
+
 fn walk_collection(
     pub_id: models::Id,
     build_id: models::Id,
@@ -66,7 +120,17 @@ fn walk_collection(
         errors,
     ) {
         Ok(ok) => ok,
-        Err(built) => return built,
+        Err(built) => {
+            let mut built: Option<tables::BuiltCollection> = built;
+            // A live-only derivation is passed through with its live spec.
+            // Withhold its derivation, which `restore_live_derivations` puts back.
+            if let Some(spec) = built.as_mut().and_then(|built| built.spec.as_mut())
+                && spec.derivation.is_some()
+            {
+                *spec = proto_flow::Arc::new(without_derivation(spec));
+            }
+            return built;
+        }
     };
     let scope = Scope::new(scope);
     let mut model_fixes = Vec::new();
@@ -96,7 +160,7 @@ fn walk_collection(
     // which is regenerated if `reset` is true or if this is a new collection.
     // Note we must account for historical journal templates which don't have
     // an embedded generation_id suffix.
-    let (journal_name_prefix, generation_id) = match live_spec {
+    let (journal_name_prefix, generation_id) = match live_spec.map(|spec| &**spec) {
         Some(flow::CollectionSpec {
             partition_template: Some(template),
             ..
@@ -330,7 +394,7 @@ fn walk_collection(
         model: Some(model),
         model_fixes,
         previous_spec: live_spec.cloned(),
-        spec: Some(spec),
+        spec: Some(proto_flow::Arc::new(spec)),
         validated: None,
     })
 }

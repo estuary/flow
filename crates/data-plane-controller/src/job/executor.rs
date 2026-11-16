@@ -31,6 +31,9 @@ pub struct Outcome {
     pub status: Status,
     // When Some, stack exports to publish into data_planes row.
     pub publish_exports: Option<stack::ControlExports>,
+    // When Some, per-link results observed at `PulumiUp1`, to publish into
+    // data_plane_private_links rows.
+    pub publish_link_results: Option<Vec<stack::LinkResult>>,
     // When Some, updated configuration to publish into data_planes row.
     pub publish_stack: Option<stack::PulumiStack>,
     // KMS key used to encrypt HMAC keys
@@ -265,6 +268,7 @@ impl Executor {
             sleep,
             status: state_ref.status,
             publish_exports: state_ref.publish_exports.take(),
+            publish_link_results: state_ref.publish_link_results.take(),
             publish_stack,
             kms_key: self.controller_config.secrets_provider.clone(),
             pinned_links: state_ref.pinned_links.clone(),
@@ -531,6 +535,7 @@ async fn fetch_row_state(
         pending_refresh: false,
         pending_converge: false,
         pinned_links,
+        publish_link_results: None,
         publish_exports: None,
         publish_stack: None,
     })
@@ -705,12 +710,12 @@ impl automations::Outcome for Outcome {
             bastion_tunnel_private_key,
             azure_application_name,
             azure_application_client_id,
-            link_results,
+            link_results: _,
             dekaf_address,
             dekaf_registry_address,
         }) = self.publish_exports
         {
-            let encrypted_hmac_keys = encrypt_hmac_keys(&self.kms_key, hmac_keys.clone()).await?;
+            let encrypted_hmac_keys = encrypt_hmac_keys(&self.kms_key, hmac_keys).await?;
 
             _ = sqlx::query!(
                 r#"
@@ -720,14 +725,14 @@ impl automations::Outcome for Outcome {
                     cidr_blocks = $5,
                     gcp_psc_endpoints = $6,
                     gcp_service_account_email = $7,
-                    hmac_keys = $8,
-                    encrypted_hmac_keys = $9,
-                    bastion_tunnel_private_key = $10,
-                    azure_application_name = $11,
-                    azure_link_endpoints = $12,
-                    azure_application_client_id = $13,
-                    dekaf_address = $14,
-                    dekaf_registry_address = $15
+                    hmac_keys = '{}',
+                    encrypted_hmac_keys = $8,
+                    bastion_tunnel_private_key = $9,
+                    azure_application_name = $10,
+                    azure_link_endpoints = $11,
+                    azure_application_client_id = $12,
+                    dekaf_address = $13,
+                    dekaf_registry_address = $14
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -737,7 +742,6 @@ impl automations::Outcome for Outcome {
                 &cidr_blocks,
                 &gcp_psc_endpoints,
                 gcp_service_account_email,
-                &hmac_keys,
                 &encrypted_hmac_keys,
                 bastion_tunnel_private_key,
                 azure_application_name,
@@ -749,12 +753,14 @@ impl automations::Outcome for Outcome {
             .execute(&mut *txn)
             .await
             .context("failed to publish exports into data_planes row")?;
+        }
 
+        if let Some(link_results) = &self.publish_link_results {
             write_private_link_statuses(
                 &mut *txn,
                 self.data_plane_id,
                 &self.pinned_links,
-                link_results.as_deref().unwrap_or_default(),
+                link_results,
             )
             .await?;
         }
@@ -763,7 +769,7 @@ impl automations::Outcome for Outcome {
     }
 }
 
-/// Records each private link's observed status after a converge from the
+/// Records each private link's observed status after `PulumiUp1` from the
 /// per-link results est-dry-dock exports, matched to the links this converge
 /// pinned by the control-plane id each result echoes back.
 ///

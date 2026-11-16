@@ -47,6 +47,8 @@ aws-credential-types = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
+# Pinned: h2 0.4.16+ rejects the Go runtime's small gRPC frames ("too_many_data_frames").
+h2 = "=0.4.15"
 json-patch = { workspace = true }
 jsonwebtoken = { workspace = true }
 librocksdb-sys = { workspace = true }

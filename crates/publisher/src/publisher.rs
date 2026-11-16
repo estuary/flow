@@ -344,7 +344,7 @@ impl Publisher {
             .active_set()
             .map(|(journal, appender)| async move {
                 match appender.flush().await {
-                    Ok(()) => Ok(()),
+                    Ok(_) => Ok(()),
                     Err(status) if status.code() == tonic::Code::NotFound => {
                         tracing::warn!(%journal, "discarding journal ACK-intent (not found)");
                         Ok(())

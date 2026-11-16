@@ -151,17 +151,40 @@ PG_URL=postgresql://postgres:postgres@localhost:${FLOW_PORT_SUPABASE_DB}/postgre
 # supabase secret (super-secret-jwt-token-with-at-least-32-characters-long).
 SYSTEM_USER_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU
 
-# Data for JSON payload (simple key-value pairs without escaping issues)
 DATA_PLANE_NAME=${DATA_PLANE}
-BROKER_ADDRESS=https://broker-${DATA_PLANE}.flow.localhost:${PORT_BLOCK}
-REACTOR_ADDRESS=https://reactor-${DATA_PLANE}.flow.localhost:$((PORT_BLOCK + 99))
-HMAC_KEY=${HMAC_KEY}
+CREATE_REQUEST=${FLOW_ENV_DIR}/plane-link-${DATA_PLANE}.json
 EOF
 
+    # The control plane stores HMAC keys only in encrypted form. Encrypt to
+    # the age recipient whose private half is SOPS_AGE_KEY of the agent
+    # (see local:control-plane).
+    ENCRYPTED_HMAC_KEYS=$(
+        jq -n --arg key "${HMAC_KEY}" '{hmac_keys: [$key]}' |
+            sops --encrypt \
+                --age age13uwnwn9k96qnetrakxhqxhm9cqnqykwsgccflu3p05vfdlweh5lsct0fy3 \
+                --input-type json \
+                --output-type json \
+                /dev/stdin
+    )
+    DEKAF_ADDRESSES='{}'
     if [ "${DEKAF}" = "true" ]; then
-        echo "DEKAF_ADDRESS=tcp://127.0.0.1:${DEKAF_KAFKA_PORT}" >> "${FLOW_ENV_DIR}/plane-link-${DATA_PLANE}.env"
-        echo "DEKAF_REGISTRY_ADDRESS=http://127.0.0.1:${DEKAF_REGISTRY_PORT}" >> "${FLOW_ENV_DIR}/plane-link-${DATA_PLANE}.env"
+        DEKAF_ADDRESSES=$(jq -n \
+            --arg kafka "tcp://127.0.0.1:${DEKAF_KAFKA_PORT}" \
+            --arg registry "http://127.0.0.1:${DEKAF_REGISTRY_PORT}" \
+            '{dekafAddress: $kafka, dekafRegistryAddress: $registry}')
     fi
+    jq -n \
+        --arg name "${DATA_PLANE}" \
+        --arg broker "https://broker-${DATA_PLANE}.flow.localhost:${PORT_BLOCK}" \
+        --arg reactor "https://reactor-${DATA_PLANE}.flow.localhost:$((PORT_BLOCK + 99))" \
+        --argjson keys "${ENCRYPTED_HMAC_KEYS}" \
+        --argjson dekaf "${DEKAF_ADDRESSES}" \
+        '{name: $name, category: {manual: ({
+            brokerAddress: $broker,
+            reactorAddress: $reactor,
+            encryptedHmacKeys: $keys
+        } + $dekaf)}}' \
+        > "${FLOW_ENV_DIR}/plane-link-${DATA_PLANE}.json"
 
     # Create drop-in configuration that binds this link service <=> data plane target
     DROPIN_DIR="${HOME}/.config/systemd/user/flow-plane-link@${DATA_PLANE}.service.d"

@@ -2,6 +2,7 @@ use super::{
     Connectors, Error, Scope, collection, field_selection, indexed, linked, reference,
     walk_transition,
 };
+use itertools::Itertools;
 use json::schema::types;
 use proto_flow::{connector, flow, materialize};
 use std::collections::BTreeMap;
@@ -15,7 +16,7 @@ type LiveBindings<'a> = BTreeMap<
     &'a [String],
     (
         &'a flow::materialization_spec::Binding,
-        Option<&'a flow::CollectionSpec>,
+        Option<&'a proto_flow::Arc<flow::CollectionSpec>>,
     ),
 >;
 
@@ -145,6 +146,7 @@ async fn walk_materialization(
     };
     let scope = Scope::new(scope);
     let mut model_fixes = Vec::new();
+    let mut auto_disabled_bindings = Vec::new();
 
     let models::MaterializationDef {
         on_incompatible_schema_change,
@@ -268,6 +270,7 @@ async fn walk_materialization(
         .map(|(index, model)| {
             walk_materialization_binding(
                 scope_bindings.push_item(index),
+                pub_id,
                 on_incompatible_schema_change,
                 model,
                 built_collections,
@@ -276,6 +279,7 @@ async fn walk_materialization(
                 &live_bindings_model,
                 &live_bindings_spec,
                 &mut model_fixes,
+                &mut auto_disabled_bindings,
                 errors,
             )
         })
@@ -313,10 +317,10 @@ async fn walk_materialization(
             field_config_json_map: binding.field_config_json_map.clone(),
             backfill: binding.backfill,
             group_by: binding.group_by.clone(),
-            collection_index: interner.intern_ref(
+            collection_index: interner.intern(
                 binding
                     .collection
-                    .as_ref()
+                    .clone()
                     .expect("active binding resolved its source collection"),
             ),
         })
@@ -556,7 +560,6 @@ async fn walk_materialization(
         match (
             !conflicts_other.is_empty(),
             !conflicts_incompatible.is_empty(),
-            // Binding may override the model-wide handling.
             model
                 .on_incompatible_schema_change
                 .unwrap_or(on_incompatible_schema_change),
@@ -590,6 +593,13 @@ async fn walk_materialization(
                 model_fixes.push(format!(
                     "disabling binding {path:?} due to incompatible field selection (onIncompatibleSchemaChange: disableBinding)",
                 ));
+                auto_disabled_bindings.push(models::status::AutoDisabledBinding {
+                    resource_path: path.clone(),
+                    collection: model.source.collection().clone(),
+                    reason: models::status::AutoDisabledReason::IncompatibleSchemaChange,
+                    detail: conflicts_incompatible.iter().join("; "),
+                    pub_id,
+                });
                 model.disable = true;
 
                 // Loop now to skip building a spec.
@@ -638,7 +648,7 @@ async fn walk_materialization(
             backfill: model.backfill,
             state_key,
             ser_policy: *ser_policy,
-            collection_index: interner.intern(*collection),
+            collection_index: interner.intern(collection),
         };
 
         bindings_path.push(path);
@@ -802,6 +812,7 @@ async fn walk_materialization(
         is_touch: is_touch && model_fixes.is_empty(),
         model: Some(model),
         model_fixes,
+        auto_disabled_bindings,
         previous_spec: live_spec.cloned(),
         spec: Some(spec),
         validated: Some(validated_response),
@@ -810,6 +821,7 @@ async fn walk_materialization(
 
 fn walk_materialization_binding<'a>(
     scope: Scope<'a>,
+    pub_id: models::Id,
     default_on_incompatible_schema_change: models::OnIncompatibleSchemaChange,
     mut model: models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
@@ -818,6 +830,7 @@ fn walk_materialization_binding<'a>(
     live_bindings_model: &BTreeMap<Vec<String>, &models::MaterializationBinding>,
     live_bindings_spec: &LiveBindings,
     model_fixes: &mut Vec<String>,
+    auto_disabled_bindings: &mut Vec<models::status::AutoDisabledBinding>,
     errors: &mut tables::Errors,
 ) -> (
     models::ResourcePath,           // Path extracted from the model resource.
@@ -900,7 +913,6 @@ fn walk_materialization_binding<'a>(
         errors,
     );
 
-    // The binding's `onIncompatibleSchemaChange` takes precedence, if specified.
     let on_incompatible_schema_change = model
         .on_incompatible_schema_change
         .unwrap_or(default_on_incompatible_schema_change);
@@ -914,6 +926,8 @@ fn walk_materialization_binding<'a>(
     let group_by_changed = live_spec
         // Reset already implies a backfill.
         .filter(|_| !was_reset)
+        // An increased backfill count permits a group-by change.
+        .filter(|live| model.backfill <= live.backfill)
         // Delta-updates bindings may change their group-by at any time.
         .filter(|live| !live.delta_updates)
         .and_then(|live| live.field_selection.as_ref())
@@ -962,6 +976,15 @@ fn walk_materialization_binding<'a>(
             model_fixes.push(format!(
                 "disabling binding {model_path:?} due to group-by change from {live_group_by:?} to {group_by_fields:?}",
             ));
+            auto_disabled_bindings.push(models::status::AutoDisabledBinding {
+                resource_path: model_path.clone(),
+                collection: source.clone(),
+                reason: models::status::AutoDisabledReason::IncompatibleSchemaChange,
+                detail: format!(
+                    "group-by key changed from {live_group_by:?} to {group_by_fields:?}"
+                ),
+                pub_id,
+            });
             model.disable = true;
             return (model_path, model, None, None);
         }
@@ -974,17 +997,26 @@ fn walk_materialization_binding<'a>(
         }
     }
 
-    // Tweak `source_spec` so that the `key` and `projections` are consistent with `group_by`.
-    source_spec.key = group_by_ptrs;
-    for projection in source_spec.projections.iter_mut() {
-        projection.is_primary_key = group_by_fields.contains(&projection.field);
+    // `key` and `projections` of the binding's collection must be consistent
+    // with `group_by`. A `group_by` which differs from the collection key
+    // deep-copies the collection, and the binding no longer shares it.
+    if source_spec.key != group_by_ptrs
+        || source_spec.projections.iter().any(|projection| {
+            projection.is_primary_key != group_by_fields.contains(&projection.field)
+        })
+    {
+        let source_spec = proto_flow::Arc::make_mut(&mut source_spec);
+        source_spec.key = group_by_ptrs;
+        for projection in source_spec.projections.iter_mut() {
+            projection.is_primary_key = group_by_fields.contains(&projection.field);
+        }
     }
 
     // The binding inlines its collection while it's detached from a request:
     // interning happens in `walk_materialization`, which holds the shared table.
     let validate = materialize::request::validate::Binding {
         resource_config_json: super::strip_resource_meta(&model.resource),
-        collection: Some(Box::new(source_spec)),
+        collection: Some(source_spec),
         field_config_json_map,
         backfill: model.backfill,
         group_by: group_by_fields,
@@ -1054,7 +1086,7 @@ fn inactive_bindings(
         .filter_map(|(binding, collection)| {
             Some(flow::materialization_spec::Binding {
                 collection: None,
-                collection_index: interner.intern_ref((*collection)?),
+                collection_index: interner.intern((*collection)?.clone()),
                 ..(*binding).clone()
             })
         })

@@ -89,10 +89,6 @@ jobs:
       - run: mise run local:supabase
       - run: mise run ci:sqlx-check
 
-      # Reuses this job's compiled workspace (flow-client --all-features pulls in
-      # control-plane-api) to verify the committed GraphQL SDL hasn't drifted.
-      - run: mise run ci:graphql-schema-check
-
   platform-test:
     name: Platform Test
     runs-on: ubuntu-2404-large

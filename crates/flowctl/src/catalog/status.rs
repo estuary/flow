@@ -20,7 +20,7 @@ pub struct Status {
 
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/catalog/status.graphql",
     response_derives = "Debug,Serialize",
     extern_enums("CatalogType", "Capability"),

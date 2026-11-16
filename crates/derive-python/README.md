@@ -83,8 +83,7 @@ identifier, and its modules import one another relatively.
 │   └── helpers.py              # imported relatively
 └── flow_generated/
     ├── main.py                 # entry point (`codegen::main_py`)
-    └── python/acmeCo/
-        ├── __init__.py
+    └── python/acmeCo/          # namespace package
         └── _2024_orders/
             └── __init__.py     # typed module (`codegen::types_py`)
 ```

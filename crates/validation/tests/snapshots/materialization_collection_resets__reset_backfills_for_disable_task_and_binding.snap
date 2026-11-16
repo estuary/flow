@@ -42,6 +42,7 @@ expression: outcome.built_materializations
           "backfilled binding of reset collection testing/reset/a",
           "backfilled binding of reset collection testing/reset/b"
         ],
+        auto_disabled_bindings: [],
         validated: Validated {
             bindings: [
                 Binding {

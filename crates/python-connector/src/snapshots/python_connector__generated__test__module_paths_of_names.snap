@@ -1,0 +1,26 @@
+---
+source: crates/python-connector/src/generated.rs
+expression: cases
+---
+[
+    (
+        "patterns/sums",
+        "patterns.sums",
+        "flow_generated/python/patterns/sums/__init__.py",
+    ),
+    (
+        "a/b/c/d",
+        "a.b.c.d",
+        "flow_generated/python/a/b/c/d/__init__.py",
+    ),
+    (
+        "simple",
+        "simple",
+        "flow_generated/python/simple/__init__.py",
+    ),
+    (
+        "acmeCo/sources/source-acme",
+        "acmeCo.sources.source_acme",
+        "flow_generated/python/acmeCo/sources/source_acme/__init__.py",
+    ),
+]

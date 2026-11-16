@@ -209,16 +209,28 @@ pub fn recovered_gap_floors(
 /// `last_commit` is promoted to `hinted_commit`, and `last_commit` /
 /// `offset` are zeroed. The result is reduced with the recovered
 /// committed Frontier when composing a session's resume Frontier.
+///
+/// A producer at-or-below [`uuid::OBSERVED_COMMIT_FLOOR`] is dropped. It has
+/// an open span but no commit, so the hinted transaction holds none of its
+/// documents and an exact replay owes it nothing. As a hint it couldn't
+/// resolve on the read side, and its zeroed offset would lose the span's
+/// `+begin`. Without it, the next session reads the span afresh from the
+/// committed cut.
 pub fn project_hinted(mut frontier: shuffle::Frontier) -> shuffle::Frontier {
     let mut unresolved_hints = 0;
     for jf in &mut frontier.journals {
+        jf.producers
+            .retain(|pf| pf.last_commit > uuid::OBSERVED_COMMIT_FLOOR);
+
         for pf in &mut jf.producers {
             pf.hinted_commit = pf.last_commit;
             pf.last_commit = uuid::Clock::zero();
             pf.offset = 0;
-            unresolved_hints += (pf.hinted_commit > pf.last_commit) as usize;
         }
+        unresolved_hints += jf.producers.len();
     }
+    frontier.journals.retain(|jf| !jf.is_empty());
+
     // `reduce` adjusts this count incrementally, so it must be exact.
     frontier.unresolved_hints = unresolved_hints;
     frontier

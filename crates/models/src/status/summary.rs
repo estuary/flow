@@ -24,9 +24,8 @@ pub enum StatusSummaryType {
     /// The task is currently disabled. Only pertains to captures, derivations,
     /// and materializations.
     TaskDisabled,
-    /// Something isn't fully working, but the condition is expected to clear
-    /// automatically soon. Nothing to worry about as long as the condition
-    /// doesn't persist for too long.
+    /// Something isn't fully working. The condition may be transient or may
+    /// require action from the user.
     Warning,
     /// There's some sort of error with this catalog spec.
     Error,
@@ -130,30 +129,42 @@ impl Summary {
             }
         }
 
-        // Not all tasks will have a connector status, but if they do then we
-        // want to warn if we haven't observed one yet. If any connector status
-        // has ever been materialized, then we'll warn if that status is stale,
-        // since we'll expect a fresh status to have been emitted after the last
-        // activation.
-        // If the connector status is present, this will be the message of the
-        // status summary. Otherwise, we'll just say "Ok". Yes, this means
-        // that when a new task is first created, the status summary will show
-        // as "Ok" before it ever writes a ConnectorStatus event. This seems
-        // acceptable, since we have no better means of determining whether
-        // to expect a connector status for a given task.
-        let message = if let Some(conn_status) = connector_status.filter(|_| !disabled) {
-            if !conn_status.is_current(last_build_id, last_activation_ts) {
-                return Summary::warning("waiting on connector status");
+        // Once a connector has reported status, expect a fresh report after activation.
+        // Tasks that have never reported connector status default to "Ok":
+        // we cannot tell whether their connector supports status reporting.
+        let mut status = StatusSummaryType::Ok;
+        let mut message = if let Some(conn_status) = connector_status.filter(|_| !disabled) {
+            if conn_status.is_current(last_build_id, last_activation_ts) {
+                conn_status.message.clone()
+            } else {
+                status = StatusSummaryType::Warning;
+                "waiting on connector status".to_string()
             }
-            conn_status.message.clone()
         } else {
             "Ok".to_string()
         };
 
-        Summary {
-            status: StatusSummaryType::Ok,
-            message,
+        // Disabled bindings need attention even while the remaining bindings run normally.
+        if let ControllerStatus::Materialization(m) = controller_status
+            && !m.auto_disabled_bindings.is_empty()
+        {
+            status = StatusSummaryType::Warning;
+            if message == "Ok" {
+                message.clear();
+            }
+            if !message.is_empty() {
+                if !message.ends_with(['.', '!', '?']) {
+                    message.push('.');
+                }
+                message.push(' ');
+            }
+            message.push_str(&super::AutoDisabledBinding::describe(
+                &m.auto_disabled_bindings,
+            ));
+            message.push('.');
         }
+
+        Summary { status, message }
     }
 
     fn warning(message: impl Into<String>) -> Summary {
@@ -369,12 +380,101 @@ mod test {
         }
         "###);
 
+        let auto_disabled = |n: usize| {
+            let mut status = activated_ok.clone();
+            let ControllerStatus::Materialization(m) = &mut status else {
+                unreachable!()
+            };
+            m.auto_disabled_bindings = (0..n)
+                .map(|i| crate::status::AutoDisabledBinding {
+                    resource_path: vec![format!("table_{i}")],
+                    collection: crate::Collection::new(format!("acmeCo/collection_{i}")),
+                    reason: crate::status::AutoDisabledReason::IncompatibleSchemaChange,
+                    detail: "a detail".to_string(),
+                    pub_id: last_build,
+                })
+                .collect();
+            status
+        };
+        let binding_summaries: Vec<_> = [
+            (1, Some(&ok_connector_status)),
+            (2, Some(&ok_connector_status)),
+            (1, Some(&old_connector_status)),
+            (1, None),
+            (
+                1,
+                Some(&ConnectorStatus {
+                    message: String::new(),
+                    ..ok_connector_status.clone()
+                }),
+            ),
+            (
+                1,
+                Some(&ConnectorStatus {
+                    message: "connector is ready.".to_string(),
+                    ..ok_connector_status.clone()
+                }),
+            ),
+        ]
+        .into_iter()
+        .map(|(count, connector)| {
+            Summary::of(
+                false,
+                last_build,
+                no_error,
+                Some(&auto_disabled(count)),
+                connector,
+            )
+        })
+        .collect();
+        insta::assert_debug_snapshot!(binding_summaries, @r#"
+        [
+            Summary {
+                status: Warning,
+                message: "connector is ready. 1 binding disabled because of an incompatible schema change.",
+            },
+            Summary {
+                status: Warning,
+                message: "connector is ready. 2 bindings disabled because of incompatible schema changes.",
+            },
+            Summary {
+                status: Warning,
+                message: "waiting on connector status. 1 binding disabled because of an incompatible schema change.",
+            },
+            Summary {
+                status: Warning,
+                message: "1 binding disabled because of an incompatible schema change.",
+            },
+            Summary {
+                status: Warning,
+                message: "1 binding disabled because of an incompatible schema change.",
+            },
+            Summary {
+                status: Warning,
+                message: "connector is ready. 1 binding disabled because of an incompatible schema change.",
+            },
+        ]
+        "#);
+        let disabled_task_with_auto_disabled = Summary::of(
+            true,
+            last_build,
+            no_error,
+            Some(&auto_disabled(1)),
+            Some(&ok_connector_status),
+        );
+        insta::assert_debug_snapshot!(disabled_task_with_auto_disabled, @r#"
+        Summary {
+            status: TaskDisabled,
+            message: "Task shards are disabled",
+        }
+        "#);
+
         // Everything else looks good, except there's a controller error
         let controller_error_two = Summary::of(
             false,
             last_build,
             some_error,
-            Some(&activated_ok),
+            Some(&auto_disabled(1)),
             Some(&ok_connector_status),
         );
         insta::assert_debug_snapshot!(controller_error_two, @r###"

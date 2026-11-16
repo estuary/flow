@@ -853,6 +853,7 @@ fn parse_line(line: &str, lineno: usize) -> anyhow::Result<Option<Line>> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use prost::Message;
 
     #[test]
     fn test_session_targets() {
@@ -1101,14 +1102,16 @@ mod test {
                     name: "acmeCo/sink".to_string(),
                     bindings: vec![
                         proto_flow::flow::materialization_spec::Binding {
-                            collection: Some(Box::new(collection)),
+                            collection: Some(proto_flow::Arc::new(collection)),
                             partition_selector: Some(Default::default()),
                             ..Default::default()
                         };
                         n_bindings
                     ],
                     ..Default::default()
-                },
+                }
+                .encode_to_vec()
+                .into(),
             )),
         }
     }

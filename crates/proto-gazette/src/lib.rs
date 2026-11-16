@@ -1,4 +1,5 @@
 pub mod consumer;
+pub mod fixed_framing;
 mod protocol;
 pub mod recoverylog;
 pub mod uuid;

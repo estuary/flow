@@ -90,6 +90,7 @@ impl Protocol for Derive {
                 let inner = open
                     .collection
                     .as_mut()
+                    .map(proto_flow::Arc::make_mut)
                     .expect("checked by task_name")
                     .derivation
                     .as_mut()

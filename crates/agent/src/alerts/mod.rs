@@ -6,18 +6,20 @@
 //! `AlertNotifications` task in `internal.tasks`, which is responsible for
 //! sending all notifications related to the alert. The `task_id` of the
 //! notification task will be the same as the `alert_history.id`. The task gets
-//! created when the alert is fired, and sticks around until all resolution
-//! notifications have been successfully sent. Alerts may be fired via a few
-//! different means:
+//! created when the alert is fired. Condition alerts keep it until resolution
+//! delivery completes. Event alert types (`AlertType::is_event`) are recorded
+//! with `resolved_at = fired_at`; their tasks deliver the original firing
+//! arguments and finish without a resolution notification. Partial recipient
+//! progress is retained across delivery failures.
 //!
-//! - The `tenant_alerts` and `alert_data_movement_stalled` views: These are
-//!   holdovers from the old alerting system, which expose firing alerts as
-//!   database views.
+//! Alerts may be fired via a few different means:
+//!
+//! - Tenant controllers: Are responsible for tenant alerts, such as `free_trial`.
 //! - Controllers: Are responsible for any new alerts for live_specs.
 //!
 //! This module contains two submodules:
-//! - evaluator: code for evaluating alert conditions and firing or resolving
-//!   alerts from both of the above sources.
+//! - evaluator: code for comparing current alert conditions from both of the
+//!   above sources against open alerts, to determine which to fire or resolve.
 //! - notifier: The automation task for sending alert notifications.
 //!
 //! These modules both link to `control_plane_api::alerts`, which has low-level
@@ -50,7 +52,4 @@ mod notifier;
 
 pub use self::notifier::{AlertNotifications, EmailSender, NotifierState, Sender};
 
-pub use evaluator::{
-    AlertEvaluator, AlertView, AlertViewRow, EvaluatorMessage, EvaluatorState, TenantAlerts,
-    evaluate_alert_actions, new_tenant_alerts_executor,
-};
+pub use evaluator::{AlertViewRow, evaluate_alert_actions};

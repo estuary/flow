@@ -69,10 +69,12 @@ impl TokioContext {
         // Configure a tracing::Dispatch, which is a type-erased form of a tracing::Subscriber,
         // that gathers tracing events & spans and logs them to `log_handler`.
         let log_dispatch: tracing::Dispatch = tracing_subscriber::registry()
-            .with(
-                ::ops::tracing::Layer::new(log_handler, std::time::SystemTime::now)
-                    .with_filter(log_filter),
-            )
+            // This filter is global, so the Registry never creates the spans it rejects.
+            .with(log_filter)
+            .with(::ops::tracing::Layer::new(
+                log_handler,
+                std::time::SystemTime::now,
+            ))
             .into();
 
         let runtime = tokio::runtime::Builder::new_multi_thread()

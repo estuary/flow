@@ -241,7 +241,7 @@ fn seal<T: serde::Serialize>(
     })
     .map_err(internal)?;
     let ciphertext = cipher
-        .encrypt(aes_siv::Nonce::from_slice(&nonce), body.as_slice())
+        .encrypt(&aes_siv::Nonce::from(nonce), body.as_slice())
         .map_err(|_| Error("server_error", "unable to complete OAuth request"))?;
     Ok(B64.encode([nonce.as_slice(), ciphertext.as_slice()].concat()))
 }
@@ -267,7 +267,10 @@ fn unseal<T: serde::de::DeserializeOwned>(
     let key = B64.decode(&config.encryption_key).map_err(internal)?;
     let cipher = aes_siv::Aes256SivAead::new_from_slice(&key).map_err(internal)?;
     let plain = cipher
-        .decrypt(aes_siv::Nonce::from_slice(&bytes[..16]), &bytes[16..])
+        .decrypt(
+            &aes_siv::Nonce::try_from(&bytes[..16]).unwrap(),
+            &bytes[16..],
+        )
         .map_err(|_| Error("invalid_grant", error_description))?;
     let sealed: Sealed<T> =
         serde_json::from_slice(&plain).map_err(|_| Error("invalid_grant", error_description))?;

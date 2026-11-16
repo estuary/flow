@@ -4,10 +4,10 @@ import (
 	"math"
 	"testing"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 func TestPartitionEncodeDecode(t *testing.T) {

@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind:       StatefulSet
+metadata:
+  name: etcd
+  labels:
+    app.kubernetes.io/name: etcd
+spec:
+  replicas:    3
+  serviceName: etcd
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: etcd
+  template:
+    metadata:
+      name: etcd
+      labels:
+        app.kubernetes.io/name: etcd
+    spec:
+      containers:
+        - name:            etcd
+          image:           quay.io/coreos/etcd:v3.4.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 2380
+              name:          peer
+            - containerPort: 2379
+              name:          client
+          env:
+            # Optional Etcd authentication flags.
+            - name:  AUTH_FLAGS
+              value: ""
+            # Enable auto-compaction to prune away old key version.
+            - name:  ETCD_AUTO_COMPACTION_RETENTION
+              value: "1"
+            # DNS service name of this StatefulSet, reflected from its serviceName.
+            - name: ETCD_SERVICE_NAME
+              value: $(ETCD_SERVICE_NAME)
+            # Smallest number of replicas we may run with. This set is always
+            # expected to be running, and seeds the cluster.
+            - name:  MIN_REPLICAS
+              value: "3"
+
+          volumeMounts:
+            - name:      datadir
+              mountPath: /var/run/etcd
+            - name:      etcd-scripts
+              mountPath: /opt/etcd
+          command:
+            - /bin/sh
+            - "-e"
+            - /opt/etcd/etcd-bootstrap.sh
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - "-e"
+                  - /opt/etcd/etcd-shutdown.sh
+      volumes:
+        - name: etcd-scripts
+          configMap:
+            name: etcd-scripts
+
+  volumeClaimTemplates:
+    - metadata:
+        name: datadir
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: "256Mi"

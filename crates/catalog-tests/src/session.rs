@@ -94,7 +94,7 @@ impl DerivationSession {
     /// Start a derivation session: host the leader plus `n_shards` shards, open
     /// the SessionLoop / Join / Task, and block until every shard has Opened.
     pub async fn start<L: runtime_next::LoggerFactory>(
-        spec: &flow::CollectionSpec,
+        spec: &proto_flow::Arc<flow::CollectionSpec>,
         n_shards: u32,
         connector_router: Arc<dyn proto_grpc::connector::Router>,
         registry: service_kit::Registry,
@@ -106,7 +106,9 @@ impl DerivationSession {
 
         // Shuffle bindings, for key-routing the source documents we feed.
         let shuffle_task = shuffle::proto::Task {
-            task: Some(shuffle::proto::task::Task::Derivation(spec.clone())),
+            task: Some(shuffle::proto::task::Task::Derivation(
+                spec.encode_to_vec().into(),
+            )),
         };
         let (mut bindings, sources, validators, _collection_bindings) =
             segments::task_bindings(&shuffle_task)?;
@@ -154,7 +156,7 @@ impl DerivationSession {
 
         // One transaction per pushed checkpoint, so a read maps 1:1 onto a
         // runtime transaction.
-        let mut spec = spec.clone();
+        let mut spec = flow::CollectionSpec::clone(spec);
         runtime_local::force_single_transaction(
             spec.derivation
                 .as_mut()

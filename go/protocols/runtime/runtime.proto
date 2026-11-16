@@ -55,7 +55,7 @@ message TaskServiceConfig {
 message ShuffleRequest {
   // Journal to be shuffled.
   string journal = 1
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal" ];
   // Is this a reply of the journal's content? We separate ongoing vs replayed
   // reads of a journal's content into distinct rings.
   bool replay = 2;
@@ -64,10 +64,10 @@ message ShuffleRequest {
 
   // Offset to begin reading the journal from.
   int64 offset = 4
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   // Offset to stop reading the journal at, or zero if unbounded.
   int64 end_offset = 5
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   // Ranges of responsibility which are unique to this reader,
   // against which document shuffle outcomes are matched to determine
   // read eligibility.
@@ -75,7 +75,7 @@ message ShuffleRequest {
 
   // Coordinator is the Shard ID which is responsible for reads of this journal.
   string coordinator = 7
-  [ (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/consumer/protocol.ShardID" ];
   // Resolution header of the |shuffle.coordinator| shard.
   protocol.Header resolution = 8;
 
@@ -107,11 +107,11 @@ message ShuffleResponse {
   string terminal_error = 3;
   // Offset which was read through to produce this ShuffleResponse.
   int64 read_through = 4
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   // WriteHead of the journal as reported by the broker, as of the creation of
   // this ShuffleResponse.
   int64 write_head = 5
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   // Memory arena of this message.
   bytes arena = 6 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
   // Shuffled documents, each encoded in the 'application/json'
@@ -121,7 +121,7 @@ message ShuffleResponse {
   // For a document at index i, its offsets are [ offsets[2*i], offsets[2*i+1]
   // ).
   repeated int64 offsets = 8
-  [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Offset" ];
   // UUIDParts of each document.
   repeated flow.UUIDParts uuid_parts = 9 [ (gogoproto.nullable) = false ];
   // Packed, embedded encoding of the shuffle key into a byte string.

@@ -11,6 +11,14 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/gazette/allocator"
+	"github.com/estuary/flow/go/gazette/auth"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	"github.com/estuary/flow/go/gazette/consumer"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
+	"github.com/estuary/flow/go/gazette/consumer/recoverylog"
+	"github.com/estuary/flow/go/gazette/mainboilerplate/runconsumer"
+	"github.com/estuary/flow/go/gazette/message"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/network"
 	pcn "github.com/estuary/flow/go/protocols/connector"
@@ -18,14 +26,6 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/auth"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/mainboilerplate/runconsumer"
-	"go.gazette.dev/core/message"
 )
 
 // FlowConsumerConfig configures the Flow consumer application.
@@ -83,8 +83,13 @@ func (c *FlowConsumerConfig) Plane() pr.Plane {
 	// separated provider, region, and cluster number.
 	// * `aws-eu-west-1-c1.dp.estuary-data.com` is public
 	// * `f7002c61f85f2b5e.dp.estuary-data.com` is private
+	//
+	// The hash is formatted without zero-padding (see `create_data_plane`),
+	// so ~1/16 of private planes have fewer than 16 hex chars.
+	// We accept as few as 8. Fewer would require 8 leading zero nibbles,
+	// which is far less likely than a short all-hex public name.
 
-	if m, _ := regexp.Match("^[0-9a-f]{16}\\.", []byte(c.Flow.DataPlaneFQDN)); m {
+	if m, _ := regexp.Match("^[0-9a-f]{8,16}\\.", []byte(c.Flow.DataPlaneFQDN)); m {
 		return pr.Plane_PRIVATE
 	}
 	return pr.Plane_PUBLIC

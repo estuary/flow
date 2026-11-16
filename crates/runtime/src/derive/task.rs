@@ -14,6 +14,7 @@ impl Task {
             state_json: _,
             version,
         } = *open;
+        let collection = collection.map(proto_flow::Arc::unwrap_or_clone);
 
         let Some(response::Kind::Opened(response::Opened { .. })) = &opened.kind else {
             anyhow::bail!("expected Opened");

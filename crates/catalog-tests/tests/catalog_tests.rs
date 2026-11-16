@@ -128,6 +128,44 @@ async fn reset_between_cases() {
     assert!(results.all_passed());
 }
 
+/// A derivation built under the `indirect-specs` flag names its sources through
+/// `linked_collections`, and its transforms carry no inline collection.
+#[tokio::test]
+async fn indirect_specs_derivation() {
+    let yaml = RESET_BETWEEN_CASES.replace(
+        "      transforms:\n",
+        "      shards: { flags: { indirect-specs: \"true\" } }\n      transforms:\n",
+    );
+    let output = build_catalog(&yaml).await;
+
+    let derivation = output
+        .built
+        .built_collections
+        .iter()
+        .find(|row| row.collection.as_str() == "acmeCo/sums")
+        .and_then(|row| row.spec.as_ref())
+        .and_then(|spec| spec.derivation.as_ref())
+        .expect("acmeCo/sums is built with its derivation");
+    assert_eq!(derivation.linked_collections.len(), 1);
+    assert!(derivation.transforms[0].collection.is_none());
+
+    let results = run::run_tests(&output.built, run::Options::default())
+        .await
+        .expect("run_tests");
+    let report: Vec<(String, bool)> = results
+        .outcomes
+        .iter()
+        .map(|o| (o.name.clone(), o.passed()))
+        .collect();
+    assert_eq!(
+        report,
+        vec![
+            ("acmeCo/test/first".to_string(), true),
+            ("acmeCo/test/second".to_string(), true),
+        ],
+    );
+}
+
 const PARTITIONED_VERIFY: &str = r#"
 collections:
   acmeCo/src:

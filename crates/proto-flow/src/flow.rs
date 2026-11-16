@@ -409,7 +409,7 @@ pub mod collection_spec {
         /// readers resolve `collection_index` and must not assume that entries
         /// are unique on name.
         #[prost(message, repeated, tag = "10")]
-        pub linked_collections: ::prost::alloc::vec::Vec<super::CollectionSpec>,
+        pub linked_collections: ::prost::alloc::vec::Vec<crate::Arc<super::CollectionSpec>>,
         /// Secrets of this derivation, mapping a catalog secret name to its JSON
         /// pointer within `config_json`. The runtime resolves and merges each secret
         /// into that location, as an RFC 7396 merge patch, before handing the
@@ -439,9 +439,8 @@ pub mod collection_spec {
             /// Source collection which is read by this transform.
             /// Unset if the derivation uses `linked_collections`, in which case
             /// `collection_index` identifies the source collection instead.
-            #[prost(message, optional, boxed, tag = "2")]
-            pub collection:
-                ::core::option::Option<::prost::alloc::boxed::Box<super::super::CollectionSpec>>,
+            #[prost(message, optional, tag = "2")]
+            pub collection: ::core::option::Option<crate::Arc<super::super::CollectionSpec>>,
             /// Selector of collection partitions which this materialization reads.
             #[prost(message, optional, tag = "3")]
             pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
@@ -648,7 +647,7 @@ pub struct CaptureSpec {
     /// readers resolve `collection_index` and must not assume that entries
     /// are unique on name.
     #[prost(message, repeated, tag = "12")]
-    pub linked_collections: ::prost::alloc::vec::Vec<CollectionSpec>,
+    pub linked_collections: ::prost::alloc::vec::Vec<crate::Arc<CollectionSpec>>,
     /// Secrets of this capture, mapping a catalog secret name to its JSON
     /// pointer within `config_json`. The runtime resolves and merges each secret
     /// into that location, as an RFC 7396 merge patch, before handing the
@@ -682,8 +681,8 @@ pub mod capture_spec {
         /// Collection to be captured into.
         /// Unset if the capture uses `linked_collections`, in which case
         /// `collection_index` identifies the bound collection instead.
-        #[prost(message, optional, boxed, tag = "3")]
-        pub collection: ::core::option::Option<::prost::alloc::boxed::Box<super::CollectionSpec>>,
+        #[prost(message, optional, tag = "3")]
+        pub collection: ::core::option::Option<crate::Arc<super::CollectionSpec>>,
         /// Backfill counter for this binding.
         /// Every increment of this counter results in a new backfill.
         #[prost(uint32, tag = "4")]
@@ -787,7 +786,7 @@ pub struct MaterializationSpec {
     /// having differing `group_by` rewrite the binding's `key` and
     /// `projections\[*\].is_primary_key` to match, so same name != same spec.
     #[prost(message, repeated, tag = "13")]
-    pub linked_collections: ::prost::alloc::vec::Vec<CollectionSpec>,
+    pub linked_collections: ::prost::alloc::vec::Vec<crate::Arc<CollectionSpec>>,
     /// Secrets of this materialization, mapping a catalog secret name to its
     /// JSON pointer within `config_json`. The runtime resolves and merges each
     /// secret into that location, as an RFC 7396 merge patch, before handing the
@@ -821,8 +820,8 @@ pub mod materialization_spec {
         /// Collection to be materialized.
         /// Unset if the materialization uses `linked_collections`, in which case
         /// `collection_index` identifies the bound collection instead.
-        #[prost(message, optional, boxed, tag = "3")]
-        pub collection: ::core::option::Option<::prost::alloc::boxed::Box<super::CollectionSpec>>,
+        #[prost(message, optional, tag = "3")]
+        pub collection: ::core::option::Option<crate::Arc<super::CollectionSpec>>,
         /// Selector of collection partitions which this materialization reads.
         #[prost(message, optional, tag = "7")]
         pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,

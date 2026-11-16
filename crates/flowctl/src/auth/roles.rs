@@ -47,12 +47,12 @@ pub struct Grant {
     /// Subject user Id (a UUID) to which the grant should be issued.
     #[clap(
         long,
-        conflicts_with("subject-role"),
-        required_unless_present("subject-role")
+        conflicts_with("subject_role"),
+        required_unless_present("subject_role")
     )]
     subject_user_id: Option<uuid::Uuid>,
     /// Subject role which receives the grant.
-    #[clap(long, conflicts_with("subject-user-id"))]
+    #[clap(long, conflicts_with("subject_user_id"))]
     subject_role: Option<String>,
     /// Object role to which the subject role is granted.
     #[clap(long)]
@@ -71,12 +71,12 @@ pub struct Revoke {
     /// Subject user Id (a UUID) from which the grant is revoked.
     #[clap(
         long,
-        conflicts_with("subject-role"),
-        required_unless_present("subject-role")
+        conflicts_with("subject_role"),
+        required_unless_present("subject_role")
     )]
     subject_user_id: Option<uuid::Uuid>,
     /// Subject role from which the grant is revoked.
-    #[clap(long, conflicts_with("subject-user-id"))]
+    #[clap(long, conflicts_with("subject_user_id"))]
     subject_role: Option<String>,
     /// Object role from which the subject role is revoked.
     #[clap(long)]

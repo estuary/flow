@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 func TestBuildCatalog(t *testing.T) {

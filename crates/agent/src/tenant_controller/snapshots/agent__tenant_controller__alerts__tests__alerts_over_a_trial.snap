@@ -1,0 +1,149 @@
+---
+source: crates/agent/src/tenant_controller/alerts.rs
+expression: results
+---
+[
+  {
+    "arguments": {
+      "has_credit_card": false,
+      "plan_state": "free_tier",
+      "tenant": "acmeCo/",
+      "trial_end": null,
+      "trial_start": null
+    },
+    "case": "no trial",
+    "firing": [
+      "acmeCo/alerts/missing_payment_method"
+    ],
+    "notFiring": [
+      "acmeCo/alerts/free_trial"
+    ]
+  },
+  {
+    "arguments": {
+      "has_credit_card": false,
+      "plan_state": "free_trial",
+      "tenant": "acmeCo/",
+      "trial_end": "2026-02-28T00:00:00",
+      "trial_start": "2026-01-31"
+    },
+    "case": "trial starts",
+    "firing": [
+      "acmeCo/alerts/free_trial",
+      "acmeCo/alerts/missing_payment_method"
+    ],
+    "notFiring": []
+  },
+  {
+    "arguments": {
+      "has_credit_card": false,
+      "plan_state": "free_trial",
+      "tenant": "acmeCo/",
+      "trial_end": "2026-02-28T00:00:00",
+      "trial_start": "2026-01-31"
+    },
+    "case": "before ending",
+    "firing": [
+      "acmeCo/alerts/free_trial",
+      "acmeCo/alerts/missing_payment_method"
+    ],
+    "notFiring": []
+  },
+  {
+    "arguments": {
+      "has_credit_card": false,
+      "plan_state": "free_trial",
+      "tenant": "acmeCo/",
+      "trial_end": "2026-02-28T00:00:00",
+      "trial_start": "2026-01-31"
+    },
+    "case": "ending",
+    "firing": [
+      "acmeCo/alerts/free_trial",
+      "acmeCo/alerts/missing_payment_method",
+      "acmeCo/alerts/free_trial_ending"
+    ],
+    "notFiring": []
+  },
+  {
+    "arguments": {
+      "has_credit_card": true,
+      "plan_state": "free_trial",
+      "tenant": "acmeCo/",
+      "trial_end": "2026-02-28T00:00:00",
+      "trial_start": "2026-01-31"
+    },
+    "case": "last day",
+    "firing": [
+      "acmeCo/alerts/free_trial",
+      "acmeCo/alerts/free_trial_ending"
+    ],
+    "notFiring": [
+      "acmeCo/alerts/missing_payment_method"
+    ]
+  },
+  {
+    "arguments": {
+      "has_credit_card": false,
+      "plan_state": "paid",
+      "tenant": "acmeCo/",
+      "trial_end": "2026-02-28T00:00:00",
+      "trial_start": "2026-01-31"
+    },
+    "case": "trial ends",
+    "firing": [
+      "acmeCo/alerts/missing_payment_method"
+    ],
+    "notFiring": [
+      "acmeCo/alerts/free_trial"
+    ]
+  },
+  {
+    "arguments": {
+      "has_credit_card": false,
+      "plan_state": "paid",
+      "tenant": "acmeCo/",
+      "trial_end": "2026-02-28T00:00:00",
+      "trial_start": "2026-01-31"
+    },
+    "case": "before stalled",
+    "firing": [
+      "acmeCo/alerts/missing_payment_method"
+    ],
+    "notFiring": [
+      "acmeCo/alerts/free_trial"
+    ]
+  },
+  {
+    "arguments": {
+      "has_credit_card": false,
+      "plan_state": "paid",
+      "tenant": "acmeCo/",
+      "trial_end": "2026-02-28T00:00:00",
+      "trial_start": "2026-01-31"
+    },
+    "case": "stalled",
+    "firing": [
+      "acmeCo/alerts/missing_payment_method",
+      "acmeCo/alerts/free_trial_stalled"
+    ],
+    "notFiring": [
+      "acmeCo/alerts/free_trial"
+    ]
+  },
+  {
+    "arguments": {
+      "has_credit_card": true,
+      "plan_state": "paid",
+      "tenant": "acmeCo/",
+      "trial_end": "2026-02-28T00:00:00",
+      "trial_start": "2026-01-31"
+    },
+    "case": "paid",
+    "firing": [],
+    "notFiring": [
+      "acmeCo/alerts/free_trial",
+      "acmeCo/alerts/missing_payment_method"
+    ]
+  }
+]

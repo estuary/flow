@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  replicas: 1
+  serviceName: postgres
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      name: postgres
+      labels:
+        app.kubernetes.io/name: postgres
+    spec:
+      containers:
+        - name:            postgres
+          image:           postgres:12
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name:          tcp
+          env:
+            - name:  POSTGRES_DB
+              value: test
+            - name:  POSTGRES_USER
+              value: test
+            - name:  POSTGRES_PASSWORD
+              value: test
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+
+          volumeMounts:
+            - name:      datadir
+              mountPath: /var/lib/postgresql/data
+            - name:      postgres-init
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: postgres-init
+          configMap:
+            name: postgres-init
+
+  volumeClaimTemplates:
+    - metadata:
+        name: datadir
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: "512Mi"

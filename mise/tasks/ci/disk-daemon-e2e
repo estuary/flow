@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Run the disk-daemon unit tests, then its integration tests, which serve real ublk devices"
+#MISE depends=["bootstrap:ublk-drv", "build:gazette"]
+
+# Prerequisites beyond those declared above. crates/e2e-support needs gazette to
+# spawn a real broker. See crates/disk-daemon/README.md for the rest:
+#  * build:rocksdb, run first -- build:gazette links RocksDB and Snappy
+#  * Linux 6.11 or later
+#  * passwordless sudo -- the integration tests run as root, through `sudo -n`
+#  * e2fsprogs, for the cases which put ext4 on a disk
+#  * etcd on PATH, which mise provides
+#
+
+# ublk's behavior varies by kernel, so the log records the kernel its tests ran on.
+uname -r
+cargo nextest run --locked -p disk-daemon
+
+# The integration tests serve devices and use them, so their binaries run as root,
+# while Cargo stays unprivileged. sudo replaces PATH with its secure_path, so `env`
+# restores the PATH which finds etcd and gazette.
+host=$(rustc -vV | sed -n 's/^host: //p')
+export "CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<<"${host}")_RUNNER=sudo -n --preserve-env env PATH=${PATH}"
+cargo nextest run --locked --profile disk-daemon-e2e -p disk-daemon --no-fail-fast

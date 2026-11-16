@@ -9,7 +9,7 @@ pub type JSON = serde_json::Value;
 /// The GraphQL query for fetching firing alerts
 #[derive(GraphQLQuery)]
 #[graphql(
-    schema_path = "../flow-client/control-plane-api.graphql",
+    schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/raw/alerts_query.graphql",
     response_derives = "Debug,Clone,Serialize,Deserialize"
 )]

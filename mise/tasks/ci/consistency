@@ -33,15 +33,15 @@ fi
 #
 # Two kinds leak, in two different etcd roots, and both are load-bearing:
 #
-# **Ops partitions**, under `/gazette/<cluster>/items/ops/tasks`. A task's ops log and stats
+# **Ops partitions**, under `/gazette/<cluster>/brokers/items/ops/tasks`. A task's ops log and stats
 # partitions are not deleted when its specification is — they belong to the data plane's
 # shared `ops/tasks/...` collections — so the suite accumulates a pair per task, about two
 # hundred per full run. A four-broker data plane runs out of assignment slots at around
 # fourteen hundred partitions, after which newly published journals get no primary broker and
 # every scenario fails waiting for a capture that published fine and can never append.
 #
-# **Task shards and their recovery logs**, under `/flow/<cluster>/items` and
-# `/gazette/<cluster>/items` respectively. A run killed mid-flight — a CI timeout, a wedged
+# **Task shards and their recovery logs**, under `/flow/<cluster>/reactors/items` and
+# `/gazette/<cluster>/brokers/items` respectively. A run killed mid-flight — a CI timeout, a wedged
 # stack — can delete its specs while leaving these behind. They look harmless until the
 # build artifact they reference is collected, and then they are not: gazette's
 # `completeRecovery` nil-dereferences instead of erroring, the reactor segfaults on every
@@ -72,7 +72,7 @@ purge_orphan_gazette_items() {
 
     local removed=0
     local root keys key rel name encoded claimed
-    for root in "/gazette/${FLOW_CLUSTER}" "/flow/${FLOW_CLUSTER}"; do
+    for root in "/gazette/${FLOW_CLUSTER}/brokers" "/flow/${FLOW_CLUSTER}/reactors"; do
         # Only ever consider keys naming this suite's own prefix, in either the plain or the
         # URL-encoded form.
         keys=$(ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" get --prefix --keys-only \

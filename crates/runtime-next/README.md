@@ -7,7 +7,7 @@ lifecycle and ops logs. Captures use a simpler model with independent
 per-shard transaction loops.
 
 Shards also auto-split collection partition journals that stay append-rate
-throttled, adding write throughput without operator action.
+throttled, up to 32 journals per logical partition.
 
 This crate hosts both sides of the runtime-v2 protocol:
 

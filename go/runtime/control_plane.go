@@ -11,9 +11,9 @@ import (
 	"path"
 	"time"
 
+	"github.com/estuary/flow/go/gazette/auth"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	"github.com/golang-jwt/jwt/v5"
-	"go.gazette.dev/core/auth"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 type controlPlane struct {

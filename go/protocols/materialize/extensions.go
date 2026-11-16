@@ -3,8 +3,8 @@ package materialize
 import (
 	"encoding/json"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // IsForbidden returns true if the constraint type forbids inclusion in a materialization. This will

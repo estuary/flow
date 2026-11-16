@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pd "github.com/estuary/flow/go/protocols/derive"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -17,8 +19,6 @@ import (
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 func TestSimpleDerive(t *testing.T) {

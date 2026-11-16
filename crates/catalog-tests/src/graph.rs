@@ -126,7 +126,7 @@ impl Graph {
     /// derivation and an enabled shard template are added: a disabled task never
     /// runs, so a verify must not gate on a write it will never make.
     pub fn from_built_collections(
-        collections: &[proto_flow::flow::CollectionSpec],
+        collections: &[proto_flow::Arc<proto_flow::flow::CollectionSpec>],
     ) -> anyhow::Result<Self> {
         let mut graph = Graph::new();
 
@@ -144,13 +144,11 @@ impl Graph {
             }
 
             let transforms: Vec<Transform> = derivation
-                .transforms
-                .iter()
-                .map(|t| {
-                    let source = t
-                        .collection
-                        .as_ref()
-                        .context("built transform is missing its source collection")?;
+                .resolved_transforms()
+                .map(|(t, resolved)| {
+                    let (source, _) = resolved.with_context(|| {
+                        format!("built transform {} has no source collection", t.name)
+                    })?;
 
                     anyhow::Ok(Transform {
                         source: crate::partitions::template_name(source)?.to_string(),

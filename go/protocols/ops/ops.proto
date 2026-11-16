@@ -42,10 +42,10 @@ message ShardLabeling {
 	TaskType task_type = 9;
   // Journal to which task logs are directed.
   string logs_journal = 10
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+      [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal" ];
   // Journal to which task stats are directed.
   string stats_journal = 11
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+      [ (gogoproto.casttype) = "github.com/estuary/flow/go/gazette/broker/protocol.Journal" ];
   // Flags are arbitrary string-valued feature flags set on the task's shard template.
   map<string, string> flags = 12;
   // Maximum aggregate size in bytes of buffered, sealed on-disk shuffle segment

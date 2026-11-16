@@ -3,7 +3,6 @@ source: crates/materialize-python/src/lib.rs
 expression: "validated.generated_files.keys().collect::<Vec<_>>()"
 ---
 [
-    "file:///project/acmeCo/flow_generated/python/acmeCo/__init__.py",
     "file:///project/acmeCo/flow_generated/python/acmeCo/materialize_acme/__init__.py",
     "file:///project/acmeCo/materialize-acme/__init__.py",
     "file:///project/acmeCo/materialize-acme/models.py",

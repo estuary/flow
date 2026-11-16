@@ -98,7 +98,7 @@ pub async fn create(
         )));
     }
     let data_plane_error = || tonic::Status::not_found("data plane not found or unauthorized");
-    let data_plane_name = if let Some(live) = live_capture {
+    let data_plane_name = if let Some(live) = &live_capture {
         let current_data_plane_name = &snapshot
             .data_plane_by_id(live.data_plane_id)
             .ok_or_else(data_plane_error)?
@@ -132,7 +132,7 @@ pub async fn create(
     let update_only = model
         .auto_discover
         .as_ref()
-        .is_some_and(|policy| !policy.add_new_bindings);
+        .map_or(live_capture.is_some(), |policy| !policy.add_new_bindings);
 
     // The executor takes the endpoint from the draft or live capture, which a
     // NULL `connector_tag_id` signals. `endpoint_config` is a placeholder.

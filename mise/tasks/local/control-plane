@@ -36,6 +36,10 @@ RUST_LOG=info
 SERVE_HANDLERS=true
 SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
 
+# Decrypts data-plane HMAC keys. Its public half is the age recipient to which
+# local:data-plane encrypts them. No other service holds this key.
+SOPS_AGE_KEY=AGE-SECRET-KEY-1M3S7XA3T4URLM24XCEA3PCXZGEWN3UHML6ST4YG70AUD7FGUN4EQJRKR6X
+
 # Local stacks run the V2 task runtime for every newly-created task: the agent
 # stamps enable-runtime-v2 onto new captures, derivations, and materializations
 # at publication time. Existing tasks and explicit per-task flags are unaffected.

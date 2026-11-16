@@ -150,11 +150,6 @@ struct Args {
     #[clap(long, env, default_value = "https://dashboard.estuary.dev/")]
     dashboard_base_url: String,
 
-    /// How frequently to evaluate tenant-related alert conditions.
-    #[clap(long, env, default_value = "1h")]
-    #[arg(value_parser = humantime::parse_duration)]
-    tenant_alert_interval: std::time::Duration,
-
     /// When `true`, any *newly-created* capture without an explicit
     /// `enable-runtime-v2` shard flag is published onto runtime v2. Existing
     /// captures are unaffected, and an explicit per-task flag always takes
@@ -388,6 +383,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             )) as Arc<dyn control_plane_api::billing::BillingProvider>
         });
     let tenant_controller_billing_provider = billing_provider.clone();
+    let tenant_controller_catalog_stats = catalog_stats.clone();
 
     let sprites = args
         .sprites_token
@@ -440,15 +436,13 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             })
             .register(agent::DiscoverExecutor {
                 handler: discover_handler,
-                snapshot_watch,
+                snapshot_watch: snapshot_watch.clone(),
             })
             .register(connector_tags_executor)
-            .register(migrate::automation::MigrationExecutor)
-            .register(agent::alerts::new_tenant_alerts_executor(
-                args.tenant_alert_interval,
-            ))
+            .register(migrate::automation::MigrationExecutor { snapshot_watch })
             .register(agent::tenant_controller::TenantController::new(
                 tenant_controller_billing_provider,
+                tenant_controller_catalog_stats,
             ));
 
         if args.serve_alert_notifications {

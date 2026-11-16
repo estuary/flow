@@ -40,6 +40,7 @@ memchr = { workspace = true }
 metrics = { workspace = true }
 pbjson-types = { workspace = true }
 pin-project-lite = { workspace = true }
+prost = { workspace = true }
 rkyv = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }

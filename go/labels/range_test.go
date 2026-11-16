@@ -3,9 +3,9 @@ package labels
 import (
 	"testing"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 func TestRangeSpecParsingCases(t *testing.T) {

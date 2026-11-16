@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // ParseShardLabels parses and validates ShardLabels from their defined

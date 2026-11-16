@@ -26,6 +26,8 @@ ARG TARGETARCH
 COPY ${TARGETARCH}/data-plane-controller /usr/local/bin/
 COPY ${TARGETARCH}/data-plane-controller-entrypoint.sh /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
+# Smoke-test that our binaries load in this image (e.g. shared libraries resolve).
+RUN data-plane-controller --help >/dev/null
 
 ENV RUST_LOG=info
 

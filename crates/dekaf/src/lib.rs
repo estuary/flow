@@ -717,9 +717,9 @@ fn create_crypto(secret: String, nonce: String) -> (Aes256SivAead, aes_siv::Nonc
     nonce.resize(16, 0);
 
     let cipher = Aes256SivAead::new_from_slice(&key[..]).unwrap();
-    let nonce = aes_siv::Nonce::from_slice(&nonce[..]);
+    let nonce = aes_siv::Nonce::try_from(&nonce[..]).unwrap();
 
-    return (cipher, *nonce);
+    return (cipher, nonce);
 }
 
 /// Convert a topic name to a name that is compatible with Kafka's

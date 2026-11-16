@@ -18,7 +18,7 @@ expression: json!(request.changes)
           },
           {
             "name": "estuary.dev/key-end",
-            "value": "5fffffff"
+            "value": "47ffffff"
           }
         ]
       },
@@ -35,15 +35,15 @@ expression: json!(request.changes)
           },
           {
             "name": "estuary.dev/key-begin",
-            "value": "60000000"
+            "value": "48000000"
           },
           {
             "name": "estuary.dev/key-end",
-            "value": "7fffffff"
+            "value": "4fffffff"
           }
         ]
       },
-      "name": "example/collection/v1/a_bool=%_true/pivot=60000000"
+      "name": "example/collection/v1/a_bool=%_true/pivot=48000000"
     }
   }
 ]

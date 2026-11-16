@@ -77,7 +77,7 @@ pub fn run() -> anyhow::Result<()> {
                 serde_json::from_slice::<LambdaConfig>(lambda_config_json).unwrap()
             };
 
-            (name.as_str(), resolved.unwrap().0, lambda)
+            (name.as_str(), &**resolved.unwrap().0, lambda)
         })
         .collect::<Vec<_>>();
 
@@ -171,6 +171,7 @@ fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::resp
             }
 
             let (source, _identity) = resolved.context("transform missing source collection")?;
+            let source: &flow::CollectionSpec = source;
 
             Ok((name.as_str(), source, lambda))
         })

@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
+	pc "github.com/estuary/flow/go/gazette/consumer/protocol"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 //go:generate flowctl raw build --build-id test-build --db-path testdata/temp.db --source testdata/flow.yaml

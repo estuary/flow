@@ -17,6 +17,14 @@ begin
         returning * into consent;
 
     return query select throws_ok(
+        format('insert into internal.tenant_consent (user_id, user_email, terms_id, tenant_name, tenant_id)
+                values (%L, %L, %L, %L, %L)',
+               'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'other@example.test',
+               terms.id, tenant.tenant, tenant.id),
+        '23505', 'duplicate key value violates unique constraint "tenant_consent_tenant_terms_key"',
+        'another user cannot create a second consent for the same tenant and document');
+
+    return query select throws_ok(
         format('insert into internal.tenant_consent (user_email, terms_id, tenant_name, tenant_id)
                 values (%L, %L, %L, %L)',
                consent.user_email, terms.id, tenant.tenant, tenant.id),

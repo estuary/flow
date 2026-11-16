@@ -8,6 +8,7 @@ mod invoices;
 mod loaders;
 mod mutations;
 mod payment_methods;
+mod plan;
 mod tenant;
 
 pub(super) use loaders::{ChargeDataLoader, CustomerDataLoader, StripeInvoiceLoader};

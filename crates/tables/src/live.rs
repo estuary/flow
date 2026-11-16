@@ -66,7 +66,7 @@ impl LiveRow for crate::LiveCapture {
 
 impl LiveRow for crate::LiveCollection {
     type ModelDef = models::CollectionDef;
-    type BuiltSpec = proto_flow::flow::CollectionSpec;
+    type BuiltSpec = proto_flow::Arc<proto_flow::flow::CollectionSpec>;
 
     fn catalog_name(&self) -> &Self::Key {
         &self.collection

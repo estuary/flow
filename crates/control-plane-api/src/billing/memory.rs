@@ -1,4 +1,5 @@
 use super::BillingProvider;
+use billing_types::TENANT_METADATA_KEY;
 use std::sync::Mutex;
 
 #[derive(Debug, Default)]
@@ -8,6 +9,7 @@ struct State {
     invoices: Vec<stripe::Invoice>,
     payment_intents: Vec<stripe::PaymentIntent>,
     setup_intent_counter: u64,
+    retrieve_customer_calls: usize,
     update_billing_profile_calls: usize,
 }
 
@@ -20,6 +22,12 @@ pub struct InMemoryBillingProvider {
 impl InMemoryBillingProvider {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Number of `retrieve_customer` calls, letting tests assert which polls
+    /// call Stripe.
+    pub fn retrieve_customer_call_count(&self) -> usize {
+        self.state.lock().unwrap().retrieve_customer_calls
     }
 
     /// Number of `update_customer_billing_profile` calls, letting tests assert
@@ -90,7 +98,8 @@ impl BillingProvider for InMemoryBillingProvider {
         &self,
         customer_id: &stripe::CustomerId,
     ) -> anyhow::Result<stripe::Customer> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        state.retrieve_customer_calls += 1;
         state
             .customers
             .iter()
@@ -102,23 +111,17 @@ impl BillingProvider for InMemoryBillingProvider {
     async fn create_customer(
         &self,
         tenant: &str,
-        _user_email: &str,
-        _user_name: Option<&str>,
-        billing_name: Option<&str>,
+        email: Option<&str>,
         address: Option<stripe::Address>,
+        mut metadata: std::collections::HashMap<String, String>,
     ) -> anyhow::Result<stripe::Customer> {
         let mut state = self.state.lock().unwrap();
         let id = format!("cus_mock_{}", tenant.replace('/', ""));
-        // Mirror the Stripe impl: the billing name lives in customer metadata.
-        let mut metadata = billing_types::tenant_metadata(tenant);
-        if let Some(billing_name) = billing_name {
-            metadata.insert(
-                billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
-                billing_name.to_string(),
-            );
-        }
+        // Tenant identity is authoritative even if caller metadata conflicts.
+        metadata.insert(TENANT_METADATA_KEY.to_string(), tenant.to_string());
         let customer = stripe::Customer {
             id: id.parse().unwrap(),
+            email: email.map(str::to_string),
             address,
             metadata: Some(metadata),
             ..Default::default()

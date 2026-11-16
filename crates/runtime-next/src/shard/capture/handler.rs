@@ -305,11 +305,11 @@ where
         .iter()
         .map(|target| {
             let index = target.first_binding as usize;
-            Ok(spec
+            let (collection, _identity) = spec
                 .binding_collection(&spec.bindings[index])
                 .context("missing collection")
-                .context(index)?
-                .0)
+                .context(index)?;
+            Ok(&**collection)
         })
         .collect::<anyhow::Result<_>>()?;
     let binding_targets: Vec<u32> = task.bindings.iter().map(|binding| binding.target).collect();

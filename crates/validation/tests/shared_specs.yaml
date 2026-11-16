@@ -1,0 +1,59 @@
+test://example/catalog.yaml:
+  collections:
+    the/reader:
+      key: [/d_one]
+      schema:
+        type: object
+        properties:
+          d_one: { type: integer }
+        required: [d_one]
+      derive:
+        using: { sqlite: {} }
+        transforms:
+          - name: first
+            source: { name: the/derived }
+            shuffle: any
+            lambda: select 1 as d_one;
+          - name: second
+            source: { name: the/derived }
+            shuffle: any
+            lambda: select 2 as d_one;
+
+  tests:
+    the/test:
+      - verify:
+          collection: the/derived
+          documents: []
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+
+  # `the/derived` is a live derivation which isn't drafted.
+  liveCollections:
+    the/source:
+      controlId: "11:11:11:11:11:11:11:01"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+      lastPubId: "10:10:10:10:10:10:10:10"
+      key: [/d_one]
+    the/derived:
+      controlId: "11:11:11:11:11:11:11:02"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+      lastPubId: "10:10:10:10:10:10:10:10"
+      key: [/d_one]
+      derive:
+        using: { sqlite: {} }
+        transforms:
+          - name: fromSource
+            source: { name: the/source }
+            shuffle: any
+            lambda: select 1 as d_one;
+
+  derivations:
+    the/reader:
+      connectorType: SQLITE
+      config: {}
+      shuffleKeyTypes: []
+      transforms:
+        - readOnly: true
+        - readOnly: true

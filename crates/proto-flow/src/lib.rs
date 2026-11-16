@@ -1,9 +1,11 @@
 use serde_json::value::RawValue;
 use std::collections::BTreeMap;
 
+mod arc;
 pub mod capture;
 pub mod connector;
 pub mod derive;
+pub mod disk;
 pub mod flow;
 mod internal;
 pub mod linked;
@@ -11,6 +13,8 @@ pub mod materialize;
 pub mod ops;
 pub mod runtime;
 pub mod shuffle;
+
+pub use arc::Arc;
 
 // Re-export so pbjson-generated `super::consumer::...` paths in
 // `runtime.serde.rs` resolve.

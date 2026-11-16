@@ -29,7 +29,7 @@ pub struct Shard {
 pub struct CollectionPartitions {
     /// Collection specification.
     #[prost(message, optional, tag = "1")]
-    pub collection: ::core::option::Option<super::flow::CollectionSpec>,
+    pub collection: ::core::option::Option<crate::Arc<super::flow::CollectionSpec>>,
     /// Partition selector for filtering source collection journals.
     #[prost(message, optional, tag = "2")]
     pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
@@ -53,13 +53,15 @@ pub mod task {
         /// Partitions of a single collection (ad-hoc read).
         #[prost(message, tag = "1")]
         CollectionPartitions(super::CollectionPartitions),
-        /// Derivation for which we're performing shuffles.
+        /// Derivation for which we're performing shuffles
+        /// (protobuf-encoded flow.CollectionSpec bytes).
         /// The collection's `derivation` field must be set.
-        #[prost(message, tag = "2")]
-        Derivation(super::super::flow::CollectionSpec),
-        /// Materialization for which we're performing shuffles.
-        #[prost(message, tag = "3")]
-        Materialization(super::super::flow::MaterializationSpec),
+        #[prost(bytes, tag = "2")]
+        Derivation(::prost::bytes::Bytes),
+        /// Materialization for which we're performing shuffles
+        /// (protobuf-encoded flow.MaterializationSpec bytes).
+        #[prost(bytes, tag = "3")]
+        Materialization(::prost::bytes::Bytes),
     }
 }
 /// ProducerFrontier is the frontier state of a single producer within a journal.

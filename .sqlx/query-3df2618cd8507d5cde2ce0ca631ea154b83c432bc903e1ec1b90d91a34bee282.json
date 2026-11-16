@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                update internal.billing_historicals\n                set stripe_invoice_id = $3\n                where tenant = $1\n                  and date_trunc('month', billed_month)::date = $2\n                  and stripe_invoice_id is not distinct from $4\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Date",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3df2618cd8507d5cde2ce0ca631ea154b83c432bc903e1ec1b90d91a34bee282"
+}

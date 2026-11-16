@@ -124,6 +124,7 @@ pub struct QueryRoot(
 #[derive(Debug, Default, async_graphql::MergedObject)]
 pub struct MutationRoot(
     tenant::TenantMutation,
+    legal_terms::LegalTermsMutation,
     billing::BillingMutation,
     storage_mappings::StorageMappingsMutation,
     alert_configs::AlertConfigsMutation,
@@ -150,11 +151,38 @@ pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchem
     .finish()
 }
 
-/// Returns the GraphQL SDL (Schema Definition Language) as a string.
-/// This is used by the flow-client build script to generate types.
-pub fn schema_sdl() -> String {
-    let schema = create_schema(models::AlertConfig::default());
-    schema.sdl()
+/// A GraphQL-over-HTTP request body. It wraps `async_graphql::Request` so that
+/// the OpenAPI spec can describe it, as that type has no `schemars::JsonSchema`.
+#[derive(serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct GraphQLRequest(async_graphql::Request);
+
+impl schemars::JsonSchema for GraphQLRequest {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "GraphQLRequest".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "A GraphQL operation to execute.",
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "GraphQL document containing the operation.",
+                },
+                "operationName": {
+                    "type": "string",
+                    "description": "Operation of `query` to execute, when it has several.",
+                },
+                "variables": {
+                    "type": "object",
+                    "description": "Values of the operation's variables.",
+                },
+            },
+        })
+    }
 }
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
@@ -162,7 +190,7 @@ pub(crate) async fn graphql_handler(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     axum::Extension(schema): axum::Extension<GraphQLSchema>,
     env: crate::Envelope,
-    axum::extract::Json(req): axum::extract::Json<async_graphql::Request>,
+    axum::extract::Json(GraphQLRequest(req)): axum::extract::Json<GraphQLRequest>,
 ) -> axum::response::Response {
     let pg_pool = env.pg_pool.clone();
 
@@ -344,4 +372,70 @@ fn graphql_json_values_preserves_field_order() {
     let parsed: async_graphql::Value = serde_json::from_str(json_str).unwrap();
     let round_tripped = serde_json::to_string(&parsed).unwrap();
     assert_eq!(json_str.replace(' ', ""), round_tripped);
+}
+
+// flowctl compiles its GraphQL queries against the checked-in SDL, and embeds
+// it for `flowctl raw graphql-schema`. On drift this test regenerates the SDL
+// in place, so a failure is fixed by reviewing and committing the file.
+#[test]
+fn checked_in_sdl_is_current() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("control-plane-api.graphql");
+    let sdl = create_schema(models::AlertConfig::default()).sdl();
+    let committed = std::fs::read_to_string(&path).unwrap();
+
+    if committed != sdl {
+        std::fs::write(&path, sdl).unwrap();
+        panic!(
+            "checked-in GraphQL SDL was out of date; it has been regenerated in place -- review and commit {}",
+            path.display()
+        );
+    }
+}
+
+#[sqlx::test(migrations = "../../supabase/migrations")]
+async fn schema_route_serves_sdl_without_auth(pool: sqlx::PgPool) {
+    let _guard = crate::test_server::init();
+    let server = crate::test_server::TestServer::start(
+        pool.clone(),
+        crate::test_server::snapshot(pool.clone(), true).await,
+    )
+    .await;
+
+    let response = reqwest::get(server.base_url().join("/api/graphql/schema").unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()[reqwest::header::CONTENT_TYPE],
+        "text/plain; charset=utf-8"
+    );
+    assert_eq!(
+        response.text().await.unwrap(),
+        create_schema(models::AlertConfig::default()).sdl()
+    );
+}
+
+#[sqlx::test(migrations = "../../supabase/migrations")]
+async fn graphql_routes_are_documented(pool: sqlx::PgPool) {
+    let _guard = crate::test_server::init();
+    let server = crate::test_server::TestServer::start(
+        pool.clone(),
+        crate::test_server::snapshot(pool.clone(), true).await,
+    )
+    .await;
+
+    let spec: serde_json::Value =
+        reqwest::get(server.base_url().join("/api/v1/openapi.json").unwrap())
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+    insta::assert_json_snapshot!(serde_json::json!({
+        "/api/graphql": spec["paths"]["/api/graphql"],
+        "/api/graphql/schema": spec["paths"]["/api/graphql/schema"],
+        "GraphQLRequest": spec["components"]["schemas"]["GraphQLRequest"],
+    }));
 }

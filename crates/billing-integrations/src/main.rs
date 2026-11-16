@@ -23,6 +23,7 @@ fn main() -> Result<(), anyhow::Error> {
         )
         .without_time()
         .with_target(false)
+        .with_writer(std::io::stderr)
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
 

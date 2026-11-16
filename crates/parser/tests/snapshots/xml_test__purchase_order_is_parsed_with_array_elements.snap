@@ -1,0 +1,242 @@
+---
+source: crates/parser/tests/xml_test.rs
+expression: result.parsed
+---
+[
+  {
+    "PurchaseOrder": {
+      "Deliveries": {
+        "Delivery": [
+          {
+            "Destination": {
+              "AccountId": "C-200",
+              "Address": {
+                "City": "Sampletown",
+                "CountryCode": "ZZ",
+                "Line1": "99 Sample Road",
+                "PostalCode": "00042"
+              },
+              "Contact": {
+                "Email": "receiving@example.com",
+                "Phone": "+00000000002"
+              },
+              "Name": "Example Office Ltd",
+              "TaxIds": {
+                "TaxId": [
+                  {
+                    "#text": "ZZ000000001",
+                    "@country": "ZZ",
+                    "@type": "VAT"
+                  }
+                ]
+              }
+            },
+            "Instructions": "Ring the bell at the side door\nLeave with reception if closed\n•\tKeep the boxes upright",
+            "Kind": {
+              "Code": "OUT",
+              "Label": "Outbound"
+            },
+            "Packages": {
+              "Package": [
+                {
+                  "Count": "1",
+                  "Size": {
+                    "@uom": "cm",
+                    "Height": "15.0",
+                    "Length": "40.0",
+                    "Width": "30.0"
+                  },
+                  "Steps": {
+                    "Step": [
+                      {
+                        "PlannedAt": "2025-03-05T09:00:00Z",
+                        "StepType": "PACK"
+                      }
+                    ]
+                  },
+                  "Volume": {
+                    "#text": "18.0",
+                    "@uom": "l"
+                  },
+                  "Weight": {
+                    "#text": "2.500",
+                    "@uom": "kg"
+                  }
+                }
+              ]
+            },
+            "Sequence": "1"
+          },
+          {
+            "Destination": {
+              "AccountId": "W-300",
+              "Address": {
+                "City": "Sampletown",
+                "CountryCode": "ZZ",
+                "Line1": "1 Depot Street",
+                "PostalCode": "00007"
+              },
+              "LocalNames": {
+                "LocalName": [
+                  {
+                    "Language": "ar",
+                    "Name": "مستودع المثال / Example Warehouse"
+                  }
+                ]
+              },
+              "Name": "Example Warehouse",
+              "TaxIds": {
+                "TaxId": [
+                  {
+                    "#text": "ZZ000000002",
+                    "@country": "ZZ",
+                    "@type": "VAT"
+                  },
+                  {
+                    "#text": "YY000000003",
+                    "@country": "YY",
+                    "@type": "EORI"
+                  },
+                  {
+                    "#text": "0000000000",
+                    "@country": "XX",
+                    "@type": "REG"
+                  }
+                ]
+              }
+            },
+            "Kind": {
+              "Code": "RET",
+              "Label": "Return"
+            },
+            "Packages": {
+              "Package": [
+                {
+                  "Count": "1",
+                  "Steps": {
+                    "Step": [
+                      {
+                        "StepType": "RECEIVE"
+                      }
+                    ]
+                  },
+                  "Weight": {
+                    "#text": "2.500",
+                    "@uom": "kg"
+                  }
+                }
+              ]
+            },
+            "Sequence": "2"
+          }
+        ]
+      },
+      "Header": {
+        "CreatedAt": "2025-03-04T10:15:30Z",
+        "MessageId": "00000000-0000-4000-8000-000000000042",
+        "ReceiverCode": "EXAMPLE-WAREHOUSE",
+        "ResendCount": "2",
+        "SchemaVersion": "2.3",
+        "SenderCode": "ACME-STORE"
+      },
+      "Invoice": {
+        "InvoiceNumber": "INV-0042",
+        "Lines": {
+          "Line": [
+            {
+              "Sku": "PAPER-A4",
+              "Weight": {
+                "#text": "2.500",
+                "@uom": "kg"
+              }
+            },
+            {
+              "Sku": "PEN-BLUE",
+              "Weight": {
+                "#text": "0.750",
+                "@uom": "kg"
+              }
+            }
+          ]
+        },
+        "Notes": {
+          "Note": [
+            {
+              "Text": "Invoice by email",
+              "Title": "Billing"
+            },
+            {
+              "Text": "Payment within 30 days:\n\n--- Details ---\nMethod:\nCurrency: ZZD",
+              "Title": "Terms"
+            }
+          ]
+        },
+        "Tags": {
+          "Tag": [
+            {
+              "Kind": "PROMO",
+              "Value": "SPRING"
+            },
+            {
+              "Kind": "REF",
+              "Value": "0000000001"
+            },
+            {
+              "Kind": "NOTE",
+              "Value": "Customer''s own reference"
+            }
+          ]
+        },
+        "TotalItems": "2",
+        "TotalWeight": {
+          "#text": "3.250",
+          "@uom": "kg"
+        }
+      },
+      "Order": {
+        "IsFragile": "true",
+        "IsGift": "false",
+        "Notes": {
+          "Note": [
+            {
+              "Text": "Line one of the note\nLine two: the customer''s request\n\nLine four after a blank line",
+              "Title": "Gift message"
+            }
+          ]
+        },
+        "OrderNumber": "PO-0042",
+        "PlacedAt": "2025-03-04T10:15:36Z",
+        "PlacedBy": {
+          "UserId": "U-7",
+          "UserName": "Jordan Example"
+        },
+        "Priority": {
+          "Code": "STD",
+          "Label": "Standard delivery"
+        },
+        "Summary": "Assorted office supplies",
+        "Tags": {
+          "Tag": [
+            {
+              "Kind": "CH",
+              "Value": "web"
+            }
+          ]
+        },
+        "Vendor": {
+          "AccountId": "V-100",
+          "Address": {
+            "City": "Sampletown",
+            "CountryCode": "ZZ",
+            "Line1": "12 Example Lane",
+            "PostalCode": "01234"
+          },
+          "Contact": {
+            "Name": "Orders desk"
+          },
+          "Name": "Acme Paper Co"
+        }
+      }
+    }
+  }
+]

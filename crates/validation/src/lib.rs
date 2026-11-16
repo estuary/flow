@@ -78,7 +78,7 @@ pub async fn validate(
 
     storage_mapping::walk_all_storage_mappings(&live.storage_mappings, &mut errors);
 
-    // Build all local collections.
+    // Build all collections, without their derivations.
     let mut built_collections = collection::walk_all_collections(
         pub_id,
         build_id,
@@ -92,6 +92,11 @@ pub async fn validate(
     // If we failed to build one or more collections then further validation
     // will generate lots of misleading "not found" errors.
     if fail_fast && !errors.is_empty() {
+        collection::restore_live_derivations(
+            &draft.collections,
+            &live.collections,
+            &mut built_collections,
+        );
         return tables::Validations {
             built_captures: tables::BuiltCaptures::new(),
             built_collections,
@@ -117,6 +122,11 @@ pub async fn validate(
     // Validating tests is fast, and encountered errors are likely to impact
     // task validations (which are slower).
     if fail_fast && !errors.is_empty() {
+        collection::restore_live_derivations(
+            &draft.collections,
+            &live.collections,
+            &mut built_collections,
+        );
         return tables::Validations {
             built_captures: tables::BuiltCaptures::new(),
             built_collections,
@@ -190,9 +200,17 @@ pub async fn validate(
         row.is_touch = row.is_touch && model_fixes.is_empty();
         row.model.as_mut().unwrap().derive = Some(model);
         row.model_fixes.extend(model_fixes.into_iter());
-        row.spec.as_mut().unwrap().derivation = Some(Box::new(derivation));
+        // This deep-copies the spec if tasks reference it, as their shared
+        // copies must remain without a derivation.
+        proto_flow::Arc::make_mut(row.spec.as_mut().unwrap()).derivation =
+            Some(Box::new(derivation));
         row.validated = Some(validated);
     }
+    collection::restore_live_derivations(
+        &draft.collections,
+        &live.collections,
+        &mut built_collections,
+    );
 
     // Look for name collisions among all top-level catalog entities.
     let collections_it = built_collections
@@ -619,7 +637,7 @@ fn indirect_specs_flag(
 /// re-created (either literally, or through a reset).
 fn collection_was_reset(
     built_spec: &proto_flow::flow::CollectionSpec,
-    live_collection: Option<&proto_flow::flow::CollectionSpec>,
+    live_collection: Option<&proto_flow::Arc<proto_flow::flow::CollectionSpec>>,
 ) -> bool {
     if let Some(live_collection) = live_collection {
         if let Some(live_partition_template) = &live_collection.partition_template {
@@ -690,7 +708,7 @@ mod test {
             last_pub_id,
             last_build_id,
             model: models::CollectionDef::example(),
-            spec: proto_flow::flow::CollectionSpec {
+            spec: proto_flow::Arc::new(proto_flow::flow::CollectionSpec {
                 name: name.to_string(),
                 write_schema_json: String::from("{}").into(),
                 read_schema_json: String::from("{}").into(),
@@ -701,7 +719,7 @@ mod test {
                 ack_template_json: String::from("{}").into(),
                 partition_template: None,
                 derivation: None,
-            },
+            }),
             dependency_hash: Some("abc123".to_owned()),
         };
 

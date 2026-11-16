@@ -145,8 +145,6 @@ impl<'a> Dependencies<'a> {
 
 #[cfg(test)]
 mod test {
-    use proto_flow::flow::CollectionSpec;
-
     use super::*;
     use crate::{DraftCollection, LiveCapture, LiveCollection, LiveMaterialization};
 
@@ -165,7 +163,7 @@ mod test {
             last_pub_id: id(1),
             last_build_id: zero,
             model: models::CollectionDef::example(),
-            spec: CollectionSpec::default(),
+            spec: Default::default(),
             dependency_hash: None,
         });
         live.collections.insert(LiveCollection {
@@ -175,7 +173,7 @@ mod test {
             last_pub_id: id(2),
             last_build_id: zero,
             model: models::CollectionDef::example(),
-            spec: CollectionSpec::default(),
+            spec: Default::default(),
             dependency_hash: None,
         });
 

@@ -1,0 +1,74 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/mod.rs
+expression: "serde_json::json!({\n    \"/api/graphql\": spec[\"paths\"][\"/api/graphql\"], \"/api/graphql/schema\":\n    spec[\"paths\"][\"/api/graphql/schema\"], \"GraphQLRequest\":\n    spec[\"components\"][\"schemas\"][\"GraphQLRequest\"],\n})"
+---
+{
+  "/api/graphql": {
+    "post": {
+      "description": "Executes a GraphQL query or mutation. The schema is served by `GET /api/graphql/schema`, and can be explored at `/graphiql`. The status is 200 even when the response has `errors`.",
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GraphQLRequest"
+            }
+          }
+        },
+        "description": "A GraphQL operation to execute.",
+        "required": true
+      },
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "description": "A GraphQL response: `data` shaped by the operation, and any `errors`."
+        }
+      },
+      "summary": "Execute a GraphQL operation"
+    }
+  },
+  "/api/graphql/schema": {
+    "get": {
+      "description": "Returns the SDL of the schema executed by `POST /api/graphql`.",
+      "responses": {
+        "200": {
+          "content": {
+            "text/plain; charset=utf-8": {}
+          },
+          "description": "GraphQL SDL"
+        }
+      },
+      "security": [
+        {}
+      ],
+      "summary": "Get the GraphQL schema"
+    }
+  },
+  "GraphQLRequest": {
+    "description": "A GraphQL operation to execute.",
+    "properties": {
+      "operationName": {
+        "description": "Operation of `query` to execute, when it has several.",
+        "type": "string"
+      },
+      "query": {
+        "description": "GraphQL document containing the operation.",
+        "type": "string"
+      },
+      "variables": {
+        "description": "Values of the operation's variables.",
+        "type": "object"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  }
+}

@@ -10,6 +10,8 @@ RUN apt update -y \
 ARG TARGETARCH
 COPY ${TARGETARCH}/dekaf /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
+# Smoke-test that our binaries load in this image (e.g. shared libraries resolve).
+RUN dekaf --help >/dev/null
 
 ENV RUST_LOG=info
 

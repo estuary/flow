@@ -8,6 +8,7 @@
 //! as in production.
 use crate::local_specs;
 use anyhow::Context;
+use prost::Message;
 use runtime_local::{capture_driver, derive_driver, materialize_driver, services};
 
 mod fixture;
@@ -283,7 +284,9 @@ impl Preview {
                         &mut spec,
                         |spec| spec.shard_template.as_mut(),
                         |spec| shuffle::proto::Task {
-                            task: Some(shuffle::proto::task::Task::Materialization(spec.clone())),
+                            task: Some(shuffle::proto::task::Task::Materialization(
+                                spec.encode_to_vec().into(),
+                            )),
                         },
                         fixture,
                         *fixture_validate,
@@ -340,7 +343,9 @@ impl Preview {
                                 .and_then(|d| d.shard_template.as_mut())
                         },
                         |spec| shuffle::proto::Task {
-                            task: Some(shuffle::proto::task::Task::Derivation(spec.clone())),
+                            task: Some(shuffle::proto::task::Task::Derivation(
+                                spec.encode_to_vec().into(),
+                            )),
                         },
                         fixture,
                         *fixture_validate,
@@ -641,7 +646,7 @@ fn resolve_task(validations: &tables::Validations, task: &str) -> TaskSpec {
         .built_collections
         .get_key(&models::Collection::new(task))
         .unwrap();
-    TaskSpec::Derivation(row.spec.clone().unwrap())
+    TaskSpec::Derivation(row.spec.as_deref().cloned().unwrap())
 }
 
 #[cfg(test)]

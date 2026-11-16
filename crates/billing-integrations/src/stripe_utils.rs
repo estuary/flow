@@ -1,35 +1,18 @@
-use billing_types::{InvoiceMetadata, InvoiceType, SearchParams, stripe_search};
+use billing_types::{InvoiceMetadata, InvoiceType};
 use num_format::{Locale, ToFormattedString};
 use std::ops::{Deref, DerefMut};
 
-pub async fn fetch_invoices(
-    stripe_client: &stripe::Client,
-    query: &str,
-) -> anyhow::Result<Vec<Invoice>> {
-    stripe_search(
-        stripe_client,
-        "invoices",
-        SearchParams {
-            query: query.to_string(),
-            expand: Some(vec!["data.customer".to_string()]),
-            ..Default::default()
-        },
-    )
-    .await
-    .map(|invoices| {
-        invoices
-            .into_iter()
-            .map(|inv: stripe::Invoice| Invoice::from(inv))
-            .collect()
-    })
-}
-
 #[derive(Clone, Debug)]
-pub struct Invoice(stripe::Invoice);
+pub struct Invoice(stripe::Invoice, InvoiceMetadata);
 
-impl From<stripe::Invoice> for Invoice {
-    fn from(invoice: stripe::Invoice) -> Self {
-        Invoice(invoice)
+impl Invoice {
+    /// Keep the database bill identity alongside live Stripe state.
+    pub fn with_metadata(invoice: stripe::Invoice, metadata: InvoiceMetadata) -> Self {
+        Self(invoice, metadata)
+    }
+
+    pub fn metadata(&self) -> &InvoiceMetadata {
+        &self.1
     }
 }
 
@@ -49,12 +32,7 @@ impl DerefMut for Invoice {
 
 impl Invoice {
     pub fn tenant(&self) -> String {
-        self.0
-            .metadata
-            .as_ref()
-            .and_then(InvoiceMetadata::from_metadata_map)
-            .map(|m| m.tenant)
-            .unwrap_or_default()
+        self.1.tenant.clone()
     }
     pub fn amount(&self) -> f64 {
         self.0.amount_due.unwrap_or(0) as f64 / 100.0
@@ -85,27 +63,7 @@ impl Invoice {
     }
 
     pub fn is_manual(&self) -> bool {
-        self.0
-            .metadata
-            .as_ref()
-            .and_then(InvoiceMetadata::from_metadata_map)
-            .is_some_and(|m| m.invoice_type == InvoiceType::Manual)
-    }
-
-    pub fn period_start(&self) -> Option<String> {
-        self.0
-            .metadata
-            .as_ref()
-            .and_then(InvoiceMetadata::from_metadata_map)
-            .map(|m| m.period_start)
-    }
-
-    pub fn period_end(&self) -> Option<String> {
-        self.0
-            .metadata
-            .as_ref()
-            .and_then(InvoiceMetadata::from_metadata_map)
-            .map(|m| m.period_end)
+        self.1.invoice_type == InvoiceType::Manual
     }
 
     pub fn to_table_row(&self) -> Vec<comfy_table::Cell> {

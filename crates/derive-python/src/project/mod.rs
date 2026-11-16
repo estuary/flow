@@ -117,8 +117,11 @@ fn project_of(config_json: &[u8]) -> anyhow::Result<Project> {
 
 /// Remove the `_python` sentinel from the configuration of the derivation of
 /// `collection`, before it's handed to user code.
-fn strip_sentinels(collection: Option<&mut flow::CollectionSpec>) {
-    if let Some(derivation) = collection.and_then(|collection| collection.derivation.as_mut()) {
+fn strip_sentinels(collection: Option<&mut proto_flow::Arc<flow::CollectionSpec>>) {
+    if let Some(derivation) = collection
+        .filter(|collection| collection.derivation.is_some())
+        .and_then(|collection| proto_flow::Arc::make_mut(collection).derivation.as_mut())
+    {
         models::custom_connector::strip_sentinel(
             &mut derivation.config_json,
             python_connector::SENTINEL,
@@ -207,7 +210,7 @@ fn validate_derivation(
     let defaults = default_validated(&validate, &project.spec)?;
     let mut generated_files = python_connector::project_urls(
         project_root,
-        generated_module(collection, &project.spec, &transforms)?,
+        [generated_module(collection, &project.spec, &transforms)?],
     );
 
     // A project having listed files which don't exist yet can't be run.
@@ -308,6 +311,7 @@ fn resolve_transforms<'a>(
     let transforms = transforms
         .map(|(name, resolved)| {
             let (source, _identity) = resolved.context("transform missing source collection")?;
+            let source: &flow::CollectionSpec = source;
             Ok((name, source))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -324,25 +328,26 @@ fn stage(
     install: Install,
 ) -> anyhow::Result<Staged> {
     let task = &collection.name;
-    let mut generated = generated_module(collection, &project.spec, transforms)?;
-    generated.push((
-        ENTRY.to_string(),
-        codegen::main_py(task, transforms, custom_connector::task_dir(task)),
-    ));
-
+    let generated = [
+        generated_module(collection, &project.spec, transforms)?,
+        (
+            ENTRY.to_string(),
+            codegen::main_py(task, transforms, custom_connector::task_dir(task)),
+        ),
+    ];
     Staged::of_project(project, &generated, install)
 }
 
-/// Files of the module generated for a derivation of `collection`, relative
+/// File of the module generated for a derivation of `collection`, relative
 /// to the project.
 fn generated_module(
     collection: &flow::CollectionSpec,
     spec: &custom_connector::Spec,
     transforms: &[codegen::Transform],
-) -> anyhow::Result<Vec<(String, String)>> {
+) -> anyhow::Result<(String, String)> {
     let content = codegen::types_py(collection, spec, transforms)
         .context("failed to generate the derivation's types")?;
-    Ok(python_connector::module_files(&collection.name, content))
+    Ok((python_connector::module_path(&collection.name), content))
 }
 
 #[cfg(test)]

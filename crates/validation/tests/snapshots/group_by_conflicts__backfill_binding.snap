@@ -75,6 +75,7 @@ expression: "(selections, errors)"
             [
                 "backfilled binding [\"a\"] due to group-by change from [\"f_one\"] to [\"f_one\", \"f_two\"]",
             ],
+            [],
         ),
     ],
     [],

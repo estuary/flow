@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"sort"
 
-	pb "go.gazette.dev/core/broker/protocol"
+	pb "github.com/estuary/flow/go/gazette/broker/protocol"
 )
 
 // A spec-carrying message is in *indirect* form when its LinkedCollections table

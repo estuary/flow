@@ -354,8 +354,8 @@ mod tests {
           Unknown: starting connector: connector exited
           read by its peer: starting connector: connector exited
         an unmapped bare status
-          Unknown: opening derive stream: status: 'The caller does not have permission to execute the specified operation', self: "token is not authorized"
-          read by its peer: opening derive stream: status: 'The caller does not have permission to execute the specified operation', self: "token is not authorized"
+          Unknown: opening derive stream: code: 'The caller does not have permission to execute the specified operation', message: "token is not authorized"
+          read by its peer: opening derive stream: code: 'The caller does not have permission to execute the specified operation', message: "token is not authorized"
         a status carrying a transport source
           Unavailable: broker is down: connection reset
           read by its peer: broker is down: connection reset (Unavailable)

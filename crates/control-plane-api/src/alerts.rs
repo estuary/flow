@@ -59,6 +59,7 @@ pub struct Alert {
     /// Time at which the alert became active.
     pub fired_at: DateTime<Utc>,
     /// The time at which the alert was resolved, or null if it is still active.
+    /// Event alerts complete when recorded, with `resolved_at` equal to `fired_at`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<DateTime<Utc>>,
     /// The alert arguments contain additional details about the alert, which
@@ -107,7 +108,12 @@ pub async fn fetch_open_alerts_by_catalog_name(
     Ok(result)
 }
 
-pub async fn fetch_alert_by_id(id: models::Id, db: &sqlx::PgPool) -> anyhow::Result<Option<Alert>> {
+/// Returns the alert if its notification task still exists. A claimed notifier
+/// must not send a resolution after silent closure deletes its task.
+pub async fn fetch_alert_for_notification(
+    id: models::Id,
+    db: &sqlx::PgPool,
+) -> anyhow::Result<Option<Alert>> {
     let row = sqlx::query!(
         r#"select
         id as "id: models::Id",
@@ -119,6 +125,7 @@ pub async fn fetch_alert_by_id(id: models::Id, db: &sqlx::PgPool) -> anyhow::Res
         resolved_arguments as "resolved_arguments: Json<ArgsObject>"
         from alert_history
         where id = $1
+          and exists (select 1 from internal.tasks where task_id = $1)
         "#,
         id as models::Id,
     )
@@ -207,8 +214,8 @@ async fn fire_alert(
     sqlx::query!(
         r#"with add_history as (
             insert into alert_history
-            (id, catalog_name, alert_type, fired_at, arguments)
-            values ($1, $2::catalog_name, $3, $4, $5)
+            (id, catalog_name, alert_type, fired_at, arguments, resolved_at)
+            values ($1, $2::catalog_name, $3, $4, $5, $6)
             returning id
         )
         insert into internal.tasks (task_id, task_type, parent_id, wake_at, inbox)
@@ -225,6 +232,7 @@ async fn fire_alert(
         alert_type as AlertType,
         fired_at,
         Json(arguments) as Json<ArgsObject>,
+        alert_type.is_event().then_some(fired_at),
     )
     .execute(txn)
     .await?;
@@ -312,37 +320,30 @@ pub async fn cleanup_open_alerts(
     Ok(())
 }
 
-pub async fn fetch_open_alerts_by_type(
-    alert_types: &[AlertType],
-    pool: &sqlx::PgPool,
-) -> sqlx::Result<Vec<Alert>> {
-    use futures::TryStreamExt;
-    let rows = sqlx::query!(
-        r#"select
-            id as "id: models::Id",
-            catalog_name,
-            alert_type as "alert_type: AlertType",
-            fired_at,
-            arguments as "arguments: Json<ArgsObject>"
-        from alert_history
-        where resolved_at is null
-        and alert_type = any($1::alert_type[])
+/// Resolves the given open alerts and deletes their notification tasks, so that
+/// no resolution notifications are sent.
+pub async fn resolve_alerts_silently(
+    ids: Vec<models::Id>,
+    txn: &mut sqlx::PgConnection,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        r#"
+        with resolved as (
+            update alert_history
+            set resolved_at = now()
+            where id = any($1::flowid[])
+              and resolved_at is null
+            returning id
+        )
+        delete from internal.tasks t
+        using resolved
+        where t.task_id = resolved.id
         "#,
-        alert_types as &[AlertType]
+        ids as Vec<models::Id>,
     )
-    .fetch(pool);
-
-    rows.map_ok(|alert| Alert {
-        id: alert.id,
-        catalog_name: alert.catalog_name,
-        alert_type: alert.alert_type,
-        fired_at: alert.fired_at,
-        arguments: async_graphql::Json(alert.arguments.0),
-        resolved_at: None,
-        resolved_arguments: None,
-    })
-    .try_collect()
-    .await
+    .execute(txn)
+    .await?;
+    Ok(())
 }
 
 async fn add_recipients(

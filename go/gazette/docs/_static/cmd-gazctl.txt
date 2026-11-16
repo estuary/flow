@@ -1,0 +1,20 @@
+Usage:
+  gazctl [OPTIONS] <command>
+
+gazctl is a tool for interacting with Gazette brokers and consumer applications.
+
+See --help pages of each sub-command for documentation and usage examples.
+Optionally configure gazctl with a 'gazctl.ini' file in the current working directory,
+or with '~/.config/gazette/gazctl.ini'. Use the 'print-config' sub-command to inspect
+the tool's current configuration.
+
+
+Help Options:
+  -h, --help  Show this help message
+
+Available commands:
+  attach-uuids  Generate and attach UUIDs to text input records
+  journals      Interact with broker journals
+  print-config  Print combined configuration and exit
+  shards        Interact with consumer shards
+

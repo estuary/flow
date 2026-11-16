@@ -89,6 +89,11 @@ pub struct State {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pinned_links: Vec<PinnedLink>,
 
+    // When Some, per-link results observed at `PulumiUp1`, to be written into
+    // `data_plane_private_links` rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_link_results: Option<Vec<LinkResult>>,
+
     // When Some, updated Pulumi stack exports to be written back into the `data_planes` row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publish_exports: Option<ControlExports>,

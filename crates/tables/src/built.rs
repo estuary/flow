@@ -143,7 +143,7 @@ impl BuiltRow for crate::BuiltCapture {
 impl BuiltRow for crate::BuiltCollection {
     type ModelDef = models::CollectionDef;
     type Validated = proto_flow::derive::response::Validated;
-    type BuiltSpec = proto_flow::flow::CollectionSpec;
+    type BuiltSpec = proto_flow::Arc<proto_flow::flow::CollectionSpec>;
 
     fn new(
         catalog_name: Self::Key,
@@ -243,6 +243,7 @@ impl BuiltRow for crate::BuiltMaterialization {
             expect_build_id,
             model,
             model_fixes,
+            auto_disabled_bindings: Vec::new(),
             validated,
             spec,
             previous_spec,

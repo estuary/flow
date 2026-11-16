@@ -17,7 +17,7 @@
 //!
 //! #[derive(graphql_client::GraphqlQuery)]
 //! #[graphql(
-//!   schema_path = "../flow-client/control-plane-api.graphql",
+//!   schema_path = "../control-plane-api/control-plane-api.graphql",
 //!   query_path = "src/path/to/your/query.graphql",
 //! )]
 //! pub struct MyQuery;
@@ -62,6 +62,10 @@ pub type JSON = models::RawValue;
 pub type UUID = uuid::Uuid;
 
 pub(crate) const GRAPHQL_PATH: &str = "/api/graphql";
+
+/// SDL of the control-plane GraphQL schema which flowctl's queries are compiled against.
+pub(crate) const GRAPHQL_SCHEMA: &str =
+    include_str!("../../control-plane-api/control-plane-api.graphql");
 
 /// Perform a unary POST to the control-plane agent API and deserialize its JSON
 /// response. This is the flow-client-next equivalent of the former
