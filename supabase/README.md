@@ -6,7 +6,7 @@ This directory contains the Supabase-based control plane for Flow, which manages
 
 The control plane consists of:
 - **PostgreSQL database**: Core catalog storage and platform state
-- **Edge functions**: Serverless functions for OAuth, billing, and alerts
+- **Edge functions**: Serverless functions for OAuth
 - **Authentication**: User management and JWT-based auth
 
 ## Structure
@@ -38,8 +38,6 @@ pg_dump ${DATABASE} \
 
 ### Edge Functions (`functions/`)
 TypeScript serverless functions:
-- `alerts/` - Email notification system for platform alerts
-- `billing/` - Stripe integration for payment processing
 - `oauth/` - OAuth2 flows for connector authorization
 - `azure-dpc-oauth/` - Azure-specific OAuth for data plane controllers
 - `_shared/` - Common utilities and CORS handling
