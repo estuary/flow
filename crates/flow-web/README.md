@@ -30,6 +30,7 @@ wasm-pack test --headless --firefox crates/flow-web
   read-schema bundle which potentially inlines the write and inferred schemas.
 - `get_resource_config_pointers`: takes a resource `spec` as string and produces metadata about the pointers
 - `update_materialization_resource_spec`: takes `source_capture`, `resource_spec_pointers`, `collection_name`, and `resource_spec`. `resource_spec` is the object that is getting updated and the other fields are used to update that. It will return a copy of the `resource_spec` with the new fields populated.
+- `resolve_built_collections`: takes a `specType` (`capture` or `materialization`) and its `builtSpec` in either the inline or indirect form, and returns the distinct `collections` of its bindings alongside, for each active binding, the index of its collection within `collections` (or null if the binding has no collection).
 
 ## Making a Change?
 

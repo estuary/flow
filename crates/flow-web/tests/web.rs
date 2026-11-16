@@ -6,6 +6,7 @@ extern crate wasm_bindgen_test;
 use proto_flow::flow;
 use serde_json::{json, to_string};
 use serde_wasm_bindgen::{from_value as from_js_value, Serializer};
+use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
@@ -322,6 +323,155 @@ fn test_strip_and_restore_trigger_hmac_excluded_fields() {
     let restored_value: serde_json::Value = serde_json::from_str(&restored_str).unwrap();
 
     assert_eq!(restored_value, original);
+}
+
+#[wasm_bindgen_test]
+fn test_resolve_built_collections_capture() {
+    let one = built_collection("acmeCo/one", "/id");
+    let two = built_collection("acmeCo/two", "/id");
+
+    let inline = json!({
+        "name": "acmeCo/capture",
+        "connectorType": "IMAGE",
+        "config": {"image": "an/image", "config": {"a": "config"}},
+        "bindings": [
+            built_binding("one-a", json!({"collection": one})),
+            built_binding("two-a", json!({"collection": two})),
+            built_binding("one-b", json!({"collection": one})),
+            // A binding without a collection doesn't resolve.
+            built_binding("none", json!({})),
+        ],
+    });
+    let indirect = json!({
+        "name": "acmeCo/capture",
+        "connectorType": "IMAGE",
+        "config": {"image": "an/image", "config": {"a": "config"}},
+        "bindings": [
+            // A `collectionIndex` of zero is omitted.
+            built_binding("one-a", json!({})),
+            built_binding("two-a", json!({"collectionIndex": 1})),
+            built_binding("one-b", json!({})),
+            // An out-of-range index doesn't resolve.
+            built_binding("none", json!({"collectionIndex": 7})),
+        ],
+        "linkedCollections": [one, two],
+    });
+
+    let expected = json!({
+        "collections": [one, two],
+        "bindings": [0, 1, 0, null],
+    });
+    assert_eq!(resolve_built_collections("capture", inline), expected);
+    assert_eq!(resolve_built_collections("capture", indirect), expected);
+}
+
+#[wasm_bindgen_test]
+fn test_resolve_built_collections_materialization() {
+    // Two bindings of one collection whose `groupBy` differs have distinct
+    // keys, and are distinct entries which share a name.
+    let by_id = built_collection("acmeCo/one", "/id");
+    let by_val = built_collection("acmeCo/one", "/val");
+
+    let inline = json!({
+        "name": "acmeCo/materialization",
+        "connectorType": "IMAGE",
+        "config": {"image": "other/image", "config": {"a": "config"}},
+        "bindings": [
+            built_binding("by-id", json!({"collection": by_id})),
+            built_binding("by-val", json!({"collection": by_val})),
+            built_binding("also-by-id", json!({"collection": by_id})),
+        ],
+    });
+    let indirect = json!({
+        "name": "acmeCo/materialization",
+        "connectorType": "IMAGE",
+        "config": {"image": "other/image", "config": {"a": "config"}},
+        "bindings": [
+            built_binding("by-id", json!({})),
+            built_binding("by-val", json!({"collectionIndex": 1})),
+            built_binding("also-by-id", json!({})),
+        ],
+        "linkedCollections": [by_id, by_val],
+    });
+
+    let expected = json!({
+        "collections": [by_id, by_val],
+        "bindings": [0, 1, 0],
+    });
+    assert_eq!(
+        resolve_built_collections("materialization", inline),
+        expected
+    );
+    assert_eq!(
+        resolve_built_collections("materialization", indirect),
+        expected
+    );
+}
+
+// Call `resolve_built_collections` and return its result as JSON. The result
+// passes through JSON.stringify, which renders a `Map` as {} and throws on a
+// `BigInt`, so that comparisons also assert it's made of plain JSON values.
+fn resolve_built_collections(spec_type: &str, built_spec: serde_json::Value) -> serde_json::Value {
+    let input = to_js_value(&json!({
+        "specType": spec_type,
+        "builtSpec": built_spec,
+    }));
+    let result = json_stringify(&flow_web::resolve_built_collections(input).unwrap());
+
+    // serde_json parses a RawValue wrapper object back into the value it
+    // wraps, so check for one before parsing.
+    assert!(
+        !result.contains("$serde_json::private::RawValue"),
+        "{result}"
+    );
+    serde_json::from_str(&result).unwrap()
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = JSON, js_name = stringify)]
+    fn json_stringify(value: &JsValue) -> String;
+}
+
+// A built collection in the JSON form of `live_specs.built_spec`, which
+// omits default values.
+fn built_collection(name: &str, key: &str) -> serde_json::Value {
+    json!({
+        "name": name,
+        "writeSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "val": {"type": "integer"},
+            },
+            "required": ["id", "val"],
+        },
+        "key": [key],
+        "uuidPtr": "/_meta/uuid",
+        "projections": [
+            {"ptr": key, "field": &key[1..], "isPrimaryKey": true},
+        ],
+        "partitionTemplate": {
+            "name": name,
+            "replication": 3,
+            "fragment": {"length": "536870912", "flushInterval": "86400s"},
+        },
+    })
+}
+
+// A built binding of resource `name`, with additional `fields` which name its
+// collection.
+fn built_binding(name: &str, fields: serde_json::Value) -> serde_json::Value {
+    let mut binding = json!({
+        "resourceConfig": {"name": name},
+        "resourcePath": [name],
+        "stateKey": name,
+    });
+    binding
+        .as_object_mut()
+        .unwrap()
+        .extend(fields.as_object().unwrap().clone());
+    binding
 }
 
 fn to_js_value(val: &serde_json::Value) -> JsValue {

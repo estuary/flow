@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use tables::utils::ResourceSpecPointers;
 use wasm_bindgen::prelude::*;
 
+pub mod built_collections;
 pub mod collection;
 pub mod field_selection;
 mod utils;
@@ -39,6 +40,7 @@ pub fn get_resource_config_pointers(input: JsValue) -> Result<JsValue, JsValue> 
         .map_err(|err| JsValue::from_str(&format!("{err:?}")))
 }
 
+pub use built_collections::resolve_built_collections;
 pub use collection::skim_collection_projections;
 pub use field_selection::evaluate_field_selection;
 
