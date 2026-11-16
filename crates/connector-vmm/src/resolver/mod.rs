@@ -1,0 +1,2870 @@
+//! The guest's only nameserver, and the only way an address gets into the
+//! `resolved` set.
+//!
+//! One thread handles queries sequentially, committing each set update before
+//! sending the answer.
+//!
+//! What a query meets, in order:
+//!
+//! 1. Anything but a standard query of exactly one question: dropped
+//!    unanswered.
+//! 2. A class other than IN: `REFUSED`. Only IN is the namespace the
+//!    policy's names describe, and CHAOS asks the upstream about itself.
+//! 3. `AAAA`: `NOERROR` with no answer, never forwarded. No IPv6 reaches the
+//!    tap, so an address that resolved would only be something the guest fails
+//!    to connect to, slowly. This precedes the name gate because the guest's
+//!    own resolver needs the empty answer to move on to its `A` query.
+//! 4. A name that is neither admitted by the policy's names nor an unexpired
+//!    remembered CNAME target: `REFUSED`, nothing sent upstream, nothing
+//!    added to the set. With declared CIDRs, such an unnamed question is
+//!    still forwarded if it is `A`: its answer decides.
+//!    A truncated upstream answer returns `SERVFAIL` for every query type.
+//!    No partial answer authorizes addresses or remembers targets.
+//! 5. A type other than `A`, or an answer whose rcode is not `NOERROR`:
+//!    answered as the upstream answered, byte for byte. It authorizes no
+//!    address and remembers no target.
+//! 6. `A`: forwarded. One answer address the policy does not reach condemns
+//!    the whole answer: a partial answer would teach the guest which name
+//!    resolves inward. An address within the excluded prefixes is never
+//!    reached. One within a declared CIDR always is. One elsewhere in the
+//!    baseline never is. A public address is reached only from a named
+//!    question.
+//! 7. Otherwise each `A` and `CNAME` TTL is clamped independently and
+//!    rewritten in place, every address outside the declared CIDRs is authorized
+//!    and every target of a named question remembered until at least its
+//!    clamped TTL, and the set is updated and acknowledged before the answer
+//!    is sent. The ruleset already admits addresses within declared CIDRs,
+//!    so they take no room in the set. An unnamed question's targets are not
+//!    remembered, so that its answer names nothing a later public answer
+//!    could be authorized by.
+
+mod dns;
+mod nftset;
+
+use crate::policy::Policy;
+use models::egress::AllowedName;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::time::{Duration, Instant};
+
+/// A UDP answer is bounded by the datagram, and `recv` truncates silently, so
+/// the buffers are the largest a datagram can be rather than the largest
+/// answer we expect.
+const BUFFER: usize = 65_536;
+
+const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long an expired entry is kept after its expiry. The kernel counts an
+/// element against the set's size until it garbage collects it, which was
+/// measured at under a second past expiry, and an expiry recorded here is
+/// already later than the kernel's. Keeping entries this much longer means
+/// this side's count is never lower than the kernel's, so the cap below bites
+/// before the set can fill.
+const RECLAIM: Duration = Duration::from_secs(10);
+
+/// Share the kernel set's cap so exhaustion returns SERVFAIL before an insert
+/// can fail fatally with ENFILE. The same cap bounds remembered CNAME targets.
+const CAP: usize = crate::ruleset::RESOLVED_SIZE;
+
+/// Bound task log output because the guest chooses the names it queries.
+const REPORTED_REFUSALS: usize = 32;
+
+pub struct Config {
+    listen: SocketAddr,
+    upstream: SocketAddr,
+    debug: bool,
+    allowed_names: Vec<AllowedName>,
+    declared: Vec<ipnetwork::Ipv4Network>,
+    ttl_floor: u32,
+    ttl_cap: u32,
+    baseline: Vec<ipnetwork::Ipv4Network>,
+    excluded: Vec<ipnetwork::Ipv4Network>,
+}
+
+impl Config {
+    /// `policy` is already normalized and validated: names are lowercase, and
+    /// `ttl_floor` is at least one second, so a clamped TTL is never zero and
+    /// never becomes an element that does not expire.
+    pub fn new(
+        policy: &Policy,
+        vmm_subnets: &[ipnetwork::Ipv4Network],
+        listen: SocketAddr,
+        upstream: SocketAddr,
+        debug: bool,
+    ) -> Self {
+        Config {
+            listen,
+            upstream,
+            debug,
+            allowed_names: policy.allowed_names.clone(),
+            declared: policy.declared_cidrs.clone(),
+            ttl_floor: policy.ttl_floor_secs,
+            ttl_cap: policy.ttl_cap_secs,
+            baseline: crate::policy::baseline(vmm_subnets),
+            excluded: crate::policy::excluded(vmm_subnets),
+        }
+    }
+
+    fn clamp(&self, ttl: u32) -> u32 {
+        ttl.clamp(self.ttl_floor, self.ttl_cap)
+    }
+
+    fn declares(&self, address: Ipv4Addr) -> bool {
+        self.declared.iter().any(|net| net.contains(address))
+    }
+
+    fn refusal(&self, address: Ipv4Addr, named: bool) -> Option<Outcome> {
+        if self.excluded.iter().any(|net| net.contains(address)) {
+            return Some(Outcome::RefusedPrivate(address));
+        }
+        if self.declares(address) {
+            return None;
+        }
+        if self.baseline.iter().any(|net| net.contains(address)) {
+            return Some(Outcome::RefusedPrivate(address));
+        }
+        (!named).then_some(Outcome::RefusedName)
+    }
+}
+
+/// Bind the resolver's sockets and hand the guest's DNS to a thread that is
+/// never joined. Returns once it is listening, so every startup failure is the
+/// caller's to report before the VM starts.
+pub fn start(config: Config) -> anyhow::Result<()> {
+    // The ruleset admits DNS only to the tap address. Binding the wildcard
+    // would also answer on the uplink, where nothing should reach us.
+    if config.listen.ip().is_unspecified() {
+        anyhow::bail!(
+            "the resolver must bind the guest's nameserver address, not {}",
+            config.listen
+        );
+    }
+    let listener = std::net::UdpSocket::bind(config.listen)
+        .map_err(|e| anyhow::anyhow!("binding {}: {e}", config.listen))?;
+
+    let writer = nftset::Netlink::open()?;
+    let mut resolver = Resolver::new(config, Box::new(writer));
+
+    std::thread::Builder::new()
+        .name("resolver".to_string())
+        .spawn(move || {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                resolver.serve(&listener)
+            })) {
+                Ok(Ok(never)) => match never {},
+                Ok(Err(error)) => fatal(error),
+                Err(_) => fatal(anyhow::anyhow!("the resolver thread panicked")),
+            }
+        })
+        .map_err(|e| anyhow::anyhow!("spawning the resolver thread: {e}"))?;
+    Ok(())
+}
+
+/// A guest whose nameserver has died cannot be allowed to keep running, so
+/// there is no path back from here. `abort` rather than `exit`: the vCPU
+/// threads are inside libkrun and never unwind.
+fn fatal(error: anyhow::Error) -> ! {
+    eprint!("{}", crate::framed(&format!("{error:#}")));
+    std::process::abort()
+}
+
+pub struct Resolver {
+    config: Config,
+    writer: Box<dyn nftset::SetWriter>,
+    /// Every address this resolver has put in `resolved`, against the expiry it
+    /// last promised. Authoritative: the kernel is never asked what it holds.
+    addresses: HashMap<Ipv4Addr, Instant>,
+    /// CNAME targets seen in allowed answers, against their expiry. A later
+    /// `A` query for one of these is allowed, which is what makes a client
+    /// that re-queries a target by name work.
+    targets: HashMap<String, Instant>,
+    scratch: Vec<u8>,
+    refusals: Refusals,
+}
+
+#[derive(Default)]
+pub struct Refusals {
+    reported: HashSet<String>,
+    stopped: bool,
+}
+
+impl Refusals {
+    /// The log line which reports `decision`, if it is a refusal of a name
+    /// not yet reported. An answer refused for its address is reported
+    /// without the address: the upstream may be the host's own resolver, and
+    /// the guest is told no more than that it was refused.
+    pub fn report(&mut self, decision: &Decision) -> Option<String> {
+        let message = match &decision.outcome {
+            Outcome::RefusedName => format!(
+                "refused DNS name {}, which this connector's egress does not permit; \
+                 a task may permit it in egress.hosts",
+                decision.name
+            ),
+            Outcome::RefusedPrivate(_) => format!(
+                "refused DNS name {}, which resolved to an address that is not public",
+                decision.name
+            ),
+            _ => return None,
+        };
+        if self.stopped || self.reported.contains(&decision.name) {
+            return None;
+        }
+        let line = if self.reported.len() == REPORTED_REFUSALS {
+            self.stopped = true;
+            serde_json::json!({
+                "level": "warn",
+                "message": "further refused DNS names are not reported",
+                "fields": {"reported": REPORTED_REFUSALS},
+            })
+        } else {
+            self.reported.insert(decision.name.clone());
+            serde_json::json!({
+                "level": "warn",
+                "message": message,
+                "fields": {"name": decision.name},
+            })
+        };
+        Some(format!("{line}\n"))
+    }
+}
+
+/// What the resolver did with one query, and the bytes to send back if any.
+pub struct Handled {
+    pub decision: Decision,
+    pub answer: Option<Vec<u8>>,
+}
+
+pub struct Decision {
+    pub name: String,
+    pub qtype: u16,
+    pub outcome: Outcome,
+    /// Addresses authorized by this answer, against the TTL written into it.
+    pub addresses: Vec<(Ipv4Addr, u32)>,
+    pub targets: Vec<(String, u32)>,
+    /// The addresses whose elements this answer deleted before re-adding them.
+    pub refreshed: Vec<Ipv4Addr>,
+}
+
+pub enum Outcome {
+    /// Not a class-IN standard query of one question. Nothing went upstream.
+    Unsupported,
+    /// Answered as the upstream answered, authorizing nothing: a type other
+    /// than `A`, or an rcode other than `NOERROR`.
+    Forwarded,
+    /// The UDP answer requires TCP, which this resolver does not support.
+    Truncated,
+    EmptyAaaa,
+    RefusedName,
+    RefusedPrivate(Ipv4Addr),
+    Resolved,
+    /// The address or target cap was reached; nothing was authorized.
+    Full(&'static str),
+    /// Request-local: the guest retries, and authorization is unchanged.
+    Dropped(String),
+}
+
+/// A question name comes off the wire and an upstream failure carries whatever
+/// text the operating system gave it, so both are escaped: one line per
+/// decision, and never a line that begins with a space.
+impl std::fmt::Display for Decision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let outcome = match &self.outcome {
+            Outcome::Unsupported => "unsupported".to_string(),
+            Outcome::Forwarded => "forwarded".to_string(),
+            Outcome::Truncated => "servfail-truncated".to_string(),
+            Outcome::EmptyAaaa => "aaaa-empty".to_string(),
+            Outcome::RefusedName => "refused-name".to_string(),
+            Outcome::RefusedPrivate(address) => format!("refused-private={address}"),
+            Outcome::Resolved => "resolved".to_string(),
+            Outcome::Full(what) => format!("servfail-full={what}"),
+            Outcome::Dropped(reason) => format!("dropped={}", reason.escape_debug()),
+        };
+        let mut addresses = String::new();
+        for (address, ttl) in &self.addresses {
+            let _ = write!(addresses, "{}{address}/{ttl}", separator(&addresses));
+        }
+        let mut targets = String::new();
+        for (target, ttl) in &self.targets {
+            let _ = write!(
+                targets,
+                "{}{}/{ttl}",
+                separator(&targets),
+                target.escape_debug()
+            );
+        }
+        let mut refreshed = String::new();
+        for address in &self.refreshed {
+            let _ = write!(refreshed, "{}{address}", separator(&refreshed));
+        }
+        write!(
+            f,
+            "name={} qtype={} outcome={outcome} addresses=[{addresses}] \
+             targets=[{targets}] refreshed=[{refreshed}]",
+            self.name.escape_debug(),
+            self.qtype,
+        )
+    }
+}
+
+fn separator(accumulated: &str) -> &'static str {
+    if accumulated.is_empty() { "" } else { "," }
+}
+
+impl Resolver {
+    fn new(config: Config, writer: Box<dyn nftset::SetWriter>) -> Self {
+        Resolver {
+            config,
+            writer,
+            addresses: HashMap::new(),
+            targets: HashMap::new(),
+            scratch: Vec::new(),
+            refusals: Refusals::default(),
+        }
+    }
+
+    /// The loop, which only ends by returning an error that kills the process.
+    fn serve(
+        &mut self,
+        listener: &std::net::UdpSocket,
+    ) -> anyhow::Result<std::convert::Infallible> {
+        let mut query = vec![0u8; BUFFER];
+
+        loop {
+            let (read, client) = match listener.recv_from(&mut query) {
+                Ok(received) => received,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    return Err(anyhow::anyhow!(error)
+                        .context("the resolver's listening socket stopped receiving"));
+                }
+            };
+            let handled = self.handle(&query[..read], Instant::now())?;
+
+            if self.config.debug {
+                eprintln!("flow-connector-vmm: {}", handled.decision);
+            }
+            if let Some(line) = self.refusals.report(&handled.decision) {
+                // One write, so the guest's console output, which shares
+                // stderr, cannot land inside the line.
+                _ = std::io::Write::write_all(&mut std::io::stderr().lock(), line.as_bytes());
+            }
+            let Some(answer) = handled.answer else {
+                continue;
+            };
+
+            // A guest that has gone away is its own problem: it retries, and
+            // the authorization it was about to be told about already holds.
+            if let Err(error) = listener.send_to(&answer, client)
+                && self.config.debug
+            {
+                eprintln!("flow-connector-vmm: answering {client}: {error}");
+            }
+        }
+    }
+
+    /// One query. `Err` is fatal and only ever comes from the set writer;
+    /// every other failure is request-local and shows up as `Outcome::Dropped`.
+    ///
+    /// `arrived` dates only pruning and the name gate. What the answer
+    /// authorizes is dated by reading the clock, never by adding elapsed time
+    /// to `arrived`: the query may have waited any length of time before it
+    /// was handled.
+    pub fn handle(&mut self, query: &[u8], arrived: Instant) -> anyhow::Result<Handled> {
+        self.prune(arrived);
+
+        let header = match dns::header(query) {
+            Ok(header) => header,
+            Err(error) => return Ok(dropped(String::new(), 0, &error)),
+        };
+        if header.response || header.opcode != dns::OPCODE_QUERY || header.qdcount != 1 {
+            return Ok(Handled {
+                decision: decision(String::new(), 0, Outcome::Unsupported),
+                answer: None,
+            });
+        }
+        let question = match dns::first_question(query) {
+            Ok(question) => question,
+            Err(error) => return Ok(dropped(String::new(), 0, &error)),
+        };
+        let (name, qtype) = (question.name.clone(), question.qtype);
+
+        if question.qclass != dns::CLASS_IN {
+            return Ok(Handled {
+                decision: decision(name, qtype, Outcome::Unsupported),
+                answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
+            });
+        }
+        if question.qtype == dns::TYPE_AAAA {
+            return Ok(Handled {
+                decision: decision(name, qtype, Outcome::EmptyAaaa),
+                answer: Some(dns::respond(query, &question, dns::RCODE_NOERROR)),
+            });
+        }
+        let named = self.allowed(&question.name, arrived);
+        // Only an `A` answer carries addresses to hold an unnamed question to.
+        if !named && (self.config.declared.is_empty() || question.qtype != dns::TYPE_A) {
+            return Ok(Handled {
+                decision: decision(name, qtype, Outcome::RefusedName),
+                answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
+            });
+        }
+        let mut response = match self.forward(query, header.id, &question) {
+            Ok(response) => response,
+            Err(reason) => {
+                return Ok(Handled {
+                    decision: decision(name, qtype, Outcome::Dropped(reason)),
+                    answer: None,
+                });
+            }
+        };
+        let answered = dns::header(&response).expect("forward validated the header");
+        // A truncated RRset cannot authorize its partial addresses or targets.
+        if answered.truncated {
+            return Ok(Handled {
+                decision: decision(name, qtype, Outcome::Truncated),
+                answer: Some(dns::respond(query, &question, dns::RCODE_SERVFAIL)),
+            });
+        }
+        // Only a `NOERROR` answer to `A` is read. An error rcode says the
+        // answer does not resolve the question, so none of it is authorized,
+        // remembered or rewritten, whatever its records hold.
+        if answered.rcode != dns::RCODE_NOERROR || question.qtype != dns::TYPE_A {
+            return Ok(Handled {
+                decision: decision(name, qtype, Outcome::Forwarded),
+                answer: Some(response),
+            });
+        }
+        let records = match dns::answer_records(&response) {
+            Ok(records) => records,
+            Err(error) => return Ok(dropped(name, qtype, &error)),
+        };
+
+        // One condemned address condemns the answer, before any TTL is touched
+        // and before anything is authorized.
+        for record in &records {
+            let dns::Kind::Address(address) = record.kind else {
+                continue;
+            };
+            if let Some(outcome) = self.config.refusal(address, named) {
+                return Ok(Handled {
+                    decision: decision(name, qtype, outcome),
+                    answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
+                });
+            }
+        }
+
+        let mut addresses: Vec<(Ipv4Addr, u32)> = Vec::new();
+        let mut targets: Vec<(String, u32)> = Vec::new();
+        for record in &records {
+            let ttl = self.config.clamp(record.ttl);
+            dns::set_ttl(&mut response, record, ttl);
+
+            match &record.kind {
+                dns::Kind::Address(address) if self.config.declares(*address) => (),
+                dns::Kind::Address(address) => retain_longest(&mut addresses, *address, ttl),
+                dns::Kind::Target(_) if !named => (),
+                dns::Kind::Target(target) => retain_longest(&mut targets, target.clone(), ttl),
+            }
+        }
+
+        // `prune` has already dropped everything the kernel can no longer be
+        // holding, so what remains is what counts against the cap.
+        let new_addresses = addresses
+            .iter()
+            .filter(|(address, _)| !self.addresses.contains_key(address))
+            .count();
+        let new_targets = targets
+            .iter()
+            .filter(|(target, _)| !self.targets.contains_key(target))
+            .count();
+
+        for (full, what) in [
+            (self.addresses.len() + new_addresses > CAP, "addresses"),
+            (self.targets.len() + new_targets > CAP, "targets"),
+        ] {
+            if full {
+                return Ok(Handled {
+                    decision: decision(name, qtype, Outcome::Full(what)),
+                    answer: Some(dns::respond(query, &question, dns::RCODE_SERVFAIL)),
+                });
+            }
+        }
+
+        // A CNAME-only answer, or one whose records were all of another
+        // class, authorizes no address and so asks nothing of the kernel.
+        let (deletes, adds) = self.plan(&addresses, Instant::now());
+        if !adds.is_empty() {
+            self.writer.apply(&deletes, &adds)?;
+        }
+
+        // Published only now, and dated from now: until the kernel
+        // acknowledged, the promise in this answer was not one the ruleset
+        // could keep. The kernel started each element's timer before it
+        // acknowledged, so every expiry recorded here is later than the
+        // kernel's own. That ordering is what makes the insert in `plan` safe
+        // to mark exclusive.
+        let authorized = Instant::now();
+        for add in &adds {
+            self.addresses.insert(add.address, authorized + add.timeout);
+        }
+        for (target, ttl) in &targets {
+            let expiry = authorized + Duration::from_secs(u64::from(*ttl));
+            let held = self.targets.entry(target.clone()).or_insert(expiry);
+            *held = (*held).max(expiry);
+        }
+
+        Ok(Handled {
+            decision: Decision {
+                name,
+                qtype,
+                outcome: Outcome::Resolved,
+                addresses,
+                targets,
+                refreshed: deletes,
+            },
+            answer: Some(response),
+        })
+    }
+
+    /// What this answer asks of the set. An address already held keeps
+    /// whichever is longer, its outstanding time or this record's TTL, so a
+    /// shorter answer never shortens a TTL the guest was already given.
+    ///
+    /// `base` is read from the clock just before the batch is sent, so it is no
+    /// later than any timer the batch starts: a remainder measured from it
+    /// lasts until at least the recorded expiry. Every recorded expiry is
+    /// dated from after the kernel acknowledged the batch that set it, and the
+    /// kernel started that element's timer before acknowledging, so the
+    /// kernel's expiry is always the earlier of the two. An address this side
+    /// records as expired is therefore certainly gone from the kernel, which
+    /// is what lets the insert carry `NLM_F_EXCL`. The other direction - still
+    /// recorded here but already dropped by the kernel - is the recoverable
+    /// one, and `apply` resends without that delete.
+    fn plan(
+        &self,
+        addresses: &[(Ipv4Addr, u32)],
+        base: Instant,
+    ) -> (Vec<Ipv4Addr>, Vec<nftset::Element>) {
+        let mut deletes = Vec::new();
+        let mut adds = Vec::new();
+
+        for (address, ttl) in addresses {
+            let outstanding = match self.addresses.get(address) {
+                Some(expiry) if *expiry > base => {
+                    deletes.push(*address);
+                    *expiry - base
+                }
+                _ => Duration::ZERO,
+            };
+            adds.push(nftset::Element {
+                address: *address,
+                timeout: outstanding.max(Duration::from_secs(u64::from(*ttl))),
+            });
+        }
+        (deletes, adds)
+    }
+
+    /// `Err` is a reason to drop this one query. A fresh socket per query,
+    /// connected so the kernel discards anything not from the upstream, and an
+    /// id, opcode and sole question that must match what was asked.
+    fn forward(
+        &mut self,
+        query: &[u8],
+        id: u16,
+        question: &dns::Question,
+    ) -> Result<Vec<u8>, String> {
+        let upstream = self.config.upstream;
+
+        let socket = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
+            .map_err(|e| format!("binding an upstream socket: {e}"))?;
+        socket
+            .connect(upstream)
+            .map_err(|e| format!("connecting to {upstream}: {e}"))?;
+        socket
+            .set_read_timeout(Some(UPSTREAM_TIMEOUT))
+            .map_err(|e| format!("setting the upstream timeout: {e}"))?;
+        socket
+            .send(query)
+            .map_err(|e| format!("sending to {upstream}: {e}"))?;
+
+        self.scratch.resize(BUFFER, 0);
+        let read = socket
+            .recv(&mut self.scratch)
+            .map_err(|e| format!("no answer from {upstream}: {e}"))?;
+        let response = self.scratch[..read].to_vec();
+
+        let header = dns::header(&response).map_err(|e| format!("upstream answer: {e:#}"))?;
+        if !header.response {
+            return Err("upstream sent a query, not a response".to_string());
+        }
+        if header.id != id {
+            return Err(format!(
+                "upstream answered id {:#06x}, not {id:#06x}",
+                header.id
+            ));
+        }
+        if header.opcode != dns::OPCODE_QUERY {
+            return Err(format!(
+                "upstream answered opcode {}, not QUERY",
+                header.opcode
+            ));
+        }
+        if header.qdcount != 1 {
+            return Err(format!(
+                "upstream answered {} questions, not one",
+                header.qdcount
+            ));
+        }
+        let answered = dns::first_question(&response)
+            .map_err(|e| format!("upstream answer's question: {e:#}"))?;
+
+        if answered.name != question.name
+            || answered.qtype != question.qtype
+            || answered.qclass != question.qclass
+        {
+            return Err(format!(
+                "upstream answered {:?}/{}, not {:?}/{}",
+                answered.name, answered.qtype, question.name, question.qtype
+            ));
+        }
+        Ok(response)
+    }
+
+    fn allowed(&self, name: &str, now: Instant) -> bool {
+        if self
+            .config
+            .allowed_names
+            .iter()
+            .any(|allowed| admits(allowed, name))
+        {
+            return true;
+        }
+        self.targets.get(name).is_some_and(|expiry| *expiry > now)
+    }
+
+    /// Drop what the kernel can no longer be holding. Entries live past their
+    /// expiry on purpose: see `RECLAIM`.
+    fn prune(&mut self, now: Instant) {
+        self.addresses.retain(|_, expiry| *expiry + RECLAIM > now);
+        self.targets.retain(|_, expiry| *expiry + RECLAIM > now);
+    }
+}
+
+/// Escaped dots within DNS labels cannot masquerade as name boundaries.
+fn admits(allowed: &AllowedName, name: &str) -> bool {
+    match allowed {
+        AllowedName::Exact(exact) => name == exact,
+        AllowedName::Subdomains(base) => name
+            .strip_suffix(base.as_str())
+            .is_some_and(|below| below.ends_with('.')),
+    }
+}
+
+fn retain_longest<K: PartialEq>(seen: &mut Vec<(K, u32)>, key: K, ttl: u32) {
+    match seen.iter_mut().find(|(held, _)| *held == key) {
+        Some((_, held)) => *held = (*held).max(ttl),
+        None => seen.push((key, ttl)),
+    }
+}
+
+fn decision(name: String, qtype: u16, outcome: Outcome) -> Decision {
+    Decision {
+        name,
+        qtype,
+        outcome,
+        addresses: Vec::new(),
+        targets: Vec::new(),
+        refreshed: Vec::new(),
+    }
+}
+
+fn dropped(name: String, qtype: u16, error: &anyhow::Error) -> Handled {
+    Handled {
+        decision: decision(name, qtype, Outcome::Dropped(format!("{error:#}"))),
+        answer: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Config, Decision, Handled, Outcome, Refusals, Resolver, dns, nftset};
+    use std::fmt::Write as _;
+    use std::net::{Ipv4Addr, SocketAddr};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    fn policy() -> crate::policy::Policy {
+        crate::policy::tests::policy(
+            &[
+                "pypi.org",
+                "*.mirror.acmeco.example",
+                "artifacts.acmeco.example",
+                "metadata.acmeco.example",
+                "cdnonly.acmeco.example",
+                "dup.acmeco.example",
+                "long.acmeco.example",
+                "short.acmeco.example",
+                "chaos.acmeco.example",
+            ],
+            &[],
+            Some((90, 3600)),
+        )
+    }
+
+    const TYPE_SOA: u16 = 6;
+    const TYPE_PTR: u16 = 12;
+    const TYPE_MX: u16 = 15;
+    const TYPE_TXT: u16 = 16;
+
+    const CLASS_CHAOS: u16 = 3;
+
+    fn public(last: u8) -> Ipv4Addr {
+        Ipv4Addr::new(93, 184, 216, last)
+    }
+
+    #[derive(Clone)]
+    enum Rr {
+        A(&'static str, Ipv4Addr, u32),
+        Cname(&'static str, &'static str, u32),
+        /// A CNAME whose record data is these bytes, whether or not they
+        /// encode exactly one name.
+        CnameData(&'static str, &'static [u8], u32),
+        /// An A record in a class other than IN. Nothing may authorize it.
+        Chaos(&'static str, Ipv4Addr, u32),
+    }
+
+    fn encode_name(name: &str, out: &mut Vec<u8>) {
+        for label in name.split('.') {
+            out.push(label.len() as u8);
+            out.extend(label.as_bytes());
+        }
+        out.push(0);
+    }
+
+    fn query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
+        let mut message = Vec::new();
+        message.extend(id.to_be_bytes());
+        message.extend(0x0100u16.to_be_bytes()); // recursion desired
+        message.extend(1u16.to_be_bytes());
+        message.extend([0u8; 6]);
+        encode_name(name, &mut message);
+        message.extend(qtype.to_be_bytes());
+        message.extend(dns::CLASS_IN.to_be_bytes());
+        message
+    }
+
+    /// A query for `name` whose first label holds a literal dot where `name`
+    /// has its first hyphen. No hostname can carry one, and a name flattened
+    /// without escaping would read it as a label boundary.
+    fn dotted_query(id: u16, name: &str) -> Vec<u8> {
+        let mut message = query(id, name, dns::TYPE_A);
+        let hyphen = name.find('-').expect("a hyphen to replace");
+        assert!(hyphen < name.find('.').expect("more than one label"));
+        message[12 + 1 + hyphen] = b'.';
+        message
+    }
+
+    /// An `A` query whose name is these labels, each of any bytes.
+    fn labeled_query(id: u16, labels: &[&[u8]]) -> Vec<u8> {
+        let mut message = query(id, "acmeco.example", dns::TYPE_A);
+        message.truncate(12);
+        for label in labels {
+            message.push(label.len() as u8);
+            message.extend(*label);
+        }
+        message.push(0);
+        message.extend(dns::TYPE_A.to_be_bytes());
+        message.extend(dns::CLASS_IN.to_be_bytes());
+        message
+    }
+
+    fn flagged(mut message: Vec<u8>, flags: u16) -> Vec<u8> {
+        message[2..4].copy_from_slice(&flags.to_be_bytes());
+        message
+    }
+
+    /// A one-question `message`, asked in `class` rather than IN.
+    fn in_class(mut message: Vec<u8>, class: u16) -> Vec<u8> {
+        let end = message.len();
+        message[end - 2..].copy_from_slice(&class.to_be_bytes());
+        message
+    }
+
+    fn two_questions(id: u16, first: &str, second: &str) -> Vec<u8> {
+        let mut message = query(id, first, dns::TYPE_A);
+        message[4..6].copy_from_slice(&2u16.to_be_bytes());
+        encode_name(second, &mut message);
+        message.extend(dns::TYPE_A.to_be_bytes());
+        message.extend(dns::CLASS_IN.to_be_bytes());
+        message
+    }
+
+    fn respond(question: &[u8], records: &[Rr]) -> Vec<u8> {
+        let mut message = question.to_vec();
+        message[2..4].copy_from_slice(&0x8180u16.to_be_bytes()); // response, RD, RA
+        message[6..8].copy_from_slice(&(records.len() as u16).to_be_bytes());
+
+        for record in records {
+            match record {
+                Rr::A(owner, address, ttl) | Rr::Chaos(owner, address, ttl) => {
+                    let class = match record {
+                        Rr::Chaos(..) => 3u16,
+                        _ => dns::CLASS_IN,
+                    };
+                    encode_name(owner, &mut message);
+                    message.extend(dns::TYPE_A.to_be_bytes());
+                    message.extend(class.to_be_bytes());
+                    message.extend(ttl.to_be_bytes());
+                    message.extend(4u16.to_be_bytes());
+                    message.extend(address.octets());
+                }
+                Rr::Cname(owner, target, ttl) => {
+                    encode_name(owner, &mut message);
+                    message.extend(dns::TYPE_CNAME.to_be_bytes());
+                    message.extend(dns::CLASS_IN.to_be_bytes());
+                    message.extend(ttl.to_be_bytes());
+                    let mut rdata = Vec::new();
+                    encode_name(target, &mut rdata);
+                    message.extend((rdata.len() as u16).to_be_bytes());
+                    message.extend(rdata);
+                }
+                Rr::CnameData(owner, rdata, ttl) => {
+                    encode_name(owner, &mut message);
+                    message.extend(dns::TYPE_CNAME.to_be_bytes());
+                    message.extend(dns::CLASS_IN.to_be_bytes());
+                    message.extend(ttl.to_be_bytes());
+                    message.extend((rdata.len() as u16).to_be_bytes());
+                    message.extend(*rdata);
+                }
+            }
+        }
+        message
+    }
+
+    /// A real UDP nameserver on loopback, answering from a script keyed by
+    /// question name and type. An unscripted question gets silence.
+    fn upstream(script: Vec<((&'static str, u16), Vec<Rr>)>) -> SocketAddr {
+        recorded_upstream(script, Duration::ZERO).0
+    }
+
+    /// Recorded before parsing or answering, so a completed round trip makes
+    /// the forwarded datagram visible to the test.
+    type Received = Arc<Mutex<Vec<Vec<u8>>>>;
+
+    /// A scripted upstream that records datagrams and delays answers.
+    fn recorded_upstream(
+        script: Vec<((&'static str, u16), Vec<Rr>)>,
+        delay: Duration,
+    ) -> (SocketAddr, Received) {
+        let socket =
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("binding a fake upstream");
+        let address = socket.local_addr().expect("the fake upstream's address");
+        let received = Received::default();
+        let recorder = received.clone();
+
+        std::thread::spawn(move || {
+            let mut buffer = [0u8; 4096];
+            loop {
+                let Ok((read, peer)) = socket.recv_from(&mut buffer) else {
+                    return;
+                };
+                let received = &buffer[..read];
+                recorder.lock().expect("recorder").push(received.to_vec());
+                let Ok(question) = dns::first_question(received) else {
+                    continue;
+                };
+                let Some((_, records)) = script
+                    .iter()
+                    .find(|((name, qtype), _)| *name == question.name && *qtype == question.qtype)
+                else {
+                    continue;
+                };
+                std::thread::sleep(delay);
+                let _ = socket.send_to(&respond(received, records), peer);
+            }
+        });
+        (address, received)
+    }
+
+    #[test]
+    fn azure_platform_address() {
+        let address = Ipv4Addr::new(168, 63, 129, 16);
+        let upstream = upstream(vec![(
+            ("pypi.org", dns::TYPE_A),
+            vec![Rr::A("pypi.org", address, 300)],
+        )]);
+        let mut table = String::new();
+        for cidrs in [vec![], vec!["168.63.129.16/32"], vec!["0.0.0.0/0"]] {
+            for named in [false, true] {
+                let names: &[&str] = if named { &["pypi.org"] } else { &[] };
+                let policy = crate::policy::tests::policy(names, &cidrs, None);
+                let recorder = Recorder::default();
+                let mut resolver = resolver_under(policy, upstream, recorder.clone());
+                let handled = resolver
+                    .handle(&query(1, "pypi.org", dns::TYPE_A), Instant::now())
+                    .unwrap();
+                writeln!(table, "cidrs={cidrs:?} named={named}: {}", handled.decision).unwrap();
+                assert!(recorder.calls().is_empty());
+            }
+        }
+        insta::assert_snapshot!(table);
+    }
+
+    #[test]
+    fn large_udp_answers() {
+        let socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = socket.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut buffer = [0; 4096];
+            for count in [8, 24, 64] {
+                for edns in [false, true] {
+                    let (read, peer) = socket.recv_from(&mut buffer).unwrap();
+                    let query = &buffer[..read];
+                    let limit = if edns { 1232 } else { 512 };
+                    assert_eq!(query[11], u8::from(edns));
+                    let mut question = query[..dns::first_question(query).unwrap().end].to_vec();
+                    question[11] = 0;
+                    let records = vec![Rr::A("pypi.org", public(1), 300); count];
+                    let mut answer = respond(&question, &records);
+                    if answer.len() > limit {
+                        // A complete partial RRset is legal in a TC response.
+                        answer = respond(&question, &records[..1]);
+                        answer[2] |= 0x02;
+                    }
+                    socket.send_to(&answer, peer).unwrap();
+                }
+            }
+        });
+        let mut table = String::new();
+        for count in [8, 24, 64] {
+            for edns in [false, true] {
+                let recorder = Recorder::default();
+                let mut resolver = resolver(address, recorder.clone());
+                let mut query = query(1, "pypi.org", dns::TYPE_A);
+                if edns {
+                    query[11] = 1;
+                    // Root owner, OPT, UDP payload 1232, no flags or data.
+                    query.extend([0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0]);
+                }
+                let handled = resolver.handle(&query, Instant::now()).unwrap();
+                let answer = handled.answer.unwrap();
+                writeln!(
+                    table,
+                    "records={count} edns={edns} bytes={} rcode={} writes={} outcome={}",
+                    answer.len(),
+                    answer[3] & 15,
+                    recorder.calls().len(),
+                    handled.decision
+                )
+                .unwrap();
+            }
+        }
+        server.join().unwrap();
+        insta::assert_snapshot!(table);
+    }
+
+    #[test]
+    fn truncated_non_a_authorizes_nothing() {
+        let socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = socket.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut buffer = [0; 4096];
+            let (read, peer) = socket.recv_from(&mut buffer).unwrap();
+            let mut response = respond(
+                &buffer[..read],
+                &[
+                    Rr::Cname("pypi.org", "cdn.acmeco.example", 300),
+                    Rr::A("cdn.acmeco.example", public(1), 300),
+                ],
+            );
+            response[2] |= 2;
+            socket.send_to(&response, peer).unwrap();
+        });
+        let recorder = Recorder::default();
+        let mut resolver = resolver(address, recorder.clone());
+        let handled = resolver
+            .handle(&query(1, "pypi.org", TYPE_MX), Instant::now())
+            .unwrap();
+        assert!(matches!(handled.decision.outcome, Outcome::Truncated));
+        assert_eq!(handled.answer.unwrap()[3] & 15, dns::RCODE_SERVFAIL as u8);
+        assert!(resolver.addresses.is_empty());
+        assert!(resolver.targets.is_empty());
+        assert!(recorder.calls().is_empty());
+        server.join().unwrap();
+    }
+
+    /// What was asked of the set, and when it was acknowledged: no element
+    /// of the call can have started its timer later than that.
+    type Call = (Vec<Ipv4Addr>, Vec<nftset::Element>, Instant);
+
+    #[derive(Clone, Default)]
+    struct Recorder {
+        calls: Arc<Mutex<Vec<Call>>>,
+        failing: Arc<Mutex<bool>>,
+    }
+
+    impl Recorder {
+        fn calls(&self) -> Vec<Call> {
+            self.calls.lock().expect("recorder").clone()
+        }
+    }
+
+    impl nftset::SetWriter for Recorder {
+        fn apply(&mut self, deletes: &[Ipv4Addr], adds: &[nftset::Element]) -> anyhow::Result<()> {
+            self.calls.lock().expect("recorder").push((
+                deletes.to_vec(),
+                adds.to_vec(),
+                Instant::now(),
+            ));
+
+            if *self.failing.lock().expect("recorder") {
+                anyhow::bail!("injected netlink failure");
+            }
+            Ok(())
+        }
+    }
+
+    fn resolver(upstream: SocketAddr, writer: Recorder) -> Resolver {
+        resolver_under(policy(), upstream, writer)
+    }
+
+    fn resolver_under(
+        policy: crate::policy::Policy,
+        upstream: SocketAddr,
+        writer: Recorder,
+    ) -> Resolver {
+        let config = Config::new(
+            &policy,
+            &[],
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 53)),
+            upstream,
+            false,
+        );
+        Resolver::new(config, Box::new(writer))
+    }
+
+    /// Let `elapsed` pass for everything the resolver holds. The resolver
+    /// reads the clock to date what it authorizes, so a test moves its
+    /// records back rather than its queries forward.
+    fn age(resolver: &mut Resolver, elapsed: Duration) {
+        for expiry in resolver
+            .addresses
+            .values_mut()
+            .chain(resolver.targets.values_mut())
+        {
+            *expiry -= elapsed;
+        }
+    }
+
+    fn script() -> Vec<((&'static str, u16), Vec<Rr>)> {
+        vec![
+            (
+                ("pypi.org", dns::TYPE_A),
+                vec![Rr::A("pypi.org", public(10), 60)],
+            ),
+            (
+                ("files.pypi.org", dns::TYPE_A),
+                vec![Rr::A("files.pypi.org", public(11), 300)],
+            ),
+            (
+                ("eu.mirror.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("eu.mirror.acmeco.example", public(80), 300)],
+            ),
+            (
+                ("a.eu.mirror.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("a.eu.mirror.acmeco.example", public(81), 300)],
+            ),
+            (
+                ("mirror.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("mirror.acmeco.example", public(82), 300)],
+            ),
+            (
+                ("x.assets.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("x.assets.acmeco.example", public(43), 300)],
+            ),
+            (
+                ("long.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("long.acmeco.example", public(50), 86_400)],
+            ),
+            (
+                ("short.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("short.acmeco.example", public(50), 90)],
+            ),
+            (
+                ("metadata.acmeco.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "metadata.acmeco.example",
+                    Ipv4Addr::new(169, 254, 169, 254),
+                    300,
+                )],
+            ),
+            (
+                ("dup.acmeco.example", dns::TYPE_A),
+                vec![
+                    Rr::A("dup.acmeco.example", public(60), 100),
+                    Rr::A("dup.acmeco.example", public(60), 500),
+                ],
+            ),
+            (
+                ("chaos.acmeco.example", dns::TYPE_A),
+                vec![Rr::Chaos("chaos.acmeco.example", public(70), 300)],
+            ),
+            (
+                ("artifacts.acmeco.example", dns::TYPE_A),
+                vec![
+                    Rr::Cname("artifacts.acmeco.example", "assets.acmeco.example", 30),
+                    Rr::A("assets.acmeco.example", public(40), 200),
+                ],
+            ),
+            (
+                ("assets.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("assets.acmeco.example", public(41), 200)],
+            ),
+            (
+                ("cdnonly.acmeco.example", dns::TYPE_A),
+                vec![Rr::Cname(
+                    "cdnonly.acmeco.example",
+                    "edge.acmeco.example",
+                    120,
+                )],
+            ),
+            (
+                ("edge.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("edge.acmeco.example", public(42), 600)],
+            ),
+            (
+                ("pypi.org", TYPE_MX),
+                vec![Rr::A("pypi.org", public(10), 300)],
+            ),
+            (("assets.acmeco.example", TYPE_TXT), vec![]),
+        ]
+    }
+
+    #[test]
+    fn refusals_are_reported_once_each_and_bounded() {
+        let mut refusals = Refusals::default();
+        let mut lines = Vec::new();
+        let mut report = |name: &str, outcome: Outcome| {
+            lines.extend(refusals.report(&super::decision(name.to_string(), 1, outcome)));
+        };
+
+        report("other.acmeco.example", Outcome::RefusedName);
+        report("other.acmeco.example", Outcome::RefusedName);
+        report(
+            "leak.acmeco.example",
+            Outcome::RefusedPrivate(Ipv4Addr::new(10, 1, 2, 3)),
+        );
+        report("pypi.org", Outcome::Resolved);
+        report("pypi.org", Outcome::EmptyAaaa);
+        report("odd\"name\n .acmeco.example", Outcome::RefusedName);
+        for index in 0..40 {
+            report(&format!("n{index}.acmeco.example"), Outcome::RefusedName);
+        }
+        report("late.acmeco.example", Outcome::RefusedName);
+
+        for line in &lines {
+            let (body, rest) = line.split_once('\n').expect("a line ends in a newline");
+            assert_eq!(rest, "", "one line per report: {line:?}");
+            assert!(!body.starts_with(' '), "only readiness begins with a space");
+            let parsed: serde_json::Value = serde_json::from_str(body).expect("a JSON line");
+            assert_eq!(parsed["level"], "warn");
+        }
+        assert_eq!(lines.len(), super::REPORTED_REFUSALS + 1);
+        insta::assert_snapshot!(lines[..3].concat(), @r#"
+        {"fields":{"name":"other.acmeco.example"},"level":"warn","message":"refused DNS name other.acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts"}
+        {"fields":{"name":"leak.acmeco.example"},"level":"warn","message":"refused DNS name leak.acmeco.example, which resolved to an address that is not public"}
+        {"fields":{"name":"odd\"name\n .acmeco.example"},"level":"warn","message":"refused DNS name odd\"name\n .acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts"}
+        "#);
+        insta::assert_snapshot!(lines[lines.len() - 2..].concat(), @r#"
+        {"fields":{"name":"n28.acmeco.example"},"level":"warn","message":"refused DNS name n28.acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts"}
+        {"fields":{"reported":32},"level":"warn","message":"further refused DNS names are not reported"}
+        "#);
+    }
+
+    #[test]
+    fn decisions() {
+        let recorder = Recorder::default();
+        let (upstream, received) = recorded_upstream(script(), Duration::ZERO);
+        let mut resolver = resolver(upstream, recorder.clone());
+
+        let steps: Vec<(&str, u64, Vec<u8>)> = vec![
+            (
+                "allowed name, TTL below the floor",
+                0,
+                query(1, "pypi.org", dns::TYPE_A),
+            ),
+            (
+                "the same name again: delete and re-add",
+                1,
+                query(2, "pypi.org", dns::TYPE_A),
+            ),
+            (
+                "the question in mixed case",
+                2,
+                query(3, "PyPI.ORG", dns::TYPE_A),
+            ),
+            (
+                "a label below an exact name",
+                3,
+                query(4, "files.pypi.org", dns::TYPE_A),
+            ),
+            (
+                "a name that only looks like one",
+                4,
+                query(5, "notpypi.org", dns::TYPE_A),
+            ),
+            (
+                "an exact name with labels after it",
+                5,
+                query(6, "pypi.org.evil.example", dns::TYPE_A),
+            ),
+            (
+                "a label below a wildcard",
+                6,
+                query(7, "eu.mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "labels nested below a wildcard",
+                7,
+                query(8, "a.eu.mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a wildcard's own base",
+                8,
+                query(9, "mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a name that only ends like a wildcard's base",
+                9,
+                query(10, "notmirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a wildcard's subdomain with labels after it",
+                10,
+                query(11, "eu.mirror.acmeco.example.evil.example", dns::TYPE_A),
+            ),
+            (
+                "a dot inside a label, posing as an exact name",
+                11,
+                dotted_query(12, "artifacts-acmeco.example"),
+            ),
+            (
+                "a dot inside a label, posing as a wildcard's subdomain",
+                12,
+                dotted_query(13, "eu-mirror.acmeco.example"),
+            ),
+            (
+                "a name nobody listed",
+                13,
+                query(14, "evil.example", dns::TYPE_A),
+            ),
+            (
+                "AAAA for an allowed name",
+                14,
+                query(15, "pypi.org", dns::TYPE_AAAA),
+            ),
+            (
+                "AAAA for a name nobody listed",
+                15,
+                query(16, "evil.example", dns::TYPE_AAAA),
+            ),
+            (
+                "MX for a permitted name, whose answer holds an A record",
+                16,
+                query(17, "pypi.org", TYPE_MX),
+            ),
+            (
+                "MX for a name nobody listed",
+                16,
+                query(30, "evil.example", TYPE_MX),
+            ),
+            (
+                "PTR for an address nobody listed",
+                16,
+                query(31, "10.216.184.93.in-addr.arpa", TYPE_PTR),
+            ),
+            (
+                "two questions in one query",
+                17,
+                two_questions(18, "pypi.org", "evil.example"),
+            ),
+            ("a header with no question", 17, {
+                let mut message = query(32, "pypi.org", dns::TYPE_A);
+                message.truncate(12);
+                message[4..6].copy_from_slice(&0u16.to_be_bytes());
+                message
+            }),
+            (
+                "a response, not a query",
+                17,
+                flagged(query(33, "pypi.org", dns::TYPE_A), 0x8100),
+            ),
+            (
+                "an UPDATE of a permitted name's zone",
+                17,
+                flagged(query(34, "pypi.org", TYPE_SOA), 0x2800),
+            ),
+            (
+                "a permitted name in the CHAOS class",
+                17,
+                in_class(query(35, "pypi.org", TYPE_TXT), CLASS_CHAOS),
+            ),
+            (
+                "AAAA in the CHAOS class",
+                17,
+                in_class(query(36, "pypi.org", dns::TYPE_AAAA), CLASS_CHAOS),
+            ),
+            (
+                "an answer pointing inward",
+                18,
+                query(19, "metadata.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "TTL above the cap",
+                19,
+                query(20, "long.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "the same address, shorter TTL",
+                20,
+                query(21, "short.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "the same address twice in one answer",
+                21,
+                query(22, "dup.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "an A record in another class",
+                22,
+                query(23, "chaos.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a CNAME chain",
+                23,
+                query(24, "artifacts.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "TXT for the remembered target",
+                23,
+                query(37, "assets.acmeco.example", TYPE_TXT),
+            ),
+            (
+                "the remembered target, queried directly",
+                24,
+                query(25, "assets.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a label below the remembered target",
+                25,
+                query(26, "x.assets.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a CNAME with no address behind it",
+                26,
+                query(27, "cdnonly.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "the target of that CNAME",
+                27,
+                query(28, "edge.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "the remembered target once it has expired",
+                400,
+                query(29, "assets.acmeco.example", dns::TYPE_A),
+            ),
+        ];
+
+        insta::assert_snapshot!(log_steps(&mut resolver, &received, &recorder, steps));
+    }
+
+    #[test]
+    fn declared_names_meet_wire_names() {
+        const TYPE_SRV: u16 = 33;
+        let policy = crate::policy::tests::policy(
+            &[
+                "PyPI.ORG.",
+                "DB.",
+                "_ldap._tcp.acmeco.example",
+                "build_cache.acmeco.example",
+                "*.Mirror.AcmeCo.example.",
+                "api.123",
+            ],
+            &[],
+            None,
+        );
+        let script = vec![
+            (
+                ("pypi.org", dns::TYPE_A),
+                vec![Rr::A("pypi.org", public(10), 300)],
+            ),
+            (
+                ("db", dns::TYPE_A),
+                vec![Rr::A("db", Ipv4Addr::new(10, 1, 2, 3), 300)],
+            ),
+            (
+                ("_ldap._tcp.acmeco.example", TYPE_SRV),
+                vec![Rr::A("ldap.acmeco.example", public(11), 300)],
+            ),
+            (("_ldap._tcp.acmeco.example", TYPE_TXT), vec![]),
+            (
+                ("build_cache.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("build_cache.acmeco.example", public(12), 300)],
+            ),
+            (
+                ("api.123", dns::TYPE_A),
+                vec![Rr::A("api.123", public(13), 300)],
+            ),
+            (
+                ("eu.mirror.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("eu.mirror.acmeco.example", public(14), 300)],
+            ),
+            (
+                ("a.b.eu.mirror.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("a.b.eu.mirror.acmeco.example", public(15), 300)],
+            ),
+        ];
+        let recorder = Recorder::default();
+        let (upstream, received) = recorded_upstream(script, Duration::ZERO);
+        let mut resolver = resolver_under(policy, upstream, recorder.clone());
+
+        let steps: Vec<(&str, u64, Vec<u8>)> = vec![
+            (
+                "a name declared with a root dot, asked in mixed case",
+                0,
+                query(1, "PyPI.Org", dns::TYPE_A),
+            ),
+            (
+                "a single-label name, at a private address",
+                1,
+                query(2, "DB", dns::TYPE_A),
+            ),
+            (
+                "that label beneath a search domain",
+                2,
+                query(3, "db.corp.example", dns::TYPE_A),
+            ),
+            (
+                "SRV for underscore labels, whose answer holds an A record",
+                3,
+                query(4, "_ldap._tcp.acmeco.example", TYPE_SRV),
+            ),
+            (
+                "TXT for those labels, in capitals",
+                4,
+                query(5, "_LDAP._TCP.acmeco.example", TYPE_TXT),
+            ),
+            (
+                "A for a label holding an underscore",
+                5,
+                query(6, "build_cache.acmeco.example", dns::TYPE_A),
+            ),
+            ("a numeric top label", 6, query(7, "api.123", dns::TYPE_A)),
+            (
+                "a label below a wildcard declared with a root dot",
+                7,
+                query(8, "eu.mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "labels nested below that wildcard, in mixed case",
+                8,
+                query(9, "a.b.EU.Mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "the wildcard's own base",
+                9,
+                query(10, "mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a label that only ends like the wildcard's base",
+                10,
+                query(11, "eumirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a dot inside a label, posing as the wildcard's subdomain",
+                11,
+                labeled_query(12, &[b"eu.mirror", b"acmeco", b"example"]),
+            ),
+            (
+                "a dot inside one label, posing as a two-label name",
+                12,
+                labeled_query(13, &[b"api.123"]),
+            ),
+            (
+                "a dot inside a label, posing as underscore labels",
+                13,
+                labeled_query(14, &[b"_ldap._tcp", b"acmeco", b"example"]),
+            ),
+            (
+                "an escaped dot spelled out in one label",
+                14,
+                labeled_query(15, &[br"pypi\046org"]),
+            ),
+            (
+                "a backslash ending a label",
+                15,
+                labeled_query(16, &[br"pypi\", b"org"]),
+            ),
+        ];
+
+        insta::assert_snapshot!(log_steps(&mut resolver, &received, &recorder, steps));
+    }
+
+    /// Handle each step's query at its offset, logging the decision, the
+    /// answer, what went upstream and what was asked of the set.
+    fn log_steps(
+        resolver: &mut Resolver,
+        received: &Received,
+        recorder: &Recorder,
+        steps: Vec<(&str, u64, Vec<u8>)>,
+    ) -> String {
+        let mut log = String::new();
+        let mut seen = 0;
+        let mut elapsed = 0;
+
+        for (label, offset, message) in steps {
+            age(resolver, Duration::from_secs(offset - elapsed));
+            elapsed = offset;
+            let handled = resolver
+                .handle(&message, Instant::now())
+                .expect("no step of this run fails fatally");
+
+            log.push_str(&format!("# {label} (t+{offset}s)\n"));
+            log.push_str(&format!("{}\n", handled.decision));
+            log.push_str(&format!("{}\n", summarize(&handled)));
+
+            let heard: Vec<String> = received
+                .lock()
+                .expect("recorder")
+                .drain(..)
+                .map(|datagram| match dns::first_question(&datagram) {
+                    Ok(question) => format!("{}/{}", question.name, question.qtype),
+                    Err(_) => format!("{} bytes", datagram.len()),
+                })
+                .collect();
+            log.push_str(&format!("upstream: [{}]\n", heard.join(", ")));
+
+            let calls = recorder.calls();
+            for (deletes, adds, _) in &calls[seen..] {
+                log.push_str(&format!("set: {}\n", render_call(deletes, adds)));
+            }
+            seen = calls.len();
+            log.push('\n');
+        }
+        log
+    }
+
+    /// Declared CIDRs admit any name whose `A` answer lies wholly within
+    /// them, beside the names the policy admits at public addresses. An
+    /// address in neither condemns the answer, and nothing within the CIDRs
+    /// takes room in the set.
+    #[test]
+    fn cidr_decisions() {
+        let policy = crate::policy::tests::policy(
+            &[
+                "pypi.org",
+                "db.acmeco.example",
+                "outside.acmeco.example",
+                "mixed.acmeco.example",
+                "cdn.acmeco.example",
+            ],
+            &["10.0.0.0/8", "192.168.4.7/32"],
+            None,
+        );
+        let outside = Ipv4Addr::new(172, 16, 0, 5);
+        let script = vec![
+            (
+                ("pypi.org", dns::TYPE_A),
+                vec![Rr::A("pypi.org", public(10), 300)],
+            ),
+            (
+                ("warehouse.corp.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "warehouse.corp.example",
+                    Ipv4Addr::new(10, 1, 2, 3),
+                    30,
+                )],
+            ),
+            (
+                ("single.corp.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "single.corp.example",
+                    Ipv4Addr::new(192, 168, 4, 7),
+                    300,
+                )],
+            ),
+            (
+                ("neighbor.corp.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "neighbor.corp.example",
+                    Ipv4Addr::new(192, 168, 4, 8),
+                    300,
+                )],
+            ),
+            (
+                ("db.acmeco.example", dns::TYPE_A),
+                vec![
+                    Rr::A("db.acmeco.example", Ipv4Addr::new(10, 4, 5, 6), 300),
+                    Rr::A("db.acmeco.example", public(11), 300),
+                ],
+            ),
+            (
+                ("outside.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("outside.acmeco.example", outside, 300)],
+            ),
+            (
+                ("mixed.acmeco.example", dns::TYPE_A),
+                vec![
+                    Rr::A("mixed.acmeco.example", Ipv4Addr::new(10, 1, 2, 3), 300),
+                    Rr::A("mixed.acmeco.example", outside, 300),
+                ],
+            ),
+            (
+                ("mixed.corp.example", dns::TYPE_A),
+                vec![
+                    Rr::A("mixed.corp.example", Ipv4Addr::new(10, 1, 2, 3), 300),
+                    Rr::A("mixed.corp.example", public(20), 300),
+                ],
+            ),
+            (
+                ("public.corp.example", dns::TYPE_A),
+                vec![Rr::A("public.corp.example", public(21), 300)],
+            ),
+            (
+                ("metadata.corp.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "metadata.corp.example",
+                    Ipv4Addr::new(169, 254, 169, 254),
+                    300,
+                )],
+            ),
+            (("missing.corp.example", dns::TYPE_A), vec![]),
+            (
+                ("alias.corp.example", dns::TYPE_A),
+                vec![
+                    Rr::Cname("alias.corp.example", "target.corp.example", 300),
+                    Rr::A("target.corp.example", Ipv4Addr::new(10, 7, 7, 7), 300),
+                ],
+            ),
+            (
+                ("target.corp.example", dns::TYPE_A),
+                vec![Rr::A("target.corp.example", public(30), 300)],
+            ),
+            (
+                ("cdn.acmeco.example", dns::TYPE_A),
+                vec![
+                    Rr::Cname("cdn.acmeco.example", "edge.cdn.example", 300),
+                    Rr::A("edge.cdn.example", Ipv4Addr::new(10, 8, 8, 8), 300),
+                ],
+            ),
+            (
+                ("edge.cdn.example", dns::TYPE_A),
+                vec![Rr::A("edge.cdn.example", public(31), 300)],
+            ),
+            (("warehouse.corp.example", TYPE_TXT), vec![]),
+        ];
+        let recorder = Recorder::default();
+        let (upstream, received) = recorded_upstream(script, Duration::ZERO);
+        let mut resolver = resolver_under(policy, upstream, recorder.clone());
+
+        let steps: Vec<(&str, u64, Vec<u8>)> = vec![
+            (
+                "a listed name at a public address",
+                0,
+                query(1, "pypi.org", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name within a CIDR",
+                1,
+                query(2, "warehouse.corp.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name at a /32",
+                2,
+                query(3, "single.corp.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name beside the /32",
+                3,
+                query(4, "neighbor.corp.example", dns::TYPE_A),
+            ),
+            (
+                "a listed name within a CIDR and at a public address",
+                4,
+                query(5, "db.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a listed name at a private address outside the CIDRs",
+                5,
+                query(6, "outside.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a listed name within a CIDR and outside it",
+                6,
+                query(7, "mixed.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name within a CIDR and at a public address",
+                7,
+                query(8, "mixed.corp.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name at a public address",
+                8,
+                query(9, "public.corp.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name at the metadata service",
+                9,
+                query(10, "metadata.corp.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name with no address",
+                10,
+                query(11, "missing.corp.example", dns::TYPE_A),
+            ),
+            (
+                "TXT for an unlisted name",
+                11,
+                query(12, "warehouse.corp.example", TYPE_TXT),
+            ),
+            (
+                "AAAA for an unlisted name",
+                12,
+                query(13, "warehouse.corp.example", dns::TYPE_AAAA),
+            ),
+            (
+                "an unlisted name's CNAME into a CIDR",
+                13,
+                query(14, "alias.corp.example", dns::TYPE_A),
+            ),
+            (
+                "that target, which is not remembered, at a public address",
+                14,
+                query(15, "target.corp.example", dns::TYPE_A),
+            ),
+            (
+                "a listed name's CNAME into a CIDR",
+                15,
+                query(16, "cdn.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "that target, remembered, at a public address",
+                16,
+                query(17, "edge.cdn.example", dns::TYPE_A),
+            ),
+        ];
+
+        insta::assert_snapshot!(log_steps(&mut resolver, &received, &recorder, steps));
+
+        // Clamped as any answer is, though no set element is held to it.
+        let handled = resolver
+            .handle(
+                &query(18, "warehouse.corp.example", dns::TYPE_A),
+                Instant::now(),
+            )
+            .expect("the answer is accepted");
+        let answer = handled.answer.expect("an answer is returned");
+        let ttls: Vec<u32> = dns::answer_records(&answer)
+            .expect("the rewritten answer still parses")
+            .iter()
+            .map(|record| record.ttl)
+            .collect();
+        assert_eq!(ttls, [90], "30 upstream, floor 90");
+    }
+
+    /// `0.0.0.0/0` admits every name with an `A` answer, and adds nothing to
+    /// the set, but no answer reaching an excluded prefix or the VMM's own
+    /// subnet.
+    #[test]
+    fn every_address_decisions() {
+        let policy = crate::policy::tests::policy(&[], &["0.0.0.0/0"], None);
+        let bridge: ipnetwork::Ipv4Network = "10.89.0.4/24".parse().expect("test constant");
+        let script = vec![
+            (
+                ("anything.example", dns::TYPE_A),
+                vec![Rr::A("anything.example", public(40), 300)],
+            ),
+            (
+                ("private.example", dns::TYPE_A),
+                vec![Rr::A("private.example", Ipv4Addr::new(172, 16, 0, 5), 300)],
+            ),
+            (
+                ("metadata.example", dns::TYPE_A),
+                vec![Rr::A(
+                    "metadata.example",
+                    Ipv4Addr::new(169, 254, 169, 254),
+                    300,
+                )],
+            ),
+            (
+                ("loopback.example", dns::TYPE_A),
+                vec![
+                    Rr::A("loopback.example", public(41), 300),
+                    Rr::A("loopback.example", Ipv4Addr::LOCALHOST, 300),
+                ],
+            ),
+            (
+                ("bridge.example", dns::TYPE_A),
+                vec![Rr::A("bridge.example", Ipv4Addr::new(10, 89, 0, 9), 300)],
+            ),
+            (("anything.example", TYPE_MX), vec![]),
+        ];
+        let recorder = Recorder::default();
+        let (upstream, received) = recorded_upstream(script, Duration::ZERO);
+        let config = Config::new(
+            &policy,
+            &[bridge],
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 53)),
+            upstream,
+            false,
+        );
+        let mut resolver = Resolver::new(config, Box::new(recorder.clone()));
+
+        let steps: Vec<(&str, u64, Vec<u8>)> = vec![
+            (
+                "an unlisted name at a public address",
+                0,
+                query(1, "anything.example", dns::TYPE_A),
+            ),
+            (
+                "an unlisted name at a private address",
+                1,
+                query(2, "private.example", dns::TYPE_A),
+            ),
+            (
+                "the metadata service",
+                2,
+                query(3, "metadata.example", dns::TYPE_A),
+            ),
+            (
+                "a public address beside loopback",
+                3,
+                query(4, "loopback.example", dns::TYPE_A),
+            ),
+            (
+                "the VMM's own subnet",
+                4,
+                query(5, "bridge.example", dns::TYPE_A),
+            ),
+            (
+                "MX for an unlisted name",
+                5,
+                query(6, "anything.example", TYPE_MX),
+            ),
+        ];
+
+        insta::assert_snapshot!(log_steps(&mut resolver, &received, &recorder, steps));
+        assert!(
+            recorder.calls().is_empty(),
+            "0.0.0.0/0 needs no set element"
+        );
+    }
+
+    fn summarize(handled: &Handled) -> String {
+        let Some(answer) = &handled.answer else {
+            return "answer: none".to_string();
+        };
+        let header = dns::header(answer).expect("the resolver answers with a parsable message");
+        format!(
+            "answer: rcode={} ancount={} bytes={}",
+            header.rcode,
+            u16::from_be_bytes([answer[6], answer[7]]),
+            answer.len(),
+        )
+    }
+
+    fn render_call(deletes: &[Ipv4Addr], adds: &[nftset::Element]) -> String {
+        let deletes: Vec<String> = deletes.iter().map(Ipv4Addr::to_string).collect();
+        let adds: Vec<String> = adds
+            .iter()
+            .map(|add| {
+                format!(
+                    "{} timeout {}s",
+                    add.address,
+                    add.timeout.as_secs_f64().round()
+                )
+            })
+            .collect();
+        format!("delete [{}] add [{}]", deletes.join(", "), adds.join(", "))
+    }
+
+    #[test]
+    fn ttls_are_rewritten_in_the_answer() {
+        let recorder = Recorder::default();
+        let mut resolver = resolver(upstream(script()), recorder);
+        let now = Instant::now();
+
+        for (name, expected) in [
+            ("pypi.org", vec![90]),                      // 60 upstream, floor 90
+            ("long.acmeco.example", vec![3_600]),        // 86400 upstream, cap 3600
+            ("artifacts.acmeco.example", vec![90, 200]), // CNAME 30 -> 90, A 200 kept
+        ] {
+            let handled = resolver
+                .handle(&query(1, name, dns::TYPE_A), now)
+                .expect("the answer is accepted");
+            let answer = handled.answer.expect("an answer is returned");
+
+            let ttls: Vec<u32> = dns::answer_records(&answer)
+                .expect("the rewritten answer still parses")
+                .iter()
+                .map(|record| record.ttl)
+                .collect();
+            assert_eq!(ttls, expected, "TTLs of {name}");
+        }
+    }
+
+    #[test]
+    fn a_shorter_answer_does_not_shorten_an_outstanding_ttl() {
+        let recorder = Recorder::default();
+        let mut resolver = resolver(upstream(script()), recorder.clone());
+
+        resolver
+            .handle(
+                &query(1, "long.acmeco.example", dns::TYPE_A),
+                Instant::now(),
+            )
+            .expect("the long answer is accepted");
+        age(&mut resolver, Duration::from_secs(100));
+        resolver
+            .handle(
+                &query(2, "short.acmeco.example", dns::TYPE_A),
+                Instant::now(),
+            )
+            .expect("the short answer is accepted");
+
+        let calls = recorder.calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].1[0].timeout, Duration::from_secs(3_600));
+        // 3600 promised at t0 still has about 3500 to run at t0 + 100, which
+        // beats the 90 this answer asks for. Not exact: the remainder also
+        // loses the real time between the two answers.
+        assert_eq!(
+            calls[1].0,
+            vec![public(50)],
+            "the held element is refreshed"
+        );
+        let refreshed = calls[1].1[0].timeout;
+        assert!(
+            refreshed > Duration::from_secs(3_499) && refreshed < Duration::from_secs(3_501),
+            "expected about 3500s, got {refreshed:?}"
+        );
+    }
+
+    #[test]
+    fn a_failed_set_update_yields_no_answer() {
+        let recorder = Recorder::default();
+        *recorder.failing.lock().expect("recorder") = true;
+        let mut resolver = resolver(upstream(script()), recorder.clone());
+
+        let Err(error) = resolver.handle(&query(1, "pypi.org", dns::TYPE_A), Instant::now()) else {
+            panic!("a failed set update must be fatal, and must not answer");
+        };
+        assert!(error.to_string().contains("injected"), "{error:#}");
+        assert_eq!(recorder.calls().len(), 1, "the set update was attempted");
+    }
+
+    /// The caps are the resolver's own, so they are exercised by filling the
+    /// maps rather than by resolving a thousand names.
+    #[test]
+    fn the_caps_answer_servfail() {
+        let recorder = Recorder::default();
+        let mut resolver = resolver(upstream(script()), recorder.clone());
+        let now = Instant::now();
+        let expiry = now + Duration::from_secs(600);
+
+        for index in 0..super::CAP {
+            resolver
+                .addresses
+                .insert(Ipv4Addr::from(index as u32), expiry);
+        }
+        let handled = resolver
+            .handle(&query(1, "pypi.org", dns::TYPE_A), now)
+            .expect("a full set is not fatal");
+
+        assert!(matches!(
+            handled.decision.outcome,
+            Outcome::Full("addresses")
+        ));
+        assert_eq!(rcode(&handled), dns::RCODE_SERVFAIL);
+        assert!(
+            recorder.calls().is_empty(),
+            "nothing was written to the set"
+        );
+
+        // An address already held still resolves: it adds nothing new.
+        resolver.addresses.insert(public(10), expiry);
+        resolver.addresses.remove(&Ipv4Addr::from(0u32));
+        let handled = resolver
+            .handle(&query(2, "pypi.org", dns::TYPE_A), now)
+            .expect("a held address is not new");
+        assert!(matches!(handled.decision.outcome, Outcome::Resolved));
+    }
+
+    /// A rejected answer cannot change an earlier promise or remember any of
+    /// its CNAME targets, regardless of the order of its address records.
+    #[test]
+    fn refused_answers_preserve_authorization() {
+        let name = "artifacts.acmeco.example";
+        let forbidden = Ipv4Addr::new(10, 1, 2, 3);
+        let mut log = String::new();
+        for (label, records) in [
+            ("private", vec![Rr::A(name, forbidden, 300)]),
+            (
+                "held then private",
+                vec![Rr::A(name, public(10), 300), Rr::A(name, forbidden, 300)],
+            ),
+            (
+                "new then private",
+                vec![Rr::A(name, public(11), 300), Rr::A(name, forbidden, 300)],
+            ),
+            (
+                "private then new",
+                vec![Rr::A(name, forbidden, 300), Rr::A(name, public(11), 300)],
+            ),
+            (
+                "CNAME to private",
+                vec![
+                    Rr::Cname(name, "bad.cdn.example", 300),
+                    Rr::A("bad.cdn.example", forbidden, 300),
+                ],
+            ),
+        ] {
+            let recorder = Recorder::default();
+            let mut resolver = resolver(
+                upstream(vec![((name, dns::TYPE_A), records)]),
+                recorder.clone(),
+            );
+            let expiry = Instant::now() + Duration::from_secs(86_400);
+            resolver.addresses.insert(public(10), expiry);
+            resolver
+                .targets
+                .insert("held.cdn.example".to_string(), expiry);
+            let before = (resolver.addresses.clone(), resolver.targets.clone());
+            let handled = resolver
+                .handle(&query(1, name, dns::TYPE_A), Instant::now())
+                .unwrap();
+            assert_eq!(
+                (&resolver.addresses, &resolver.targets),
+                (&before.0, &before.1),
+                "{label}: existing promises are unchanged"
+            );
+            assert!(recorder.calls().is_empty(), "{label}: no kernel update");
+            assert!(!resolver.allowed("bad.cdn.example", Instant::now()));
+            log.push_str(&format!("{label}: {}\n", summarize(&handled)));
+        }
+        insta::assert_snapshot!(log);
+    }
+
+    /// Both capacities reject whole answers, permit refreshes, and reclaim
+    /// expired entries only after the kernel's garbage-collection allowance.
+    #[test]
+    fn capacities_reject_partial_answers_and_reclaim() {
+        let mut log = String::new();
+        for targets in [false, true] {
+            let recorder = Recorder::default();
+            let existing = "existing.mirror.acmeco.example";
+            let mixed = "mixed.mirror.acmeco.example";
+            let fresh = "fresh.mirror.acmeco.example";
+            let record = |name, new| {
+                if targets {
+                    Rr::Cname(
+                        name,
+                        if new {
+                            "new.cdn.example"
+                        } else {
+                            "held.cdn.example"
+                        },
+                        300,
+                    )
+                } else {
+                    Rr::A(name, public(if new { 11 } else { 10 }), 300)
+                }
+            };
+            let mut resolver = resolver(
+                upstream(vec![
+                    ((existing, dns::TYPE_A), vec![record(existing, false)]),
+                    (
+                        (mixed, dns::TYPE_A),
+                        vec![record(mixed, false), record(mixed, true)],
+                    ),
+                    ((fresh, dns::TYPE_A), vec![record(fresh, true)]),
+                ]),
+                recorder.clone(),
+            );
+            let expiry = Instant::now() + Duration::from_secs(86_400);
+            if targets {
+                resolver
+                    .targets
+                    .insert("held.cdn.example".to_string(), expiry);
+                for index in 1..super::CAP {
+                    resolver
+                        .targets
+                        .insert(format!("held-{index}.cdn.example"), expiry);
+                }
+            } else {
+                resolver.addresses.insert(public(10), expiry);
+                for index in 1..super::CAP {
+                    resolver
+                        .addresses
+                        .insert(Ipv4Addr::from(index as u32), expiry);
+                }
+            }
+            let before = (resolver.addresses.clone(), resolver.targets.clone());
+            for name in [fresh, mixed] {
+                let handled = resolver
+                    .handle(&query(1, name, dns::TYPE_A), Instant::now())
+                    .unwrap();
+                assert_eq!(
+                    (&resolver.addresses, &resolver.targets),
+                    (&before.0, &before.1)
+                );
+                assert!(
+                    recorder.calls().is_empty(),
+                    "capacity failure cannot write a partial answer"
+                );
+                log.push_str(&format!(
+                    "targets={targets} {name}: {}\n",
+                    summarize(&handled)
+                ));
+            }
+            let handled = resolver
+                .handle(&query(2, existing, dns::TYPE_A), Instant::now())
+                .unwrap();
+            assert!(matches!(handled.decision.outcome, Outcome::Resolved));
+            log.push_str(&format!(
+                "targets={targets} refresh: {}\n",
+                summarize(&handled)
+            ));
+
+            let expired = Instant::now();
+            for expiry in resolver
+                .addresses
+                .values_mut()
+                .chain(resolver.targets.values_mut())
+            {
+                *expiry = expired;
+            }
+            if targets {
+                assert!(
+                    !resolver.allowed("held.cdn.example", expired),
+                    "an expired target no longer admits a query"
+                );
+            }
+            resolver.prune(expired + super::RECLAIM - Duration::from_nanos(1));
+            assert_eq!(
+                resolver.addresses.len() + resolver.targets.len(),
+                super::CAP
+            );
+            resolver.prune(expired + super::RECLAIM);
+            assert!(resolver.addresses.is_empty() && resolver.targets.is_empty());
+            let handled = resolver
+                .handle(&query(3, fresh, dns::TYPE_A), Instant::now())
+                .unwrap();
+            assert!(matches!(handled.decision.outcome, Outcome::Resolved));
+            assert_eq!(resolver.addresses.len() + resolver.targets.len(), 1);
+            log.push_str(&format!(
+                "targets={targets} reclaimed: {}\n",
+                summarize(&handled)
+            ));
+        }
+        insta::assert_snapshot!(log);
+    }
+
+    /// An upstream that answers with an ICMP rejection rather than a message
+    /// is a request-local drop: the guest retries.
+    #[test]
+    fn an_unreachable_upstream_drops_the_query() {
+        let closed = {
+            let socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind");
+            socket.local_addr().expect("address")
+        };
+        let recorder = Recorder::default();
+        let mut resolver = resolver(closed, recorder.clone());
+
+        let handled = resolver
+            .handle(&query(1, "pypi.org", dns::TYPE_A), Instant::now())
+            .expect("an unreachable upstream is not fatal");
+
+        assert!(handled.answer.is_none());
+        assert!(matches!(handled.decision.outcome, Outcome::Dropped(_)));
+        assert!(recorder.calls().is_empty());
+    }
+
+    /// An answer carrying somebody else's transaction id is not acted on,
+    /// which is the check that a guest guessing a source port still has to
+    /// beat the id as well.
+    #[test]
+    fn an_answer_with_the_wrong_id_is_dropped() {
+        let recorder = Recorder::default();
+        let mut resolver = resolver(forging_upstream(), recorder.clone());
+
+        let handled = resolver
+            .handle(&query(1, "pypi.org", dns::TYPE_A), Instant::now())
+            .expect("a forged id is not fatal");
+
+        assert!(handled.answer.is_none());
+        assert!(
+            matches!(&handled.decision.outcome, Outcome::Dropped(reason) if reason.contains("id")),
+            "unexpected outcome"
+        );
+        assert!(recorder.calls().is_empty(), "nothing was authorized");
+    }
+
+    /// An upstream that answers the right question under the wrong id.
+    fn forging_upstream() -> SocketAddr {
+        let socket =
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("binding a fake upstream");
+        let address = socket.local_addr().expect("the fake upstream's address");
+
+        std::thread::spawn(move || {
+            let mut buffer = [0u8; 4096];
+            loop {
+                let Ok((read, peer)) = socket.recv_from(&mut buffer) else {
+                    return;
+                };
+                let mut answer = respond(
+                    &buffer[..read],
+                    &[Rr::A("pypi.org", Ipv4Addr::new(10, 0, 0, 1), 300)],
+                );
+                answer[0..2].copy_from_slice(&0xBEEFu16.to_be_bytes());
+                let _ = socket.send_to(&answer, peer);
+            }
+        });
+        address
+    }
+
+    fn answering_upstream(answer: fn(&[u8]) -> Vec<u8>) -> SocketAddr {
+        let socket =
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("binding a fake upstream");
+        let address = socket.local_addr().expect("the fake upstream's address");
+
+        std::thread::spawn(move || {
+            let mut buffer = [0u8; 4096];
+            loop {
+                let Ok((read, peer)) = socket.recv_from(&mut buffer) else {
+                    return;
+                };
+                let _ = socket.send_to(&answer(&buffer[..read]), peer);
+            }
+        });
+        address
+    }
+
+    fn with_rcode(mut message: Vec<u8>, rcode: u8) -> Vec<u8> {
+        message[3] = (message[3] & 0xF0) | rcode;
+        message
+    }
+
+    /// `asked` under `query`'s id, so that only its question differs.
+    fn reasked(query: &[u8], mut asked: Vec<u8>) -> Vec<u8> {
+        asked[0..2].copy_from_slice(&query[0..2]);
+        asked
+    }
+
+    /// Every type but `AAAA` goes upstream only for an admitted name, as the
+    /// guest sent it, and comes back as the upstream sent it. A class other
+    /// than IN goes nowhere, whatever the name.
+    #[test]
+    fn every_query_type_is_gated_by_name() {
+        const NAMED: &str = "eu.mirror.acmeco.example";
+        let qtypes = [
+            dns::TYPE_A,
+            2, // NS
+            dns::TYPE_CNAME,
+            TYPE_SOA,
+            TYPE_PTR,
+            TYPE_MX,
+            TYPE_TXT,
+            33,    // SRV
+            65,    // HTTPS
+            255,   // ANY
+            65280, // unassigned
+        ];
+        let script = qtypes
+            .iter()
+            .map(|qtype| ((NAMED, *qtype), Vec::new()))
+            .collect();
+        let recorder = Recorder::default();
+        let (upstream, received) = recorded_upstream(script, Duration::ZERO);
+        let mut resolver = resolver(upstream, recorder.clone());
+
+        let mut queries = Vec::new();
+        for qtype in qtypes {
+            for name in [NAMED, "evil.example"] {
+                queries.push((dns::CLASS_IN, query(1, name, qtype)));
+            }
+        }
+        for class in [CLASS_CHAOS, 4, 254, 255] {
+            queries.push((class, in_class(query(1, NAMED, dns::TYPE_A), class)));
+        }
+
+        let mut log = String::new();
+        for (class, message) in queries {
+            let handled = resolver.handle(&message, Instant::now()).unwrap();
+            let heard = std::mem::take(&mut *received.lock().expect("recorder"));
+            if !heard.is_empty() {
+                assert_eq!(
+                    heard,
+                    vec![message.clone()],
+                    "the query goes upstream as it came"
+                );
+                assert_eq!(
+                    handled.answer.as_ref(),
+                    Some(&respond(&message, &[])),
+                    "the answer comes back as it went"
+                );
+            }
+            writeln!(
+                log,
+                "class={class} {} upstream={}",
+                handled.decision,
+                heard.len()
+            )
+            .unwrap();
+        }
+        assert!(recorder.calls().is_empty());
+        insta::assert_snapshot!(log);
+    }
+
+    /// An answer is acted on only as a response to this query: its id, its
+    /// opcode and its sole question. The question's name matches in any case.
+    #[test]
+    fn an_answer_must_match_its_query() {
+        fn answer(incoming: &[u8]) -> Vec<u8> {
+            respond(incoming, &[Rr::A("pypi.org", public(10), 300)])
+        }
+        let cases: [(&str, fn(&[u8]) -> Vec<u8>); 10] = [
+            ("a matching answer", answer),
+            ("the question in another case", |incoming| {
+                answer(&reasked(incoming, query(0, "PyPI.Org", dns::TYPE_A)))
+            }),
+            ("a query, not a response", |incoming| {
+                flagged(answer(incoming), 0x0180)
+            }),
+            ("another id", |incoming| {
+                let mut answer = answer(incoming);
+                answer[0] ^= 0xFF;
+                answer
+            }),
+            ("the STATUS opcode", |incoming| {
+                flagged(answer(incoming), 0x9180)
+            }),
+            ("no question", |incoming| {
+                let mut answer = answer(incoming);
+                answer[4..6].copy_from_slice(&0u16.to_be_bytes());
+                answer
+            }),
+            ("two questions", |incoming| {
+                answer(&reasked(
+                    incoming,
+                    two_questions(0, "pypi.org", "evil.example"),
+                ))
+            }),
+            ("another name", |incoming| {
+                answer(&reasked(incoming, query(0, "files.pypi.org", dns::TYPE_A)))
+            }),
+            ("another type", |incoming| {
+                answer(&reasked(incoming, query(0, "pypi.org", TYPE_MX)))
+            }),
+            ("another class", |incoming| {
+                let asked = in_class(query(0, "pypi.org", dns::TYPE_A), CLASS_CHAOS);
+                answer(&reasked(incoming, asked))
+            }),
+        ];
+
+        let mut log = String::new();
+        for (label, answer) in cases {
+            let recorder = Recorder::default();
+            let mut resolver = resolver(answering_upstream(answer), recorder.clone());
+            let handled = resolver
+                .handle(&query(1, "pypi.org", dns::TYPE_A), Instant::now())
+                .unwrap();
+            writeln!(
+                log,
+                "# {label}\n{}\n{} set-writes={}\n",
+                handled.decision,
+                summarize(&handled),
+                recorder.calls().len()
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(log);
+    }
+
+    /// An answer with an error rcode is returned as the upstream sent it,
+    /// whatever its answer section holds: malformed records and inward
+    /// addresses included. Nothing in it is rewritten, authorized or
+    /// remembered. A truncated one is still `SERVFAIL`.
+    #[test]
+    fn an_error_rcode_is_returned_unchanged() {
+        let cases: [(&str, &str, fn(&[u8]) -> Vec<u8>); 6] = [
+            (
+                "NXDOMAIN after a CNAME",
+                "artifacts.acmeco.example",
+                |query| {
+                    let records = [
+                        Rr::Cname("artifacts.acmeco.example", "assets.acmeco.example", 30),
+                        Rr::A("assets.acmeco.example", public(40), 30),
+                    ];
+                    with_rcode(respond(query, &records), 3)
+                },
+            ),
+            (
+                "SERVFAIL holding a private address",
+                "artifacts.acmeco.example",
+                |query| {
+                    let records = [Rr::A(
+                        "artifacts.acmeco.example",
+                        Ipv4Addr::new(169, 254, 169, 254),
+                        30,
+                    )];
+                    with_rcode(respond(query, &records), 2)
+                },
+            ),
+            (
+                "REFUSED holding a CNAME that runs past its data",
+                "artifacts.acmeco.example",
+                |query| {
+                    let records = [
+                        Rr::CnameData("artifacts.acmeco.example", &[3, b'c', b'd', b'n'], 30),
+                        Rr::A("evil.example", public(66), 30),
+                    ];
+                    with_rcode(respond(query, &records), 5)
+                },
+            ),
+            (
+                "NXDOMAIN claiming records it does not carry",
+                "artifacts.acmeco.example",
+                |query| {
+                    let mut answer = with_rcode(respond(query, &[]), 3);
+                    answer[6..8].copy_from_slice(&3u16.to_be_bytes());
+                    answer.extend([0xC0, 0xFF]);
+                    answer
+                },
+            ),
+            (
+                "an unlisted name's NXDOMAIN holding an address outside the CIDRs",
+                "warehouse.corp.example",
+                |query| {
+                    let records = [Rr::A(
+                        "warehouse.corp.example",
+                        Ipv4Addr::new(172, 16, 0, 5),
+                        30,
+                    )];
+                    with_rcode(respond(query, &records), 3)
+                },
+            ),
+            (
+                "a truncated NXDOMAIN",
+                "artifacts.acmeco.example",
+                |query| {
+                    let records = [Rr::A("artifacts.acmeco.example", public(40), 30)];
+                    let mut answer = with_rcode(respond(query, &records), 3);
+                    answer[2] |= 0x02;
+                    answer
+                },
+            ),
+        ];
+
+        let mut log = String::new();
+        for (label, name, answer) in cases {
+            let policy =
+                crate::policy::tests::policy(&["artifacts.acmeco.example"], &["10.0.0.0/8"], None);
+            let recorder = Recorder::default();
+            let mut resolver = resolver_under(policy, answering_upstream(answer), recorder.clone());
+            let expiry = Instant::now() + Duration::from_secs(86_400);
+            resolver.addresses.insert(public(10), expiry);
+            resolver
+                .targets
+                .insert("held.cdn.example".to_string(), expiry);
+            let before = (resolver.addresses.clone(), resolver.targets.clone());
+
+            let query = query(1, name, dns::TYPE_A);
+            let handled = resolver.handle(&query, Instant::now()).unwrap();
+            assert_eq!(
+                (&resolver.addresses, &resolver.targets),
+                (&before.0, &before.1),
+                "{label}: existing promises are unchanged and nothing is added"
+            );
+            assert!(recorder.calls().is_empty(), "{label}: no kernel update");
+            writeln!(
+                log,
+                "# {label}\n{}\n{} unchanged={}\n",
+                handled.decision,
+                summarize(&handled),
+                handled.answer.as_ref() == Some(&answer(&query))
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(log);
+    }
+
+    /// A resolved answer keeps every byte the upstream sent but the TTLs of
+    /// its class-IN `A` and `CNAME` answers: the question's case, a signature,
+    /// a record of an unassigned type, another class's record, and the
+    /// authority and additional sections, malformed or not.
+    #[test]
+    fn a_resolved_answer_changes_only_its_ttls() {
+        let query = query(1, "PyPI.ORG", dns::TYPE_A);
+        let (sent, rewritten) = crafted_answer(&query);
+        let recorder = Recorder::default();
+        let mut resolver = resolver(
+            answering_upstream(|query| crafted_answer(query).0),
+            recorder.clone(),
+        );
+
+        let handled = resolver.handle(&query, Instant::now()).unwrap();
+        let answer = handled.answer.as_ref().expect("an answer is returned");
+
+        assert_eq!(answer.len(), sent.len());
+        for (index, (byte, sent)) in answer.iter().zip(&sent).enumerate() {
+            if !rewritten.iter().any(|ttl| (*ttl..ttl + 4).contains(&index)) {
+                assert_eq!(byte, sent, "byte {index}");
+            }
+        }
+        for ttl in rewritten {
+            assert_eq!(
+                answer[ttl..ttl + 4],
+                90u32.to_be_bytes(),
+                "30 upstream, floor 90"
+            );
+        }
+        insta::assert_snapshot!(handled.decision, @"name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/90] targets=[edge.acmeco.example/90] refreshed=[]");
+    }
+
+    /// An answer to `query` with one record of each kind the resolver must
+    /// leave alone, and the offsets of the two TTLs it rewrites.
+    fn crafted_answer(query: &[u8]) -> (Vec<u8>, Vec<usize>) {
+        fn push(message: &mut Vec<u8>, owner: &[u8], rtype: u16, class: u16, data: &[u8]) -> usize {
+            message.extend(owner);
+            message.extend(rtype.to_be_bytes());
+            message.extend(class.to_be_bytes());
+            let ttl = message.len();
+            message.extend(30u32.to_be_bytes());
+            message.extend((data.len() as u16).to_be_bytes());
+            message.extend(data);
+            ttl
+        }
+        let mut message = query.to_vec();
+        message[2..4].copy_from_slice(&0x8180u16.to_be_bytes());
+        message[6..12].copy_from_slice(&[0, 5, 0, 1, 0, 2]);
+
+        let mut target = Vec::new();
+        encode_name("Edge.AcmeCo.Example", &mut target);
+        // After the CNAME's two-byte owner pointer and ten bytes of header.
+        let target_at = (0xC000 | (message.len() + 12) as u16).to_be_bytes();
+        let rewritten = vec![
+            push(
+                &mut message,
+                &[0xC0, 12],
+                dns::TYPE_CNAME,
+                dns::CLASS_IN,
+                &target,
+            ),
+            push(
+                &mut message,
+                &target_at,
+                dns::TYPE_A,
+                dns::CLASS_IN,
+                &public(10).octets(),
+            ),
+        ];
+        // RRSIG, its data opaque.
+        push(
+            &mut message,
+            &[0xC0, 12],
+            46,
+            dns::CLASS_IN,
+            &[0, 1, 8, 2, 0xC0, 0xFF, 0x80],
+        );
+        push(
+            &mut message,
+            &[0xC0, 12],
+            65280,
+            dns::CLASS_IN,
+            &[0xDE, 0xAD, 0xC0],
+        );
+        push(
+            &mut message,
+            &[0xC0, 12],
+            dns::TYPE_A,
+            CLASS_CHAOS,
+            &[10, 0, 0, 1],
+        );
+        // Authority: an SOA whose data is not one.
+        push(
+            &mut message,
+            &[0xC0, 12],
+            TYPE_SOA,
+            dns::CLASS_IN,
+            &[0xC0, 0xFF, 0x80],
+        );
+        // Additional: an inward address, then OPT with the DO bit and a cookie.
+        let mut glue = Vec::new();
+        encode_name("glue.acmeco.example", &mut glue);
+        push(
+            &mut message,
+            &glue,
+            dns::TYPE_A,
+            dns::CLASS_IN,
+            &[10, 0, 0, 1],
+        );
+        message.extend([0, 0, 41, 4, 208, 0, 0, 0x80, 0, 0, 12, 0, 10, 0, 8]);
+        message.extend([1, 2, 3, 4, 5, 6, 7, 8]);
+
+        (message, rewritten)
+    }
+
+    #[test]
+    fn a_malformed_query_is_dropped() {
+        let recorder = Recorder::default();
+        let mut resolver = resolver(upstream(script()), recorder.clone());
+
+        // The header claims a question that the message does not carry.
+        let mut message = query(1, "pypi.org", dns::TYPE_A);
+        message.truncate(message.len() - 3);
+        let handled = resolver
+            .handle(&message, Instant::now())
+            .expect("a malformed query is not fatal");
+
+        assert!(handled.answer.is_none());
+        assert!(matches!(handled.decision.outcome, Outcome::Dropped(_)));
+        assert!(recorder.calls().is_empty());
+    }
+
+    /// CNAME data of `cdn` with no root label, read on into the next record,
+    /// takes that record's owner and names `cdn.evil.example`. The answer is
+    /// malformed, so none of it is authorized, and the name it would have
+    /// fabricated is still refused.
+    #[test]
+    fn a_cname_running_past_its_data_authorizes_nothing() {
+        let script = vec![(
+            ("cdnonly.acmeco.example", dns::TYPE_A),
+            vec![
+                Rr::CnameData("cdnonly.acmeco.example", &[3, b'c', b'd', b'n'], 300),
+                Rr::A("evil.example", public(66), 300),
+            ],
+        )];
+        let recorder = Recorder::default();
+        let mut resolver = resolver(upstream(script), recorder.clone());
+
+        let mut log = String::new();
+        for message in [
+            query(1, "cdnonly.acmeco.example", dns::TYPE_A),
+            query(2, "cdn.evil.example", dns::TYPE_A),
+        ] {
+            let handled = resolver
+                .handle(&message, Instant::now())
+                .expect("a malformed answer is not fatal");
+            log.push_str(&format!("{}\n{}\n", handled.decision, summarize(&handled)));
+        }
+
+        assert!(recorder.calls().is_empty(), "no address was authorized");
+        assert!(resolver.targets.is_empty(), "no target was remembered");
+        insta::assert_snapshot!(log, @r"
+        name=cdnonly.acmeco.example qtype=1 outcome=dropped=CNAME record data: unexpected end of input addresses=[] targets=[] refreshed=[]
+        answer: none
+        name=cdn.evil.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]
+        answer: rcode=5 ancount=0 bytes=34
+        ");
+    }
+
+    #[test]
+    fn start_refuses_the_wildcard() {
+        let config = Config::new(
+            &policy(),
+            &[],
+            SocketAddr::from((Ipv4Addr::UNSPECIFIED, 53)),
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 53)),
+            false,
+        );
+        let error = super::start(config).expect_err("the wildcard is refused");
+
+        assert!(
+            error
+                .to_string()
+                .contains("must bind the guest's nameserver"),
+            "{error:#}"
+        );
+        for line in crate::framed(&format!("{error:#}")).lines() {
+            assert!(!line.starts_with(' '), "framed error line {line:?}");
+        }
+    }
+
+    /// An expiry must be dated from when the answer was authorized, not from
+    /// when the query arrived. A lookup slower than the TTL would otherwise
+    /// hand the guest a CNAME target this side already considers expired.
+    #[test]
+    fn a_slow_lookup_does_not_backdate_authorization() {
+        const DELAY: Duration = Duration::from_millis(1_100);
+        let policy =
+            crate::policy::tests::policy(&["cdnonly.acmeco.example"], &[], Some((1, 3600)));
+        let script = vec![
+            (
+                ("cdnonly.acmeco.example", dns::TYPE_A),
+                vec![Rr::Cname(
+                    "cdnonly.acmeco.example",
+                    "edge.acmeco.example",
+                    1,
+                )],
+            ),
+            (
+                ("edge.acmeco.example", dns::TYPE_A),
+                vec![Rr::A("edge.acmeco.example", public(42), 1)],
+            ),
+        ];
+        let recorder = Recorder::default();
+        let mut resolver =
+            resolver_under(policy, recorded_upstream(script, DELAY).0, recorder.clone());
+
+        let arrived = Instant::now();
+        let handled = resolver
+            .handle(&query(1, "cdnonly.acmeco.example", dns::TYPE_A), arrived)
+            .expect("the CNAME answer is accepted");
+        assert!(matches!(handled.decision.outcome, Outcome::Resolved));
+
+        // The 1s TTL is measured from the answer, which arrived after DELAY.
+        let remembered = resolver.targets["edge.acmeco.example"];
+        assert!(
+            remembered >= arrived + DELAY + Duration::from_secs(1),
+            "the target was remembered from before the lookup finished"
+        );
+
+        // What the guest does next: follow the CNAME it was just given.
+        let handled = resolver
+            .handle(
+                &query(2, "edge.acmeco.example", dns::TYPE_A),
+                Instant::now(),
+            )
+            .expect("the follow-up is accepted");
+        assert!(
+            matches!(handled.decision.outcome, Outcome::Resolved),
+            "the target the guest was just handed was already expired"
+        );
+
+        // And the address expiry carries the lookup too, so it is never
+        // earlier than the kernel's.
+        let expiry = resolver.addresses[&public(42)];
+        assert!(expiry >= arrived + DELAY + Duration::from_secs(1));
+    }
+
+    /// What an answer authorizes is dated from the kernel's acknowledgement,
+    /// however long its query waited before it was handled: this thread can be
+    /// descheduled anywhere between receiving the query and writing the set.
+    /// Dated any earlier, an address would be recorded as expiring before the
+    /// kernel's element, so a later answer for it would skip the delete and
+    /// insert exclusively over an element the kernel still holds, which fails
+    /// with EEXIST and is fatal.
+    #[test]
+    fn a_query_handled_late_does_not_backdate_authorization() {
+        // Longer than any TTL in the answer, so an expiry dated from arrival
+        // has already passed when it is recorded.
+        const LATE: Duration = Duration::from_secs(300);
+        let recorder = Recorder::default();
+        let mut resolver = resolver(upstream(script()), recorder.clone());
+
+        // A CNAME to assets.acmeco.example, clamped to 90s, and its address
+        // for 200s.
+        resolver
+            .handle(
+                &query(1, "artifacts.acmeco.example", dns::TYPE_A),
+                Instant::now() - LATE,
+            )
+            .expect("the late answer is accepted");
+        let (_, adds, acknowledged) = recorder.calls().remove(0);
+        assert!(
+            resolver.addresses[&public(40)] >= acknowledged + adds[0].timeout,
+            "the address was recorded as expiring before the kernel's element"
+        );
+        assert!(
+            resolver.targets["assets.acmeco.example"] >= acknowledged + Duration::from_secs(90),
+            "the target was remembered from before the answer was authorized"
+        );
+
+        // The kernel's element still has about 200s to run, so the next
+        // answer, however late, must delete it and measure what is
+        // outstanding from when the batch was planned.
+        resolver
+            .handle(
+                &query(2, "artifacts.acmeco.example", dns::TYPE_A),
+                Instant::now() - LATE,
+            )
+            .expect("the refresh is accepted");
+        let (deletes, adds, _) = recorder.calls().remove(1);
+        assert_eq!(deletes, vec![public(40)], "the held element is deleted");
+        assert_eq!(
+            adds[0].timeout,
+            Duration::from_secs(200),
+            "the outstanding time was measured from the query's arrival"
+        );
+    }
+
+    /// Only an address that may still be in the kernel is deleted, and a held
+    /// address keeps whichever is longer of its remainder and the new TTL.
+    #[test]
+    fn only_addresses_that_may_still_be_held_are_deleted() {
+        let recorder = Recorder::default();
+        let mut resolver = resolver(upstream(script()), recorder);
+        let start = Instant::now();
+        let base = start + Duration::from_secs(10);
+
+        // Live at `base`, with 30s outstanding.
+        resolver
+            .addresses
+            .insert(public(1), base + Duration::from_secs(30));
+        // Recorded as expired before `base`, so the kernel dropped it earlier
+        // still and the insert may be exclusive.
+        resolver
+            .addresses
+            .insert(public(2), start + Duration::from_secs(5));
+
+        let (deletes, adds) =
+            resolver.plan(&[(public(1), 10), (public(2), 90), (public(3), 90)], base);
+
+        assert_eq!(
+            deletes,
+            vec![public(1)],
+            "only the address that may be held"
+        );
+        assert_eq!(
+            adds.iter().map(|add| add.timeout).collect::<Vec<_>>(),
+            vec![
+                Duration::from_secs(30), // its 30s remainder beats this 10s TTL
+                Duration::from_secs(90),
+                Duration::from_secs(90),
+            ]
+        );
+    }
+
+    /// A decision is one line, whatever the guest put in the question. A name
+    /// arrives off the wire, so a label holding a newline would otherwise
+    /// split the debug log and could produce a line beginning with a space,
+    /// which the launcher's pump takes for connector-init's marker.
+    #[test]
+    fn a_decision_never_spans_lines() {
+        let decision = Decision {
+            name: "a\nartifacts.acmeco.example".to_string(),
+            qtype: dns::TYPE_A,
+            outcome: Outcome::Dropped("upstream answered\n a different question".to_string()),
+            addresses: vec![(public(40), 200)],
+            targets: vec![("as\rsets.acmeco.example".to_string(), 90)],
+            refreshed: vec![public(40)],
+        };
+        let rendered = decision.to_string();
+
+        assert!(!rendered.contains('\n'), "{rendered:?}");
+        assert!(!rendered.contains('\r'), "{rendered:?}");
+        for line in crate::framed(&rendered).lines() {
+            assert!(!line.starts_with(' '), "framed line {line:?}");
+        }
+        insta::assert_snapshot!(rendered);
+    }
+
+    fn rcode(handled: &Handled) -> u16 {
+        let answer = handled.answer.as_ref().expect("an answer is returned");
+        dns::header(answer).expect("parsable").rcode
+    }
+}
