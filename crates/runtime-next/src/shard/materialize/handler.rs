@@ -44,18 +44,14 @@ where
 pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     service: &crate::shard::Service<P, L>,
     apply: materialize::request::Apply,
-    log_level: ops::LogLevel,
+    start: connector::proto::request::Start,
 ) -> anyhow::Result<proto::Materialize> {
     let logger = service.logger_factory.open(&service.task_name);
     let (_started, response) = proto_grpc::connector::unary(
         &*service.connector_router,
         &|log| logger.log(log),
         connector::proto::Request {
-            start: Some(connector::proto::request::Start {
-                log_level: log_level as i32,
-                sqlite_vfs_uri: String::new(),
-                volume: None,
-            }),
+            start: Some(start),
             kind: Some(connector::proto::request::Kind::Materialize(
                 materialize::Request {
                     kind: Some(materialize::request::Kind::Apply(Box::new(apply))),
@@ -124,6 +120,10 @@ where
     // one also, but never forward it.
     let leader_producer = crate::new_producer();
 
+    // This shard's disk, attached by the first session which needs it, and
+    // held across every later session of the loop.
+    let mut disk: Option<crate::shard::disk::Attached> = None;
+
     let verify = crate::verify("Materialize", "Join", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
@@ -135,6 +135,7 @@ where
                     controller_rx,
                     controller_tx,
                     db,
+                    &mut disk,
                     join,
                     leader_producer,
                     report_final_state,
@@ -156,6 +157,9 @@ where
         };
     }
 
+    if let Some(disk) = disk {
+        () = disk.close().await?;
+    }
     Ok(())
 }
 
@@ -164,6 +168,7 @@ async fn serve_session<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
+    disk: &mut Option<crate::shard::disk::Attached>,
     join: proto::Join,
     leader_producer: proto_gazette::uuid::Producer,
     report_final_state: bool,
@@ -181,6 +186,7 @@ where
         controller_rx,
         controller_tx,
         db,
+        disk,
         join,
         leader_producer,
         report_final_state,
@@ -195,6 +201,7 @@ async fn serve_session_inner<R, P: crate::PublisherFactory, L: crate::LoggerFact
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
+    disk: &mut Option<crate::shard::disk::Attached>,
     join: proto::Join,
     leader_producer: proto_gazette::uuid::Producer,
     report_final_state: bool,
@@ -276,6 +283,7 @@ where
         controller_rx,
         controller_tx,
         db,
+        disk,
         labeling,
         leader_producer,
         leader_rx,
@@ -296,6 +304,7 @@ where
         controller_tx.clone(),
         db,
         disable_load_optimization,
+        disk.take(),
         leader_tx,
         max_keys,
         metrics,
@@ -314,8 +323,9 @@ where
     .await;
 
     let db = match result {
-        Ok(db) => {
+        Ok((db, attached)) => {
             handler.finish_ok();
+            *disk = attached;
             db
         }
         Err(err) => {

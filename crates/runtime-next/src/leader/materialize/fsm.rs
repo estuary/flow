@@ -63,6 +63,8 @@ pub struct BindingExtents {
 pub struct PendingDeltas {
     /// ACK Intents to write post-Acknowledge, keyed by journal.
     pub ack_intents: BTreeMap<String, bytes::Bytes>,
+    /// Disk ACK intents for the next Persist, keyed by disk journal.
+    pub disk_ack_intents: BTreeMap<String, bytes::Bytes>,
     /// Per-binding-index max-loaded-key deltas, for the next Persist.
     pub max_key_deltas: BTreeMap<u32, bytes::Bytes>,
     /// Queued connector state patches for the next Persist.
@@ -863,10 +865,11 @@ impl HeadStartCommit {
         {
             let proto::materialize::StartedCommit {
                 connector_patches_json,
-                disk_ack_intents: _,
+                disk_ack_intents,
             } = std::mem::take(started_commit);
 
             extend_patches(&mut self.pending, &connector_patches_json);
+            self.pending.disk_ack_intents.extend(disk_ack_intents);
 
             // Mark received and consume `shard_rx`.
             self.shard_started_commit[*shard_index] = true;
@@ -913,6 +916,8 @@ impl HeadStartCommit {
             committed_frontier: Some(shuffle::JournalFrontier::encode(&frontier.journals)),
             connector_patches_json: take_patches(&mut pending.persist_patches),
             delete_ack_intents: true,
+            delete_disk_ack_intents: task.has_disk,
+            disk_ack_intents: std::mem::take(&mut pending.disk_ack_intents),
             delete_trigger_params,
             legacy_checkpoint,
             max_keys: std::mem::take(&mut pending.max_key_deltas),
@@ -1050,6 +1055,7 @@ impl TailAcknowledge {
             pending:
                 PendingDeltas {
                     ack_intents,
+                    disk_ack_intents,
                     max_key_deltas: max_keys,
                     mut persist_patches,
                     mut shard_patches,
@@ -1058,6 +1064,7 @@ impl TailAcknowledge {
             shard_acknowledged: _,
         } = self;
 
+        assert!(disk_ack_intents.is_empty());
         assert!(max_keys.is_empty());
         let persist_patches = take_patches(&mut persist_patches);
         let shard_patches = take_patches(&mut shard_patches);
@@ -1517,6 +1524,7 @@ mod tests {
             max_transactions: 0,
             n_shards,
             peers: (0..n_shards).map(|i| format!("shard-{i}")).collect(),
+            has_disk: false,
             shard_ref: ops::ShardRef::default(),
             triggers: Some(std::sync::Arc::new(
                 super::super::triggers::CompiledTriggers::compile(models::Triggers {

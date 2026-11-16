@@ -806,6 +806,7 @@ mod tests {
             max_transactions: 0,
             n_shards,
             peers: (0..n_shards).map(|i| format!("shard-{i}")).collect(),
+            has_disk: false,
             shard_ref: ops::ShardRef::default(),
             triggers: None,
             sync_schedule: None,
