@@ -275,6 +275,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                             drained_docs_total: output.drained_docs,
                             drained_bytes_total: output.drained_bytes,
                             publisher_commit: output.publisher_commit,
+                            disk_ack_intents: Default::default(),
                         }),
                         ..Default::default()
                     });

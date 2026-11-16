@@ -21,6 +21,7 @@ DecodedRecover {
         trigger_params_json: b"",
         active_backfills: {},
         gap_floors: {},
+        disk_ack_intents: {},
     },
     committed_frontier: [
         JournalFrontier {

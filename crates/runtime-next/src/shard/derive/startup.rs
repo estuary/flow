@@ -188,6 +188,7 @@ where
         range,
         spec: open_spec,
         version,
+        disk_ack_intents: _,
     } = open;
 
     let open_spec = flow::CollectionSpec::decode(open_spec.as_ref())

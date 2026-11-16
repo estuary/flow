@@ -594,6 +594,7 @@ impl TailStore {
                 drained_docs_total,
                 drained_bytes_total,
                 publisher_commit,
+                disk_ack_intents: _,
             } = std::mem::take(stored);
 
             self.extents.published.docs_total += published_docs_total;
@@ -1028,6 +1029,7 @@ mod tests {
                         clock: 1000 + shard as u64,
                         journals: vec![format!("my/collection/pivot=0{shard}")],
                     }),
+                    disk_ack_intents: BTreeMap::new(),
                 }),
                 ..Default::default()
             },

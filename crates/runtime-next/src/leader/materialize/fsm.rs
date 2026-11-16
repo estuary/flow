@@ -863,6 +863,7 @@ impl HeadStartCommit {
         {
             let proto::materialize::StartedCommit {
                 connector_patches_json,
+                disk_ack_intents: _,
             } = std::mem::take(started_commit);
 
             extend_patches(&mut self.pending, &connector_patches_json);
@@ -1846,6 +1847,7 @@ mod tests {
             proto::Materialize {
                 started_commit: Some(proto::materialize::StartedCommit {
                     connector_patches_json: Bytes::from_static(patches),
+                    disk_ack_intents: BTreeMap::new(),
                 }),
                 ..Default::default()
             },
@@ -2713,6 +2715,7 @@ mod tests {
                 3 => {
                     msg.started_commit = Some(proto::materialize::StartedCommit {
                         connector_patches_json: Bytes::from_static(b"[{\"sc\":1}\t]"),
+                        disk_ack_intents: BTreeMap::new(),
                     });
                 }
                 4 => {

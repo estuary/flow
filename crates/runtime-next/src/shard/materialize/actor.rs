@@ -679,6 +679,7 @@ impl Actor {
             _ = self.leader_tx.send(proto::Materialize {
                 started_commit: Some(proto::materialize::StartedCommit {
                     connector_patches_json: patches::encode_connector_state(state),
+                    disk_ack_intents: Default::default(),
                 }),
                 ..Default::default()
             });

@@ -221,6 +221,7 @@ where
         range,
         spec,
         version,
+        disk_ack_intents: _,
     } = open;
 
     let spec =

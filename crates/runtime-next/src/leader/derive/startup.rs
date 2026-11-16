@@ -114,12 +114,14 @@ pub(super) async fn run<
         )
         .context("opening publisher")?;
 
-    // Receive Recover fan-in. `connector_state_json` is inert to reconciliation
-    // but needed for Open, so lift it out before folding the rest into `Baseline`.
+    // Receive Recover fan-in. `connector_state_json` and `disk_ack_intents` are
+    // inert to reconciliation but needed for Open, so lift them out before
+    // folding the rest into `Baseline`.
     let recover = recv_recovers(shard_rx, &task.peers)
         .await
         .context("receiving Recover fan-in")?;
     let connector_state_json = recover.connector_state_json.clone();
+    let disk_ack_intents = recover.disk_ack_intents.clone();
     let gap_floors = frontier_mapping::recovered_gap_floors(&recover.gap_floors);
     let scanned = Baseline::from_recover(recover)?;
 
@@ -140,6 +142,7 @@ pub(super) async fn run<
                 range: shard.range.clone(),
                 connector_state_json: connector_state_json.clone(),
                 max_keys: BTreeMap::new(),
+                disk_ack_intents: disk_ack_intents.clone(),
             }),
             ..Default::default()
         }));
@@ -269,6 +272,7 @@ impl Baseline {
             trigger_params_json: _,
             active_backfills: _, // Capture-only state.
             gap_floors: _,       // Inert to reconciliation.
+            disk_ack_intents: _, // Inert to reconciliation.
         } = recover;
 
         // Derivations never track max-keys or a hinted frontier.
