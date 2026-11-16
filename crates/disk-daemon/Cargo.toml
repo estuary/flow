@@ -47,10 +47,18 @@ zerocopy = { workspace = true }
 
 [dev-dependencies]
 async-process = { path = "../async-process" }
+build = { path = "../build" }
+doc = { path = "../doc" }
 e2e-support = { path = "../e2e-support" }
+models = { path = "../models" }
+ops = { path = "../ops" }
+runtime-local = { path = "../runtime-local" }
+runtime-next = { path = "../runtime-next" }
+shuffle = { path = "../shuffle" }
 
 hyper-util = { workspace = true }
 insta = { workspace = true }
 quickcheck = { workspace = true }
 rustix = { workspace = true, features = ["thread"] }
+serde_json = { workspace = true }
 tower = { workspace = true }
