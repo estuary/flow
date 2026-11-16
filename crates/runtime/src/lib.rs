@@ -232,6 +232,18 @@ impl Accumulator {
     }
 }
 
+// The V1 runtime cannot honor alternate execution even if validation was bypassed.
+fn refuse_execution(
+    execution: Option<&proto_flow::flow::ConnectorExecution>,
+) -> anyhow::Result<()> {
+    match execution {
+        Some(execution) if *execution != Default::default() => anyhow::bail!(
+            "this task requests connector execution {execution:?}, which the V1 runtime cannot provide"
+        ),
+        _ => Ok(()),
+    }
+}
+
 // verify is a convenience for building protocol error messages in a standard, structured way.
 // You call verify to establish a Verify instance, which is then used to assert expectations
 // over protocol requests or responses.

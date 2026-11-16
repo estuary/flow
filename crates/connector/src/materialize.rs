@@ -54,6 +54,15 @@ impl Protocol for Materialize {
         }
     }
 
+    fn spec_execution(request: &Request) -> Option<flow::ConnectorExecution> {
+        let spec = match &request.kind {
+            Some(request::Kind::Apply(apply)) => apply.materialization.as_ref(),
+            Some(request::Kind::Open(open)) => open.materialization.as_ref(),
+            _ => None,
+        }?;
+        Some(spec.execution.clone().unwrap_or_default())
+    }
+
     fn open_rpc<S>(channel: tonic::transport::Channel, requests: S) -> StartRpcFuture<Response>
     where
         S: futures::Stream<Item = Request> + Send + 'static,

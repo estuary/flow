@@ -13,12 +13,15 @@
 use crate::proto;
 use anyhow::Context;
 use futures::{StreamExt, future::BoxFuture, stream::BoxStream};
+use proto_flow::flow;
 
 /// Everything a connector start needs from its [`Service`](crate::Service) and
 /// the client's `Start` request.
 pub(crate) struct StartContext {
     /// OCI container network to use.
     pub container_network: String,
+    /// Execution requested by the client's `Start`.
+    pub execution: flow::ConnectorExecution,
     /// Log level of the container.
     pub log_level: ops::LogLevel,
     /// Sink for connector logs.
@@ -33,6 +36,8 @@ pub(crate) struct StartContext {
     pub task_name: String,
     /// Authorizes the connector to update its task configuration and secrets.
     pub task_update: Option<crate::TaskUpdate>,
+    /// VMM capability of the [`Service`](crate::Service), if any.
+    pub vmm: Option<crate::Vmm>,
 }
 
 /// Result of opening a protocol RPC on an image connector's channel.
@@ -79,6 +84,10 @@ pub(crate) trait Protocol: Sized + 'static {
     fn unwrap_spec(
         response: Self::Response,
     ) -> Result<proto::response::started::Spec, Self::Response>;
+
+    /// Execution of the task's built spec, if the request embeds one (Apply or
+    /// Open). Previous `last_*` specs do not select the current execution.
+    fn spec_execution(request: &Self::Request) -> Option<flow::ConnectorExecution>;
 
     /// Open this protocol's RPC over a started container's channel.
     fn open_rpc<S>(
@@ -144,6 +153,7 @@ pub(crate) async fn start<P: Protocol>(
     sqlite_vfs_uri: Option<String>,
     mut initial: P::Request,
 ) -> anyhow::Result<crate::Started<P>> {
+    let spec_execution = P::spec_execution(&initial);
     let Extracted {
         build,
         connector_type,
@@ -153,6 +163,21 @@ pub(crate) async fn start<P: Protocol>(
         network_ports,
         secrets,
     } = P::extract_endpoint(&mut initial, sqlite_vfs_uri)?;
+
+    let image = match &endpoint {
+        Endpoint::Image { image, .. } => Some(image.as_str()),
+        Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
+    };
+    let execution = crate::vmm::vmm_for(
+        ctx.vmm.as_ref(),
+        ctx.plane,
+        P::TASK_TYPE,
+        image,
+        &ctx.execution,
+        spec_execution.as_ref(),
+    )?;
+    // Secret decryption attests the image's repository, under either execution.
+    let image_repository = image.map(|image| models::split_image_tag(image).0);
 
     // TODO(johnny): This bit of ugliness is to support frozen
     // derive-typescript/python `:dev` image tags, which are required for the
@@ -166,44 +191,20 @@ pub(crate) async fn start<P: Protocol>(
         Endpoint::Image { image, .. } if models::is_frozen_derive_image(image),
     );
 
-    // Apply image policy checks that don't require inspection (and registry I/O).
-    let image_policy = match &endpoint {
-        Endpoint::Image { image, .. } => Some(crate::policy::Image::check(ctx.plane, image)?),
-        Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
-    };
-
-    let mount = create_connector_mount()?;
-    let env = connector_env(ctx.plane, ctx.log_level, mount.path())?;
-
-    // If Some(task_update), inject and rotate credentials and metadata which
-    // offer tasks a capability to update their configuration and/or secrets.
-    let mut refresh = None;
-    if let Some(task_update) = ctx
-        .task_update
-        .as_ref()
-        .filter(|_| ctx.task_name != crate::SPEC_TASK_NAME)
-    {
-        // Written before the connector starts, so that its first read succeeds.
-        let token = mint_task_update(task_update, P::TASK_TYPE, &ctx.task_name, build)?;
-        write_task_update(mount.path(), task_update, &token).await?;
-
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(refresh_task_update(
-            task_update.clone(),
-            P::TASK_TYPE,
-            ctx.task_name.clone(),
-            build.map(str::to_string),
-            mount.path().to_owned(),
-            ctx.log_sink.clone(),
-            stop_rx,
-        ));
-        refresh = Some(stop_tx);
-    }
     let sealed_config = match &endpoint {
         Endpoint::Image { config, .. } | Endpoint::InProcess { config, .. } => config,
         Endpoint::Local { config } => &config.config,
     }
     .clone();
+
+    // Declared before the transport so errors release the connector before
+    // its credential refresh and mount.
+    let mut guard = crate::Guard {
+        _process: None,
+        _vmm: None,
+        _refresh: None,
+        _mount: None,
+    };
 
     let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
     if !spec_on_own_rpc {
@@ -213,54 +214,102 @@ pub(crate) async fn start<P: Protocol>(
             .expect("new connector request channel is open");
     }
 
-    // Spawn the connector, branched on its endpoint type.
+    // Spawn the connector, branched on its endpoint type and execution.
     let requests = tokio_stream::wrappers::ReceiverStream::new(connector_rx).boxed();
     let crate::Transport {
         mut connector_rx,
         container,
         codec,
         process,
+        vmm,
         sealed_config,
         spec: own_rpc_spec,
     } = match endpoint {
         Endpoint::Image {
             image,
             config: sealed_config,
-        } => {
-            crate::image::connect::<P>(
-                &ctx,
-                image,
-                sealed_config,
-                image_policy.as_ref().unwrap(),
-                env,
-                mount.path(),
-                secrets,
-                network_ports,
-                connector_type,
-                spec_on_own_rpc,
-                requests,
-            )
-            .await
-        }
+        } => match execution {
+            crate::vmm::Execution::Ordinary => {
+                let policy = crate::policy::Image::check(ctx.plane, &image)?;
+                let (mount, env) = ordinary_setup::<P>(&ctx, build, &mut guard).await?;
+
+                crate::image::connect::<P>(
+                    &ctx,
+                    image,
+                    sealed_config,
+                    &policy,
+                    env,
+                    &mount,
+                    secrets,
+                    network_ports,
+                    connector_type,
+                    spec_on_own_rpc,
+                    requests,
+                )
+                .await
+            }
+            crate::vmm::Execution::Vmm {
+                vmm,
+                eligible,
+                egress,
+            } => {
+                let (container, channel, vmm_guard, codec) = crate::vmm::launch::start(
+                    &ctx,
+                    vmm,
+                    eligible,
+                    egress,
+                    network_ports,
+                    &image,
+                    secrets,
+                    build,
+                )
+                .await?;
+
+                // Frozen V1 derivations still exchange Spec on an RPC of its own.
+                let spec = if spec_on_own_rpc {
+                    Some(spec_rpc::<P>(channel.clone(), connector_type).await?)
+                } else {
+                    None
+                };
+                let connector_rx = P::open_rpc(channel, requests).await?.into_inner();
+                Ok(crate::Transport {
+                    connector_rx: connector_rx.boxed(),
+                    container: Some(container),
+                    codec,
+                    process: None,
+                    vmm: Some(vmm_guard),
+                    sealed_config,
+                    spec,
+                })
+            }
+        },
         Endpoint::InProcess {
             connector,
             config: sealed_config,
-        } => crate::policy::check_secrets(
-            &ctx.task_name,
-            secrets
-                .iter()
-                .map(|(name, pointer)| (name.as_str(), pointer.as_str())),
-            crate::policy::SecretIdentity::NoImage,
-        )
-        .map(|()| crate::Transport {
-            connector_rx: connector(requests),
-            container: None,
-            codec: connector_init::Codec::Proto,
-            process: None,
-            sealed_config,
-            spec: None,
-        }),
-        Endpoint::Local { config } => connect_local::<P>(&ctx, config, secrets, env, requests),
+        } => {
+            ordinary_setup::<P>(&ctx, build, &mut guard).await?;
+
+            crate::policy::check_secrets(
+                &ctx.task_name,
+                secrets
+                    .iter()
+                    .map(|(name, pointer)| (name.as_str(), pointer.as_str())),
+                crate::policy::SecretIdentity::NoImage,
+            )
+            .map(|()| crate::Transport {
+                connector_rx: connector(requests),
+                container: None,
+                codec: connector_init::Codec::Proto,
+                process: None,
+                vmm: None,
+                sealed_config,
+                spec: None,
+            })
+        }
+        Endpoint::Local { config } => {
+            let (_mount, env) = ordinary_setup::<P>(&ctx, build, &mut guard).await?;
+            connect_local::<P>(&ctx, config, secrets, env, requests)
+        }
     }?;
 
     let codec = match codec {
@@ -292,11 +341,7 @@ pub(crate) async fn start<P: Protocol>(
     } else {
         // Each uniquely keyed secret is decrypted concurrently.
         let resolved = unseal::resolve(&sealed_config, secrets, config_schema, |name| {
-            resolve_secret::<P>(
-                &ctx,
-                image_policy.as_ref().map(crate::policy::Image::repository),
-                name,
-            )
+            resolve_secret::<P>(&ctx, image_repository.as_deref(), name)
         })
         .await
         .map_err(|err| match err {
@@ -342,16 +387,71 @@ pub(crate) async fn start<P: Protocol>(
                 token_restart_at,
                 process: ctx.process,
                 spec: Some(spec),
+                execution: Some(ctx.execution.clone())
+                    .filter(|execution| *execution != Default::default()),
             })),
         },
         connector_tx,
         connector_rx,
+        execution: ctx.execution,
         guard: crate::Guard {
             _process: process,
-            _refresh: refresh,
-            _mount: mount,
+            _vmm: vmm,
+            ..guard
         },
     })
+}
+
+async fn ordinary_setup<P: Protocol>(
+    ctx: &StartContext,
+    build: Option<&str>,
+    guard: &mut crate::Guard,
+) -> anyhow::Result<(
+    std::path::PathBuf,
+    std::collections::BTreeMap<String, String>,
+)> {
+    let mount = guard._mount.insert(create_connector_mount()?);
+    let env = connector_env(ctx.plane, ctx.log_level, mount.path())?;
+    guard._refresh = start_task_update(
+        ctx.task_update.as_ref(),
+        P::TASK_TYPE,
+        &ctx.task_name,
+        build,
+        mount.path(),
+        &ctx.log_sink,
+    )
+    .await?;
+    Ok((mount.path().to_owned(), env))
+}
+
+/// Initialize and rotate the shared task-update credential contract. A VMM
+/// invokes this only after claiming its recoverable connector mount, so rotation
+/// and mount release follow the same owner as its container.
+pub(crate) async fn start_task_update(
+    task_update: Option<&crate::TaskUpdate>,
+    task_type: ops::TaskType,
+    task_name: &str,
+    build: Option<&str>,
+    mount: &std::path::Path,
+    log_sink: &crate::LogSink,
+) -> anyhow::Result<Option<tokio::sync::oneshot::Sender<()>>> {
+    let Some(task_update) = task_update.filter(|_| task_name != crate::SPEC_TASK_NAME) else {
+        return Ok(None);
+    };
+    let token = mint_task_update(task_update, task_type, task_name, build)?;
+    write_task_update(mount, task_update, &token).await?;
+
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(refresh_task_update(
+        task_update.clone(),
+        task_type,
+        task_name.to_string(),
+        build.map(str::to_string),
+        mount.to_owned(),
+        log_sink.clone(),
+        stop_rx,
+    ));
+    Ok(Some(stop_tx))
 }
 
 /// Build the environment contract shared by image and local connectors.
@@ -390,17 +490,7 @@ fn connector_env(
 /// container. Writable areas (scratch space, recorded state) must arrive as
 /// nested mounts under it, never as a relaxation of this root.
 pub(crate) fn create_connector_mount() -> anyhow::Result<tempfile::TempDir> {
-    // Traversable by all, listable by none: a connector image commonly runs as
-    // an unprivileged image-defined UID, which must reach files it is told the
-    // name of without being able to enumerate the mount. Scope the parent to
-    // the host user so that users sharing a TMPDIR don't contend over ownership.
-    #[cfg(unix)]
-    let parent =
-        std::env::temp_dir().join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
-    #[cfg(not(unix))]
-    let parent = std::env::temp_dir().join("connector-mounts");
-    std::fs::create_dir_all(&parent).context("creating connector mounts directory")?;
-    set_mount_mode(&parent, 0o711)?;
+    let parent = connector_mounts(&std::env::temp_dir())?;
 
     let dir = tempfile::Builder::new()
         .prefix("mount-")
@@ -409,6 +499,59 @@ pub(crate) fn create_connector_mount() -> anyhow::Result<tempfile::TempDir> {
     set_mount_mode(dir.path(), 0o711)?;
 
     Ok(dir)
+}
+
+/// The host ancestor is private to the launcher. Engines bind each child
+/// directory explicitly, so image-defined UIDs need no access to this ancestor.
+pub(crate) fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    #[cfg(unix)]
+    let parent = tmp.join(format!(
+        "connector-mounts-{}",
+        rustix::process::geteuid().as_raw()
+    ));
+    #[cfg(not(unix))]
+    let parent = tmp.join("connector-mounts");
+
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    match builder.create(&parent) {
+        Ok(()) => (),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            #[cfg(unix)]
+            check_directory_owner(&parent, rustix::process::geteuid().as_raw())
+                .with_context(|| format!("connector mounts directory {}", parent.display()))?;
+        }
+        Err(err) => {
+            return Err(anyhow::Error::new(err).context(format!("creating {}", parent.display())));
+        }
+    }
+    set_mount_mode(&parent, 0o700)?;
+    Ok(parent)
+}
+
+/// Shared directories must not let another user plant launch resources.
+#[cfg(unix)]
+pub(crate) fn check_directory_owner(
+    path: &std::path::Path,
+    euid: u32,
+) -> anyhow::Result<std::fs::Metadata> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_dir() {
+        anyhow::bail!("is not a directory, or is a link to one");
+    }
+    if metadata.uid() != euid {
+        anyhow::bail!(
+            "is owned by uid {}, not this process's uid {euid}",
+            metadata.uid()
+        );
+    }
+    if metadata.mode() & 0o022 != 0 {
+        anyhow::bail!("is writable by a user other than its owner");
+    }
+    Ok(metadata)
 }
 
 pub(crate) fn set_mount_mode(path: &std::path::Path, mode: u32) -> anyhow::Result<()> {
@@ -633,6 +776,7 @@ fn connect_local<P: Protocol>(
         container: None,
         codec,
         process: None,
+        vmm: None,
         sealed_config,
         spec: None,
     })
@@ -747,6 +891,7 @@ mod test {
             let mode = |path: &std::path::Path| {
                 std::fs::metadata(path).unwrap().permissions().mode() & 0o777
             };
+            assert_eq!(mode(mount.path().parent().unwrap()), 0o700);
             assert_eq!(mode(mount.path()), 0o711);
             assert_eq!(mode(&path), 0o444);
         }

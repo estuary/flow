@@ -81,11 +81,26 @@ pub(crate) async fn generate_files(
     ctx: &crate::CliContext,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
-    let build::Output {
-        mut draft, built, ..
-    } = validate(ctx, false, false, false, sources, ops::tracing_log_handler).await;
+    let output = validate(ctx, false, false, false, sources, ops::tracing_log_handler).await;
+    write_generated_files(output)
+}
 
+/// Write the files which connectors generated as they validated `output`.
+/// Errors of the specifications are logged, as files may be generated
+/// despite them, unless the connector service refused a task's execution.
+fn write_generated_files(
+    build::Output {
+        mut draft, built, ..
+    }: build::Output,
+) -> anyhow::Result<()> {
     build::generate_files(&draft.fetches[0].resource, &built)?;
+
+    let refused = draft
+        .errors
+        .iter()
+        .chain(built.errors.iter())
+        .find(|tables::Error { error, .. }| execution_refused(error))
+        .map(|tables::Error { scope, error }| anyhow::anyhow!("{scope}: {error:#}"));
 
     draft.errors = draft
         .errors
@@ -107,8 +122,28 @@ pub(crate) async fn generate_files(
             "I may not have generated all files because the Flow specifications have errors.",
         );
     }
+    if let Some(refused) = refused {
+        return Err(refused.context(
+            "the task's connector was refused the execution it requests, so it generated no files",
+        ));
+    }
 
     Ok(())
+}
+
+/// Whether `error` is the connector service's refusal of the execution its
+/// task requests (see `proto_grpc::connector::refuse_execution`).
+fn execution_refused(error: &anyhow::Error) -> bool {
+    let detail = match error.downcast_ref::<validation::Error>() {
+        // Transparent, so its chain skips `detail` itself.
+        Some(validation::Error::Connector { detail }) => detail,
+        _ => error,
+    };
+    detail.chain().any(|cause| {
+        cause
+            .downcast_ref::<proto_grpc::StatusError>()
+            .is_some_and(|status| proto_grpc::connector::is_execution_refused(status))
+    })
 }
 
 pub(crate) async fn load(source: &url::Url) -> tables::DraftCatalog {
@@ -704,5 +739,81 @@ mod test {
 
         draft.materializations.clear();
         insta::assert_snapshot!(select_task(&mut draft, None).unwrap_err(), @"sourced specification files do not contain any tasks (captures, derivations, or materializations)");
+    }
+
+    /// Generation fails if the connector service refuses the execution a
+    /// task requests, as a service without a VMM refuses VMM execution, with
+    /// or without declared egress. A connector's own failure is logged, and
+    /// generation goes on.
+    #[tokio::test]
+    async fn generation_fails_on_a_refused_execution() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"source\"\n",
+        )
+        .unwrap();
+        let source = url::Url::from_file_path(dir.path().join("flow.yaml")).unwrap();
+
+        // A starter project: its listed entry point is missing.
+        let python =
+            serde_json::json!({"python": {"files": ["pyproject.toml", "source/__init__.py"]}});
+        let shards = serde_json::json!({"flags": {"enable-runtime-v2": "true"}});
+        let mut rows = Vec::new();
+        for (name, capture) in [
+            (
+                "vmm, egress omitted",
+                serde_json::json!({"endpoint": python, "vmm": true, "bindings": [], "shards": shards}),
+            ),
+            (
+                "vmm, egress {}",
+                serde_json::json!({"endpoint": python, "vmm": true, "egress": {}, "bindings": [], "shards": shards}),
+            ),
+            (
+                "ordinary, a connector which fails",
+                serde_json::json!({"endpoint": {"local": {"command": ["false"], "config": {}}}, "bindings": []}),
+            ),
+        ] {
+            let catalog = serde_json::json!({"captures": {"acmeCo/source": capture}});
+            std::fs::write(dir.path().join("flow.yaml"), catalog.to_string()).unwrap();
+
+            let output = build::local(
+                models::Id::new([0xff; 8]),
+                models::Id::new([0xff; 8]),
+                runtime_local::local_test_router(),
+                ops::tracing_log_handler,
+                false,
+                false,
+                false,
+                super::load(&source).await,
+                build::no_op_live_catalog(),
+            )
+            .await;
+            let outcome = match super::write_generated_files(output) {
+                Ok(()) => "generation goes on".to_string(),
+                Err(err) => format!("{err:#}"),
+            };
+            rows.push(format!(
+                "{name} => {}",
+                outcome.replace(source.as_str(), "flow.yaml")
+            ));
+        }
+        insta::assert_snapshot!(rows.join("\n"), @r"
+        vmm, egress omitted => the task's connector was refused the execution it requests, so it generated no files: flow.yaml#/captures/acmeCo~1source: the task requests VMM execution but declares no egress; a VMM task must declare `egress`, and `egress: {}` permits no external destination (InvalidArgument)
+        vmm, egress {} => the task's connector was refused the execution it requests, so it generated no files: flow.yaml#/captures/acmeCo~1source: this data plane does not support VMM execution (FailedPrecondition)
+        ordinary, a connector which fails => generation goes on
+        ");
+
+        // A connector's status passes through with whatever code it chose.
+        let status = |status| {
+            anyhow::anyhow!(validation::Error::Connector {
+                detail: proto_grpc::status_to_anyhow(status),
+            })
+        };
+        let precondition = || tonic::Status::failed_precondition("the connector's own");
+        assert!(!super::execution_refused(&status(precondition())));
+        assert!(super::execution_refused(&status(
+            proto_grpc::connector::refuse_execution(precondition())
+        )));
     }
 }

@@ -1,6 +1,7 @@
 pub(crate) async fn unary(
     router: &dyn proto_grpc::connector::Router,
     log_level: Option<&str>,
+    execution: Option<proto_flow::flow::ConnectorExecution>,
     kind: proto_flow::connector::request::Kind,
 ) -> anyhow::Result<proto_flow::connector::response::Kind> {
     let (_started, response) = proto_grpc::connector::unary(
@@ -11,6 +12,7 @@ pub(crate) async fn unary(
                 log_level: log_level
                     .and_then(ops::LogLevel::from_str_name)
                     .unwrap_or_default() as i32,
+                execution,
                 ..Default::default()
             }),
             kind: Some(kind),
@@ -25,11 +27,13 @@ pub(crate) async fn unary(
 pub(crate) async fn spec_capture(
     router: &dyn proto_grpc::connector::Router,
     log_level: Option<&str>,
+    execution: Option<proto_flow::flow::ConnectorExecution>,
     spec: proto_flow::capture::request::Spec,
 ) -> anyhow::Result<proto_flow::capture::response::Spec> {
     let response = unary(
         router,
         log_level,
+        execution,
         proto_flow::connector::request::Kind::Capture(proto_flow::capture::Request {
             kind: Some(proto_flow::capture::request::Kind::Spec(spec)),
             ..Default::default()
@@ -49,11 +53,13 @@ pub(crate) async fn spec_capture(
 pub(crate) async fn spec_derive(
     router: &dyn proto_grpc::connector::Router,
     log_level: Option<&str>,
+    execution: Option<proto_flow::flow::ConnectorExecution>,
     spec: proto_flow::derive::request::Spec,
 ) -> anyhow::Result<proto_flow::derive::response::Spec> {
     let response = unary(
         router,
         log_level,
+        execution,
         proto_flow::connector::request::Kind::Derive(proto_flow::derive::Request {
             kind: Some(proto_flow::derive::request::Kind::Spec(spec)),
             ..Default::default()
@@ -73,11 +79,13 @@ pub(crate) async fn spec_derive(
 pub(crate) async fn spec_materialize(
     router: &dyn proto_grpc::connector::Router,
     log_level: Option<&str>,
+    execution: Option<proto_flow::flow::ConnectorExecution>,
     spec: proto_flow::materialize::request::Spec,
 ) -> anyhow::Result<proto_flow::materialize::response::Spec> {
     let response = unary(
         router,
         log_level,
+        execution,
         proto_flow::connector::request::Kind::Materialize(proto_flow::materialize::Request {
             kind: Some(proto_flow::materialize::request::Kind::Spec(spec)),
             ..Default::default()

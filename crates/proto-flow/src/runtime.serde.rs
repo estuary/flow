@@ -11174,6 +11174,9 @@ impl serde::Serialize for TaskServiceConfig {
         if self.process.is_some() {
             len += 1;
         }
+        if self.vmm_recovery {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.TaskServiceConfig", len)?;
         if self.log_file_fd != 0 {
             struct_ser.serialize_field("logFileFd", &self.log_file_fd)?;
@@ -11195,6 +11198,9 @@ impl serde::Serialize for TaskServiceConfig {
         if let Some(v) = self.process.as_ref() {
             struct_ser.serialize_field("process", v)?;
         }
+        if self.vmm_recovery {
+            struct_ser.serialize_field("vmmRecovery", &self.vmm_recovery)?;
+        }
         struct_ser.end()
     }
 }
@@ -11215,6 +11221,8 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
             "containerNetwork",
             "plane",
             "process",
+            "vmm_recovery",
+            "vmmRecovery",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -11225,6 +11233,7 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
             ContainerNetwork,
             Plane,
             Process,
+            VmmRecovery,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -11253,6 +11262,7 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
                             "containerNetwork" | "container_network" => Ok(GeneratedField::ContainerNetwork),
                             "plane" => Ok(GeneratedField::Plane),
                             "process" => Ok(GeneratedField::Process),
+                            "vmmRecovery" | "vmm_recovery" => Ok(GeneratedField::VmmRecovery),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -11278,6 +11288,7 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
                 let mut container_network__ = None;
                 let mut plane__ = None;
                 let mut process__ = None;
+                let mut vmm_recovery__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::LogFileFd => {
@@ -11318,6 +11329,12 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
                             }
                             process__ = map_.next_value()?;
                         }
+                        GeneratedField::VmmRecovery => {
+                            if vmm_recovery__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("vmmRecovery"));
+                            }
+                            vmm_recovery__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -11330,6 +11347,7 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
                     container_network: container_network__.unwrap_or_default(),
                     plane: plane__.unwrap_or_default(),
                     process: process__,
+                    vmm_recovery: vmm_recovery__.unwrap_or_default(),
                 })
             }
         }
