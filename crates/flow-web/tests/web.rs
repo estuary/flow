@@ -474,6 +474,36 @@ fn built_binding(name: &str, fields: serde_json::Value) -> serde_json::Value {
     binding
 }
 
+/// The browser checks egress hosts with the data plane's helper, so its
+/// address parsing and Public Suffix List must read the same under WASM.
+#[wasm_bindgen_test]
+fn test_egress_hosts() {
+    let cases: &[(&str, Result<&str, &str>)] = &[
+        ("PyPI.ORG.", Ok("pypi.org")),
+        ("*.Mirror.AcmeCo.example.", Ok("*.mirror.acmeco.example")),
+        ("127.1", Err("the IPv4 address 127.0.0.1")),
+        ("0177.0.0.1", Err("the IPv4 address 127.0.0.1")),
+        (
+            "*.github.io",
+            Err("the Public Suffix List's private section"),
+        ),
+        ("*.corp", Err("the Public Suffix List's default rule")),
+        ("*.acmeco.ck", Err("the Public Suffix List's ICANN section")),
+    ];
+
+    for (name, expected) in cases {
+        let outcome = models::egress::hosts("egress.hosts", &[name.to_string()])
+            .map(|names| names[0].to_string())
+            .map_err(|error| format!("{error:#}"));
+
+        match (expected, &outcome) {
+            (Ok(expected), Ok(outcome)) => assert_eq!(outcome, expected, "{name}"),
+            (Err(fragment), Err(error)) => assert!(error.contains(fragment), "{name}: {error}"),
+            _ => panic!("{name}: expected {expected:?}, got {outcome:?}"),
+        }
+    }
+}
+
 fn to_js_value(val: &serde_json::Value) -> JsValue {
     use serde::Serialize;
     // We need to use the json compatible serializer because the default
