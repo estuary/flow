@@ -1,0 +1,8 @@
+---
+source: crates/connector-vmm/src/sys.rs
+expression: framed
+---
+flow-connector-vmm: a command that also wrote to stdout
+flow-connector-vmm: ruleset:3:30-37: Error: syntax error, unexpected string, expecting priority
+flow-connector-vmm:     type filter hook forward prioritY 0;
+flow-connector-vmm:                              ^^^^^^^^

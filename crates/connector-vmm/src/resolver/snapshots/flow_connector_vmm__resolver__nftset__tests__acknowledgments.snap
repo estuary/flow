@@ -1,0 +1,100 @@
+---
+source: crates/connector-vmm/src/resolver/nftset.rs
+expression: rendered
+---
+# a commit: the insert's acknowledgment, then the fence's
+36 bytes -> waiting
+36 bytes -> committed
+
+# coalesced
+72 bytes -> committed
+
+# every message acknowledged, as a kernel asked to might
+216 bytes -> committed
+
+# the insert's acknowledgment alone
+36 bytes -> waiting
+
+# the fence's alone: an abort which answered nothing
+36 bytes -> netlink batch 7..=11 reached its fence without its insert's acknowledgment
+
+# the fence's ahead of the insert's
+72 bytes -> netlink batch 7..=11 reached its fence without its insert's acknowledgment
+
+# the insert's and the fence's, then an error of the batch, in one datagram
+108 bytes -> absent deletes {0}
+
+# the insert's and the fence's, then a malformed message, in one datagram
+80 bytes -> netlink reply at offset 72 is malformed: invalid netlink buffer length caused by invalid netlink buffer: length is 8 but netlink packets are at least 16 bytes
+
+# a failed commit: the opening marker's error, then the queued inner acknowledgment
+36 bytes -> netlink message 7 of the batch failed: Cannot allocate memory (os error 12)
+
+# a failed header: EPERM on the opening marker, and on the fence
+36 bytes -> netlink message 7 of the batch failed: Operation not permitted (os error 1)
+
+# a failure on the closing marker
+36 bytes -> waiting
+36 bytes -> netlink message 11 of the batch failed: Invalid argument (os error 22)
+
+# a failed fence
+36 bytes -> waiting
+36 bytes -> the fence after netlink batch 7..=11 failed: Cannot allocate memory (os error 12)
+
+# replies to abandoned batches, and messages that are not acknowledgments
+124 bytes -> waiting
+72 bytes -> committed
+
+# ENOENT on delete 0
+36 bytes -> waiting
+36 bytes -> waiting
+36 bytes -> absent deletes {0}
+
+# ENOENT on delete 1
+108 bytes -> absent deletes {1}
+
+# ENOENT on both deletes, gathered through the fence
+36 bytes -> waiting
+36 bytes -> waiting
+36 bytes -> waiting
+36 bytes -> absent deletes {0, 1}
+
+# ENOENT on a delete, then EEXIST on the insert
+36 bytes -> waiting
+36 bytes -> netlink message 10 of the batch failed: File exists (os error 17)
+
+# EEXIST on a delete
+36 bytes -> netlink message 8 of the batch failed: File exists (os error 17)
+
+# ENOENT on the insert
+36 bytes -> netlink message 10 of the batch failed: No such file or directory (os error 2)
+
+# EEXIST on the insert
+36 bytes -> netlink message 10 of the batch failed: File exists (os error 17)
+
+# error code i32::MIN
+36 bytes -> acknowledgment of netlink message 8 carries error code -2147483648, which is not a negated errno
+
+# a positive error code
+36 bytes -> acknowledgment of netlink message 8 carries error code 2, which is not a negated errno
+
+# a header cut short
+12 bytes -> netlink reply at offset 0 is malformed: invalid netlink buffer length caused by invalid netlink buffer: length is 12 but netlink packets are at least 16 bytes
+
+# a length below the header's
+36 bytes -> netlink reply at offset 0 is malformed: invalid netlink buffer length caused by invalid netlink buffer: length field says 8 but netlink packets are at least 36 bytes
+
+# a length beyond the datagram
+36 bytes -> netlink reply at offset 0 is malformed: invalid netlink buffer length caused by invalid netlink buffer: length field says 64 the buffer is 36 bytes long
+
+# no error code
+16 bytes -> acknowledgment of netlink message 7 is malformed: invalid ErrorBuffer length caused by invalid ErrorBuffer: length is 0 but ErrorBuffer are at least 4 bytes
+
+# 3 bytes of error code
+20 bytes -> acknowledgment of netlink message 7 is malformed: invalid ErrorBuffer length caused by invalid ErrorBuffer: length is 3 but ErrorBuffer are at least 4 bytes
+
+# trailing bytes
+44 bytes -> netlink reply at offset 36 is malformed: invalid netlink buffer length caused by invalid netlink buffer: length is 8 but netlink packets are at least 16 bytes
+
+# an unpadded last message
+37 bytes -> netlink reply of 37 bytes at offset 0 overruns its 37-byte datagram once padded
