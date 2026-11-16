@@ -1,6 +1,7 @@
 //! Docker and Podman image mechanics: pull, inspect, run, dial
 //! `flow-connector-init`, and tear down.
 use crate::LogSink;
+use crate::proto::request::start;
 use anyhow::Context;
 use futures::FutureExt;
 use futures::channel::oneshot;
@@ -37,6 +38,8 @@ pub(crate) struct RunParams {
     pub publish_ports: bool,
     /// Network ports of the task's built spec.
     pub network_ports: Vec<u32>,
+    /// What the connector sees at `$CONNECTOR_MOUNT/persist`.
+    pub volume: Option<crate::proto::request::start::Volume>,
 }
 
 /// Lower-level facts of a running image connector.
@@ -76,6 +79,7 @@ pub(crate) async fn run(
         network,
         publish_ports,
         network_ports,
+        volume,
     } = params;
 
     // The mount is bind-mounted at its own path, so container-side paths are
@@ -85,6 +89,7 @@ pub(crate) async fn run(
         .context("connector mount path is not valid UTF-8")?;
     let connector_init_path = format!("{mount}/flow-connector-init");
     let image_inspect_path = format!("{mount}/image-inspect.json");
+    let persist_path = format!("{mount}/persist");
 
     let ((), ()) = futures::try_join!(
         async {
@@ -162,6 +167,23 @@ pub(crate) async fn run(
         docker_args.append(&mut vec!["--cgroup-parent".to_string(), cgroup_parent]);
     }
 
+    // Docker can't create `persist/` inside the read-only mount, so we create
+    // it first. `--rm` deletes an ephemeral volume with the container.
+    if volume.is_some() {
+        () = tokio::fs::create_dir(&persist_path)
+            .await
+            .context("creating the connector mount's persist/")?;
+    }
+    match &volume {
+        Some(start::Volume::HostDir(dir)) => docker_args.push(format!(
+            "--mount=type=bind,source={dir},target={persist_path}"
+        )),
+        Some(start::Volume::Ephemeral(_)) => {
+            docker_args.push(format!("--mount=type=volume,target={persist_path}"))
+        }
+        None => (),
+    }
+
     docker_args.append(&mut vec![
         // Image to run.
         image.clone(),
@@ -231,6 +253,15 @@ pub(crate) async fn run(
         }
         .boxed()
     };
+
+    // An ephemeral `persist/` starts as `root` 0755. Open it to the connector's
+    // uid, whatever it is, before any request runs the connector. This needs
+    // the image's `chmod`.
+    if matches!(volume, Some(start::Volume::Ephemeral(_))) {
+        _ = docker_cmd(&["exec", "--user=0", &name, "chmod", "1777", &persist_path])
+            .await
+            .context("opening the connector's ephemeral persist/")?;
+    }
 
     // Ask docker for network configuration that it assigned to the container.
     let (ip_addr, mapped_host_ports) = inspect_container_network(&name).await?;
@@ -758,6 +789,8 @@ mod test {
         .await
         .unwrap();
         let mount = crate::protocol::create_connector_mount().unwrap();
+        let run_label = format!("{:016x}", rand::random::<u64>());
+
         let running = super::run(
             inspected,
             super::RunParams {
@@ -766,11 +799,15 @@ mod test {
                     mount.path().to_string_lossy().into_owned(),
                 )]),
                 host_gateway_names: Vec::new(),
-                labels: std::collections::BTreeMap::new(),
+                labels: std::collections::BTreeMap::from([(
+                    "test-run".to_string(),
+                    run_label.clone(),
+                )]),
                 mount: mount.path().to_owned(),
                 network: String::new(),
                 publish_ports: true,
                 network_ports: vec![8080],
+                volume: Some(super::start::Volume::Ephemeral(super::start::Ephemeral {})),
             },
         )
         .await
@@ -784,6 +821,31 @@ mod test {
                 .collect::<Vec<_>>(),
             vec![8080, 49092]
         );
+
+        // flow-connector-init exits after its one stream, so `persist/` is
+        // checked before the stream starts.
+        let id = super::docker_cmd(&[
+            "ps",
+            "-q",
+            "--filter",
+            &format!("label=test-run={run_label}"),
+        ])
+        .await
+        .unwrap();
+        let output = super::docker_cmd(&[
+            "exec",
+            "--user=1234:1234",
+            String::from_utf8(id).unwrap().trim(),
+            "sh",
+            "-c",
+            r#"ls -A "$CONNECTOR_MOUNT/persist"
+               ls -ld "$CONNECTOR_MOUNT/persist" | cut -d' ' -f1
+               touch "$CONNECTOR_MOUNT/persist/a" && echo writable"#,
+        ])
+        .await
+        .unwrap();
+
+        assert_eq!(String::from_utf8(output).unwrap(), "drwxrwxrwt\nwritable\n");
 
         let result = proto_grpc::connector::connector_client::ConnectorClient::new(running.channel)
             .connector(futures::stream::once(async move {

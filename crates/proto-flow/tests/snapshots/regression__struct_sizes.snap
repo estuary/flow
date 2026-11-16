@@ -57,7 +57,7 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     40  materialize::response::Flushed
     40  materialize::response::StartedCommit
     40  materialize::response::Acknowledged
-   272  connector::Request
+   296  connector::Request
    272  connector::Response
    448  flow::CollectionSpec
    864  flow::collection_spec::Derivation

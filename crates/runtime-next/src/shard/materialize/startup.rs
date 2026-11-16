@@ -255,6 +255,7 @@ where
         connector::proto::request::Start {
             log_level: log_level as i32,
             sqlite_vfs_uri: String::new(),
+            volume: None,
         },
         connector::proto::request::Kind::Materialize(initial),
     )

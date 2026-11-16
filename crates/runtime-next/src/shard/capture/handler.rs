@@ -274,6 +274,7 @@ where
         connector::proto::request::Start {
             log_level: log_level as i32,
             sqlite_vfs_uri: String::new(),
+            volume: None,
         },
         connector::proto::request::Kind::Capture(open.clone()),
     )
@@ -441,6 +442,7 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             connector::proto::request::Start {
                 log_level: log_level as i32,
                 sqlite_vfs_uri: String::new(),
+                volume: None,
             },
             connector::proto::request::Kind::Capture(capture::Request {
                 kind: Some(capture::request::Kind::Apply(Box::new(apply))),

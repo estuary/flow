@@ -34,6 +34,28 @@ pub mod request {
         /// A gRPC client which sets it is rejected, as is any other connector type.
         #[prost(string, tag = "2")]
         pub sqlite_vfs_uri: ::prost::alloc::string::String,
+        /// What an image or local connector sees at $CONNECTOR_MOUNT/persist.
+        /// Unset: the connector mount has no persist/.
+        #[prost(oneof = "start::Volume", tags = "3, 4")]
+        pub volume: ::core::option::Option<start::Volume>,
+    }
+    /// Nested message and enum types in `Start`.
+    pub mod start {
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Ephemeral {}
+        /// What an image or local connector sees at $CONNECTOR_MOUNT/persist.
+        /// Unset: the connector mount has no persist/.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+        pub enum Volume {
+            /// Host directory. An image connector's container binds it at
+            /// $CONNECTOR_MOUNT/persist, and a local connector's persist/ links to it.
+            /// Runtime-internal: a gRPC client which sets it is rejected.
+            #[prost(string, tag = "3")]
+            HostDir(::prost::alloc::string::String),
+            /// An empty persist/, which lives only as long as its connector.
+            #[prost(message, tag = "4")]
+            Ephemeral(Ephemeral),
+        }
     }
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {

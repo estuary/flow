@@ -54,6 +54,7 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             start: Some(connector::proto::request::Start {
                 log_level: log_level as i32,
                 sqlite_vfs_uri: String::new(),
+                volume: None,
             }),
             kind: Some(connector::proto::request::Kind::Materialize(
                 materialize::Request {

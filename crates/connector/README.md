@@ -107,8 +107,9 @@ It exists only under the V2 runtime; the V1 `runtime` crate is untouched.
 
 - `CONNECTOR_MOUNT` names the directory, which MUST exist though MAY be empty.
   A connector tests for the files it wants.
-- Image connectors bind-mount the directory **read-only**. Future writable
-  areas (scratch, persisted state) will be nested read-write mounts within it.
+- Image connectors bind-mount the directory **read-only**. Writable areas, like
+  `persist/`, are nested read-write mounts within it.
+- `persist/` is present only if `Start.volume` is set.
 - An image mount additionally contains `flow-connector-init` (its entrypoint)
   and `image-inspect.json` (its `--image-inspect-json-path`).
 - `task-update.json` is present only where the `Service` holds a `TaskUpdate`

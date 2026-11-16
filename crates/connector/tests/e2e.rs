@@ -807,6 +807,19 @@ async fn sqlite_vfs_uri_is_runtime_internal() {
     assert!(!vfs_uri.exists(), "the reactor did not create {vfs_uri:?}");
 }
 
+/// The wire path refuses a `host_dir` volume before starting a connector.
+/// `policy.rs` covers the decision itself.
+#[tokio::test]
+async fn host_dir_is_runtime_internal() {
+    let mut fixture = derive_open("acmeCo/derivation");
+    fixture["start"] = json!({"hostDir": "/a/dir"});
+    let responses = drive_loopback(vec![request(fixture)]).await;
+
+    insta::assert_snapshot!(render(responses), @"
+    Status(InvalidArgument): Start.host_dir is runtime-internal and may not be set by a remote client
+    ");
+}
+
 /// A bearer admits exactly its own task on the `Service` which issued it, and
 /// no connector is started otherwise: not for another Service's key, not for a
 /// sibling task, and not for the `<spec>` sentinel named by a wire request,
