@@ -1,7 +1,6 @@
 use anyhow::Context;
 pub use codec::Codec;
 use std::{io::Write, sync::atomic};
-use tonic::transport::server::TcpIncoming;
 
 mod capture;
 mod codec;
@@ -12,8 +11,14 @@ mod materialize;
 pub mod rpc;
 pub mod serve;
 
+#[cfg(all(test, target_os = "linux"))]
+mod vsock_test;
+
 #[derive(clap::Parser, Debug)]
 #[clap(about = "Command to start connector proxies for Flow runtime.")]
+#[clap(group(
+    clap::ArgGroup::new("listen").required(true).args(["port", "vsock_port"])
+))]
 pub struct Args {
     /// The path (in the container) to the JSON file that contains the
     /// inspection results from the connector image.
@@ -21,32 +26,61 @@ pub struct Args {
     #[clap(short, long)]
     pub image_inspect_json_path: String,
 
-    /// Port on which to listen for requests from the runtime.
+    /// TCP port on which to listen for requests from the runtime.
     #[clap(short, long)]
-    pub port: u16,
+    pub port: Option<u16>,
+
+    /// AF_VSOCK port on which to listen for requests from the runtime,
+    /// accepting from any CID. Used when the connector runs inside a
+    /// micro-VM and the runtime reaches it through the hypervisor.
+    #[clap(long)]
+    pub vsock_port: Option<u32>,
+}
+
+// The listener is bound before anything else can fail, so that the readiness
+// byte means the same thing on both transports: the runtime may now connect.
+enum Listener {
+    Tcp(tonic::transport::server::TcpIncoming),
+    Vsock(tokio_vsock::VsockListener),
 }
 
 pub async fn run(
     Args {
         image_inspect_json_path,
         port,
+        vsock_port,
     }: Args,
     log_level: String,
 ) -> anyhow::Result<()> {
-    // TODO(johnny): VMM rebase: the branch's `Listener` enum serves vsock as
-    // well as TCP. The `connector.Connector` service's one-stream lifetime,
-    // and the shutdown below, apply the same on either listener.
-
     // Bind our port before we do anything else.
-    let addr = format!("0.0.0.0:{}", port).parse().unwrap();
-    let incoming = TcpIncoming::bind(addr)
-        .map_err(|e| anyhow::anyhow!("tcp incoming error {}", e))?
-        .with_nodelay(Some(true));
+    let listener = match (port, vsock_port) {
+        (Some(port), None) => {
+            let addr = format!("0.0.0.0:{}", port).parse().unwrap();
+            Listener::Tcp(
+                tonic::transport::server::TcpIncoming::bind(addr)
+                    .map_err(|e| anyhow::anyhow!("tcp incoming error {}", e))?
+                    .with_nodelay(Some(true)),
+            )
+        }
+        (None, Some(vsock_port)) => Listener::Vsock(
+            tokio_vsock::VsockListener::bind(tokio_vsock::VsockAddr::new(
+                tokio_vsock::VMADDR_CID_ANY,
+                vsock_port,
+            ))
+            .context("binding vsock listener")?,
+        ),
+        _ => unreachable!("clap requires exactly one of --port and --vsock-port"),
+    };
 
     // Now write a byte to stderr to let our container host know that we're alive.
     // Whitespace avoids interfering with JSON logs that also write to stderr.
     std::io::stderr().write(" ".as_bytes()).unwrap();
-    tracing::debug!(%log_level, port, message = "connector-init started");
+    tracing::debug!(
+        %log_level,
+        ?port,
+        ?vsock_port,
+        message = "connector-init started"
+    );
 
     let image_inspect_json =
         std::fs::read(&image_inspect_json_path).context("reading image inspect JSON")?;
@@ -99,13 +133,24 @@ pub async fn run(
         }
     };
 
-    let () = tonic::transport::Server::builder()
+    let router = tonic::transport::Server::builder()
         .add_service(capture)
         .add_service(connector)
         .add_service(derive)
-        .add_service(materialize)
-        .serve_with_incoming_shutdown(incoming, shutdown)
-        .await?;
+        .add_service(materialize);
+
+    let () = match listener {
+        Listener::Tcp(incoming) => {
+            router
+                .serve_with_incoming_shutdown(incoming, shutdown)
+                .await?
+        }
+        Listener::Vsock(listener) => {
+            router
+                .serve_with_incoming_shutdown(listener.incoming(), shutdown)
+                .await?
+        }
+    };
 
     Ok(())
 }
@@ -171,6 +216,7 @@ mod test {
         std::fs::write(
             &inspect,
             serde_json::json!([{
+                "Id": "test-image-id",
                 "Config": {
                     "Entrypoint": ["/bin/sh", "-c", script],
                     "Labels": {"FLOW_RUNTIME_CODEC": "json"},
@@ -189,7 +235,8 @@ mod test {
         let server = tokio::spawn(super::run(
             super::Args {
                 image_inspect_json_path: inspect.display().to_string(),
-                port,
+                port: Some(port),
+                vsock_port: None,
             },
             "info".to_string(),
         ));
