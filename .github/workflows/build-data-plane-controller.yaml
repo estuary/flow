@@ -1,0 +1,60 @@
+name: Build data-plane-controller
+
+# Builds and pushes only the data-plane-controller image, from the ref this is
+# dispatched on, so a branch can be tested on the dev deployment without a
+# Platform Build. Deploy the tag in the run summary with
+# deploy-data-plane-controller-dev.yaml.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SCCACHE_VERSION: v0.12.0
+
+jobs:
+  build:
+    name: Build data-plane-controller
+    # Cloud Run runs the controller on amd64.
+    runs-on: ubuntu-2404-large
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Must fetch full history and tags for `git describe --tags` to work correctly.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install build tools
+        uses: jdx/mise-action@9dc7d5dd454262207dea3ab5a06a3df6afc8ff26 # v3.4.1
+      - run: rustup upgrade
+
+      - name: Cache Rust workspace
+        uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+        with:
+          workspaces: ". -> ../../../cargo-target/flow"
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: ${{ env.SCCACHE_VERSION }}
+      - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
+      - run: echo "RUSTC_WRAPPER=$SCCACHE_PATH" >> $GITHUB_ENV
+
+      - name: Login to GitHub container registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login --username ${{ github.actor }} --password-stdin ghcr.io
+
+      - run: PUSH=true mise run ci:dpc-image
+
+      - name: Summarize
+        run: |
+          echo "Image tag: \`$(git describe --tags --dirty)\`" >> $GITHUB_STEP_SUMMARY

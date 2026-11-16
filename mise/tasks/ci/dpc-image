@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Build and optionally push the data-plane-controller image alone"
+
+# The image needs only the controller binary, its entrypoint, and sops, so it
+# builds without the rest of ci:platform-build. Images are tagged like
+# ci:package tags them, for the deploy-data-plane-controller workflows.
+
+PUSH="${PUSH:-false}"
+TAG=$(git describe --tags --dirty)
+IMAGE="ghcr.io/estuary/data-plane-controller:${TAG}"
+
+case "$(uname -m)" in
+    x86_64) ARCH=amd64 ;;
+    aarch64) ARCH=arm64 ;;
+    *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
+if [[ "${PUSH}" == "true" ]]; then
+    if [[ "${TAG}" == *-dirty ]]; then
+        echo "Error: refusing to push a build of a dirty checkout (${TAG})" >&2
+        exit 1
+    fi
+    # Platform Build pushes a multi-arch image under the same tag for commits
+    # of master. Don't replace it, or any earlier build of this commit.
+    if docker buildx imagetools inspect "${IMAGE}" &>/dev/null; then
+        echo "${IMAGE} already exists"
+        exit 0
+    fi
+fi
+
+FLOW_VERSION=${TAG} \
+SQLX_OFFLINE=true \
+cargo auditable build \
+    --locked \
+    --release \
+    -p data-plane-controller
+
+CONTEXT=$(mktemp -d)
+trap "rm -rf ${CONTEXT}" EXIT
+
+mkdir "${CONTEXT}/${ARCH}"
+cp "${CARGO_TARGET_DIR}/release/data-plane-controller" "${CONTEXT}/${ARCH}/"
+cp crates/data-plane-controller/entrypoint.sh "${CONTEXT}/${ARCH}/data-plane-controller-entrypoint.sh"
+cp -L "$(which sops)" "${CONTEXT}/${ARCH}/sops"
+
+if [[ "${PUSH}" == "true" ]]; then
+    # Attestations need a docker-container builder, as in ci:docker-images.
+    BUILDER_NAME="flow-multiarch"
+    if ! docker buildx inspect "${BUILDER_NAME}" &>/dev/null; then
+        docker buildx create --name "${BUILDER_NAME}" --bootstrap
+    fi
+    OUTPUT=(--builder "${BUILDER_NAME}" --push --provenance=mode=min --sbom=true)
+else
+    OUTPUT=(--load)
+fi
+
+docker buildx build \
+    --platform "linux/${ARCH}" \
+    --file docker/data-plane-controller.Dockerfile \
+    --tag "${IMAGE}" \
+    "${OUTPUT[@]}" \
+    "${CONTEXT}"
+
+echo "Built ${IMAGE}"
