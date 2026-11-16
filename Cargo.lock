@@ -2119,6 +2119,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "connector-guest-init"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "insta",
+ "libc",
+ "rustix 1.1.6",
+ "tempfile",
+]
+
+[[package]]
 name = "connector-init"
 version = "0.0.0"
 dependencies = [
@@ -2128,6 +2139,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures",
+ "hyper-util",
  "insta",
  "ops",
  "prost",
@@ -2140,7 +2152,9 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tokio-vsock",
  "tonic",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
@@ -5582,6 +5596,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "metrics"
 version = "0.24.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5852,6 +5875,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -9410,6 +9434,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-vsock"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "676ade3d183052ca2703288b48f63a2e82633a24836ca279eb6724ab2a97b05d"
+dependencies = [
+ "bytes",
+ "futures",
+ "libc",
+ "tokio",
+ "tonic",
+ "vsock",
+]
+
+[[package]]
 name = "toml"
 version = "0.9.12+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10097,6 +10135,16 @@ name = "vsimd"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
+
+[[package]]
+name = "vsock"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b7d4dba01e366e2ffbdf0700b1876f747c548db72dced534de41c54945c0148"
+dependencies = [
+ "libc",
+ "nix 0.31.3",
+]
 
 [[package]]
 name = "wait-timeout"
