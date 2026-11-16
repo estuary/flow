@@ -1,5 +1,10 @@
 use crate::billing::InvoiceType;
-use chrono::NaiveDate;
+use anyhow::Context as _;
+use billing_types::LineItem;
+use chrono::{DateTime, Datelike as _, NaiveDate, Utc};
+use serde::Deserialize as _;
+use std::cmp::Reverse;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvoiceCursor {
@@ -16,6 +21,17 @@ impl InvoiceCursor {
             invoice_type: row.invoice_type,
         }
     }
+
+    // Newest `date_end` first, then newest `date_start`, then final, manual,
+    // and preview invoices.
+    fn rank(&self) -> (Reverse<NaiveDate>, Reverse<NaiveDate>, u8) {
+        let type_rank = match self.invoice_type {
+            InvoiceType::Final => 0,
+            InvoiceType::Manual => 1,
+            InvoiceType::Preview => 2,
+        };
+        (Reverse(self.date_end), Reverse(self.date_start), type_rank)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -27,144 +43,244 @@ pub struct InvoiceQuery {
     pub invoice_type_eq: Option<InvoiceType>,
 }
 
+impl InvoiceQuery {
+    fn matches(&self, invoice: &InvoiceCursor) -> bool {
+        self.date_start_gt
+            .is_none_or(|date| invoice.date_start > date)
+            && self
+                .date_start_lt
+                .is_none_or(|date| invoice.date_start < date)
+            && self.date_end_gt.is_none_or(|date| invoice.date_end > date)
+            && self.date_end_lt.is_none_or(|date| invoice.date_end < date)
+            && self
+                .invoice_type_eq
+                .is_none_or(|invoice_type| invoice.invoice_type == invoice_type)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DbInvoiceRow {
     pub date_start: NaiveDate,
     pub date_end: NaiveDate,
-    pub billed_prefix: String,
-    pub line_items: sqlx::types::Json<serde_json::Value>,
+    pub line_items: Vec<LineItem>,
     pub subtotal: i32,
-    pub extra: sqlx::types::Json<serde_json::Value>,
+    pub extra: serde_json::Value,
     pub invoice_type: InvoiceType,
     pub stripe_invoice_id: Option<String>,
 }
 
-/// Forward pagination: fetch invoices older than `cursor` (or the newest
-/// invoices when `cursor` is `None`). Returned rows are ordered newest-first.
-pub async fn fetch_invoice_rows_forward(
+/// Fetch a page of the tenant's invoices, newest first, and whether invoices
+/// precede and follow it. `after` and `before` bound the page, then `first`
+/// and `last` trim it.
+/// Reports and usage are read only for invoices on the page. Previews read
+/// usage through `stats`, so this returns an error if the page includes a
+/// preview and `stats` is `None`.
+pub async fn fetch_invoice_page(
     pool: &sqlx::PgPool,
+    stats: Option<&catalog_stats::Client>,
     tenant: &str,
     query: &InvoiceQuery,
-    cursor: Option<InvoiceCursor>,
-    limit: Option<usize>,
-) -> anyhow::Result<(Vec<DbInvoiceRow>, bool)> {
-    let query_limit = limit.map(|l| l as i64 + 1).unwrap_or(i64::MAX);
-    let cursor_date_end = cursor.map(|c| c.date_end);
-    let cursor_date_start = cursor.map(|c| c.date_start);
-    let cursor_invoice_type = cursor.map(|c| c.invoice_type);
-
-    let mut invoices = sqlx::query_as!(
-        DbInvoiceRow,
-        r#"
-        SELECT
-            date_start as "date_start!",
-            date_end as "date_end!",
-            billed_prefix as "billed_prefix!",
-            line_items as "line_items!: sqlx::types::Json<serde_json::Value>",
-            subtotal as "subtotal!",
-            extra as "extra!: sqlx::types::Json<serde_json::Value>",
-            invoice_type as "invoice_type!: InvoiceType",
-            stripe_invoice_id
-        FROM internal.invoices_ext
-        WHERE billed_prefix = $1
-          AND ($2::date IS NULL OR date_start > $2)
-          AND ($3::date IS NULL OR date_start < $3)
-          AND ($4::date IS NULL OR date_end > $4)
-          AND ($5::date IS NULL OR date_end < $5)
-          AND ($6::text IS NULL OR invoice_type::text = $6)
-          AND (
-            $7::date IS NULL
-            OR date_end < $7
-            OR (date_end = $7 AND date_start < $8)
-            OR (date_end = $7 AND date_start = $8 AND invoice_type::text > $9)
-          )
-        ORDER BY date_end DESC, date_start DESC, invoice_type ASC
-        LIMIT $10
-        "#,
+    after: Option<InvoiceCursor>,
+    before: Option<InvoiceCursor>,
+    first: Option<usize>,
+    last: Option<usize>,
+) -> anyhow::Result<(Vec<DbInvoiceRow>, bool, bool)> {
+    // Build the invoice list from dates and types alone, and read reports after
+    // paging. Every unfrozen month since the tenant was created has a preview.
+    let frozen: BTreeMap<NaiveDate, DateTime<Utc>> = sqlx::query_scalar!(
+        "SELECT billed_month FROM internal.billing_historicals WHERE tenant = $1",
         tenant,
-        query.date_start_gt,
-        query.date_start_lt,
-        query.date_end_gt,
-        query.date_end_lt,
-        query.invoice_type_eq as Option<InvoiceType>,
-        cursor_date_end,
-        cursor_date_start,
-        cursor_invoice_type as Option<InvoiceType>,
-        query_limit,
     )
     .fetch_all(pool)
-    .await?;
+    .await
+    .context("listing frozen invoices")?
+    .into_iter()
+    .map(|billed_month| (billed_month.date_naive(), billed_month))
+    .collect();
+    let mut manual: BTreeMap<(NaiveDate, NaiveDate), DbInvoiceRow> = sqlx::query!(
+        "SELECT date_start, date_end, usd_cents, description, stripe_invoice_id
+         FROM internal.manual_bills WHERE tenant = $1",
+        tenant,
+    )
+    .fetch_all(pool)
+    .await
+    .context("reading manual bills")?
+    .into_iter()
+    .map(|bill| {
+        let row = DbInvoiceRow {
+            date_start: bill.date_start,
+            date_end: bill.date_end,
+            line_items: vec![LineItem {
+                description: Some(bill.description),
+                count: 1,
+                rate: bill.usd_cents.into(),
+                subtotal: bill.usd_cents.into(),
+            }],
+            subtotal: bill.usd_cents,
+            extra: serde_json::Value::Null,
+            invoice_type: InvoiceType::Manual,
+            stripe_invoice_id: bill.stripe_invoice_id,
+        };
+        ((bill.date_start, bill.date_end), row)
+    })
+    .collect();
+    let created_at = sqlx::query_scalar!(
+        "SELECT created_at FROM public.tenants WHERE tenant = $1",
+        tenant,
+    )
+    .fetch_one(pool)
+    .await
+    .context("reading tenant creation date")?
+    .date_naive();
 
-    // Query for one extra row so that its presence indicates more rows exist
-    // past this batch; truncate it before returning.
-    let has_more = limit.is_some_and(|l| invoices.len() > l);
-    if let Some(l) = limit {
-        invoices.truncate(l);
+    let monthly = |month: NaiveDate, invoice_type: InvoiceType| InvoiceCursor {
+        date_start: month,
+        date_end: month_end(month),
+        invoice_type,
+    };
+    let previews = invoice_months(created_at, Utc::now().date_naive())
+        .filter(|month| !frozen.contains_key(month))
+        .map(|month| monthly(month, InvoiceType::Preview));
+
+    let mut invoices: Vec<InvoiceCursor> = frozen
+        .keys()
+        .map(|month| monthly(*month, InvoiceType::Final))
+        .chain(manual.values().map(InvoiceCursor::from_row))
+        .chain(previews)
+        .filter(|invoice| query.matches(invoice))
+        .collect();
+    invoices.sort_by_key(InvoiceCursor::rank);
+    let (page, has_previous, has_next) = crate::paginate(
+        invoices,
+        InvoiceCursor::rank,
+        after.as_ref().map(InvoiceCursor::rank),
+        before.as_ref().map(InvoiceCursor::rank),
+        first,
+        last,
+    );
+
+    let frozen_on_page: Vec<DateTime<Utc>> = page
+        .iter()
+        .filter(|invoice| invoice.invoice_type == InvoiceType::Final)
+        .map(|invoice| frozen[&invoice.date_start])
+        .collect();
+    let mut frozen_rows: BTreeMap<NaiveDate, DbInvoiceRow> = sqlx::query!(
+        "SELECT billed_month, report, stripe_invoice_id
+         FROM internal.billing_historicals
+         WHERE tenant = $1 AND billed_month = ANY($2)",
+        tenant,
+        &frozen_on_page,
+    )
+    .fetch_all(pool)
+    .await
+    .context("reading frozen invoices")?
+    .into_iter()
+    .map(|frozen| -> anyhow::Result<(NaiveDate, DbInvoiceRow)> {
+        let month = frozen.billed_month.date_naive();
+        // Reports frozen by the SQL calculation hold null `line_items` and
+        // `subtotal` for months in which the tenant had no usage.
+        let line_items = Option::<Vec<LineItem>>::deserialize(&frozen.report["line_items"])
+            .with_context(|| format!("reading the line items of the {month} invoice"))?
+            .unwrap_or_default();
+        let subtotal = Option::<i32>::deserialize(&frozen.report["subtotal"])
+            .with_context(|| format!("reading the subtotal of the {month} invoice"))?
+            .unwrap_or_default();
+        let row = DbInvoiceRow {
+            date_start: month,
+            date_end: month_end(month),
+            line_items,
+            subtotal,
+            extra: frozen.report,
+            invoice_type: InvoiceType::Final,
+            stripe_invoice_id: frozen.stripe_invoice_id,
+        };
+        Ok((month, row))
+    })
+    .collect::<anyhow::Result<_>>()?;
+
+    let mut rows = Vec::with_capacity(page.len());
+    for invoice in page {
+        let row = match invoice.invoice_type {
+            InvoiceType::Final => frozen_rows.remove(&invoice.date_start),
+            InvoiceType::Manual => manual.remove(&(invoice.date_start, invoice.date_end)),
+            InvoiceType::Preview => Some(preview(pool, stats, tenant, invoice.date_start).await?),
+        };
+        rows.push(row.context("a frozen invoice was removed while reading the page")?);
     }
-    Ok((invoices, has_more))
+
+    Ok((rows, has_previous, has_next))
 }
 
-/// Backward pagination: fetch invoices newer than `cursor`. Returned rows are
-/// ordered newest-first (the query selects oldest-first to honor `limit`, then
-/// the result is reversed).
-pub async fn fetch_invoice_rows_backward(
+/// The first day of each month from the tenant's creation through the current month.
+fn invoice_months(created_at: NaiveDate, today: NaiveDate) -> impl Iterator<Item = NaiveDate> {
+    std::iter::successors(created_at.with_day(1), |month| {
+        month.checked_add_months(chrono::Months::new(1))
+    })
+    .take_while(move |month| *month <= today)
+}
+
+fn month_end(month: NaiveDate) -> NaiveDate {
+    month
+        .checked_add_months(chrono::Months::new(1))
+        .unwrap()
+        .pred_opt()
+        .unwrap()
+}
+
+/// Calculate the tenant's invoice for an unfrozen `month` from its usage so far.
+async fn preview(
     pool: &sqlx::PgPool,
+    stats: Option<&catalog_stats::Client>,
     tenant: &str,
-    query: &InvoiceQuery,
-    cursor: Option<InvoiceCursor>,
-    limit: Option<usize>,
-) -> anyhow::Result<(Vec<DbInvoiceRow>, bool)> {
-    let query_limit = limit.map(|l| l as i64 + 1).unwrap_or(i64::MAX);
-    let cursor_date_end = cursor.map(|c| c.date_end);
-    let cursor_date_start = cursor.map(|c| c.date_start);
-    let cursor_invoice_type = cursor.map(|c| c.invoice_type);
-
-    let mut invoices = sqlx::query_as!(
-        DbInvoiceRow,
-        r#"
-        SELECT
-            date_start as "date_start!",
-            date_end as "date_end!",
-            billed_prefix as "billed_prefix!",
-            line_items as "line_items!: sqlx::types::Json<serde_json::Value>",
-            subtotal as "subtotal!",
-            extra as "extra!: sqlx::types::Json<serde_json::Value>",
-            invoice_type as "invoice_type!: InvoiceType",
-            stripe_invoice_id
-        FROM internal.invoices_ext
-        WHERE billed_prefix = $1
-          AND ($2::date IS NULL OR date_start > $2)
-          AND ($3::date IS NULL OR date_start < $3)
-          AND ($4::date IS NULL OR date_end > $4)
-          AND ($5::date IS NULL OR date_end < $5)
-          AND ($6::text IS NULL OR invoice_type::text = $6)
-          AND (
-            $7::date IS NULL
-            OR date_end > $7
-            OR (date_end = $7 AND date_start > $8)
-            OR (date_end = $7 AND date_start = $8 AND invoice_type::text < $9)
-          )
-        ORDER BY date_end ASC, date_start ASC, invoice_type DESC
-        LIMIT $10
-        "#,
-        tenant,
-        query.date_start_gt,
-        query.date_start_lt,
-        query.date_end_gt,
-        query.date_end_lt,
-        query.invoice_type_eq as Option<InvoiceType>,
-        cursor_date_end,
-        cursor_date_start,
-        cursor_invoice_type as Option<InvoiceType>,
-        query_limit,
+    month: NaiveDate,
+) -> anyhow::Result<DbInvoiceRow> {
+    let invoice = billing_types::invoices::generate(
+        pool,
+        stats.context("catalog stats are not configured")?,
+        month.year(),
+        chrono::Month::try_from(month.month() as u8)?,
+        Some(&[tenant.to_string()]),
     )
-    .fetch_all(pool)
-    .await?;
+    .await?
+    .pop()
+    .context("no invoice was calculated for the tenant")?;
 
-    let has_more = limit.is_some_and(|l| invoices.len() > l);
-    if let Some(l) = limit {
-        invoices.truncate(l);
+    Ok(DbInvoiceRow {
+        date_start: month,
+        date_end: month_end(month),
+        subtotal: i32::try_from(invoice.subtotal)
+            .with_context(|| format!("reading the subtotal of the {month} invoice"))?,
+        extra: serde_json::to_value(&invoice)?,
+        line_items: invoice.line_items,
+        invoice_type: InvoiceType::Preview,
+        stripe_invoice_id: None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invoice_months_span_creation_through_today() {
+        let months = |created_at: &str, today: &str| -> Vec<String> {
+            invoice_months(created_at.parse().unwrap(), today.parse().unwrap())
+                .map(|month| month.to_string())
+                .collect()
+        };
+        assert_eq!(
+            months("2024-02-15", "2024-03-01"),
+            ["2024-02-01", "2024-03-01"]
+        );
+        assert_eq!(
+            months("2023-12-31", "2024-01-01"),
+            ["2023-12-01", "2024-01-01"]
+        );
+        assert!(months("2024-02-01", "2024-01-31").is_empty());
+
+        assert_eq!(
+            month_end("2024-02-01".parse().unwrap()).to_string(),
+            "2024-02-29"
+        );
     }
-    invoices.reverse();
-    Ok((invoices, has_more))
 }

@@ -12,6 +12,7 @@ expression: response
             {
               "node": {
                 "amountDue": null,
+                "dateEnd": "2024-04-30",
                 "dateStart": "2024-04-01",
                 "hostedInvoiceUrl": null,
                 "invoicePdf": null,
@@ -22,6 +23,7 @@ expression: response
             {
               "node": {
                 "amountDue": null,
+                "dateEnd": "2024-03-31",
                 "dateStart": "2024-03-01",
                 "hostedInvoiceUrl": null,
                 "invoicePdf": null,
@@ -32,6 +34,7 @@ expression: response
             {
               "node": {
                 "amountDue": 2600,
+                "dateEnd": "2024-02-29",
                 "dateStart": "2024-02-01",
                 "hostedInvoiceUrl": "https://example.test/hosted",
                 "invoicePdf": "https://example.test/invoice.pdf",
