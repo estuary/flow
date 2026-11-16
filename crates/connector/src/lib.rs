@@ -31,17 +31,28 @@ mod protocol;
 mod router;
 mod serve;
 mod service;
+mod vmm;
+
+#[cfg(test)]
+#[path = "../tests/fixtures/execution.rs"]
+mod execution_fixture;
 
 pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify, verify_connector};
 pub use router::{LOCAL_ISSUER, ServiceRouter};
 pub use service::{Service, TaskUpdate};
+pub use vmm::{
+    Memory as VmmMemory, Recovery as VmmRecovery, RecoveryMetrics as VmmRecoveryMetrics, Vmm,
+    argv as vmm_argv,
+};
 
 /// Build a connector router for tests and other offline callers which need no
-/// shared registry and never attach containers to a Docker network.
+/// shared registry, never attach containers to a Docker network, and have no
+/// VMM capability.
 pub fn local_test_router() -> std::sync::Arc<dyn proto_grpc::connector::Router> {
     let (_service, router) = Service::new_local(
         String::new(),
+        None,
         service_kit::Registry::new(),
         std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
     );
@@ -127,6 +138,8 @@ struct Transport {
     container: Option<Container>,
     /// `docker run` of an image connector, which its [`Guard`] SIGKILLs.
     process: Option<async_process::Child>,
+    /// Dropped to tear down a VMM connector's launch.
+    vmm: Option<vmm::launch::Guard>,
     /// Resolves to the error which fails the session if an image connector's
     /// container exceeds its stderr budget, and otherwise never.
     stderr_overflow: futures::future::BoxFuture<'static, anyhow::Error>,
@@ -153,8 +166,9 @@ struct Started {
 /// neither, nor the container's exit.
 pub(crate) struct Guard {
     _process: Option<async_process::Child>,
+    _vmm: Option<vmm::launch::Guard>,
     _refresh: Option<tokio::sync::oneshot::Sender<()>>,
-    _mount: tempfile::TempDir,
+    _mount: Option<tempfile::TempDir>,
 }
 
 /// Render one `ops::Log` of this crate's own reporting.

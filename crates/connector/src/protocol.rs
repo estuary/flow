@@ -15,6 +15,7 @@
 use crate::proto;
 use anyhow::Context;
 use futures::{FutureExt, StreamExt};
+use proto_flow::flow;
 
 /// Everything a connector start needs from its [`Service`](crate::Service) and
 /// the client's `Start` request.
@@ -29,13 +30,13 @@ pub(crate) struct StartContext {
     /// Resolver of task secrets.
     pub secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
     /// The client's `Start`, less its `sqlite_vfs_uri`.
-    // TODO(johnny): VMM rebase: `Start.execution` rides here to the
-    // connector's side of the contract, as part of the client's `Start`.
     pub start: proto::request::Start,
     /// Catalog task name, or [`crate::SPEC_TASK_NAME`] for a task-less Spec.
     pub task_name: String,
     /// Authorizes the connector to update its task configuration and secrets.
     pub task_update: Option<crate::TaskUpdate>,
+    /// VMM capability of the [`Service`](crate::Service), if any.
+    pub vmm: Option<crate::Vmm>,
 }
 
 /// Constructor of an in-process connector, given its request stream.
@@ -51,14 +52,13 @@ type InProcessFn<P> = Box<
 /// Endpoint extraction of capture, derive, and materialize, beyond the
 /// message facts of [`proto::Protocol`].
 pub(crate) trait Protocol: proto::Protocol {
+    /// Execution of the task's built spec, if the request embeds one (Apply or
+    /// Open). Previous `last_*` specs do not select the current execution.
+    fn spec_execution(request: &Self::Request) -> Option<flow::ConnectorExecution>;
+
     /// Locate the endpoint configuration of a request and normalize its
     /// endpoint. `sqlite_vfs_uri` is the client's recorded recovery-log VFS,
     /// which only derive-sqlite may accept (all others reject it).
-    // TODO(johnny): VMM rebase: call the branch's `Protocol::spec_execution`
-    // only on the first request, beside this `extract_endpoint`. `vmm_for`
-    // keeps its check that `Start.execution` agrees with a first Apply or
-    // Open's built spec. Spec, Discover, and Validate take `Start.execution`
-    // alone. A stream carries one build, so no later request is checked.
     fn extract_endpoint<'r>(
         request: &'r mut Self::Request,
         sqlite_vfs_uri: Option<String>,
@@ -112,6 +112,7 @@ pub(crate) async fn start<P: Protocol>(
     sqlite_vfs_uri: Option<String>,
     mut initial: P::Request,
 ) -> anyhow::Result<crate::Started> {
+    let spec_execution = P::spec_execution(&initial);
     let Extracted {
         build,
         connector_type,
@@ -122,51 +123,40 @@ pub(crate) async fn start<P: Protocol>(
         secrets,
     } = P::extract_endpoint(&mut initial, sqlite_vfs_uri)?;
 
-    // Apply image policy checks that don't require inspection (and registry I/O).
-    let image_policy = match &endpoint {
-        Endpoint::Image { image, .. } => Some(crate::policy::Image::check(ctx.plane, image)?),
+    let image = match &endpoint {
+        Endpoint::Image { image, .. } => Some(image.as_str()),
         Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
     };
+    let requested = ctx.start.execution.clone().unwrap_or_default();
+    let execution = crate::vmm::vmm_for(
+        ctx.vmm.as_ref(),
+        ctx.plane,
+        P::TASK_TYPE,
+        image,
+        &requested,
+        spec_execution.as_ref(),
+    )?;
 
-    let mount = create_connector_mount()?;
-    let env = connector_env(mount.path())?;
+    // Secret decryption attests the image's repository, under either execution.
+    let image_repository = image.map(|image| models::split_image_tag(image).0);
 
-    // If Some(task_update), inject and rotate credentials and metadata which
-    // offer tasks a capability to update their configuration and/or secrets.
-    let mut refresh = None;
-    if let Some(task_update) = ctx
-        .task_update
-        .as_ref()
-        .filter(|_| ctx.task_name != crate::SPEC_TASK_NAME)
-    {
-        // Written before the connector starts, so that its first read succeeds.
-        let token = mint_task_update(task_update, P::TASK_TYPE, &ctx.task_name, build)?;
-        write_task_update(mount.path(), task_update, &token).await?;
-
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(refresh_task_update(
-            task_update.clone(),
-            P::TASK_TYPE,
-            ctx.task_name.clone(),
-            build.map(str::to_string),
-            mount.path().to_owned(),
-            ctx.log_sink.clone(),
-            stop_rx,
-        ));
-        refresh = Some(stop_tx);
-    }
     let sealed_config = match &endpoint {
         Endpoint::Image { config, .. } | Endpoint::InProcess { config, .. } => config,
         Endpoint::Local { config } => &config.config,
     }
     .clone();
 
+    // Declared before the transport so errors release the connector before
+    // its credential refresh and mount.
+    let mut guard = crate::Guard {
+        _process: None,
+        _vmm: None,
+        _refresh: None,
+        _mount: None,
+    };
+
     // The connector's log level defaults by plane. It governs the session's
     // task logs.
-    // TODO(johnny): VMM rebase: the VMM stops passing `LOG_LEVEL` too. Drop
-    // podman's `--env=LOG_LEVEL` (`vmm/argv.rs`), the plane default of
-    // `vmm/plan.rs` (it's this one), and the forwarding of `LOG_LEVEL` and
-    // `LOG_FORMAT` into the guest (`connector-vmm/src/launch.rs`).
     let default_log_level = match ctx.plane {
         crate::Plane::Local => ops::LogLevel::Info,
         crate::Plane::Public | crate::Plane::Private => ops::LogLevel::Warn,
@@ -188,46 +178,81 @@ pub(crate) async fn start<P: Protocol>(
         })
         .expect("new connector request channel is empty");
 
-    // Spawn the connector, branched on its endpoint type.
-    // TODO(johnny): VMM rebase: `vmm::vmm_for` decides between the docker and
-    // VMM arms of an image. The VMM arm dials `connector.Connector` as
-    // `image::connect` does, and returns a `Transport` like any other
-    // endpoint. Delete its `spec_rpc` arm. The rebased branch must pass
-    // `mise run ci:connector-vmm-kvm`.
+    // Spawn the connector, branched on its endpoint type and execution.
     let requests = tokio_stream::wrappers::ReceiverStream::new(request_rx);
     let crate::Transport {
         mut response_rx,
         container,
         process,
+        vmm,
         mut stderr_overflow,
     } = match endpoint {
-        Endpoint::Image { image, .. } => {
-            crate::image::connect::<P>(
-                &ctx,
-                image,
-                image_policy.as_ref().unwrap(),
-                env,
-                mount.path(),
-                secrets,
-                network_ports,
-                requests,
+        Endpoint::Image { image, .. } => match execution {
+            crate::vmm::Execution::Ordinary => {
+                // Apply image policy checks that don't require inspection (and registry I/O).
+                let policy = crate::policy::Image::check(ctx.plane, &image)?;
+                let (mount, env) = ordinary_setup::<P>(&ctx, build, &mut guard).await?;
+
+                crate::image::connect::<P>(
+                    &ctx,
+                    image,
+                    &policy,
+                    env,
+                    &mount,
+                    secrets,
+                    network_ports,
+                    requests,
+                )
+                .await
+            }
+            crate::vmm::Execution::Vmm {
+                vmm,
+                eligible,
+                egress,
+            } => {
+                let (container, channel, vmm_guard, stderr_overflow) = crate::vmm::launch::start(
+                    &ctx,
+                    vmm,
+                    eligible,
+                    egress,
+                    network_ports,
+                    &image,
+                    secrets,
+                    build,
+                )
+                .await?;
+
+                Ok(crate::Transport {
+                    response_rx: crate::image::open_connector(channel, requests).await?,
+                    container: Some(container),
+                    process: None,
+                    vmm: Some(vmm_guard),
+                    stderr_overflow,
+                })
+            }
+        },
+        Endpoint::InProcess { connector, .. } => {
+            ordinary_setup::<P>(&ctx, build, &mut guard).await?;
+
+            crate::policy::check_secrets(
+                &ctx.task_name,
+                secrets
+                    .iter()
+                    .map(|(name, pointer)| (name.as_str(), pointer.as_str())),
+                crate::policy::SecretIdentity::NoImage,
             )
-            .await
+            .map(|()| crate::Transport {
+                response_rx: in_process::<P>(connector, requests),
+                container: None,
+                process: None,
+                vmm: None,
+                stderr_overflow: futures::future::pending().boxed(),
+            })
         }
-        Endpoint::InProcess { connector, .. } => crate::policy::check_secrets(
-            &ctx.task_name,
-            secrets
-                .iter()
-                .map(|(name, pointer)| (name.as_str(), pointer.as_str())),
-            crate::policy::SecretIdentity::NoImage,
-        )
-        .map(|()| crate::Transport {
-            response_rx: in_process::<P>(connector, requests),
-            container: None,
-            process: None,
-            stderr_overflow: futures::future::pending().boxed(),
-        }),
-        Endpoint::Local { config } => connect_local(&ctx, config, secrets, env, requests),
+        Endpoint::Local { config } => {
+            let (_mount, env) = ordinary_setup::<P>(&ctx, build, &mut guard).await?;
+            connect_local(&ctx, config, secrets, env, requests)
+        }
     }?;
 
     let proto::response::Started { codec, spec, .. } = read_started(
@@ -267,11 +292,7 @@ pub(crate) async fn start<P: Protocol>(
     } else {
         // Each uniquely keyed secret is decrypted concurrently.
         let resolved = unseal::resolve(&sealed_config, secrets, config_schema, |name| {
-            resolve_secret::<P>(
-                &ctx,
-                image_policy.as_ref().map(crate::policy::Image::repository),
-                name,
-            )
+            resolve_secret::<P>(&ctx, image_repository.as_deref(), name)
         })
         .await
         .map_err(|err| match err {
@@ -315,9 +336,6 @@ pub(crate) async fn start<P: Protocol>(
 
     // Of `Started`, only `codec` and `spec` come from the connector's side of
     // the contract. This crate owns every other field.
-    // TODO(johnny): VMM rebase: `Started.execution` is one more field this
-    // crate sets, to the execution it applied, overwriting any the
-    // connector's side sent.
     Ok(crate::Started {
         started: proto::Response {
             kind: Some(proto::response::Kind::Started(proto::response::Started {
@@ -326,6 +344,7 @@ pub(crate) async fn start<P: Protocol>(
                 token_restart_at,
                 process: ctx.process,
                 spec,
+                execution: Some(requested).filter(|execution| *execution != Default::default()),
             })),
             ..Default::default()
         },
@@ -334,8 +353,8 @@ pub(crate) async fn start<P: Protocol>(
         stderr_overflow,
         guard: crate::Guard {
             _process: process,
-            _refresh: refresh,
-            _mount: mount,
+            _vmm: vmm,
+            ..guard
         },
     })
 }
@@ -382,6 +401,58 @@ pub(crate) fn quote_task_name(task_name: &str) -> bytes::Bytes {
     format!("\"{task_name}\"").into()
 }
 
+async fn ordinary_setup<P: Protocol>(
+    ctx: &StartContext,
+    build: Option<&str>,
+    guard: &mut crate::Guard,
+) -> anyhow::Result<(
+    std::path::PathBuf,
+    std::collections::BTreeMap<String, String>,
+)> {
+    let mount = guard._mount.insert(create_connector_mount()?);
+    let env = connector_env(mount.path())?;
+    guard._refresh = start_task_update(
+        ctx.task_update.as_ref(),
+        P::TASK_TYPE,
+        &ctx.task_name,
+        build,
+        mount.path(),
+        &ctx.log_sink,
+    )
+    .await?;
+    Ok((mount.path().to_owned(), env))
+}
+
+/// Initialize and rotate the shared task-update credential contract. A VMM
+/// invokes this only after claiming its recoverable connector mount, so rotation
+/// and mount release follow the same owner as its container.
+pub(crate) async fn start_task_update(
+    task_update: Option<&crate::TaskUpdate>,
+    task_type: ops::TaskType,
+    task_name: &str,
+    build: Option<&str>,
+    mount: &std::path::Path,
+    log_sink: &crate::LogSink,
+) -> anyhow::Result<Option<tokio::sync::oneshot::Sender<()>>> {
+    let Some(task_update) = task_update.filter(|_| task_name != crate::SPEC_TASK_NAME) else {
+        return Ok(None);
+    };
+    let token = mint_task_update(task_update, task_type, task_name, build)?;
+    write_task_update(mount, task_update, &token).await?;
+
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(refresh_task_update(
+        task_update.clone(),
+        task_type,
+        task_name.to_string(),
+        build.map(str::to_string),
+        mount.to_owned(),
+        log_sink.clone(),
+        stop_rx,
+    ));
+    Ok(Some(stop_tx))
+}
+
 /// Build the environment shared by image and local connectors.
 /// `connector_init::serve` adds `LOG_LEVEL` and `LOG_FORMAT`.
 fn connector_env(
@@ -409,17 +480,7 @@ fn connector_env(
 /// container. Writable areas (scratch space, recorded state) must arrive as
 /// nested mounts under it, never as a relaxation of this root.
 pub(crate) fn create_connector_mount() -> anyhow::Result<tempfile::TempDir> {
-    // Traversable by all, listable by none: a connector image commonly runs as
-    // an unprivileged image-defined UID, which must reach files it is told the
-    // name of without being able to enumerate the mount. Scope the parent to
-    // the host user so that users sharing a TMPDIR don't contend over ownership.
-    #[cfg(unix)]
-    let parent =
-        std::env::temp_dir().join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
-    #[cfg(not(unix))]
-    let parent = std::env::temp_dir().join("connector-mounts");
-    std::fs::create_dir_all(&parent).context("creating connector mounts directory")?;
-    set_mount_mode(&parent, 0o711)?;
+    let parent = connector_mounts(&std::env::temp_dir())?;
 
     let dir = tempfile::Builder::new()
         .prefix("mount-")
@@ -428,6 +489,59 @@ pub(crate) fn create_connector_mount() -> anyhow::Result<tempfile::TempDir> {
     set_mount_mode(dir.path(), 0o711)?;
 
     Ok(dir)
+}
+
+/// The host ancestor is private to the launcher. Engines bind each child
+/// directory explicitly, so image-defined UIDs need no access to this ancestor.
+pub(crate) fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    #[cfg(unix)]
+    let parent = tmp.join(format!(
+        "connector-mounts-{}",
+        rustix::process::geteuid().as_raw()
+    ));
+    #[cfg(not(unix))]
+    let parent = tmp.join("connector-mounts");
+
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    match builder.create(&parent) {
+        Ok(()) => (),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            #[cfg(unix)]
+            check_directory_owner(&parent, rustix::process::geteuid().as_raw())
+                .with_context(|| format!("connector mounts directory {}", parent.display()))?;
+        }
+        Err(err) => {
+            return Err(anyhow::Error::new(err).context(format!("creating {}", parent.display())));
+        }
+    }
+    set_mount_mode(&parent, 0o700)?;
+    Ok(parent)
+}
+
+/// Shared directories must not let another user plant launch resources.
+#[cfg(unix)]
+pub(crate) fn check_directory_owner(
+    path: &std::path::Path,
+    euid: u32,
+) -> anyhow::Result<std::fs::Metadata> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_dir() {
+        anyhow::bail!("is not a directory, or is a link to one");
+    }
+    if metadata.uid() != euid {
+        anyhow::bail!(
+            "is owned by uid {}, not this process's uid {euid}",
+            metadata.uid()
+        );
+    }
+    if metadata.mode() & 0o022 != 0 {
+        anyhow::bail!("is writable by a user other than its owner");
+    }
+    Ok(metadata)
 }
 
 pub(crate) fn set_mount_mode(path: &std::path::Path, mode: u32) -> anyhow::Result<()> {
@@ -642,6 +756,7 @@ fn connect_local(
         response_rx,
         container: None,
         process: None,
+        vmm: None,
         stderr_overflow: futures::future::pending().boxed(),
     })
 }
@@ -775,6 +890,7 @@ mod test {
             let mode = |path: &std::path::Path| {
                 std::fs::metadata(path).unwrap().permissions().mode() & 0o777
             };
+            assert_eq!(mode(mount.path().parent().unwrap()), 0o700);
             assert_eq!(mode(mount.path()), 0o711);
             assert_eq!(mode(&path), 0o444);
         }

@@ -522,4 +522,112 @@ mod test {
         "#);
     }
 
+    use serde_json::json;
+
+    #[test]
+    fn egress_round_trips_across_task_models() {
+        fn round_trip<M: serde::Serialize + serde::de::DeserializeOwned>(
+            mut fixture: serde_json::Value,
+            egress: Option<serde_json::Value>,
+            declared: impl Fn(&M) -> &Option<super::Egress>,
+        ) -> String {
+            if let Some(egress) = egress {
+                fixture["egress"] = egress;
+            }
+            let model: M = match serde_json::from_value(fixture) {
+                Ok(model) => model,
+                Err(err) => return format!("refused: {err}"),
+            };
+            let serialized = serde_json::to_value(&model).unwrap();
+            format!(
+                "{:?} serialized={}",
+                declared(&model),
+                serialized
+                    .get("egress")
+                    .map_or("<omitted>".to_string(), ToString::to_string)
+            )
+        }
+
+        let capture = json!({
+            "endpoint": {"connector": {"image": "an/image", "config": {}}},
+            "bindings": [],
+        });
+        let derivation = json!({
+            "using": {"connector": {"image": "an/image", "config": {}}},
+            "transforms": [],
+        });
+        let materialization = json!({
+            "endpoint": {"connector": {"image": "an/image", "config": {}}},
+            "bindings": [],
+        });
+
+        let mut rows = Vec::new();
+        for egress in [
+            None,
+            Some(json!(null)),
+            Some(json!({"hosts": []})),
+            Some(json!({"hosts": ["api.acmeco.example", "*.svc.acmeco.example"]})),
+            Some(json!({"cidrs": ["10.0.0.0/8", "0.0.0.0/0"]})),
+            Some(json!({"hosts": ["api.acmeco.example"], "cidrs": ["10.1.2.3/32"]})),
+            Some(json!({"hosts": [], "cidrs": []})),
+            Some(json!({})),
+            Some(json!({"hosts": [], "ports": [443]})),
+            Some(json!({"hosts": "api.acmeco.example"})),
+            Some(json!({"cidrs": "10.0.0.0/8"})),
+        ] {
+            let label = egress
+                .as_ref()
+                .map_or("<omitted>".to_string(), ToString::to_string);
+            rows.push(format!(
+                "capture {label} => {}",
+                round_trip::<crate::CaptureDef>(capture.clone(), egress.clone(), |m| &m.egress)
+            ));
+            rows.push(format!(
+                "derivation {label} => {}",
+                round_trip::<crate::Derivation>(derivation.clone(), egress.clone(), |m| &m.egress)
+            ));
+            rows.push(format!(
+                "materialization {label} => {}",
+                round_trip::<crate::MaterializationDef>(materialization.clone(), egress, |m| {
+                    &m.egress
+                })
+            ));
+        }
+
+        insta::assert_snapshot!(rows.join("\n"), @r#"
+        capture <omitted> => None serialized=<omitted>
+        derivation <omitted> => None serialized=<omitted>
+        materialization <omitted> => None serialized=<omitted>
+        capture null => None serialized=<omitted>
+        derivation null => None serialized=<omitted>
+        materialization null => None serialized=<omitted>
+        capture {"hosts":[]} => Some(Egress { hosts: [], cidrs: [] }) serialized={}
+        derivation {"hosts":[]} => Some(Egress { hosts: [], cidrs: [] }) serialized={}
+        materialization {"hosts":[]} => Some(Egress { hosts: [], cidrs: [] }) serialized={}
+        capture {"hosts":["api.acmeco.example","*.svc.acmeco.example"]} => Some(Egress { hosts: ["api.acmeco.example", "*.svc.acmeco.example"], cidrs: [] }) serialized={"hosts":["api.acmeco.example","*.svc.acmeco.example"]}
+        derivation {"hosts":["api.acmeco.example","*.svc.acmeco.example"]} => Some(Egress { hosts: ["api.acmeco.example", "*.svc.acmeco.example"], cidrs: [] }) serialized={"hosts":["api.acmeco.example","*.svc.acmeco.example"]}
+        materialization {"hosts":["api.acmeco.example","*.svc.acmeco.example"]} => Some(Egress { hosts: ["api.acmeco.example", "*.svc.acmeco.example"], cidrs: [] }) serialized={"hosts":["api.acmeco.example","*.svc.acmeco.example"]}
+        capture {"cidrs":["10.0.0.0/8","0.0.0.0/0"]} => Some(Egress { hosts: [], cidrs: ["10.0.0.0/8", "0.0.0.0/0"] }) serialized={"cidrs":["10.0.0.0/8","0.0.0.0/0"]}
+        derivation {"cidrs":["10.0.0.0/8","0.0.0.0/0"]} => Some(Egress { hosts: [], cidrs: ["10.0.0.0/8", "0.0.0.0/0"] }) serialized={"cidrs":["10.0.0.0/8","0.0.0.0/0"]}
+        materialization {"cidrs":["10.0.0.0/8","0.0.0.0/0"]} => Some(Egress { hosts: [], cidrs: ["10.0.0.0/8", "0.0.0.0/0"] }) serialized={"cidrs":["10.0.0.0/8","0.0.0.0/0"]}
+        capture {"cidrs":["10.1.2.3/32"],"hosts":["api.acmeco.example"]} => Some(Egress { hosts: ["api.acmeco.example"], cidrs: ["10.1.2.3/32"] }) serialized={"cidrs":["10.1.2.3/32"],"hosts":["api.acmeco.example"]}
+        derivation {"cidrs":["10.1.2.3/32"],"hosts":["api.acmeco.example"]} => Some(Egress { hosts: ["api.acmeco.example"], cidrs: ["10.1.2.3/32"] }) serialized={"cidrs":["10.1.2.3/32"],"hosts":["api.acmeco.example"]}
+        materialization {"cidrs":["10.1.2.3/32"],"hosts":["api.acmeco.example"]} => Some(Egress { hosts: ["api.acmeco.example"], cidrs: ["10.1.2.3/32"] }) serialized={"cidrs":["10.1.2.3/32"],"hosts":["api.acmeco.example"]}
+        capture {"cidrs":[],"hosts":[]} => Some(Egress { hosts: [], cidrs: [] }) serialized={}
+        derivation {"cidrs":[],"hosts":[]} => Some(Egress { hosts: [], cidrs: [] }) serialized={}
+        materialization {"cidrs":[],"hosts":[]} => Some(Egress { hosts: [], cidrs: [] }) serialized={}
+        capture {} => Some(Egress { hosts: [], cidrs: [] }) serialized={}
+        derivation {} => Some(Egress { hosts: [], cidrs: [] }) serialized={}
+        materialization {} => Some(Egress { hosts: [], cidrs: [] }) serialized={}
+        capture {"hosts":[],"ports":[443]} => refused: unknown field `ports`, expected `hosts` or `cidrs`
+        derivation {"hosts":[],"ports":[443]} => refused: unknown field `ports`, expected `hosts` or `cidrs`
+        materialization {"hosts":[],"ports":[443]} => refused: unknown field `ports`, expected `hosts` or `cidrs`
+        capture {"hosts":"api.acmeco.example"} => refused: invalid type: string "api.acmeco.example", expected a sequence
+        derivation {"hosts":"api.acmeco.example"} => refused: invalid type: string "api.acmeco.example", expected a sequence
+        materialization {"hosts":"api.acmeco.example"} => refused: invalid type: string "api.acmeco.example", expected a sequence
+        capture {"cidrs":"10.0.0.0/8"} => refused: invalid type: string "10.0.0.0/8", expected a sequence
+        derivation {"cidrs":"10.0.0.0/8"} => refused: invalid type: string "10.0.0.0/8", expected a sequence
+        materialization {"cidrs":"10.0.0.0/8"} => refused: invalid type: string "10.0.0.0/8", expected a sequence
+        "#);
+    }
 }

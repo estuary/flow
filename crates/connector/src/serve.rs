@@ -171,6 +171,7 @@ where
         start,
         task_name: task_name.to_string(),
         task_update: service.task_update.clone(),
+        vmm: service.vmm.clone(),
     };
     let started = tokio::select! {
         () = response_tx.closed() => return Err(client_dropped()),
@@ -190,10 +191,6 @@ fn client_dropped() -> anyhow::Error {
 /// Forward requests and responses in independent bursts. A full request
 /// channel parks only its forwarding future, leaving responses free to drain.
 /// Frames pass through unchanged, apart from sanitizing connector `Log`s.
-///
-// TODO(johnny): VMM rebase: drop the branch's check of
-// `Protocol::spec_execution` on every later Apply or Open, and its tests.
-// This pump no longer decodes later requests, and a stream carries one build.
 async fn pump<R>(
     mut request_rx: R,
     started: crate::Started,
@@ -337,8 +334,9 @@ mod test {
             stderr_overflow: Box::pin(futures::future::pending()),
             guard: crate::Guard {
                 _process: None,
+                _vmm: None,
                 _refresh: None,
-                _mount: tempfile::tempdir().unwrap(),
+                _mount: Some(tempfile::tempdir().unwrap()),
             },
         };
         std::mem::drop(response_rx);

@@ -243,6 +243,11 @@
           "description": "When true, a publication will delete this capture.",
           "type": "boolean"
         },
+        "egress": {
+          "title": "Egress this capture's connector is held to.",
+          "description": "Required with `vmm: true`. Empty egress (`{}`) permits no external\ndestination, not even the hosts of the connector and its image. Any\nother holds the connector to the hosts of its connector and image,\nplus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
+          "$ref": "#/$defs/Egress"
+        },
         "endpoint": {
           "title": "Endpoint to capture from.",
           "$ref": "#/$defs/CaptureEndpoint"
@@ -285,6 +290,11 @@
         "shards": {
           "title": "Template for shards of this capture task.",
           "$ref": "#/$defs/ShardTemplate"
+        },
+        "vmm": {
+          "title": "Run this capture's connector within a VMM.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only with declared `egress`. A data plane\nwhich cannot run the connector within a VMM fails the invocation: it\nnever falls back to an ordinary container.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -629,6 +639,11 @@
       "description": "Derive specifies how a collection is derived from other collections.",
       "type": "object",
       "properties": {
+        "egress": {
+          "title": "Egress this derivation's connector is held to.",
+          "description": "Required with `vmm: true`. Empty egress (`{}`) permits no external\ndestination, not even the hosts of the connector and its image. Any\nother holds the connector to the hosts of its connector and image,\nplus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
+          "$ref": "#/$defs/Egress"
+        },
         "redactSalt": {
           "title": "Salt used for redacting sensitive fields in derived documents.",
           "description": "When provided, this base64-encoded salt is used instead of a generated one.",
@@ -667,6 +682,11 @@
         "using": {
           "title": "The selected runtime for this derivation.",
           "$ref": "#/$defs/DeriveUsing"
+        },
+        "vmm": {
+          "title": "Run this derivation's connector within a VMM.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only with declared `egress`. A data plane\nwhich cannot run the connector within a VMM fails the invocation: it\nnever falls back to an ordinary container.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -838,6 +858,29 @@
       "required": [
         "module"
       ]
+    },
+    "Egress": {
+      "description": "Egress a task declares: the host names and address ranges its connector\nmay reach.",
+      "type": "object",
+      "properties": {
+        "cidrs": {
+          "title": "IPv4 address ranges the connector may reach.",
+          "description": "Each is an address and a prefix length, such as `10.0.0.0/8` or\n`10.1.2.3/32`, with no bits set below the prefix. Every address within\na range is reachable on any TCP or UDP port, private addresses\nincluded, both directly and by any name which resolves only into\ndeclared ranges. Ranges may overlap, and `0.0.0.0/0` covers every\naddress. Loopback, link-local and other addresses which are not\ndestinations, the machine running the connector, and TCP port 25,\nremain unreachable.\n\nOnly private and local data planes accept address ranges.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hosts": {
+          "title": "Host names the connector may reach.",
+          "description": "These add to the hosts the connector and its image already declare.\nWhen both `hosts` and `cidrs` are empty, the connector may reach no\nexternal destination at all. `api.acmeco.example` matches\nonly itself, and `db` matches only `db`, not `db.acmeco.example`.\n`*.acmeco.example` matches every name beneath\n`acmeco.example`, at any depth, but not `acmeco.example` itself: list\nboth to reach both. A wildcard may not cover a public suffix, such as\n`*.com`. Labels hold ASCII letters, digits, `-` and `_`. Names are\ncase-insensitive, may end in one root dot, and are written in punycode\n(`xn--`) where they are not ASCII. An IP address, in any spelling, is\nnot a name.\n\nA permitted name is reachable on any port, but only at public\naddresses, or at addresses within `cidrs`. Loopback, link-local and\nother addresses which are not destinations, and TCP port 25, are never\nreachable.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "Field": {
       "description": "Field names a projection of a document location. They may include '/',\nbut cannot begin or end with one.\nMany Fields are automatically inferred by Flow from a collection JSON Schema,\nand are the JSON Pointer of the document location with the leading '/' removed.\nUser-provided Fields which act as a logical partitions are restricted to\nUnicode letters, numbers, '-', '_', or '.'",
@@ -1096,6 +1139,11 @@
           "description": "When true, a publication will delete this materialization.",
           "type": "boolean"
         },
+        "egress": {
+          "title": "Egress this materialization's connector is held to.",
+          "description": "Required with `vmm: true`. Empty egress (`{}`) permits no external\ndestination, not even the hosts of the connector and its image. Any\nother holds the connector to the hosts of its connector and image,\nplus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
+          "$ref": "#/$defs/Egress"
+        },
         "endpoint": {
           "title": "Endpoint to materialize into.",
           "$ref": "#/$defs/MaterializationEndpoint"
@@ -1167,6 +1215,11 @@
               "type": "null"
             }
           ]
+        },
+        "vmm": {
+          "title": "Run this materialization's connector within a VMM.",
+          "description": "When true, every invocation of the connector runs within a VMM rather\nthan an ordinary container. Only connectors which are eligible for VMM\nexecution may request it, and only with declared `egress`. A data plane\nwhich cannot run the connector within a VMM fails the invocation: it\nnever falls back to an ordinary container.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,

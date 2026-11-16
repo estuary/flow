@@ -10,6 +10,15 @@ use proto_flow::{
 pub(crate) use proto_flow::connector::Materialize;
 
 impl Protocol for Materialize {
+    fn spec_execution(request: &Request) -> Option<flow::ConnectorExecution> {
+        let spec = match &request.kind {
+            Some(request::Kind::Apply(apply)) => apply.materialization.as_ref(),
+            Some(request::Kind::Open(open)) => open.materialization.as_ref(),
+            _ => None,
+        }?;
+        Some(spec.execution.clone().unwrap_or_default())
+    }
+
     fn extract_endpoint<'r>(
         request: &'r mut Request,
         sqlite_vfs_uri: Option<String>,

@@ -1,0 +1,44 @@
+---
+source: crates/connector/src/vmm/release.rs
+expression: table
+---
+# this state directory's
+{"version":1,"id":"fv_0123456789abcdef","token":"00112233445566778899aabbccddeeff","ingress_image":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+=> Record { name: "fv_0123456789abcdef", token: "00112233445566778899aabbccddeeff", mount: None, state: "/state/fv_0123456789abcdef", created_mount: false, created_state: false, ingress_image: Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef") }
+=> RemoveIngress, then Release { containers: Done, ingress: Pending, networks: Pending, volumes: Pending, mount: Done, state: Done }
+
+# another state directory's
+refused: is not labeled dev.estuary.vmm-state-dir=/state
+
+# a malformed token
+refused: recording it: has a malformed owner token "0011"
+
+# no owner
+refused: has no dev.estuary.vmm-owner label
+
+# no labels
+refused: is not labeled dev.estuary.vmm-state-dir=/state
+
+# another container
+refused: inspected as container "fv_fedcba9876543210-ingress"
+
+# no image ID
+refused: was run from image ID ""
+
+# a short image ID
+refused: was run from image ID "0123456789ab"
+
+# a digest for an image ID
+refused: was run from image ID "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+# an upper-case image ID
+refused: was run from image ID "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
+
+# an option for an image ID
+refused: was run from image ID "--privileged"
+
+# none
+refused: inspected as 0 containers
+
+# not JSON
+refused: parsing its inspection: expected value at line 1 column 1

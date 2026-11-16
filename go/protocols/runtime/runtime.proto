@@ -36,6 +36,10 @@ message TaskServiceConfig {
   // as `connector.Response.Started.process`, telling a proxied caller which
   // reactor its connector landed on.
   protocol.ProcessSpec process = 7;
+  // Whether this service recovers what dead VMM launches left, for as long as
+  // it runs. A reactor sets it on its one connector proxy service, which
+  // outlives every shard's.
+  bool vmm_recovery = 8;
 }
 
 // ShuffleRequest is the request message of a Shuffle RPC.

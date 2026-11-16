@@ -290,6 +290,7 @@ mod test {
         let registry = service_kit::Registry::new();
         let (_connector_svc, connector_router) = ::connector::Service::new_local(
             String::new(),
+            None,
             registry.clone(),
             std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
         );

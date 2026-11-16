@@ -48,11 +48,10 @@ impl Image {
     /// Is this a frozen `derive-typescript` or `derive-python` `:dev` image?
     /// These images serve only one request per process. The rule mirrors
     /// `models::is_frozen_derive_image`, applied to every local tag of the image.
+    /// It applies equally to the `podman image inspect` a VMM mounts, as a
+    /// tag-pulled `linux/amd64` image lists its fully qualified `:dev` tag in
+    /// `RepoTags`.
     // TODO(johnny): Remove with retirement of the V1 runtime for derivations.
-    // TODO(johnny): VMM rebase: this applies to the podman inspect JSON which
-    // the VMM mounts, so the VMM's own `spec_rpc` arm is deleted. A tag-pulled
-    // `linux/amd64` image's `podman image inspect` lists its fully qualified
-    // `:dev` tag in `RepoTags`.
     pub fn is_frozen_derive(&self) -> bool {
         self.repo_tags.iter().any(|tag| {
             matches!(

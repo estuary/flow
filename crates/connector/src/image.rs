@@ -1,7 +1,7 @@
 //! Estuary image connector integration.
 //!
 //! `container` owns Docker and Podman mechanics. This module maps their shared
-//! inspection model into declarations and connects image endpoints.
+//! inspection model into declarations and connects ordinary image endpoints.
 
 use anyhow::Context;
 use proto_flow::flow;
@@ -22,7 +22,7 @@ pub(crate) const SECRETS_LABEL: &str = "dev.estuary.secrets";
 
 /// Estuary declarations carried by an inspected connector image.
 #[derive(Debug, serde::Serialize)]
-struct Declarations {
+pub(crate) struct Declarations {
     pub runtime_protocol: crate::RuntimeProtocol,
     pub advertised_ports: Vec<flow::NetworkPort>,
     /// A rate declared by the image. [`crate::policy`] decides whether it is trusted.
@@ -32,7 +32,7 @@ struct Declarations {
 }
 
 impl Declarations {
-    fn parse(inspected: &connector_init::inspect::Image) -> anyhow::Result<Self> {
+    pub(crate) fn parse(inspected: &connector_init::inspect::Image) -> anyhow::Result<Self> {
         let labels = &inspected.config.labels;
         let mut advertised_ports = Vec::new();
 
@@ -95,7 +95,7 @@ impl Declarations {
     }
 }
 
-/// Connect an image endpoint after its reference-only policy has been checked.
+/// Connect an ordinary image endpoint after its reference-only policy has been checked.
 pub(super) async fn connect<P: crate::protocol::Protocol>(
     ctx: &crate::protocol::StartContext,
     image: String,
@@ -182,23 +182,30 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
         ))
         .await;
 
-    // TODO(johnny): VMM rebase: the VMM arm dials this same service over the
-    // UDS which libkrun maps to `flow-connector-init`'s vsock port.
-    let response_rx =
-        proto_grpc::connector::connector_client::ConnectorClient::new(running.channel)
-            .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
-            .max_encoding_message_size(usize::MAX)
-            .connector(proto_grpc::chunk::split_requests(requests))
-            .await
-            .map_err(crate::status_to_anyhow)?
-            .into_inner();
-
     Ok(crate::Transport {
-        response_rx: proto_grpc::chunk::join(response_rx),
+        response_rx: open_connector(running.channel, requests).await?,
         container: Some(container),
         process: Some(running.process),
+        vmm: None,
         stderr_overflow: running.stderr_overflow,
     })
+}
+
+/// Open the `connector.Connector` stream of a running `flow-connector-init`,
+/// whether dialed in a container or through a VMM's socket.
+pub(crate) async fn open_connector(
+    channel: tonic::transport::Channel,
+    requests: tokio_stream::wrappers::ReceiverStream<crate::proto::Request>,
+) -> anyhow::Result<futures::stream::BoxStream<'static, tonic::Result<crate::proto::Response>>> {
+    let response_rx = proto_grpc::connector::connector_client::ConnectorClient::new(channel)
+        .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
+        .max_encoding_message_size(usize::MAX)
+        .connector(proto_grpc::chunk::split_requests(requests))
+        .await
+        .map_err(crate::status_to_anyhow)?
+        .into_inner();
+
+    Ok(proto_grpc::chunk::join(response_rx))
 }
 
 /// Parse the secrets declaration of an image: a JSON object of secret catalog

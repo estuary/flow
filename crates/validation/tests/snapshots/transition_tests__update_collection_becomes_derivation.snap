@@ -531,6 +531,7 @@ Outcome {
                                 resource_path_pointers: [],
                             },
                         ),
+                        execution: None,
                     },
                 ),
             },

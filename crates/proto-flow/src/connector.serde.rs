@@ -206,6 +206,9 @@ impl serde::Serialize for request::Start {
         if !self.sqlite_vfs_uri.is_empty() {
             len += 1;
         }
+        if self.execution.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("connector.Request.Start", len)?;
         if self.log_level != 0 {
             let v = super::ops::log::Level::try_from(self.log_level).map_err(|_| {
@@ -216,6 +219,9 @@ impl serde::Serialize for request::Start {
         if !self.sqlite_vfs_uri.is_empty() {
             struct_ser.serialize_field("sqliteVfsUri", &self.sqlite_vfs_uri)?;
         }
+        if let Some(v) = self.execution.as_ref() {
+            struct_ser.serialize_field("execution", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -225,12 +231,19 @@ impl<'de> serde::Deserialize<'de> for request::Start {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["log_level", "logLevel", "sqlite_vfs_uri", "sqliteVfsUri"];
+        const FIELDS: &[&str] = &[
+            "log_level",
+            "logLevel",
+            "sqlite_vfs_uri",
+            "sqliteVfsUri",
+            "execution",
+        ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             LogLevel,
             SqliteVfsUri,
+            Execution,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -258,6 +271,7 @@ impl<'de> serde::Deserialize<'de> for request::Start {
                         match value {
                             "logLevel" | "log_level" => Ok(GeneratedField::LogLevel),
                             "sqliteVfsUri" | "sqlite_vfs_uri" => Ok(GeneratedField::SqliteVfsUri),
+                            "execution" => Ok(GeneratedField::Execution),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -279,6 +293,7 @@ impl<'de> serde::Deserialize<'de> for request::Start {
             {
                 let mut log_level__ = None;
                 let mut sqlite_vfs_uri__ = None;
+                let mut execution__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::LogLevel => {
@@ -293,6 +308,12 @@ impl<'de> serde::Deserialize<'de> for request::Start {
                             }
                             sqlite_vfs_uri__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Execution => {
+                            if execution__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("execution"));
+                            }
+                            execution__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -301,6 +322,7 @@ impl<'de> serde::Deserialize<'de> for request::Start {
                 Ok(request::Start {
                     log_level: log_level__.unwrap_or_default(),
                     sqlite_vfs_uri: sqlite_vfs_uri__.unwrap_or_default(),
+                    execution: execution__,
                 })
             }
         }
@@ -532,6 +554,9 @@ impl serde::Serialize for response::Started {
         if self.process.is_some() {
             len += 1;
         }
+        if self.execution.is_some() {
+            len += 1;
+        }
         if self.spec.is_some() {
             len += 1;
         }
@@ -550,6 +575,9 @@ impl serde::Serialize for response::Started {
         }
         if let Some(v) = self.process.as_ref() {
             struct_ser.serialize_field("process", v)?;
+        }
+        if let Some(v) = self.execution.as_ref() {
+            struct_ser.serialize_field("execution", v)?;
         }
         if let Some(v) = self.spec.as_ref() {
             match v {
@@ -579,6 +607,7 @@ impl<'de> serde::Deserialize<'de> for response::Started {
             "token_restart_at",
             "tokenRestartAt",
             "process",
+            "execution",
             "capture",
             "derive",
             "materialize",
@@ -590,6 +619,7 @@ impl<'de> serde::Deserialize<'de> for response::Started {
             Codec,
             TokenRestartAt,
             Process,
+            Execution,
             Capture,
             Derive,
             Materialize,
@@ -624,6 +654,7 @@ impl<'de> serde::Deserialize<'de> for response::Started {
                                 Ok(GeneratedField::TokenRestartAt)
                             }
                             "process" => Ok(GeneratedField::Process),
+                            "execution" => Ok(GeneratedField::Execution),
                             "capture" => Ok(GeneratedField::Capture),
                             "derive" => Ok(GeneratedField::Derive),
                             "materialize" => Ok(GeneratedField::Materialize),
@@ -650,6 +681,7 @@ impl<'de> serde::Deserialize<'de> for response::Started {
                 let mut codec__ = None;
                 let mut token_restart_at__ = None;
                 let mut process__ = None;
+                let mut execution__ = None;
                 let mut spec__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -676,6 +708,12 @@ impl<'de> serde::Deserialize<'de> for response::Started {
                                 return Err(serde::de::Error::duplicate_field("process"));
                             }
                             process__ = map_.next_value()?;
+                        }
+                        GeneratedField::Execution => {
+                            if execution__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("execution"));
+                            }
+                            execution__ = map_.next_value()?;
                         }
                         GeneratedField::Capture => {
                             if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
@@ -711,6 +749,7 @@ impl<'de> serde::Deserialize<'de> for response::Started {
                     codec: codec__.unwrap_or_default(),
                     token_restart_at: token_restart_at__,
                     process: process__,
+                    execution: execution__,
                     spec: spec__,
                 })
             }
