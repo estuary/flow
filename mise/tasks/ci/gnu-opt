@@ -11,6 +11,7 @@ cargo auditable build \
     -p agent \
     -p bindings \
     -p config-encryption \
+    -p connector-vmm \
     -p data-plane-controller \
     -p dekaf \
     -p disk-daemon \
