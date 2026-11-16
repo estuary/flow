@@ -586,6 +586,17 @@ mod test {
                 }"#,
                 Some(CapabilitySet::empty()),
             ),
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": ["future_bundle"]
+                }"#,
+                Some(CapabilitySet::empty()),
+            ),
             // Known bundles are unioned; unknown names from a newer minter
             // are ignored rather than failing deserialization.
             (
