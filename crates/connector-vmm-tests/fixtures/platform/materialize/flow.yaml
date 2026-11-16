@@ -1,0 +1,57 @@
+# examples/materialize-python, as acmeCo's, run in a VMM, into the API of
+# examples/materialize-python/api.py. The test serves the API in a container
+# of its own, and writes its address over API_ADDRESS. Its connector reaches
+# the API by its declared CIDR, which adds to the package index it installs
+# from.
+import:
+  - ../hello-world.flow.yaml
+
+materializations:
+  acmeCo/vmm-python/materialize-api:
+    endpoint:
+      python:
+        files:
+          - pyproject.toml
+          - materialize-api/__init__.py
+          - materialize-api/client.py
+        config:
+          baseUrl: http://API_ADDRESS:8080
+        spec:
+          configSchema:
+            type: object
+            properties:
+              baseUrl:
+                type: string
+                title: Base URL
+                description: URL of the API of keyed records
+            required: [baseUrl]
+    vmm: true
+    egress:
+      cidrs: [API_ADDRESS/32]
+    bindings:
+      # Standard updates, which load what earlier transactions stored.
+      - resource: { table: page_views }
+        source: acmeCo/vmm-python/page-views
+      - resource: { table: greetings }
+        source: acmeCo/vmm-python/greetings
+      # Delta updates, by the generic `store`.
+      - resource: { table: greetings_log, delta_updates: true }
+        source: acmeCo/vmm-python/greetings
+    shards:
+      flags:
+        enable-runtime-v2: "true"
+        # This checkout's materialize-python, which ci:connector-vmm-kvm builds.
+        custom-image-tag: local
+
+collections:
+  acmeCo/vmm-python/page-views:
+    schema:
+      type: object
+      reduce: { strategy: merge }
+      properties:
+        page: { type: string }
+        views:
+          type: integer
+          reduce: { strategy: sum }
+      required: [page, views]
+    key: [/page]

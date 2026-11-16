@@ -1,0 +1,71 @@
+---
+source: crates/connector-vmm-tests/tests/platform.rs
+expression: numbered
+---
+[
+  {
+    "comma": "0",
+    "humanize": "4.12.3",
+    "n": 0,
+    "ordinal": "0th",
+    "resolved": [
+      "pypi.org",
+      "example.org"
+    ],
+    "unresolved": [
+      "example.com"
+    ]
+  },
+  {
+    "comma": "1,000",
+    "humanize": "4.12.3",
+    "n": 1,
+    "ordinal": "1st",
+    "resolved": [
+      "pypi.org",
+      "example.org"
+    ],
+    "unresolved": [
+      "example.com"
+    ]
+  },
+  {
+    "comma": "2,000",
+    "humanize": "4.12.3",
+    "n": 2,
+    "ordinal": "2nd",
+    "resolved": [
+      "pypi.org",
+      "example.org"
+    ],
+    "unresolved": [
+      "example.com"
+    ]
+  },
+  {
+    "comma": "3,000",
+    "humanize": "4.12.3",
+    "n": 3,
+    "ordinal": "3rd",
+    "resolved": [
+      "pypi.org",
+      "example.org"
+    ],
+    "unresolved": [
+      "example.com"
+    ]
+  },
+  {
+    "comma": "4,000",
+    "humanize": "4.12.3",
+    "n": 4,
+    "ordinal": "4th",
+    "resolved": [
+      "pypi.org",
+      "example.org"
+    ],
+    "unresolved": [
+      "example.com"
+    ]
+  }
+]

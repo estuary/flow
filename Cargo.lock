@@ -2185,6 +2185,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "connector-vmm-tests"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "connector",
+ "flow-client-next",
+ "futures",
+ "hyper-util",
+ "insta",
+ "libc",
+ "ops",
+ "proto-flow",
+ "proto-grpc",
+ "regex",
+ "rustix 1.1.6",
+ "serde",
+ "serde_json",
+ "service-kit",
+ "tokens",
+ "tokio",
+ "tonic",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "console"
 version = "0.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
