@@ -4304,20 +4304,10 @@ impl serde::Serialize for Task {
                     struct_ser.serialize_field("collectionPartitions", v)?;
                 }
                 task::Task::Derivation(v) => {
-                    #[allow(clippy::needless_borrow)]
-                    #[allow(clippy::needless_borrows_for_generic_args)]
-                    struct_ser.serialize_field(
-                        "derivation",
-                        pbjson::private::base64::encode(&v).as_str(),
-                    )?;
+                    struct_ser.serialize_field("derivation", v)?;
                 }
                 task::Task::Materialization(v) => {
-                    #[allow(clippy::needless_borrow)]
-                    #[allow(clippy::needless_borrows_for_generic_args)]
-                    struct_ser.serialize_field(
-                        "materialization",
-                        pbjson::private::base64::encode(&v).as_str(),
-                    )?;
+                    struct_ser.serialize_field("materialization", v)?;
                 }
             }
         }
@@ -4408,13 +4398,17 @@ impl<'de> serde::Deserialize<'de> for Task {
                             if task__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("derivation"));
                             }
-                            task__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| task::Task::Derivation(x.0));
+                            task__ = map_
+                                .next_value::<::std::option::Option<_>>()?
+                                .map(task::Task::Derivation);
                         }
                         GeneratedField::Materialization => {
                             if task__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("materialization"));
                             }
-                            task__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| task::Task::Materialization(x.0));
+                            task__ = map_
+                                .next_value::<::std::option::Option<_>>()?
+                                .map(task::Task::Materialization);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;

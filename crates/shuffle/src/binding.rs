@@ -1,5 +1,4 @@
 use anyhow::Context;
-use prost::Message;
 use proto_flow::{flow, shuffle};
 use proto_gazette::{broker, uuid};
 
@@ -168,9 +167,7 @@ impl Binding {
         let mut by_identity = std::collections::BTreeMap::<u32, u32>::new();
 
         match &task.task {
-            Some(shuffle::task::Task::Derivation(spec)) => {
-                let collection_spec = flow::CollectionSpec::decode(spec.clone())
-                    .context("invalid Task derivation")?;
+            Some(shuffle::task::Task::Derivation(collection_spec)) => {
                 let derivation = collection_spec
                     .derivation
                     .as_ref()
@@ -197,9 +194,7 @@ impl Binding {
                     )?);
                 }
             }
-            Some(shuffle::task::Task::Materialization(spec)) => {
-                let materialization = flow::MaterializationSpec::decode(spec.clone())
-                    .context("invalid Task materialization")?;
+            Some(shuffle::task::Task::Materialization(materialization)) => {
                 guard_index_width("materialization", materialization.bindings.len())?;
 
                 for (index, (binding, resolved)) in materialization.resolved_bindings().enumerate()
@@ -716,25 +711,17 @@ mod test {
         let over = u16::MAX as usize + 1;
 
         for task in [
-            shuffle::task::Task::Materialization(
-                flow::MaterializationSpec {
-                    bindings: vec![Default::default(); over],
+            shuffle::task::Task::Materialization(flow::MaterializationSpec {
+                bindings: vec![Default::default(); over],
+                ..Default::default()
+            }),
+            shuffle::task::Task::Derivation(proto_flow::Arc::new(flow::CollectionSpec {
+                derivation: Some(Box::new(flow::collection_spec::Derivation {
+                    transforms: vec![Default::default(); over],
                     ..Default::default()
-                }
-                .encode_to_vec()
-                .into(),
-            ),
-            shuffle::task::Task::Derivation(
-                flow::CollectionSpec {
-                    derivation: Some(Box::new(flow::collection_spec::Derivation {
-                        transforms: vec![Default::default(); over],
-                        ..Default::default()
-                    })),
-                    ..Default::default()
-                }
-                .encode_to_vec()
-                .into(),
-            ),
+                })),
+                ..Default::default()
+            })),
         ] {
             let err = Binding::from_task(&shuffle::Task { task: Some(task) }).unwrap_err();
             assert!(

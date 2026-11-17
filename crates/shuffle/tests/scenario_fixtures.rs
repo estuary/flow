@@ -1,4 +1,3 @@
-use prost::Message;
 /// Integration tests for the shuffle crate, exercising the full
 /// Session→Slice→Log pipeline against real published documents.
 ///
@@ -83,9 +82,7 @@ fn scan_shard_log(
 /// Exercises `shuffle::Binding::from_materialization_binding()`.
 fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
     shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Materialization(
-            spec.encode_to_vec().into(),
-        )),
+        task: Some(shuffle::proto::task::Task::Materialization(spec.clone())),
     }
 }
 
@@ -2608,7 +2605,7 @@ async fn read_delay_priority_starvation(
     };
     let task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::Derivation(
-            derivation_spec.encode_to_vec().into(),
+            proto_flow::Arc::new(derivation_spec),
         )),
     };
 
@@ -2806,7 +2803,7 @@ async fn read_delay_merge_order(
 
     let task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::Derivation(
-            derivation_spec.encode_to_vec().into(),
+            proto_flow::Arc::new(derivation_spec),
         )),
     };
     // Bindings map each logged entry to its merge position (priority and adjusted clock).
@@ -2927,7 +2924,7 @@ async fn priority_gating(
     };
     let task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::Derivation(
-            derivation_spec.encode_to_vec().into(),
+            proto_flow::Arc::new(derivation_spec),
         )),
     };
 
@@ -3040,7 +3037,7 @@ async fn hint_stall_under_priority_gating(
     };
     let task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::Derivation(
-            derivation_spec.encode_to_vec().into(),
+            proto_flow::Arc::new(derivation_spec),
         )),
     };
 

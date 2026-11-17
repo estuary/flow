@@ -12,7 +12,6 @@
 //! timeout: `join_all` traps the peer's error while sibling in-process opens
 //! park on a Log rendezvous that can never complete.
 
-use prost::Message;
 use proto_flow::{flow, shuffle};
 
 /// A journal-client factory that is never dialed by these tests: `open`
@@ -97,9 +96,7 @@ fn build_shards(endpoints: &[&str], dir: &std::path::Path) -> Vec<shuffle::Shard
 
 fn build_task(spec: &flow::MaterializationSpec) -> shuffle::Task {
     shuffle::Task {
-        task: Some(shuffle::task::Task::Materialization(
-            spec.encode_to_vec().into(),
-        )),
+        task: Some(shuffle::task::Task::Materialization(spec.clone())),
     }
 }
 

@@ -51,13 +51,11 @@ message Task {
   oneof task {
     // Partitions of a single collection (ad-hoc read).
     CollectionPartitions collection_partitions = 1;
-    // Derivation for which we're performing shuffles
-    // (protobuf-encoded flow.CollectionSpec bytes).
+    // Derivation for which we're performing shuffles.
     // The collection's `derivation` field must be set.
-    bytes derivation = 2;
-    // Materialization for which we're performing shuffles
-    // (protobuf-encoded flow.MaterializationSpec bytes).
-    bytes materialization = 3;
+    flow.CollectionSpec derivation = 2;
+    // Materialization for which we're performing shuffles.
+    flow.MaterializationSpec materialization = 3;
   }
 }
 

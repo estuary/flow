@@ -106,9 +106,7 @@ impl DerivationSession {
 
         // Shuffle bindings, for key-routing the source documents we feed.
         let shuffle_task = shuffle::proto::Task {
-            task: Some(shuffle::proto::task::Task::Derivation(
-                spec.encode_to_vec().into(),
-            )),
+            task: Some(shuffle::proto::task::Task::Derivation(spec.clone())),
         };
         let (mut bindings, sources, validators, _collection_bindings) =
             segments::task_bindings(&shuffle_task)?;
