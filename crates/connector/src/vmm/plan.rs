@@ -1,0 +1,1131 @@
+//! The plan of one VMM launch: the policy its guest is held to, the state it
+//! is given, and the podman lines that verify the host boundary, create its
+//! network, rootfs volume and container. Planning is pure. It creates nothing and
+//! probes nothing, so whether this host can carry the plan out is for the
+//! launch.
+
+use super::argv::{self, Exited, PersistentDisk};
+use super::{Eligible, TaskEgress, Vmm};
+use anyhow::Context;
+
+/// Image label declaring the hosts a connector may reach beyond those it is
+/// eligible with: a JSON array of host names, each bare or `*.`-prefixed.
+const EGRESS_HOSTS_LABEL: &str = "dev.estuary.egress-hosts";
+
+/// `sun_path` holds 108 bytes, its terminating NUL among them.
+const SOCKET_PATH_MAX: usize = 107;
+
+/// What a launch's guest may reach: only these names, each with where it was
+/// first declared, and any address within the task's CIDRs.
+#[derive(Debug, PartialEq)]
+pub(crate) struct Egress {
+    pub names: Vec<(models::egress::AllowedName, Source)>,
+    pub cidrs: Vec<ipnetwork::Ipv4Network>,
+}
+
+/// Where a permitted name was declared.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Source {
+    Connector,
+    /// The image's `dev.estuary.egress-hosts` label.
+    Image,
+    Task,
+}
+
+impl std::fmt::Display for Egress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Egress { names, cidrs } = self;
+        if names.is_empty() && cidrs.is_empty() {
+            return f.write_str(
+                "VMM egress permits no external destination: the task declares empty egress",
+            );
+        }
+        if names.is_empty() {
+            f.write_str("VMM egress permits no host names")?;
+        } else {
+            f.write_str("VMM egress permits only these host names: ")?;
+        }
+
+        let groups = [
+            (Source::Connector, "connector defaults"),
+            (Source::Image, "image label"),
+            (Source::Task, "task egress.hosts"),
+        ];
+        let mut first = true;
+        for (source, what) in groups {
+            let group: Vec<String> = names
+                .iter()
+                .filter(|(_, from)| *from == source)
+                .map(|(name, _)| name.to_string())
+                .collect();
+            if group.is_empty() {
+                continue;
+            }
+            if !first {
+                f.write_str("; ")?;
+            }
+            first = false;
+            write!(f, "{} ({what})", group.join(", "))?;
+        }
+
+        if !cidrs.is_empty() {
+            let cidrs: Vec<String> = cidrs.iter().map(ToString::to_string).collect();
+            write!(
+                f,
+                "; and any address within {} (task egress.cidrs)",
+                cidrs.join(", ")
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// One VMM launch of an admitted connector.
+pub(crate) struct Launch<'a> {
+    /// Names the container, its network, its state and its record:
+    /// `fv_<16 hex>`.
+    pub id: u64,
+    /// Marks the network, volume and container as the launch's own.
+    pub token: u128,
+    pub eligible: &'static Eligible,
+    pub image: &'a str,
+    /// The ID of the configured VMM image, which every line runs.
+    pub vmm_image: &'a str,
+    /// `podman image inspect` of `image`, which the connector mount also
+    /// carries as `image-inspect.json`.
+    pub inspection: &'a [u8],
+    /// Absolute host directory of connector mounts, in which the launch's
+    /// own is `mount-fv_<16 hex>`.
+    pub connector_mounts: &'a str,
+    pub log_level: ops::LogLevel,
+    pub plane: crate::Plane,
+    pub task_name: &'a str,
+    pub persistent_disk: Option<PersistentDisk<'a>>,
+    pub egress: &'a TaskEgress,
+    /// TCP ports of the task's built spec, or none for a request lacking one.
+    pub ports: &'a [u32],
+}
+
+#[derive(Debug)]
+pub(crate) struct Plan {
+    /// The container's name, and its network's.
+    pub name: String,
+    /// The network's bridge, `fvm` and twelve of the id's digits: an
+    /// interface name holds fifteen bytes.
+    pub interface: String,
+    /// The launch's own state directory, `fv_<16 hex>` beneath the
+    /// configured one.
+    pub state: String,
+    /// The launch's ownership record, beside its state directory.
+    pub record: String,
+    /// The owner label on the launch's network, volume and container.
+    pub token: String,
+    /// The connector mount, shared at that same path into the container and
+    /// the guest.
+    pub mount: String,
+    /// The state directory, then the two the container binds, each with
+    /// its mode. `sock/` is traversable so that an unprivileged process can
+    /// dial the socket, which the VMM leaves at mode 0777.
+    pub directories: Vec<(String, u32)>,
+    /// Where the VMM opens its `O_TMPFILE` scratch disk.
+    pub scratch: String,
+    /// What the guest may reach, which `create` passes to the VMM.
+    pub egress: Egress,
+    /// The connector-init socket the launch dials.
+    pub socket: String,
+    /// What the connector mount must hold, with modes.
+    pub connector_init: (String, u32),
+    pub image_inspect: (String, u32),
+    /// TCP ports of the task's built spec, at which the host reaches the
+    /// guest through the container's address.
+    pub ports: Vec<u32>,
+    /// Arguments after `podman`, in the order they run. The container is
+    /// started, once created, by its ID.
+    pub verify: Vec<String>,
+    /// Host permissions, installed before the container starts: ingress to
+    /// `ports`, and egress to the task's CIDRs.
+    pub ingress: Vec<String>,
+    pub network: Vec<String>,
+    pub rootfs: Vec<String>,
+    pub create: Vec<String>,
+}
+
+pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
+    let Launch {
+        id,
+        token,
+        eligible,
+        image,
+        vmm_image,
+        inspection,
+        connector_mounts,
+        log_level,
+        plane,
+        task_name,
+        persistent_disk,
+        egress,
+        ports,
+    } = launch;
+
+    let image_inspection = connector_init::inspect::Image::parse_from_json_slice(inspection)
+        .context("parsing image inspection")?;
+    let inspected = crate::image::Declarations::parse(&image_inspection)?;
+    if !matches!(
+        (inspected.runtime_protocol, eligible.task_type),
+        (crate::RuntimeProtocol::Capture, ops::TaskType::Capture)
+            | (crate::RuntimeProtocol::Derive, ops::TaskType::Derivation)
+            | (
+                crate::RuntimeProtocol::Materialize,
+                ops::TaskType::Materialization
+            )
+    ) {
+        anyhow::bail!(
+            "connector protocol {:?} does not match requested type {:?}",
+            inspected.runtime_protocol,
+            eligible.task_type
+        );
+    }
+
+    let labels = &image_inspection.config.labels;
+    let image_hosts = label_hosts(labels.get(EGRESS_HOSTS_LABEL).map(String::as_str))
+        .with_context(|| format!("connector image '{image}'"))?;
+    let egress = plan_egress(eligible, &image_hosts, egress, *plane);
+
+    let name = format!("fv_{id:016x}");
+    let mount = format!("{connector_mounts}/mount-{name}");
+
+    check_mount_value(&image_inspection.id).context("inspected connector image ID")?;
+    check_share(&mount).with_context(|| format!("connector mount {mount:?}"))?;
+    if let Some(PersistentDisk { host_dir }) = persistent_disk {
+        check_share(host_dir).with_context(|| format!("persistent disk {host_dir:?}"))?;
+    }
+
+    let interface = format!("{}{}", argv::BRIDGE_PREFIX, &name[3..15]);
+    let state = format!("{}/{name}", vmm.state_dir);
+    let socket = format!("{state}/sock/init.sock");
+    let token = format!("{token:032x}");
+    let owner = format!("--label={}={token}", super::record::OWNER_LABEL);
+    let state_dir_label = format!(
+        "--label={}={}",
+        super::record::STATE_DIR_LABEL,
+        vmm.state_dir
+    );
+    assert!(
+        socket.len() <= SOCKET_PATH_MAX,
+        "check_state_dir bounds every socket path"
+    );
+
+    let log_level = log_level.or(match plane {
+        crate::Plane::Local => ops::LogLevel::Info,
+        crate::Plane::Public | crate::Plane::Private => ops::LogLevel::Warn,
+    });
+    let memory = vmm
+        .memory
+        .as_ref()
+        .expect("vmm_for refuses a VMM which its memory limit cannot size");
+    let vcpus = *vmm
+        .vcpus
+        .as_ref()
+        .expect("vmm_for refuses a VMM which its CPU limit cannot size");
+
+    let mut options = vec![
+        format!("--platform={}", crate::container::CONNECTOR_PLATFORM),
+        format!("--label=image={image}"),
+        format!("--label=task-name={task_name}"),
+        format!("--label=task-type={}", eligible.task_type.as_str_name()),
+        owner.clone(),
+        state_dir_label.clone(),
+    ];
+    if let Some(cgroup_parent) = &vmm.cgroup_parent {
+        options.push(format!("--cgroup-parent={cgroup_parent}"));
+    }
+    let mut create = argv::container(
+        "create",
+        &argv::Container {
+            name: &name,
+            state: &state,
+            connector_mount: &mount,
+            vmm_image,
+            memory: *memory,
+            cpus: &vmm.cpu_limit,
+            vcpus,
+            disk_mib: vmm.disk_mib,
+            log_level: log_level.as_str_name(),
+            persistent_disk: *persistent_disk,
+            options: &options,
+        },
+    );
+
+    // Connector-init's control port is never exposed to the host.
+    let ports: Vec<u32> = ports
+        .iter()
+        .copied()
+        .filter(|port| *port != models::CONNECTOR_INIT_PORT as u32)
+        .collect();
+    if let Some(port) = ports
+        .iter()
+        .find(|port| **port == 0 || **port > u16::MAX as u32)
+    {
+        anyhow::bail!("the task's built spec declares invalid TCP port {port}");
+    }
+    // The host boundary drops private destinations for every VMM, so the
+    // task's CIDRs need a grant of their own beside the guest's policy.
+    let cidrs = egress.cidrs.as_slice();
+    let mut ingress = Vec::new();
+    if !ports.is_empty() || !cidrs.is_empty() {
+        // Kept once it exits: its labels may be the only record of a grant
+        // whose launch was released before podman created it.
+        ingress = argv::host_boundary(
+            vmm_image,
+            "grant",
+            Exited::Kept,
+            &[
+                format!("--name={name}{}", super::record::INGRESS_SUFFIX),
+                owner.clone(),
+                state_dir_label.clone(),
+            ],
+        );
+        ingress.extend([format!("--owner={token}"), format!("--bridge={interface}")]);
+        ingress.extend(ports.iter().map(|port| format!("--port={port}")));
+        ingress.extend(cidrs.iter().map(|cidr| format!("--cidr={cidr}")));
+    }
+    create.extend(ports.iter().map(|port| format!("--ingress-port={port}")));
+    create.extend(
+        egress
+            .names
+            .iter()
+            .map(|(name, _)| format!("--egress-host={name}")),
+    );
+    create.extend(cidrs.iter().map(|cidr| format!("--egress-cidr={cidr}")));
+
+    Ok(Plan {
+        directories: vec![
+            (state.clone(), 0o711),
+            (format!("{state}/sock"), 0o700),
+            (format!("{state}/scratch"), 0o700),
+        ],
+        scratch: format!("{state}/scratch"),
+        record: super::record::path(&vmm.state_dir, &name),
+        token,
+        egress,
+        socket,
+        connector_init: (format!("{mount}/flow-connector-init"), 0o555),
+        image_inspect: (format!("{mount}/image-inspect.json"), 0o444),
+        ports,
+        ingress,
+        // Named and labeled, should podman create it and never start it.
+        verify: argv::host_boundary(
+            vmm_image,
+            "verify",
+            Exited::Removed,
+            &[
+                format!("--name={name}{}", super::record::VERIFY_SUFFIX),
+                owner.clone(),
+                state_dir_label.clone(),
+            ],
+        ),
+        network: argv::network(&name, &interface, &[owner.clone(), state_dir_label.clone()]),
+        // A concurrent pull must not replace the inspected code.
+        rootfs: argv::rootfs(&name, &image_inspection.id, &[owner, state_dir_label]),
+        create,
+        name,
+        interface,
+        state,
+        mount,
+    })
+}
+
+/// A state directory every launch's socket path fits beneath.
+pub(super) fn check_state_dir(state_dir: &str) -> anyhow::Result<()> {
+    check_share(state_dir)?;
+
+    if state_dir.ends_with('/') {
+        anyhow::bail!("ends in a slash; write it without one");
+    }
+    let socket = format!("{state_dir}/fv_{:016x}/sock/init.sock", 0);
+    if socket.len() > SOCKET_PATH_MAX {
+        anyhow::bail!(
+            "is {} bytes, so a VMM's socket path would be {} bytes; \
+             a Unix socket path holds at most {SOCKET_PATH_MAX}",
+            state_dir.len(),
+            socket.len(),
+        );
+    }
+    Ok(())
+}
+
+/// What the guest may reach. Egress which declares no host and no CIDR
+/// permits nothing, not even the hosts of `eligible` or the image's label.
+/// Any other is held to the hosts of `eligible`, the image's label and the
+/// task, in that order and without repeats, and to the task's CIDRs.
+fn plan_egress(
+    eligible: &Eligible,
+    image_hosts: &[models::egress::AllowedName],
+    task: &TaskEgress,
+    plane: crate::Plane,
+) -> Egress {
+    let TaskEgress {
+        hosts: task_hosts,
+        cidrs,
+    } = task;
+    assert!(
+        cidrs.is_empty() || plane != crate::Plane::Public,
+        "vmm_for refuses CIDRs on a public plane"
+    );
+    if task_hosts.is_empty() && cidrs.is_empty() {
+        return Egress {
+            names: Vec::new(),
+            cidrs: Vec::new(),
+        };
+    }
+    let defaults: Vec<String> = eligible
+        .egress_hosts
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let defaults = models::egress::hosts("default hosts", &defaults)
+        .expect("eligible default hosts are valid");
+
+    let mut names: Vec<(models::egress::AllowedName, Source)> = Vec::new();
+    for (hosts, source) in [
+        (defaults.as_slice(), Source::Connector),
+        (image_hosts, Source::Image),
+        (task_hosts, Source::Task),
+    ] {
+        for host in hosts {
+            if !names.iter().any(|(name, _)| name == host) {
+                names.push((host.clone(), source));
+            }
+        }
+    }
+    Egress {
+        names,
+        cidrs: cidrs.clone(),
+    }
+}
+
+/// A missing, blank or empty label declares nothing.
+fn label_hosts(label: Option<&str>) -> anyhow::Result<Vec<models::egress::AllowedName>> {
+    let Some(label) = label.map(str::trim).filter(|label| !label.is_empty()) else {
+        return Ok(Vec::new());
+    };
+    let hosts: Vec<String> = serde_json::from_str(label).with_context(|| {
+        format!("image label '{EGRESS_HOSTS_LABEL}' must be a JSON array of host names: {label:?}")
+    })?;
+
+    models::egress::hosts(&format!("image label '{EGRESS_HOSTS_LABEL}'"), &hosts)
+}
+
+/// A host path bound into the container, and on into the guest.
+fn check_share(path: &str) -> anyhow::Result<()> {
+    check_absolute(path)?;
+    check_mount_value(path)
+}
+
+/// The root is refused because the share would mount over it.
+fn check_absolute(path: &str) -> anyhow::Result<()> {
+    if !path.starts_with('/') {
+        anyhow::bail!("is not an absolute path");
+    }
+    if path.trim_end_matches('/').is_empty() {
+        anyhow::bail!("is the root");
+    }
+    Ok(())
+}
+
+/// podman reads `--mount` as comma-separated options, so a comma in a value
+/// would end it and begin an option of the value's choosing.
+fn check_mount_value(value: &str) -> anyhow::Result<()> {
+    if value.contains(',') {
+        anyhow::bail!("contains a comma, which podman's --mount cannot carry");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::{Launch, PersistentDisk, Plan};
+    use crate::vmm::Vmm;
+    use serde_json::json;
+
+    const IMAGE: &str = "ghcr.io/estuary/derive-python:stable";
+    const IMAGE_ID: &str = "sha256:0123abcd";
+    /// What `CONNECTOR_VMM_IMAGE` resolved to.
+    const VMM_IMAGE_ID: &str = "fedcba98765432100123456789abcdef00112233445566778899aabbccddeeff";
+    const MOUNTS: &str = "/tmp/connector-mounts-0";
+    const ID: u64 = 0x0123456789abcdef;
+    const TOKEN: u128 = 0x00112233445566778899aabbccddeeff;
+
+    fn vmm(vars: &[(&str, &str)]) -> Vmm {
+        let vars: std::collections::BTreeMap<&str, &str> = [
+            ("CONNECTOR_VMM_IMAGE", "ghcr.io/estuary/connector-vmm:dev"),
+            ("CONNECTOR_VMM_STATE_DIR", "/var/lib/flow/connector-vmm"),
+        ]
+        .into_iter()
+        .chain(vars.iter().copied())
+        .collect();
+
+        Vmm::from_vars(|name| Ok(vars.get(name).map(ToString::to_string)))
+            .expect("valid configuration")
+            .expect("capable")
+    }
+
+    /// `podman image inspect` of a Python derivation image, as it would be
+    /// with `labels` and `exposed_ports`.
+    fn inspection(labels: serde_json::Value, exposed_ports: serde_json::Value) -> Vec<u8> {
+        let mut all_labels = json!({
+            "FLOW_RUNTIME_CODEC": "json",
+            "FLOW_RUNTIME_PROTOCOL": "derive",
+        });
+        all_labels
+            .as_object_mut()
+            .unwrap()
+            .extend(labels.as_object().unwrap().clone());
+
+        serde_json::to_vec(&json!([{
+            "Id": IMAGE_ID,
+            "Created": "2026-09-30T00:00:00Z",
+            "Config": {
+                "Entrypoint": ["/derive-python"],
+                "Env": ["PATH=/usr/local/bin:/usr/bin", "UV_CACHE_DIR=/tmp/uv-cache"],
+                "User": "nobody",
+                "Labels": all_labels,
+                "ExposedPorts": exposed_ports,
+            },
+        }]))
+        .unwrap()
+    }
+
+    /// A task's declared egress of one host, which every launch of these
+    /// tests declares unless it says otherwise.
+    static DECLARED: std::sync::LazyLock<crate::vmm::TaskEgress> =
+        std::sync::LazyLock::new(|| task_egress(&["task.acmeco.example"], &[]));
+
+    fn launch<'a>(inspection: &'a [u8]) -> Launch<'a> {
+        Launch {
+            id: ID,
+            token: TOKEN,
+            eligible: crate::vmm::eligible(ops::TaskType::Derivation, IMAGE)
+                .expect("derive-python is eligible"),
+            image: IMAGE,
+            vmm_image: VMM_IMAGE_ID,
+            inspection,
+            connector_mounts: MOUNTS,
+            log_level: ops::LogLevel::UndefinedLevel,
+            plane: crate::Plane::Public,
+            task_name: "acmeCo/anvils/derivation",
+            persistent_disk: None,
+            egress: &DECLARED,
+            ports: &[],
+        }
+    }
+
+    fn task_egress(hosts: &[&str], cidrs: &[&str]) -> crate::vmm::TaskEgress {
+        let hosts: Vec<String> = hosts.iter().map(ToString::to_string).collect();
+        let cidrs: Vec<String> = cidrs.iter().map(ToString::to_string).collect();
+        crate::vmm::TaskEgress {
+            hosts: models::egress::hosts("task egress.hosts", &hosts).expect("valid task hosts"),
+            cidrs: models::egress::cidrs("task egress.cidrs", &cidrs).expect("valid task CIDRs"),
+        }
+    }
+
+    /// Configuration and ownership inputs beyond the default plan snapshot.
+    #[test]
+    fn plan_lines() {
+        let vmm = vmm(&[
+            ("CONNECTOR_MEMORY_LIMIT", "1280m"),
+            ("CONNECTOR_CPU_LIMIT", "1.5"),
+            ("CONNECTOR_VMM_DISK_MIB", "4096"),
+            ("CONNECTOR_VMM_MEMORY_OVERHEAD_MIB", "128"),
+            ("CONNECTOR_CGROUP_PARENT", "estuary-connectors.slice"),
+        ]);
+        let inspection = inspection(json!({}), json!({}));
+        let owner = "--label=dev.estuary.vmm-owner=00112233445566778899aabbccddeeff";
+        let state_dir = "--label=dev.estuary.vmm-state-dir=/var/lib/flow/connector-vmm";
+        let matching = |line: &[String], prefixes: &[&str]| -> Vec<String> {
+            line.iter()
+                .filter(|arg| prefixes.iter().any(|prefix| arg.starts_with(prefix)))
+                .cloned()
+                .collect()
+        };
+        let launcher = [
+            "--name=fv_0123456789abcdef-",
+            "--platform=",
+            "--label=",
+            "--cgroup-parent=",
+        ];
+
+        for persistent_disk in [
+            None,
+            Some(PersistentDisk {
+                host_dir: "/var/lib/flow/disks/acmeCo-state",
+            }),
+        ] {
+            let plan = super::plan(
+                &vmm,
+                &Launch {
+                    persistent_disk,
+                    ports: &[8080],
+                    ..launch(&inspection)
+                },
+            )
+            .expect("plans");
+            let with_disk = persistent_disk.is_some();
+
+            assert_eq!(
+                matching(&plan.create, &launcher),
+                [
+                    "--platform=linux/amd64",
+                    "--label=image=ghcr.io/estuary/derive-python:stable",
+                    "--label=task-name=acmeCo/anvils/derivation",
+                    "--label=task-type=derivation",
+                    owner,
+                    state_dir,
+                    "--cgroup-parent=estuary-connectors.slice",
+                ]
+            );
+            assert_eq!(matching(&plan.network, &launcher), [owner, state_dir]);
+            assert_eq!(matching(&plan.rootfs, &launcher), [owner, state_dir]);
+            assert_eq!(
+                matching(&plan.verify, &launcher),
+                ["--name=fv_0123456789abcdef-verify", owner, state_dir]
+            );
+            assert_eq!(
+                matching(&plan.ingress, &launcher),
+                ["--name=fv_0123456789abcdef-ingress", owner, state_dir]
+            );
+
+            // The requested tags only label the container.
+            assert_eq!(
+                matching(&plan.rootfs, &["--opt="]),
+                ["--opt=image=sha256:0123abcd"]
+            );
+            for line in [&plan.verify, &plan.ingress, &plan.create] {
+                assert!(line.iter().any(|arg| arg == VMM_IMAGE_ID), "{line:?}");
+            }
+            for line in [
+                &plan.verify,
+                &plan.ingress,
+                &plan.network,
+                &plan.rootfs,
+                &plan.create,
+            ] {
+                assert!(
+                    !line.iter().any(|arg| arg.contains("connector-vmm:dev")
+                        || (arg.contains("derive-python") && !arg.starts_with("--label=image="))),
+                    "{line:?}"
+                );
+            }
+
+            assert_eq!(
+                matching(&plan.create, &["--memory=", "--cpus="]),
+                ["--memory=1342177280", "--cpus=1.5"]
+            );
+            let disk_mount =
+                "--mount=type=bind,source=/var/lib/flow/disks/acmeCo-state,target=/persistent-disk";
+            assert_eq!(
+                plan.create.iter().any(|arg| arg == disk_mount),
+                with_disk,
+                "{:?}",
+                plan.create
+            );
+            let image = plan
+                .create
+                .iter()
+                .position(|arg| arg == VMM_IMAGE_ID)
+                .expect("the VMM image");
+            let mut vmm_run = vec![
+                "run",
+                "--connector-mount",
+                "/tmp/connector-mounts-0/mount-fv_0123456789abcdef",
+                // 1280 MiB, less the configured 128 of overhead.
+                "--memory-mib",
+                "1152",
+                "--vcpus",
+                "2",
+                "--disk-mib",
+                "4096",
+            ];
+            if with_disk {
+                vmm_run.push("--persistent-disk");
+            }
+            vmm_run.extend([
+                "--ingress-port=8080",
+                "--egress-host=pypi.org",
+                "--egress-host=files.pythonhosted.org",
+                "--egress-host=task.acmeco.example",
+            ]);
+            assert_eq!(
+                plan.create[image + 1..],
+                vmm_run,
+                "persistent disk {with_disk}"
+            );
+        }
+    }
+
+    /// Ingress is the built spec's ports, less connector-init's, and not
+    /// what the image exposes.
+    #[test]
+    fn declared_ingress() {
+        let vmm = vmm(&[]);
+        let inspection = inspection(
+            json!({"dev.estuary.port-public.7070": "true"}),
+            json!({"7070/tcp": {}, "9000/udp": {}}),
+        );
+        let plan = super::plan(
+            &vmm,
+            &Launch {
+                ports: &[8080, 9090, 49092],
+                ..launch(&inspection)
+            },
+        )
+        .unwrap();
+        insta::assert_snapshot!(describe(&plan));
+
+        let mut table = String::new();
+        for ports in [
+            &[][..],
+            &[8080],
+            &[49092],
+            &[1, 65535],
+            &[0],
+            &[8080, 65536],
+        ] {
+            let outcome = match super::plan(
+                &vmm,
+                &Launch {
+                    ports,
+                    ..launch(&inspection)
+                },
+            ) {
+                Ok(plan) => format!(
+                    "ports {:?}, grant {:?}",
+                    plan.ports,
+                    plan.ingress
+                        .iter()
+                        .filter(|arg| arg.starts_with("--port="))
+                        .collect::<Vec<_>>()
+                ),
+                Err(error) => format!("refused: {error:#}"),
+            };
+            table.push_str(&format!("{ports:?} => {outcome}\n"));
+        }
+        insta::assert_snapshot!(table, @r#"
+        [] => ports [], grant []
+        [8080] => ports [8080], grant ["--port=8080"]
+        [49092] => ports [], grant []
+        [1, 65535] => ports [1, 65535], grant ["--port=1", "--port=65535"]
+        [0] => refused: the task's built spec declares invalid TCP port 0
+        [8080, 65536] => refused: the task's built spec declares invalid TCP port 65536
+        "#);
+    }
+
+    /// Everything one plan holds, where the limits are spelled as an operator
+    /// might write them and the guest's differ from the container's, the
+    /// task's egress repeats a default and a label host, and its CIDRs need a
+    /// host grant though the image declares no TCP port.
+    #[test]
+    fn a_plan() {
+        let vmm = vmm(&[
+            ("CONNECTOR_MEMORY_LIMIT", "1g"),
+            ("CONNECTOR_CPU_LIMIT", "1.5"),
+        ]);
+        let inspection = inspection(
+            json!({"dev.estuary.egress-hosts": r#"["api.acmeco.example", "*.cdn.acmeco.example"]"#}),
+            json!({"9000/udp": {}}),
+        );
+        let task_egress = task_egress(
+            &["API.acmeco.example", "*.svc.acmeco.example", "pypi.org"],
+            &["192.168.4.0/24", "10.0.0.0/8", "10.2.0.0/16"],
+        );
+        let plan = super::plan(
+            &vmm,
+            &Launch {
+                plane: crate::Plane::Local,
+                egress: &task_egress,
+                ..launch(&inspection)
+            },
+        )
+        .expect("plans");
+
+        insta::assert_snapshot!(describe(&plan));
+
+        assert_eq!(
+            egress_flags(&plan),
+            [
+                "--egress-host=pypi.org",
+                "--egress-host=files.pythonhosted.org",
+                "--egress-host=api.acmeco.example",
+                "--egress-host=*.cdn.acmeco.example",
+                "--egress-host=*.svc.acmeco.example",
+                "--egress-cidr=10.0.0.0/8",
+                "--egress-cidr=192.168.4.0/24",
+            ]
+        );
+        assert!(plan.ports.is_empty());
+    }
+
+    #[test]
+    fn built_hosts_reach_the_vmm_normalized() {
+        let execution = proto_flow::flow::ConnectorExecution {
+            vmm: true,
+            egress: Some(proto_flow::flow::connector_execution::Egress {
+                hosts: [
+                    "Api.AcmeCo.example",
+                    "api.acmeco.example.",
+                    "DB.",
+                    "_ldap._tcp.acmeco.example",
+                    "*.Mirror.AcmeCo.example.",
+                    "api.123",
+                    "PyPI.org.",
+                ]
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+                cidrs: Vec::new(),
+            }),
+        };
+        let vmm = vmm(&[]);
+        let crate::vmm::Execution::Vmm { egress, .. } = crate::vmm::vmm_for(
+            Some(&vmm),
+            crate::Plane::Public,
+            ops::TaskType::Derivation,
+            Some(IMAGE),
+            &execution,
+            Some(&execution),
+        )
+        .expect("a valid declaration") else {
+            panic!("VMM execution");
+        };
+        let inspection = inspection(json!({}), json!({}));
+        let plan = super::plan(
+            &vmm,
+            &Launch {
+                egress: &egress,
+                ..launch(&inspection)
+            },
+        )
+        .expect("plans");
+
+        let flags = egress_flags(&plan);
+        assert_eq!(
+            flags,
+            [
+                "--egress-host=pypi.org",
+                "--egress-host=files.pythonhosted.org",
+                "--egress-host=api.acmeco.example",
+                "--egress-host=db",
+                "--egress-host=_ldap._tcp.acmeco.example",
+                "--egress-host=*.mirror.acmeco.example",
+                "--egress-host=api.123",
+            ]
+        );
+
+        let values: Vec<String> = flags
+            .iter()
+            .map(|flag| flag.strip_prefix("--egress-host=").unwrap().to_string())
+            .collect();
+        let planned: Vec<models::egress::AllowedName> = plan
+            .egress
+            .names
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        assert_eq!(
+            models::egress::hosts("--egress-host", &values).expect("the VMM accepts each flag"),
+            planned
+        );
+    }
+
+    #[test]
+    fn egress_by_plane_and_declaration() {
+        let vmm = vmm(&[]);
+        let label = json!({"dev.estuary.egress-hosts": r#"["api.acmeco.example"]"#});
+        let hosts = &[
+            "*.svc.acmeco.example",
+            "API.acmeco.example",
+            "files.pythonhosted.org",
+            "ok.acmeco.example",
+        ];
+        let empty = task_egress(&[], &[]);
+        let declared = task_egress(hosts, &[]);
+        let cidrs = task_egress(&[], &["0.0.0.0/0"]);
+        let both = task_egress(hosts, &["10.0.0.0/8", "192.168.4.7/32"]);
+        let declarations: [(&str, &crate::vmm::TaskEgress); 4] = [
+            ("empty", &empty),
+            ("hosts", &declared),
+            ("cidrs", &cidrs),
+            ("hosts and cidrs", &both),
+        ];
+
+        let mut table = String::new();
+        for (labels, what) in [(json!({}), "no label"), (label, "a label")] {
+            let inspection = inspection(labels, json!({}));
+            for plane in [
+                crate::Plane::Public,
+                crate::Plane::Private,
+                crate::Plane::Local,
+            ] {
+                for (declaration, egress) in declarations {
+                    // `vmm_for` refuses CIDRs on a public plane, so no
+                    // public launch is planned with them.
+                    if plane == crate::Plane::Public && !egress.cidrs.is_empty() {
+                        continue;
+                    }
+                    let plan = super::plan(
+                        &vmm,
+                        &Launch {
+                            plane,
+                            egress,
+                            ..launch(&inspection)
+                        },
+                    )
+                    .expect("plans");
+                    let grant: Vec<&String> = plan
+                        .ingress
+                        .iter()
+                        .filter(|arg| arg.starts_with("--cidr=") || arg.starts_with("--port="))
+                        .collect();
+                    table.push_str(&format!(
+                        "# {what}, {} plane, egress {declaration}
+{}
+{}
+host grant {grant:?}
+
+",
+                        plane.as_str_name(),
+                        plan.egress,
+                        egress_flags(&plan).join(" "),
+                    ));
+                }
+            }
+        }
+        insta::assert_snapshot!(table);
+    }
+
+    fn egress_flags(plan: &Plan) -> Vec<&str> {
+        plan.create
+            .iter()
+            .map(String::as_str)
+            .filter(|arg| arg.starts_with("--egress-"))
+            .collect()
+    }
+
+    fn describe(plan: &Plan) -> String {
+        let Plan {
+            name,
+            interface,
+            state,
+            record,
+            token,
+            mount,
+            directories,
+            scratch,
+            egress,
+            socket,
+            connector_init,
+            image_inspect,
+            // Shown by `ingress` and `create`.
+            ports: _,
+            verify,
+            ingress,
+            network,
+            rootfs,
+            create,
+        } = plan;
+        let modes = |entries: &[(String, u32)]| -> String {
+            entries
+                .iter()
+                .map(|(path, mode)| format!("{mode:04o} {path}\n"))
+                .collect()
+        };
+
+        format!(
+            "name: {name}\ninterface: {interface}\nstate: {state}\nrecord: {record}\n\
+             token: {token}\nmount: {mount}\nscratch: {scratch}\n\
+             socket: {socket} ({} bytes)\n\
+             \n## directories\n{}\n## egress\n{egress}\n\n## connector mount\n{}\
+             \n## verify\npodman {}\n\n## ingress\n{}\n\n## network\npodman {}\n\n## rootfs\npodman {}\n\n## create\npodman {}\n",
+            socket.len(),
+            modes(directories),
+            modes(&[connector_init.clone(), image_inspect.clone()]),
+            verify.join(" "),
+            ingress.join(" "),
+            network.join(" "),
+            rootfs.join(" "),
+            create.join(" \\\n  "),
+        )
+    }
+
+    /// What an image's inspection lets a launch reach, or why it cannot launch.
+    #[test]
+    fn image_inspections() {
+        let label = |value: &str| json!({ "dev.estuary.egress-hosts": value });
+        let cases: Vec<(&str, serde_json::Value, serde_json::Value)> = vec![
+            ("no label: the defaults alone", json!({}), json!({})),
+            (
+                "hosts beyond the defaults, lowercased, without repeats",
+                label(
+                    r#"["api.acmeco.example", "*.ACMEco.example", "PyPI.org", "api.acmeco.example"]"#,
+                ),
+                json!({}),
+            ),
+            ("an empty label", label(""), json!({})),
+            ("a blank label", label("  "), json!({})),
+            ("an empty array", label("[]"), json!({})),
+            (
+                "not JSON",
+                label("pypi.org, files.pythonhosted.org"),
+                json!({}),
+            ),
+            (
+                "not an array",
+                label(r#"{"hosts": ["pypi.org"]}"#),
+                json!({}),
+            ),
+            ("not strings", label(r#"["pypi.org", 443]"#), json!({})),
+            (
+                "a URL",
+                label(r#"["https://api.acmeco.example"]"#),
+                json!({}),
+            ),
+            ("a port", label(r#"["api.acmeco.example:443"]"#), json!({})),
+            ("an address", label(r#"["93.184.216.34"]"#), json!({})),
+            ("a CIDR", label(r#"["93.184.216.0/24"]"#), json!({})),
+            ("everything", label(r#"["*"]"#), json!({})),
+            (
+                "a wildcard over a public suffix",
+                label(r#"["*.github.io"]"#),
+                json!({}),
+            ),
+            (
+                "a wildcard beneath a private suffix",
+                label(r#"["*.acmeco.github.io"]"#),
+                json!({}),
+            ),
+            ("a single label", label(r#"["localhost"]"#), json!({})),
+            (
+                "a public port",
+                json!({"dev.estuary.port-public.8080": "true"}),
+                json!({"8080/tcp": {}}),
+            ),
+            (
+                "a private port",
+                json!({}),
+                json!({"8080/tcp": {}, "9090": {}}),
+            ),
+            (
+                "only a UDP port, which ordinary launches ignore too",
+                json!({}),
+                json!({"9000/udp": {}}),
+            ),
+            (
+                "another protocol",
+                json!({"FLOW_RUNTIME_PROTOCOL": "capture"}),
+                json!({}),
+            ),
+        ];
+
+        let vmm = vmm(&[]);
+        let mut table = String::new();
+
+        for (name, labels, ports) in cases {
+            let inspection = inspection(labels.clone(), ports.clone());
+            let outcome = match super::plan(&vmm, &launch(&inspection)) {
+                Ok(plan) => egress_flags(&plan).join(" "),
+                Err(error) => format!("refused: {error:#}"),
+            };
+            table.push_str(&format!(
+                "# {name}\nlabels {labels} ports {ports}\n=> {outcome}\n\n"
+            ));
+        }
+        insta::assert_snapshot!(table);
+    }
+
+    /// Path limits are in bytes, and every path the container binds is one
+    /// podman's `--mount` can carry.
+    #[test]
+    fn paths() {
+        let mut table = String::new();
+
+        let long = format!("/var/lib/flow/{}", "a".repeat(58));
+        let longer = format!("{long}a");
+        let wide = format!("/var/lib/flow/{}", "é".repeat(29));
+        let wider = format!("{wide}é");
+
+        table.push_str("## state directory\n");
+        for state_dir in [
+            "/var/lib/flow/connector-vmm",
+            long.as_str(),
+            longer.as_str(),
+            wide.as_str(),
+            wider.as_str(),
+            "var/lib/flow",
+            "/",
+            "/var/lib/flow/",
+            "/var/lib/flow,rw=true",
+        ] {
+            let outcome = match super::check_state_dir(state_dir) {
+                Ok(()) => {
+                    let vmm = Vmm {
+                        state_dir: state_dir.to_string(),
+                        ..vmm(&[])
+                    };
+                    let inspection = inspection(json!({}), json!({}));
+                    let plan = super::plan(&vmm, &launch(&inspection)).expect("plans");
+                    format!("socket {} bytes", plan.socket.len())
+                }
+                Err(error) => format!("refused: {error:#}"),
+            };
+            table.push_str(&format!(
+                "{state_dir:?} ({} bytes, {} chars) => {outcome}\n",
+                state_dir.len(),
+                state_dir.chars().count(),
+            ));
+        }
+
+        let vmm = vmm(&[]);
+        let inspection = inspection(json!({}), json!({}));
+        let cases: Vec<(&str, Launch)> = vec![
+            (
+                "a relative mounts directory",
+                Launch {
+                    connector_mounts: "tmp/connector-mounts-0",
+                    ..launch(&inspection)
+                },
+            ),
+            (
+                "a comma in the mounts directory",
+                Launch {
+                    connector_mounts: "/tmp/connector-mounts-0,rw=true",
+                    ..launch(&inspection)
+                },
+            ),
+            (
+                "a comma in the image",
+                Launch {
+                    image: "ghcr.io/estuary/derive-python:stable,rw=true",
+                    ..launch(&inspection)
+                },
+            ),
+            (
+                "a comma in the persistent disk",
+                Launch {
+                    persistent_disk: Some(PersistentDisk {
+                        host_dir: "/var/lib/disk,rw",
+                    }),
+                    ..launch(&inspection)
+                },
+            ),
+        ];
+        table.push_str("\n## launch\n");
+        for (name, launch) in cases {
+            let outcome = match super::plan(&vmm, &launch) {
+                Ok(_) => "plans".to_string(),
+                Err(error) => format!("refused: {error:#}"),
+            };
+            table.push_str(&format!("{name} => {outcome}\n"));
+        }
+        insta::assert_snapshot!(table);
+    }
+}

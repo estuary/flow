@@ -1,0 +1,33 @@
+---
+source: crates/connector-vmm/src/resolver/mod.rs
+expression: "log_steps(&mut resolver, &received, &recorder, steps)"
+---
+# an unlisted name at a public address (t+0s)
+name=anything.example qtype=1 outcome=resolved addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=66
+upstream: [anything.example/1]
+
+# an unlisted name at a private address (t+1s)
+name=private.example qtype=1 outcome=resolved addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=64
+upstream: [private.example/1]
+
+# the metadata service (t+2s)
+name=metadata.example qtype=1 outcome=refused-private=169.254.169.254 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=34
+upstream: [metadata.example/1]
+
+# a public address beside loopback (t+3s)
+name=loopback.example qtype=1 outcome=refused-private=127.0.0.1 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=34
+upstream: [loopback.example/1]
+
+# the VMM's own subnet (t+4s)
+name=bridge.example qtype=1 outcome=refused-private=10.89.0.9 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=32
+upstream: [bridge.example/1]
+
+# MX for an unlisted name (t+5s)
+name=anything.example qtype=15 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=34
+upstream: []

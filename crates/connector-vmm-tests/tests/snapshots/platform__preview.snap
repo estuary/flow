@@ -1,0 +1,54 @@
+---
+source: crates/connector-vmm-tests/tests/platform.rs
+expression: documents(&preview.stdout)
+---
+[
+  [
+    "acmeCo/vmm-python/numbers",
+    {
+      "comma": "7,000",
+      "humanize": "4.12.3",
+      "n": 7,
+      "ordinal": "7th",
+      "resolved": [
+        "pypi.org",
+        "example.org"
+      ],
+      "unresolved": [
+        "example.com"
+      ]
+    }
+  ],
+  [
+    "acmeCo/vmm-python/numbers",
+    {
+      "comma": "1,234,000",
+      "humanize": "4.12.3",
+      "n": 1234,
+      "ordinal": "1234th",
+      "resolved": [
+        "pypi.org",
+        "example.org"
+      ],
+      "unresolved": [
+        "example.com"
+      ]
+    }
+  ],
+  [
+    "acmeCo/vmm-python/numbers",
+    {
+      "comma": "21,000",
+      "humanize": "4.12.3",
+      "n": 21,
+      "ordinal": "21st",
+      "resolved": [
+        "pypi.org",
+        "example.org"
+      ],
+      "unresolved": [
+        "example.com"
+      ]
+    }
+  ]
+]

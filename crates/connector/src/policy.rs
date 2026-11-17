@@ -34,15 +34,21 @@ impl Image {
             );
         }
         if matches!(plane, crate::Plane::Public) && repository == "ghcr.io/estuary/derive-python" {
-            anyhow::bail!("Python derivations may only run in private data-planes");
+            anyhow::bail!(
+                "Python derivations may only run in private data-planes, or within a VMM (`vmm: true`)"
+            );
         }
         if matches!(plane, crate::Plane::Public) && repository == "ghcr.io/estuary/capture-python" {
-            anyhow::bail!("Python captures may only run in private data-planes");
+            anyhow::bail!(
+                "Python captures may only run in private data-planes, or within a VMM (`vmm: true`)"
+            );
         }
         if matches!(plane, crate::Plane::Public)
             && repository == "ghcr.io/estuary/materialize-python"
         {
-            anyhow::bail!("Python materializations may only run in private data-planes");
+            anyhow::bail!(
+                "Python materializations may only run in private data-planes, or within a VMM (`vmm: true`)"
+            );
         }
 
         Ok(Self {
@@ -192,6 +198,22 @@ fn parent_prefix(name: &str) -> Option<&str> {
 
 pub(crate) fn local_connectors_allowed(plane: crate::Plane) -> bool {
     matches!(plane, crate::Plane::Local)
+}
+
+/// CIDRs can reach private networks, so public planes accept only an empty list.
+pub(crate) fn egress_cidrs(
+    plane: crate::Plane,
+    cidrs: &[String],
+) -> anyhow::Result<Vec<ipnetwork::Ipv4Network>> {
+    // Exhaustive, so that a new kind of plane must decide.
+    match plane {
+        crate::Plane::Public if !cidrs.is_empty() => {
+            anyhow::bail!("the task declares egress.cidrs, which only private data planes accept")
+        }
+        crate::Plane::Public | crate::Plane::Private | crate::Plane::Local => {
+            models::egress::cidrs("task egress.cidrs", cidrs)
+        }
+    }
 }
 
 pub(crate) fn check_remote_sqlite_vfs(
@@ -387,7 +409,7 @@ mod test {
                 Image::check(crate::Plane::Public, image)
                     .unwrap_err()
                     .to_string(),
-                "Python derivations may only run in private data-planes"
+                "Python derivations may only run in private data-planes, or within a VMM (`vmm: true`)"
             );
             Image::check(crate::Plane::Private, image).unwrap();
         }
@@ -408,7 +430,7 @@ mod test {
                 Image::check(crate::Plane::Public, image)
                     .unwrap_err()
                     .to_string(),
-                "Python captures may only run in private data-planes"
+                "Python captures may only run in private data-planes, or within a VMM (`vmm: true`)"
             );
             Image::check(crate::Plane::Private, image).unwrap();
         }
@@ -420,7 +442,7 @@ mod test {
             )
             .unwrap_err()
             .to_string(),
-            "Python materializations may only run in private data-planes"
+            "Python materializations may only run in private data-planes, or within a VMM (`vmm: true`)"
         );
         Image::check(
             crate::Plane::Private,

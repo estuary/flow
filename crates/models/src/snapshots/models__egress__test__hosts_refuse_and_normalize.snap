@@ -1,0 +1,243 @@
+---
+source: crates/models/src/egress.rs
+expression: table
+---
+# non-ASCII
+["café.example"]
+egress.hosts "café.example" is not ASCII; write the punycode (xn--) form, which is what a query carries
+
+# punycode is ASCII, and not decoded
+["xn--caf-dma.example", "xn--zz.example"]
+accepted: [Exact("xn--caf-dma.example"), Exact("xn--zz.example")]
+
+# lowercased and deduplicated
+["PyPI.ORG", "pypi.org", "artifacts.acmeco.example"]
+accepted: [Exact("pypi.org"), Exact("artifacts.acmeco.example")]
+
+# a root dot is dropped before deduplicating
+["PyPI.ORG.", "pypi.org", "pypi.org."]
+accepted: [Exact("pypi.org")]
+
+# the root alone
+["."]
+egress.hosts "." has an empty label
+
+# two root dots
+["pypi.org.."]
+egress.hosts "pypi.org.." has an empty label
+
+# a leading dot
+[".pypi.org"]
+egress.hosts ".pypi.org" has an empty label
+
+# empty label
+["files..acmeco.example"]
+egress.hosts "files..acmeco.example" has an empty label
+
+# empty string
+[""]
+egress.hosts contains an empty name
+
+# leading whitespace
+[" pypi.org"]
+egress.hosts " pypi.org" has a label outside [A-Za-z0-9_-]: " pypi"
+
+# trailing whitespace
+["pypi.org "]
+egress.hosts "pypi.org " has a label outside [A-Za-z0-9_-]: "org "
+
+# a URL
+["https://pypi.org"]
+egress.hosts "https://pypi.org" has a label outside [A-Za-z0-9_-]: "https://pypi"
+
+# a port
+["pypi.org:443"]
+egress.hosts "pypi.org:443" has a label outside [A-Za-z0-9_-]: "org:443"
+
+# a path
+["pypi.org/simple"]
+egress.hosts "pypi.org/simple" has a label outside [A-Za-z0-9_-]: "org/simple"
+
+# a backslash
+["pypi\\.org"]
+egress.hosts "pypi\\.org" has a label outside [A-Za-z0-9_-]: "pypi\\"
+
+# an escaped dot
+["pypi\\046org"]
+egress.hosts "pypi\\046org" has a label outside [A-Za-z0-9_-]: "pypi\\046org"
+
+# underscores anywhere in a label
+["_sip._tcp.acmeco.example", "build_cache.acmeco.example", "_"]
+accepted: [Exact("_sip._tcp.acmeco.example"), Exact("build_cache.acmeco.example"), Exact("_")]
+
+# hyphens anywhere in a label
+["-files.acmeco.example", "files-.acmeco.example", "-.acmeco.example"]
+accepted: [Exact("-files.acmeco.example"), Exact("files-.acmeco.example"), Exact("-.acmeco.example")]
+
+# single labels are exact names, without a search list
+["DB.", "db", "db.corp.example", "localhost"]
+accepted: [Exact("db"), Exact("db.corp.example"), Exact("localhost")]
+
+# numeric labels that are no address
+["api.123", "api.1e3", "api.inf", "api.nan", "api.0x1f", "1e3.example", "123.example", "1.2.3.4.5"]
+accepted: [Exact("api.123"), Exact("api.1e3"), Exact("api.inf"), Exact("api.nan"), Exact("api.0x1f"), Exact("1e3.example"), Exact("123.example"), Exact("1.2.3.4.5")]
+
+# an address
+["192.0.2.1"]
+egress.hosts "192.0.2.1" is the IPv4 address 192.0.2.1; egress.hosts takes names, not addresses
+
+# an address with a root dot
+["169.254.169.254."]
+egress.hosts "169.254.169.254." is the IPv4 address 169.254.169.254; egress.hosts takes names, not addresses
+
+# a shortened address
+["127.1"]
+egress.hosts "127.1" is the IPv4 address 127.0.0.1; egress.hosts takes names, not addresses
+
+# an address as one integer
+["2130706433"]
+egress.hosts "2130706433" is the IPv4 address 127.0.0.1; egress.hosts takes names, not addresses
+
+# a hex address
+["0x7f000001"]
+egress.hosts "0x7f000001" is the IPv4 address 127.0.0.1; egress.hosts takes names, not addresses
+
+# a hex address in capitals
+["0X7F000001"]
+egress.hosts "0X7F000001" is the IPv4 address 127.0.0.1; egress.hosts takes names, not addresses
+
+# an octal address
+["0177.0.0.1"]
+egress.hosts "0177.0.0.1" is the IPv4 address 127.0.0.1; egress.hosts takes names, not addresses
+
+# a bare number
+["123"]
+egress.hosts "123" is the IPv4 address 0.0.0.123; egress.hosts takes names, not addresses
+
+# an IPv6 address
+["::1"]
+egress.hosts "::1" has a label outside [A-Za-z0-9_-]: "::1"
+
+# a bracketed IPv6 address
+["[::1]"]
+egress.hosts "[::1]" has a label outside [A-Za-z0-9_-]: "[::1]"
+
+# a wildcard over an address
+["*.192.0.2.1"]
+egress.hosts "*.192.0.2.1" is a wildcard over the IPv4 address 192.0.2.1; egress.hosts takes names, not addresses
+
+# a wildcard over a shortened address
+["*.127.1"]
+egress.hosts "*.127.1" is a wildcard over the IPv4 address 127.0.0.1; egress.hosts takes names, not addresses
+
+# a name and its wildcard are distinct grants
+["acmeco.example", "*.acmeco.example"]
+accepted: [Exact("acmeco.example"), Subdomains("acmeco.example")]
+
+# wildcard lowercased and deduplicated
+["*.ACMEco.example", "*.acmeco.example", "*.acmeco.example."]
+accepted: [Subdomains("acmeco.example")]
+
+# wildcard alone
+["*"]
+egress.hosts "*" has a wildcard other than a leading "*.", the only form supported
+
+# wildcard with no base
+["*."]
+egress.hosts "*." has an empty label
+
+# wildcard over the root
+["*.."]
+egress.hosts "*.." has an empty label
+
+# two wildcard labels
+["*.*.acmeco.example"]
+egress.hosts "*.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# doubled star
+["**.acmeco.example"]
+egress.hosts "**.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# star without its dot
+["*acmeco.example"]
+egress.hosts "*acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# star inside a label
+["api*.acmeco.example"]
+egress.hosts "api*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# wildcard label in the middle
+["api.*.acmeco.example"]
+egress.hosts "api.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+
+# wildcard label last
+["acmeco.*"]
+egress.hosts "acmeco.*" has a wildcard other than a leading "*.", the only form supported
+
+# wildcard over an invalid label
+["*.acmeco.example:443"]
+egress.hosts "*.acmeco.example:443" has a label outside [A-Za-z0-9_-]: "example:443"
+
+# wildcard over hyphen- and underscore-edged labels
+["*.-acmeco_.example"]
+accepted: [Subdomains("-acmeco_.example")]
+
+# wildcard over a single label
+["*.corp"]
+egress.hosts "*.corp" is a wildcard over the public suffix "corp", by the Public Suffix List's default rule, which makes every top-level label a suffix; names beneath a public suffix belong to unrelated registrants
+
+# wildcard beneath a single label
+["*.acmeco.corp"]
+accepted: [Subdomains("acmeco.corp")]
+
+# wildcard over a top-level domain
+["*.com"]
+egress.hosts "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# wildcard over an ICANN second-level suffix
+["*.co.uk"]
+egress.hosts "*.co.uk" is a wildcard over the public suffix "co.uk", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# wildcard over a private suffix
+["*.github.io"]
+egress.hosts "*.github.io" is a wildcard over the public suffix "github.io", in the Public Suffix List's private section; names beneath a public suffix belong to unrelated registrants
+
+# wildcard over a domain registered beneath a private suffix
+["*.acmeco.github.io"]
+accepted: [Subdomains("acmeco.github.io")]
+
+# wildcard over a domain holding private suffixes: only the base is checked
+["*.amazonaws.com"]
+accepted: [Subdomains("amazonaws.com")]
+
+# wildcard over a suffix made by a wildcard rule
+["*.acmeco.ck"]
+egress.hosts "*.acmeco.ck" is a wildcard over the public suffix "acmeco.ck", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# wildcard over an exception to a wildcard rule
+["*.www.ck"]
+accepted: [Subdomains("www.ck")]
+
+# wildcard over a domain holding a wildcard rule: only the base is checked
+["*.kawasaki.jp"]
+accepted: [Subdomains("kawasaki.jp")]
+
+# wildcard over an exception beneath that wildcard rule
+["*.city.kawasaki.jp"]
+accepted: [Subdomains("city.kawasaki.jp")]
+
+# wildcard over an internationalized suffix, in punycode
+["*.xn--55qx5d.cn"]
+egress.hosts "*.xn--55qx5d.cn" is a wildcard over the public suffix "xn--55qx5d.cn", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+
+# wildcard over an unlisted top-level domain
+["*.example"]
+egress.hosts "*.example" is a wildcard over the public suffix "example", by the Public Suffix List's default rule, which makes every top-level label a suffix; names beneath a public suffix belong to unrelated registrants
+
+# wildcard beneath an unlisted top-level domain
+["*.acmeco.example"]
+accepted: [Subdomains("acmeco.example")]
+
+# exact names are not checked against the list
+["s3.amazonaws.com", "github.io", "co.uk", "com"]
+accepted: [Exact("s3.amazonaws.com"), Exact("github.io"), Exact("co.uk"), Exact("com")]

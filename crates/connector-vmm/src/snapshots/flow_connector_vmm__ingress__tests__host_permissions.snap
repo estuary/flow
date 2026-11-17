@@ -1,0 +1,14 @@
+---
+source: crates/connector-vmm/src/ingress.rs
+expression: "super::document(\"00112233445566778899aabbccddeeff\", \"fvm0123456789ab\",\n&[8080, 9000])"
+---
+add table inet flow_vmm_ingress_00112233445566778899aabbccddeeff {
+chain output {
+type filter hook output priority -11; policy accept;
+oifname "fvm0123456789ab" meta nfproto ipv4 ct direction original ct state new,established tcp dport { 8080, 9000 } meta mark set 1180061001
+}
+chain input {
+type filter hook input priority -11; policy accept;
+iifname "fvm0123456789ab" meta nfproto ipv4 ct direction reply ct state established tcp sport { 8080, 9000 } meta mark set 1180061001
+}
+}

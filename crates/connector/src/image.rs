@@ -1,7 +1,7 @@
 //! Estuary image connector integration.
 //!
 //! `container` owns Docker and Podman mechanics. This module maps their shared
-//! inspection model into declarations and connects image endpoints.
+//! inspection model into declarations and connects ordinary image endpoints.
 
 use anyhow::Context;
 use futures::StreamExt;
@@ -23,7 +23,7 @@ pub(crate) const SECRETS_LABEL: &str = "dev.estuary.secrets";
 
 /// Estuary declarations carried by an inspected connector image.
 #[derive(Debug, serde::Serialize)]
-struct Declarations {
+pub(crate) struct Declarations {
     pub runtime_protocol: crate::RuntimeProtocol,
     #[serde(skip)]
     pub codec: connector_init::Codec,
@@ -35,7 +35,7 @@ struct Declarations {
 }
 
 impl Declarations {
-    fn parse(inspected: &connector_init::inspect::Image) -> anyhow::Result<Self> {
+    pub(crate) fn parse(inspected: &connector_init::inspect::Image) -> anyhow::Result<Self> {
         let labels = &inspected.config.labels;
         let mut advertised_ports = Vec::new();
 
@@ -99,7 +99,7 @@ impl Declarations {
     }
 }
 
-/// Connect an image endpoint after its reference-only policy has been checked.
+/// Connect an ordinary image endpoint after its reference-only policy has been checked.
 pub(super) async fn connect<P: crate::protocol::Protocol>(
     ctx: &crate::protocol::StartContext,
     image: String,
@@ -193,20 +193,19 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
         ))
         .await;
 
-    // Drive the Spec to completion on its own RPC before opening the real one,
-    // so the connector sees one request per invocation.
+    // Frozen V1 derivations still exchange Spec on an RPC of its own.
     let spec = if spec_on_own_rpc {
         Some(crate::protocol::spec_rpc::<P>(running.channel.clone(), connector_type).await?)
     } else {
         None
     };
     let connector_rx = P::open_rpc(running.channel, requests).await?.into_inner();
-
     Ok(crate::Transport {
         connector_rx: connector_rx.boxed(),
         container: Some(container),
         codec,
         process: Some(running.process),
+        vmm: None,
         sealed_config,
         spec,
     })
@@ -355,13 +354,13 @@ mod test {
     #[test]
     fn rejects_invalid_flow_declarations() {
         let fixtures = [
-            json!([{"Config": {"Labels": {}, "Env": []}}]),
-            json!([{"Config": {
+            json!([{"Id": "test-image-id", "Config": {"Labels": {}, "Env": []}}]),
+            json!([{"Id": "test-image-id", "Config": {
                 "Labels": {"FLOW_RUNTIME_PROTOCOL": "derive"},
                 "Env": [],
                 "ExposedPorts": {"whoops": {}}
             }}]),
-            json!([{"Config": {
+            json!([{"Id": "test-image-id", "Config": {
                 "Labels": {
                     "FLOW_RUNTIME_PROTOCOL": "derive",
                     "dev.estuary.port-public.111": "whoops"

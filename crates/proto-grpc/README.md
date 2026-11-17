@@ -24,3 +24,7 @@ With `connector_client`, `proto_grpc::connector` also provides the client side
 of `connector.Connector`: the object-safe `Router` seam, `EndpointRouter`,
 request identity and bearer minting, the `start` / `next` stream helpers, and a
 `unary` adapter which consumes logs, `Started`, one protocol response, and EOF.
+`start` (and so `unary`) requires `Started.execution` to echo the requested
+`Start.execution` whole: a service which predates a requested execution, or a
+part of one such as its egress, ignores it, and would otherwise start the
+connector without it.

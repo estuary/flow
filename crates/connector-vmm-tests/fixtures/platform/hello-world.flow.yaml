@@ -1,0 +1,16 @@
+# Live greetings, which each published derivation and materialization reads.
+import:
+  - greetings.flow.yaml
+
+captures:
+  acmeCo/vmm-python/hello-world:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-hello-world:dev
+        config:
+          rate: 2
+    bindings:
+      - resource:
+          name: greetings
+          prefix: "Hello {}!"
+        target: acmeCo/vmm-python/greetings

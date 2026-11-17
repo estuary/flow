@@ -82,6 +82,7 @@ crc-fast = { version = "1.10", default-features = false, features = ["std"] }
 crossterm = "0"
 csv = "1"
 dirs = "6"
+domain = { version = "0.12.3", default-features = false }
 encoding_rs = { version = "0", features = ["serde"] }
 enumset = { version = "1", features = ["serde"] }
 flate2 = { version = "1", features = ["zlib-rs"] }
@@ -116,6 +117,7 @@ jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 kafka-protocol = "0.15"
 lazy_static = "1"
 libc = "0"
+libloading = "0"
 librocksdb-sys = { version = "0", default-features = false, features = [
     "bindgen-runtime",
     "snappy",
@@ -129,6 +131,8 @@ metrics-exporter-prometheus = "0.18"
 metrics-util = "0.20"
 prometheus = "0"
 md5 = "0"
+netlink-packet-core = "0.9.0"
+netlink-packet-netfilter = "0.4.0"
 num-bigint = "0"
 num-format = "0"
 indicatif = "0"
@@ -147,6 +151,7 @@ prost = "0"
 protobuf = "3"
 protobuf-json-mapping = "3"
 protobuf-parse = "3"
+psl = "2"
 quick-xml = "0.42"
 regex = "1"
 reqwest = { version = "0", default-features = false, features = [
@@ -170,7 +175,7 @@ rsasl = { version = "2", default-features = false, features = [
     "plain",
 ] }
 rusqlite = { version = "0.39", features = ["bundled-full", "fallible_uint"] }
-rustix = { version = "1", features = ["fs", "mm", "process"] }
+rustix = { version = "1.1.6", features = ["fs", "mm", "process"] }
 rustyline = "17"
 schemars = { version = "1", features = ["chrono04"] }
 serde = { version = "1", features = ["derive"] }
@@ -227,6 +232,7 @@ tokio = { version = "1", features = [
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 tokio-util = { version = "0", features = ["io", "compat", "rt"] }
 tokio-stream = { version = "0", features = ["sync"] }
+tokio-vsock = { version = "0", features = ["tonic014"] }
 tonic = { version = "0", features = ["tls-native-roots"] }
 tonic-prost = "0"
 hyper-util = "0"

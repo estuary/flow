@@ -1,0 +1,8 @@
+["greetings", ["2026-11-04T00:00:01Z"], {"message": "Hello again 1!", "ts": "2026-11-04T00:00:01Z"}]
+["greetings", ["2026-11-04T00:00:02Z"], {"message": "Hello 2!", "ts": "2026-11-04T00:00:02Z"}]
+["greetings_log", ["2026-11-04T00:00:01Z"], {"message": "Hello again 1!", "ts": "2026-11-04T00:00:01Z"}]
+["greetings_log", ["2026-11-04T00:00:02Z"], {"message": "Hello 2!", "ts": "2026-11-04T00:00:02Z"}]
+["page_views", ["/about"], {"page": "/about", "views": 7}]
+["page_views", ["/blog"], {"page": "/blog", "views": 4}]
+["page_views", ["/home"], {"page": "/home", "views": 14}]
+["page_views", ["/pricing"], {"page": "/pricing", "views": 3}]
