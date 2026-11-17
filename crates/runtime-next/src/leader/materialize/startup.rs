@@ -251,7 +251,7 @@ pub(super) async fn run<
 
     // Open the shuffle Session with the recovered resume Frontier.
     let shuffle_task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Materialization(spec_bytes)),
+        task: Some(shuffle::proto::task::Task::Materialization(spec)),
     };
     let session = service
         .shuffle_factory

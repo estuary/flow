@@ -53,15 +53,13 @@ pub mod task {
         /// Partitions of a single collection (ad-hoc read).
         #[prost(message, tag = "1")]
         CollectionPartitions(super::CollectionPartitions),
-        /// Derivation for which we're performing shuffles
-        /// (protobuf-encoded flow.CollectionSpec bytes).
+        /// Derivation for which we're performing shuffles.
         /// The collection's `derivation` field must be set.
-        #[prost(bytes, tag = "2")]
-        Derivation(::prost::bytes::Bytes),
-        /// Materialization for which we're performing shuffles
-        /// (protobuf-encoded flow.MaterializationSpec bytes).
-        #[prost(bytes, tag = "3")]
-        Materialization(::prost::bytes::Bytes),
+        #[prost(message, tag = "2")]
+        Derivation(crate::Arc<super::super::flow::CollectionSpec>),
+        /// Materialization for which we're performing shuffles.
+        #[prost(message, tag = "3")]
+        Materialization(super::super::flow::MaterializationSpec),
     }
 }
 /// ProducerFrontier is the frontier state of a single producer within a journal.

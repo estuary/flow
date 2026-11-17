@@ -499,14 +499,13 @@ async fn self_cycle_terminates() {
 /// off-by-one at either end still looks correct.
 #[tokio::test]
 async fn multi_shard_segment_routing() {
-    use prost::Message;
     use runtime_local::segments;
     use std::collections::{BTreeSet, HashMap};
 
     let collections = build_collections(SINGLE_HOP).await;
     let task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::Derivation(
-            collections["acmeCo/sums"].encode_to_vec().into(),
+            collections["acmeCo/sums"].clone(),
         )),
     };
     let (bindings, sources, mut validators, _) = segments::task_bindings(&task).unwrap();

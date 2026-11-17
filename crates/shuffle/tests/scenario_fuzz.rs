@@ -1,4 +1,3 @@
-use prost::Message;
 /// Quickcheck fuzz test for the shuffle crate's Session→Slice→Log pipeline.
 ///
 /// Generates randomized multi-producer workloads with OUTSIDE_TXN,
@@ -388,9 +387,7 @@ fn build_task(spec: &flow::MaterializationSpec, window: Option<Window>) -> shuff
     }
 
     shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Materialization(
-            spec.encode_to_vec().into(),
-        )),
+        task: Some(shuffle::proto::task::Task::Materialization(spec)),
     }
 }
 
