@@ -3677,6 +3677,7 @@ dependencies = [
  "console_error_panic_hook",
  "doc",
  "getrandom 0.2.17",
+ "js-sys",
  "json",
  "models",
  "proto-flow",

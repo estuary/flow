@@ -111,6 +111,7 @@ jemallocator = { version = "0", features = [
     "unprefixed_malloc_on_supported_platforms",
 ] }
 jemalloc-ctl = "0"
+js-sys = "0"
 json-patch = "4"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 kafka-protocol = "0.15"

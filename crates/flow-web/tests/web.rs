@@ -6,7 +6,6 @@ extern crate wasm_bindgen_test;
 use proto_flow::flow;
 use serde_json::{json, to_string};
 use serde_wasm_bindgen::{from_value as from_js_value, Serializer};
-use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
@@ -357,12 +356,22 @@ fn test_resolve_built_collections_capture() {
         "linkedCollections": [one, two],
     });
 
-    let expected = json!({
-        "collections": [one, two],
-        "bindings": [0, 1, 0, null],
-    });
-    assert_eq!(resolve_built_collections("capture", inline), expected);
-    assert_eq!(resolve_built_collections("capture", indirect), expected);
+    // An indirect spec resolves through its own table.
+    assert_eq!(
+        resolve_built_collections("capture", &indirect),
+        json!({"collections": [one, two], "bindings": [0, 1, 0, null]}),
+    );
+    // An inline spec has no table, and each binding which has a collection
+    // is given an entry of its own.
+    assert_eq!(
+        resolve_built_collections("capture", &inline),
+        json!({"collections": [one, two, one], "bindings": [0, 1, 2, null]}),
+    );
+    // Both forms resolve each binding to the same collection.
+    assert_eq!(
+        binding_collections("capture", &inline),
+        binding_collections("capture", &indirect),
+    );
 }
 
 #[wasm_bindgen_test]
@@ -394,43 +403,110 @@ fn test_resolve_built_collections_materialization() {
         "linkedCollections": [by_id, by_val],
     });
 
-    let expected = json!({
-        "collections": [by_id, by_val],
-        "bindings": [0, 1, 0],
+    assert_eq!(
+        resolve_built_collections("materialization", &indirect),
+        json!({"collections": [by_id, by_val], "bindings": [0, 1, 0]}),
+    );
+    assert_eq!(
+        resolve_built_collections("materialization", &inline),
+        json!({"collections": [by_id, by_val, by_id], "bindings": [0, 1, 2]}),
+    );
+    assert_eq!(
+        binding_collections("materialization", &inline),
+        binding_collections("materialization", &indirect),
+    );
+}
+
+#[wasm_bindgen_test]
+fn test_resolve_built_collections_by_reference() {
+    let collection = built_collection("acmeCo/one", "/id");
+    let get = |value: &JsValue, path: &[&str]| {
+        path.iter().fold(value.clone(), |value, property| {
+            js_sys::Reflect::get(&value, &JsValue::from_str(property)).unwrap()
+        })
+    };
+
+    // Returned collections are the objects of the built spec, not copies.
+    let inline = to_js_value(&json!({
+        "bindings": [built_binding("a", json!({"collection": collection}))],
+    }));
+    let resolved = resolve_js_built_collections("capture", &inline);
+    assert!(js_sys::Object::is(
+        &get(&resolved, &["collections", "0"]),
+        &get(&inline, &["bindings", "0", "collection"]),
+    ));
+
+    let indirect = to_js_value(&json!({
+        "bindings": [built_binding("a", json!({}))],
+        "linkedCollections": [collection],
+    }));
+    let resolved = resolve_js_built_collections("capture", &indirect);
+    assert!(js_sys::Object::is(
+        &get(&resolved, &["collections", "0"]),
+        &get(&indirect, &["linkedCollections", "0"]),
+    ));
+    // The table itself is a new array, so that reordering the result doesn't
+    // reorder the table of the built spec.
+    assert!(!js_sys::Object::is(
+        &get(&resolved, &["collections"]),
+        &get(&indirect, &["linkedCollections"]),
+    ));
+}
+
+#[wasm_bindgen_test]
+fn test_resolve_built_collections_of_a_newer_spec() {
+    // Only the properties which decide resolution are decoded. The rest of a
+    // built spec may hold values which this build doesn't know, as when it
+    // was written by a newer version of Flow.
+    let mut collection = built_collection("acmeCo/one", "/id");
+    collection["projections"][0]["inference"] = json!({"exists": "A_FUTURE_VALUE"});
+
+    let built_spec = json!({
+        "connectorType": "A_FUTURE_TYPE",
+        "bindings": [built_binding("a", json!({}))],
+        "linkedCollections": [collection],
     });
     assert_eq!(
-        resolve_built_collections("materialization", inline),
-        expected
+        resolve_built_collections("capture", &built_spec),
+        json!({"collections": [collection], "bindings": [0]}),
     );
-    assert_eq!(
-        resolve_built_collections("materialization", indirect),
-        expected
-    );
+}
+
+// Call `resolve_built_collections` with a built spec which is a JS value.
+fn resolve_js_built_collections(spec_type: &str, built_spec: &JsValue) -> JsValue {
+    let input = js_sys::Object::new();
+    js_sys::Reflect::set(&input, &"specType".into(), &spec_type.into()).unwrap();
+    js_sys::Reflect::set(&input, &"builtSpec".into(), built_spec).unwrap();
+
+    flow_web::resolve_built_collections(input.into()).unwrap()
 }
 
 // Call `resolve_built_collections` and return its result as JSON. The result
 // passes through JSON.stringify, which renders a `Map` as {} and throws on a
 // `BigInt`, so that comparisons also assert it's made of plain JSON values.
-fn resolve_built_collections(spec_type: &str, built_spec: serde_json::Value) -> serde_json::Value {
-    let input = to_js_value(&json!({
-        "specType": spec_type,
-        "builtSpec": built_spec,
-    }));
-    let result = json_stringify(&flow_web::resolve_built_collections(input).unwrap());
+fn resolve_built_collections(spec_type: &str, built_spec: &serde_json::Value) -> serde_json::Value {
+    let result = resolve_js_built_collections(spec_type, &to_js_value(built_spec));
+    let result = js_sys::JSON::stringify(&result)
+        .unwrap()
+        .as_string()
+        .unwrap();
 
-    // serde_json parses a RawValue wrapper object back into the value it
-    // wraps, so check for one before parsing.
-    assert!(
-        !result.contains("$serde_json::private::RawValue"),
-        "{result}"
-    );
     serde_json::from_str(&result).unwrap()
 }
 
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = JSON, js_name = stringify)]
-    fn json_stringify(value: &JsValue) -> String;
+// The collection which each binding of a built spec resolves to, or null.
+fn binding_collections(spec_type: &str, built_spec: &serde_json::Value) -> Vec<serde_json::Value> {
+    let resolved = resolve_built_collections(spec_type, built_spec);
+
+    resolved["bindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|index| match index.as_u64() {
+            Some(index) => resolved["collections"][index as usize].clone(),
+            None => serde_json::Value::Null,
+        })
+        .collect()
 }
 
 // A built collection in the JSON form of `live_specs.built_spec`, which

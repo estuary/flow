@@ -36,6 +36,7 @@ proto-flow = { path = "../proto-flow" }
 tables = { path = "../tables" }
 validation = { path = "../validation" }
 
+js-sys = { workspace = true }
 url = { workspace = true }
 thiserror = { workspace = true }
 wasm-bindgen = { workspace = true }
