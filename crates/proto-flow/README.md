@@ -9,7 +9,7 @@ feature and then runs `cargo fmt`). Never hand-edit `src/*.rs`.
 
 `src/lib.rs` also carries the small amount of hand-written surface:
 `AnyBuiltSpec`, the `*_json` serde adapters used by the generated code, and
-`RawJSONDeserialize`.
+`RawJSONDeserialize`. `src/connector/` is hand-written as well.
 
 ## Key files
 
@@ -20,6 +20,10 @@ feature and then runs `cargo fmt`). Never hand-edit `src/*.rs`.
   `CollectionSpec` field.
 - `src/internal.rs` — `get_internal` / `set_internal` / `with_internal` over
   the `internal: Bytes` field carried by connector Requests and Responses.
+- `src/connector/protocol.rs` — `connector::Protocol`, implemented by the
+  `Capture`, `Derive`, and `Materialize` markers. It states each protocol's
+  message types, its variant of the `connector.*` kinds which carry them, and
+  the shape of its Spec exchange.
 - `src/linked.rs` — accessors which resolve a binding or transform to its
   `CollectionSpec` over both the inline and indirect (`collection_index`)
   forms, the `indirect` / `inline` conversions between them, and the
