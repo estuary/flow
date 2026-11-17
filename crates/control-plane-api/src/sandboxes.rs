@@ -508,19 +508,34 @@ async fn prepare_baseline(client: &crate::sprites::Client, handle: &str) -> anyh
         && curl -fsSL -o $HOME/.local/bin/flowctl \
         https://github.com/estuary/flow/releases/latest/download/flowctl-x86_64-linux \
         && chmod +x $HOME/.local/bin/flowctl";
-    const INSTALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+    // The sprite's DNS proxy answers without name compression, truncates large
+    // replies, and refuses the TCP retry that follows. Hosts with many address
+    // records, such as the brokers of a large data plane, then fail to resolve.
+    // With EDNS0 the resolver advertises a larger UDP buffer and the reply fits.
+    // Commands run under `bash -l`, which sources only the first of these files.
+    const ENABLE_EDNS0: &str = "profile=$HOME/.profile; \
+        for f in $HOME/.bash_profile $HOME/.bash_login; do \
+            if [ -e $f ]; then profile=$f; break; fi; \
+        done; \
+        echo 'export RES_OPTIONS=edns0' >> $profile";
+    const STEP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
-    let output = client
-        .execute(handle, &["bash", "-lc", INSTALL_FLOWCTL], INSTALL_TIMEOUT)
-        .await
-        .context("installing flowctl into the sandbox")?;
+    for (script, step) in [
+        (INSTALL_FLOWCTL, "installing flowctl into the sandbox"),
+        (ENABLE_EDNS0, "enabling EDNS0 in the sandbox resolver"),
+    ] {
+        let output = client
+            .execute(handle, &["bash", "-lc", script], STEP_TIMEOUT)
+            .await
+            .context(step)?;
 
-    anyhow::ensure!(
-        output.exit_code == 0,
-        "installing flowctl into the sandbox failed with exit code {}: {}",
-        output.exit_code,
-        String::from_utf8_lossy(&output.stderr),
-    );
+        anyhow::ensure!(
+            output.exit_code == 0,
+            "{step} failed with exit code {}: {}",
+            output.exit_code,
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
 
     client
         .create_checkpoint(handle)
