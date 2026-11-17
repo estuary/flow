@@ -10,6 +10,10 @@ pub const FLOW_RUNTIME_CODEC: &str = "FLOW_RUNTIME_CODEC";
 #[serde(rename_all = "PascalCase")]
 pub struct Image {
     pub config: ImageConfig,
+    /// Every local tag of the image, fully qualified. It lists all names the
+    /// image is tagged under, and not only the name it was run under.
+    #[serde(default)]
+    pub repo_tags: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize, Clone)]
@@ -38,6 +42,23 @@ impl Image {
             Some("json") => crate::Codec::Json,
             _ => crate::Codec::Proto,
         }
+    }
+
+    /// Is this a frozen `derive-typescript` or `derive-python` `:dev` image?
+    /// These images serve only one request per process. The rule mirrors
+    /// `models::is_frozen_derive_image`, applied to every local tag of the image.
+    // TODO(johnny): Remove with retirement of the V1 runtime for derivations.
+    // TODO(johnny): VMM rebase: this applies to the podman inspect JSON which
+    // the VMM mounts, so the VMM's own `spec_rpc` arm is deleted. A tag-pulled
+    // `linux/amd64` image's `podman image inspect` lists its fully qualified
+    // `:dev` tag in `RepoTags`.
+    pub fn is_frozen_derive(&self) -> bool {
+        self.repo_tags.iter().any(|tag| {
+            matches!(
+                tag.as_str(),
+                "ghcr.io/estuary/derive-typescript:dev" | "ghcr.io/estuary/derive-python:dev"
+            )
+        })
     }
 
     /// Find the arguments required to invoke the connector,
@@ -73,6 +94,31 @@ mod test {
     use super::Image;
 
     #[test]
+    fn detects_frozen_derive_images_by_any_tag() {
+        let outcomes = [
+            serde_json::json!([]),
+            serde_json::json!(["ghcr.io/estuary/source-http-ingest:dev"]),
+            serde_json::json!(["ghcr.io/estuary/derive-typescript:v1"]),
+            serde_json::json!([
+                "acmeCo/derive:local",
+                "ghcr.io/estuary/derive-typescript:dev"
+            ]),
+            serde_json::json!(["ghcr.io/estuary/derive-python:dev"]),
+        ]
+        .map(|tags| {
+            let fixture = serde_json::json!([{
+                "RepoTags": tags,
+                "Config": {"Labels": {}, "Env": []},
+            }]);
+            Image::parse_from_json_slice(fixture.to_string().as_bytes())
+                .unwrap()
+                .is_frozen_derive()
+        });
+
+        assert_eq!(outcomes, [false, false, false, true, true]);
+    }
+
+    #[test]
     fn parses_docker_and_podman_inspections() {
         let outcomes: Vec<_> = [
             (
@@ -88,7 +134,7 @@ mod test {
         .map(|(engine, fixture)| (engine, Image::parse_from_json_slice(fixture).unwrap()))
         .collect();
 
-        insta::assert_debug_snapshot!(outcomes, @r###"
+        insta::assert_debug_snapshot!(outcomes, @r#"
         [
             (
                 "docker",
@@ -117,6 +163,9 @@ mod test {
                             "8080/tcp": Object {},
                         },
                     },
+                    repo_tags: [
+                        "ghcr.io/estuary/source-http-ingest:dev",
+                    ],
                 },
             ),
             (
@@ -146,9 +195,12 @@ mod test {
                             "8080/tcp": Object {},
                         },
                     },
+                    repo_tags: [
+                        "ghcr.io/estuary/source-http-ingest:dev",
+                    ],
                 },
             ),
         ]
-        "###);
+        "#);
     }
 }

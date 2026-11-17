@@ -5,10 +5,12 @@ use tonic::transport::server::TcpIncoming;
 
 mod capture;
 mod codec;
+mod connector;
 mod derive;
 pub mod inspect;
 mod materialize;
 pub mod rpc;
+pub mod serve;
 
 #[derive(clap::Parser, Debug)]
 #[clap(about = "Command to start connector proxies for Flow runtime.")]
@@ -31,6 +33,10 @@ pub async fn run(
     }: Args,
     log_level: String,
 ) -> anyhow::Result<()> {
+    // TODO(johnny): VMM rebase: the branch's `Listener` enum serves vsock as
+    // well as TCP. The `connector.Connector` service's one-stream lifetime,
+    // and the shutdown below, apply the same on either listener.
+
     // Bind our port before we do anything else.
     let addr = format!("0.0.0.0:{}", port).parse().unwrap();
     let incoming = TcpIncoming::bind(addr)
@@ -72,11 +78,33 @@ pub async fn run(
         .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the runtime sends.
         .max_encoding_message_size(usize::MAX); // The default, made explicit.
 
+    let done = std::sync::Arc::new(tokio::sync::Notify::new());
+    let connector =
+        proto_grpc::connector::connector_server::ConnectorServer::new(connector::Proxy {
+            entrypoint,
+            codec,
+            spec_alone: image.is_frozen_derive(),
+            taken: Default::default(),
+            done: done.clone(),
+        })
+        .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the runtime sends.
+        .max_encoding_message_size(usize::MAX); // The default, made explicit.
+
+    // Stop once a served Connector stream is done. Otherwise, the watchdog
+    // stops a server which no stream reaches, and the per-protocol services.
+    let shutdown = async move {
+        tokio::select! {
+            () = watchdog() => (),
+            () = done.notified() => (),
+        }
+    };
+
     let () = tonic::transport::Server::builder()
         .add_service(capture)
+        .add_service(connector)
         .add_service(derive)
         .add_service(materialize)
-        .serve_with_incoming_shutdown(incoming, watchdog())
+        .serve_with_incoming_shutdown(incoming, shutdown)
         .await?;
 
     Ok(())
@@ -129,3 +157,93 @@ static GRPC_SERVER_STARTED_TOTAL: atomic::AtomicUsize = atomic::AtomicUsize::new
 static GRPC_SERVER_HANDLED_TOTAL: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
 
 const EXPECT_PROTOCOL: u32 = 3032023;
+
+#[cfg(test)]
+mod test {
+    use crate::serve::test::{SPEC, first, validate};
+    use proto_flow::connector;
+
+    #[tokio::test]
+    async fn serves_one_stream_and_stops() {
+        let script = format!(r#"read spec; echo '{SPEC}'; read v; echo '{{"validated":{{}}}}'"#);
+        let dir = tempfile::tempdir().unwrap();
+        let inspect = dir.path().join("image-inspect.json");
+        std::fs::write(
+            &inspect,
+            serde_json::json!([{
+                "Config": {
+                    "Entrypoint": ["/bin/sh", "-c", script],
+                    "Labels": {"FLOW_RUNTIME_CODEC": "json"},
+                    "Env": [],
+                },
+            }])
+            .to_string(),
+        )
+        .unwrap();
+
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let server = tokio::spawn(super::run(
+            super::Args {
+                image_inspect_json_path: inspect.display().to_string(),
+                port,
+            },
+            "info".to_string(),
+        ));
+
+        // `run` binds its port only once its task is polled.
+        let endpoint = tonic::transport::Endpoint::new(format!("http://127.0.0.1:{port}")).unwrap();
+        let channel = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                match endpoint.connect().await {
+                    Ok(channel) => return channel,
+                    Err(_) => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+                }
+            }
+        })
+        .await
+        .expect("run binds its port");
+        let mut client = proto_grpc::connector::connector_client::ConnectorClient::new(channel);
+
+        let (request_tx, request_rx) = tokio::sync::mpsc::channel(4);
+        request_tx.send(first("info")).await.unwrap();
+        let mut responses = client
+            .connector(tokio_stream::wrappers::ReceiverStream::new(request_rx))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let started = responses.message().await.unwrap().unwrap();
+        assert!(matches!(
+            started.kind,
+            Some(connector::response::Kind::Started(_))
+        ));
+
+        // While the first stream is open, a second is rejected.
+        let second = client
+            .connector(futures::stream::empty::<connector::Request>())
+            .await
+            .unwrap_err();
+        assert_eq!(second.code(), tonic::Code::FailedPrecondition);
+
+        request_tx.send(validate()).await.unwrap();
+        std::mem::drop(request_tx);
+
+        let validated = responses.message().await.unwrap().unwrap();
+        assert!(matches!(
+            validated.kind,
+            Some(connector::response::Kind::Derive(_))
+        ));
+        assert!(responses.message().await.unwrap().is_none());
+
+        // `run` returns once its one stream is done, well ahead of the watchdog.
+        tokio::time::timeout(std::time::Duration::from_secs(3), server)
+            .await
+            .expect("run returns after its stream")
+            .unwrap()
+            .unwrap();
+    }
+}
