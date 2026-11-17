@@ -3,7 +3,12 @@ use std::collections::BTreeMap;
 
 mod arc;
 pub mod capture;
-pub mod connector;
+pub mod connector {
+    include!("connector.rs");
+
+    mod protocol;
+    pub use protocol::{Capture, Derive, Materialize, Protocol};
+}
 pub mod derive;
 pub mod disk;
 pub mod flow;
