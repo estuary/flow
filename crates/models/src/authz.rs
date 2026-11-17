@@ -123,6 +123,7 @@ pub enum CapabilityBundle {
     EditSecret,
     ViewDataPlanePrivateNetworking,
     ModifyDataPlanePrivateNetworking,
+    CatalogRead,
 }
 
 impl CapabilityBundle {
@@ -215,6 +216,7 @@ impl CapabilityBundle {
             Self::EditSecret => EditSecret.into(),
             Self::ViewDataPlanePrivateNetworking => ViewDataPlanePrivateNetworking.into(),
             Self::ModifyDataPlanePrivateNetworking => ModifyDataPlanePrivateNetworking.into(),
+            Self::CatalogRead => CatalogRead.into(),
         }
     }
 }
@@ -267,7 +269,9 @@ mod tests {
           ],
           [
             "partial",
-            []
+            [
+              "catalog_read"
+            ]
           ],
           [
             "single_bit",
@@ -279,7 +283,8 @@ mod tests {
             "exact",
             [
               "viewer",
-              "view_data_plane_private_networking"
+              "view_data_plane_private_networking",
+              "catalog_read"
             ]
           ],
           [
@@ -290,7 +295,8 @@ mod tests {
               "billing",
               "view_billing",
               "edit_billing",
-              "view_data_plane_private_networking"
+              "view_data_plane_private_networking",
+              "catalog_read"
             ]
           ]
         ]

@@ -141,7 +141,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_prefix_capability_bundles() {
-        let bits = models::authz::CapabilityBundle::Viewer.capabilities();
+        let bits = models::authz::CapabilityBundle::Editor.capabilities()
+            & models::authz::CapabilityBundle::Viewer.capabilities();
         let schema = async_graphql::Schema::build(
             super::PrefixRef {
                 prefix: models::Prefix::new("acmeCo/"),
@@ -160,13 +161,11 @@ mod tests {
         {
           "data": {
             "capabilities": [
-              "Viewer",
-              "ViewDataPlanePrivateNetworking"
+              "CatalogRead"
             ],
             "capabilityBits": [
               "CatalogRead",
-              "JournalRead",
-              "ViewDataPlanePrivateNetworking"
+              "JournalRead"
             ],
             "userCapability": "none"
           }

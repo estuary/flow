@@ -479,6 +479,7 @@ enum CapabilityBundle {
 	EditSecret
 	ViewDataPlanePrivateNetworking
 	ModifyDataPlanePrivateNetworking
+	CatalogRead
 }
 
 """

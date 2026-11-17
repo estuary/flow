@@ -30,7 +30,8 @@
                       "edit_billing",
                       "edit_secret",
                       "view_data_plane_private_networking",
-                      "modify_data_plane_private_networking"
+                      "modify_data_plane_private_networking",
+                      "catalog_read"
                     ]
                   }
                 }
@@ -62,7 +63,8 @@
                       "edit_billing",
                       "edit_secret",
                       "view_data_plane_private_networking",
-                      "modify_data_plane_private_networking"
+                      "modify_data_plane_private_networking",
+                      "catalog_read"
                     ]
                   }
                 }
