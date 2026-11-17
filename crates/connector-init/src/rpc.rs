@@ -16,7 +16,7 @@ pub fn new_command<S: AsRef<str>>(entrypoint: &[S]) -> async_process::Command {
 }
 
 /// Adapt a synchronous `ops::Log` handler into the async handler which
-/// [`bidi`] and [`unary`] take, for callers having nothing to await.
+/// [`spawn`] and [`bidi`] take, for callers having nothing to await.
 pub fn sync_log_handler<H>(
     handler: H,
 ) -> impl Fn(ops::Log) -> std::future::Ready<()> + Send + Sync + 'static
@@ -29,38 +29,10 @@ where
     }
 }
 
-/// Process a unary RPC `op` which is delegated to the connector at `entrypoint`.
-pub async fn unary<In, Out, H, F>(
-    connector: async_process::Command,
-    codec: Codec,
-    request: In,
-    log_handler: H,
-) -> tonic::Result<Out>
-where
-    In: prost::Message + serde::Serialize + 'static,
-    Out: prost::Message + for<'de> serde::Deserialize<'de> + Default + Unpin,
-    H: Fn(ops::Log) -> F + Send + Sync + 'static,
-    F: std::future::Future<Output = ()> + Send + 'static,
-{
-    let requests = futures::stream::once(async { Ok(request) });
-    let responses = bidi(connector, codec, requests, log_handler)?;
-    let mut responses: Vec<Out> = responses.try_collect().await?;
-
-    let response = responses.pop();
-    match (response, responses.is_empty()) {
-        (Some(response), true) => Ok(response),
-        (Some(_), false) => Err(Status::internal(
-            "rpc is expected to be unary but it returned multiple responses",
-        )),
-        (None, _) => Err(Status::internal(
-            "rpc is expected to be unary but it returned no response",
-        )),
-    }
-}
-
-/// Process a bi-directional RPC which is delegated to the connector at `entrypoint`.
+/// V1's [`spawn`], which reports the connector's exit to `tracing`.
+/// Remove with V1.
 pub fn bidi<In, Out, InStream, H, F>(
-    mut connector: async_process::Command,
+    connector: async_process::Command,
     codec: Codec,
     requests: InStream,
     log_handler: H,
@@ -71,6 +43,36 @@ where
     InStream: futures::Stream<Item = tonic::Result<In>> + Send + 'static,
     H: Fn(ops::Log) -> F + Send + Sync + 'static,
     F: std::future::Future<Output = ()> + Send + 'static,
+{
+    spawn(connector, codec, requests, log_handler, |status| {
+        if status.success() {
+            tracing::debug!(%status, "connector exited");
+        } else {
+            tracing::error!(%status, "connector failed");
+        }
+        std::future::ready(())
+    })
+}
+
+/// Spawn the connector process, and return its stream of responses to `requests`.
+/// Its stderr logs go to `log_handler`, and its exit status to `exit_handler`.
+/// The exit handler is awaited after the last response, and before the stream
+/// yields its EOF or terminal status.
+pub(crate) fn spawn<In, Out, InStream, L, LF, X, XF>(
+    mut connector: async_process::Command,
+    codec: Codec,
+    requests: InStream,
+    log_handler: L,
+    exit_handler: X,
+) -> tonic::Result<impl futures::Stream<Item = tonic::Result<Out>>>
+where
+    In: prost::Message + serde::Serialize + 'static,
+    Out: prost::Message + for<'de> serde::Deserialize<'de> + Default,
+    InStream: futures::Stream<Item = tonic::Result<In>> + Send + 'static,
+    L: Fn(ops::Log) -> LF + Send + Sync + 'static,
+    LF: std::future::Future<Output = ()> + Send + 'static,
+    X: FnOnce(std::process::ExitStatus) -> XF + Send + 'static,
+    XF: std::future::Future<Output = ()>,
 {
     let args: Vec<String> = std::iter::once(connector.get_program())
         .chain(connector.get_args())
@@ -97,13 +99,63 @@ where
     let connector = tokio::spawn(service_connector(connector, codec, requests, log_handler));
     // Ensure `connector` is aborted (and the process killed) if our response stream is dropped.
     let connector = AutoAbortHandle(connector);
-    // Map to a Stream that awaits `connector` and returns EOF, or returns its error.
-    let connector = futures::stream::try_unfold(connector, |connector| async move {
-        let () = connector.await.expect("service_connector finishes")?;
-        Ok(None)
-    });
+    // Map to a Stream that awaits `connector`, reports its exit, and returns
+    // EOF or its error. It's polled only after `responses`, so the exit is
+    // reported after every response.
+    let connector = futures::stream::try_unfold(
+        (connector, Some(exit_handler)),
+        |(connector, exit_handler)| async move {
+            let (status, mut last_log) = connector.await.expect("service_connector finishes")?;
+            (exit_handler.expect("polled once"))(status).await;
+
+            if status.success() {
+                return Ok(None);
+            }
+            // Bound before the Log reaches the wire: this Status is the sole
+            // carrier of the connector's terminal error, and an oversized
+            // trailer destroys it outright. See MAX_TERMINAL_LOG_LEN.
+            bound_log(&mut last_log);
+
+            let mut status = Status::unknown(&last_log.message);
+            status.metadata_mut().insert_bin(
+                "last-log-bin",
+                tonic::metadata::MetadataValue::from_bytes(&last_log.encode_to_vec()),
+            );
+            Err(status)
+        },
+    );
     // Chain `responses` with the final success (empty) or error Status of `connector`.
     Ok(responses.chain(connector))
+}
+
+/// [`spawn`] the connector process for exactly one response to one `request`.
+pub(crate) async fn spawn_unary<In, Out, L, LF, X, XF>(
+    connector: async_process::Command,
+    codec: Codec,
+    request: In,
+    log_handler: L,
+    exit_handler: X,
+) -> tonic::Result<Out>
+where
+    In: prost::Message + serde::Serialize + 'static,
+    Out: prost::Message + for<'de> serde::Deserialize<'de> + Default + Unpin,
+    L: Fn(ops::Log) -> LF + Send + Sync + 'static,
+    LF: std::future::Future<Output = ()> + Send + 'static,
+    X: FnOnce(std::process::ExitStatus) -> XF + Send + 'static,
+    XF: std::future::Future<Output = ()>,
+{
+    let requests = futures::stream::once(async { Ok(request) });
+    let responses = spawn(connector, codec, requests, log_handler, exit_handler)?;
+    let mut responses: Vec<Out> = responses.try_collect().await?;
+
+    let response = responses.pop();
+    match (response, responses.is_empty()) {
+        (Some(response), true) => Ok(response),
+        (Some(_), false) => Err(Status::internal("connector sent more than one response")),
+        (None, _) => Err(Status::internal(
+            "connector closed its output without a response",
+        )),
+    }
 }
 
 /// Service connector by jointly waiting for it to exit, and for its stderr to complete.
@@ -117,7 +169,7 @@ async fn service_connector<M, S, H, F>(
     codec: Codec,
     stream: S,
     log_handler: H,
-) -> tonic::Result<()>
+) -> tonic::Result<(std::process::ExitStatus, ops::Log)>
 where
     M: prost::Message + serde::Serialize + 'static,
     S: futures::Stream<Item = tonic::Result<M>>,
@@ -138,33 +190,14 @@ where
         std::time::SystemTime::now,
     )));
 
-    // Future which awaits the connector's exit and stderr result, and returns Ok(())
-    // if it exited successfully or an error with embedded stderr content otherwise.
+    // Future which awaits the connector's exit and stderr result, and returns
+    // its exit status and final log.
     let exit = async {
         let (wait, last_log) = futures::join!(connector.wait(), last_log);
         let status = wait.map_err(|err| map_status("failed to wait for connector", err))?;
         let last_log =
             last_log.map_err(|err| map_status("failed to process connector logs", err))?;
-
-        if !status.success() {
-            tracing::error!(%status, "connector failed");
-
-            // Bound before the Log reaches the wire: this Status is the sole
-            // carrier of the connector's terminal error, and an oversized
-            // trailer destroys it outright. See MAX_TERMINAL_LOG_LEN.
-            let mut last_log = last_log;
-            bound_log(&mut last_log);
-
-            let mut status = Status::unknown(&last_log.message);
-            status.metadata_mut().insert_bin(
-                "last-log-bin",
-                tonic::metadata::MetadataValue::from_bytes(&last_log.encode_to_vec()),
-            );
-            Err(status)
-        } else {
-            tracing::debug!(%status, "connector exited");
-            Ok(())
-        }
+        Ok((status, last_log))
     };
 
     tokio::pin!(exit, stream);
@@ -334,8 +367,8 @@ fn bound_log(log: &mut ops::Log) {
 #[cfg(test)]
 mod test {
     use super::{
-        Codec, MAX_TERMINAL_LOG_LEN, bidi, bound_log, new_command, process_logs, sync_log_handler,
-        unary,
+        Codec, MAX_TERMINAL_LOG_LEN, bidi, bound_log, new_command, process_logs, spawn_unary,
+        sync_log_handler,
     };
     use futures::{StreamExt, TryStreamExt};
     use prost::Message;
@@ -637,18 +670,19 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_unary_cat() {
+    async fn test_spawn_unary_cat() {
         for codec in [Codec::Proto, Codec::Json] {
             let fixture = TestSpec {
                 name: "hello world".to_string(),
                 ..Default::default()
             };
 
-            let out: TestSpec = unary(
+            let out: TestSpec = spawn_unary(
                 new_command(&["cat".to_string(), "-".to_string()]),
                 codec,
                 fixture.clone(),
                 sync_log_handler(ops::stderr_log_handler),
+                |_status| std::future::ready(()),
             )
             .await
             .unwrap();
@@ -657,18 +691,19 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_unary_too_few_outputs() {
+    async fn test_spawn_unary_too_few_outputs() {
         for codec in [Codec::Proto, Codec::Json] {
             let fixture = TestSpec {
                 name: "hello world".to_string(),
                 ..Default::default()
             };
 
-            let out: Result<TestSpec, _> = unary(
+            let out: Result<TestSpec, _> = spawn_unary(
                 new_command(&["true".to_string()]),
                 codec,
                 fixture.clone(),
                 sync_log_handler(ops::stderr_log_handler),
+                |_status| std::future::ready(()),
             )
             .await;
 
@@ -677,7 +712,7 @@ mod test {
             Err(
                 Status {
                     code: Internal,
-                    message: "rpc is expected to be unary but it returned no response",
+                    message: "connector closed its output without a response",
                     source: None,
                 },
             )

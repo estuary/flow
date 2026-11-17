@@ -85,6 +85,15 @@ impl Codec {
     }
 }
 
+impl From<Codec> for proto_flow::connector::response::started::Codec {
+    fn from(codec: Codec) -> Self {
+        match codec {
+            Codec::Proto => Self::Proto,
+            Codec::Json => Self::Json,
+        }
+    }
+}
+
 // Maps an AsyncRead into a Stream of decoded messages.
 pub fn reader_to_message_stream<M, R>(
     codec: Codec,
