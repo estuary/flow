@@ -216,11 +216,18 @@ pub(crate) fn check_connector_sqlite_vfs(
     Ok(())
 }
 
-/// Restrict connector-emitted events to their task and supported event types.
+/// Make a connector's Log safe to forward, and restrict its events to their
+/// task and supported event types.
+///
+/// The Log is built within the connector's container, so every field of it is
+/// untrusted. Loggers which receive it require that it serializes, which
+/// [`make_serializable`] ensures.
 pub(crate) fn sanitize_connector_log(
     quoted_task_name: &bytes::Bytes,
     mut log: ops::Log,
 ) -> ops::Log {
+    make_serializable(&mut log, std::time::SystemTime::now);
+
     match log
         .fields_json_map
         .get("eventType")
@@ -252,6 +259,40 @@ pub(crate) fn sanitize_connector_log(
         None => {}
     }
     log
+}
+
+/// Seconds of a protobuf Timestamp, which spans the years 1 through 9999.
+const TIMESTAMP_SECONDS: std::ops::RangeInclusive<i64> = -62_135_596_800..=253_402_300_799;
+
+/// Repair each part of `log` which would fail to serialize as JSON, and
+/// likewise its spans. A repair keeps what the connector sent where it can:
+///
+/// - An unknown level becomes `warn`.
+/// - A timestamp outside of protobuf's range becomes `now`.
+/// - A field value which isn't JSON becomes a JSON string of its bytes.
+///
+/// `meta` and `shard` are cleared, as the runtime sets both when it publishes
+/// the Log.
+fn make_serializable(log: &mut ops::Log, now: fn() -> std::time::SystemTime) {
+    log.meta = None;
+    log.shard = None;
+
+    if ops::LogLevel::try_from(log.level).is_err() {
+        log.level = ops::LogLevel::Warn as i32;
+    }
+    if log.timestamp.as_ref().is_some_and(|ts| {
+        !TIMESTAMP_SECONDS.contains(&ts.seconds) || !(0..1_000_000_000).contains(&ts.nanos)
+    }) {
+        log.timestamp = Some(proto_flow::as_timestamp(now()));
+    }
+    for value in log.fields_json_map.values_mut() {
+        if serde_json::from_slice::<&serde_json::value::RawValue>(value).is_err() {
+            *value = crate::json_field(&String::from_utf8_lossy(value));
+        }
+    }
+    for span in &mut log.spans {
+        make_serializable(span, now);
+    }
 }
 
 /// Deadline for beginning a graceful session restart ahead of IAM token expiry.
@@ -575,6 +616,77 @@ mod test {
             })
             .collect();
         insta::assert_debug_snapshot!(outcomes);
+    }
+
+    /// A Log which a hostile container builds serializes once repaired. Each
+    /// of its parts would otherwise fail to: the level, the timestamp, and
+    /// the field values, of the Log and of its span.
+    #[test]
+    fn connector_log_is_made_serializable() {
+        let hostile = || ops::Log {
+            meta: Some(ops::Meta {
+                uuid: "forged".to_string(),
+            }),
+            shard: Some(ops::ShardRef {
+                name: "acmeCo/other/task".to_string(),
+                ..Default::default()
+            }),
+            timestamp: Some(proto_flow::Timestamp {
+                seconds: i64::MAX,
+                nanos: -1,
+            }),
+            level: -1,
+            message: "hostile".to_string(),
+            fields_json_map: [
+                ("json", r#"{"kept": [1, true]}"#.as_bytes()),
+                ("text", b"not json".as_slice()),
+                ("truncated", br#"{"a":"#.as_slice()),
+                ("binary", b"\"\xff\"".as_slice()),
+            ]
+            .into_iter()
+            .map(|(name, value)| (name.to_string(), bytes::Bytes::copy_from_slice(value)))
+            .collect(),
+            spans: Vec::new(),
+        };
+        let mut log = hostile();
+        log.spans = vec![hostile()];
+        log.timestamp = Some(proto_flow::Timestamp {
+            seconds: 1_700_000_000,
+            nanos: 0,
+        });
+
+        assert!(serde_json::to_string(&log).is_err());
+
+        super::make_serializable(&mut log, || {
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000)
+        });
+
+        insta::assert_snapshot!(serde_json::to_string_pretty(&log).unwrap(), @r#"
+        {
+          "ts": "2023-11-14T22:13:20+00:00",
+          "level": "warn",
+          "message": "hostile",
+          "fields": {
+            "binary": "\"�\"",
+            "json": {"kept": [1, true]},
+            "text": "not json",
+            "truncated": "{\"a\":"
+          },
+          "spans": [
+            {
+              "ts": "2027-01-15T08:00:00+00:00",
+              "level": "warn",
+              "message": "hostile",
+              "fields": {
+                "binary": "\"�\"",
+                "json": {"kept": [1, true]},
+                "text": "not json",
+                "truncated": "{\"a\":"
+              }
+            }
+          ]
+        }
+        "#);
     }
 
     #[test]
