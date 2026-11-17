@@ -25,8 +25,6 @@ pub(crate) const SECRETS_LABEL: &str = "dev.estuary.secrets";
 #[derive(Debug, serde::Serialize)]
 struct Declarations {
     pub runtime_protocol: crate::RuntimeProtocol,
-    #[serde(skip)]
-    pub codec: connector_init::Codec,
     pub advertised_ports: Vec<flow::NetworkPort>,
     /// A rate declared by the image. [`crate::policy`] decides whether it is trusted.
     pub declared_usage_rate: Option<f32>,
@@ -91,7 +89,6 @@ impl Declarations {
 
         Ok(Self {
             runtime_protocol,
-            codec: inspected.runtime_codec(),
             advertised_ports,
             declared_usage_rate,
             secrets: parse_secrets_label(labels.get(SECRETS_LABEL).map(String::as_str))?,
@@ -103,19 +100,15 @@ impl Declarations {
 pub(super) async fn connect<P: crate::protocol::Protocol>(
     ctx: &crate::protocol::StartContext,
     image: String,
-    sealed_config: models::RawValue,
     policy: &crate::policy::Image,
     env: BTreeMap<String, String>,
     mount: &std::path::Path,
     secrets: &std::collections::BTreeMap<String, String>,
     network_ports: Vec<u32>,
-    connector_type: i32,   // TODO(johnny): remove with V1 derivations.
-    spec_on_own_rpc: bool, // TODO(johnny): remove.
-    requests: futures::stream::BoxStream<'static, P::Request>,
-) -> anyhow::Result<crate::Transport<P>> {
+    requests: tokio_stream::wrappers::ReceiverStream<crate::proto::Request>,
+) -> anyhow::Result<crate::Transport> {
     let inspected = crate::container::pull_and_inspect(&image, &ctx.log_sink).await?;
     let Declarations {
-        codec,
         declared_usage_rate,
         advertised_ports,
         runtime_protocol,
@@ -159,20 +152,17 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
         ),
     ]);
 
-    let quoted_task_name: bytes::Bytes = format!("\"{}\"", ctx.task_name).into();
     let running = crate::container::run(
         inspected,
         crate::container::RunParams {
             env,
             host_gateway_names: host_gateway_names(ctx.plane, ctx.task_update.as_ref()),
             labels,
-            log_sink: ctx.log_sink.clone(),
             mount: mount.to_owned(),
             network: ctx.container_network.clone(),
             publish_ports: matches!(ctx.plane, crate::Plane::Local),
             network_ports,
         },
-        move |log| crate::policy::sanitize_connector_log(&quoted_task_name, log),
     )
     .await?;
 
@@ -193,22 +183,22 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
         ))
         .await;
 
-    // Drive the Spec to completion on its own RPC before opening the real one,
-    // so the connector sees one request per invocation.
-    let spec = if spec_on_own_rpc {
-        Some(crate::protocol::spec_rpc::<P>(running.channel.clone(), connector_type).await?)
-    } else {
-        None
-    };
-    let connector_rx = P::open_rpc(running.channel, requests).await?.into_inner();
+    // TODO(johnny): VMM rebase: the VMM arm dials this same service over the
+    // UDS which libkrun maps to `flow-connector-init`'s vsock port.
+    let response_rx =
+        proto_grpc::connector::connector_client::ConnectorClient::new(running.channel)
+            .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
+            .max_encoding_message_size(usize::MAX)
+            .connector(requests)
+            .await
+            .map_err(crate::status_to_anyhow)?
+            .into_inner();
 
     Ok(crate::Transport {
-        connector_rx: connector_rx.boxed(),
+        response_rx: response_rx.boxed(),
         container: Some(container),
-        codec,
         process: Some(running.process),
-        sealed_config,
-        spec,
+        stderr_overflow: running.stderr_overflow,
     })
 }
 
@@ -312,7 +302,6 @@ mod test {
             ]
         );
         assert_eq!(Some(1.3), declarations.declared_usage_rate);
-        assert_eq!(connector_init::Codec::Json, declarations.codec);
         insta::assert_debug_snapshot!(declarations.secrets, @r###"
         {
             "acmeVendor/oauth/connectors/ghcr.io/acmeVendor/source-widgets/oauth-client": "/credentials",

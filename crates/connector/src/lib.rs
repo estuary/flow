@@ -48,7 +48,7 @@ pub fn local_test_router() -> std::sync::Arc<dyn proto_grpc::connector::Router> 
     std::sync::Arc::new(router)
 }
 
-/// Sink for connector logs and container lifecycle records.
+/// Sink for this crate's own task logs, such as image pulls and container starts.
 #[derive(Clone)]
 pub(crate) struct LogSink(std::sync::Arc<LogDest>);
 
@@ -83,9 +83,7 @@ impl LogSink {
     }
 
     /// Send one log, awaiting its destination. The channel is bounded and is
-    /// drained only as the stream's consumer polls, so a chatty connector
-    /// back-pressures on its own stderr rather than being buffered without
-    /// bound.
+    /// drained only as the stream's consumer polls.
     pub(crate) async fn send(&self, log: ops::Log) {
         match &*self.0 {
             LogDest::Response(response_tx, _read_through) => {
@@ -121,26 +119,26 @@ impl RuntimeProtocol {
     }
 }
 
-/// A running connector, before its Spec response is verified.
-struct Transport<P: protocol::Protocol> {
-    connector_rx: futures::stream::BoxStream<'static, tonic::Result<P::Response>>,
+/// A dispatched connector, which serves the `connector.Connector` contract of
+/// `connector_init::serve` to its request channel.
+struct Transport {
+    response_rx: futures::stream::BoxStream<'static, tonic::Result<proto::Response>>,
     container: Option<Container>,
-    codec: connector_init::Codec,
     /// `docker run` of an image connector, which its [`Guard`] SIGKILLs.
     process: Option<async_process::Child>,
-    /// Sealed endpoint configuration of the dispatched endpoint.
-    sealed_config: models::RawValue,
-    /// Spec already exchanged on an RPC of its own, only when required.
-    // TODO(johnny): Remove with V1 derivations.
-    spec: Option<proto::response::started::Spec>,
+    /// Resolves to the error which fails the session if an image connector's
+    /// container exceeds its stderr budget, and otherwise never.
+    stderr_overflow: futures::future::BoxFuture<'static, anyhow::Error>,
 }
 
 /// The transport of a started connector, and the `Started` response which
 /// leads its protocol responses.
-struct Started<P: protocol::Protocol> {
+struct Started {
     started: proto::Response,
-    connector_tx: tokio::sync::mpsc::Sender<P::Request>,
-    connector_rx: futures::stream::BoxStream<'static, tonic::Result<P::Response>>,
+    connector_tx: tokio::sync::mpsc::Sender<proto::Request>,
+    connector_rx: futures::stream::BoxStream<'static, tonic::Result<proto::Response>>,
+    /// See [`Transport`].
+    stderr_overflow: futures::future::BoxFuture<'static, anyhow::Error>,
     /// Keeps an image or local connector's host resources alive until stream
     /// teardown. In-process connectors have none.
     guard: Guard,
@@ -149,9 +147,9 @@ struct Started<P: protocol::Protocol> {
 /// Host resources of an image or local connector, released when the served
 /// stream ends.
 ///
-/// Field order is the teardown order: the container is SIGKILLed and the
-/// token refresh signaled *before* the mount they both use is removed.
-/// Killing the container also closes its stderr, so its log pump can finish.
+/// Field order is the teardown order: `docker run` is SIGKILLed and the token
+/// refresh signaled to stop, and then the mount is removed. Teardown awaits
+/// neither, nor the container's exit.
 pub(crate) struct Guard {
     _process: Option<async_process::Child>,
     _refresh: Option<tokio::sync::oneshot::Sender<()>>,

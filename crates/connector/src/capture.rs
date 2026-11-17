@@ -1,72 +1,15 @@
-//! Capture protocol: request unwrapping, endpoint extraction, and the
-//! `capture.Connector` RPC. See `protocol.rs` for the start pipeline.
-use crate::{
-    proto,
-    protocol::{Endpoint, Extracted, Protocol, StartRpcFuture},
-};
+//! Capture protocol: endpoint extraction.
+//! See `protocol.rs` for the start pipeline.
+use crate::protocol::{Endpoint, Extracted, Protocol};
 use anyhow::Context;
-use futures::FutureExt;
 use proto_flow::{
-    capture::{Request, Response, request, response},
+    capture::{Request, request},
     flow,
 };
 
-pub(crate) enum Capture {}
+pub(crate) use proto_flow::connector::Capture;
 
 impl Protocol for Capture {
-    type Request = Request;
-    type Response = Response;
-
-    const NAME: &'static str = "Capture";
-    const TASK_TYPE: ops::TaskType = ops::TaskType::Capture;
-
-    fn spec_request(connector_type: i32, config: models::RawValue) -> Request {
-        Request {
-            kind: Some(request::Kind::Spec(request::Spec {
-                config_json: bytes::Bytes::from(config),
-                connector_type,
-            })),
-            ..Default::default()
-        }
-    }
-
-    fn unwrap_request(kind: proto::request::Kind) -> Option<Request> {
-        match kind {
-            proto::request::Kind::Capture(request) => Some(request),
-            _ => None,
-        }
-    }
-
-    fn wrap_response(response: Response) -> proto::Response {
-        proto::Response {
-            kind: Some(proto::response::Kind::Capture(response)),
-        }
-    }
-
-    fn unwrap_spec(response: Response) -> Result<proto::response::started::Spec, Response> {
-        match response {
-            Response {
-                kind: Some(response::Kind::Spec(spec)),
-                ..
-            } => Ok(proto::response::started::Spec::Capture(spec)),
-            response => Err(response),
-        }
-    }
-
-    fn open_rpc<S>(channel: tonic::transport::Channel, requests: S) -> StartRpcFuture<Response>
-    where
-        S: futures::Stream<Item = Request> + Send + 'static,
-    {
-        async move {
-            proto_grpc::capture::connector_client::ConnectorClient::new(channel)
-                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
-                .max_encoding_message_size(usize::MAX)
-                .capture(requests)
-                .await
-        }
-        .boxed()
-    }
-
     fn extract_endpoint<'r>(
         request: &'r mut Request,
         sqlite_vfs_uri: Option<String>,
