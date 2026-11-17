@@ -2,7 +2,7 @@ module github.com/estuary/flow
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	cloud.google.com/go/storage v1.70.0
