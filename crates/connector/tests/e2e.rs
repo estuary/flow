@@ -375,6 +375,7 @@ echo '{"opened":{}}'
     Log(info): resolved task secret {"secret":"acmeCo/password","secretId":"0102030405060708"}
     Started(codec=Json, container=false, process=false, spec=capture)
     Capture(opened)
+    Log(debug): connector exited {"status":"exit status: 0"}
     "#);
 }
 
@@ -390,8 +391,9 @@ async fn rejects_a_sops_key_together_with_a_secrets_stanza() {
     // The connector answers the internal Spec, so a rejection is the config
     // check's and not a startup failure's.
     let sops_endpoint = || {
-        let mut endpoint =
-            sh("read request; echo '{\"spec\":{\"configSchema\":true}}'; read forever");
+        let mut endpoint = sh(
+            "read request; echo '{\"spec\":{\"protocol\":3032023,\"configSchema\":true}}'; read forever",
+        );
         endpoint["config"] = json!({"sops": null});
         endpoint
     };
@@ -541,6 +543,26 @@ async fn local_connector_logs_precede_its_status() {
     );
     let last_log = rendered.len() - 2;
     assert!(rendered[last_log].starts_with("Log("), "{rendered:?}");
+}
+
+/// A `start` without a log level runs a connector at its plane's default,
+/// which is `info` in a local plane. The connector's environment carries it,
+/// and the session's own `debug` logs are filtered out.
+#[tokio::test]
+async fn a_local_plane_defaults_to_info() {
+    let request = request(json!({
+        "start": {},
+        "derive": {"spec": {
+            "connectorType": "LOCAL",
+            "config": sh(r#"
+read spec_request
+if [ "$LOG_LEVEL" != info ]; then echo "LOG_LEVEL is $LOG_LEVEL" >&2; exit 7; fi
+echo '{"spec":{"protocol":3032023,"configSchema":{},"resourceConfigSchema":{}}}'
+"#),
+        }},
+    }));
+
+    insta::assert_snapshot!(render(drive_loopback(vec![request]).await), @"Started(codec=Json, container=false, process=false, spec=derive)");
 }
 
 /// A client which goes away while its connector is still starting -- before
@@ -900,14 +922,16 @@ echo '{"opened":{}}'
         ("new_local has an empty mount", run(&local, "no").await),
     ];
 
-    insta::assert_snapshot!(render_all(outcomes), @"
+    insta::assert_snapshot!(render_all(outcomes), @r#"
     with task update:
       Started(codec=Json, container=false, process=false, spec=capture)
       Capture(opened)
+      Log(debug): connector exited {"status":"exit status: 0"}
     new_local has an empty mount:
       Started(codec=Json, container=false, process=false, spec=capture)
       Capture(opened)
-    ");
+      Log(debug): connector exited {"status":"exit status: 0"}
+    "#);
 }
 
 /// The mounted credential is refreshed *in place*, which a running connector
@@ -942,10 +966,11 @@ echo '{"opened":{}}'
     )
     .await;
 
-    insta::assert_snapshot!(render(responses), @"
+    insta::assert_snapshot!(render(responses), @r#"
     Started(codec=Json, container=false, process=false, spec=capture)
     Capture(opened)
-    ");
+    Log(debug): connector exited {"status":"exit status: 0"}
+    "#);
 }
 
 /// A router over a Service holding a `TaskUpdate`, mirroring

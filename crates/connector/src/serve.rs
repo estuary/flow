@@ -3,7 +3,7 @@
 //! connector is done and its logs are read through.
 
 use crate::proto;
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
@@ -15,7 +15,7 @@ pub(crate) async fn serve<R>(
     response_tx: mpsc::Sender<tonic::Result<proto::Response>>,
 ) -> anyhow::Result<()>
 where
-    R: Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
+    R: futures::Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
 {
     let handler = service.registry.register("connector");
     let span = handler.span();
@@ -41,13 +41,13 @@ async fn serve_inner<R>(
     mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<()>
 where
-    R: Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
+    R: futures::Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
 {
     handler.set_phase("authorizing");
 
     let first = request_rx.next().await;
     let Authorized {
-        log_level,
+        start,
         sqlite_vfs_uri,
         task_name,
         request,
@@ -60,7 +60,7 @@ where
     let result = start_and_pump(
         &service,
         log_sink,
-        log_level,
+        start,
         sqlite_vfs_uri,
         &task_name,
         request,
@@ -70,8 +70,8 @@ where
     )
     .await;
 
-    // Connector resources have been released, allowing their log pumps to
-    // finish. Logs precede the stream's terminal status or EOF.
+    // Connector resources have been released, and with them every `LogSink`
+    // clone. This crate's own logs precede the terminal status or EOF.
     handler.set_phase("draining");
     _ = read_through_rx.await;
 
@@ -90,8 +90,8 @@ where
 async fn start_and_pump<R>(
     service: &crate::Service,
     log_sink: crate::LogSink,
-    log_level: ops::LogLevel,
-    sqlite_vfs_uri: String,
+    start: proto::request::Start,
+    sqlite_vfs_uri: Option<String>,
     task_name: &str,
     request: proto::request::Kind,
     request_rx: R,
@@ -99,16 +99,14 @@ async fn start_and_pump<R>(
     handler: &mut service_kit::HandlerGuard,
 ) -> anyhow::Result<()>
 where
-    R: Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
+    R: futures::Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
 {
-    let sqlite_vfs_uri = (!sqlite_vfs_uri.is_empty()).then_some(sqlite_vfs_uri);
-
     match request {
         proto::request::Kind::Capture(initial) => {
             run::<crate::capture::Capture, R>(
                 service,
                 log_sink,
-                log_level,
+                start,
                 sqlite_vfs_uri,
                 task_name,
                 initial,
@@ -122,7 +120,7 @@ where
             run::<crate::derive::Derive, R>(
                 service,
                 log_sink,
-                log_level,
+                start,
                 sqlite_vfs_uri,
                 task_name,
                 initial,
@@ -136,7 +134,7 @@ where
             run::<crate::materialize::Materialize, R>(
                 service,
                 log_sink,
-                log_level,
+                start,
                 sqlite_vfs_uri,
                 task_name,
                 initial,
@@ -152,7 +150,7 @@ where
 async fn run<P, R>(
     service: &crate::Service,
     log_sink: crate::LogSink,
-    log_level: ops::LogLevel,
+    start: proto::request::Start,
     sqlite_vfs_uri: Option<String>,
     task_name: &str,
     initial: P::Request,
@@ -162,15 +160,15 @@ async fn run<P, R>(
 ) -> anyhow::Result<()>
 where
     P: crate::protocol::Protocol,
-    R: Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
+    R: futures::Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
 {
     let ctx = crate::protocol::StartContext {
         container_network: service.container_network.clone(),
-        log_level,
         log_sink,
         plane: service.plane,
         process: service.process.clone(),
         secret_resolver: service.secret_resolver.clone(),
+        start,
         task_name: task_name.to_string(),
         task_update: service.task_update.clone(),
     };
@@ -181,7 +179,7 @@ where
 
     _ = response_tx.send(Ok(started.started.clone())).await;
     handler.set_phase("running");
-    pump::<P, R>(request_rx, started, response_tx).await
+    pump(request_rx, started, task_name, response_tx).await
 }
 
 /// The client is gone, and holding its connector open would serve no one.
@@ -191,38 +189,33 @@ fn client_dropped() -> anyhow::Error {
 
 /// Forward requests and responses in independent bursts. A full request
 /// channel parks only its forwarding future, leaving responses free to drain.
-async fn pump<P, R>(
+/// Frames pass through unchanged, apart from sanitizing connector `Log`s.
+///
+// TODO(johnny): VMM rebase: drop the branch's check of
+// `Protocol::spec_execution` on every later Apply or Open, and its tests.
+// This pump no longer decodes later requests, and a stream carries one build.
+async fn pump<R>(
     mut request_rx: R,
-    started: crate::Started<P>,
+    started: crate::Started,
+    task_name: &str,
     response_tx: &mpsc::Sender<tonic::Result<proto::Response>>,
 ) -> anyhow::Result<()>
 where
-    P: crate::protocol::Protocol,
-    R: Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
+    R: futures::Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
 {
     let crate::Started {
         connector_tx,
         mut connector_rx,
+        mut stderr_overflow,
         guard,
         ..
     } = started;
+    let quoted_task_name = crate::protocol::quote_task_name(task_name);
 
     let mut forward = std::pin::pin!(async move {
-        while let Some(result) = request_rx.next().await {
-            let proto::Request { start, kind } = result.map_err(crate::status_to_anyhow)?;
+        while let Some(request) = request_rx.next().await {
+            let request = request.map_err(crate::status_to_anyhow)?;
 
-            if start.is_some() {
-                return Err(crate::invalid_argument(
-                    "only the first Connector request may set `start`".to_string(),
-                ));
-            }
-            let Some(request) = kind.and_then(P::unwrap_request) else {
-                return Err(crate::invalid_argument(
-                    "every Connector request must set exactly one protocol request, of the type \
-                     established by the first request"
-                        .to_string(),
-                ));
-            };
             if connector_tx.send(request).await.is_err() {
                 break;
             }
@@ -235,16 +228,25 @@ where
         tokio::select! {
             biased;
 
-            // Prefer a ready request error over connector EOF so malformed
-            // client input cannot be reported as successful completion.
+            // Prefer a ready request error over connector EOF so a client
+            // stream failure cannot be reported as successful completion.
             result = &mut forward, if forwarding => match result {
                 Ok(()) => forwarding = false,
                 Err(err) => break Err(err),
             },
 
+            err = &mut stderr_overflow => break Err(err),
+
             response = connector_rx.next() => match response {
+                Some(Ok(proto::Response { kind: Some(proto::response::Kind::Log(log)) })) => {
+                    let log = crate::policy::sanitize_connector_log(&quoted_task_name, log);
+                    let response = proto::Response {
+                        kind: Some(proto::response::Kind::Log(log)),
+                    };
+                    _ = response_tx.send(Ok(response)).await;
+                }
                 Some(Ok(response)) => {
-                    _ = response_tx.send(Ok(P::wrap_response(response))).await;
+                    _ = response_tx.send(Ok(response)).await;
                 }
                 Some(Err(status)) => break Err(crate::status_to_anyhow(status)),
                 None => break Ok(()),
@@ -254,15 +256,17 @@ where
         }
     };
 
-    // Releases the run's host resources: killing an image connector closes
-    // stderr, allowing log draining to finish.
+    // Drop the connector before its `Guard`. Dropping a local connector's
+    // stream starts the kill of its subprocess, ahead of the `Guard` removing
+    // the mount it uses. Neither drop awaits the subprocess's exit.
+    std::mem::drop(connector_rx);
     std::mem::drop(guard);
     result
 }
 
 struct Authorized {
-    log_level: ops::LogLevel,
-    sqlite_vfs_uri: String,
+    start: proto::request::Start,
+    sqlite_vfs_uri: Option<String>,
     task_name: String,
     request: proto::request::Kind,
 }
@@ -276,29 +280,22 @@ fn authorize(
     let verify = crate::verify("Connector", "first Request", "client");
     let proto::Request { start, kind } = verify.not_eof(first)?;
 
-    let (
-        Some(proto::request::Start {
-            log_level,
-            sqlite_vfs_uri,
-        }),
-        Some(request),
-    ) = (start, kind)
-    else {
+    let (Some(mut start), Some(request)) = (start, kind) else {
         return Err(crate::invalid_argument(
             "the first Connector request must set `start` and exactly one protocol request"
                 .to_string(),
         ));
     };
-    let log_level = ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-
     // `sqlite_vfs_uri` is an unvalidated path which the connector opens (and
     // creates) as the reactor. It's meaningful only to the shard which recorded
     // the recovery log it names, so a remote caller may never supply one.
     crate::policy::check_remote_sqlite_vfs(
         matches!(transport, crate::service::Transport::Wire),
-        !sqlite_vfs_uri.is_empty(),
+        !start.sqlite_vfs_uri.is_empty(),
     )
     .map_err(|err| crate::invalid_argument(err.to_string()))?;
+    let sqlite_vfs_uri =
+        Some(std::mem::take(&mut start.sqlite_vfs_uri)).filter(|uri| !uri.is_empty());
 
     let (task_type, task_name) = proto_grpc::connector::task_identity(&request)?;
     let task_name = task_name.to_string();
@@ -314,7 +311,7 @@ fn authorize(
     );
 
     Ok(Authorized {
-        log_level,
+        start,
         sqlite_vfs_uri,
         task_name,
         request,
@@ -333,10 +330,11 @@ mod test {
         let (connector_tx, _connector_rx) = mpsc::channel(1);
         let (response_tx, response_rx) = mpsc::channel(1);
 
-        let started = crate::Started::<crate::derive::Derive> {
+        let started = crate::Started {
             started: proto::Response::default(),
             connector_tx,
             connector_rx: futures::stream::pending().boxed(),
+            stderr_overflow: Box::pin(futures::future::pending()),
             guard: crate::Guard {
                 _process: None,
                 _refresh: None,
@@ -345,8 +343,12 @@ mod test {
         };
         std::mem::drop(response_rx);
 
-        let pump =
-            pump::<crate::derive::Derive, _>(futures::stream::pending(), started, &response_tx);
+        let pump = pump(
+            futures::stream::pending(),
+            started,
+            "acmeCo/derivation",
+            &response_tx,
+        );
         let err = tokio::time::timeout(std::time::Duration::from_secs(5), pump)
             .await
             .expect("pump must not park on the wedged connector")

@@ -1,73 +1,15 @@
-//! Materialization protocol: request unwrapping, endpoint extraction, the
-//! `materialize.Connector` RPC, and in-process Dekaf. See `protocol.rs` for the
-//! start pipeline.
-use crate::{
-    proto,
-    protocol::{Endpoint, Extracted, Protocol, StartRpcFuture},
-};
+//! Materialization protocol: endpoint extraction, and in-process Dekaf. See `protocol.rs` for the start pipeline.
+use crate::protocol::{Endpoint, Extracted, Protocol};
 use anyhow::Context;
-use futures::{FutureExt, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use proto_flow::{
     flow,
-    materialize::{Request, Response, request, response},
+    materialize::{Request, request},
 };
 
-pub(crate) enum Materialize {}
+pub(crate) use proto_flow::connector::Materialize;
 
 impl Protocol for Materialize {
-    type Request = Request;
-    type Response = Response;
-
-    const NAME: &'static str = "Materialize";
-    const TASK_TYPE: ops::TaskType = ops::TaskType::Materialization;
-
-    fn spec_request(connector_type: i32, config: models::RawValue) -> Request {
-        Request {
-            kind: Some(request::Kind::Spec(request::Spec {
-                config_json: bytes::Bytes::from(config),
-                connector_type,
-            })),
-            ..Default::default()
-        }
-    }
-
-    fn unwrap_request(kind: proto::request::Kind) -> Option<Request> {
-        match kind {
-            proto::request::Kind::Materialize(request) => Some(request),
-            _ => None,
-        }
-    }
-
-    fn wrap_response(response: Response) -> proto::Response {
-        proto::Response {
-            kind: Some(proto::response::Kind::Materialize(response)),
-        }
-    }
-
-    fn unwrap_spec(response: Response) -> Result<proto::response::started::Spec, Response> {
-        match response {
-            Response {
-                kind: Some(response::Kind::Spec(spec)),
-                ..
-            } => Ok(proto::response::started::Spec::Materialize(spec)),
-            response => Err(response),
-        }
-    }
-
-    fn open_rpc<S>(channel: tonic::transport::Channel, requests: S) -> StartRpcFuture<Response>
-    where
-        S: futures::Stream<Item = Request> + Send + 'static,
-    {
-        async move {
-            proto_grpc::materialize::connector_client::ConnectorClient::new(channel)
-                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
-                .max_encoding_message_size(usize::MAX)
-                .materialize(requests)
-                .await
-        }
-        .boxed()
-    }
-
     fn extract_endpoint<'r>(
         request: &'r mut Request,
         sqlite_vfs_uri: Option<String>,

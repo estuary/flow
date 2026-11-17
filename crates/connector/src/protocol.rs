@@ -1,7 +1,9 @@
-//! Start pipeline shared by every connector protocol: locate the
-//! endpoint, open a bounded connector request channel with an internal Spec request,
+//! Start pipeline shared by every connector protocol: locate the endpoint,
 //! dispatch to an image / local subprocess / in-process connector, unseal the
-//! endpoint configuration against the Spec response, and build `Started`.
+//! endpoint configuration against its Spec, and build `Started`.
+//!
+//! Every endpoint serves the `connector.Connector` contract of
+//! `connector_init::serve`, so after dispatch all are handled the same way.
 //!
 //! [`Protocol`] is a trait over what differs between captures, derivations,
 //! and materializations; everything else in this module is protocol-agnostic.
@@ -12,16 +14,13 @@
 
 use crate::proto;
 use anyhow::Context;
-use futures::{StreamExt, future::BoxFuture, stream::BoxStream};
+use futures::{FutureExt, StreamExt};
 
 /// Everything a connector start needs from its [`Service`](crate::Service) and
 /// the client's `Start` request.
 pub(crate) struct StartContext {
     /// OCI container network to use.
     pub container_network: String,
-    /// Log level of the container.
-    pub log_level: ops::LogLevel,
-    /// Sink for connector logs.
     pub log_sink: crate::LogSink,
     /// Type of data plane, which gates local connectors and non-Estuary images.
     pub plane: crate::Plane,
@@ -29,68 +28,37 @@ pub(crate) struct StartContext {
     pub process: Option<proto_gazette::broker::ProcessSpec>,
     /// Resolver of task secrets.
     pub secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
+    /// The client's `Start`, less its `sqlite_vfs_uri`.
+    // TODO(johnny): VMM rebase: `Start.execution` rides here to the
+    // connector's side of the contract, as part of the client's `Start`.
+    pub start: proto::request::Start,
     /// Catalog task name, or [`crate::SPEC_TASK_NAME`] for a task-less Spec.
     pub task_name: String,
     /// Authorizes the connector to update its task configuration and secrets.
     pub task_update: Option<crate::TaskUpdate>,
 }
 
-/// Result of opening a protocol RPC on an image connector's channel.
-pub(crate) type StartRpcFuture<Response> =
-    BoxFuture<'static, tonic::Result<tonic::Response<tonic::Streaming<Response>>>>;
-
 /// Constructor of an in-process connector, given its request stream.
 type InProcessFn<P> = Box<
     dyn FnOnce(
-            BoxStream<'static, <P as Protocol>::Request>,
-        ) -> BoxStream<'static, tonic::Result<<P as Protocol>::Response>>
-        + Send,
+            futures::stream::BoxStream<'static, <P as proto::Protocol>::Request>,
+        ) -> futures::stream::BoxStream<
+            'static,
+            tonic::Result<<P as proto::Protocol>::Response>,
+        > + Send,
 >;
 
-/// Protocol differences between capture, derive, and materialize.
-pub(crate) trait Protocol: Sized + 'static {
-    type Request: prost::Message + serde::Serialize + Default + Send + Sync + Unpin + 'static;
-    type Response: prost::Message
-        + for<'de> serde::Deserialize<'de>
-        + serde::Serialize
-        + Default
-        + Send
-        + Sync
-        + 'static;
-
-    /// Names this protocol in errors attributed to the connector.
-    const NAME: &'static str;
-    /// Labels a connector container, and reports which runtime started it.
-    const TASK_TYPE: ops::TaskType;
-
-    /// Internal Spec request which opens a connector stream. It carries the
-    /// sealed configuration, whose non-secret portions a connector may use
-    /// to describe itself.
-    fn spec_request(connector_type: i32, config: models::RawValue) -> Self::Request;
-
-    /// Map a connector request into a request of this protocol,
-    /// or None if the request is the wrong protocol.
-    fn unwrap_request(kind: proto::request::Kind) -> Option<Self::Request>;
-
-    /// Map a protocol response into a connector response.
-    fn wrap_response(response: Self::Response) -> proto::Response;
-
-    /// Take the connector's Spec response, or return a response which isn't one.
-    fn unwrap_spec(
-        response: Self::Response,
-    ) -> Result<proto::response::started::Spec, Self::Response>;
-
-    /// Open this protocol's RPC over a started container's channel.
-    fn open_rpc<S>(
-        channel: tonic::transport::Channel,
-        requests: S,
-    ) -> StartRpcFuture<Self::Response>
-    where
-        S: futures::Stream<Item = Self::Request> + Send + 'static;
-
+/// Endpoint extraction of capture, derive, and materialize, beyond the
+/// message facts of [`proto::Protocol`].
+pub(crate) trait Protocol: proto::Protocol {
     /// Locate the endpoint configuration of a request and normalize its
     /// endpoint. `sqlite_vfs_uri` is the client's recorded recovery-log VFS,
     /// which only derive-sqlite may accept (all others reject it).
+    // TODO(johnny): VMM rebase: call the branch's `Protocol::spec_execution`
+    // only on the first request, beside this `extract_endpoint`. `vmm_for`
+    // keeps its check that `Start.execution` agrees with a first Apply or
+    // Open's built spec. Spec, Discover, and Validate take `Start.execution`
+    // alone. A stream carries one build, so no later request is checked.
     fn extract_endpoint<'r>(
         request: &'r mut Self::Request,
         sqlite_vfs_uri: Option<String>,
@@ -138,12 +106,12 @@ pub(crate) enum Endpoint<P: Protocol> {
 }
 
 /// Start a connector and complete its internal Spec exchange, returning its
-/// typed request sender, response stream, resources, and prebuilt `Started`.
+/// request sender, response stream, resources, and prebuilt `Started`.
 pub(crate) async fn start<P: Protocol>(
     ctx: StartContext,
     sqlite_vfs_uri: Option<String>,
     mut initial: P::Request,
-) -> anyhow::Result<crate::Started<P>> {
+) -> anyhow::Result<crate::Started> {
     let Extracted {
         build,
         connector_type,
@@ -154,18 +122,6 @@ pub(crate) async fn start<P: Protocol>(
         secrets,
     } = P::extract_endpoint(&mut initial, sqlite_vfs_uri)?;
 
-    // TODO(johnny): This bit of ugliness is to support frozen
-    // derive-typescript/python `:dev` image tags, which are required for the
-    // V1 runtime. These specific images (only) are incapable of serving multiple
-    // unary requests in a single session (which is how we _want_ this to work).
-    // Hold them as a carve-out, while having all other connectors service
-    // successive unary requests on a single session.
-    // Delete all of this when the V1 runtime is retired for derivations.
-    let spec_on_own_rpc = matches!(
-        &endpoint,
-        Endpoint::Image { image, .. } if models::is_frozen_derive_image(image),
-    );
-
     // Apply image policy checks that don't require inspection (and registry I/O).
     let image_policy = match &endpoint {
         Endpoint::Image { image, .. } => Some(crate::policy::Image::check(ctx.plane, image)?),
@@ -173,7 +129,7 @@ pub(crate) async fn start<P: Protocol>(
     };
 
     let mount = create_connector_mount()?;
-    let env = connector_env(ctx.plane, ctx.log_level, mount.path())?;
+    let env = connector_env(mount.path())?;
 
     // If Some(task_update), inject and rotate credentials and metadata which
     // offer tasks a capability to update their configuration and/or secrets.
@@ -205,47 +161,59 @@ pub(crate) async fn start<P: Protocol>(
     }
     .clone();
 
-    let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
-    if !spec_on_own_rpc {
-        connector_tx
-            .send(P::spec_request(connector_type, sealed_config))
-            .await
-            .expect("new connector request channel is open");
-    }
+    // The connector's log level defaults by plane. It governs the session's
+    // task logs.
+    // TODO(johnny): VMM rebase: the VMM stops passing `LOG_LEVEL` too. Drop
+    // podman's `--env=LOG_LEVEL` (`vmm/argv.rs`), the plane default of
+    // `vmm/plan.rs` (it's this one), and the forwarding of `LOG_LEVEL` and
+    // `LOG_FORMAT` into the guest (`connector-vmm/src/launch.rs`).
+    let default_log_level = match ctx.plane {
+        crate::Plane::Local => ops::LogLevel::Info,
+        crate::Plane::Public | crate::Plane::Private => ops::LogLevel::Warn,
+    };
+    let mut start = ctx.start.clone();
+    start.log_level = ops::LogLevel::try_from(start.log_level)
+        .unwrap_or_default()
+        .or(default_log_level) as i32;
+
+    let (request_tx, request_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
+    request_tx
+        .try_send(proto::Request {
+            start: Some(start),
+            kind: Some(P::wrap_request(P::spec_request(
+                connector_type,
+                bytes::Bytes::from(sealed_config.clone()),
+            ))),
+        })
+        .expect("new connector request channel is empty");
 
     // Spawn the connector, branched on its endpoint type.
-    let requests = tokio_stream::wrappers::ReceiverStream::new(connector_rx).boxed();
+    // TODO(johnny): VMM rebase: `vmm::vmm_for` decides between the docker and
+    // VMM arms of an image. The VMM arm dials `connector.Connector` as
+    // `image::connect` does, and returns a `Transport` like any other
+    // endpoint. Delete its `spec_rpc` arm. The rebased branch must pass
+    // `mise run ci:connector-vmm-kvm`.
+    let requests = tokio_stream::wrappers::ReceiverStream::new(request_rx);
     let crate::Transport {
-        mut connector_rx,
+        mut response_rx,
         container,
-        codec,
         process,
-        sealed_config,
-        spec: own_rpc_spec,
+        mut stderr_overflow,
     } = match endpoint {
-        Endpoint::Image {
-            image,
-            config: sealed_config,
-        } => {
+        Endpoint::Image { image, .. } => {
             crate::image::connect::<P>(
                 &ctx,
                 image,
-                sealed_config,
                 image_policy.as_ref().unwrap(),
                 env,
                 mount.path(),
                 secrets,
                 network_ports,
-                connector_type,
-                spec_on_own_rpc,
                 requests,
             )
             .await
         }
-        Endpoint::InProcess {
-            connector,
-            config: sealed_config,
-        } => crate::policy::check_secrets(
+        Endpoint::InProcess { connector, .. } => crate::policy::check_secrets(
             &ctx.task_name,
             secrets
                 .iter()
@@ -253,29 +221,35 @@ pub(crate) async fn start<P: Protocol>(
             crate::policy::SecretIdentity::NoImage,
         )
         .map(|()| crate::Transport {
-            connector_rx: connector(requests),
+            response_rx: in_process::<P>(connector, requests),
             container: None,
-            codec: connector_init::Codec::Proto,
             process: None,
-            sealed_config,
-            spec: None,
+            stderr_overflow: futures::future::pending().boxed(),
         }),
-        Endpoint::Local { config } => connect_local::<P>(&ctx, config, secrets, env, requests),
+        Endpoint::Local { config } => connect_local(&ctx, config, secrets, env, requests),
     }?;
 
-    let codec = match codec {
-        connector_init::Codec::Proto => proto::response::started::Codec::Proto,
-        connector_init::Codec::Json => proto::response::started::Codec::Json,
-    };
+    let proto::response::Started { codec, spec, .. } = read_started(
+        &ctx.task_name,
+        &ctx.log_sink,
+        &mut response_rx,
+        &mut stderr_overflow,
+    )
+    .await?;
 
-    let spec = match own_rpc_spec {
-        Some(spec) => spec,
-        None => unwrap_spec_response::<P>(connector_rx.next().await)?,
-    };
     let config_schema: &[u8] = match &spec {
-        proto::response::started::Spec::Capture(spec) => &spec.config_schema_json,
-        proto::response::started::Spec::Derive(spec) => &spec.config_schema_json,
-        proto::response::started::Spec::Materialize(spec) => &spec.config_schema_json,
+        Some(spec) if spec.task_type() == P::TASK_TYPE => spec.config_schema_json(),
+        _ => {
+            return Err(
+                crate::verify_connector(P::NAME, "Started with its Spec").fail_msg(
+                    proto::response::Started {
+                        codec,
+                        spec,
+                        ..Default::default()
+                    },
+                ),
+            );
+        }
     };
 
     let inject_iam: bool;
@@ -332,20 +306,29 @@ pub(crate) async fn start<P: Protocol>(
     if let Some(initial_sealed_config_slot) = initial_sealed_config_slot {
         *initial_sealed_config_slot = sealed_config.into();
     }
-    _ = connector_tx.try_send(initial);
+    _ = request_tx.try_send(proto::Request {
+        start: None,
+        kind: Some(P::wrap_request(initial)),
+    });
 
+    // Of `Started`, only `codec` and `spec` come from the connector's side of
+    // the contract. This crate owns every other field.
+    // TODO(johnny): VMM rebase: `Started.execution` is one more field this
+    // crate sets, to the execution it applied, overwriting any the
+    // connector's side sent.
     Ok(crate::Started {
         started: proto::Response {
             kind: Some(proto::response::Kind::Started(proto::response::Started {
                 container,
-                codec: codec as i32,
+                codec,
                 token_restart_at,
                 process: ctx.process,
-                spec: Some(spec),
+                spec,
             })),
         },
-        connector_tx,
-        connector_rx,
+        connector_tx: request_tx,
+        connector_rx: response_rx,
+        stderr_overflow,
         guard: crate::Guard {
             _process: process,
             _refresh: refresh,
@@ -354,28 +337,59 @@ pub(crate) async fn start<P: Protocol>(
     })
 }
 
-/// Build the environment contract shared by image and local connectors.
+/// Read a dispatched connector's responses until `Started`, sinking its
+/// sanitized logs into `log_sink`. A `stderr_overflow` fails the read.
+async fn read_started(
+    task_name: &str,
+    log_sink: &crate::LogSink,
+    response_rx: &mut futures::stream::BoxStream<'static, tonic::Result<proto::Response>>,
+    stderr_overflow: &mut futures::future::BoxFuture<'static, anyhow::Error>,
+) -> anyhow::Result<proto::response::Started> {
+    let verify = crate::verify_connector("Connector", "Started");
+    let quoted_task_name = quote_task_name(task_name);
+
+    loop {
+        let response = tokio::select! {
+            err = &mut *stderr_overflow => return Err(err),
+            response = response_rx.next() => response,
+        };
+        match verify.not_eof(response)? {
+            proto::Response {
+                kind: Some(proto::response::Kind::Log(log)),
+            } => {
+                log_sink
+                    .send(crate::policy::sanitize_connector_log(
+                        &quoted_task_name,
+                        log,
+                    ))
+                    .await
+            }
+            proto::Response {
+                kind: Some(proto::response::Kind::Started(started)),
+            } => return Ok(started),
+            response => return Err(verify.fail_msg(response)),
+        }
+    }
+}
+
+/// JSON-quoted task name, against which connector logs are sanitized.
+pub(crate) fn quote_task_name(task_name: &str) -> bytes::Bytes {
+    format!("\"{task_name}\"").into()
+}
+
+/// Build the environment shared by image and local connectors.
+/// `connector_init::serve` adds `LOG_LEVEL` and `LOG_FORMAT`.
 fn connector_env(
-    plane: crate::Plane,
-    log_level: ops::LogLevel,
     mount: &std::path::Path,
 ) -> anyhow::Result<std::collections::BTreeMap<String, String>> {
-    let default_log_level = match plane {
-        crate::Plane::Local => ops::LogLevel::Info,
-        crate::Plane::Public | crate::Plane::Private => ops::LogLevel::Warn,
-    };
     let mount = mount
         .to_str()
         .context("connector mount path is not valid UTF-8")?;
 
-    Ok(std::collections::BTreeMap::from([
-        ("CONNECTOR_MOUNT".to_string(), mount.to_string()),
-        ("LOG_FORMAT".to_string(), "json".to_string()),
-        (
-            "LOG_LEVEL".to_string(),
-            log_level.or(default_log_level).as_str_name().to_string(),
-        ),
-    ]))
+    Ok(std::collections::BTreeMap::from([(
+        "CONNECTOR_MOUNT".to_string(),
+        mount.to_string(),
+    )]))
 }
 
 /// Create the connector mount volume: a directory of resources shared with
@@ -575,18 +589,18 @@ async fn resolve_secret<P: Protocol>(
     Ok(value)
 }
 
-fn connect_local<P: Protocol>(
+fn connect_local(
     ctx: &StartContext,
     models::LocalConfig {
         command,
-        config: sealed_config,
+        config: _,
         env: model_env,
         protobuf,
     }: models::LocalConfig,
     secrets: &std::collections::BTreeMap<String, String>,
     runtime_env: std::collections::BTreeMap<String, String>,
-    requests: BoxStream<'static, P::Request>,
-) -> anyhow::Result<crate::Transport<P>> {
+    requests: tokio_stream::wrappers::ReceiverStream<proto::Request>,
+) -> anyhow::Result<crate::Transport> {
     if !crate::policy::local_connectors_allowed(ctx.plane) {
         return Err(tonic::Status::failed_precondition(
             "Local connectors are not permitted in this context",
@@ -608,85 +622,94 @@ fn connect_local<P: Protocol>(
         connector_init::Codec::Json
     };
 
-    let mut connector = connector_init::rpc::new_command(&command);
-    connector.envs(&model_env);
-    connector.envs(runtime_env);
-
-    // Dropping the local connector's response stream kills its subprocess and
-    // closes its stderr. Its `Guard` holds no process: only the mount,
-    // which must outlive the subprocess reading it.
-    let log_sink = ctx.log_sink.clone();
-    let quoted_task_name: bytes::Bytes = format!("\"{}\"", ctx.task_name).into();
-    let connector_rx = connector_init::rpc::bidi::<P::Request, P::Response, _, _, _>(
-        connector,
-        codec,
-        requests.map(Result::Ok),
-        move |log| {
-            let log = crate::policy::sanitize_connector_log(&quoted_task_name, log);
-            let log_sink = log_sink.clone();
-            async move { log_sink.send(log).await }
-        },
-    )?;
+    // Dropping the response stream drops `serve`, which kills the subprocess.
+    let response_rx = drive(move |response_tx| async move {
+        let command = || {
+            let mut connector = connector_init::rpc::new_command(&command);
+            connector.envs(&model_env);
+            connector.envs(&runtime_env);
+            connector
+        };
+        connector_init::serve::serve(command, codec, false, requests.map(Ok), &response_tx).await
+    });
 
     Ok(crate::Transport {
-        connector_rx: connector_rx.boxed(),
+        response_rx,
         container: None,
-        codec,
         process: None,
-        sealed_config,
-        spec: None,
+        stderr_overflow: futures::future::pending().boxed(),
     })
 }
 
-/// Take the connector's Spec from its first response, or fail with the
-/// response it sent instead.
-// TODO(johnny): inline with retirement of `:dev` images.
-pub(super) fn unwrap_spec_response<P: Protocol>(
-    response: Option<tonic::Result<P::Response>>,
-) -> anyhow::Result<proto::response::started::Spec> {
-    let verify = crate::verify_connector(P::NAME, "spec response");
+/// Serve the `connector.Connector` contract over an in-process connector.
+/// `requests` begins with the internal Spec request which [`start`] wrote.
+fn in_process<P: Protocol>(
+    connector: InProcessFn<P>,
+    mut requests: tokio_stream::wrappers::ReceiverStream<proto::Request>,
+) -> futures::stream::BoxStream<'static, tonic::Result<proto::Response>> {
+    drive(move |response_tx| async move {
+        let spec = requests
+            .next()
+            .await
+            .and_then(|request| request.kind)
+            .and_then(P::unwrap_request)
+            .expect("start() wrote the internal Spec request");
 
-    match P::unwrap_spec(verify.not_eof(response)?) {
-        Ok(spec) => Ok(spec),
-        Err(response) => Err(verify.fail_msg(P::wrap_response(response))),
-    }
+        let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
+        connector_tx
+            .try_send(spec)
+            .expect("new connector channel is empty");
+        let connector_rx =
+            connector(tokio_stream::wrappers::ReceiverStream::new(connector_rx).boxed());
+
+        let result = connector_init::serve::run::<P, _, _>(
+            connector_init::Codec::Proto,
+            None,
+            requests.map(Ok),
+            connector_tx,
+            connector_rx,
+            &response_tx,
+        )
+        .await;
+
+        if let Err(status) = result {
+            _ = response_tx.send(Err(status)).await;
+        }
+    })
 }
 
-/// Exchange a Spec on an RPC which carries nothing else, then close it.
-// TODO(johnny): remove with retirement of `:dev` images.
-pub(super) async fn spec_rpc<P: Protocol>(
-    channel: tonic::transport::Channel,
-    connector_type: i32,
-) -> anyhow::Result<proto::response::started::Spec> {
-    let config = models::RawValue::from_str("{}").unwrap();
-    let request = P::spec_request(connector_type, config);
-    let mut responses = P::open_rpc(channel, futures::stream::once(async move { request }))
-        .await?
-        .into_inner();
+/// Drive the future which `serve` builds as the producer of the returned
+/// stream, which yields what it sends. Dropping the stream drops the future.
+fn drive<S, F>(serve: S) -> futures::stream::BoxStream<'static, tonic::Result<proto::Response>>
+where
+    S: FnOnce(tokio::sync::mpsc::Sender<tonic::Result<proto::Response>>) -> F,
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    let (response_tx, response_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
 
-    unwrap_spec_response::<P>(responses.next().await)
+    // The stream ends once `serve` completes, dropping its sender, and its
+    // sent responses are read through.
+    futures::stream::select(
+        tokio_stream::wrappers::ReceiverStream::new(response_rx),
+        serve(response_tx)
+            .into_stream()
+            .filter_map(|()| std::future::ready(None)),
+    )
+    .boxed()
 }
 
 #[cfg(test)]
 mod test {
     #[test]
-    fn connector_environment_is_transport_agnostic() {
+    fn connector_environment_is_the_mount() {
         let mount = std::path::Path::new("/tmp/connector-mount-test");
+        let env = super::connector_env(mount).unwrap();
 
-        for (plane, expected) in [
-            (crate::Plane::Public, "warn"),
-            (crate::Plane::Private, "warn"),
-            (crate::Plane::Local, "info"),
-        ] {
-            let env = super::connector_env(plane, ops::LogLevel::UndefinedLevel, mount).unwrap();
-
-            assert_eq!(env["CONNECTOR_MOUNT"], mount.to_str().unwrap());
-            assert_eq!(env["LOG_FORMAT"], "json");
-            assert_eq!(env["LOG_LEVEL"], expected);
+        insta::assert_debug_snapshot!(env, @r#"
+        {
+            "CONNECTOR_MOUNT": "/tmp/connector-mount-test",
         }
-
-        let env = super::connector_env(crate::Plane::Local, ops::LogLevel::Trace, mount).unwrap();
-        assert_eq!(env["LOG_LEVEL"], "trace");
+        "#);
     }
 
     /// The claims of a minted task update token. A session's `Open` carries the
