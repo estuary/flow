@@ -127,10 +127,13 @@ async fn decrypt_and_compile_triggers(
     // during encryption so SOPS HMAC doesn't cover them), then restore.
     let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
 
-    let stripped = models::RawValue::from_string(
-        serde_json::to_string(&triggers).expect("triggers always serialize"),
-    )
-    .expect("trigger serialization is JSON");
+    // `config_encryption::encrypt_config` hands `sops` a serialized
+    // `serde_json::Value`, which sorts object keys. The SOPS MAC covers
+    // values in that order. Serializing through `serde_json::Value` here
+    // sorts keys the same way, so `unseal::decrypt_sops` verifies the MAC.
+    let stripped = models::RawValue::from_value(
+        &serde_json::to_value(&triggers).expect("triggers always serialize"),
+    );
 
     let mut decrypted: models::Triggers = serde_json::from_str(
         unseal::decrypt_sops(&stripped)
