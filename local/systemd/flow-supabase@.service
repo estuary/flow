@@ -12,7 +12,7 @@ Type=simple
 TimeoutStartSec=900
 
 # One consolidated env file per stack. Its FLOW_* vars are what config.toml's
-# env() references resolve against (project id, ports, site url), and PATH lets
+# env() references resolve against (project id, ports, site url, secrets), and PATH lets
 # the sh wrappers find the supabase CLI.
 EnvironmentFile=%h/flow-local/env/supabase-%i.env
 

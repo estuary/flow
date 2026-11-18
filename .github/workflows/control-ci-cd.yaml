@@ -56,6 +56,8 @@ jobs:
           FLOW_PORT_SUPABASE_STUDIO: "5433"
           FLOW_PORT_SUPABASE_MAILPIT: "5434"
           FLOW_SITE_URL: http://localhost:3000
+          FLOW_JWT_SECRET: parse-only-placeholder-secret
+          FLOW_SUPABASE_SECRET_KEY: parse-only
         run: |
           echo ${{ secrets.SUPABASE_ACCESS_TOKEN }} | supabase login
           supabase functions deploy oauth --project-ref eyrcnmuzzyriypdajwdk

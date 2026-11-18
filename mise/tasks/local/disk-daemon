@@ -18,7 +18,7 @@ if [ $((BASE_PORT % 100)) -ne 0 ]; then
     exit 1
 fi
 
-HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
+HMAC_KEY=$(echo -n "${FLOW_HMAC_SECRET:-key}-${DATA_PLANE}" | base64 | tr -d '\n')
 ADMIN_PORT=$((BASE_PORT + 62))
 
 # Named for the plane's port block, not its name. A Unix socket address holds 107

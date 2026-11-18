@@ -47,6 +47,11 @@ additional_redirect_urls = ["https://localhost:3000"]
 # We set this to the max value for running locally, just because it's annoying to keep refreshing
 # the token with the CLI
 jwt_expiry = 604800
+# Signs and verifies every JWT, and the CLI derives its anon and service_role
+# tokens from it. Ambient via mise, like the env() refs above.
+jwt_secret = "env(FLOW_JWT_SECRET)"
+# The opaque API token that Kong maps to the service_role.
+secret_key = "env(FLOW_SUPABASE_SECRET_KEY)"
 # Allow/disallow new user signups to your project.
 enable_signup = true
 

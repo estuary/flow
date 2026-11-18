@@ -317,8 +317,12 @@ preserve state, delete the sentinel beforehand or don't restart.
 ## Secrets you might think are real but aren't
 
 - **`super-secret-jwt-token-with-at-least-32-characters-long`** — the Supabase
-  JWT secret. The pre-minted `SYSTEM_USER_TOKEN` in `plane-link-*.env` is a JWT
-  signed with it for the `support@estuary.dev` system user.
+  JWT secret. `local:data-plane` signs `SYSTEM_USER_TOKEN` in `plane-link-*.env`
+  with it for the `support@estuary.dev` system user. The anon token in the
+  flowctl profile and Dekaf's `API_KEY` are signed with it too (`mint_jwt` in
+  `lib.sh`).
+- **`sb_secret_N7UND0Ug…`**: the supabase CLI's default opaque API token, which
+  Kong maps to the service_role.
 - **`AGE-SECRET-KEY-1UX6ZHA…`** — SOPS age key used by reactor and dekaf; its
   public counterpart `age1z2qskpk…` is the config-encryption `KMS_KEY`.
 - **`AGE-SECRET-KEY-15HVSX9…`** — the second SOPS age key, which wraps
@@ -334,6 +338,23 @@ preserve state, delete the sentinel beforehand or don't restart.
 
 None are real; they're checked into the repo. Assume the same for anything else
 hardcoded in mise tasks.
+
+### Generated secrets for a reachable stack
+
+`mise run local:stack-secrets` writes new values for all of the above to
+`${FLOW_STACK_DIR}/secrets.env`. Use it for a stack that other people or tools
+can reach. `stack-env` exports that file, so its values apply to everything mise
+runs in the checkout. Without the file, the checked-in values apply.
+
+Run it before the stack first starts, or after `local:stop`. The database, the
+data-plane registration, and sealed configs all depend on the secrets that a
+stack started with. The file survives `local:stop`, and `local:stack-prune`
+deletes it with the rest of a removed checkout's state.
+
+It does not replace the Postgres password, Dekaf's `DEKAF_ENCRYPTION_SECRET`,
+the seeded `internal.gateway_auth_keys` row, or the CLI's publishable token,
+which maps to the anon role. An estuary/ui dev-server configured with the
+checked-in anon token cannot reach such a stack.
 
 ## TLS — one CA, one wildcard, shared across stacks
 
@@ -360,6 +381,7 @@ Per stack, under `~/flow-local/<name>/` (= `${FLOW_STACK_DIR}`):
 | `disk-<base>/` | Disk-daemon socket and images of the data plane at `<base>` |
 | `test-tenant-<tenant>.env` | flowctl credentials from `local:test-tenant` |
 | `.supabase-started` | Sentinel that triggers `db reset` on next supabase start |
+| `secrets.env` | Generated secrets from `local:stack-secrets`, if any |
 
 Build artifacts are per-stack too: `~/cargo-target/<name>/` (Rust) and
 `~/cargo-target/<name>/go-bin/` (Go). Concurrent `cargo build` in two checkouts

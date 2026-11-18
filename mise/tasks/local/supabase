@@ -13,7 +13,7 @@ NAME="${FLOW_STACK_NAME}"
 
 # Consolidated supabase env file. Beyond the common build/runtime vars, it
 # carries the FLOW_* values that config.toml's env() references resolve against
-# (project id, ports, site url) and FLOW_STACK_DIR (sentinel location).
+# (project id, ports, site url, secrets) and FLOW_STACK_DIR (sentinel location).
 ENV_FILE="${FLOW_ENV_DIR}/supabase-${NAME}.env"
 {
     emit_common_vars
@@ -27,6 +27,8 @@ FLOW_PORT_SUPABASE_DB="${FLOW_PORT_SUPABASE_DB}"
 FLOW_PORT_SUPABASE_STUDIO="${FLOW_PORT_SUPABASE_STUDIO}"
 FLOW_PORT_SUPABASE_MAILPIT="${FLOW_PORT_SUPABASE_MAILPIT}"
 FLOW_SITE_URL="${FLOW_SITE_URL}"
+FLOW_JWT_SECRET="${FLOW_JWT_SECRET}"
+FLOW_SUPABASE_SECRET_KEY="${FLOW_SUPABASE_SECRET_KEY}"
 SUPABASE_INTERNAL_IMAGE_REGISTRY="${SUPABASE_INTERNAL_IMAGE_REGISTRY:-}"
 EOF
 } > "${ENV_FILE}"

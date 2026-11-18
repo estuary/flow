@@ -22,7 +22,7 @@ if [ "${COUNT}" -gt 10 ]; then
     exit 1
 fi
 
-HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
+HMAC_KEY=$(echo -n "${FLOW_HMAC_SECRET:-key}-${DATA_PLANE}" | base64 | tr -d '\n')
 SIDECAR_PORT=$((BROKER_PORT + 60))
 
 mise run local:runtime-sidecar "${DATA_PLANE}" "${BROKER_PORT}"
@@ -43,7 +43,7 @@ for i in $(seq 0 $((COUNT - 1))); do
         cat <<EOF
 
 # Reactor environment for ${INSTANCE}
-# Authorization keys are the base64-encoding of "key-${DATA_PLANE}".
+# Authorization keys are the base64-encoding of "${FLOW_HMAC_SECRET:-key}-${DATA_PLANE}".
 #
 # CORS allow-origins are NOT set here: CONSUMER_ALLOW_ORIGIN is single-valued (no
 # env-delim upstream), and we allow two origins — the global UI at
@@ -84,7 +84,7 @@ SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
 
 # Test (non-production) key for local development.
 # This matches KMS_KEY in the control-plane development task.
-SOPS_AGE_KEY=AGE-SECRET-KEY-1UX6ZHA36JJZCFCV9U7FVHZZECHCCKA8NCFT27L68HV0NPRQ2V5ZSRKJJPU
+SOPS_AGE_KEY=${FLOW_AGE_CONFIG_IDENTITY:-AGE-SECRET-KEY-1UX6ZHA36JJZCFCV9U7FVHZZECHCCKA8NCFT27L68HV0NPRQ2V5ZSRKJJPU}
 EOF
     } > "${FLOW_ENV_DIR}/reactor-${INSTANCE}.env"
 

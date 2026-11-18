@@ -82,6 +82,25 @@ SNAPPY_STATIC="${SNAPPY_STATIC}"
 EOF
 }
 
+# Claims of the anon token which the supabase CLI derives from its JWT secret.
+SUPABASE_ANON_CLAIMS='{"iss":"supabase-demo","role":"anon","exp":1983812996}'
+
+# Print an HS256 JWT of the given claims, signed with FLOW_JWT_SECRET. Claims
+# are signed byte-for-byte as given. With the checked-in secret, the anon token
+# therefore equals LOCAL_PG_PUBLIC_TOKEN in flow-client.
+mint_jwt() {
+    local header claims signature
+    header="$(printf '%s' '{"alg":"HS256","typ":"JWT"}' | _base64url)"
+    claims="$(printf '%s' "$1" | _base64url)"
+    signature="$(printf '%s.%s' "${header}" "${claims}" |
+        openssl dgst -sha256 -hmac "${FLOW_JWT_SECRET}" -binary | _base64url)"
+    printf '%s.%s.%s\n' "${header}" "${claims}" "${signature}"
+}
+
+_base64url() {
+    openssl base64 -A | tr -d '=' | tr '/+' '_-'
+}
+
 # Print the compact stack "card": the one-screen summary of this stack's
 # identity and go-to commands. Shared by local:stack (printed on completion) and
 # local:stack-info (which prints it as the short form beneath its full detail).

@@ -49,7 +49,7 @@ if [ "${N_REACTORS}" -gt 10 ]; then
     exit 1
 fi
 
-HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
+HMAC_KEY=$(echo -n "${FLOW_HMAC_SECRET:-key}-${DATA_PLANE}" | base64 | tr -d '\n')
 
 # Deterministic port allocations within the 100-port block
 DEKAF_KAFKA_PORT=$((PORT_BLOCK + 50))
@@ -85,6 +85,7 @@ DATA_PLANE_ACCESS_KEY=${HMAC_KEY}
 # Control-plane endpoints for this stack: dekaf's \`--local\` no longer has
 # compiled-in defaults (ports are dynamic); clap reads these from the env.
 API_ENDPOINT=http://localhost:${FLOW_PORT_SUPABASE_API}/rest/v1
+API_KEY=$(mint_jwt "${SUPABASE_ANON_CLAIMS}")
 AGENT_ENDPOINT=http://agent.flow.localhost:${FLOW_PORT_AGENT}
 CONFIG_ENCRYPTION_ENDPOINT=http://config-encryption.flow.localhost:${FLOW_PORT_CONFIG_ENC}
 DEKAF_KAFKA_PORT=${DEKAF_KAFKA_PORT}
@@ -94,7 +95,7 @@ DEKAF_UPSTREAM_PORT=${FLOW_PORT_KAFKA}
 DEKAF_ENCRYPTION_SECRET=test-encryption-secret-32-bytes!
 # Test (non-production) key for local development.
 # This matches KMS_KEY in the control-plane development task.
-SOPS_AGE_KEY=AGE-SECRET-KEY-1UX6ZHA36JJZCFCV9U7FVHZZECHCCKA8NCFT27L68HV0NPRQ2V5ZSRKJJPU
+SOPS_AGE_KEY=${FLOW_AGE_CONFIG_IDENTITY:-AGE-SECRET-KEY-1UX6ZHA36JJZCFCV9U7FVHZZECHCCKA8NCFT27L68HV0NPRQ2V5ZSRKJJPU}
 SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
 RUST_LOG=dekaf=debug,info
 EOF
@@ -147,9 +148,8 @@ SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
 AGENT_API=http://agent.flow.localhost:${FLOW_PORT_AGENT}
 PG_URL=postgresql://postgres:postgres@localhost:${FLOW_PORT_SUPABASE_DB}/postgres
 
-# A token for the local-stack system user signed against the local-stack
-# supabase secret (super-secret-jwt-token-with-at-least-32-characters-long).
-SYSTEM_USER_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU
+# A token for the local-stack system user, signed with this stack's JWT secret.
+SYSTEM_USER_TOKEN=$(mint_jwt '{"iss":"http://127.0.0.1:5431/auth/v1","sub":"ffffffff-ffff-ffff-ffff-ffffffffffff","aud":"authenticated","exp":2700000000,"iat":1700000000,"email":"support@estuary.dev","role":"authenticated","is_anonymous":false}')
 
 DATA_PLANE_NAME=${DATA_PLANE}
 CREATE_REQUEST=${FLOW_ENV_DIR}/plane-link-${DATA_PLANE}.json
@@ -161,7 +161,7 @@ EOF
     ENCRYPTED_HMAC_KEYS=$(
         jq -n --arg key "${HMAC_KEY}" '{hmac_keys: [$key]}' |
             sops --encrypt \
-                --age age13uwnwn9k96qnetrakxhqxhm9cqnqykwsgccflu3p05vfdlweh5lsct0fy3 \
+                --age "${FLOW_AGE_HMAC_RECIPIENT:-age13uwnwn9k96qnetrakxhqxhm9cqnqykwsgccflu3p05vfdlweh5lsct0fy3}" \
                 --input-type json \
                 --output-type json \
                 /dev/stdin

@@ -13,7 +13,7 @@ prepare_dirs
 DATA_PLANE="${usage_data_plane}"
 BASE_PORT="${usage_base_port}"
 
-HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
+HMAC_KEY=$(echo -n "${FLOW_HMAC_SECRET:-key}-${DATA_PLANE}" | base64 | tr -d '\n')
 SIDECAR_PORT=$((BASE_PORT + 60))
 ADMIN_PORT=$((BASE_PORT + 61))
 

@@ -328,6 +328,7 @@ mise tasks
 | `local:stack [--dekaf]`          | Start full control plane + data plane (Dekaf opt-in)        |
 | `local:stack-env`                | Print this checkout's stack env (index, name, ports, paths) |
 | `local:stack-prune`              | Reclaim slots of deleted checkouts (auto-run at stack joints) |
+| `local:stack-secrets`            | Generate this stack's secrets in place of the checked-in ones |
 | `local:control-plane`            | Start control plane only                                    |
 | `local:data-plane <name> <port>` | Start a data plane                                          |
 | `local:data-plane-controller`    | Start data-plane-controller (service + job) in dry-run mode |

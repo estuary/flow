@@ -20,7 +20,7 @@ if [ "${COUNT}" -gt 10 ]; then
     exit 1
 fi
 
-HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
+HMAC_KEY=$(echo -n "${FLOW_HMAC_SECRET:-key}-${DATA_PLANE}" | base64 | tr -d '\n')
 
 # Ensure fragment directory exists (per-stack state).
 mkdir -p "${FLOW_STACK_DIR}/fragments/${DATA_PLANE}/"
@@ -36,7 +36,7 @@ for i in $(seq 0 $((COUNT - 1))); do
         cat <<EOF
 
 # Gazette broker environment for ${INSTANCE}
-# Authorization keys are the base64-encoding of "key-${DATA_PLANE}".
+# Authorization keys are the base64-encoding of "${FLOW_HMAC_SECRET:-key}-${DATA_PLANE}".
 #
 # CORS allow-origins are NOT set here: gazette's BROKER_ALLOW_ORIGIN env var is
 # single-valued (no env-delim upstream), and we allow two origins — the global UI
