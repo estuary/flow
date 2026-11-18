@@ -15,7 +15,7 @@ pub async fn dial_and_join(
     proto::Joined,
     Option<(
         mpsc::UnboundedSender<proto::Materialize>,
-        tonic::Streaming<proto::Materialize>,
+        futures::stream::BoxStream<'static, tonic::Result<proto::Materialize>>,
     )>,
 )> {
     let leader_endpoint = join.leader_endpoint.clone();
@@ -31,13 +31,15 @@ pub async fn dial_and_join(
     // Start the materialize RPC. We use an unbounded sender because we never
     // pump messages to the leader (strictly request / response).
     let (leader_tx, leader_rx) = mpsc::unbounded_channel();
-    let mut leader_rx = leader_client
-        .materialize(tokio_stream::wrappers::UnboundedReceiverStream::new(
-            leader_rx,
-        ))
-        .await
-        .context("opening leader Materialize stream")?
-        .into_inner();
+    let mut leader_rx = proto_grpc::chunk::join(
+        leader_client
+            .materialize(proto_grpc::chunk::split_requests(
+                tokio_stream::wrappers::UnboundedReceiverStream::new(leader_rx),
+            ))
+            .await
+            .context("opening leader Materialize stream")?
+            .into_inner(),
+    );
 
     // Send L:Join, and read L:Joined.
     let verify = crate::verify("Materialize", "Joined", "leader");
@@ -72,7 +74,7 @@ pub(super) struct Startup {
     pub db: crate::shard::RocksDB,
     pub disable_load_optimization: bool,
     pub codec: connector_init::Codec,
-    pub leader_rx: tonic::Streaming<proto::Materialize>,
+    pub leader_rx: futures::stream::BoxStream<'static, tonic::Result<proto::Materialize>>,
     pub leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     pub max_keys: Vec<(bytes::Bytes, bytes::Bytes)>,
     pub shuffle_reader: shuffle::log::Reader,
@@ -86,7 +88,7 @@ pub(super) async fn run<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     db: crate::shard::RocksDB,
     labeling: ops::proto::ShardLabeling,
     leader_producer: proto_gazette::uuid::Producer,
-    mut leader_rx: tonic::Streaming<proto::Materialize>,
+    mut leader_rx: futures::stream::BoxStream<'static, tonic::Result<proto::Materialize>>,
     leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     log_level: ops::LogLevel,
     logger: &L::Logger,

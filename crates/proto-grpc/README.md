@@ -20,6 +20,16 @@ status which reaches a chain by any other route (a bare `?` on a
 `tonic::Result`) converts to Unknown and renders as tonic's field dump, which
 is how an unmapped conversion announces itself.
 
+`proto_grpc::chunk` carries messages of the shuffle, runtime, and connector
+protocols which exceed one gRPC frame. Every server and client of those
+services wraps its received stream in `chunk::join`, and its sent stream in
+`chunk::split_requests` or `chunk::split_responses`. In-process paths skip
+them. A message larger than `chunk::MAX_FRAME` is sent as chunk messages of
+its own type. `MAX_FRAME` never chunks yet, so that every receiver can
+reassemble before any sender chunks. Go's
+`runtime.Chunks` and `runtime.RecvChunked` mirror the module for the Shard
+service's Go controller, and module docs describe the protocol.
+
 With `connector_client`, `proto_grpc::connector` also provides the client side
 of `connector.Connector`: the object-safe `Router` seam, `EndpointRouter`,
 request identity and bearer minting, the `start` / `next` stream helpers, and a

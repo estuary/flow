@@ -14,7 +14,7 @@ pub async fn dial_and_join(
     proto::Joined,
     Option<(
         mpsc::UnboundedSender<proto::Derive>,
-        tonic::Streaming<proto::Derive>,
+        futures::stream::BoxStream<'static, tonic::Result<proto::Derive>>,
     )>,
 )> {
     let leader_endpoint = join.leader_endpoint.clone();
@@ -29,13 +29,15 @@ pub async fn dial_and_join(
 
     // Unbounded: we never pump messages to the leader (strictly request / response).
     let (leader_tx, leader_rx) = mpsc::unbounded_channel();
-    let mut leader_rx = leader_client
-        .derive(tokio_stream::wrappers::UnboundedReceiverStream::new(
-            leader_rx,
-        ))
-        .await
-        .context("opening leader Derive stream")?
-        .into_inner();
+    let mut leader_rx = proto_grpc::chunk::join(
+        leader_client
+            .derive(proto_grpc::chunk::split_requests(
+                tokio_stream::wrappers::UnboundedReceiverStream::new(leader_rx),
+            ))
+            .await
+            .context("opening leader Derive stream")?
+            .into_inner(),
+    );
 
     let verify = crate::verify("Derive", "Joined", "leader");
 
@@ -65,7 +67,7 @@ pub(super) struct Startup<P: crate::Publisher> {
     pub connector_rx: mpsc::Receiver<tonic::Result<connector::proto::Response>>,
     pub connector_tx: mpsc::Sender<connector::proto::Request>,
     pub db: crate::shard::RocksDB,
-    pub leader_rx: tonic::Streaming<proto::Derive>,
+    pub leader_rx: futures::stream::BoxStream<'static, tonic::Result<proto::Derive>>,
     pub leader_tx: mpsc::UnboundedSender<proto::Derive>,
     pub publisher: P,
     pub shuffle_reader: shuffle::log::Reader,
@@ -78,7 +80,7 @@ pub(super) async fn run<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     db: crate::shard::RocksDB,
     labeling: ops::proto::ShardLabeling,
     leader_producer: proto_gazette::uuid::Producer,
-    mut leader_rx: tonic::Streaming<proto::Derive>,
+    mut leader_rx: futures::stream::BoxStream<'static, tonic::Result<proto::Derive>>,
     leader_tx: mpsc::UnboundedSender<proto::Derive>,
     log_level: ops::LogLevel,
     logger: &L::Logger,

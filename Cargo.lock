@@ -6846,6 +6846,7 @@ dependencies = [
  "insta",
  "labels",
  "ops",
+ "prost",
  "proto-build",
  "proto-flow",
  "proto-gazette",

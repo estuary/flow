@@ -1,5 +1,4 @@
 use super::{codec::Codec, rpc, serve};
-use futures::StreamExt;
 use proto_flow::connector::{Request, Response};
 
 /// Serves exactly one `connector.Connector` stream, and rejects any other.
@@ -37,7 +36,7 @@ impl proto_grpc::connector::connector_server::Connector for Proxy {
                 || rpc::new_command(&entrypoint),
                 codec,
                 spec_alone,
-                request.into_inner(),
+                proto_grpc::chunk::join(request.into_inner()),
                 &response_tx,
             )
             .await;
@@ -46,8 +45,8 @@ impl proto_grpc::connector::connector_server::Connector for Proxy {
             done.notify_one();
         });
 
-        Ok(tonic::Response::new(
-            tokio_stream::wrappers::ReceiverStream::new(response_rx).boxed(),
-        ))
+        Ok(tonic::Response::new(proto_grpc::chunk::split_responses(
+            tokio_stream::wrappers::ReceiverStream::new(response_rx),
+        )))
     }
 }

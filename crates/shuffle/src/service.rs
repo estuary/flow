@@ -230,9 +230,8 @@ impl std::ops::Deref for Service {
 #[tonic::async_trait]
 impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
     type SessionStream =
-        tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<shuffle::SessionResponse>>;
-    type SliceStream =
-        tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::SliceResponse>>;
+        futures::stream::BoxStream<'static, tonic::Result<shuffle::SessionResponse>>;
+    type SliceStream = futures::stream::BoxStream<'static, tonic::Result<shuffle::SliceResponse>>;
     type LogStream = futures::stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>;
 
     async fn session(
@@ -240,11 +239,12 @@ impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
         mut request: tonic::Request<tonic::Streaming<shuffle::SessionRequest>>,
     ) -> tonic::Result<tonic::Response<Self::SessionStream>> {
         let authz = proto_grpc::Authorizer::from_request(&mut request, self.signer.is_none())?;
-        Ok(tonic::Response::new(
+        let request_rx = proto_grpc::chunk::join(request.into_inner());
+        Ok(tonic::Response::new(proto_grpc::chunk::split_responses(
             tokio_stream::wrappers::UnboundedReceiverStream::new(
-                self.spawn_session(authz, request.into_inner()),
+                self.spawn_session(authz, request_rx),
             ),
-        ))
+        )))
     }
 
     async fn slice(
@@ -252,11 +252,10 @@ impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
         mut request: tonic::Request<tonic::Streaming<shuffle::SliceRequest>>,
     ) -> tonic::Result<tonic::Response<Self::SliceStream>> {
         let authz = proto_grpc::Authorizer::from_request(&mut request, self.signer.is_none())?;
-        Ok(tonic::Response::new(
-            tokio_stream::wrappers::ReceiverStream::new(
-                self.spawn_slice(authz, request.into_inner()),
-            ),
-        ))
+        let request_rx = proto_grpc::chunk::join(request.into_inner());
+        Ok(tonic::Response::new(proto_grpc::chunk::split_responses(
+            tokio_stream::wrappers::ReceiverStream::new(self.spawn_slice(authz, request_rx)),
+        )))
     }
 
     async fn log(
@@ -264,8 +263,9 @@ impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
         mut request: tonic::Request<tonic::Streaming<shuffle::LogRequest>>,
     ) -> tonic::Result<tonic::Response<Self::LogStream>> {
         let authz = proto_grpc::Authorizer::from_request(&mut request, self.signer.is_none())?;
-        Ok(tonic::Response::new(
-            self.spawn_log(authz, request.into_inner()),
-        ))
+        let request_rx = proto_grpc::chunk::join(request.into_inner());
+        Ok(tonic::Response::new(proto_grpc::chunk::split_responses(
+            self.spawn_log(authz, request_rx),
+        )))
     }
 }

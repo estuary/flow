@@ -4,7 +4,6 @@
 //! inspection model into declarations and connects image endpoints.
 
 use anyhow::Context;
-use futures::StreamExt;
 use proto_flow::flow;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -189,13 +188,13 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
         proto_grpc::connector::connector_client::ConnectorClient::new(running.channel)
             .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
             .max_encoding_message_size(usize::MAX)
-            .connector(requests)
+            .connector(proto_grpc::chunk::split_requests(requests))
             .await
             .map_err(crate::status_to_anyhow)?
             .into_inner();
 
     Ok(crate::Transport {
-        response_rx: response_rx.boxed(),
+        response_rx: proto_grpc::chunk::join(response_rx),
         container: Some(container),
         process: Some(running.process),
         stderr_overflow: running.stderr_overflow,
