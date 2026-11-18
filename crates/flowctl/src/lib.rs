@@ -271,6 +271,12 @@ impl Cli {
             Ok(tokens) if tokens.access_token.is_some() && !from_env => {
                 config::Config::persist_tokens(&self.profile, tokens)?;
             }
+            // `auth` subcommands are how an anonymous user authenticates.
+            Ok(tokens)
+                if tokens.access_token.is_none() && !matches!(self.cmd, Command::Auth(_)) =>
+            {
+                tracing::warn!("You are not authenticated. Run `flowctl auth login` to login.");
+            }
             Ok(_) => {} // Anonymous, or env-provided: nothing to persist.
             Err(status) => anyhow::bail!(
                 "Failed to authenticate (run `flowctl auth login`): {}",
