@@ -102,6 +102,7 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -111,8 +112,10 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
         ],
+        linked_collections: Vec::new(),
     };
 
     harness
@@ -213,6 +216,7 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "flowers".to_string(),
@@ -222,8 +226,10 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
         ],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -358,6 +364,7 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "flowers".to_string(),
@@ -367,8 +374,10 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
         ],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -489,7 +498,9 @@ async fn test_auto_discovers_no_evolution() {
             disable: false,
             resource_path: Vec::new(),
             is_fallback_key: false,
+            collection_index: 0,
         }],
+        linked_collections: Vec::new(),
     };
     let result = harness
         .user_discover(
@@ -519,7 +530,9 @@ async fn test_auto_discovers_no_evolution() {
             disable: false,
             resource_path: Vec::new(),
             is_fallback_key: false,
+            collection_index: 0,
         }],
+        linked_collections: Vec::new(),
     };
     harness.set_auto_discover_due("mules/capture").await;
     harness
@@ -852,6 +865,7 @@ async fn test_auto_discovers_update_only() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -862,6 +876,7 @@ async fn test_auto_discovers_update_only() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "lichen".to_string(),
@@ -871,8 +886,10 @@ async fn test_auto_discovers_update_only() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
         ],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -1041,6 +1058,7 @@ async fn test_auto_discovers_update_only() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -1051,10 +1069,12 @@ async fn test_auto_discovers_update_only() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             // Lichens is missing, and we expect the corresponding binding to be
             // removed once a successful discover is published.
         ],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -1134,6 +1154,7 @@ async fn test_auto_discovers_update_only() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -1144,10 +1165,12 @@ async fn test_auto_discovers_update_only() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             // Lichens is missing, and we expect the corresponding binding to be
             // removed once a successful discover is published.
         ],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -1313,7 +1336,9 @@ async fn test_auto_discovers_without_connector_tag() {
             disable: false,
             resource_path: vec!["tunnels".to_string()],
             is_fallback_key: false,
+            collection_index: 0,
         }],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors

@@ -588,7 +588,9 @@ fn ex_capture_responses() -> Vec<(&'static str, capture::Response)> {
                 key: vec!["/key/ptr".to_string()],
                 resource_path: vec!["1234".to_string()],
                 is_fallback_key: false,
+                collection_index: 0,
             }],
+            linked_collections: Vec::new(),
         }),
         Kind::Validated(capture::response::Validated {
             bindings: vec![capture::response::validated::Binding {

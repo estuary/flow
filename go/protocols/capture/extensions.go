@@ -35,22 +35,51 @@ func (m *Request_Discover) Validate() error {
 	return nil
 }
 
+// Validate checks the form of the Discovered response.
 func (m *Response_Discovered) Validate() error {
+	for i, c := range m.LinkedCollections {
+		if err := c.Validate(); err != nil {
+			return pb.NewValidationError("LinkedCollections[%d]: %w", i, err)
+		}
+	}
 	for i, b := range m.Bindings {
-		if err := b.Validate(); err != nil {
+		if err := b.Validate(len(m.LinkedCollections)); err != nil {
 			return pb.NewValidationError("Bindings[%d]: %w", i, err)
 		}
 	}
 	return nil
 }
 
-func (m *Response_Discovered_Binding) Validate() error {
+// Validate the Binding of a Discovered response having `numLinked`
+// LinkedCollections. If `numLinked` is zero the Binding must inline its
+// collection fields, and otherwise it must resolve through CollectionIndex.
+func (m *Response_Discovered_Binding) Validate(numLinked int) error {
+	if len(m.ResourceConfigJson) == 0 {
+		return pb.NewValidationError("missing ResourceConfigJson")
+	}
+	if numLinked == 0 {
+		if m.RecommendedName == "" {
+			return pb.NewValidationError("missing RecommendedName")
+		} else if len(m.DocumentSchemaJson) == 0 {
+			return pb.NewValidationError("missing DocumentSchemaJson")
+		} else if m.CollectionIndex != 0 {
+			return pb.NewValidationError("unexpected CollectionIndex (response has no LinkedCollections)")
+		}
+		return nil
+	}
+	if m.RecommendedName != "" || len(m.DocumentSchemaJson) != 0 || len(m.Key) != 0 || m.IsFallbackKey {
+		return pb.NewValidationError("unexpected inline collection fields (response has LinkedCollections)")
+	} else if int(m.CollectionIndex) >= numLinked {
+		return pb.NewValidationError("CollectionIndex %d is out of bounds (%d LinkedCollections)", m.CollectionIndex, numLinked)
+	}
+	return nil
+}
+
+func (m *Response_Discovered_Collection) Validate() error {
 	if m.RecommendedName == "" {
 		return pb.NewValidationError("missing RecommendedName")
 	} else if len(m.DocumentSchemaJson) == 0 {
 		return pb.NewValidationError("missing DocumentSchemaJson")
-	} else if len(m.ResourceConfigJson) == 0 {
-		return pb.NewValidationError("missing ResourceConfigJson")
 	}
 	return nil
 }

@@ -303,25 +303,47 @@ pub mod response {
     pub struct Discovered {
         #[prost(message, repeated, tag = "1")]
         pub bindings: ::prost::alloc::vec::Vec<discovered::Binding>,
+        /// Table of collections referenced by `collection_index` of this
+        /// response's bindings, in place of inlined collection fields
+        /// (the "indirect" form).
+        ///
+        /// The form is a property of the response as a whole: if
+        /// `linked_collections` is non-empty then every binding leaves its
+        /// collection fields unset and resolves through `collection_index`.
+        /// If it's empty then every binding inlines its collection fields and
+        /// `collection_index` is unset. Mixed forms are invalid.
+        ///
+        /// The indirect form is representational only. A binding resolved through
+        /// `linked_collections` is equivalent to an inline binding having the
+        /// entry's fields.
+        #[prost(message, repeated, tag = "2")]
+        pub linked_collections: ::prost::alloc::vec::Vec<discovered::Collection>,
     }
     /// Nested message and enum types in `Discovered`.
     pub mod discovered {
         /// Potential bindings which the capture could provide.
         /// Bindings may be returned in any order.
+        ///
+        /// Bindings which share a recommended name recommend the same collection,
+        /// and "fan in" to it. A connector which fans in bindings should use
+        /// `linked_collections`, so that they share one schema and key.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct Binding {
             /// The recommended name for this discovered binding,
             /// which is normalized and then appended to a catalog prefix of the
             /// proposed capture to form the name of its recommended collection.
+            /// Unset if the response uses `linked_collections`.
             #[prost(string, tag = "1")]
             pub recommended_name: ::prost::alloc::string::String,
             /// JSON-encoded object which specifies the captured resource configuration.
             #[prost(bytes = "bytes", tag = "2")]
             pub resource_config_json: ::prost::bytes::Bytes,
             /// JSON schema of documents produced by this binding.
+            /// Unset if the response uses `linked_collections`.
             #[prost(bytes = "bytes", tag = "3")]
             pub document_schema_json: ::prost::bytes::Bytes,
             /// Composite key of documents (if known), as JSON-Pointers.
+            /// Unset if the response uses `linked_collections`.
             #[prost(string, repeated, tag = "4")]
             pub key: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
             /// When true, this binding should be added but marked as disabled.
@@ -358,7 +380,27 @@ pub mod response {
             ///   fallback key.
             /// * Users may change the collection key, and it will not be overwritten
             ///   by future discoveries.
+            ///
+            /// Unset if the response uses `linked_collections`.
             #[prost(bool, tag = "7")]
+            pub is_fallback_key: bool,
+            /// Index of this binding's collection within the response's
+            /// `linked_collections`. Used when the response is in indirect form,
+            /// and unset otherwise.
+            #[prost(uint32, tag = "8")]
+            pub collection_index: u32,
+        }
+        /// Collection fields of a discovered binding: its recommended name,
+        /// schema, and key. The fields have the same meaning as those of Binding.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Collection {
+            #[prost(string, tag = "1")]
+            pub recommended_name: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "2")]
+            pub document_schema_json: ::prost::bytes::Bytes,
+            #[prost(string, repeated, tag = "3")]
+            pub key: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+            #[prost(bool, tag = "4")]
             pub is_fallback_key: bool,
         }
     }

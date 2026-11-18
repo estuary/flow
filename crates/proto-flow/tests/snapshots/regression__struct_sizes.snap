@@ -12,7 +12,7 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
      4  capture::request::Acknowledge
     96  capture::Response
    408  capture::response::Spec
-    24  capture::response::Discovered
+    48  capture::response::Discovered
     48  capture::response::Validated
     64  capture::response::Applied
      1  capture::response::Opened

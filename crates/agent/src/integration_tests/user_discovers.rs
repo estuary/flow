@@ -37,6 +37,7 @@ fn graphql_discovered(names: &[&str]) -> Discovered {
                 ..Default::default()
             })
             .collect(),
+        linked_collections: Vec::new(),
     }
 }
 
@@ -294,6 +295,7 @@ async fn test_user_discovers() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: String::from("walnuts"),
@@ -303,6 +305,7 @@ async fn test_user_discovers() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: String::from("crab apples"),
@@ -312,8 +315,10 @@ async fn test_user_discovers() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
         ],
+        linked_collections: Vec::new(),
     };
     // Start with an empty draft
     let draft_id = harness
@@ -470,6 +475,7 @@ async fn test_user_discovers() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: String::from("walnuts"),
@@ -479,6 +485,7 @@ async fn test_user_discovers() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: String::from("hickory nuts!"),
@@ -488,8 +495,10 @@ async fn test_user_discovers() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
         ],
+        linked_collections: Vec::new(),
     };
     let endpoint_config = r##"{ "newConfig": "forDiscover" }"##;
     let result = harness
@@ -666,6 +675,7 @@ async fn test_discover_not_authorized_capture() {
                     spec_fixture(),
                     Discovered {
                         bindings: Vec::new(),
+                        linked_collections: Vec::new(),
                     },
                 )),
             )
@@ -742,6 +752,7 @@ async fn test_discover_capture_requires_spec_edit() {
                     spec_fixture(),
                     Discovered {
                         bindings: Vec::new(),
+                        linked_collections: Vec::new(),
                     },
                 )),
             )
@@ -792,6 +803,7 @@ async fn test_discover_not_authorized_wins_over_missing_plane() {
                 spec_fixture(),
                 Discovered {
                     bindings: Vec::new(),
+                    linked_collections: Vec::new(),
                 },
             )),
         )
@@ -851,6 +863,7 @@ async fn test_discover_no_data_plane() {
                     spec_fixture(),
                     Discovered {
                         bindings: Vec::new(),
+                        linked_collections: Vec::new(),
                     },
                 )),
             )
@@ -914,7 +927,9 @@ async fn test_discover_merge_filters_unauthorized_collection() {
             disable: false,
             resource_path: Vec::new(),
             is_fallback_key: false,
+            collection_index: 0,
         }],
+        linked_collections: Vec::new(),
     };
     let discover_id = harness
         .queue_user_discover(
