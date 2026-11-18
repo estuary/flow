@@ -114,6 +114,7 @@ dependencies = [
  "control-plane-api",
  "dekaf",
  "derivative",
+ "discover",
  "doc",
  "futures",
  "gazette",
@@ -2219,6 +2220,7 @@ dependencies = [
  "colored_json",
  "coroutines",
  "derivative",
+ "discover",
  "doc",
  "enumset",
  "flow-client-next",
@@ -3204,6 +3206,24 @@ dependencies = [
  "option-ext",
  "redox_users",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "discover"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "doc",
+ "insta",
+ "itertools 0.13.0",
+ "json",
+ "models",
+ "proto-flow",
+ "serde_json",
+ "tables",
+ "tracing",
+ "validation",
 ]
 
 [[package]]

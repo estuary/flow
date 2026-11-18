@@ -1,0 +1,54 @@
+---
+source: crates/discover/src/parse.rs
+expression: "parse(\"acmeCo/capture\", discovered).unwrap()"
+---
+Discovered {
+    bindings: [
+        Binding {
+            resource_config_json: b"{\"stream\":\"greetings\",\"syncMode\":\"incremental\"}",
+            resource_path: [],
+            disable: true,
+            collection: 1,
+        },
+        Binding {
+            resource_config_json: b"{\"stream\":\"greetings\",\"syncMode\":\"incremental\"}",
+            resource_path: [],
+            disable: false,
+            collection: 0,
+        },
+    ],
+    collections: [
+        Collection {
+            recommended_name: "some_greetings",
+            document_schema: Schema(
+                RawValue(
+                    {"properties":{"count":{"type":"integer"},"message":{"type":"string"}},"required":["count","message"],"type":"object"},
+                ),
+            ),
+            key: CompositeKey(
+                [
+                    JsonPointer(
+                        "/count",
+                    ),
+                ],
+            ),
+            is_fallback_key: false,
+        },
+        Collection {
+            recommended_name: "frogs",
+            document_schema: Schema(
+                RawValue(
+                    {"properties":{"croak":{"type":"string"}},"required":["croak"],"type":"object"},
+                ),
+            ),
+            key: CompositeKey(
+                [
+                    JsonPointer(
+                        "/croak",
+                    ),
+                ],
+            ),
+            is_fallback_key: false,
+        },
+    ],
+}

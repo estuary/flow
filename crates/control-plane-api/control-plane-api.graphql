@@ -326,7 +326,8 @@ type AutoDiscoverOutcome {
 	"""
 	added: [DiscoverChange!]!
 	"""
-	Bindings that were modified, either to change the schema or the collection key.
+	Collections that were modified, either to change the schema or the collection key.
+	Each is represented by one of its bindings.
 	"""
 	modified: [DiscoverChange!]!
 	"""

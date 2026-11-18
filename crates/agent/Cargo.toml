@@ -19,6 +19,7 @@ build = { path = "../build" }
 catalog-stats = { path = "../catalog-stats" }
 control-plane-api = { path = "../control-plane-api" }
 dekaf = { path = "../dekaf" }
+discover = { path = "../discover" }
 doc = { path = "../doc" }
 migrate = { path = "../migrate" }
 notifications = { path = "../notifications" }

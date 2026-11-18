@@ -106,7 +106,16 @@ async fn test_graphql_rediscover_connector_failure_and_retry() {
     );
     let merged = harness.run_queued_discover(retry_id).await;
     assert!(merged.job_status.is_success(), "{:?}", merged.errors);
-    assert_eq!(merged.draft.collections.len(), 2);
+    // Only the new collection is drafted: `widgets` is unchanged from live.
+    assert_eq!(
+        merged
+            .draft
+            .collections
+            .iter()
+            .map(|row| row.collection.as_str())
+            .collect::<Vec<_>>(),
+        vec!["acmeCo/gadgets"],
+    );
     assert_eq!(
         merged.draft.captures[0]
             .model
@@ -176,7 +185,6 @@ async fn test_discover_without_connector_tag() {
         .queue_draft_discover(
             GRAPHQL_CAPTURE,
             draft,
-            false,
             Ok((spec_fixture(), graphql_discovered(&["widgets"]))),
         )
         .await;
@@ -204,7 +212,6 @@ async fn test_discover_without_connector_tag() {
         .queue_draft_discover(
             GRAPHQL_CAPTURE,
             draft,
-            false,
             Ok((spec_fixture(), graphql_discovered(&["widgets", "gadgets"]))),
         )
         .await;
@@ -235,7 +242,6 @@ async fn test_discover_rejects_non_discovered_responses() {
             "squirrels/capture",
             draft_id,
             r#"{}"#,
-            false,
             Ok((spec_fixture(), Default::default())),
         )
         .await;
@@ -333,7 +339,6 @@ async fn test_user_discovers() {
             "squirrels/capture-1",
             draft_id,
             endpoint_config,
-            false,
             Ok((spec_fixture(), initial_resp)),
         )
         .await;
@@ -508,7 +513,6 @@ async fn test_user_discovers() {
             "squirrels/capture-1",
             draft_id,
             endpoint_config,
-            true,
             Ok((spec_fixture(), next_discover.clone())),
         )
         .await;
@@ -583,12 +587,14 @@ async fn test_user_discovers() {
             "squirrels/capture-1",
             draft_id,
             endpoint_config,
-            true,
             Ok((spec_fixture(), next_discover)),
         )
         .await;
     assert!(result.job_status.is_success());
-    assert_eq!(4, result.draft.spec_count());
+    // The capture is drafted, unchanged. Live collections are unchanged and
+    // aren't drafted. The collection of the disabled `hickory nuts!` binding
+    // was pruned by publication, so it's drafted anew.
+    assert_eq!(2, result.draft.spec_count());
     let UserDiscoverResult {
         draft:
             tables::DraftCatalog {
@@ -604,15 +610,21 @@ async fn test_user_discovers() {
     assert_eq!(Some(expected_capture), actual_capture.model);
 
     for live_collection in starting_collections {
-        let Some(discovered) = discovered_collections.get_by_key(&live_collection.collection)
-        else {
-            panic!(
-                "missing discovered collection for {}",
-                live_collection.collection
-            );
-        };
-        assert_eq!(Some(live_collection.model), discovered.model);
+        assert!(
+            discovered_collections
+                .get_by_key(&live_collection.collection)
+                .is_none(),
+            "unchanged live collection {} was drafted",
+            live_collection.collection
+        );
     }
+    assert_eq!(
+        discovered_collections
+            .iter()
+            .map(|row| row.collection.as_str())
+            .collect::<Vec<_>>(),
+        vec!["squirrels/hickory_nuts"],
+    );
 }
 
 fn document_schema(version: usize) -> bytes::Bytes {
@@ -670,7 +682,6 @@ async fn test_discover_not_authorized_capture() {
                 capture_name,
                 draft_id,
                 r#"{"filtered": 1}"#,
-                false,
                 Ok((
                     spec_fixture(),
                     Discovered {
@@ -747,7 +758,6 @@ async fn test_discover_capture_requires_spec_edit() {
                 "squirrels/capture-1",
                 draft_id,
                 r#"{}"#,
-                false,
                 Ok((
                     spec_fixture(),
                     Discovered {
@@ -798,7 +808,6 @@ async fn test_discover_not_authorized_wins_over_missing_plane() {
             "ops/dp/public/missing",
             draft_id,
             r#"{}"#,
-            false,
             Ok((
                 spec_fixture(),
                 Discovered {
@@ -858,7 +867,6 @@ async fn test_discover_no_data_plane() {
                 data_plane_name,
                 draft_id,
                 r#"{}"#,
-                false,
                 Ok((
                     spec_fixture(),
                     Discovered {
@@ -938,7 +946,6 @@ async fn test_discover_merge_filters_unauthorized_collection() {
             "squirrels/capture-1",
             draft_id,
             r#"{}"#,
-            false,
             Ok((spec_fixture(), discovered)),
         )
         .await;
@@ -977,7 +984,6 @@ async fn test_discover_task_completes_after_draft_deleted() {
             "squirrels/capture",
             draft_id,
             r#"{}"#,
-            false,
             Ok((spec_fixture(), Default::default())),
         )
         .await;
@@ -1012,7 +1018,6 @@ async fn test_discover_task_fails_on_database_error() {
             "squirrels/capture",
             draft_id,
             r#"{}"#,
-            false,
             Ok((spec_fixture(), Default::default())),
         )
         .await;

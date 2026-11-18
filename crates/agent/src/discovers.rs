@@ -206,7 +206,6 @@ impl DiscoverExecutor {
             row.draft_id,
             models::Capture::new(&row.capture_name),
             tag_endpoint,
-            row.update_only,
             row.logs_token,
             data_plane.control_id,
             snapshot,
@@ -258,7 +257,6 @@ async fn prepare_discover<'a>(
     draft_id: Id,
     capture_name: models::Capture,
     tag_endpoint: Option<models::ConnectorConfig>,
-    update_only: bool,
     logs_token: uuid::Uuid,
     data_plane_id: models::Id,
     snapshot: &'a control_plane_api::Snapshot,
@@ -289,6 +287,7 @@ async fn prepare_discover<'a>(
     )
     .await?;
     let live_capture = live.captures.into_iter().next();
+    let live_capture_exists = live_capture.is_some();
     let created_at = live_capture
         .as_ref()
         .map(|l| l.control_id.timestamp().date_naive().to_string())
@@ -347,12 +346,14 @@ async fn prepare_discover<'a>(
         );
     }
 
-    let reset_on_key_change = draft
+    let discover::Options {
+        update_only,
+        reset_on_key_change,
+    } = draft
         .captures
         .get_by_key(&capture_name)
         .and_then(|row| row.model.as_ref())
-        .and_then(|model| model.auto_discover.as_ref())
-        .map(|auto| auto.evolve_incompatible_collections)
+        .map(|model| discover::Options::for_capture(model, live_capture_exists))
         .unwrap_or_default();
     Ok(Discover {
         subject,
@@ -445,7 +446,6 @@ mod test {
                 image: image_composed.clone(),
                 config: endpoint_config,
             }),
-            false, // !update_only
             logs_token,
             data_plane_id,
             snapshot.result().unwrap(),
@@ -460,7 +460,9 @@ mod test {
 
         assert_eq!(logs_token, result.logs_token);
         assert_eq!(user_id, result.subject.user_id);
-        assert!(!result.update_only);
+        // The drafted capture has no `autoDiscover` and is live,
+        // so new bindings are added as disabled.
+        assert!(result.update_only);
 
         // The draft should contain everything that was already drafted
         assert_eq!(1, result.draft.captures.len());
@@ -497,7 +499,6 @@ mod test {
             draft_id,
             capture_name.clone(),
             None,
-            false, // !update_only
             logs_token,
             data_plane_id,
             snapshot.result().unwrap(),
@@ -527,7 +528,6 @@ mod test {
             draft_id,
             models::Capture::new("aliceCo/dir/source-missing"),
             None,
-            false, // !update_only
             logs_token,
             data_plane_id,
             snapshot.result().unwrap(),

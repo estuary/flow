@@ -240,7 +240,6 @@ async fn discover_requests_carry_created_at() {
             "gophers/capture",
             draft_id,
             r#"{"tail": "shake"}"#,
-            false,
             Ok((super::spec_fixture(), discovered.clone())),
         )
         .await;
@@ -265,7 +264,6 @@ async fn discover_requests_carry_created_at() {
             "gophers/capture",
             draft_id,
             r#"{"tail": "shake"}"#,
-            false,
             Ok((super::spec_fixture(), discovered)),
         )
         .await;

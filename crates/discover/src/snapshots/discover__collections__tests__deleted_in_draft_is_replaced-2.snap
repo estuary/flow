@@ -1,0 +1,22 @@
+---
+source: crates/discover/src/collections.rs
+expression: drafted(&draft.collections)
+---
+[
+    (
+        "acmeCo/draft-deleted",
+        [
+            "/next",
+        ],
+        false,
+        "{\"$defs\":{\"flow://connector-schema\":{\"$id\":\"flow://connector-schema\",\"const\":\"next\"}},\"$ref\":\"flow://connector-schema\"}",
+    ),
+    (
+        "acmeCo/live-deleted",
+        [
+            "/next",
+        ],
+        true,
+        "{\"$defs\":{\"flow://connector-schema\":{\"$id\":\"flow://connector-schema\",\"const\":\"next\"}},\"$ref\":\"flow://connector-schema\"}",
+    ),
+]

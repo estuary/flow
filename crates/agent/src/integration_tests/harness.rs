@@ -1218,7 +1218,6 @@ impl TestHarness {
         capture_name: &str,
         draft_id: Id,
         endpoint_config: &str, // TODO: different type?
-        update_only: bool,
         mock_discover_resp: connectors::MockDiscover,
     ) -> UserDiscoverResult {
         let disco_id = self
@@ -1228,7 +1227,6 @@ impl TestHarness {
                 capture_name,
                 draft_id,
                 endpoint_config,
-                update_only,
                 mock_discover_resp,
             )
             .await;
@@ -1297,7 +1295,6 @@ impl TestHarness {
         capture_name: &str,
         draft_id: Id,
         endpoint_config: &str,
-        update_only: bool,
         mock_discover_resp: connectors::MockDiscover,
     ) -> Id {
         self.queue_user_discover_in_plane(
@@ -1307,7 +1304,6 @@ impl TestHarness {
             "ops/dp/public/test",
             draft_id,
             endpoint_config,
-            update_only,
             mock_discover_resp,
         )
         .await
@@ -1323,7 +1319,6 @@ impl TestHarness {
         data_plane_name: &str,
         draft_id: Id,
         endpoint_config: &str,
-        update_only: bool,
         mock_discover_resp: connectors::MockDiscover,
     ) -> Id {
         let connector_tag = sqlx::query!(
@@ -1345,7 +1340,6 @@ impl TestHarness {
             data_plane_name,
             draft_id,
             endpoint_config,
-            update_only,
             mock_discover_resp,
         )
         .await
@@ -1358,7 +1352,6 @@ impl TestHarness {
         &mut self,
         capture_name: &str,
         draft_id: Id,
-        update_only: bool,
         mock_discover_resp: connectors::MockDiscover,
     ) -> Id {
         self.insert_discover(
@@ -1367,7 +1360,6 @@ impl TestHarness {
             "ops/dp/public/test",
             draft_id,
             "{}",
-            update_only,
             mock_discover_resp,
         )
         .await
@@ -1380,7 +1372,6 @@ impl TestHarness {
         data_plane_name: &str,
         draft_id: Id,
         endpoint_config: &str,
-        update_only: bool,
         mock_discover_resp: connectors::MockDiscover,
     ) -> Id {
         let config_json = TextJson(models::RawValue::from_str(endpoint_config).unwrap());
@@ -1398,7 +1389,8 @@ impl TestHarness {
             connector_tag_id as Option<Id>,
             draft_id as Id,
             config_json as TextJson<models::RawValue>,
-            update_only,
+            // The executor derives `update_only` from the capture's policy.
+            false,
             data_plane_name as &str
         )
         .fetch_one(&self.pool)

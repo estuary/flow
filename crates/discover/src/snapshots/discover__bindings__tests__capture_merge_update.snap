@@ -1,0 +1,98 @@
+---
+source: crates/discover/src/bindings.rs
+expression: out
+---
+Merged {
+    bindings: [
+        MergedBinding {
+            target: Collection(
+                "acmeCo/barName",
+            ),
+            resource_path: [
+                "bar",
+            ],
+            disable: true,
+            collection: 1,
+        },
+        MergedBinding {
+            target: Collection(
+                "test/collection/disabled",
+            ),
+            resource_path: [
+                "disabled",
+            ],
+            disable: true,
+            collection: 2,
+        },
+        MergedBinding {
+            target: Collection(
+                "acmeCo/renamed",
+            ),
+            resource_path: [
+                "foo",
+            ],
+            disable: false,
+            collection: 0,
+        },
+    ],
+    collections: [
+        Collection {
+            recommended_name: "fooName",
+            document_schema: Schema(
+                RawValue(
+                    {"const":"discovered"},
+                ),
+            ),
+            key: CompositeKey(
+                [],
+            ),
+            is_fallback_key: false,
+        },
+        Collection {
+            recommended_name: "barName",
+            document_schema: Schema(
+                RawValue(
+                    false,
+                ),
+            ),
+            key: CompositeKey(
+                [],
+            ),
+            is_fallback_key: false,
+        },
+        Collection {
+            recommended_name: "disabledName",
+            document_schema: Schema(
+                RawValue(
+                    false,
+                ),
+            ),
+            key: CompositeKey(
+                [],
+            ),
+            is_fallback_key: false,
+        },
+    ],
+    added: {
+        [
+            "bar",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/barName",
+            ),
+            disable: true,
+            reason: None,
+        },
+    },
+    removed: {
+        [
+            "removed",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/discarded",
+            ),
+            disable: false,
+            reason: None,
+        },
+    },
+}

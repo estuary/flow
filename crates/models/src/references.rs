@@ -258,7 +258,7 @@ impl RelativeUrl {
 
 /// Ordered JSON-Pointers which define how a composite key may be extracted from
 /// a collection document.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
 #[schemars(example = CompositeKey::example())]
 pub struct CompositeKey(Vec<JsonPointer>);
 

@@ -1,0 +1,46 @@
+---
+source: crates/discover/src/collections.rs
+expression: modified
+---
+Ok(
+    {
+        [
+            "10",
+        ]: Changed {
+            target: Collection(
+                "case/10",
+            ),
+            disable: false,
+            reason: None,
+        },
+        [
+            "3",
+        ]: Changed {
+            target: Collection(
+                "case/3",
+            ),
+            disable: false,
+            reason: None,
+        },
+        [
+            "6",
+        ]: Changed {
+            target: Collection(
+                "case/6",
+            ),
+            disable: true,
+            reason: None,
+        },
+        [
+            "9",
+        ]: Changed {
+            target: Collection(
+                "case/9",
+            ),
+            disable: false,
+            reason: Some(
+                "replaced collection key [\"/id\"] with fallback [\"/foo_id\", \"/bar_id\"] because the existing key no longer exists in the discovered schema, and reset the collection",
+            ),
+        },
+    },
+)

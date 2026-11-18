@@ -1,0 +1,83 @@
+---
+source: crates/discover/src/bindings.rs
+expression: path_merge_out
+---
+Merged {
+    bindings: [
+        MergedBinding {
+            target: Collection(
+                "acmeCo/my/bar",
+            ),
+            resource_path: [
+                "bar",
+            ],
+            disable: true,
+            collection: 1,
+        },
+        MergedBinding {
+            target: Collection(
+                "acmeCo/my/foo",
+            ),
+            resource_path: [
+                "foo",
+            ],
+            disable: false,
+            collection: 0,
+        },
+    ],
+    collections: [
+        Collection {
+            recommended_name: "foo",
+            document_schema: Schema(
+                RawValue(
+                    {"const":"foo"},
+                ),
+            ),
+            key: CompositeKey(
+                [
+                    JsonPointer(
+                        "/foo-key",
+                    ),
+                ],
+            ),
+            is_fallback_key: false,
+        },
+        Collection {
+            recommended_name: "bar",
+            document_schema: Schema(
+                RawValue(
+                    {"const":"bar"},
+                ),
+            ),
+            key: CompositeKey(
+                [
+                    JsonPointer(
+                        "/bar-key",
+                    ),
+                ],
+            ),
+            is_fallback_key: false,
+        },
+    ],
+    added: {
+        [
+            "bar",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/my/bar",
+            ),
+            disable: true,
+            reason: None,
+        },
+        [
+            "foo",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/my/foo",
+            ),
+            disable: false,
+            reason: None,
+        },
+    },
+    removed: {},
+}

@@ -1,0 +1,17 @@
+---
+source: crates/discover/src/collections.rs
+expression: modified
+---
+{
+    [
+        "live",
+    ]: Changed {
+        target: Collection(
+            "acmeCo/live-deleted",
+        ),
+        disable: false,
+        reason: Some(
+            "replaced collection deleted in the draft, and reset it",
+        ),
+    },
+}

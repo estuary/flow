@@ -19,6 +19,7 @@ build = { path = "../build" }
 catalog-stats = { path = "../catalog-stats" }
 catalog-tests = { path = "../catalog-tests" }
 coroutines = { path = "../coroutines" }
+discover = { path = "../discover" }
 doc = { path = "../doc" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }

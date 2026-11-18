@@ -1,0 +1,26 @@
+[package]
+name = "discover"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+doc = { path = "../doc" }
+json = { path = "../json" }
+models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
+tables = { path = "../tables" }
+validation = { path = "../validation" }
+
+anyhow = { workspace = true }
+bytes = { workspace = true }
+itertools = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
