@@ -1,19 +1,20 @@
 use crate::alerts::{AlertViewRow, evaluate_alert_actions};
 use anyhow::Context;
-use control_plane_api::alerts::ArgsObject;
+use control_plane_api::alerts::{AlertAction, ArgsObject, ResolveAlert};
 use models::status::AlertType;
 use std::collections::BTreeMap;
 
 /// What a tenant controller step observed about one of the tenant's alerts.
 pub enum Observation {
+    /// An open alert fired before `period_start` resolves, and the alert fires
+    /// again, so that each period's alert notifies.
     Firing {
         arguments: ArgsObject,
+        period_start: Option<chrono::DateTime<chrono::Utc>>,
     },
     /// An open alert resolves with `arguments`, or with the arguments it fired
     /// with if there are none.
-    Resolved {
-        arguments: Option<ArgsObject>,
-    },
+    Resolved { arguments: Option<ArgsObject> },
     /// An open alert resolves without notifications.
     ResolvedSilently,
 }
@@ -50,6 +51,13 @@ pub async fn apply(
                 matches!(observed[&alert.alert_type], Observation::ResolvedSilently)
             });
 
+    let (earlier, open): (Vec<_>, Vec<_>) = open.into_iter().partition(|alert| {
+        matches!(
+            observed[&alert.alert_type],
+            Observation::Firing { period_start: Some(start), .. } if alert.fired_at < start
+        )
+    });
+
     if !silent.is_empty() {
         let ids = silent.iter().map(|alert| alert.id).collect::<Vec<_>>();
         let mut conn = pool.acquire().await?;
@@ -64,7 +72,7 @@ pub async fn apply(
         .into_iter()
         .filter_map(|(alert_type, observation)| {
             let (arguments, firing) = match observation {
-                Observation::Firing { arguments } => (arguments, true),
+                Observation::Firing { arguments, .. } => (arguments, true),
                 Observation::Resolved {
                     arguments: Some(arguments),
                 } => (arguments, false),
@@ -80,12 +88,24 @@ pub async fn apply(
             })
         })
         .collect();
-    let actions = evaluate_alert_actions(
+    let mut actions: Vec<_> = earlier
+        .into_iter()
+        .map(|alert| {
+            AlertAction::Resolve(ResolveAlert {
+                id: alert.id,
+                catalog_name: alert.catalog_name,
+                alert_type: alert.alert_type,
+                resolved_at: now,
+                base_resolved_arguments: None,
+            })
+        })
+        .collect();
+    actions.extend(evaluate_alert_actions(
         now,
         &mut crate::id_generator::with_random_shard(),
         open,
         rows,
-    );
+    ));
     if actions.is_empty() {
         return Ok(());
     }

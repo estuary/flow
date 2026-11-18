@@ -130,6 +130,7 @@ fn observe(
     let observation = |firing, resolved_arguments| match firing {
         true => Observation::Firing {
             arguments: arguments.clone(),
+            period_start: None,
         },
         false => Observation::Resolved {
             arguments: resolved_arguments,
@@ -236,7 +237,7 @@ mod tests {
                         .collect::<Vec<_>>()
                 };
                 let arguments = match &observed[&AlertType::FreeTrial] {
-                    Observation::Firing { arguments }
+                    Observation::Firing { arguments, .. }
                     | Observation::Resolved {
                         arguments: Some(arguments),
                     } => arguments,
@@ -320,21 +321,29 @@ mod tests {
         .await
         .unwrap();
 
-        // Alerts fired before tenant controllers evaluated them, and an alert
-        // of a live spec that happens to share a tenant alert's name.
+        // Alerts fired before tenant controllers evaluated them, an alert of a
+        // live spec that happens to share a tenant alert's name, and a
+        // `billing_threshold_exceeded` alert, which these evaluations leave open.
         let mut id_gen = models::IdGenerator::new(1);
-        let mut fire = |alert_type| {
+        let mut fire = |name, alert_type| {
             control_plane_api::alerts::AlertAction::Fire(control_plane_api::alerts::FireAlert {
                 id: id_gen.next(),
-                catalog_name: alerts::catalog_name(TENANT, AlertType::MissingPaymentMethod),
+                catalog_name: alerts::catalog_name(TENANT, name),
                 alert_type,
                 fired_at: at(1, 1, (0, 0, 0)),
                 base_arguments: Default::default(),
             })
         };
         let actions = vec![
-            fire(AlertType::MissingPaymentMethod),
-            fire(AlertType::ShardFailed),
+            fire(
+                AlertType::MissingPaymentMethod,
+                AlertType::MissingPaymentMethod,
+            ),
+            fire(AlertType::MissingPaymentMethod, AlertType::ShardFailed),
+            fire(
+                AlertType::BillingThresholdExceeded,
+                AlertType::BillingThresholdExceeded,
+            ),
         ];
         let mut conn = pool.acquire().await.unwrap();
         control_plane_api::alerts::apply_alert_actions(actions, &mut conn)

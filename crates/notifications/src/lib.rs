@@ -1,5 +1,6 @@
 mod auto_discover_failed;
 mod background_publication_failed;
+mod billing_threshold_exceeded;
 mod bindings_auto_disabled;
 mod data_movement_stalled;
 mod free_trial;
@@ -139,6 +140,7 @@ impl Renderer {
 
         auto_discover_failed::register_templates(&mut hb)?;
         background_publication_failed::register_templates(&mut hb)?;
+        billing_threshold_exceeded::register_templates(&mut hb)?;
         bindings_auto_disabled::register_templates(&mut hb)?;
         data_movement_stalled::register_templates(&mut hb)?;
         free_trial::register_templates(&mut hb)?;
@@ -1055,6 +1057,46 @@ mod tests {
                 "spec_type": "materialization",
                 "count": 1,
                 "bindings": [],
+            }),
+            State::Resolved,
+        );
+    }
+
+    #[test]
+    fn test_billing_threshold_exceeded_fired() {
+        let email = test_single_email(
+            AlertType::BillingThresholdExceeded,
+            "acmeCo/alerts/billing_threshold_exceeded",
+            json!({
+                "recipients": [user_a()],
+                "tenant": "acmeCo/",
+                "month": "January 2024",
+                "threshold_usd_cents": 100_000,
+                "subtotal_usd_cents": 123_456_789,
+            }),
+            State::Fired,
+        );
+
+        assert_email(
+            &email,
+            user_a(),
+            EXPECT_IDEMPOTENCY_KEY_FIRED,
+            "Estuary: Month-to-date charges for acmeCo/ reached $1,000.00",
+        );
+        insta::assert_snapshot!("billing_threshold_exceeded_fired_body", email.body);
+    }
+
+    #[test]
+    fn test_billing_threshold_exceeded_resolved() {
+        expect_no_email(
+            AlertType::BillingThresholdExceeded,
+            "acmeCo/alerts/billing_threshold_exceeded",
+            json!({
+                "recipients": [user_a()],
+                "tenant": "acmeCo/",
+                "month": "January 2024",
+                "threshold_usd_cents": 100_000,
+                "subtotal_usd_cents": 123_456,
             }),
             State::Resolved,
         );

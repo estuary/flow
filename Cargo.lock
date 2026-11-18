@@ -5881,6 +5881,7 @@ dependencies = [
  "insta",
  "md5",
  "models",
+ "num-format",
  "serde",
  "serde_json",
  "tracing",

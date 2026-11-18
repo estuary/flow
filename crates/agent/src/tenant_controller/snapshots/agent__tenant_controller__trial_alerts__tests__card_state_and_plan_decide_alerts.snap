@@ -5,8 +5,12 @@ expression: results
 [
   {
     "case": "without a billing provider, leaves alerts unchanged",
-    "notificationTasks": 2,
+    "notificationTasks": 3,
     "open": [
+      [
+        "billing_threshold_exceeded",
+        "acmeCo/alerts/billing_threshold_exceeded"
+      ],
       [
         "missing_payment_method",
         "acmeCo/alerts/missing_payment_method"
@@ -21,8 +25,12 @@ expression: results
   },
   {
     "case": "live customer with a card",
-    "notificationTasks": 2,
+    "notificationTasks": 3,
     "open": [
+      [
+        "billing_threshold_exceeded",
+        "acmeCo/alerts/billing_threshold_exceeded"
+      ],
       [
         "shard_failed",
         "acmeCo/alerts/missing_payment_method"
@@ -33,8 +41,12 @@ expression: results
   },
   {
     "case": "live customer without a card",
-    "notificationTasks": 3,
+    "notificationTasks": 4,
     "open": [
+      [
+        "billing_threshold_exceeded",
+        "acmeCo/alerts/billing_threshold_exceeded"
+      ],
       [
         "missing_payment_method",
         "acmeCo/alerts/missing_payment_method"
@@ -49,8 +61,12 @@ expression: results
   },
   {
     "case": "failed retrieval changes nothing",
-    "notificationTasks": 3,
+    "notificationTasks": 4,
     "open": [
+      [
+        "billing_threshold_exceeded",
+        "acmeCo/alerts/billing_threshold_exceeded"
+      ],
       [
         "missing_payment_method",
         "acmeCo/alerts/missing_payment_method"
@@ -68,8 +84,12 @@ expression: results
   },
   {
     "case": "successful retrieval clears the failure",
-    "notificationTasks": 3,
+    "notificationTasks": 4,
     "open": [
+      [
+        "billing_threshold_exceeded",
+        "acmeCo/alerts/billing_threshold_exceeded"
+      ],
       [
         "missing_payment_method",
         "acmeCo/alerts/missing_payment_method"
@@ -84,8 +104,12 @@ expression: results
   },
   {
     "case": "contract closes its alerts silently",
-    "notificationTasks": 2,
+    "notificationTasks": 3,
     "open": [
+      [
+        "billing_threshold_exceeded",
+        "acmeCo/alerts/billing_threshold_exceeded"
+      ],
       [
         "shard_failed",
         "acmeCo/alerts/missing_payment_method"

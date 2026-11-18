@@ -36,7 +36,8 @@ mod tests;
 pub mod triggers;
 
 pub use crate::alert_config::{
-    AlertConfig, DataMovementStalledCondition, DataMovementStalledConfig, ShardFailedCondition,
+    AlertConfig, BillingThresholdExceededCondition, BillingThresholdExceededConfig,
+    DataMovementStalledCondition, DataMovementStalledConfig, ShardFailedCondition,
     ShardFailedConfig, TaskChronicallyFailingCondition, TaskChronicallyFailingConfig,
     TaskIdleCondition, TaskIdleConfig,
 };

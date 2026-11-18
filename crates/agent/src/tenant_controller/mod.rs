@@ -2,6 +2,7 @@
 
 mod alerts;
 mod billing_contact;
+mod billing_threshold;
 mod free_trial;
 mod outcome;
 mod quotas;
@@ -53,6 +54,8 @@ pub struct TenantControllerState {
     pub free_trial: Option<free_trial::FreeTrialStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trial_alerts: Option<TaskStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub billing_threshold: Option<TaskStatus>,
 }
 
 pub struct TenantController {
@@ -213,6 +216,12 @@ impl Executor for TenantController {
         let trial_alerts_status = state.trial_alerts.get_or_insert_with(Default::default);
         result = result.combine(
             trial_alerts::evaluate(trial_alerts_status, pool, &tenant, customer.as_ref(), now)
+                .await?,
+        );
+
+        let threshold_status = state.billing_threshold.get_or_insert_with(Default::default);
+        result = result.combine(
+            billing_threshold::evaluate(threshold_status, pool, &tenant, &self.catalog_stats, now)
                 .await?,
         );
 

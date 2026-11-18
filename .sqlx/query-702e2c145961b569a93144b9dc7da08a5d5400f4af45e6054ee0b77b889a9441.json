@@ -39,7 +39,8 @@
                       "task_auto_disabled_failing",
                       "task_idle",
                       "task_auto_disabled_idle",
-                      "bindings_auto_disabled"
+                      "bindings_auto_disabled",
+                      "billing_threshold_exceeded"
                     ]
                   }
                 }

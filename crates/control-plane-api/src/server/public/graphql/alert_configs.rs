@@ -253,6 +253,9 @@ impl AlertConfigsMutation {
     ///
     /// If `detail` is omitted or `null` on update, the existing `detail`
     /// value is preserved.
+    ///
+    /// `billingThresholdExceeded` is accepted only on a tenant prefix, since
+    /// invoices are per tenant.
     pub async fn update_alert_config(
         &self,
         ctx: &Context<'_>,
@@ -265,6 +268,13 @@ impl AlertConfigsMutation {
         let async_graphql::Json(config) = config;
 
         validate_prefix_or_name(&catalog_prefix_or_name)?;
+
+        let tenant = models::tenant_from(&catalog_prefix_or_name);
+        if config.billing_threshold_exceeded.is_some() && tenant != catalog_prefix_or_name {
+            return Err(async_graphql::Error::new(format!(
+                "billingThresholdExceeded can only be configured on the tenant prefix '{tenant}'",
+            )));
+        }
 
         let gov = governing_prefix(&catalog_prefix_or_name)?;
         let policy_result = crate::server::evaluate_names_authorization(
@@ -326,6 +336,13 @@ impl AlertConfigsMutation {
             user_id = %claims.sub,
             "wrote alert_configs row"
         );
+
+        // The tenant controller checks hourly only while an amount is set, so a
+        // write that sets one wakes it. Once an amount is removed, the next
+        // hourly check resolves its alert.
+        if config.billing_threshold_exceeded.is_some() {
+            crate::server::wake_tenant_controller(&env.pg_pool, &catalog_prefix_or_name).await?;
+        }
 
         Ok(UpdateAlertConfigResult {
             id: row.id,
@@ -511,10 +528,65 @@ mod test {
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
     )]
+    async fn test_billing_threshold_only_on_tenant_prefix(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        sqlx::query("insert into tenants (tenant) values ('aliceCo/')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let woken = || {
+            sqlx::query_scalar::<_, bool>(
+                "select t.inbox is not null from tenants te join internal.tasks t on t.task_id = te.controller_task_id where te.tenant = 'aliceCo/'",
+            )
+            .fetch_one(&pool)
+        };
+        assert!(!woken().await.unwrap());
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+        let token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+
+        let mut responses = Vec::new();
+        for name in ["aliceCo/nested/", "aliceCo/"] {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        mutation($name: String!, $config: JSON!) {
+                            updateAlertConfig(catalogPrefixOrName: $name, config: $config) {
+                                catalogPrefixOrName
+                            }
+                        }"#,
+                        "variables": {
+                            "name": name,
+                            "config": {"billingThresholdExceeded": {"condition": {"usdCents": 50000}}},
+                        },
+                    }),
+                    Some(&token),
+                )
+                .await;
+            responses.push(response);
+        }
+        insta::assert_json_snapshot!(responses);
+        // The update on the tenant prefix woke its controller.
+        assert!(woken().await.unwrap());
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
     async fn test_effective_alert_config_with_defaults(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
         let defaults = models::AlertConfig {
+            billing_threshold_exceeded: None,
             data_movement_stalled: None,
             shard_failed: Some(models::ShardFailedConfig {
                 enabled: Some(true),
@@ -895,6 +967,7 @@ mod test {
         let _guard = test_server::init();
 
         let defaults = models::AlertConfig {
+            billing_threshold_exceeded: None,
             data_movement_stalled: None,
             shard_failed: Some(models::ShardFailedConfig {
                 enabled: Some(true),
