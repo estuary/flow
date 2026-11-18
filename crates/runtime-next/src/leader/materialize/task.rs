@@ -127,13 +127,7 @@ async fn decrypt_and_compile_triggers(
     // during encryption so SOPS HMAC doesn't cover them), then restore.
     let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
 
-    // `config_encryption::encrypt_config` hands `sops` a serialized
-    // `serde_json::Value`, which sorts object keys. The SOPS MAC covers
-    // values in that order. Serializing through `serde_json::Value` here
-    // sorts keys the same way, so `unseal::decrypt_sops` verifies the MAC.
-    let stripped = models::RawValue::from_value(
-        &serde_json::to_value(&triggers).expect("triggers always serialize"),
-    );
+    let stripped = sops_input(&triggers);
 
     let mut decrypted: models::Triggers = serde_json::from_str(
         unseal::decrypt_sops(&stripped)
@@ -149,4 +143,37 @@ async fn decrypt_and_compile_triggers(
         triggers::CompiledTriggers::compile(decrypted).context("compiling trigger templates")?;
 
     Ok(compiled)
+}
+
+// `config_encryption::encrypt_config` hands `sops` a serialized
+// `serde_json::Value`, which sorts object keys. The SOPS MAC covers
+// values in that order. Serializing through `serde_json::Value` here
+// sorts keys the same way, so `unseal::decrypt_sops` verifies the MAC.
+fn sops_input(triggers: &models::Triggers) -> models::RawValue {
+    models::RawValue::from_value(
+        &serde_json::to_value(triggers).expect("triggers always serialize"),
+    )
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn sops_input_sorts_keys() {
+        let mut triggers: models::Triggers = serde_json::from_value(serde_json::json!({
+            "interval": "5m",
+            "config": [{
+                "url": "https://example.com/hook",
+                "method": "PUT",
+                "headers": {"X-Token_sops": "ENC[...]", "Authorization_sops": "ENC[...]"},
+                "payloadTemplate": "{}",
+                "timeout": "10s",
+                "maxAttempts": 5,
+            }],
+            "sops": {"mac": "ENC[...]", "encrypted_suffix": "_sops"},
+        }))
+        .unwrap();
+        models::triggers::strip_hmac_excluded_fields(&mut triggers);
+
+        insta::assert_snapshot!(super::sops_input(&triggers).get(), @r#"{"config":[{"headers":{"Authorization_sops":"ENC[...]","X-Token_sops":"ENC[...]"},"maxAttempts":0,"method":"PUT","payloadTemplate":"","timeout":"0s","url":"https://example.com/hook"}],"sops":{"encrypted_suffix":"_sops","mac":"ENC[...]"}}"#);
+    }
 }
