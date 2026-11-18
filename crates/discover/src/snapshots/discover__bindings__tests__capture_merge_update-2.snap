@@ -1,5 +1,5 @@
 ---
-source: crates/control-plane-api/src/discovers/specs.rs
+source: crates/discover/src/bindings.rs
 expression: fetched_capture
 ---
 {
@@ -14,12 +14,6 @@ expression: fetched_capture
   "bindings": [
     {
       "resource": {
-        "$serde_json::private::RawValue": "{\"modified\":1,\"stream\":\"foo\"}"
-      },
-      "target": "acmeCo/renamed"
-    },
-    {
-      "resource": {
         "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"bar\"]},\"stream\":\"bar\"}"
       },
       "disable": true,
@@ -31,6 +25,12 @@ expression: fetched_capture
       },
       "disable": true,
       "target": "test/collection/disabled"
+    },
+    {
+      "resource": {
+        "$serde_json::private::RawValue": "{\"modified\":1,\"stream\":\"foo\"}"
+      },
+      "target": "acmeCo/renamed"
     }
   ],
   "interval": "34s",

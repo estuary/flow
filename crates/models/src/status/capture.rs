@@ -66,7 +66,8 @@ pub struct AutoDiscoverOutcome {
     /// Bindings that were added to the capture.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub added: Vec<DiscoverChange>,
-    /// Bindings that were modified, either to change the schema or the collection key.
+    /// Collections that were modified, either to change the schema or the collection key.
+    /// Each is represented by one of its bindings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modified: Vec<DiscoverChange>,
     /// Bindings that were removed because they no longer appear in the source system.

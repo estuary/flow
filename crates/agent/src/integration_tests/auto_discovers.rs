@@ -473,7 +473,7 @@ async fn test_auto_discovers_no_evolution() {
         "captures": {
             "mules/capture": {
                 "autoDiscover": {
-                    "addNewBindings": false,
+                    "addNewBindings": true,
                     "evolveIncompatibleCollections": false,
                 },
                 "endpoint": {
@@ -509,7 +509,6 @@ async fn test_auto_discovers_no_evolution() {
             "mules/capture",
             draft_id,
             r#"{"hee": "hawwww"}"#,
-            false,
             Ok((spec_fixture(), discovered.clone())),
         )
         .await;
@@ -568,7 +567,7 @@ async fn test_auto_discovers_no_evolution() {
             "id": "[pub_id]",
             "created": "[ts]",
             "completed": "[ts]",
-            "detail": "auto-discover changes (0 added, 1 modified, 0 removed)",
+            "detail": "auto-discover changes (0 added, 1 modified, 0 removed)\n- mules/hey: changed collection key from [\"/id\"] to [\"/id\", \"/invalid-key\"]",
             "result": {
               "type": "buildFailed"
             },
@@ -1241,7 +1240,7 @@ async fn test_auto_discovers_update_only() {
     insta::assert_json_snapshot!(pub_history, @r###"
     [
       [
-        "auto-discover changes (0 added, 2 modified, 1 removed)\nUpdated 'pikas/capture':\nbackfilled binding of reset collection pikas/alpine-grass\nUpdated 'pikas/alpine-grass':\nreset collection to new generation <redacted>",
+        "auto-discover changes (0 added, 2 modified, 1 removed)\n- pikas/alpine-grass: changed collection key from [\"/id\"] to [\"/id\", \"/squeaks\"], and reset the collection\nUpdated 'pikas/capture':\nbackfilled binding of reset collection pikas/alpine-grass\nUpdated 'pikas/alpine-grass':\nreset collection to new generation <redacted>",
         {
           "type": "success"
         }

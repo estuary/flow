@@ -1,0 +1,57 @@
+---
+source: crates/discover/src/collections.rs
+expression: modified
+---
+{
+    [
+        "fallback-1",
+    ]: Changed {
+        target: Collection(
+            "acmeCo/all-fallback",
+        ),
+        disable: false,
+        reason: None,
+    },
+    [
+        "migrated-1",
+    ]: Changed {
+        target: Collection(
+            "acmeCo/migrated",
+        ),
+        disable: false,
+        reason: Some(
+            "changed collection key from [\"/id\"] to [\"/next\"], and reset the collection",
+        ),
+    },
+    [
+        "migrating-1",
+    ]: Changed {
+        target: Collection(
+            "acmeCo/migrating",
+        ),
+        disable: false,
+        reason: Some(
+            "key change waits until bindings agree: [\"/id\"] (migrating-2) vs [\"/next\"] (migrating-1)",
+        ),
+    },
+    [
+        "mixed-1",
+    ]: Changed {
+        target: Collection(
+            "acmeCo/mixed-fallback",
+        ),
+        disable: false,
+        reason: Some(
+            "changed collection key from [\"/id\"] to [\"/next\"], and reset the collection",
+        ),
+    },
+    [
+        "provider-a",
+    ]: Changed {
+        target: Collection(
+            "acmeCo/provider",
+        ),
+        disable: false,
+        reason: None,
+    },
+}
