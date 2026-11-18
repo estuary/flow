@@ -1,0 +1,7 @@
+other fields: chunk protocol error: chunk of *runtime.Materialize sets fields other than `chunk` and `remaining`
+interleaved: chunk protocol error: received a whole *runtime.Materialize while 69 bytes of a chunked *runtime.Materialize remain
+truncated: chunk protocol error: stream ended while 21 bytes of a chunked *runtime.Materialize remain
+dropped: chunk protocol error: chunk of *runtime.Materialize having 21 bytes and 0 remaining doesn't follow its predecessor's 69 remaining (the peer may have exceeded its own limit of chunked messages)
+stray remaining: chunk protocol error: *runtime.Materialize sets `remaining` (7) without a `chunk`
+nested: chunk protocol error: reassembled *runtime.Materialize is itself a chunk
+sentinels: received chunked *runtime.Materialize of 1073741825 bytes, which exceeds the 1073741824-byte limit of chunked messages
