@@ -1,0 +1,9 @@
+maxFrame 133:
+  chunk: 117 bytes, remaining: 0, frame: 120 bytes
+maxFrame 132:
+  chunk: 116 bytes, remaining: 1, frame: 122 bytes
+  chunk: 1 bytes, remaining: 0, frame: 4 bytes
+maxFrame 64:
+  chunk: 48 bytes, remaining: 69, frame: 54 bytes
+  chunk: 48 bytes, remaining: 21, frame: 54 bytes
+  chunk: 21 bytes, remaining: 0, frame: 24 bytes

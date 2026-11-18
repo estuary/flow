@@ -136,8 +136,9 @@ func newDeriveAppV2(host *FlowConsumer, shard consumer.Shard, recorder *recovery
 	var respCh = make(chan deriveRecvResult, 4)
 	go func() {
 		defer close(respCh)
+		var reassembly pr.Reassembly
 		for {
-			var resp, err = client.Recv()
+			var resp, err = pr.RecvChunked(&reassembly, client.Recv)
 			// Bias towards send, but bail if full AND cancelled.
 			select {
 			case respCh <- deriveRecvResult{resp: resp, err: err}:
@@ -272,13 +273,21 @@ func (m *deriveAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.Env
 	if m.sqlite != nil {
 		sqliteVfsUri = m.sqlite.URIForDB("primary.db")
 	}
-	_ = m.client.Send(&pr.Derive{
+	// Task carries the spec, which may exceed a gRPC frame, so we always send
+	// it in chunks. Our peer is the Rust Shard service of this same build.
+	var encoded []byte
+	if encoded, err = (&pr.Derive{
 		Task: &pr.Task{
 			Spec:            specBytes,
 			MaxTransactions: 0,
 			SqliteVfsUri:    sqliteVfsUri,
 		},
-	})
+	}).Marshal(); err != nil {
+		return fmt.Errorf("marshaling Task: %w", err)
+	}
+	for _, chunk := range pr.Chunks(encoded, pr.MaxFrame) {
+		_ = m.client.Send(&pr.Derive{Chunk: chunk.Chunk, Remaining: chunk.Remaining})
+	}
 
 	// Receive Opened.
 	var resp *pr.Derive

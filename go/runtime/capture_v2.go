@@ -67,8 +67,9 @@ func newCaptureAppV2(host *FlowConsumer, shard consumer.Shard, recorder *recover
 	var respCh = make(chan captureRecvResult, 4)
 	go func() {
 		defer close(respCh)
+		var reassembly pr.Reassembly
 		for {
-			var resp, err = client.Recv()
+			var resp, err = pr.RecvChunked(&reassembly, client.Recv)
 			// Bias towards send, but bail if full AND cancelled.
 			select {
 			case respCh <- captureRecvResult{resp: resp, err: err}:
@@ -147,13 +148,20 @@ func (c *captureAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.En
 		return fmt.Errorf("Joined unexpectedly requested Etcd revision %d", resp.Joined.MaxEtcdRevision)
 	}
 
-	// Send task.
-	_ = c.client.Send(&pr.Capture{
+	// Task carries the spec, which may exceed a gRPC frame, so we always send
+	// it in chunks. Our peer is the Rust Shard service of this same build.
+	var encoded []byte
+	if encoded, err = (&pr.Capture{
 		Task: &pr.Task{
 			Spec:            specBytes,
 			MaxTransactions: 0,
 		},
-	})
+	}).Marshal(); err != nil {
+		return fmt.Errorf("marshaling Task: %w", err)
+	}
+	for _, chunk := range pr.Chunks(encoded, pr.MaxFrame) {
+		_ = c.client.Send(&pr.Capture{Chunk: chunk.Chunk, Remaining: chunk.Remaining})
+	}
 
 	// Receive Opened.
 	if resp, err = c.recv(); err != nil {
