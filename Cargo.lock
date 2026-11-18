@@ -3736,6 +3736,7 @@ dependencies = [
  "coroutines",
  "crossterm",
  "dirs",
+ "discover",
  "doc",
  "extractors",
  "flow-client-next",
