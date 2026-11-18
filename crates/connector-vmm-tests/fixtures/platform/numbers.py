@@ -9,7 +9,7 @@ import humanize
 
 from acmeCo.vmm_python.numbers import IDerivation, Document, Request
 
-# A connector default, the task's declared host, and a host neither declares.
+# PyPI's index and another host the task declares, and a host it does not.
 PROBED = ("pypi.org", "example.org", "example.com")
 
 

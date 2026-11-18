@@ -31,10 +31,9 @@ pub struct Derivation {
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub vmm: bool,
     /// # Egress this derivation's connector is held to.
-    /// Required with `vmm: true`. Empty egress (`{}`) permits no external
-    /// destination, not even the hosts of the connector and its image. Any
-    /// other holds the connector to the hosts of its connector and image,
-    /// plus the hosts and address ranges listed.
+    /// Required with `vmm: true`. The connector may reach only the hosts and
+    /// address ranges listed: neither it nor its image adds any, and empty
+    /// egress (`{}`) permits no external destination.
     /// Only an execution which enforces egress, such as VMM execution
     /// (`vmm: true`), may run a task which declares it; any other fails the
     /// task.

@@ -18,7 +18,7 @@ const DERIVATION: &str = "acmeCo/vmm-python/numbers";
 const NUMBERED: std::ops::Range<i64> = 0..5;
 
 const EGRESS: &str = "VMM egress permits only these host names: \
-    pypi.org, files.pythonhosted.org (connector defaults); example.org (task egress.hosts)";
+    pypi.org, files.pythonhosted.org, example.org (task egress.hosts)";
 const REFUSED: &str = "refused DNS name example.com, which this connector's egress does not permit";
 
 /// A command's whole run, VMM boots and dependency installs included.
@@ -1093,7 +1093,7 @@ fn a_python_materialization_through_the_platform() {
     );
     let egress = format!(
         "VMM egress permits only these host names: pypi.org, files.pythonhosted.org \
-         (connector defaults); and any address within {}/32 (task egress.cidrs)",
+         (task egress.hosts); and any address within {}/32 (task egress.cidrs)",
         api.address
     );
     assert!(

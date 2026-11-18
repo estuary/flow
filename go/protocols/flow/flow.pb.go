@@ -936,9 +936,8 @@ var xxx_messageInfo_ConnectorExecution proto.InternalMessageInfo
 
 // Egress a task declares.
 type ConnectorExecution_Egress struct {
-	// Host names the connector may reach, in addition to those of its
-	// connector and image: an exact name, or `*.` and a base name for every
-	// name beneath that base but not the base itself. As the task wrote them.
+	// Host names declared by the task: an exact name, or `*.` and a base
+	// name for every name beneath that base but not the base itself.
 	Hosts []string `protobuf:"bytes,1,rep,name=hosts,proto3" json:"hosts,omitempty"`
 	// IPv4 prefixes, such as `10.0.0.0/8`, within which the connector may
 	// reach any address on any TCP or UDP port, by address or by any name

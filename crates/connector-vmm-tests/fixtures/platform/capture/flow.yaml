@@ -30,7 +30,7 @@ captures:
                 minimum: 0
     vmm: true
     egress:
-      hosts: [example.org]
+      hosts: [pypi.org, files.pythonhosted.org, example.org]
     bindings:
       - resource:
           _meta:

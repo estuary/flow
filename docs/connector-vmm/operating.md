@@ -253,11 +253,11 @@ mechanism. What an operator needs:
 | "the VMM exited (exit status: 0) before flow-connector-init was ready" | Possible cause: connector-init's idle watchdog ended the guest because no connector RPC reached it within 5 seconds of its start. Check debug logs for connector-init's start and exit times. |
 | "timeout waiting for the VMM to become ready" | No readiness within 60 seconds. |
 
-Egress: each launch logs the egress it applies, with each name's source, and
-the VMM logs refused names at `warn`, at most 32 per VMM (see
+Egress: each launch logs the egress it applies, and the VMM logs refused
+names at `warn`, at most 32 per VMM (see
 [tasks.md](tasks.md#what-a-vmm-task-logs)). A name expected to work and
-refused is either undeclared, declared by a task whose `egress` is empty, or
-resolving to a non-public address outside the task's `egress.cidrs`.
+refused is either absent from the task's `egress.hosts`, or resolves to a
+non-public address outside the task's `egress.cidrs`.
 
 Recovery reports go to the reactor's own logs (tracing), not the task's. Its
 info lines show only where the connector proxy's log level admits them. Each
