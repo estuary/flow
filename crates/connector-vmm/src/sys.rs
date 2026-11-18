@@ -7,6 +7,7 @@
 //! for connector-init's marker, so a setup command that failed would pass for
 //! it, and then be mistaken for that connector's first log record.
 
+use anyhow::Context;
 use std::io::Write;
 use std::process::{Command, Output, Stdio};
 
@@ -25,7 +26,7 @@ pub fn run(program: &str, args: &[&str], stdin: Option<&[u8]>) -> anyhow::Result
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| anyhow::anyhow!("running {program}: {e}"))?;
+        .with_context(|| format!("running {program}"))?;
 
     let write = match stdin {
         Some(stdin) => child
@@ -37,14 +38,14 @@ pub fn run(program: &str, args: &[&str], stdin: Option<&[u8]>) -> anyhow::Result
     };
     let output = child
         .wait_with_output()
-        .map_err(|e| anyhow::anyhow!("waiting for {program}: {e}"))?;
+        .with_context(|| format!("waiting for {program}"))?;
 
     eprint!("{}", diagnostics(&output));
 
     if !output.status.success() {
         anyhow::bail!("{program} {}: {}", args.join(" "), output.status);
     }
-    write.map_err(|e| anyhow::anyhow!("writing to {program}: {e}"))?;
+    write.with_context(|| format!("writing to {program}"))?;
     Ok(())
 }
 
@@ -55,7 +56,7 @@ pub fn output(program: &str, args: &[&str]) -> anyhow::Result<Vec<u8>> {
         .args(args)
         .stdin(Stdio::null())
         .output()
-        .map_err(|e| anyhow::anyhow!("running {program}: {e}"))?;
+        .with_context(|| format!("running {program}"))?;
 
     if !output.stderr.is_empty() {
         eprint!(
@@ -163,7 +164,7 @@ ruleset:3:30-37: Error: syntax error, unexpected string, expecting priority
         let error = super::run("/bin/sh", &["-c", "exec 0<&-; exit 0"], Some(&input))
             .expect_err("the successful child did not consume its input");
         assert!(
-            error.to_string().starts_with("writing to /bin/sh:"),
+            format!("{error:#}").starts_with("writing to /bin/sh:"),
             "{error:#}"
         );
     }

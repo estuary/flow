@@ -4,6 +4,7 @@
 //! `image-inspect.json` is `podman inspect`'s output verbatim - a one-element
 //! array - written by the runtime into the connector mount.
 
+use anyhow::Context;
 use std::io::Read;
 use std::path::Path;
 
@@ -50,10 +51,9 @@ struct Inspect {
 
 /// Parse the inspect config without resolving image accounts.
 pub fn read_inspect(path: &Path) -> anyhow::Result<InspectConfig> {
-    let content =
-        std::fs::read(path).map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
-    let (Inspect { config },): (Inspect,) = serde_json::from_slice(&content)
-        .map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
+    let content = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let (Inspect { config },): (Inspect,) =
+        serde_json::from_slice(&content).with_context(|| format!("parsing {}", path.display()))?;
     Ok(config)
 }
 
@@ -65,8 +65,8 @@ pub fn load(config: InspectConfig, rootfs: &Path) -> anyhow::Result<ImageConfig>
         "" => "/".to_string(),
         dir => dir.to_string(),
     };
-    let root = std::fs::File::open(rootfs)
-        .map_err(|e| anyhow::anyhow!("opening {}: {e}", rootfs.display()))?;
+    let root =
+        std::fs::File::open(rootfs).with_context(|| format!("opening {}", rootfs.display()))?;
     let (uid, gid, groups, home) = resolve_user(
         &config.user,
         &read_db(&root, c"/etc/passwd")?,
@@ -271,16 +271,18 @@ fn read_db(root: &std::fs::File, path: &std::ffi::CStr) -> anyhow::Result<String
         if e == rustix::io::Errno::NOENT {
             return Ok(String::new());
         }
-        anyhow::bail!(
-            "opening the image's {} with openat2: {e}",
-            path.to_string_lossy()
-        );
+        return Err(e).with_context(|| {
+            format!(
+                "opening the image's {} with openat2",
+                path.to_string_lossy()
+            )
+        });
     };
 
     let mut content = String::new();
     std::fs::File::from(fd)
         .read_to_string(&mut content)
-        .map_err(|e| anyhow::anyhow!("reading the image's {}: {e}", path.to_string_lossy()))?;
+        .with_context(|| format!("reading the image's {}", path.to_string_lossy()))?;
     Ok(content)
 }
 

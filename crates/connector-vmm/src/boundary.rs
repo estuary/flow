@@ -19,6 +19,7 @@
 //! conntrack state cannot authorize a replacement launch. Forwarded ingress
 //! and guest-originated host connections remain blocked.
 
+use anyhow::Context;
 use std::collections::BTreeMap;
 
 pub const TABLE: &str = "flow_vmm_boundary";
@@ -215,7 +216,7 @@ fn remove() -> anyhow::Result<()> {
 
 fn list() -> anyhow::Result<serde_json::Value> {
     let listing = crate::sys::output("nft", &["-j", "list", "ruleset"])?;
-    serde_json::from_slice(&listing).map_err(|e| anyhow::anyhow!("parsing nft's listing: {e}"))
+    serde_json::from_slice(&listing).context("parsing nft's listing")
 }
 
 fn has_table(listing: &serde_json::Value, family: &str) -> bool {
@@ -232,7 +233,7 @@ fn vmm_links() -> anyhow::Result<Vec<String>> {
     // terminated by a zeroed entry, owned by this thread until freed below.
     let head = unsafe { libc::if_nameindex() };
     if head.is_null() {
-        anyhow::bail!("if_nameindex: {}", std::io::Error::last_os_error());
+        return Err(std::io::Error::last_os_error()).context("if_nameindex");
     }
     let mut links = Vec::new();
     let mut cursor = head;

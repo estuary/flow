@@ -6,14 +6,14 @@
 //! is why the workload's stderr gets a descriptor of its own: it is the stream
 //! the runtime reads, and it has to stay byte for byte.
 
+use anyhow::Context;
 use std::io::Write;
 use std::os::fd::{IntoRawFd, RawFd};
 
 /// Console input is /dev/null. Transfer ownership with `into_raw_fd` because
 /// libkrun holds the descriptor for the VM's lifetime.
 pub fn input() -> anyhow::Result<RawFd> {
-    let devnull = std::fs::File::open("/dev/null")
-        .map_err(|e| anyhow::anyhow!("opening /dev/null for the console: {e}"))?;
+    let devnull = std::fs::File::open("/dev/null").context("opening /dev/null for the console")?;
 
     Ok(devnull.into_raw_fd())
 }
@@ -33,14 +33,13 @@ pub fn output(debug: bool) -> anyhow::Result<RawFd> {
         return Ok(libc::STDOUT_FILENO);
     }
 
-    let (reader, writer) =
-        rustix::pipe::pipe().map_err(|e| anyhow::anyhow!(e).context("console tee pipe"))?;
+    let (reader, writer) = rustix::pipe::pipe().context("console tee pipe")?;
     let reader = std::fs::File::from(reader);
 
     std::thread::Builder::new()
         .name("console-tee".to_string())
         .spawn(move || tee(reader))
-        .map_err(|e| anyhow::anyhow!("spawning the console tee: {e}"))?;
+        .context("spawning the console tee")?;
 
     Ok(writer.into_raw_fd())
 }

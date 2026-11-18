@@ -71,7 +71,7 @@ impl Vmm {
     pub fn from_env() -> anyhow::Result<Option<Self>> {
         Self::from_vars(|name| match std::env::var(name) {
             Err(std::env::VarError::NotPresent) => Ok(None),
-            Err(err) => Err(anyhow::Error::new(err).context(format!("reading {name}"))),
+            Err(err) => Err(err).with_context(|| format!("reading {name}")),
             Ok(value) => Ok(Some(value)),
         })
     }

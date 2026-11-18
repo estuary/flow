@@ -7,6 +7,7 @@
 use crate::image;
 use crate::krun::{self, Krun};
 use crate::net;
+use anyhow::Context;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::os::fd::{AsRawFd, RawFd};
@@ -310,14 +311,13 @@ fn sweep(scratch: RawFd) -> anyhow::Result<RawFd> {
         // SAFETY: both are descriptor numbers; dup2 closes whatever was at the
         // destination, and the source stays open until the range close below.
         if unsafe { libc::dup2(scratch, SCRATCH_FD) } < 0 {
-            return Err(anyhow::anyhow!(std::io::Error::last_os_error())
-                .context(format!("moving the scratch disk to fd {SCRATCH_FD}")));
+            return Err(std::io::Error::last_os_error())
+                .with_context(|| format!("moving the scratch disk to fd {SCRATCH_FD}"));
         }
     }
     // SAFETY: closes descriptors this process has no further use for.
     if unsafe { libc::close_range(SCRATCH_FD as libc::c_uint + 1, libc::c_uint::MAX, 0) } < 0 {
-        return Err(anyhow::anyhow!(std::io::Error::last_os_error())
-            .context("closing inherited descriptors"));
+        return Err(std::io::Error::last_os_error()).context("closing inherited descriptors");
     }
     Ok(SCRATCH_FD)
 }
@@ -340,8 +340,7 @@ fn read_only_mounts(connector_mount: &str) -> [(&str, &str); 3] {
 /// task-update credentials from guest writes, and bound rootfs storage use.
 fn check_read_only(connector_mount: &str) -> anyhow::Result<()> {
     for (path, flag) in read_only_mounts(connector_mount) {
-        let stat = rustix::fs::statvfs(path)
-            .map_err(|e| anyhow::anyhow!(e).context(format!("statvfs {path}")))?;
+        let stat = rustix::fs::statvfs(path).with_context(|| format!("statvfs {path}"))?;
 
         if !stat.f_flag.contains(rustix::fs::StatVfsMountFlags::RDONLY) {
             anyhow::bail!("{}", writable_mount(path, flag));
@@ -358,16 +357,14 @@ fn check_kvm(path: &str) -> anyhow::Result<()> {
         .read(true)
         .write(true)
         .open(path)
-        .map_err(|err| {
-            anyhow::anyhow!(err).context(format!("KVM is unavailable to this VMM: opening {path}"))
-        })?;
+        .with_context(|| format!("KVM is unavailable to this VMM: opening {path}"))?;
     // KVM refuses this ioctl with EINVAL unless its argument is zero, and an
     // omitted variadic argument is whatever its register holds.
     // SAFETY: an ioctl whose argument is a plain zero, on a descriptor open across it.
     let version = unsafe { libc::ioctl(kvm.as_raw_fd(), KVM_GET_API_VERSION, 0 as libc::c_ulong) };
     if version < 0 {
-        return Err(anyhow::anyhow!(std::io::Error::last_os_error())
-            .context(format!("KVM is unavailable to this VMM: {path} is not KVM")));
+        return Err(std::io::Error::last_os_error())
+            .with_context(|| format!("KVM is unavailable to this VMM: {path} is not KVM"));
     }
     if version != KVM_API_VERSION {
         anyhow::bail!(
@@ -389,11 +386,10 @@ fn stage(debug: bool, name: &str) {
 
 /// Leak the overlay mapping for libkrun; the backing file can close on return.
 fn mmap(path: &Path) -> anyhow::Result<&'static [u8]> {
-    let file = std::fs::File::open(path)
-        .map_err(|e| anyhow::anyhow!("opening {}: {e}", path.display()))?;
+    let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let len = file
         .metadata()
-        .map_err(|e| anyhow::anyhow!("sizing {}: {e}", path.display()))?
+        .with_context(|| format!("sizing {}", path.display()))?
         .len() as usize;
     if len == 0 {
         anyhow::bail!("{} is empty", path.display());
@@ -411,8 +407,8 @@ fn mmap(path: &Path) -> anyhow::Result<&'static [u8]> {
         )
     };
     if address == libc::MAP_FAILED {
-        return Err(anyhow::anyhow!(std::io::Error::last_os_error())
-            .context(format!("mmap {}", path.display())));
+        return Err(std::io::Error::last_os_error())
+            .with_context(|| format!("mmap {}", path.display()));
     }
     // SAFETY: mmap returned a readable mapping of `len` bytes that outlives
     // the process.

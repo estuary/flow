@@ -7,6 +7,7 @@
 //! No `krun_free_ctx` is needed: launch failures exit the process, and
 //! `krun_start_enter` takes over the process on success.
 
+use anyhow::Context;
 use std::convert::Infallible;
 use std::ffi::CString;
 use std::os::fd::RawFd;
@@ -104,14 +105,14 @@ impl Dynamic {
         // SAFETY: loading a library runs its initializers, which is what the
         // whole process is here to do. The name is a constant.
         let library = unsafe { libloading::Library::new(LIBRARY) }
-            .map_err(|e| anyhow::anyhow!("loading {LIBRARY}: {e}"))?;
+            .with_context(|| format!("loading {LIBRARY}"))?;
 
         macro_rules! bind {
             ($name:literal) => {{
                 // SAFETY: the signature is transcribed from libkrun.h v1.19.4;
                 // the pointer is copied out and the library outlives it.
                 let symbol = unsafe { library.get($name) }
-                    .map_err(|e| anyhow::anyhow!("binding {} in {LIBRARY}: {e}", name($name)))?;
+                    .with_context(|| format!("binding {} in {LIBRARY}", name($name)))?;
                 *symbol
             }};
         }
@@ -305,13 +306,13 @@ impl Krun for Dynamic {
 }
 
 fn cstring(value: &str) -> anyhow::Result<CString> {
-    CString::new(value).map_err(|e| anyhow::anyhow!("{value:?} cannot be a C string: {e}"))
+    CString::new(value).with_context(|| format!("{value:?} cannot be a C string"))
 }
 
 /// Every libkrun entry point returns a negative errno on failure.
 fn check(what: &str, rc: i32) -> anyhow::Result<i32> {
     if rc < 0 {
-        anyhow::bail!("{what}: {}", std::io::Error::from_raw_os_error(-rc));
+        return Err(std::io::Error::from_raw_os_error(-rc)).with_context(|| what.to_string());
     }
     Ok(rc)
 }
