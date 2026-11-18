@@ -117,10 +117,16 @@ async fn drive_loopback_as(
         match proto_grpc::connector::connector_client::ConnectorClient::with_interceptor(
             channel, metadata,
         )
-        .connector(futures::stream::iter(requests))
+        .connector(proto_grpc::chunk::split_requests(futures::stream::iter(
+            requests,
+        )))
         .await
         {
-            Ok(response) => response.into_inner().collect::<Vec<_>>().await,
+            Ok(response) => {
+                proto_grpc::chunk::join(response.into_inner())
+                    .collect::<Vec<_>>()
+                    .await
+            }
             Err(status) => vec![Err(status)],
         };
 

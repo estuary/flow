@@ -101,7 +101,9 @@ impl Router for EndpointRouter {
         tokio::spawn(async move {
             let forward = async move {
                 let response = match client
-                    .connector(tokio_stream::wrappers::ReceiverStream::new(request_rx))
+                    .connector(crate::chunk::split_requests(
+                        tokio_stream::wrappers::ReceiverStream::new(request_rx),
+                    ))
                     .await
                 {
                     Ok(response) => response,
@@ -110,7 +112,7 @@ impl Router for EndpointRouter {
                         return Ok(());
                     }
                 };
-                let mut tonic_rx = response.into_inner();
+                let mut tonic_rx = crate::chunk::join(response.into_inner());
 
                 while let Some(response) = tonic_rx.next().await {
                     let terminal = response.is_err();

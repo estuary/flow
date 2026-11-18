@@ -28,7 +28,7 @@ pub trait Envelope: std::fmt::Debug + Sized + Send + 'static {
     fn open(
         client: &mut Client,
         requests: RequestStream<Self>,
-    ) -> impl std::future::Future<Output = tonic::Result<tonic::Streaming<Self>>> + Send;
+    ) -> impl std::future::Future<Output = tonic::Result<ResponseStream<Self>>> + Send;
 }
 
 pub enum Response<E> {
@@ -41,6 +41,7 @@ pub enum Response<E> {
 
 pub type Client = proto_grpc::runtime::shard_client::ShardClient<tonic::transport::Channel>;
 pub type RequestStream<E> = tokio_stream::wrappers::UnboundedReceiverStream<E>;
+pub type ResponseStream<E> = futures::stream::BoxStream<'static, tonic::Result<E>>;
 
 impl Envelope for proto::Materialize {
     const RPC: &'static str = "Materialize";
@@ -87,8 +88,13 @@ impl Envelope for proto::Materialize {
     async fn open(
         client: &mut Client,
         requests: RequestStream<Self>,
-    ) -> tonic::Result<tonic::Streaming<Self>> {
-        Ok(client.materialize(requests).await?.into_inner())
+    ) -> tonic::Result<ResponseStream<Self>> {
+        Ok(proto_grpc::chunk::join(
+            client
+                .materialize(proto_grpc::chunk::split_requests(requests))
+                .await?
+                .into_inner(),
+        ))
     }
 }
 
@@ -135,8 +141,13 @@ impl Envelope for proto::Capture {
     async fn open(
         client: &mut Client,
         requests: RequestStream<Self>,
-    ) -> tonic::Result<tonic::Streaming<Self>> {
-        Ok(client.capture(requests).await?.into_inner())
+    ) -> tonic::Result<ResponseStream<Self>> {
+        Ok(proto_grpc::chunk::join(
+            client
+                .capture(proto_grpc::chunk::split_requests(requests))
+                .await?
+                .into_inner(),
+        ))
     }
 }
 
@@ -183,8 +194,13 @@ impl Envelope for proto::Derive {
     async fn open(
         client: &mut Client,
         requests: RequestStream<Self>,
-    ) -> tonic::Result<tonic::Streaming<Self>> {
-        Ok(client.derive(requests).await?.into_inner())
+    ) -> tonic::Result<ResponseStream<Self>> {
+        Ok(proto_grpc::chunk::join(
+            client
+                .derive(proto_grpc::chunk::split_requests(requests))
+                .await?
+                .into_inner(),
+        ))
     }
 }
 
@@ -250,7 +266,7 @@ pub async fn drive<E: Envelope>(
         let response_tx = response_tx.clone();
         tokio::spawn(async move {
             loop {
-                let next = responses.message().await;
+                let next = futures::StreamExt::next(&mut responses).await.transpose();
                 let done = !matches!(next, Ok(Some(_)));
                 if response_tx.send((index, next)).is_err() || done {
                     return;

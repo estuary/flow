@@ -305,13 +305,15 @@ impl Harness {
             proto_grpc::runtime::leader_client::LeaderClient::with_interceptor(channel, metadata);
 
         let (to_leader, request_rx) = mpsc::unbounded_channel();
-        let from_leader = client
-            .materialize(tokio_stream::wrappers::UnboundedReceiverStream::new(
-                request_rx,
-            ))
-            .await
-            .expect("opening leader Materialize stream")
-            .into_inner();
+        let from_leader = proto_grpc::chunk::join(
+            client
+                .materialize(proto_grpc::chunk::split_requests(
+                    tokio_stream::wrappers::UnboundedReceiverStream::new(request_rx),
+                ))
+                .await
+                .expect("opening leader Materialize stream")
+                .into_inner(),
+        );
 
         let join = proto::Join {
             etcd_mod_revision: 1,
@@ -425,7 +427,7 @@ impl Harness {
 /// plays the controller half of the sync-now commit barrier.
 struct ShardDriver {
     to_leader: mpsc::UnboundedSender<proto::Materialize>,
-    from_leader: tonic::Streaming<proto::Materialize>,
+    from_leader: futures::stream::BoxStream<'static, tonic::Result<proto::Materialize>>,
     /// Counts of the last `Synced` observed from the leader, or None before
     /// the session's first.
     synced: Option<proto::Synced>,
@@ -461,11 +463,15 @@ impl ShardDriver {
     /// recorded and returned.
     async fn recv_stream(&mut self, awaiting: &'static str) -> proto::Materialize {
         loop {
-            let msg = tokio::time::timeout(EXPECT_TIMEOUT, self.from_leader.message())
-                .await
-                .unwrap_or_else(|_| panic!("timed out awaiting {awaiting}"))
-                .unwrap_or_else(|err| panic!("leader stream error awaiting {awaiting}: {err}"))
-                .unwrap_or_else(|| panic!("unexpected leader EOF awaiting {awaiting}"));
+            let msg = tokio::time::timeout(EXPECT_TIMEOUT, async {
+                futures::StreamExt::next(&mut self.from_leader)
+                    .await
+                    .transpose()
+            })
+            .await
+            .unwrap_or_else(|_| panic!("timed out awaiting {awaiting}"))
+            .unwrap_or_else(|err| panic!("leader stream error awaiting {awaiting}: {err}"))
+            .unwrap_or_else(|| panic!("unexpected leader EOF awaiting {awaiting}"));
 
             if let Some(persist) = &msg.persist {
                 assert!(
@@ -592,7 +598,7 @@ impl ShardDriver {
             "deferred messages are still unconsumed: {:?}",
             self.deferred,
         );
-        match tokio::time::timeout(window, self.from_leader.message()).await {
+        match tokio::time::timeout(window, futures::StreamExt::next(&mut self.from_leader)).await {
             Err(_) => (),
             Ok(msg) => panic!("unexpected leader message: {msg:?}"),
         }

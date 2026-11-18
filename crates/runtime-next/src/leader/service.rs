@@ -132,21 +132,20 @@ impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::Logg
 impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::LoggerFactory>
     proto_grpc::runtime::leader_server::Leader for Service<S, P, L>
 {
-    type DeriveStream =
-        tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;
-    type MaterializeStream =
-        tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::Materialize>>;
+    type DeriveStream = futures::stream::BoxStream<'static, tonic::Result<proto::Derive>>;
+    type MaterializeStream = futures::stream::BoxStream<'static, tonic::Result<proto::Materialize>>;
 
     async fn derive(
         &self,
         mut request: tonic::Request<tonic::Streaming<proto::Derive>>,
     ) -> tonic::Result<tonic::Response<Self::DeriveStream>> {
         let authz = proto_grpc::Authorizer::from_request(&mut request, self.disarm_auth)?;
-        Ok(tonic::Response::new(
+        let shard_rx = proto_grpc::chunk::join(request.into_inner());
+        Ok(tonic::Response::new(proto_grpc::chunk::split_responses(
             tokio_stream::wrappers::UnboundedReceiverStream::new(
-                self.spawn_derive(authz, request.into_inner()),
+                self.spawn_derive(authz, shard_rx),
             ),
-        ))
+        )))
     }
 
     async fn materialize(
@@ -154,10 +153,11 @@ impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::Logg
         mut request: tonic::Request<tonic::Streaming<proto::Materialize>>,
     ) -> tonic::Result<tonic::Response<Self::MaterializeStream>> {
         let authz = proto_grpc::Authorizer::from_request(&mut request, self.disarm_auth)?;
-        Ok(tonic::Response::new(
+        let shard_rx = proto_grpc::chunk::join(request.into_inner());
+        Ok(tonic::Response::new(proto_grpc::chunk::split_responses(
             tokio_stream::wrappers::UnboundedReceiverStream::new(
-                self.spawn_materialize(authz, request.into_inner()),
+                self.spawn_materialize(authz, shard_rx),
             ),
-        ))
+        )))
     }
 }

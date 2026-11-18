@@ -219,10 +219,15 @@ impl proto_grpc::connector::connector_server::Connector for Service {
             .authenticate(request.metadata(), proto_flow::capability::PROXY_CONNECTOR)?;
 
         let (response_tx, response_rx) = mpsc::channel(proto_grpc::CHANNEL_BUFFER);
-        self.spawn_verified(Transport::Wire, verified, request.into_inner(), response_tx);
+        self.spawn_verified(
+            Transport::Wire,
+            verified,
+            proto_grpc::chunk::join(request.into_inner()),
+            response_tx,
+        );
 
-        Ok(tonic::Response::new(Box::pin(ReceiverStream::new(
-            response_rx,
-        ))))
+        Ok(tonic::Response::new(proto_grpc::chunk::split_responses(
+            ReceiverStream::new(response_rx),
+        )))
     }
 }

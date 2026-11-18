@@ -152,34 +152,37 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
 impl<P: crate::PublisherFactory, L: crate::LoggerFactory> proto_grpc::runtime::shard_server::Shard
     for Service<P, L>
 {
-    type CaptureStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Capture>>;
-    type DeriveStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;
-    type MaterializeStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Materialize>>;
+    type CaptureStream = futures::stream::BoxStream<'static, tonic::Result<proto::Capture>>;
+    type DeriveStream = futures::stream::BoxStream<'static, tonic::Result<proto::Derive>>;
+    type MaterializeStream = futures::stream::BoxStream<'static, tonic::Result<proto::Materialize>>;
 
     async fn materialize(
         &self,
         request: tonic::Request<tonic::Streaming<proto::Materialize>>,
     ) -> tonic::Result<tonic::Response<Self::MaterializeStream>> {
-        Ok(tonic::Response::new(
-            wrappers::UnboundedReceiverStream::new(self.spawn_materialize(request.into_inner())),
-        ))
+        let controller_rx = proto_grpc::chunk::join(request.into_inner());
+        Ok(tonic::Response::new(proto_grpc::chunk::split_responses(
+            wrappers::UnboundedReceiverStream::new(self.spawn_materialize(controller_rx)),
+        )))
     }
 
     async fn capture(
         &self,
         request: tonic::Request<tonic::Streaming<proto::Capture>>,
     ) -> tonic::Result<tonic::Response<Self::CaptureStream>> {
-        Ok(tonic::Response::new(
-            wrappers::UnboundedReceiverStream::new(self.spawn_capture(request.into_inner())),
-        ))
+        let controller_rx = proto_grpc::chunk::join(request.into_inner());
+        Ok(tonic::Response::new(proto_grpc::chunk::split_responses(
+            wrappers::UnboundedReceiverStream::new(self.spawn_capture(controller_rx)),
+        )))
     }
 
     async fn derive(
         &self,
         request: tonic::Request<tonic::Streaming<proto::Derive>>,
     ) -> tonic::Result<tonic::Response<Self::DeriveStream>> {
-        Ok(tonic::Response::new(
-            wrappers::UnboundedReceiverStream::new(self.spawn_derive(request.into_inner())),
-        ))
+        let controller_rx = proto_grpc::chunk::join(request.into_inner());
+        Ok(tonic::Response::new(proto_grpc::chunk::split_responses(
+            wrappers::UnboundedReceiverStream::new(self.spawn_derive(controller_rx)),
+        )))
     }
 }

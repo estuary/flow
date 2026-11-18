@@ -209,10 +209,13 @@ pub async fn open_slice_rpc(
         let mut client =
             proto_grpc::shuffle::shuffle_client::ShuffleClient::with_interceptor(channel, metadata);
 
-        verify
-            .ok(client.slice(request_rx).await)?
-            .into_inner()
-            .boxed()
+        proto_grpc::chunk::join(
+            verify
+                .ok(client
+                    .slice(proto_grpc::chunk::split_requests(request_rx))
+                    .await)?
+                .into_inner(),
+        )
     };
 
     // Send Open request.

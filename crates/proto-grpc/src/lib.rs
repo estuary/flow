@@ -2,6 +2,8 @@ mod auth;
 pub use auth::{Authenticator, Authorized, Authorizer, Signer};
 
 pub mod capture;
+#[cfg(feature = "proto-flow")]
+pub mod chunk;
 pub mod connector {
     include!("connector.rs");
 
