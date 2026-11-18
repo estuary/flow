@@ -7,6 +7,7 @@
 //! its own process. It belongs to this VM and is discarded with it; nothing
 //! carries across a replacement VMM.
 
+use anyhow::Context;
 use std::os::fd::{AsRawFd, IntoRawFd, RawFd};
 use std::path::Path;
 
@@ -34,10 +35,9 @@ pub fn create(backing_dir: &Path, disk_mib: u64) -> anyhow::Result<RawFd> {
         rustix::fs::OFlags::TMPFILE | rustix::fs::OFlags::RDWR | rustix::fs::OFlags::EXCL,
         rustix::fs::Mode::from_raw_mode(0o600),
     )
-    .map_err(|e| anyhow::anyhow!(e).context(format!("O_TMPFILE in {}", backing_dir.display())))?;
-    rustix::fs::ftruncate(&fd, disk_mib * MIB).map_err(|e| {
-        anyhow::anyhow!(e).context(format!("sizing the scratch disk to {disk_mib} MiB"))
-    })?;
+    .with_context(|| format!("O_TMPFILE in {}", backing_dir.display()))?;
+    rustix::fs::ftruncate(&fd, disk_mib * MIB)
+        .with_context(|| format!("sizing the scratch disk to {disk_mib} MiB"))?;
 
     let argv = mkfs_argv(&proc_path(fd.as_raw_fd()));
     let (program, args) = argv.split_first().expect("mkfs_argv is never empty");

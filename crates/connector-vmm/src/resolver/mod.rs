@@ -42,6 +42,7 @@ mod dns;
 mod nftset;
 
 use crate::policy::Policy;
+use anyhow::Context;
 use models::egress::AllowedName;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -141,7 +142,7 @@ pub fn start(config: Config) -> anyhow::Result<()> {
         );
     }
     let listener = std::net::UdpSocket::bind(config.listen)
-        .map_err(|e| anyhow::anyhow!("binding {}: {e}", config.listen))?;
+        .with_context(|| format!("binding {}", config.listen))?;
 
     let writer = nftset::Netlink::open()?;
     let mut resolver = Resolver::new(config, Box::new(writer));
@@ -157,7 +158,7 @@ pub fn start(config: Config) -> anyhow::Result<()> {
                 Err(_) => fatal(anyhow::anyhow!("the resolver thread panicked")),
             }
         })
-        .map_err(|e| anyhow::anyhow!("spawning the resolver thread: {e}"))?;
+        .context("spawning the resolver thread")?;
     Ok(())
 }
 
@@ -348,8 +349,7 @@ impl Resolver {
                 Ok(received) => received,
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(error) => {
-                    return Err(anyhow::anyhow!(error)
-                        .context("the resolver's listening socket stopped receiving"));
+                    return Err(error).context("the resolver's listening socket stopped receiving");
                 }
             };
             let handled = self.handle(&query[..read], Instant::now())?;

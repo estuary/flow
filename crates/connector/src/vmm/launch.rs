@@ -606,7 +606,7 @@ fn make_dir(owner: &mut Owned, dir: record::Dir, path: &str, mode: u32) -> anyho
     if let Err(err) = record::append(&mut owner.file, &record::created_line(dir)) {
         // Unmarked, no release would remove it: this launch knows it's its own.
         _ = std::fs::remove_dir(path);
-        return Err(anyhow::Error::new(err).context(format!("marking {path} in {}", owner.path)));
+        return Err(err).with_context(|| format!("marking {path} in {}", owner.path));
     }
     match dir {
         record::Dir::Mount => owner.record.created_mount = true,

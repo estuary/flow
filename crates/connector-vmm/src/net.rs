@@ -9,6 +9,7 @@
 //! Every routine here runs before `krun_start_enter`, because the guest's
 //! first packet has to meet a finished ruleset.
 
+use anyhow::Context;
 use std::net::{Ipv4Addr, SocketAddr};
 
 /// The point-to-point tap between the VMM and its guest, a `/30`.
@@ -56,7 +57,7 @@ fn ipv6_disabled(path: &str, read: std::io::Result<String>) -> anyhow::Result<()
         // No such knob means the kernel has no IPv6 at all, which is the
         // outcome this check is asking for.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => anyhow::bail!("reading {path}: {error}"),
+        Err(error) => return Err(error).with_context(|| format!("reading {path}")),
     };
     if disabled.trim() == "1" {
         return Ok(());
@@ -80,7 +81,7 @@ pub fn vmm_subnets() -> anyhow::Result<Vec<ipnetwork::Ipv4Network>> {
 
     // SAFETY: `head` is a live pointer for the call to write through.
     if unsafe { libc::getifaddrs(&mut head) } != 0 {
-        anyhow::bail!("getifaddrs: {}", std::io::Error::last_os_error());
+        return Err(std::io::Error::last_os_error()).context("getifaddrs");
     }
     let mut subnets: Vec<ipnetwork::Ipv4Network> = Vec::new();
     let mut cursor = head;
@@ -116,8 +117,7 @@ pub fn vmm_subnets() -> anyhow::Result<Vec<ipnetwork::Ipv4Network>> {
 /// no port syntax, so 53 is implied.
 pub fn upstream_nameserver() -> anyhow::Result<SocketAddr> {
     let path = "/etc/resolv.conf";
-    let content =
-        std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("reading {path}: {e}"))?;
+    let content = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
 
     let Some(address) = first_ipv4_nameserver(&content) else {
         anyhow::bail!("no usable IPv4 nameserver in {path}");

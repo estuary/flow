@@ -508,7 +508,7 @@ pub(crate) fn connector_mounts(tmp: &std::path::Path) -> anyhow::Result<std::pat
                 .with_context(|| format!("connector mounts directory {}", parent.display()))?;
         }
         Err(err) => {
-            return Err(anyhow::Error::new(err).context(format!("creating {}", parent.display())));
+            return Err(err).with_context(|| format!("creating {}", parent.display()));
         }
     }
     set_mount_mode(&parent, 0o700)?;

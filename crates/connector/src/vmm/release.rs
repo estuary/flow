@@ -611,7 +611,7 @@ fn remove_dir(path: &str) -> anyhow::Result<()> {
     match std::fs::remove_dir_all(path) {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(anyhow::Error::new(err).context(format!("removing {path}"))),
+        Err(err) => Err(err).with_context(|| format!("removing {path}")),
     }
 }
 
@@ -653,8 +653,9 @@ where
             match tokio::time::timeout(KILLED_TIMEOUT, child.kill_and_wait()).await {
                 Ok(Ok(_killed)) => anyhow::bail!("{timed_out}"),
                 Ok(Err(err)) => {
-                    return Err(anyhow::Error::new(err)
-                        .context(format!("{timed_out}, and reaping its killed client failed")));
+                    return Err(err).with_context(|| {
+                        format!("{timed_out}, and reaping its killed client failed")
+                    });
                 }
                 Err(_elapsed) => anyhow::bail!(
                     "{timed_out}, and its killed client was not reaped within {KILLED_TIMEOUT:?}"

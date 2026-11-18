@@ -50,6 +50,7 @@
 //! - A failed message's reply carries the whole message: a failed insert at
 //!   the set's capacity is answered in one datagram of 28748 bytes.
 
+use anyhow::Context;
 use netlink_packet_core::Parseable as _;
 use netlink_packet_netfilter::nftables;
 use std::net::Ipv4Addr;
@@ -115,9 +116,9 @@ impl Netlink {
         // Forced, which CAP_NET_ADMIN allows, because the host's
         // net.core.rmem_max caps a buffer set the ordinary way.
         rustix::net::sockopt::set_socket_recv_buffer_size_force(&netlink.socket, RECEIVE_BUFFER)
-            .map_err(|e| anyhow::anyhow!(e).context("sizing the netlink receive buffer"))?;
+            .context("sizing the netlink receive buffer")?;
         let effective = rustix::net::sockopt::socket_recv_buffer_size(&netlink.socket)
-            .map_err(|e| anyhow::anyhow!(e).context("reading the netlink receive buffer size"))?;
+            .context("reading the netlink receive buffer size")?;
         if effective < RECEIVE_BUFFER {
             anyhow::bail!(
                 "the netlink receive buffer is {effective} bytes, below the {RECEIVE_BUFFER} a batch's replies can take"
@@ -133,13 +134,11 @@ impl Netlink {
             rustix::net::SocketFlags::CLOEXEC,
             Some(rustix::net::netlink::NETFILTER),
         )
-        .map_err(|e| anyhow::anyhow!(e).context("opening a netlink socket"))?;
+        .context("opening a netlink socket")?;
 
         // Port 0 and no groups: the kernel, and it assigns our port.
         rustix::net::connect(&socket, &rustix::net::netlink::SocketAddrNetlink::new(0, 0))
-            .map_err(|e| {
-                anyhow::anyhow!(e).context("connecting the netlink socket to the kernel")
-            })?;
+            .context("connecting the netlink socket to the kernel")?;
 
         Ok(Netlink {
             socket,
@@ -175,13 +174,9 @@ impl Netlink {
         // The fence needs a `send` of its own: nfnetlink reads nothing of a
         // datagram past its batch's closing marker.
         for (datagram, what) in [(&batch, "batch"), (&fence, "fence")] {
-            if let Err(error) =
-                rustix::net::send(&self.socket, datagram, rustix::net::SendFlags::empty())
-            {
-                return Err(Failure::Other(
-                    anyhow::anyhow!(error).context(format!("sending a netlink {what}")),
-                ));
-            }
+            rustix::net::send(&self.socket, datagram, rustix::net::SendFlags::empty())
+                .with_context(|| format!("sending a netlink {what}"))
+                .map_err(Failure::Other)?;
         }
         self.read_acknowledgments(Acknowledgments::new(first, last, deletes.len()), deadline)
     }
@@ -200,11 +195,9 @@ impl Netlink {
                     "a netlink batch was not committed within {TIMEOUT:?}"
                 )));
             }
-            if let Err(error) = self.set_receive_timeout(remaining) {
-                return Err(Failure::Other(
-                    anyhow::anyhow!(error).context("setting the netlink receive timeout"),
-                ));
-            }
+            self.set_receive_timeout(remaining)
+                .context("setting the netlink receive timeout")
+                .map_err(Failure::Other)?;
             // TRUNC makes recv report a datagram's full length, so a reply
             // larger than the buffer is refused rather than parsed in part.
             let read =
@@ -222,9 +215,9 @@ impl Netlink {
                     }
                     Ok((_, read)) => read,
                     Err(error) => {
-                        return Err(Failure::Other(anyhow::anyhow!(
-                            "no acknowledgment for the netlink batch: {error}"
-                        )));
+                        return Err(error)
+                            .context("no acknowledgment for the netlink batch")
+                            .map_err(Failure::Other);
                     }
                 };
             if acknowledgments.receive(&buffer[..read])? {
@@ -266,12 +259,8 @@ impl Acknowledgments {
 
         while offset < datagram.len() {
             let message = netlink_packet_core::NetlinkBuffer::new_checked(&datagram[offset..])
-                .map_err(|error| {
-                    Failure::Other(
-                        anyhow::anyhow!(error)
-                            .context(format!("netlink reply at offset {offset} is malformed")),
-                    )
-                })?;
+                .with_context(|| format!("netlink reply at offset {offset} is malformed"))
+                .map_err(Failure::Other)?;
             let length = message.length() as usize;
             // The kernel pads every message to a 4-byte boundary, the last
             // one included.
@@ -295,11 +284,10 @@ impl Acknowledgments {
             let payload = message.payload();
             let acknowledgment = netlink_packet_core::ErrorBuffer::new_checked(&payload)
                 .and_then(|buffer| netlink_packet_core::ErrorMessage::parse(&buffer))
-                .map_err(|error| {
-                    Failure::Other(anyhow::anyhow!(error).context(format!(
-                        "acknowledgment of netlink message {sequence} is malformed"
-                    )))
-                })?;
+                .with_context(|| {
+                    format!("acknowledgment of netlink message {sequence} is malformed")
+                })
+                .map_err(Failure::Other)?;
 
             if let Some(code) = acknowledgment.code {
                 // Reject malformed error codes that cannot be a negated errno.
@@ -309,12 +297,14 @@ impl Acknowledgments {
                     )));
                 };
                 if sequence == fence {
-                    return Err(Failure::Other(anyhow::anyhow!(
-                        "the fence after netlink batch {}..={} failed: {}",
-                        self.first,
-                        self.last,
-                        std::io::Error::from_raw_os_error(errno)
-                    )));
+                    return Err(std::io::Error::from_raw_os_error(errno))
+                        .with_context(|| {
+                            format!(
+                                "the fence after netlink batch {}..={} failed",
+                                self.first, self.last
+                            )
+                        })
+                        .map_err(Failure::Other);
                 }
                 let index =
                     classify(sequence, self.first, self.deletes, errno).map_err(Failure::Other)?;
@@ -354,10 +344,8 @@ fn classify(sequence: u32, first: u32, deletes: usize, errno: i32) -> anyhow::Re
     if is_delete && errno == libc::ENOENT {
         return Ok(index);
     }
-    Err(anyhow::anyhow!(
-        "netlink message {sequence} of the batch failed: {}",
-        std::io::Error::from_raw_os_error(errno)
-    ))
+    Err(std::io::Error::from_raw_os_error(errno))
+        .with_context(|| format!("netlink message {sequence} of the batch failed"))
 }
 
 impl SetWriter for Netlink {
