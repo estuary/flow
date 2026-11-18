@@ -4,11 +4,31 @@ set -euo pipefail
 
 TEST=$(dirname "$(readlink -f "$0")")
 readonly TEST
-readonly RESOURCES="${TEST%/*}/resources"
+# The run's root, holding its members and resources list.
+readonly ROOT="${TEST%/*}"
 readonly CALL="$*"
 
 # The launcher's own arguments, before any control below changes them.
 printf '%s\n' "$*" >>"${TEST}/calls"
+
+# Vouches for resource $1 $2 in the run's members and appends it to its list,
+# before podman makes it, as run::record does. A name which is not a
+# launch's is refused, as the list's release would refuse it, and so is a
+# file which is not this user's alone.
+record() {
+    local file
+    if [[ ! "$2" =~ ^fv_[0-9a-f]{16}$ ]]; then
+        echo "podman.sh: refusing to make $1 ${2@Q}, which is not named as a launch's" >&2
+        exit 125
+    fi
+    for file in "${ROOT}/members" "${ROOT}/resources"; do
+        if [[ -L "${file}" || ! -f "${file}" || ! -O "${file}" || "$(stat -c %h -- "${file}")" != 1 ]]; then
+            echo "podman.sh: refusing ${file}, which is not a regular file of yours alone" >&2
+            exit 125
+        fi
+        printf '%s %s\n' "$1" "$2" >>"${file}"
+    done
+}
 
 # A test-created tag exists only in local storage, so pulling it would ask
 # the registry for an image the test owns on this host.
@@ -33,7 +53,7 @@ fi
 step=
 case "${1:-} ${2:-}" in
 "network create")
-    printf 'network %s\n' "${!#}" >>"${RESOURCES}"
+    record network "${!#}"
     step=network-create
     ;;
 "network ls")
@@ -43,7 +63,7 @@ case "${1:-} ${2:-}" in
     step=network-rm
     ;;
 "volume create")
-    printf 'volume %s\n' "${!#}" >>"${RESOURCES}"
+    record volume "${!#}"
     step=volume-create
     ;;
 "volume ls")
@@ -58,7 +78,7 @@ case "${1:-} ${2:-}" in
 "create "*)
     for arg in "$@"; do
         if [[ "${arg}" == --name=* ]]; then
-            printf 'container %s\n' "${arg#--name=}" >>"${RESOURCES}"
+            record container "${arg#--name=}"
         fi
     done
     step=create

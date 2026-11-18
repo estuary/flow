@@ -41,13 +41,16 @@ DECOYS=(198.18.255.241 198.18.255.242)
 FILTER="${usage_filter:-}"
 ALLOW_MISSING_VSOCK="${usage_allow_missing_vsock_loopback:-false}"
 PLATFORM="${usage_platform:-false}"
+# The checkout whose stack alone a release may stop.
+CHECKOUT=$(git rev-parse --show-toplevel)
 
 fail() {
     echo "ci:connector-vmm-kvm: $*" >&2
     exit 1
 }
 
-# record, boundary, stack_units and release.
+# claim, vouch, record, replace, trusted_path, boundary, stack_units,
+# reactor_unit, dropin_dir and release.
 source "$(dirname "$0")/connector-vmm-kvm-lib.sh"
 
 # The platform run starts this checkout's stack and stops it when done, so it
@@ -83,7 +86,6 @@ sudo -n sh -c 'command -v conntrack' >/dev/null || fail "conntrack is unavailabl
 if [ "${PLATFORM}" = true ]; then
     : "${FLOW_STACK_NAME:?run this task under mise}" "${FLOW_CLUSTER:?}" "${FLOW_PLANE_BASE:?}" "${FLOW_STACK_DIR:?}"
     docker info >/dev/null 2>&1 || fail "docker is unavailable (the stack runs ordinary connectors under it)"
-    require_stopped_stack
     # Distinguish public network outages from VMM failures.
     for host in pypi.org files.pythonhosted.org example.org example.com; do
         getent ahostsv4 "${host}" >/dev/null || fail "the public network is unavailable: ${host} does not resolve on this host"
@@ -93,13 +95,7 @@ if [ "${PLATFORM}" = true ]; then
 fi
 
 # One run per host: the endpoints and the fence are host-wide.
-sudo -n install -d -m 0755 "${ROOT}"
-for file in lock resources; do
-    [ -e "${ROOT}/${file}" ] || sudo -n install -m 0644 -o "$(id -u)" -g "$(id -g)" /dev/null "${ROOT}/${file}"
-done
-exec 9>>"${ROOT}/lock"
-flock -n 9 || fail "another run holds ${ROOT}/lock"
-sudo -n chown "$(id -u):$(id -g)" "${ROOT}/resources"
+claim || exit 1
 
 # What may start a daemon (cargo, and so its sccache server) runs without fd
 # 9, so that nothing it leaves behind holds the lock past this run. Tests
@@ -114,6 +110,11 @@ if [ -s "${ROOT}/resources" ]; then
     echo "=== Removing what an interrupted run recorded ==="
     sed 's/^/  /' "${ROOT}/resources"
     release || fail "what an interrupted run recorded is kept"
+fi
+# Once an interrupted run's release has stopped any stack it recorded, and
+# before anything is built.
+if [ "${PLATFORM}" = true ]; then
+    require_stopped_stack
 fi
 # A release which keeps the list fails the run, whatever else happened.
 trap 'release || exit 1' EXIT
@@ -165,6 +166,13 @@ if [ -d "${BUILDX_CACHE}.new" ]; then
 fi
 
 VMM_IMAGE=$(sudo -n podman load -q -i "${RUN_DIR}/connector-vmm.tar" | grep -oE 'sha256:[0-9a-f]{64}')
+# A release runs a boundary entry's image as root, and only the image ID
+# vouched for here: the one the load named, once podman holds an image of
+# that ID.
+[[ "${VMM_IMAGE}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "podman load named no single image ID: ${VMM_IMAGE@Q}"
+[ "sha256:$(sudo -n podman image inspect --format '{{.Id}}' "${VMM_IMAGE}")" = "${VMM_IMAGE}" ] \
+    || fail "podman holds no image of ID ${VMM_IMAGE}, which it loaded"
+vouch vmm-image "${VMM_IMAGE}"
 record image "${VMM_IMAGE}"
 rm -f "${RUN_DIR}/connector-vmm.tar"
 
@@ -198,17 +206,15 @@ done
 
 if [ "${PLATFORM}" = true ]; then
     echo "=== The platform: stack '${FLOW_STACK_NAME}', its reactor launching VMMs ==="
-    CHECKOUT=$(git rev-parse --show-toplevel)
-    # local:stack's one reactor, which counts down from the top of its block.
-    REACTOR="flow-reactor@${FLOW_CLUSTER}-$((FLOW_PLANE_BASE + 99)).service"
-    DROPIN="${HOME}/.config/systemd/user/${REACTOR}.d/connector-vmm.conf"
+    REACTOR=$(reactor_unit)
+    DROPIN="${HOME}/$(dropin_dir)/connector-vmm.conf"
     PLATFORM_DIR="${ROOT}/platform-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
     BIN="${RUN_DIR}/bin"
 
     # Share state between flowctl and the reactor so each can recover the
     # other's dead launches. The podman wrapper records resources for cleanup.
     record dir "${PLATFORM_DIR}"
-    sudo -n install -d -o "$(id -u)" -g "$(id -g)" -m 0755 "${PLATFORM_DIR}"
+    mkdir -m 0755 "${PLATFORM_DIR}"
     mkdir -m 0700 "${PLATFORM_DIR}/state" "${PLATFORM_DIR}/tmp"
     install -m 0755 "${FIXTURES}/podman.sh" "${PLATFORM_DIR}/podman"
 
@@ -225,8 +231,11 @@ if [ "${PLATFORM}" = true ]; then
     } >"${PLATFORM_DIR}/reactor.env"
     # Applied over local:reactor's own environment file when the stack starts
     # the reactor. local:stop removes it along with the stack's other drop-ins.
+    # A release removes it by this path, which no link may lead elsewhere,
+    # nor anyone else change.
+    trusted_path "${HOME}" "$(dropin_dir)" "$(id -u)" || fail "refusing to write ${DROPIN}"
     record dropin "${DROPIN}"
-    mkdir -p "$(dirname "${DROPIN}")"
+    (umask 022 && mkdir -p -- "$(dirname "${DROPIN}")")
     printf '[Service]\nEnvironmentFile=%s\n' "${PLATFORM_DIR}/reactor.env" >"${DROPIN}"
 
     require_stopped_stack
@@ -256,7 +265,7 @@ if [ "${PLATFORM}" = true ]; then
         --arg reactorUnit "${REACTOR}" \
         --arg examples "${CHECKOUT}/examples" \
         '{$runDir, $dir, $vmmImage, $flowctl, $connectorInit, $derivePythonImage, $reactorUnit, $examples}' \
-        | sudo -n tee "${ROOT}/platform.json" >/dev/null
+        | replace platform.json
 
     if [ -n "${FILTER}" ]; then
         echo "=== Partial run: platform tests matching '${FILTER}' only ==="
@@ -290,6 +299,8 @@ cargo build --locked --release -p connector-vmm --features test-controls --targe
 mkdir -p "${RUN_DIR}/test-controls"
 cp "${TEST_TARGET}/release/flow-connector-vmm" "${RUN_DIR}/test-controls/"
 TEST_VMM_IMAGE="localhost/connector-vmm-test-controls:kvm-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+# A release revokes grants only with the tag vouched for here.
+vouch test-vmm-image "${TEST_VMM_IMAGE}"
 record image "${TEST_VMM_IMAGE}"
 printf 'FROM %s\nCOPY flow-connector-vmm /usr/local/bin/flow-connector-vmm\n' "${VMM_IMAGE}" \
     | sudo -n podman build -q -t "${TEST_VMM_IMAGE}" -f - "${RUN_DIR}/test-controls" >/dev/null
@@ -369,7 +380,7 @@ jq -n \
     --arg endpointPeer "${ENDPOINT_PEER}" \
     --argjson decoys "$(printf '%s\n' "${DECOYS[@]}" | jq -R . | jq -s .)" \
     '{$runDir, $vmmImage, $productionVmmImage, $guestImage, $rootGuestImage, $helloWorldImage, $derivePythonImage, $capturePythonImage, $localDerivePythonImage, $materializePythonImage, $connectorInit, endpoints: $ARGS.positional, $endpointNetns, $endpointPeer, $decoys}' \
-    --args "${ENDPOINTS[@]}" | sudo -n tee "${ROOT}/run.json" >/dev/null
+    --args "${ENDPOINTS[@]}" | replace run.json
 
 status=0
 if [ -n "${FILTER}" ]; then

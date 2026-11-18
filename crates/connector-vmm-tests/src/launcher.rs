@@ -11,26 +11,18 @@ pub struct Root {
     pub podman: String,
 }
 
-/// Recorded before it exists, created by root so that it can sit in the
-/// run's root-owned directory, and handed to the unprivileged test.
+/// Recorded before it exists, then made by the test in the run's root, which
+/// is the test user's own. mkdir makes it or fails, and never follows a link.
+/// Once made, others may search it: the UID tests start in it, from a
+/// descriptor root opened, and measure the directories beneath it.
 pub fn root() -> Root {
     let dir = format!("{}/launcher-{}", run::ROOT, run::random_hex());
     run::record("dir", &dir);
-    let (uid, gid) = (
-        rustix::process::getuid().as_raw(),
-        rustix::process::getgid().as_raw(),
-    );
-    run::sudo(&[
-        "install",
-        "-d",
-        "-o",
-        &uid.to_string(),
-        "-g",
-        &gid.to_string(),
-        "-m",
-        "0755",
-        &dir,
-    ]);
+    std::os::unix::fs::DirBuilderExt::mode(&mut std::fs::DirBuilder::new(), 0o700)
+        .create(&dir)
+        .unwrap_or_else(|e| panic!("creating {dir}: {e}"));
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .unwrap_or_else(|e| panic!("setting the mode of {dir}: {e}"));
 
     let state_dir = format!("{dir}/state");
     let tmp_dir = format!("{dir}/tmp");
@@ -560,7 +552,7 @@ pub fn record(state_dir: &str, name: &str) -> String {
 /// Whether anyone holds the lock of the record at `path`, as its owner or a
 /// releaser does.
 pub fn locked(path: &str) -> bool {
-    let file = std::fs::File::open(path).unwrap_or_else(|e| panic!("opening {path}: {e}"));
+    let file = run::open_owned(Path::new(path), std::fs::OpenOptions::new().read(true));
     match file.try_lock() {
         Ok(()) => false,
         Err(std::fs::TryLockError::WouldBlock) => true,
@@ -568,11 +560,22 @@ pub fn locked(path: &str) -> bool {
     }
 }
 
+/// What the record at `path` holds, read only as `run::open_owned` opens it.
+pub fn read_record(path: &str) -> String {
+    let mut content = String::new();
+    std::io::Read::read_to_string(
+        &mut run::open_owned(Path::new(path), std::fs::OpenOptions::new().read(true)),
+        &mut content,
+    )
+    .unwrap_or_else(|e| panic!("reading {path}: {e}"));
+    content
+}
+
 pub fn token(path: &str) -> String {
-    let content = std::fs::read(path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
-    let claim = content.split(|b| *b == b'\n').next().unwrap_or_default();
+    let content = read_record(path);
+    let claim = content.lines().next().unwrap_or_default();
     let claim: serde_json::Value =
-        serde_json::from_slice(claim).unwrap_or_else(|e| panic!("parsing {path}'s claim: {e}"));
+        serde_json::from_str(claim).unwrap_or_else(|e| panic!("parsing {path}'s claim: {e}"));
     claim["token"]
         .as_str()
         .unwrap_or_else(|| panic!("{path}'s claim has no token"))

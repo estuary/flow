@@ -12,9 +12,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// Created by the task, which holds its lock and owns `run.json` and
-/// `resources` inside it. Short, because `state/fv_<16 hex>/sock/init.sock`
-/// beneath it has to fit a Unix socket address.
+/// The task's root, which `claim` in mise/tasks/ci/connector-vmm-kvm-lib.sh
+/// makes: the invoking user's, with mode 0700. The task holds its lock, and
+/// owns `run.json`, `members` and `resources` inside it. Short, because
+/// `state/fv_<16 hex>/sock/init.sock` beneath it has to fit a Unix socket
+/// address.
 pub const ROOT: &str = "/var/tmp/connector-vmm-kvm";
 
 /// Where the test guest image keeps the probe server.
@@ -151,26 +153,98 @@ pub fn load() -> Run {
              which sets CONNECTOR_VMM_KVM"
         );
     }
-    let path = Path::new(ROOT).join("run.json");
-    let content = std::fs::read(&path).unwrap_or_else(|e| {
-        panic!(
-            "reading {}: {e}; the suite runs under `mise run ci:connector-vmm-kvm`",
-            path.display()
-        )
-    });
-    serde_json::from_slice(&content).unwrap_or_else(|e| panic!("parsing {}: {e}", path.display()))
+    serde_json::from_slice(&read_private("run.json"))
+        .unwrap_or_else(|e| panic!("parsing {ROOT}/run.json: {e}"))
 }
 
-/// Append to the task's resources list. Called before the resource exists.
+/// Append to the task's resources list, once its members vouch for the
+/// entry, as its release requires. Called before the resource exists.
 pub fn record(kind: &str, value: &str) {
-    let path = Path::new(ROOT).join("resources");
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&path)
+    let line = format!("{kind} {value}\n");
+    for name in ["members", "resources"] {
+        // One write per line, so concurrent tests' lines never interleave.
+        open_private(name, std::fs::OpenOptions::new().append(true))
+            .write_all(line.as_bytes())
+            .unwrap_or_else(|e| panic!("appending to {ROOT}/{name}: {e}"));
+    }
+}
+
+/// What file `name` in ROOT holds, read as `open_private` opens it.
+pub fn read_private(name: &str) -> Vec<u8> {
+    let mut content = Vec::new();
+    open_private(name, std::fs::OpenOptions::new().read(true))
+        .read_to_end(&mut content)
+        .unwrap_or_else(|e| panic!("reading {ROOT}/{name}: {e}"));
+    content
+}
+
+/// Opens file `name` in ROOT with `open_owned`, once one lstat shows ROOT as
+/// `claim` makes it: a directory of this user's, with mode 0700.
+fn open_private(name: &str, options: &mut std::fs::OpenOptions) -> std::fs::File {
+    use std::os::unix::fs::MetadataExt;
+
+    let root = std::fs::symlink_metadata(ROOT).unwrap_or_else(|e| {
+        panic!("inspecting {ROOT}: {e}; tests run under `mise run ci:connector-vmm-kvm`")
+    });
+    assert!(
+        root.is_dir()
+            && root.uid() == rustix::process::geteuid().as_raw()
+            && root.mode() & 0o7777 == 0o700,
+        "{ROOT} (UID {}, mode {:o}) must be a directory of yours with mode 0700",
+        root.uid(),
+        root.mode() & 0o7777
+    );
+    open_owned(&Path::new(ROOT).join(name), options)
+}
+
+/// Opens `path`, never through a link nor blocking on a FIFO, and panics
+/// unless it is a regular file of this user's, writable by no one else, with
+/// no other name by which something else could reach it.
+pub fn open_owned(path: &Path, options: &mut std::fs::OpenOptions) -> std::fs::File {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let file = options
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
         .unwrap_or_else(|e| panic!("opening {}: {e}", path.display()));
-    // One write per line, so concurrent tests' lines never interleave.
-    file.write_all(format!("{kind} {value}\n").as_bytes())
-        .unwrap_or_else(|e| panic!("appending to {}: {e}", path.display()));
+    let metadata = file
+        .metadata()
+        .unwrap_or_else(|e| panic!("inspecting {}: {e}", path.display()));
+    assert!(
+        metadata.is_file()
+            && metadata.uid() == rustix::process::geteuid().as_raw()
+            && metadata.mode() & 0o022 == 0
+            && metadata.nlink() == 1,
+        "{} (UID {}, mode {:o}, {} names) must be a regular file of yours, writable by \
+         no one else, with no other name",
+        path.display(),
+        metadata.uid(),
+        metadata.mode() & 0o7777,
+        metadata.nlink()
+    );
+    file
+}
+
+/// Panics unless `path`, if present, is a directory, not a link, which is
+/// root's or this user's and writable by no one else: root's `install -d`
+/// must make and change only what is beneath ROOT.
+fn check_beneath_root(path: &str) {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => panic!("inspecting {path}: {e}"),
+    };
+    assert!(
+        metadata.is_dir()
+            && (metadata.uid() == 0 || metadata.uid() == rustix::process::geteuid().as_raw())
+            && metadata.mode() & 0o022 == 0,
+        "{path} (UID {}, mode {:o}) must be a directory of root's or yours, which no one \
+         else can write",
+        metadata.uid(),
+        metadata.mode() & 0o7777
+    );
 }
 
 pub fn sudo(args: &[&str]) -> String {
@@ -238,6 +312,10 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
     let connector_mount = format!("{ROOT}/connector-mounts-0/mount-{}", &name[3..]);
 
     record("dir", &state_dir);
+    // Root makes these, and what is beneath them.
+    for parent in ["state", "connector-mounts-0"] {
+        check_beneath_root(&format!("{ROOT}/{parent}"));
+    }
     sudo(&["install", "-d", "-m", "0711", &state_dir]);
     sudo(&[
         "install",
