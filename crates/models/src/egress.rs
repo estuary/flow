@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct Egress {
     /// # Host names the connector may reach.
-    /// These add to the hosts the connector and its image already declare.
+    /// Neither the connector nor its image adds to these names, though a name
+    /// which resolves only into `cidrs` is reachable too. Installing packages
+    /// from PyPI typically needs both `pypi.org` and `files.pythonhosted.org`.
     /// When both `hosts` and `cidrs` are empty, the connector may reach no
     /// external destination at all. `api.acmeco.example` matches
     /// only itself, and `db` matches only `db`, not `db.acmeco.example`.
@@ -303,17 +305,17 @@ mod test {
         let rows: Vec<String> = ["*.com", "api.*.acmeco.example", "", "169.254.169.254"]
             .into_iter()
             .map(|name| {
-                let error = super::hosts("dev.estuary.egress-hosts", &[name.to_string()])
+                let error = super::hosts("--egress-host", &[name.to_string()])
                     .expect_err("each is refused");
                 format!("{error:#}")
             })
             .collect();
 
         insta::assert_snapshot!(rows.join("\n"), @r#"
-        dev.estuary.egress-hosts "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
-        dev.estuary.egress-hosts "api.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
-        dev.estuary.egress-hosts contains an empty name
-        dev.estuary.egress-hosts "169.254.169.254" is the IPv4 address 169.254.169.254; dev.estuary.egress-hosts takes names, not addresses
+        --egress-host "*.com" is a wildcard over the public suffix "com", in the Public Suffix List's ICANN section; names beneath a public suffix belong to unrelated registrants
+        --egress-host "api.*.acmeco.example" has a wildcard other than a leading "*.", the only form supported
+        --egress-host contains an empty name
+        --egress-host "169.254.169.254" is the IPv4 address 169.254.169.254; --egress-host takes names, not addresses
         "#);
     }
 

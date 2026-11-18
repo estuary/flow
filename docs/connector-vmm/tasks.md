@@ -33,6 +33,8 @@ collections:
       vmm: true
       egress:
         hosts:
+          - pypi.org
+          - files.pythonhosted.org
           - api.acmeco.example
           - "*.cdn.acmeco.example"
       shards:
@@ -122,11 +124,8 @@ egress:
   omits it, or sets `egress: null`, is refused before its connector starts:
   "the task requests VMM execution but declares no egress".
 - `hosts` and `cidrs` are each optional, and a missing list is an empty one.
-- `egress: {}`, or both lists empty, permits no external destination at all:
-  not even the connector's own or its image's hosts. A Python connector then
-  cannot install dependencies from the package index, so a project which
-  needs any fails as it installs them.
-- Any other declaration permits the union described below.
+- `egress: {}`, or both lists empty, permits no external destination at all.
+- Any other declaration permits exactly what it lists, as described below.
 - Repeats and differences of case are tolerated, and so are overlapping
   ranges.
 
@@ -139,18 +138,10 @@ field later.
 
 ### What a VMM connector may reach
 
-The hosts a VMM connector may reach are the union of three sources:
-
-1. **Connector defaults**, built in per eligible connector. Each Python
-   connector's are `pypi.org` and `files.pythonhosted.org`, so dependencies
-   install.
-2. **Image declarations**: the image's `dev.estuary.egress-hosts` label, a
-   JSON array of host names, for example
-   `["api.acmeco.example", "*.cdn.acmeco.example"]`. A missing, blank or
-   empty label adds nothing; anything else that isn't valid names fails the
-   launch.
-3. **Task additions**: `egress.hosts`, and every address within
-   `egress.cidrs` (see [Address ranges](#address-ranges)).
+A VMM connector may reach only what its task declares: each name in
+`egress.hosts`, and every address within `egress.cidrs` (see
+[Address ranges](#address-ranges)). Neither the connector nor its image adds
+a host.
 
 The declaration alone decides, on every plane:
 
@@ -158,7 +149,7 @@ The declaration alone decides, on every plane:
 |---|---|
 | omitted or `null` | nothing: the task is refused before its connector starts |
 | `{}`, or both lists empty | no external destination |
-| any other | connector defaults, image declarations and task additions, by name, and any address within `egress.cidrs` |
+| any other | the names in `egress.hosts`, and any address within `egress.cidrs` |
 
 On every plane, nothing a task declares lifts the platform's exclusions.
 Loopback, link-local (including every cloud's instance metadata service),
@@ -172,6 +163,14 @@ outside the VMM's authority.
 There are no settings for ports, rates, DNS TTLs, allow-all or deny-all. A
 permitted name, and an address within a declared range, is reachable on any
 port.
+
+### Python dependencies
+
+A Python connector installs its project's dependencies as it starts.
+Installing from PyPI typically needs both `pypi.org`, its index, and
+`files.pythonhosted.org`, which serves its files, in `egress.hosts`. A task
+using a private index can list its own hosts. Dependencies already available
+in the image require no network access.
 
 ### Host names
 
@@ -263,11 +262,10 @@ they are never published on the host's interfaces.
 
 ## What a VMM task logs
 
-Each VMM launch logs, at `info`, the egress it applies and where each name
-came from:
+Each VMM launch logs, at `info`, the egress it applies:
 
 ```
-VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example, *.cdn.acmeco.example (task egress.hosts); and any address within 10.20.0.0/16 (task egress.cidrs)
+VMM egress permits only these host names: pypi.org, files.pythonhosted.org, api.acmeco.example, *.cdn.acmeco.example (task egress.hosts); and any address within 10.20.0.0/16 (task egress.cidrs)
 ```
 
 or, for `egress: {}`, "VMM egress permits no external destination: the task
@@ -277,7 +275,10 @@ declares empty egress", followed by "started connector container" naming its
 The VMM reports names it refused, at `warn`, once per name:
 
 - "refused DNS name `<name>`, which this connector's egress does not permit;
-  a task may permit it in egress.hosts"
+  a task may permit it in egress.hosts". Where `<name>` is exactly `pypi.org`
+  or `files.pythonhosted.org`, it adds "installing packages from PyPI
+  typically requires both pypi.org and files.pythonhosted.org in
+  egress.hosts".
 - "refused DNS name `<name>`, which resolved to an address that is not public"
 
 After 32 distinct names it logs "further refused DNS names are not reported"

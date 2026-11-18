@@ -308,11 +308,10 @@ recovery passes do nothing.
    or Open must carry the requested execution in its built spec. The
    execution then holds for the stream.
 3. **Plan.** `vmm::plan::plan` is the pure plan of a launch: its id, paths,
-   podman lines (`vmm::argv`), and egress. Egress is the union of the
-   connector's default hosts, the image's `dev.estuary.egress-hosts` label
-   and the task's `egress.hosts`; `egress: {}` permits nothing. The guest is
-   sized within `CONNECTOR_MEMORY_LIMIT` and `CONNECTOR_CPU_LIMIT`
-   (`vmm::memory_bytes`).
+   podman lines (`vmm::argv`), and egress. Egress is exactly the task's
+   `egress`; neither the connector nor its image adds a host, and
+   `egress: {}` permits nothing. The guest is sized within
+   `CONNECTOR_MEMORY_LIMIT` and `CONNECTOR_CPU_LIMIT` (`vmm::memory_bytes`).
 4. **Launch.** `vmm::launch::start` runs one task per launch. It claims
    `<STATE_DIR>/fv_<id>.owner`, resolves the VMM image to an ID, runs
    `boundary verify`, creates the network, volume and container, waits for

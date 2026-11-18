@@ -1,8 +1,8 @@
 # examples/materialize-python, as acmeCo's, run in a VMM, into the API of
 # examples/materialize-python/api.py. The test serves the API in a container
-# of its own, and writes its address over API_ADDRESS. Its connector reaches
-# the API by its declared CIDR, which adds to the package index it installs
-# from.
+# of its own, and writes its address over API_ADDRESS. Its connector installs
+# its dependencies from PyPI's declared hosts, and reaches the API by its
+# declared CIDR.
 import:
   - ../hello-world.flow.yaml
 
@@ -27,6 +27,7 @@ materializations:
             required: [baseUrl]
     vmm: true
     egress:
+      hosts: [pypi.org, files.pythonhosted.org]
       cidrs: [API_ADDRESS/32]
     bindings:
       # Standard updates, which load what earlier transactions stored.

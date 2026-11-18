@@ -1005,7 +1005,6 @@ fn destinations(run: &run::Run) -> Destinations {
         (a, 0).into(),
     ));
     for (name, ip) in [
-        // A connector default, which `{}` egress does not permit.
         ("pypi.org", pypi),
         ("api.acmeco.example", a),
         ("below.api.acmeco.example", a),
@@ -1183,10 +1182,10 @@ fn assert_logged(probed: &Probed, message: &str) {
     );
 }
 
-/// A public data plane holds a task to the connector's hosts and those it
-/// declares: an exact name and not its subdomains, every name beneath a
-/// wildcard's base and not the base, and nothing which resolves to an
-/// excluded address, whatever the task declares.
+/// A public data plane holds a task to the hosts it declares, and no others:
+/// an exact name and not its subdomains, every name beneath a wildcard's base
+/// and not the base, and nothing which resolves to an excluded address,
+/// whatever the task declares.
 #[test]
 fn task_egress_on_a_public_plane() {
     let launch = setup();
@@ -1217,8 +1216,6 @@ fn task_egress_on_a_public_plane() {
     assert_eq!(
         probed.policy,
         [
-            "--egress-host=pypi.org",
-            "--egress-host=files.pythonhosted.org",
             "--egress-host=api.acmeco.example",
             "--egress-host=*.svc.acmeco.example",
             "--egress-host=leak.acmeco.example",
@@ -1227,7 +1224,7 @@ fn task_egress_on_a_public_plane() {
     assert_results(
         &probed,
         &[
-            ("pypi.org".to_string(), "connected"),
+            ("pypi.org".to_string(), "unresolved"),
             ("api.acmeco.example".to_string(), "connected"),
             ("below.api.acmeco.example".to_string(), "unresolved"),
             ("a.b.svc.acmeco.example".to_string(), "connected"),
@@ -1238,14 +1235,15 @@ fn task_egress_on_a_public_plane() {
             (direct(&d.c).0, "unreachable"),
         ],
     );
-    assert_eq!(endpoint::accepted(&d.pypi), [run.endpoint_peer]);
     assert_eq!(endpoint::accepted(&d.a), [run.endpoint_peer]);
     assert_eq!(endpoint::accepted(&d.b), [run.endpoint_peer]);
-    assert!(
-        endpoint::accepted(&d.c).is_empty(),
-        "{:?}",
-        endpoint::accepted(&d.c)
-    );
+    for refused in [&d.pypi, &d.c] {
+        assert!(
+            endpoint::accepted(refused).is_empty(),
+            "{:?}",
+            endpoint::accepted(refused)
+        );
+    }
     assert!(
         endpoint::accepted(&d.decoy).is_empty(),
         "{:?}",
@@ -1254,9 +1252,8 @@ fn task_egress_on_a_public_plane() {
 
     assert_logged(
         &probed,
-        "VMM egress permits only these host names: pypi.org, files.pythonhosted.org \
-         (connector defaults); api.acmeco.example, *.svc.acmeco.example, \
-         leak.acmeco.example (task egress.hosts)",
+        "VMM egress permits only these host names: api.acmeco.example, \
+         *.svc.acmeco.example, leak.acmeco.example (task egress.hosts)",
     );
     for name in [
         "below.api.acmeco.example",
@@ -1273,10 +1270,17 @@ fn task_egress_on_a_public_plane() {
     }
     assert_logged(
         &probed,
+        "refused DNS name pypi.org, which this connector's egress does not permit; \
+         a task may permit it in egress.hosts; installing packages from PyPI typically \
+         requires both pypi.org and files.pythonhosted.org in egress.hosts",
+    );
+    assert_logged(
+        &probed,
         "refused DNS name leak.acmeco.example, which resolved to an address that is not public",
     );
     let asked = dns::queries(&d.nameserver);
     for name in [
+        "pypi.org",
         "below.api.acmeco.example",
         "svc.acmeco.example",
         "other.acmeco.example",

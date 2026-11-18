@@ -196,11 +196,24 @@ impl Refusals {
     /// the guest is told no more than that it was refused.
     pub fn report(&mut self, decision: &Decision) -> Option<String> {
         let message = match &decision.outcome {
-            Outcome::RefusedName => format!(
-                "refused DNS name {}, which this connector's egress does not permit; \
-                 a task may permit it in egress.hosts",
-                decision.name
-            ),
+            Outcome::RefusedName => {
+                let mut message = format!(
+                    "refused DNS name {}, which this connector's egress does not permit; \
+                     a task may permit it in egress.hosts",
+                    decision.name
+                );
+                // first_question normalizes case and escapes dots within a label.
+                if matches!(
+                    decision.name.as_str(),
+                    "pypi.org" | "files.pythonhosted.org"
+                ) {
+                    message.push_str(
+                        "; installing packages from PyPI typically requires both pypi.org \
+                         and files.pythonhosted.org in egress.hosts",
+                    );
+                }
+                message
+            }
             Outcome::RefusedPrivate(_) => format!(
                 "refused DNS name {}, which resolved to an address that is not public",
                 decision.name
@@ -1179,6 +1192,108 @@ mod tests {
         insta::assert_snapshot!(lines[lines.len() - 2..].concat(), @r#"
         {"fields":{"name":"n28.acmeco.example"},"level":"warn","message":"refused DNS name n28.acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts"}
         {"fields":{"reported":32},"level":"warn","message":"further refused DNS names are not reported"}
+        "#);
+    }
+
+    #[test]
+    fn pypi_refusals_name_both_hosts() {
+        let upstream = upstream(vec![(
+            ("pypi.org", dns::TYPE_A),
+            vec![Rr::A("pypi.org", Ipv4Addr::new(10, 1, 2, 3), 300)],
+        )]);
+        let cases: [(&str, &[&str], Vec<u8>); 9] = [
+            ("PyPI.ORG", &[], query(1, "PyPI.ORG", dns::TYPE_A)),
+            (
+                "files.pythonhosted.org",
+                &[],
+                query(2, "files.pythonhosted.org", dns::TYPE_A),
+            ),
+            (
+                "Files.PythonHosted.org",
+                &["pypi.org"],
+                query(3, "Files.PythonHosted.org", dns::TYPE_A),
+            ),
+            ("test.pypi.org", &[], query(4, "test.pypi.org", dns::TYPE_A)),
+            (
+                "pypi.org.acmeco.example",
+                &[],
+                query(5, "pypi.org.acmeco.example", dns::TYPE_A),
+            ),
+            ("notpypi.org", &[], query(6, "notpypi.org", dns::TYPE_A)),
+            (
+                "pythonhosted.org",
+                &[],
+                query(7, "pythonhosted.org", dns::TYPE_A),
+            ),
+            (
+                "pypi.org as one label",
+                &[],
+                labeled_query(8, &[b"pypi.org"]),
+            ),
+            (
+                "pypi.org at a private address",
+                &["pypi.org"],
+                query(9, "pypi.org", dns::TYPE_A),
+            ),
+        ];
+
+        let mut table = String::new();
+        for (asked, hosts, query) in cases {
+            let policy = crate::policy::tests::policy(hosts, &[], None);
+            let mut resolver = resolver_under(policy, upstream, Recorder::default());
+            let handled = resolver.handle(&query, Instant::now()).unwrap();
+            let reported = Refusals::default()
+                .report(&handled.decision)
+                .map(|line| {
+                    let line: serde_json::Value = serde_json::from_str(&line).expect("a JSON line");
+                    line["message"].as_str().expect("a message").to_string()
+                })
+                .unwrap_or_else(|| "not reported".to_string());
+            writeln!(table, "{asked} with {hosts:?} => {reported}").unwrap();
+        }
+
+        // Listed together, each resolves to a public address, which its
+        // answer authorizes.
+        let both: &[&str] = &["pypi.org", "files.pythonhosted.org"];
+        let listed = self::upstream(vec![
+            (
+                ("pypi.org", dns::TYPE_A),
+                vec![Rr::A("pypi.org", public(10), 300)],
+            ),
+            (
+                ("files.pythonhosted.org", dns::TYPE_A),
+                vec![Rr::A("files.pythonhosted.org", public(11), 300)],
+            ),
+        ]);
+        let recorder = Recorder::default();
+        let policy = crate::policy::tests::policy(both, &[], None);
+        let mut resolver = resolver_under(policy, listed, recorder.clone());
+        for (id, name) in [(10, "pypi.org"), (11, "files.pythonhosted.org")] {
+            let handled = resolver
+                .handle(&query(id, name, dns::TYPE_A), Instant::now())
+                .unwrap();
+            let answer = handled.answer.expect("an answer");
+            writeln!(
+                table,
+                "{name} with {both:?} => {} rcode={} writes={}",
+                handled.decision,
+                answer[3] & 15,
+                recorder.calls().len()
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(table, @r#"
+        PyPI.ORG with [] => refused DNS name pypi.org, which this connector's egress does not permit; a task may permit it in egress.hosts; installing packages from PyPI typically requires both pypi.org and files.pythonhosted.org in egress.hosts
+        files.pythonhosted.org with [] => refused DNS name files.pythonhosted.org, which this connector's egress does not permit; a task may permit it in egress.hosts; installing packages from PyPI typically requires both pypi.org and files.pythonhosted.org in egress.hosts
+        Files.PythonHosted.org with ["pypi.org"] => refused DNS name files.pythonhosted.org, which this connector's egress does not permit; a task may permit it in egress.hosts; installing packages from PyPI typically requires both pypi.org and files.pythonhosted.org in egress.hosts
+        test.pypi.org with [] => refused DNS name test.pypi.org, which this connector's egress does not permit; a task may permit it in egress.hosts
+        pypi.org.acmeco.example with [] => refused DNS name pypi.org.acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts
+        notpypi.org with [] => refused DNS name notpypi.org, which this connector's egress does not permit; a task may permit it in egress.hosts
+        pythonhosted.org with [] => refused DNS name pythonhosted.org, which this connector's egress does not permit; a task may permit it in egress.hosts
+        pypi.org as one label with [] => refused DNS name pypi\046org, which this connector's egress does not permit; a task may permit it in egress.hosts
+        pypi.org at a private address with ["pypi.org"] => refused DNS name pypi.org, which resolved to an address that is not public
+        pypi.org with ["pypi.org", "files.pythonhosted.org"] => name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/300] targets=[] refreshed=[] rcode=0 writes=1
+        files.pythonhosted.org with ["pypi.org", "files.pythonhosted.org"] => name=files.pythonhosted.org qtype=1 outcome=resolved addresses=[93.184.216.11/300] targets=[] refreshed=[] rcode=0 writes=2
         "#);
     }
 

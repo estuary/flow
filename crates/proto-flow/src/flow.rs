@@ -344,9 +344,8 @@ pub mod connector_execution {
     /// Egress a task declares.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Egress {
-        /// Host names the connector may reach, in addition to those of its
-        /// connector and image: an exact name, or `*.` and a base name for every
-        /// name beneath that base but not the base itself. As the task wrote them.
+        /// Host names declared by the task: an exact name, or `*.` and a base
+        /// name for every name beneath that base but not the base itself.
         #[prost(string, repeated, tag = "1")]
         pub hosts: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// IPv4 prefixes, such as `10.0.0.0/8`, within which the connector may

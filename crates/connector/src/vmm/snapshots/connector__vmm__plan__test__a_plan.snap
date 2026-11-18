@@ -17,7 +17,7 @@ socket: /var/lib/flow/connector-vmm/fv_0123456789abcdef/sock/init.sock (62 bytes
 0700 /var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch
 
 ## egress
-VMM egress permits only these host names: pypi.org, files.pythonhosted.org (connector defaults); api.acmeco.example, *.cdn.acmeco.example (image label); *.svc.acmeco.example (task egress.hosts); and any address within 10.0.0.0/8, 192.168.4.0/24 (task egress.cidrs)
+VMM egress permits only these host names: api.acmeco.example, *.svc.acmeco.example, pypi.org (task egress.hosts); and any address within 10.0.0.0/8, 192.168.4.0/24 (task egress.cidrs)
 
 ## connector mount
 0555 /tmp/connector-mounts-0/mount-fv_0123456789abcdef/flow-connector-init
@@ -79,10 +79,8 @@ podman create \
   2 \
   --disk-mib \
   2048 \
-  --egress-host=pypi.org \
-  --egress-host=files.pythonhosted.org \
   --egress-host=api.acmeco.example \
-  --egress-host=*.cdn.acmeco.example \
   --egress-host=*.svc.acmeco.example \
+  --egress-host=pypi.org \
   --egress-cidr=10.0.0.0/8 \
   --egress-cidr=192.168.4.0/24

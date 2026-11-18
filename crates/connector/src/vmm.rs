@@ -299,34 +299,25 @@ fn digits(raw: &str, expected: &str) -> anyhow::Result<u64> {
 }
 
 /// A connector which may request VMM execution, by protocol and normalized
-/// image repository, and the hosts which any egress it declares, unless
-/// empty, permits it.
+/// image repository.
 #[derive(Debug)]
 pub(crate) struct Eligible {
     pub task_type: ops::TaskType,
     pub repository: &'static str,
-    pub egress_hosts: &'static [&'static str],
 }
-
-/// Python's connectors install their projects' dependencies from the package
-/// index as they start.
-const PYPI: &[&str] = &["pypi.org", "files.pythonhosted.org"];
 
 const ELIGIBLE: &[Eligible] = &[
     Eligible {
         task_type: ops::TaskType::Capture,
         repository: "ghcr.io/estuary/capture-python",
-        egress_hosts: PYPI,
     },
     Eligible {
         task_type: ops::TaskType::Derivation,
         repository: "ghcr.io/estuary/derive-python",
-        egress_hosts: PYPI,
     },
     Eligible {
         task_type: ops::TaskType::Materialization,
         repository: "ghcr.io/estuary/materialize-python",
-        egress_hosts: PYPI,
     },
 ];
 
@@ -351,10 +342,40 @@ pub(crate) enum Execution<'a> {
 }
 
 /// The egress a task declares, validated and normalized.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct TaskEgress {
     pub hosts: Vec<models::egress::AllowedName>,
     pub cidrs: Vec<ipnetwork::Ipv4Network>,
+}
+
+impl std::fmt::Display for TaskEgress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let TaskEgress { hosts, cidrs } = self;
+        if hosts.is_empty() && cidrs.is_empty() {
+            return f.write_str(
+                "VMM egress permits no external destination: the task declares empty egress",
+            );
+        }
+        if hosts.is_empty() {
+            f.write_str("VMM egress permits no host names")?;
+        } else {
+            let hosts: Vec<String> = hosts.iter().map(ToString::to_string).collect();
+            write!(
+                f,
+                "VMM egress permits only these host names: {} (task egress.hosts)",
+                hosts.join(", ")
+            )?;
+        }
+        if !cidrs.is_empty() {
+            let cidrs: Vec<String> = cidrs.iter().map(ToString::to_string).collect();
+            write!(
+                f,
+                "; and any address within {} (task egress.cidrs)",
+                cidrs.join(", ")
+            )?;
+        }
+        Ok(())
+    }
 }
 
 /// Decide whether a connector start may proceed, and how, given the

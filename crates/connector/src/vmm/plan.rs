@@ -8,77 +8,8 @@ use super::argv::{self, Exited, PersistentDisk};
 use super::{Eligible, TaskEgress, Vmm};
 use anyhow::Context;
 
-/// Image label declaring the hosts a connector may reach beyond those it is
-/// eligible with: a JSON array of host names, each bare or `*.`-prefixed.
-const EGRESS_HOSTS_LABEL: &str = "dev.estuary.egress-hosts";
-
 /// `sun_path` holds 108 bytes, its terminating NUL among them.
 const SOCKET_PATH_MAX: usize = 107;
-
-/// What a launch's guest may reach: only these names, each with where it was
-/// first declared, and any address within the task's CIDRs.
-#[derive(Debug, PartialEq)]
-pub(crate) struct Egress {
-    pub names: Vec<(models::egress::AllowedName, Source)>,
-    pub cidrs: Vec<ipnetwork::Ipv4Network>,
-}
-
-/// Where a permitted name was declared.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum Source {
-    Connector,
-    /// The image's `dev.estuary.egress-hosts` label.
-    Image,
-    Task,
-}
-
-impl std::fmt::Display for Egress {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Egress { names, cidrs } = self;
-        if names.is_empty() && cidrs.is_empty() {
-            return f.write_str(
-                "VMM egress permits no external destination: the task declares empty egress",
-            );
-        }
-        if names.is_empty() {
-            f.write_str("VMM egress permits no host names")?;
-        } else {
-            f.write_str("VMM egress permits only these host names: ")?;
-        }
-
-        let groups = [
-            (Source::Connector, "connector defaults"),
-            (Source::Image, "image label"),
-            (Source::Task, "task egress.hosts"),
-        ];
-        let mut first = true;
-        for (source, what) in groups {
-            let group: Vec<String> = names
-                .iter()
-                .filter(|(_, from)| *from == source)
-                .map(|(name, _)| name.to_string())
-                .collect();
-            if group.is_empty() {
-                continue;
-            }
-            if !first {
-                f.write_str("; ")?;
-            }
-            first = false;
-            write!(f, "{} ({what})", group.join(", "))?;
-        }
-
-        if !cidrs.is_empty() {
-            let cidrs: Vec<String> = cidrs.iter().map(ToString::to_string).collect();
-            write!(
-                f,
-                "; and any address within {} (task egress.cidrs)",
-                cidrs.join(", ")
-            )?;
-        }
-        Ok(())
-    }
-}
 
 /// One VMM launch of an admitted connector.
 pub(crate) struct Launch<'a> {
@@ -129,7 +60,7 @@ pub(crate) struct Plan {
     /// Where the VMM opens its `O_TMPFILE` scratch disk.
     pub scratch: String,
     /// What the guest may reach, which `create` passes to the VMM.
-    pub egress: Egress,
+    pub egress: TaskEgress,
     /// The connector-init socket the launch dials.
     pub socket: String,
     /// What the connector mount must hold, with modes.
@@ -184,10 +115,10 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         );
     }
 
-    let labels = &image_inspection.config.labels;
-    let image_hosts = label_hosts(labels.get(EGRESS_HOSTS_LABEL).map(String::as_str))
-        .with_context(|| format!("connector image '{image}'"))?;
-    let egress = plan_egress(eligible, &image_hosts, egress, *plane);
+    assert!(
+        egress.cidrs.is_empty() || *plane != crate::Plane::Public,
+        "vmm_for refuses CIDRs on a public plane"
+    );
 
     let name = format!("fv_{id:016x}");
     let mount = format!("{connector_mounts}/mount-{name}");
@@ -285,9 +216,9 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     create.extend(ports.iter().map(|port| format!("--ingress-port={port}")));
     create.extend(
         egress
-            .names
+            .hosts
             .iter()
-            .map(|(name, _)| format!("--egress-host={name}")),
+            .map(|name| format!("--egress-host={name}")),
     );
     create.extend(cidrs.iter().map(|cidr| format!("--egress-cidr={cidr}")));
 
@@ -300,7 +231,7 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
         scratch: format!("{state}/scratch"),
         record: super::record::path(&vmm.state_dir, &name),
         token,
-        egress,
+        egress: TaskEgress::clone(egress),
         socket,
         connector_init: (format!("{mount}/flow-connector-init"), 0o555),
         image_inspect: (format!("{mount}/image-inspect.json"), 0o444),
@@ -345,68 +276,6 @@ pub(super) fn check_state_dir(state_dir: &str) -> anyhow::Result<()> {
         );
     }
     Ok(())
-}
-
-/// What the guest may reach. Egress which declares no host and no CIDR
-/// permits nothing, not even the hosts of `eligible` or the image's label.
-/// Any other is held to the hosts of `eligible`, the image's label and the
-/// task, in that order and without repeats, and to the task's CIDRs.
-fn plan_egress(
-    eligible: &Eligible,
-    image_hosts: &[models::egress::AllowedName],
-    task: &TaskEgress,
-    plane: crate::Plane,
-) -> Egress {
-    let TaskEgress {
-        hosts: task_hosts,
-        cidrs,
-    } = task;
-    assert!(
-        cidrs.is_empty() || plane != crate::Plane::Public,
-        "vmm_for refuses CIDRs on a public plane"
-    );
-    if task_hosts.is_empty() && cidrs.is_empty() {
-        return Egress {
-            names: Vec::new(),
-            cidrs: Vec::new(),
-        };
-    }
-    let defaults: Vec<String> = eligible
-        .egress_hosts
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    let defaults = models::egress::hosts("default hosts", &defaults)
-        .expect("eligible default hosts are valid");
-
-    let mut names: Vec<(models::egress::AllowedName, Source)> = Vec::new();
-    for (hosts, source) in [
-        (defaults.as_slice(), Source::Connector),
-        (image_hosts, Source::Image),
-        (task_hosts, Source::Task),
-    ] {
-        for host in hosts {
-            if !names.iter().any(|(name, _)| name == host) {
-                names.push((host.clone(), source));
-            }
-        }
-    }
-    Egress {
-        names,
-        cidrs: cidrs.clone(),
-    }
-}
-
-/// A missing, blank or empty label declares nothing.
-fn label_hosts(label: Option<&str>) -> anyhow::Result<Vec<models::egress::AllowedName>> {
-    let Some(label) = label.map(str::trim).filter(|label| !label.is_empty()) else {
-        return Ok(Vec::new());
-    };
-    let hosts: Vec<String> = serde_json::from_str(label).with_context(|| {
-        format!("image label '{EGRESS_HOSTS_LABEL}' must be a JSON array of host names: {label:?}")
-    })?;
-
-    models::egress::hosts(&format!("image label '{EGRESS_HOSTS_LABEL}'"), &hosts)
 }
 
 /// A host path bound into the container, and on into the guest.
@@ -641,12 +510,7 @@ mod test {
             if with_disk {
                 vmm_run.push("--persistent-disk");
             }
-            vmm_run.extend([
-                "--ingress-port=8080",
-                "--egress-host=pypi.org",
-                "--egress-host=files.pythonhosted.org",
-                "--egress-host=task.acmeco.example",
-            ]);
+            vmm_run.extend(["--ingress-port=8080", "--egress-host=task.acmeco.example"]);
             assert_eq!(
                 plan.create[image + 1..],
                 vmm_run,
@@ -714,8 +578,9 @@ mod test {
 
     /// Everything one plan holds, where the limits are spelled as an operator
     /// might write them and the guest's differ from the container's, the
-    /// task's egress repeats a default and a label host, and its CIDRs need a
-    /// host grant though the image declares no TCP port.
+    /// task declares the package index but not its file host, which the
+    /// image's label does not supply, and the task's CIDRs need a host grant
+    /// though the image declares no TCP port.
     #[test]
     fn a_plan() {
         let vmm = vmm(&[
@@ -723,7 +588,7 @@ mod test {
             ("CONNECTOR_CPU_LIMIT", "1.5"),
         ]);
         let inspection = inspection(
-            json!({"dev.estuary.egress-hosts": r#"["api.acmeco.example", "*.cdn.acmeco.example"]"#}),
+            json!({"dev.estuary.egress-hosts": r#"["files.pythonhosted.org", "*.cdn.acmeco.example"]"#}),
             json!({"9000/udp": {}}),
         );
         let task_egress = task_egress(
@@ -745,11 +610,9 @@ mod test {
         assert_eq!(
             egress_flags(&plan),
             [
-                "--egress-host=pypi.org",
-                "--egress-host=files.pythonhosted.org",
                 "--egress-host=api.acmeco.example",
-                "--egress-host=*.cdn.acmeco.example",
                 "--egress-host=*.svc.acmeco.example",
+                "--egress-host=pypi.org",
                 "--egress-cidr=10.0.0.0/8",
                 "--egress-cidr=192.168.4.0/24",
             ]
@@ -803,13 +666,12 @@ mod test {
         assert_eq!(
             flags,
             [
-                "--egress-host=pypi.org",
-                "--egress-host=files.pythonhosted.org",
                 "--egress-host=api.acmeco.example",
                 "--egress-host=db",
                 "--egress-host=_ldap._tcp.acmeco.example",
                 "--egress-host=*.mirror.acmeco.example",
                 "--egress-host=api.123",
+                "--egress-host=pypi.org",
             ]
         );
 
@@ -817,37 +679,40 @@ mod test {
             .iter()
             .map(|flag| flag.strip_prefix("--egress-host=").unwrap().to_string())
             .collect();
-        let planned: Vec<models::egress::AllowedName> = plan
-            .egress
-            .names
-            .iter()
-            .map(|(name, _)| name.clone())
-            .collect();
         assert_eq!(
             models::egress::hosts("--egress-host", &values).expect("the VMM accepts each flag"),
-            planned
+            plan.egress.hosts
         );
     }
 
     #[test]
     fn egress_by_plane_and_declaration() {
         let vmm = vmm(&[]);
-        let label = json!({"dev.estuary.egress-hosts": r#"["api.acmeco.example"]"#});
-        let hosts = &[
-            "*.svc.acmeco.example",
-            "API.acmeco.example",
-            "files.pythonhosted.org",
-            "ok.acmeco.example",
-        ];
+        let label = json!({"dev.estuary.egress-hosts":
+            r#"["api.acmeco.example", "pypi.org", "files.pythonhosted.org"]"#});
         let empty = task_egress(&[], &[]);
-        let declared = task_egress(hosts, &[]);
+        let unrelated = task_egress(
+            &[
+                "*.svc.acmeco.example",
+                "API.acmeco.example",
+                "ok.acmeco.example",
+            ],
+            &[],
+        );
+        let index = task_egress(&["pypi.org"], &[]);
+        let both_pypi = task_egress(&["pypi.org", "files.pythonhosted.org"], &[]);
         let cidrs = task_egress(&[], &["0.0.0.0/0"]);
-        let both = task_egress(hosts, &["10.0.0.0/8", "192.168.4.7/32"]);
-        let declarations: [(&str, &crate::vmm::TaskEgress); 4] = [
+        let pypi_and_cidrs = task_egress(
+            &["pypi.org", "files.pythonhosted.org", "api.acmeco.example"],
+            &["10.0.0.0/8", "192.168.4.7/32"],
+        );
+        let declarations: [(&str, &crate::vmm::TaskEgress); 6] = [
             ("empty", &empty),
-            ("hosts", &declared),
+            ("unrelated hosts", &unrelated),
+            ("the index host only", &index),
+            ("both PyPI hosts", &both_pypi),
             ("cidrs", &cidrs),
-            ("hosts and cidrs", &both),
+            ("PyPI hosts and cidrs", &pypi_and_cidrs),
         ];
 
         let mut table = String::new();
@@ -950,52 +815,22 @@ host grant {grant:?}
     }
 
     /// What an image's inspection lets a launch reach, or why it cannot launch.
+    /// No label adds a host to the task's egress, and none is read for one.
     #[test]
     fn image_inspections() {
         let label = |value: &str| json!({ "dev.estuary.egress-hosts": value });
         let cases: Vec<(&str, serde_json::Value, serde_json::Value)> = vec![
-            ("no label: the defaults alone", json!({}), json!({})),
+            ("no label", json!({}), json!({})),
             (
-                "hosts beyond the defaults, lowercased, without repeats",
-                label(
-                    r#"["api.acmeco.example", "*.ACMEco.example", "PyPI.org", "api.acmeco.example"]"#,
-                ),
+                "a label declaring hosts, which adds none",
+                label(r#"["api.acmeco.example", "pypi.org", "files.pythonhosted.org"]"#),
                 json!({}),
             ),
-            ("an empty label", label(""), json!({})),
-            ("a blank label", label("  "), json!({})),
-            ("an empty array", label("[]"), json!({})),
             (
-                "not JSON",
+                "a label which is not JSON, which is not read",
                 label("pypi.org, files.pythonhosted.org"),
                 json!({}),
             ),
-            (
-                "not an array",
-                label(r#"{"hosts": ["pypi.org"]}"#),
-                json!({}),
-            ),
-            ("not strings", label(r#"["pypi.org", 443]"#), json!({})),
-            (
-                "a URL",
-                label(r#"["https://api.acmeco.example"]"#),
-                json!({}),
-            ),
-            ("a port", label(r#"["api.acmeco.example:443"]"#), json!({})),
-            ("an address", label(r#"["93.184.216.34"]"#), json!({})),
-            ("a CIDR", label(r#"["93.184.216.0/24"]"#), json!({})),
-            ("everything", label(r#"["*"]"#), json!({})),
-            (
-                "a wildcard over a public suffix",
-                label(r#"["*.github.io"]"#),
-                json!({}),
-            ),
-            (
-                "a wildcard beneath a private suffix",
-                label(r#"["*.acmeco.github.io"]"#),
-                json!({}),
-            ),
-            ("a single label", label(r#"["localhost"]"#), json!({})),
             (
                 "a public port",
                 json!({"dev.estuary.port-public.8080": "true"}),

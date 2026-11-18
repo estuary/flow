@@ -245,7 +245,7 @@
         },
         "egress": {
           "title": "Egress this capture's connector is held to.",
-          "description": "Required with `vmm: true`. Empty egress (`{}`) permits no external\ndestination, not even the hosts of the connector and its image. Any\nother holds the connector to the hosts of its connector and image,\nplus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
+          "description": "Required with `vmm: true`. The connector may reach only the hosts and\naddress ranges listed: neither it nor its image adds any, and empty\negress (`{}`) permits no external destination.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
           "$ref": "#/$defs/Egress"
         },
         "endpoint": {
@@ -641,7 +641,7 @@
       "properties": {
         "egress": {
           "title": "Egress this derivation's connector is held to.",
-          "description": "Required with `vmm: true`. Empty egress (`{}`) permits no external\ndestination, not even the hosts of the connector and its image. Any\nother holds the connector to the hosts of its connector and image,\nplus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
+          "description": "Required with `vmm: true`. The connector may reach only the hosts and\naddress ranges listed: neither it nor its image adds any, and empty\negress (`{}`) permits no external destination.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
           "$ref": "#/$defs/Egress"
         },
         "redactSalt": {
@@ -873,7 +873,7 @@
         },
         "hosts": {
           "title": "Host names the connector may reach.",
-          "description": "These add to the hosts the connector and its image already declare.\nWhen both `hosts` and `cidrs` are empty, the connector may reach no\nexternal destination at all. `api.acmeco.example` matches\nonly itself, and `db` matches only `db`, not `db.acmeco.example`.\n`*.acmeco.example` matches every name beneath\n`acmeco.example`, at any depth, but not `acmeco.example` itself: list\nboth to reach both. A wildcard may not cover a public suffix, such as\n`*.com`. Labels hold ASCII letters, digits, `-` and `_`. Names are\ncase-insensitive, may end in one root dot, and are written in punycode\n(`xn--`) where they are not ASCII. An IP address, in any spelling, is\nnot a name.\n\nA permitted name is reachable on any port, but only at public\naddresses, or at addresses within `cidrs`. Loopback, link-local and\nother addresses which are not destinations, and TCP port 25, are never\nreachable.",
+          "description": "Neither the connector nor its image adds to these names, though a name\nwhich resolves only into `cidrs` is reachable too. Installing packages\nfrom PyPI typically needs both `pypi.org` and `files.pythonhosted.org`.\nWhen both `hosts` and `cidrs` are empty, the connector may reach no\nexternal destination at all. `api.acmeco.example` matches\nonly itself, and `db` matches only `db`, not `db.acmeco.example`.\n`*.acmeco.example` matches every name beneath\n`acmeco.example`, at any depth, but not `acmeco.example` itself: list\nboth to reach both. A wildcard may not cover a public suffix, such as\n`*.com`. Labels hold ASCII letters, digits, `-` and `_`. Names are\ncase-insensitive, may end in one root dot, and are written in punycode\n(`xn--`) where they are not ASCII. An IP address, in any spelling, is\nnot a name.\n\nA permitted name is reachable on any port, but only at public\naddresses, or at addresses within `cidrs`. Loopback, link-local and\nother addresses which are not destinations, and TCP port 25, are never\nreachable.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1141,7 +1141,7 @@
         },
         "egress": {
           "title": "Egress this materialization's connector is held to.",
-          "description": "Required with `vmm: true`. Empty egress (`{}`) permits no external\ndestination, not even the hosts of the connector and its image. Any\nother holds the connector to the hosts of its connector and image,\nplus the hosts and address ranges listed.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
+          "description": "Required with `vmm: true`. The connector may reach only the hosts and\naddress ranges listed: neither it nor its image adds any, and empty\negress (`{}`) permits no external destination.\nOnly an execution which enforces egress, such as VMM execution\n(`vmm: true`), may run a task which declares it; any other fails the\ntask.",
           "$ref": "#/$defs/Egress"
         },
         "endpoint": {

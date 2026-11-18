@@ -226,9 +226,8 @@ message ConnectorExecution {
 
   // Egress a task declares.
   message Egress {
-    // Host names the connector may reach, in addition to those of its
-    // connector and image: an exact name, or `*.` and a base name for every
-    // name beneath that base but not the base itself. As the task wrote them.
+    // Host names declared by the task: an exact name, or `*.` and a base
+    // name for every name beneath that base but not the base itself.
     repeated string hosts = 1;
     // IPv4 prefixes, such as `10.0.0.0/8`, within which the connector may
     // reach any address on any TCP or UDP port, by address or by any name
