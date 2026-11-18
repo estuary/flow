@@ -1,10 +1,10 @@
 //! Reconciles tenant state through the automations framework.
 
-mod alerts;
 mod billing_contact;
 mod free_trial;
 mod outcome;
 mod quotas;
+mod trial_alerts;
 
 use crate::tenant_controller::outcome::Outcome;
 use anyhow::Context;
@@ -51,7 +51,7 @@ pub struct TenantControllerState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub free_trial: Option<free_trial::FreeTrialStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub alerts: Option<TaskStatus>,
+    pub trial_alerts: Option<TaskStatus>,
 }
 
 pub struct TenantController {
@@ -209,9 +209,11 @@ impl Executor for TenantController {
         );
 
         // Alerts run last, so that they see a trial started by this poll.
-        let alerts_status = state.alerts.get_or_insert_with(Default::default);
-        result = result
-            .combine(alerts::evaluate(alerts_status, pool, &tenant, customer.as_ref(), now).await?);
+        let trial_alerts_status = state.trial_alerts.get_or_insert_with(Default::default);
+        result = result.combine(
+            trial_alerts::evaluate(trial_alerts_status, pool, &tenant, customer.as_ref(), now)
+                .await?,
+        );
 
         match result.wait() {
             None => Ok(Action::Suspend),

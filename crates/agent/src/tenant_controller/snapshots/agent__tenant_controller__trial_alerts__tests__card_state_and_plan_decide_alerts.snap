@@ -1,5 +1,5 @@
 ---
-source: crates/agent/src/tenant_controller/alerts.rs
+source: crates/agent/src/tenant_controller/trial_alerts.rs
 expression: results
 ---
 [
