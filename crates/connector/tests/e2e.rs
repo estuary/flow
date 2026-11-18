@@ -230,9 +230,10 @@ fn render_lines(responses: Vec<tonic::Result<proto::Response>>) -> Vec<String> {
         .into_iter()
         .map(|response| match response {
             Err(status) => format!("Status({:?}): {}", status.code(), status.message()),
-            Ok(proto::Response { kind: None }) => "empty".to_string(),
+            Ok(proto::Response { kind: None, .. }) => "empty".to_string(),
             Ok(proto::Response {
                 kind: Some(response),
+                ..
             }) => match response {
                 proto::response::Kind::Started(started) => format!(
                     "Started(codec={:?}, container={}, process={}, spec={})",

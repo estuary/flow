@@ -254,6 +254,7 @@ impl LogChannel {
                 open: None,
                 appends,
                 barrier: Some(barrier),
+                ..Default::default()
             },
         )
     }

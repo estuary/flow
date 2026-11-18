@@ -405,6 +405,7 @@ fn ex_connector_response() -> connector::Response {
                 ..Default::default()
             },
         )),
+        ..Default::default()
     }
 }
 

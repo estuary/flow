@@ -841,6 +841,12 @@ impl serde::Serialize for LogRequest {
         if self.barrier.is_some() {
             len += 1;
         }
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.LogRequest", len)?;
         if let Some(v) = self.open.as_ref() {
             struct_ser.serialize_field("open", v)?;
@@ -851,6 +857,17 @@ impl serde::Serialize for LogRequest {
         if let Some(v) = self.barrier.as_ref() {
             struct_ser.serialize_field("barrier", v)?;
         }
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
+        }
         struct_ser.end()
     }
 }
@@ -860,13 +877,15 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["open", "appends", "barrier"];
+        const FIELDS: &[&str] = &["open", "appends", "barrier", "chunk", "remaining"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Open,
             Appends,
             Barrier,
+            Chunk,
+            Remaining,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -895,6 +914,8 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                             "open" => Ok(GeneratedField::Open),
                             "appends" => Ok(GeneratedField::Appends),
                             "barrier" => Ok(GeneratedField::Barrier),
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -917,6 +938,8 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                 let mut open__ = None;
                 let mut appends__ = None;
                 let mut barrier__ = None;
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Open => {
@@ -937,6 +960,24 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                             }
                             barrier__ = map_.next_value()?;
                         }
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -946,6 +987,8 @@ impl<'de> serde::Deserialize<'de> for LogRequest {
                     open: open__,
                     appends: appends__.unwrap_or_default(),
                     barrier: barrier__,
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
                 })
             }
         }
@@ -1664,6 +1707,12 @@ impl serde::Serialize for LogResponse {
         if self.acked.is_some() {
             len += 1;
         }
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.LogResponse", len)?;
         if let Some(v) = self.opened.as_ref() {
             struct_ser.serialize_field("opened", v)?;
@@ -1674,6 +1723,17 @@ impl serde::Serialize for LogResponse {
         if let Some(v) = self.acked.as_ref() {
             struct_ser.serialize_field("acked", v)?;
         }
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
+        }
         struct_ser.end()
     }
 }
@@ -1683,13 +1743,15 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["opened", "flushed", "acked"];
+        const FIELDS: &[&str] = &["opened", "flushed", "acked", "chunk", "remaining"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Opened,
             Flushed,
             Acked,
+            Chunk,
+            Remaining,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1718,6 +1780,8 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
                             "opened" => Ok(GeneratedField::Opened),
                             "flushed" => Ok(GeneratedField::Flushed),
                             "acked" => Ok(GeneratedField::Acked),
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1740,6 +1804,8 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
                 let mut opened__ = None;
                 let mut flushed__ = None;
                 let mut acked__ = None;
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Opened => {
@@ -1760,6 +1826,24 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
                             }
                             acked__ = map_.next_value()?;
                         }
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1769,6 +1853,8 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
                     opened: opened__,
                     flushed: flushed__,
                     acked: acked__,
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
                 })
             }
         }
@@ -2274,6 +2360,12 @@ impl serde::Serialize for SessionRequest {
         if self.next_checkpoint.is_some() {
             len += 1;
         }
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.SessionRequest", len)?;
         if let Some(v) = self.open.as_ref() {
             struct_ser.serialize_field("open", v)?;
@@ -2283,6 +2375,17 @@ impl serde::Serialize for SessionRequest {
         }
         if let Some(v) = self.next_checkpoint.as_ref() {
             struct_ser.serialize_field("nextCheckpoint", v)?;
+        }
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
         }
         struct_ser.end()
     }
@@ -2299,6 +2402,8 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
             "resumeCheckpoint",
             "next_checkpoint",
             "nextCheckpoint",
+            "chunk",
+            "remaining",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2306,6 +2411,8 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
             Open,
             ResumeCheckpoint,
             NextCheckpoint,
+            Chunk,
+            Remaining,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2338,6 +2445,8 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                             "nextCheckpoint" | "next_checkpoint" => {
                                 Ok(GeneratedField::NextCheckpoint)
                             }
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2360,6 +2469,8 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                 let mut open__ = None;
                 let mut resume_checkpoint__ = None;
                 let mut next_checkpoint__ = None;
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Open => {
@@ -2380,6 +2491,24 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                             }
                             next_checkpoint__ = map_.next_value()?;
                         }
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2389,6 +2518,8 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                     open: open__,
                     resume_checkpoint: resume_checkpoint__,
                     next_checkpoint: next_checkpoint__,
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
                 })
             }
         }
@@ -2605,12 +2736,29 @@ impl serde::Serialize for SessionResponse {
         if self.next_checkpoint.is_some() {
             len += 1;
         }
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.SessionResponse", len)?;
         if let Some(v) = self.opened.as_ref() {
             struct_ser.serialize_field("opened", v)?;
         }
         if let Some(v) = self.next_checkpoint.as_ref() {
             struct_ser.serialize_field("nextCheckpoint", v)?;
+        }
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
         }
         struct_ser.end()
     }
@@ -2621,12 +2769,20 @@ impl<'de> serde::Deserialize<'de> for SessionResponse {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["opened", "next_checkpoint", "nextCheckpoint"];
+        const FIELDS: &[&str] = &[
+            "opened",
+            "next_checkpoint",
+            "nextCheckpoint",
+            "chunk",
+            "remaining",
+        ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Opened,
             NextCheckpoint,
+            Chunk,
+            Remaining,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2656,6 +2812,8 @@ impl<'de> serde::Deserialize<'de> for SessionResponse {
                             "nextCheckpoint" | "next_checkpoint" => {
                                 Ok(GeneratedField::NextCheckpoint)
                             }
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2677,6 +2835,8 @@ impl<'de> serde::Deserialize<'de> for SessionResponse {
             {
                 let mut opened__ = None;
                 let mut next_checkpoint__ = None;
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Opened => {
@@ -2691,6 +2851,24 @@ impl<'de> serde::Deserialize<'de> for SessionResponse {
                             }
                             next_checkpoint__ = map_.next_value()?;
                         }
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2699,6 +2877,8 @@ impl<'de> serde::Deserialize<'de> for SessionResponse {
                 Ok(SessionResponse {
                     opened: opened__,
                     next_checkpoint: next_checkpoint__,
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
                 })
             }
         }
@@ -2983,6 +3163,12 @@ impl serde::Serialize for SliceRequest {
         if self.initial_reads_started.is_some() {
             len += 1;
         }
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.SliceRequest", len)?;
         if let Some(v) = self.open.as_ref() {
             struct_ser.serialize_field("open", v)?;
@@ -2998,6 +3184,17 @@ impl serde::Serialize for SliceRequest {
         }
         if let Some(v) = self.initial_reads_started.as_ref() {
             struct_ser.serialize_field("initialReadsStarted", v)?;
+        }
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
         }
         struct_ser.end()
     }
@@ -3016,6 +3213,8 @@ impl<'de> serde::Deserialize<'de> for SliceRequest {
             "progress",
             "initial_reads_started",
             "initialReadsStarted",
+            "chunk",
+            "remaining",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3025,6 +3224,8 @@ impl<'de> serde::Deserialize<'de> for SliceRequest {
             StartRead,
             Progress,
             InitialReadsStarted,
+            Chunk,
+            Remaining,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3057,6 +3258,8 @@ impl<'de> serde::Deserialize<'de> for SliceRequest {
                             "initialReadsStarted" | "initial_reads_started" => {
                                 Ok(GeneratedField::InitialReadsStarted)
                             }
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3081,6 +3284,8 @@ impl<'de> serde::Deserialize<'de> for SliceRequest {
                 let mut start_read__ = None;
                 let mut progress__ = None;
                 let mut initial_reads_started__ = None;
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Open => {
@@ -3115,6 +3320,24 @@ impl<'de> serde::Deserialize<'de> for SliceRequest {
                             }
                             initial_reads_started__ = map_.next_value()?;
                         }
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3126,6 +3349,8 @@ impl<'de> serde::Deserialize<'de> for SliceRequest {
                     start_read: start_read__,
                     progress: progress__,
                     initial_reads_started: initial_reads_started__,
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
                 })
             }
         }
@@ -3771,6 +3996,12 @@ impl serde::Serialize for SliceResponse {
         if self.listing_snapshot_complete.is_some() {
             len += 1;
         }
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.SliceResponse", len)?;
         if let Some(v) = self.opened.as_ref() {
             struct_ser.serialize_field("opened", v)?;
@@ -3783,6 +4014,17 @@ impl serde::Serialize for SliceResponse {
         }
         if let Some(v) = self.listing_snapshot_complete.as_ref() {
             struct_ser.serialize_field("listingSnapshotComplete", v)?;
+        }
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
         }
         struct_ser.end()
     }
@@ -3800,6 +4042,8 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
             "progressed",
             "listing_snapshot_complete",
             "listingSnapshotComplete",
+            "chunk",
+            "remaining",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3808,6 +4052,8 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
             ListingAdded,
             Progressed,
             ListingSnapshotComplete,
+            Chunk,
+            Remaining,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3839,6 +4085,8 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
                             "listingSnapshotComplete" | "listing_snapshot_complete" => {
                                 Ok(GeneratedField::ListingSnapshotComplete)
                             }
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3862,6 +4110,8 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
                 let mut listing_added__ = None;
                 let mut progressed__ = None;
                 let mut listing_snapshot_complete__ = None;
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Opened => {
@@ -3890,6 +4140,24 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
                             }
                             listing_snapshot_complete__ = map_.next_value()?;
                         }
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3900,6 +4168,8 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
                     listing_added: listing_added__,
                     progressed: progressed__,
                     listing_snapshot_complete: listing_snapshot_complete__,
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
                 })
             }
         }

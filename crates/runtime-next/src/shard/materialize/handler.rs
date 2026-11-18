@@ -61,6 +61,7 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
                     ..Default::default()
                 },
             )),
+            ..Default::default()
         },
         std::time::Duration::MAX,
         std::time::Duration::MAX,
@@ -86,6 +87,7 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         response => {
             return Err(verify.fail_msg(connector::proto::Response {
                 kind: Some(response),
+                ..Default::default()
             }));
         }
     };

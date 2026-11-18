@@ -11,6 +11,13 @@
 pub struct Request {
     #[prost(message, optional, tag = "1")]
     pub start: ::core::option::Option<request::Start>,
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
     #[prost(oneof = "request::Kind", tags = "2, 3, 4")]
     pub kind: ::core::option::Option<request::Kind>,
 }
@@ -49,6 +56,13 @@ pub mod request {
 /// a terminal Status. A terminal Status is the stream's last item.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Response {
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
     #[prost(oneof = "response::Kind", tags = "1, 2, 3, 4, 5")]
     pub kind: ::core::option::Option<response::Kind>,
 }

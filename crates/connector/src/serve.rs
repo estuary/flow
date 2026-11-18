@@ -238,10 +238,10 @@ where
             err = &mut stderr_overflow => break Err(err),
 
             response = connector_rx.next() => match response {
-                Some(Ok(proto::Response { kind: Some(proto::response::Kind::Log(log)) })) => {
+                Some(Ok(proto::Response { kind: Some(proto::response::Kind::Log(log)), .. })) => {
                     let log = crate::policy::sanitize_connector_log(&quoted_task_name, log);
                     let response = proto::Response {
-                        kind: Some(proto::response::Kind::Log(log)),
+                        kind: Some(proto::response::Kind::Log(log)), ..Default::default()
                     };
                     _ = response_tx.send(Ok(response)).await;
                 }
@@ -278,7 +278,7 @@ fn authorize(
     first: Option<tonic::Result<proto::Request>>,
 ) -> anyhow::Result<Authorized> {
     let verify = crate::verify("Connector", "first Request", "client");
-    let proto::Request { start, kind } = verify.not_eof(first)?;
+    let proto::Request { start, kind, .. } = verify.not_eof(first)?;
 
     let (Some(mut start), Some(request)) = (start, kind) else {
         return Err(crate::invalid_argument(

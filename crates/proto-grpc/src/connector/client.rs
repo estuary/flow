@@ -33,9 +33,11 @@ pub async fn start(
             item => match verify.not_eof(item)? {
                 connector::Response {
                     kind: Some(connector::response::Kind::Started(started)),
+                    ..
                 } => break started,
                 connector::Response {
                     kind: Some(connector::response::Kind::Log(log)),
+                    ..
                 } => logger(&log),
                 response => return Err(verify.fail_msg(response)),
             },
@@ -158,6 +160,7 @@ pub async fn next<R>(
             Some(Err(status)) => return Some(Err(status)),
             Some(Ok(connector::Response {
                 kind: Some(connector::response::Kind::Log(log)),
+                ..
             })) => logger(&log),
             Some(Ok(response)) => {
                 return Some(response.kind.and_then(unwrap).ok_or_else(|| {
@@ -174,18 +177,21 @@ pub fn wrap_capture(request: capture::Request) -> connector::Request {
     connector::Request {
         start: None,
         kind: Some(connector::request::Kind::Capture(request)),
+        ..Default::default()
     }
 }
 pub fn wrap_derive(request: derive::Request) -> connector::Request {
     connector::Request {
         start: None,
         kind: Some(connector::request::Kind::Derive(request)),
+        ..Default::default()
     }
 }
 pub fn wrap_materialize(request: materialize::Request) -> connector::Request {
     connector::Request {
         start: None,
         kind: Some(connector::request::Kind::Materialize(request)),
+        ..Default::default()
     }
 }
 pub fn unwrap_capture(response: connector::response::Kind) -> Option<capture::Response> {
@@ -258,6 +264,7 @@ mod test {
                 ))),
                 ..Default::default()
             })),
+            ..Default::default()
         }
     }
 
@@ -271,6 +278,7 @@ mod test {
                     ..Default::default()
                 },
             )),
+            ..Default::default()
         }
     }
 
@@ -280,6 +288,7 @@ mod test {
                 kind: Some(capture::response::Kind::Validated(Default::default())),
                 ..Default::default()
             })),
+            ..Default::default()
         }
     }
 
@@ -289,10 +298,12 @@ mod test {
             [
                 Ok(connector::Response {
                     kind: Some(connector::response::Kind::Log(Default::default())),
+                    ..Default::default()
                 }),
                 Ok(started()),
                 Ok(connector::Response {
                     kind: Some(connector::response::Kind::Log(Default::default())),
+                    ..Default::default()
                 }),
                 Ok(validated()),
             ],

@@ -14,6 +14,7 @@ pub(crate) async fn unary(
                 ..Default::default()
             }),
             kind: Some(kind),
+            ..Default::default()
         },
         std::time::Duration::MAX,
         std::time::Duration::MAX,

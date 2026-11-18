@@ -43,6 +43,12 @@ message Request {
     derive.Request derive = 3;
     materialize.Request materialize = 4;
   }
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 /// Response is one message of a Connector RPC's response stream.
@@ -88,6 +94,12 @@ message Response {
     derive.Response derive = 4;
     materialize.Response materialize = 5;
   }
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 service Connector {
