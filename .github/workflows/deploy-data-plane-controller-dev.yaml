@@ -97,25 +97,6 @@ jobs:
           env_vars_update_strategy: overwrite
           secrets_update_strategy: overwrite
 
-      # The service has no application-level auth: nothing in src/service/ checks
-      # Authorization, so this binding is the only thing stopping anyone who can
-      # reach the URL from driving Pulumi and Ansible. The job authenticates with a
-      # GCP ID token minted from the metadata server, and on failure to mint one it
-      # logs a warning and proceeds tokenless, so a missing binding shows up as a
-      # 403 on /execute rather than as an auth error. Adding a binding that already
-      # exists is a no-op, so this is safe to re-run.
-      #
-      # This needs run.services.setIamPolicy on the deploying identity. If
-      # cd-github-actions lacks it this step fails, and the binding can be applied
-      # once by hand with the same command.
-      - name: Grant the controller service account invoker on the dev service
-        run: |
-          gcloud run services add-iam-policy-binding data-plane-controller-service-dev \
-            --project=estuary-control \
-            --region=us-central1 \
-            --member=serviceAccount:data-plane-controller@estuary-control.iam.gserviceaccount.com \
-            --role=roles/run.invoker
-
   deploy-job:
     runs-on: ubuntu-24.04
     needs: deploy-service
