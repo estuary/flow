@@ -1,15 +1,16 @@
+use super::alerts::{self, Observation};
 use super::{Outcome, TaskStatus, Tenant, free_trial, retry_backoff};
-use crate::alerts::{AlertViewRow, evaluate_alert_actions};
-use anyhow::Context;
 use control_plane_api::{alerts::ArgsObject, billing};
 use models::status::AlertType;
+use std::collections::BTreeMap;
 
 /// `free_trial_ending` fires this many days before the trial ends.
 const TRIAL_ENDING_DAYS: i64 = 5;
 /// `free_trial_stalled` fires this many days after the trial ends.
 const TRIAL_STALLED_DAYS: i64 = 5;
 
-/// Fires and resolves the tenant's alerts to match its state as of `now`.
+/// Fires and resolves the tenant's trial and payment method alerts to match
+/// its state as of `now`.
 /// Each evaluation derives every alert from current state, so an evaluation
 /// that's early, late or repeated changes nothing.
 ///
@@ -51,67 +52,31 @@ async fn do_evaluate(
     customer: Option<&anyhow::Result<Option<stripe::Customer>>>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<()> {
-    let names = AlertType::all()
-        .iter()
-        .filter(|alert_type| alert_type.is_tenant_alert())
-        .map(|alert_type| catalog_name(&tenant.tenant, *alert_type))
-        .collect::<Vec<_>>();
-    let names = names.iter().map(String::as_str).collect::<Vec<_>>();
-    // A live spec could share one of these names, so its alerts are excluded.
-    let open_alerts: Vec<_> =
-        control_plane_api::alerts::fetch_open_alerts_by_catalog_name(&names, pool)
-            .await
-            .context("fetching open alerts")?
-            .into_iter()
-            .filter(|alert| alert.alert_type.is_tenant_alert())
-            .collect();
-
     // These alerts' emails are written for self-serve tenants that pay by card,
     // and their resolution emails tell the tenant it added one. A tenant that
     // needs no payment method gets none of them, and its open alerts close
     // without notifications.
-    if !tenant.needs_payment_method() {
-        if open_alerts.is_empty() {
-            return Ok(());
-        }
-        let ids = open_alerts.iter().map(|alert| alert.id).collect::<Vec<_>>();
-        let mut conn = pool.acquire().await?;
-        control_plane_api::alerts::resolve_alerts_silently(ids, &mut conn)
-            .await
-            .context("closing alerts of a tenant that needs no payment method")?;
-        tracing::info!(tenant = %tenant.tenant, count = open_alerts.len(), "closed alerts of a tenant that needs no payment method");
-        return Ok(());
-    }
-
-    let has_payment_info = match customer {
-        Some(Ok(customer)) => customer
-            .as_ref()
-            .is_some_and(|customer| billing::default_payment_method_id(customer).is_some()),
-        Some(Err(err)) => anyhow::bail!("{err:#}"),
-        None => return Ok(()),
+    let observed = if !tenant.needs_payment_method() {
+        [
+            AlertType::FreeTrial,
+            AlertType::FreeTrialEnding,
+            AlertType::FreeTrialStalled,
+            AlertType::MissingPaymentMethod,
+        ]
+        .into_iter()
+        .map(|alert_type| (alert_type, Observation::ResolvedSilently))
+        .collect()
+    } else {
+        let has_payment_info = match customer {
+            Some(Ok(customer)) => customer
+                .as_ref()
+                .is_some_and(|customer| billing::default_payment_method_id(customer).is_some()),
+            Some(Err(err)) => anyhow::bail!("{err:#}"),
+            None => return Ok(()),
+        };
+        observe(&tenant.tenant, tenant.trial_start, has_payment_info, now)
     };
-
-    let rows = alert_rows(&tenant.tenant, tenant.trial_start, has_payment_info, now);
-    let actions = evaluate_alert_actions(
-        now,
-        &mut crate::id_generator::with_random_shard(),
-        open_alerts,
-        rows,
-    );
-    if actions.is_empty() {
-        return Ok(());
-    }
-
-    let mut txn = pool.begin().await?;
-    control_plane_api::alerts::apply_alert_actions(actions, &mut txn)
-        .await
-        .context("applying alert actions")?;
-    txn.commit().await.context("committing alert actions")?;
-    Ok(())
-}
-
-fn catalog_name(tenant: &str, alert_type: AlertType) -> String {
-    format!("{tenant}alerts/{alert_type}")
+    alerts::apply(pool, &tenant.tenant, observed, now).await
 }
 
 fn midnight(date: chrono::NaiveDate) -> chrono::DateTime<chrono::Utc> {
@@ -119,16 +84,15 @@ fn midnight(date: chrono::NaiveDate) -> chrono::DateTime<chrono::Utc> {
 }
 
 /// The tenant's alerts as of `now`. `free_trial` and `missing_payment_method`
-/// are included while not firing, so that their resolution notifications render
-/// the tenant's state as of the resolution. `free_trial_ending` and
-/// `free_trial_stalled` are included only while firing, and resolve with the
-/// arguments they fired with.
-fn alert_rows(
+/// resolve with the tenant's state as of the resolution, which their
+/// resolution notifications render. `free_trial_ending` and
+/// `free_trial_stalled` resolve with the arguments they fired with.
+fn observe(
     tenant: &str,
     trial_start: Option<chrono::NaiveDate>,
     has_payment_info: bool,
     now: chrono::DateTime<chrono::Utc>,
-) -> Vec<AlertViewRow> {
+) -> BTreeMap<AlertType, Observation> {
     let trial_end = trial_start.map(billing_types::trial_end);
 
     let (trial, ending, stalled) = match trial_start.zip(trial_end) {
@@ -163,23 +127,26 @@ fn alert_rows(
     .map(|(key, value)| (key.to_string(), value))
     .collect();
 
-    let row = |alert_type, firing| AlertViewRow {
-        catalog_name: catalog_name(tenant, alert_type),
-        alert_type,
-        base_arguments: arguments.clone(),
-        firing,
+    let observation = |firing, resolved_arguments| match firing {
+        true => Observation::Firing {
+            arguments: arguments.clone(),
+        },
+        false => Observation::Resolved {
+            arguments: resolved_arguments,
+        },
     };
-    let mut rows = vec![
-        row(AlertType::FreeTrial, trial),
-        row(AlertType::MissingPaymentMethod, !has_payment_info),
-    ];
-    if ending {
-        rows.push(row(AlertType::FreeTrialEnding, true));
-    }
-    if stalled {
-        rows.push(row(AlertType::FreeTrialStalled, true));
-    }
-    rows
+    BTreeMap::from([
+        (
+            AlertType::FreeTrial,
+            observation(trial, Some(arguments.clone())),
+        ),
+        (
+            AlertType::MissingPaymentMethod,
+            observation(!has_payment_info, Some(arguments.clone())),
+        ),
+        (AlertType::FreeTrialEnding, observation(ending, None)),
+        (AlertType::FreeTrialStalled, observation(stalled, None)),
+    ])
 }
 
 /// When the tenant's alerts are next evaluated: at the next boundary of its
@@ -254,18 +221,32 @@ mod tests {
         let results = cases
             .into_iter()
             .map(|(case, trial_start, has_payment_info, now)| {
-                let rows = alert_rows(TENANT, trial_start, has_payment_info, now);
+                let observed = observe(TENANT, trial_start, has_payment_info, now);
+                // Alerts that resolve with the arguments they fired with are
+                // in neither list.
                 let names = |firing: bool| {
-                    rows.iter()
-                        .filter(|row| row.firing == firing)
-                        .map(|row| row.catalog_name.as_str())
+                    observed
+                        .iter()
+                        .filter(|(_, observation)| match observation {
+                            Observation::Firing { .. } => firing,
+                            Observation::Resolved { arguments } => !firing && arguments.is_some(),
+                            Observation::ResolvedSilently => false,
+                        })
+                        .map(|(alert_type, _)| alerts::catalog_name(TENANT, *alert_type))
                         .collect::<Vec<_>>()
+                };
+                let arguments = match &observed[&AlertType::FreeTrial] {
+                    Observation::Firing { arguments }
+                    | Observation::Resolved {
+                        arguments: Some(arguments),
+                    } => arguments,
+                    _ => unreachable!("free_trial always has arguments"),
                 };
                 serde_json::json!({
                     "case": case,
                     "firing": names(true),
                     "notFiring": names(false),
-                    "arguments": rows[0].base_arguments,
+                    "arguments": arguments,
                 })
             })
             .collect::<Vec<_>>();
@@ -345,7 +326,7 @@ mod tests {
         let mut fire = |alert_type| {
             control_plane_api::alerts::AlertAction::Fire(control_plane_api::alerts::FireAlert {
                 id: id_gen.next(),
-                catalog_name: catalog_name(TENANT, AlertType::MissingPaymentMethod),
+                catalog_name: alerts::catalog_name(TENANT, AlertType::MissingPaymentMethod),
                 alert_type,
                 fired_at: at(1, 1, (0, 0, 0)),
                 base_arguments: Default::default(),
