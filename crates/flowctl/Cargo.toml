@@ -18,6 +18,7 @@ build = { path = "../build" }
 catalog-tests = { path = "../catalog-tests" }
 connector-init = { path = "../connector-init" }
 coroutines = { path = "../coroutines" }
+discover = { path = "../discover" }
 doc = { path = "../doc", features = ["combine"] }
 extractors = { path = "../extractors" }
 flow-client-next = { path = "../flow-client-next" }

@@ -1,5 +1,6 @@
 use crate::{local_connector, local_specs};
-use proto_flow::capture;
+use anyhow::Context;
+use proto_flow::{capture, connector};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -20,6 +21,12 @@ pub struct Discover {
     emit_raw: bool,
 }
 
+/// Discover a capture of local sources, and merge discovered bindings into
+/// its local model as the control plane would (see the `discover` crate).
+///
+/// Local sources are the merge's draft, and target collections resolve
+/// against live specs. The capture and collections of local sources are
+/// written back, along with live collections which the discover changed.
 pub async fn do_discover(
     ctx: &mut crate::CliContext,
     Discover {
@@ -30,60 +37,65 @@ pub async fn do_discover(
     }: &Discover,
 ) -> anyhow::Result<()> {
     let source = build::arg_source_to_url(source, false)?;
-    let mut sources = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
+
+    // The merge draft is an inline copy of the local sources.
+    let mut draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
+    ::sources::inline_draft_catalog(&mut draft);
 
     // Identify the capture to discover.
     let needle = if let Some(needle) = capture {
         needle.as_str()
-    } else if sources.captures.len() == 1 {
-        sources.captures.first().unwrap().capture.as_str()
-    } else if sources.captures.is_empty() {
+    } else if draft.captures.len() == 1 {
+        draft.captures.first().unwrap().capture.as_str()
+    } else if draft.captures.is_empty() {
         anyhow::bail!("sourced specification files do not contain any captures");
     } else {
         anyhow::bail!(
             "sourced specification files contain multiple captures. Use --capture to identify a specific one"
         );
     };
-
-    let capture = match sources
-        .captures
-        .binary_search_by_key(&needle, |c| c.capture.as_str())
-    {
-        Ok(index) => &mut sources.captures[index],
-        Err(_) => anyhow::bail!("could not find the capture {needle}"),
+    let capture_name = match draft.captures.get_by_key(&models::Capture::new(needle)) {
+        Some(row) => row.capture.clone(),
+        None => anyhow::bail!("could not find the capture {needle}"),
     };
+    // Discovered collections are named under the capture's prefix.
+    if !capture_name.contains('/') {
+        anyhow::bail!(
+            "capture {capture_name} must have a catalog prefix, such as acmeCo/{capture_name}"
+        );
+    }
+    let local_collections: std::collections::BTreeSet<models::Collection> = draft
+        .collections
+        .iter()
+        .map(|row| row.collection.clone())
+        .collect();
 
-    let model = capture.model.as_mut().expect("not a deletion");
-    let mut model_clone = model.clone();
-
-    // Inline a clone of the capture model for use with the discover RPC.
-    sources::inline_capture(
-        &capture.scope,
-        &mut model_clone,
-        &mut sources.imports,
-        &sources.resources,
-    );
-
-    let secrets = assemble::secrets(&model_clone.secrets);
+    let capture_model = draft
+        .captures
+        .get_mut_by_key(&capture_name)
+        .unwrap()
+        .model
+        .as_mut()
+        .context("the capture to be discovered is marked for deletion")?;
 
     let capture::request::Spec {
         connector_type,
         config_json,
-    } = validation::capture_spec_request(&model_clone.endpoint, &model_clone.shards);
+    } = validation::capture_spec_request(&capture_model.endpoint, &capture_model.shards);
 
     let discover = capture::request::Discover {
-        name: capture.capture.to_string(),
+        name: capture_name.to_string(),
         connector_type,
         config_json,
         created_at: String::new(),
-        secrets,
+        secrets: assemble::secrets(&capture_model.secrets),
     };
 
     let router = ctx.local_connector_router();
-    let response = local_connector::unary(
+    let (started, response) = local_connector::unary(
         &*router,
-        model_clone.shards.log_level.as_deref(),
-        proto_flow::connector::request::Kind::Capture(capture::Request {
+        capture_model.shards.log_level.as_deref(),
+        connector::request::Kind::Capture(capture::Request {
             kind: Some(capture::request::Kind::Discover(Box::new(discover))),
             ..Default::default()
         }),
@@ -91,95 +103,82 @@ pub async fn do_discover(
     .await?;
 
     let Some(capture::Response {
-        kind:
-            Some(capture::response::Kind::Discovered(capture::response::Discovered {
-                bindings,
-                linked_collections,
-            })),
+        kind: Some(capture::response::Kind::Discovered(discovered)),
         ..
     }) = proto_grpc::connector::unwrap_capture(response)
     else {
         anyhow::bail!("connector didn't send expected Discovered response");
     };
-    if !linked_collections.is_empty() {
-        anyhow::bail!("connector protocol error: `linkedCollections` is not yet supported");
-    }
 
     if *emit_raw {
-        for binding in bindings {
+        for binding in discover::inline_bindings(discovered)? {
             println!("{}", serde_json::to_string(&binding)?)
         }
         return Ok(());
     }
-    // Modify the capture's bindings in-place.
-    // TODO(johnny): Refactor and re-use discover deep-merge behavior from the agent.
-    model.bindings.clear();
 
-    let prefix = capture
-        .capture
-        .rsplit_once("/")
-        .map(|(prefix, _)| prefix)
-        .unwrap_or("acmeCo");
+    let resource_path_pointers = match started.spec {
+        Some(connector::response::started::Spec::Capture(spec)) => spec
+            .resource_path_pointers
+            .iter()
+            .map(|ptr| json::Pointer::from_str(ptr))
+            .collect(),
+        _ => Vec::new(),
+    };
 
-    // Create a catalog with the discovered bindings.
-    let mut catalog = tables::DraftCatalog::default();
-    let scope = url::Url::parse("flow://control").unwrap();
+    let resolver = local_specs::Resolver {
+        rest: ctx.rest.clone(),
+        access_token: ctx.access_token(),
+    };
+    let live = resolve_live(&resolver, vec![capture_name.as_str()]).await?;
+    let options = discover::Options::for_capture(
+        capture_model,
+        live.captures.get_by_key(&capture_name).is_some(),
+    );
 
-    for binding in bindings {
-        let collection_name = format!("{prefix}/{}", binding.recommended_name);
-        let collection = models::Collection::new(collection_name);
+    let merged = discover::merge_bindings(
+        &capture_name,
+        capture_model,
+        discovered,
+        &options,
+        &resource_path_pointers,
+    )?;
 
-        // Each binding documents its resource path at `/_meta/path`, as
-        // control-plane discovers do. A connector which predates Discovered
-        // resource paths leaves validation to record them.
-        let mut resource =
-            serde_json::from_slice::<models::RawValue>(&binding.resource_config_json)?;
-        if !binding.resource_path.is_empty() {
-            resource = validation::store_resource_meta(&resource, &binding.resource_path);
+    let live = resolve_live(
+        &resolver,
+        merged.targets().into_iter().map(|t| t.as_str()).collect(),
+    )
+    .await?;
+    discover::merge_collections(&merged, &mut draft.collections, &live.collections, &options)?;
+
+    // Collections created by the discover are written without an
+    // `expectPubId`, as are other local specs.
+    for row in draft.collections.iter_mut() {
+        if row.expect_pub_id == Some(models::Id::zero())
+            && !local_collections.contains(&row.collection)
+        {
+            row.expect_pub_id = None;
         }
-
-        model.bindings.push(models::CaptureBinding {
-            target: collection.clone(),
-            disable: false,
-            resource,
-            backfill: 0,
-        });
-
-        catalog.collections.insert_row(
-            collection,
-            &scope,
-            None,
-            models::Id::zero(), // Local drafts make no placement.
-            Some(models::CollectionDef {
-                schema: Some(models::Schema::new(serde_json::from_slice::<
-                    models::RawValue,
-                >(
-                    &binding.document_schema_json
-                )?)),
-                write_schema: None,
-                read_schema: None,
-                key: models::CompositeKey::new(
-                    binding
-                        .key
-                        .iter()
-                        .map(models::JsonPointer::new)
-                        .collect::<Vec<_>>(),
-                ),
-                derive: None,
-                projections: Default::default(),
-                journals: Default::default(),
-                expect_pub_id: None,
-                delete: false,
-                reset: false,
-            }),
-            false, // !is_touch
-        );
     }
 
+    // Merged specs are written over the local sources as they're laid out
+    // on disk, which the inlined draft no longer reflects.
+    let mut sources = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
+
+    let tables::DraftCatalog {
+        mut captures,
+        collections,
+        ..
+    } = draft;
+    captures.retain(|row| row.capture == capture_name);
     let count = local_specs::extend_from_catalog(
         &mut sources,
-        catalog,
-        // We need to overwrite here to allow for bindings to be added to the capture
+        tables::DraftCatalog {
+            captures,
+            collections,
+            ..Default::default()
+        },
+        // Overwrite, so that merged specs replace their local sources.
         local_specs::pick_policy(true, *flat),
     );
 
@@ -187,4 +186,15 @@ pub async fn do_discover(
     println!("Wrote {count} specifications under {source}.");
 
     Ok(())
+}
+
+async fn resolve_live(
+    resolver: &local_specs::Resolver,
+    names: Vec<&str>,
+) -> anyhow::Result<tables::LiveCatalog> {
+    let mut live = resolver.resolve(names).await;
+    if let Some(err) = std::mem::take(&mut live.errors).into_iter().next() {
+        return Err(err.error.context("resolving live specs"));
+    }
+    Ok(live)
 }

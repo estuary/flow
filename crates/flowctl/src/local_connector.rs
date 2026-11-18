@@ -2,8 +2,11 @@ pub(crate) async fn unary(
     router: &dyn proto_grpc::connector::Router,
     log_level: Option<&str>,
     kind: proto_flow::connector::request::Kind,
-) -> anyhow::Result<proto_flow::connector::response::Kind> {
-    let (_started, response) = proto_grpc::connector::unary(
+) -> anyhow::Result<(
+    proto_flow::connector::response::Started,
+    proto_flow::connector::response::Kind,
+)> {
+    proto_grpc::connector::unary(
         router,
         &ops::tracing_log_handler,
         proto_flow::connector::Request {
@@ -19,8 +22,7 @@ pub(crate) async fn unary(
         std::time::Duration::MAX,
         std::time::Duration::MAX,
     )
-    .await?;
-    Ok(response)
+    .await
 }
 
 pub(crate) async fn spec_capture(
@@ -28,7 +30,7 @@ pub(crate) async fn spec_capture(
     log_level: Option<&str>,
     spec: proto_flow::capture::request::Spec,
 ) -> anyhow::Result<proto_flow::capture::response::Spec> {
-    let response = unary(
+    let (_started, response) = unary(
         router,
         log_level,
         proto_flow::connector::request::Kind::Capture(proto_flow::capture::Request {
@@ -52,7 +54,7 @@ pub(crate) async fn spec_derive(
     log_level: Option<&str>,
     spec: proto_flow::derive::request::Spec,
 ) -> anyhow::Result<proto_flow::derive::response::Spec> {
-    let response = unary(
+    let (_started, response) = unary(
         router,
         log_level,
         proto_flow::connector::request::Kind::Derive(proto_flow::derive::Request {
@@ -76,7 +78,7 @@ pub(crate) async fn spec_materialize(
     log_level: Option<&str>,
     spec: proto_flow::materialize::request::Spec,
 ) -> anyhow::Result<proto_flow::materialize::response::Spec> {
-    let response = unary(
+    let (_started, response) = unary(
         router,
         log_level,
         proto_flow::connector::request::Kind::Materialize(proto_flow::materialize::Request {
