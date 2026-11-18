@@ -184,6 +184,7 @@ pub(crate) async fn start<P: Protocol>(
                 connector_type,
                 bytes::Bytes::from(sealed_config.clone()),
             ))),
+            ..Default::default()
         })
         .expect("new connector request channel is empty");
 
@@ -309,6 +310,7 @@ pub(crate) async fn start<P: Protocol>(
     _ = request_tx.try_send(proto::Request {
         start: None,
         kind: Some(P::wrap_request(initial)),
+        ..Default::default()
     });
 
     // Of `Started`, only `codec` and `spec` come from the connector's side of
@@ -325,6 +327,7 @@ pub(crate) async fn start<P: Protocol>(
                 process: ctx.process,
                 spec,
             })),
+            ..Default::default()
         },
         connector_tx: request_tx,
         connector_rx: response_rx,
@@ -356,6 +359,7 @@ async fn read_started(
         match verify.not_eof(response)? {
             proto::Response {
                 kind: Some(proto::response::Kind::Log(log)),
+                ..
             } => {
                 log_sink
                     .send(crate::policy::sanitize_connector_log(
@@ -366,6 +370,7 @@ async fn read_started(
             }
             proto::Response {
                 kind: Some(proto::response::Kind::Started(started)),
+                ..
             } => return Ok(started),
             response => return Err(verify.fail_msg(response)),
         }

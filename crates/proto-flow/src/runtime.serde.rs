@@ -473,6 +473,12 @@ impl serde::Serialize for Capture {
         if self.stopped.is_some() {
             len += 1;
         }
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Capture", len)?;
         if let Some(v) = self.session_loop.as_ref() {
             struct_ser.serialize_field("sessionLoop", v)?;
@@ -498,6 +504,17 @@ impl serde::Serialize for Capture {
         if let Some(v) = self.stopped.as_ref() {
             struct_ser.serialize_field("stopped", v)?;
         }
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
+        }
         struct_ser.end()
     }
 }
@@ -518,6 +535,8 @@ impl<'de> serde::Deserialize<'de> for Capture {
             "closeNow",
             "stop",
             "stopped",
+            "chunk",
+            "remaining",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -530,6 +549,8 @@ impl<'de> serde::Deserialize<'de> for Capture {
             CloseNow,
             Stop,
             Stopped,
+            Chunk,
+            Remaining,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -563,6 +584,8 @@ impl<'de> serde::Deserialize<'de> for Capture {
                             "closeNow" | "close_now" => Ok(GeneratedField::CloseNow),
                             "stop" => Ok(GeneratedField::Stop),
                             "stopped" => Ok(GeneratedField::Stopped),
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -590,6 +613,8 @@ impl<'de> serde::Deserialize<'de> for Capture {
                 let mut close_now__ = None;
                 let mut stop__ = None;
                 let mut stopped__ = None;
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SessionLoop => {
@@ -640,6 +665,24 @@ impl<'de> serde::Deserialize<'de> for Capture {
                             }
                             stopped__ = map_.next_value()?;
                         }
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -654,6 +697,8 @@ impl<'de> serde::Deserialize<'de> for Capture {
                     close_now: close_now__,
                     stop: stop__,
                     stopped: stopped__,
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
                 })
             }
         }
@@ -2703,6 +2748,12 @@ impl serde::Serialize for Derive {
         if self.reset_done.is_some() {
             len += 1;
         }
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Derive", len)?;
         if let Some(v) = self.session_loop.as_ref() {
             struct_ser.serialize_field("sessionLoop", v)?;
@@ -2770,6 +2821,17 @@ impl serde::Serialize for Derive {
         if let Some(v) = self.reset_done.as_ref() {
             struct_ser.serialize_field("resetDone", v)?;
         }
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
+        }
         struct_ser.end()
     }
 }
@@ -2807,6 +2869,8 @@ impl<'de> serde::Deserialize<'de> for Derive {
             "reset",
             "reset_done",
             "resetDone",
+            "chunk",
+            "remaining",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2833,6 +2897,8 @@ impl<'de> serde::Deserialize<'de> for Derive {
             Stopped,
             Reset,
             ResetDone,
+            Chunk,
+            Remaining,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2880,6 +2946,8 @@ impl<'de> serde::Deserialize<'de> for Derive {
                             "stopped" => Ok(GeneratedField::Stopped),
                             "reset" => Ok(GeneratedField::Reset),
                             "resetDone" | "reset_done" => Ok(GeneratedField::ResetDone),
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2921,6 +2989,8 @@ impl<'de> serde::Deserialize<'de> for Derive {
                 let mut stopped__ = None;
                 let mut reset__ = None;
                 let mut reset_done__ = None;
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SessionLoop => {
@@ -3055,6 +3125,24 @@ impl<'de> serde::Deserialize<'de> for Derive {
                             }
                             reset_done__ = map_.next_value()?;
                         }
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3083,6 +3171,8 @@ impl<'de> serde::Deserialize<'de> for Derive {
                     stopped: stopped__,
                     reset: reset__,
                     reset_done: reset_done__,
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
                 })
             }
         }
@@ -5795,6 +5885,12 @@ impl serde::Serialize for Materialize {
         if self.stopped.is_some() {
             len += 1;
         }
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Materialize", len)?;
         if let Some(v) = self.session_loop.as_ref() {
             struct_ser.serialize_field("sessionLoop", v)?;
@@ -5871,6 +5967,17 @@ impl serde::Serialize for Materialize {
         if let Some(v) = self.stopped.as_ref() {
             struct_ser.serialize_field("stopped", v)?;
         }
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
+        }
         struct_ser.end()
     }
 }
@@ -5910,6 +6017,8 @@ impl<'de> serde::Deserialize<'de> for Materialize {
             "synced",
             "stop",
             "stopped",
+            "chunk",
+            "remaining",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -5939,6 +6048,8 @@ impl<'de> serde::Deserialize<'de> for Materialize {
             Synced,
             Stop,
             Stopped,
+            Chunk,
+            Remaining,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5989,6 +6100,8 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                             "synced" => Ok(GeneratedField::Synced),
                             "stop" => Ok(GeneratedField::Stop),
                             "stopped" => Ok(GeneratedField::Stopped),
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -6033,6 +6146,8 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                 let mut synced__ = None;
                 let mut stop__ = None;
                 let mut stopped__ = None;
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SessionLoop => {
@@ -6185,6 +6300,24 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                             }
                             stopped__ = map_.next_value()?;
                         }
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -6216,6 +6349,8 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                     synced: synced__,
                     stop: stop__,
                     stopped: stopped__,
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
                 })
             }
         }

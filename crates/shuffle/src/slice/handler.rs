@@ -244,6 +244,7 @@ async fn open_log_rpc(
             }),
             appends: Vec::new(),
             barrier: None,
+            ..Default::default()
         },
     )?;
 

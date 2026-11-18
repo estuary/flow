@@ -52,6 +52,7 @@ where
         Some(Ok(connector::Request {
             start: Some(start),
             kind: Some(kind),
+            ..
         })) => (start, kind),
         Some(Err(status)) => return Err(status),
         _ => {
@@ -219,6 +220,7 @@ fn started<P: Protocol>(codec: Codec, response: P::Response) -> tonic::Result<co
                 ..Default::default()
             },
         )),
+        ..Default::default()
     })
 }
 
@@ -238,7 +240,7 @@ where
 {
     let mut forward = std::pin::pin!(async move {
         while let Some(request) = requests.next().await {
-            let connector::Request { start, kind } = request?;
+            let connector::Request { start, kind, .. } = request?;
 
             if start.is_some() {
                 return Err(tonic::Status::invalid_argument(
@@ -273,7 +275,7 @@ where
             response = connector_rx.next() => match response {
                 Some(Ok(response)) => {
                     let response = connector::Response {
-                        kind: Some(P::wrap_response(response)),
+                        kind: Some(P::wrap_response(response)), ..Default::default()
                     };
                     _ = response_tx.send(Ok(response)).await;
                 }
@@ -302,6 +304,7 @@ fn log_handler(
         Box::pin(async move {
             let response = connector::Response {
                 kind: Some(connector::response::Kind::Log(log)),
+                ..Default::default()
             };
             _ = response_tx.send(Ok(response)).await;
         })
@@ -365,6 +368,7 @@ impl Logs {
         };
         let response = connector::Response {
             kind: Some(connector::response::Kind::Log(log)),
+            ..Default::default()
         };
         _ = self.response_tx.send(Ok(response)).await;
     }
@@ -402,6 +406,7 @@ pub(crate) mod test {
                 Err(status) => format!("Status({:?}): {}", status.code(), status.message()),
                 Ok(connector::Response {
                     kind: Some(connector::response::Kind::Log(log)),
+                    ..
                 }) => {
                     let fields: std::collections::BTreeMap<_, serde_json::Value> = log
                         .fields_json_map
@@ -416,6 +421,7 @@ pub(crate) mod test {
                 }
                 Ok(connector::Response {
                     kind: Some(connector::response::Kind::Started(started)),
+                    ..
                 }) => {
                     let spec = connector::response::Started {
                         spec: started.spec.clone(),
@@ -427,10 +433,10 @@ pub(crate) mod test {
                         serde_json::to_string(&spec).unwrap()
                     )
                 }
-                Ok(response @ connector::Response { kind: Some(_) }) => {
+                Ok(response @ connector::Response { kind: Some(_), .. }) => {
                     serde_json::to_string(&response).unwrap()
                 }
-                Ok(connector::Response { kind: None }) => "empty".to_string(),
+                Ok(connector::Response { kind: None, .. }) => "empty".to_string(),
             });
         }
         lines.join("\n")

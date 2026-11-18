@@ -767,6 +767,7 @@ mod tests {
     fn wrap(response: materialize::Response) -> tonic::Result<connector::proto::Response> {
         Ok(connector::proto::Response {
             kind: Some(connector::proto::response::Kind::Materialize(response)),
+            ..Default::default()
         })
     }
 

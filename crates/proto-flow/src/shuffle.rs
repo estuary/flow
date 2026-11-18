@@ -200,6 +200,13 @@ pub struct SessionRequest {
     pub resume_checkpoint: ::core::option::Option<Frontier>,
     #[prost(message, optional, tag = "3")]
     pub next_checkpoint: ::core::option::Option<session_request::NextCheckpoint>,
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
 }
 /// Nested message and enum types in `SessionRequest`.
 pub mod session_request {
@@ -255,6 +262,13 @@ pub struct SessionResponse {
     /// fully-resolved NextCheckpoint, it should merge it into its base checkpoint.
     #[prost(message, optional, tag = "2")]
     pub next_checkpoint: ::core::option::Option<Frontier>,
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
 }
 /// Nested message and enum types in `SessionResponse`.
 pub mod session_response {
@@ -280,6 +294,13 @@ pub struct SliceRequest {
     pub progress: ::core::option::Option<slice_request::Progress>,
     #[prost(message, optional, tag = "5")]
     pub initial_reads_started: ::core::option::Option<slice_request::InitialReadsStarted>,
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
 }
 /// Nested message and enum types in `SliceRequest`.
 pub mod slice_request {
@@ -360,6 +381,13 @@ pub struct SliceResponse {
     pub progressed: ::core::option::Option<Frontier>,
     #[prost(message, optional, tag = "4")]
     pub listing_snapshot_complete: ::core::option::Option<slice_response::ListingSnapshotComplete>,
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
 }
 /// Nested message and enum types in `SliceResponse`.
 pub mod slice_response {
@@ -415,6 +443,13 @@ pub struct LogRequest {
     pub appends: ::prost::alloc::vec::Vec<log_request::Append>,
     #[prost(message, optional, tag = "3")]
     pub barrier: ::core::option::Option<log_request::Barrier>,
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
 }
 /// Nested message and enum types in `LogRequest`.
 pub mod log_request {
@@ -531,7 +566,7 @@ pub mod log_request {
     }
 }
 /// LogResponse is sent by the Log actor back to each Slice.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LogResponse {
     #[prost(message, optional, tag = "1")]
     pub opened: ::core::option::Option<log_response::Opened>,
@@ -539,6 +574,13 @@ pub struct LogResponse {
     pub flushed: ::core::option::Option<log_response::Flushed>,
     #[prost(message, optional, tag = "3")]
     pub acked: ::core::option::Option<log_response::Acked>,
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
 }
 /// Nested message and enum types in `LogResponse`.
 pub mod log_response {

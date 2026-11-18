@@ -645,6 +645,7 @@ mod tests {
     fn wrap(response: derive::Response) -> tonic::Result<connector::proto::Response> {
         Ok(connector::proto::Response {
             kind: Some(connector::proto::response::Kind::Derive(response)),
+            ..Default::default()
         })
     }
 

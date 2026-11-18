@@ -1012,6 +1012,7 @@ mod tests {
         for response in responses {
             let response = response.map(|response| connector::proto::Response {
                 kind: Some(connector::proto::response::Kind::Capture(response)),
+                ..Default::default()
             });
             if conn_resp_tx.send(response).await.is_err() {
                 break;
@@ -1336,6 +1337,7 @@ mod tests {
             conn_resp_tx
                 .send(response.map(|response| connector::proto::Response {
                     kind: Some(connector::proto::response::Kind::Capture(response)),
+                    ..Default::default()
                 }))
                 .await
                 .unwrap();

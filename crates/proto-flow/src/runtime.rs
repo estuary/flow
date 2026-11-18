@@ -928,6 +928,13 @@ pub struct Capture {
     /// Shard → Controller. Shutdown confirmed; EOF follows.
     #[prost(message, optional, tag = "27")]
     pub stopped: ::core::option::Option<Stopped>,
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
 }
 /// Nested message and enum types in `Capture`.
 pub mod capture {
@@ -1017,6 +1024,13 @@ pub struct Materialize {
     /// each leg.
     #[prost(message, optional, tag = "61")]
     pub stopped: ::core::option::Option<Stopped>,
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
 }
 /// Nested message and enum types in `Materialize`.
 pub mod materialize {
@@ -1305,6 +1319,13 @@ pub struct Derive {
     /// Shard → Controller. The connector reset has been sent.
     #[prost(message, optional, tag = "63")]
     pub reset_done: ::core::option::Option<ResetDone>,
+    /// Chunk of this message's encoding, when sent in chunks over gRPC.
+    /// A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+    #[prost(bytes = "bytes", tag = "2046")]
+    pub chunk: ::prost::bytes::Bytes,
+    /// Bytes of the encoding which follow this chunk.
+    #[prost(uint32, tag = "2047")]
+    pub remaining: u32,
 }
 /// Nested message and enum types in `Derive`.
 pub mod derive {

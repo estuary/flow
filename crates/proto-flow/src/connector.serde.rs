@@ -9,12 +9,29 @@ impl serde::Serialize for Request {
         if self.start.is_some() {
             len += 1;
         }
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         if self.kind.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("connector.Request", len)?;
         if let Some(v) = self.start.as_ref() {
             struct_ser.serialize_field("start", v)?;
+        }
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
         }
         if let Some(v) = self.kind.as_ref() {
             match v {
@@ -38,11 +55,20 @@ impl<'de> serde::Deserialize<'de> for Request {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["start", "capture", "derive", "materialize"];
+        const FIELDS: &[&str] = &[
+            "start",
+            "chunk",
+            "remaining",
+            "capture",
+            "derive",
+            "materialize",
+        ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Start,
+            Chunk,
+            Remaining,
             Capture,
             Derive,
             Materialize,
@@ -72,6 +98,8 @@ impl<'de> serde::Deserialize<'de> for Request {
                     {
                         match value {
                             "start" => Ok(GeneratedField::Start),
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             "capture" => Ok(GeneratedField::Capture),
                             "derive" => Ok(GeneratedField::Derive),
                             "materialize" => Ok(GeneratedField::Materialize),
@@ -95,6 +123,8 @@ impl<'de> serde::Deserialize<'de> for Request {
                 V: serde::de::MapAccess<'de>,
             {
                 let mut start__ = None;
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 let mut kind__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -103,6 +133,24 @@ impl<'de> serde::Deserialize<'de> for Request {
                                 return Err(serde::de::Error::duplicate_field("start"));
                             }
                             start__ = map_.next_value()?;
+                        }
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Capture => {
                             if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
@@ -135,6 +183,8 @@ impl<'de> serde::Deserialize<'de> for Request {
                 }
                 Ok(Request {
                     start: start__,
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
                     kind: kind__,
                 })
             }
@@ -265,10 +315,27 @@ impl serde::Serialize for Response {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if !self.chunk.is_empty() {
+            len += 1;
+        }
+        if self.remaining != 0 {
+            len += 1;
+        }
         if self.kind.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("connector.Response", len)?;
+        if !self.chunk.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "chunk",
+                pbjson::private::base64::encode(&self.chunk).as_str(),
+            )?;
+        }
+        if self.remaining != 0 {
+            struct_ser.serialize_field("remaining", &self.remaining)?;
+        }
         if let Some(v) = self.kind.as_ref() {
             match v {
                 response::Kind::Started(v) => {
@@ -297,10 +364,20 @@ impl<'de> serde::Deserialize<'de> for Response {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["started", "log", "capture", "derive", "materialize"];
+        const FIELDS: &[&str] = &[
+            "chunk",
+            "remaining",
+            "started",
+            "log",
+            "capture",
+            "derive",
+            "materialize",
+        ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Chunk,
+            Remaining,
             Started,
             Log,
             Capture,
@@ -331,6 +408,8 @@ impl<'de> serde::Deserialize<'de> for Response {
                         E: serde::de::Error,
                     {
                         match value {
+                            "chunk" => Ok(GeneratedField::Chunk),
+                            "remaining" => Ok(GeneratedField::Remaining),
                             "started" => Ok(GeneratedField::Started),
                             "log" => Ok(GeneratedField::Log),
                             "capture" => Ok(GeneratedField::Capture),
@@ -355,9 +434,29 @@ impl<'de> serde::Deserialize<'de> for Response {
             where
                 V: serde::de::MapAccess<'de>,
             {
+                let mut chunk__ = None;
+                let mut remaining__ = None;
                 let mut kind__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::Chunk => {
+                            if chunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("chunk"));
+                            }
+                            chunk__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
+                        GeneratedField::Remaining => {
+                            if remaining__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remaining"));
+                            }
+                            remaining__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::Started => {
                             if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
                                 if kind__.is_some() {
@@ -403,7 +502,11 @@ impl<'de> serde::Deserialize<'de> for Response {
                         }
                     }
                 }
-                Ok(Response { kind: kind__ })
+                Ok(Response {
+                    chunk: chunk__.unwrap_or_default(),
+                    remaining: remaining__.unwrap_or_default(),
+                    kind: kind__,
+                })
             }
         }
         deserializer.deserialize_struct("connector.Response", FIELDS, GeneratedVisitor)

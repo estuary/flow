@@ -417,6 +417,7 @@ impl DiscoverHandler {
                 ))),
                 ..Default::default()
             })),
+            ..Default::default()
         };
         let result = async {
             let (started, response) = connectors(data_plane_id, request).await?;

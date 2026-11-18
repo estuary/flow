@@ -189,6 +189,12 @@ message SessionRequest {
   // See SessionResponse.next_checkpoint for the contract.
   message NextCheckpoint {}
   NextCheckpoint next_checkpoint = 3;
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 // SessionResponse is sent by the Session to the Coordinator.
@@ -222,6 +228,12 @@ message SessionResponse {
   // upon its durable completion of all downstream processing related to a
   // fully-resolved NextCheckpoint, it should merge it into its base checkpoint.
   Frontier next_checkpoint = 2;
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 // SliceRequest is sent by the Session to each Slice RPC.
@@ -285,6 +297,12 @@ message SliceRequest {
   // receipt.
   message InitialReadsStarted {}
   InitialReadsStarted initial_reads_started = 5;
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 // SliceResponse is sent by each Slice back to the Session.
@@ -322,6 +340,12 @@ message SliceResponse {
     uint32 binding = 1;
   }
   ListingSnapshotComplete listing_snapshot_complete = 4;
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 // LogRequest is sent by Slices to each shard's Log.
@@ -431,6 +455,12 @@ message LogRequest {
     bool caught_up = 4;
   }
   Barrier barrier = 3;
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 // LogResponse is sent by the Log actor back to each Slice.
@@ -460,6 +490,12 @@ message LogResponse {
     uint64 quota = 1;
   }
   Acked acked = 3;
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 // Shuffle service provides coordinated, disk-backed shuffled reads.

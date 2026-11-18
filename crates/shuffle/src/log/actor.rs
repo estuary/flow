@@ -294,6 +294,7 @@ impl LogActor {
             open: None,
             appends,
             barrier: Some(barrier),
+            ..
         } = log_request
         else {
             return Err(verify.fail_msg(log_request));
@@ -573,6 +574,7 @@ mod test {
                     caught_up: false,
                     flush_cycle,
                 }),
+                ..Default::default()
             })
         };
 
@@ -608,7 +610,7 @@ mod test {
             .collect();
         let acked: Vec<_> = acked_rx.iter().map(|rx| *rx.borrow()).collect();
 
-        insta::assert_debug_snapshot!((flushed, remaining, acked), @r"
+        insta::assert_debug_snapshot!((flushed, remaining, acked), @r#"
         (
             LogResponse {
                 opened: None,
@@ -619,6 +621,8 @@ mod test {
                     },
                 ),
                 acked: None,
+                chunk: b"",
+                remaining: 0,
             },
             [
                 0,
@@ -629,6 +633,6 @@ mod test {
                 0,
             ],
         )
-        ");
+        "#);
     }
 }

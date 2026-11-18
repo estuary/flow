@@ -835,6 +835,12 @@ message Capture {
   Stop stop = 26;
   // Shard → Controller. Shutdown confirmed; EOF follows.
   Stopped stopped = 27;
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 // Materialize is the bidirectional message type for materialization
@@ -1078,6 +1084,12 @@ message Materialize {
   // Leader → Shards → Controllers. Shutdown confirmed; EOF follows on
   // each leg.
   Stopped stopped = 61;
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 // Derive is the bidirectional message type for derivation sessions.
@@ -1270,6 +1282,12 @@ message Derive {
   Reset reset = 62;
   // Shard → Controller. The connector reset has been sent.
   ResetDone reset_done = 63;
+
+  // Chunk of this message's encoding, when sent in chunks over gRPC.
+  // A chunk message sets only `chunk` and `remaining`. See `proto_grpc::chunk`.
+  bytes chunk = 2046;
+  // Bytes of the encoding which follow this chunk.
+  uint32 remaining = 2047;
 }
 
 // SyncNowRequest is the request of a TaskControl.SyncNow RPC.

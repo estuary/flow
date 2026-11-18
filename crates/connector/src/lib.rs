@@ -89,6 +89,7 @@ impl LogSink {
             LogDest::Response(response_tx, _read_through) => {
                 let response = proto::Response {
                     kind: Some(proto::response::Kind::Log(log)),
+                    ..Default::default()
                 };
                 _ = response_tx.send(Ok(response)).await;
             }

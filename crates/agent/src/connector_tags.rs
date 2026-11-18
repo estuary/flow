@@ -345,6 +345,7 @@ async fn spec_materialization(
                 ..Default::default()
             },
         )),
+        ..Default::default()
     };
 
     let (started, response) = connectors(data_plane_id, req).await?;
@@ -401,6 +402,7 @@ async fn spec_capture(
             })),
             ..Default::default()
         })),
+        ..Default::default()
     };
 
     let (started, response) = connectors(data_plane_id, req).await?;

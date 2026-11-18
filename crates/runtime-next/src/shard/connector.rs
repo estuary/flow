@@ -43,6 +43,7 @@ pub(crate) async fn start(
         proto::Request {
             start: Some(start),
             kind: Some(initial),
+            ..Default::default()
         },
     )
     .await?;
@@ -111,6 +112,7 @@ pub(crate) fn prefer_error(
             }
             Ok(proto::Response {
                 kind: Some(proto::response::Kind::Log(log)),
+                ..
             }) => logger.log(&log),
             _ => break,
         }

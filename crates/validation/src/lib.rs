@@ -885,6 +885,7 @@ async fn validate_connector<V>(
             ..Default::default()
         }),
         kind: Some(kind),
+        ..Default::default()
     };
 
     let result = if no_op {
