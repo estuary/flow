@@ -50,14 +50,8 @@ fn load() -> Platform {
     if std::env::var_os("CONNECTOR_VMM_KVM").is_none_or(|value| value.is_empty()) {
         panic!("this runs only under `mise run ci:connector-vmm-kvm --platform`");
     }
-    let path = Path::new(run::ROOT).join("platform.json");
-    let content = std::fs::read(&path).unwrap_or_else(|e| {
-        panic!(
-            "reading {}: {e}; this runs under `mise run ci:connector-vmm-kvm --platform`",
-            path.display()
-        )
-    });
-    serde_json::from_slice(&content).unwrap_or_else(|e| panic!("parsing {}: {e}", path.display()))
+    serde_json::from_slice(&run::read_private("platform.json"))
+        .unwrap_or_else(|e| panic!("parsing {}/platform.json: {e}", run::ROOT))
 }
 
 fn root(platform: &Platform) -> launcher::Root {

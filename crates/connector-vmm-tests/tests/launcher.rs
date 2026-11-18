@@ -665,19 +665,21 @@ fn rpc_socket_rejects_other_users() {
     let owner = Owner::spawn(&run, &root, &root.state_dir, &run.vmm_image, false);
     owner.started();
     let name = launcher::vmm_name(&root).expect("the launch created a network");
-    let directory = format!("{}/{name}/sock", root.state_dir);
     // Expose the test's ancestor so this still measures the socket directory.
     run::sudo(&["chmod", "0711", &root.state_dir]);
 
     // Check the live socket from another UID, without inherited group access.
-    // Stat the directory after dropping privileges so an inaccessible ancestor
-    // cannot make this test pass without the socket directory protecting it.
+    // Root opens the launcher's directory first, and the check starts there,
+    // so that the run's private root above it takes no part. Stat the
+    // directory after dropping privileges so an inaccessible ancestor cannot
+    // make this test pass without the socket directory protecting it.
     let result = run::sudo(&[
         "python3",
         "-c",
         r#"
 import os, socket, stat, sys
-path = sys.argv[1]
+os.fchdir(os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW))
+path = sys.argv[2]
 uid = os.stat(path).st_uid
 assert stat.S_IMODE(os.stat(path + "/init.sock").st_mode) == 0o777
 os.setgroups([])
@@ -693,7 +695,8 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
     else:
         raise AssertionError("another UID connected to connector-init")
 "#,
-        &directory,
+        &root.dir,
+        &format!("state/{name}/sock"),
     ]);
     assert_eq!(result.trim(), "permission denied");
     run::sudo(&["chmod", "0700", &root.state_dir]);
@@ -718,7 +721,7 @@ fn credential_mount_rejects_other_users() {
     owner.started();
     let name = launcher::vmm_name(&root).expect("the launch created a network");
     let record_path = launcher::record(&root.state_dir, &name);
-    let record = std::fs::read_to_string(&record_path).unwrap();
+    let record = launcher::read_record(&record_path);
     let claim: serde_json::Value = serde_json::from_str(record.lines().next().unwrap()).unwrap();
     let mount = claim["mount"].as_str().unwrap();
     let credential = format!("{mount}/task-update.json");
@@ -730,12 +733,20 @@ fn credential_mount_rejects_other_users() {
     )
     .unwrap();
 
+    // Paths from the launcher's directory, where the check starts: root
+    // opens it first, so that the run's private root above it takes no part.
+    let beneath = |path: &str| {
+        path.strip_prefix(&format!("{}/", root.dir))
+            .unwrap_or_else(|| panic!("{path} is not beneath {}", root.dir))
+            .to_string()
+    };
     let result = run::sudo(&[
         "python3",
         "-c",
         r#"
 import os, stat, sys
-credential, record, state = sys.argv[1:]
+os.fchdir(os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW))
+credential, record, state = sys.argv[2:]
 parent = os.path.dirname(os.path.dirname(credential))
 uid = os.stat(parent).st_uid
 assert stat.S_IMODE(os.stat(parent).st_mode) == 0o700
@@ -753,9 +764,10 @@ for path in [credential, record]:
     else:
         raise AssertionError("another UID read " + path)
 "#,
-        &credential,
-        &record_path,
-        &root.state_dir,
+        &root.dir,
+        &beneath(&credential),
+        &beneath(&record_path),
+        &beneath(&root.state_dir),
     ]);
     assert_eq!(result.trim(), "permission denied\npermission denied");
     eprintln!("{}", served(&runtime, &root.state_dir, &name));
@@ -1375,7 +1387,7 @@ fn a_failed_release_is_kept_and_retried() {
 
     let name = launcher::vmm_name(&root).expect("the launch created a network");
     let record = launcher::record(&root.state_dir, &name);
-    let written = std::fs::read(&record).expect("the launch's record");
+    let written = launcher::read_record(&record);
     let sidecar = run::sidecar(&run, &name);
 
     std::mem::drop(request_tx);
@@ -1405,12 +1417,12 @@ fn a_failed_release_is_kept_and_retried() {
         [format!("network {name}"), record.clone()],
         "everything else was removed"
     );
-    assert_eq!(std::fs::read(&record).unwrap(), written, "kept as it was");
+    assert_eq!(launcher::read_record(&record), written, "kept as it was");
     assert!(!launcher::locked(&record), "and let go");
 
     let recovering = vmm(&root, &run.vmm_image);
     assert_eq!(recover(&runtime, &recovering), 1, "the network is in use");
-    assert_eq!(std::fs::read(&record).unwrap(), written, "kept again");
+    assert_eq!(launcher::read_record(&record), written, "kept again");
     std::mem::drop(sidecar);
     assert_eq!(recover(&runtime, &recovering), 0);
     assert_eq!(
@@ -2038,7 +2050,7 @@ fn a_kill_of_recovery(gate: Gate) {
     assert!(!launcher::locked(&record), "the owner's lock went with it");
     evidence.note(format_args!(
         "owner {name} {killed}; its record unlocked: {:?}",
-        std::fs::read_to_string(&record).expect("reading the record")
+        launcher::read_record(&record)
     ));
 
     let (hold, what) = match gate {
@@ -2541,7 +2553,7 @@ fn a_grant_started_after_recovery_cannot_grant() {
     launcher::wait_held(&recoverer, "rm", GATE);
     let record = launcher::record(&root.state_dir, &late.name);
     assert_eq!(
-        std::fs::read_to_string(&record).unwrap(),
+        launcher::read_record(&record),
         late.claim(),
         "recorded before its removal"
     );
@@ -2549,7 +2561,7 @@ fn a_grant_started_after_recovery_cannot_grant() {
     assert!(late.exists(), "not yet removed");
     evidence.note(format_args!(
         "held its removal: record {:?}, locked",
-        std::fs::read_to_string(&record).unwrap()
+        launcher::read_record(&record)
     ));
     std::mem::drop(hold);
     assert_eq!(runtime.block_on(pass).unwrap(), 0);
@@ -2604,7 +2616,7 @@ fn a_late_grant_which_ran_is_revoked() {
     };
     launcher::wait_held(&recoverer, "rm", GATE);
     let record = launcher::record(&root.state_dir, &late.name);
-    assert_eq!(std::fs::read_to_string(&record).unwrap(), late.claim());
+    assert_eq!(launcher::read_record(&record), late.claim());
     std::mem::drop(hold);
     assert_eq!(runtime.block_on(pass).unwrap(), 0);
     late.assert_gone(&root.state_dir);
