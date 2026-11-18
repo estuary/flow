@@ -60,8 +60,8 @@ expression: results
     "case": "ending",
     "firing": [
       "acmeCo/alerts/free_trial",
-      "acmeCo/alerts/missing_payment_method",
-      "acmeCo/alerts/free_trial_ending"
+      "acmeCo/alerts/free_trial_ending",
+      "acmeCo/alerts/missing_payment_method"
     ],
     "notFiring": []
   },
@@ -124,8 +124,8 @@ expression: results
     },
     "case": "stalled",
     "firing": [
-      "acmeCo/alerts/missing_payment_method",
-      "acmeCo/alerts/free_trial_stalled"
+      "acmeCo/alerts/free_trial_stalled",
+      "acmeCo/alerts/missing_payment_method"
     ],
     "notFiring": [
       "acmeCo/alerts/free_trial"

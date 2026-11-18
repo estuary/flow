@@ -1,5 +1,6 @@
 //! Reconciles tenant state through the automations framework.
 
+mod alerts;
 mod billing_contact;
 mod free_trial;
 mod outcome;
