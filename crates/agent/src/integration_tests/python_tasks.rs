@@ -135,7 +135,9 @@ async fn test_python_tasks_activation_and_auto_discover() {
             disable: false,
             resource_path: vec!["widgets".to_string()],
             is_fallback_key: false,
+            collection_index: 0,
         }],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors

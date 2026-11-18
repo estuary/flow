@@ -91,12 +91,19 @@ pub async fn do_discover(
     .await?;
 
     let Some(capture::Response {
-        kind: Some(capture::response::Kind::Discovered(capture::response::Discovered { bindings })),
+        kind:
+            Some(capture::response::Kind::Discovered(capture::response::Discovered {
+                bindings,
+                linked_collections,
+            })),
         ..
     }) = proto_grpc::connector::unwrap_capture(response)
     else {
         anyhow::bail!("connector didn't send expected Discovered response");
     };
+    if !linked_collections.is_empty() {
+        anyhow::bail!("connector protocol error: `linkedCollections` is not yet supported");
+    }
 
     if *emit_raw {
         for binding in bindings {

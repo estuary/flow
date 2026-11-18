@@ -300,10 +300,15 @@ message Response {
   message Discovered {
     // Potential bindings which the capture could provide.
     // Bindings may be returned in any order.
+    //
+    // Bindings which share a recommended name recommend the same collection,
+    // and "fan in" to it. A connector which fans in bindings should use
+    // `linked_collections`, so that they share one schema and key.
     message Binding {
       // The recommended name for this discovered binding,
       // which is normalized and then appended to a catalog prefix of the
       // proposed capture to form the name of its recommended collection.
+      // Unset if the response uses `linked_collections`.
       string recommended_name = 1;
       // JSON-encoded object which specifies the captured resource configuration.
       bytes resource_config_json = 2 [
@@ -311,11 +316,13 @@ message Response {
         json_name = "resourceConfig"
       ];
       // JSON schema of documents produced by this binding.
+      // Unset if the response uses `linked_collections`.
       bytes document_schema_json = 3 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "documentSchema"
       ];
       // Composite key of documents (if known), as JSON-Pointers.
+      // Unset if the response uses `linked_collections`.
       repeated string key = 4;
       // When true, this binding should be added but marked as disabled.
       // The user may explicitly enable it, but the garden-path expectation
@@ -346,9 +353,41 @@ message Response {
       //   fallback key.
       // - Users may change the collection key, and it will not be overwritten
       //   by future discoveries.
+      //
+      // Unset if the response uses `linked_collections`.
       bool is_fallback_key = 7;
+      // Index of this binding's collection within the response's
+      // `linked_collections`. Used when the response is in indirect form,
+      // and unset otherwise.
+      uint32 collection_index = 8;
     }
     repeated Binding bindings = 1;
+
+    // Collection fields of a discovered binding: its recommended name,
+    // schema, and key. The fields have the same meaning as those of Binding.
+    message Collection {
+      string recommended_name = 1;
+      bytes document_schema_json = 2 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "documentSchema"
+      ];
+      repeated string key = 3;
+      bool is_fallback_key = 4;
+    }
+    // Table of collections referenced by `collection_index` of this
+    // response's bindings, in place of inlined collection fields
+    // (the "indirect" form).
+    //
+    // The form is a property of the response as a whole: if
+    // `linked_collections` is non-empty then every binding leaves its
+    // collection fields unset and resolves through `collection_index`.
+    // If it's empty then every binding inlines its collection fields and
+    // `collection_index` is unset. Mixed forms are invalid.
+    //
+    // The indirect form is representational only. A binding resolved through
+    // `linked_collections` is equivalent to an inline binding having the
+    // entry's fields.
+    repeated Collection linked_collections = 2;
   }
   Discovered discovered = 2;
 

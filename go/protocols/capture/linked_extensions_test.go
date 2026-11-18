@@ -103,3 +103,49 @@ func TestRequestValidateLinkedCollections(t *testing.T) {
 	require.EqualError(t, badEntry.Validate(),
 		"LinkedCollections[0]: key pointers are empty")
 }
+
+func TestResponseDiscoveredLinkedCollections(t *testing.T) {
+	var inline = Response_Discovered{
+		Bindings: []*Response_Discovered_Binding{{
+			RecommendedName:    "one",
+			ResourceConfigJson: []byte(`{"table":"foo"}`),
+			DocumentSchemaJson: []byte(`true`),
+			Key:                []string{"/id"},
+		}},
+	}
+	require.NoError(t, inline.Validate())
+
+	inline.Bindings[0].CollectionIndex = 1
+	require.EqualError(t, inline.Validate(),
+		"Bindings[0]: unexpected CollectionIndex (response has no LinkedCollections)")
+
+	// Indirect form: many bindings over a small table.
+	var indirect = Response_Discovered{
+		LinkedCollections: []*Response_Discovered_Collection{
+			{RecommendedName: "one", DocumentSchemaJson: []byte(`true`), Key: []string{"/id"}},
+			{RecommendedName: "two", DocumentSchemaJson: []byte(`true`)},
+		},
+	}
+	for _, index := range []uint32{1, 1, 0} {
+		indirect.Bindings = append(indirect.Bindings, &Response_Discovered_Binding{
+			ResourceConfigJson: []byte(`{"table":"foo"}`),
+			CollectionIndex:    index,
+		})
+	}
+	require.NoError(t, indirect.Validate())
+
+	indirect.Bindings[2].CollectionIndex = 2
+	require.EqualError(t, indirect.Validate(),
+		"Bindings[2]: CollectionIndex 2 is out of bounds (2 LinkedCollections)")
+	indirect.Bindings[2].CollectionIndex = 0
+
+	// Mixed forms are invalid.
+	indirect.Bindings[1].RecommendedName = "one"
+	require.EqualError(t, indirect.Validate(),
+		"Bindings[1]: unexpected inline collection fields (response has LinkedCollections)")
+	indirect.Bindings[1].RecommendedName = ""
+
+	indirect.LinkedCollections[1].DocumentSchemaJson = nil
+	require.EqualError(t, indirect.Validate(),
+		"LinkedCollections[1]: missing DocumentSchemaJson")
+}

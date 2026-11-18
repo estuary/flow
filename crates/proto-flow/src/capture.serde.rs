@@ -2187,9 +2187,15 @@ impl serde::Serialize for response::Discovered {
         if !self.bindings.is_empty() {
             len += 1;
         }
+        if !self.linked_collections.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Response.Discovered", len)?;
         if !self.bindings.is_empty() {
             struct_ser.serialize_field("bindings", &self.bindings)?;
+        }
+        if !self.linked_collections.is_empty() {
+            struct_ser.serialize_field("linkedCollections", &self.linked_collections)?;
         }
         struct_ser.end()
     }
@@ -2200,11 +2206,12 @@ impl<'de> serde::Deserialize<'de> for response::Discovered {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["bindings"];
+        const FIELDS: &[&str] = &["bindings", "linked_collections", "linkedCollections"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Bindings,
+            LinkedCollections,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2231,6 +2238,9 @@ impl<'de> serde::Deserialize<'de> for response::Discovered {
                     {
                         match value {
                             "bindings" => Ok(GeneratedField::Bindings),
+                            "linkedCollections" | "linked_collections" => {
+                                Ok(GeneratedField::LinkedCollections)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2254,6 +2264,7 @@ impl<'de> serde::Deserialize<'de> for response::Discovered {
                 V: serde::de::MapAccess<'de>,
             {
                 let mut bindings__ = None;
+                let mut linked_collections__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Bindings => {
@@ -2262,6 +2273,12 @@ impl<'de> serde::Deserialize<'de> for response::Discovered {
                             }
                             bindings__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::LinkedCollections => {
+                            if linked_collections__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("linkedCollections"));
+                            }
+                            linked_collections__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2269,6 +2286,7 @@ impl<'de> serde::Deserialize<'de> for response::Discovered {
                 }
                 Ok(response::Discovered {
                     bindings: bindings__.unwrap_or_default(),
+                    linked_collections: linked_collections__.unwrap_or_default(),
                 })
             }
         }
@@ -2304,6 +2322,9 @@ impl serde::Serialize for response::discovered::Binding {
         if self.is_fallback_key {
             len += 1;
         }
+        if self.collection_index != 0 {
+            len += 1;
+        }
         let mut struct_ser =
             serializer.serialize_struct("capture.Response.Discovered.Binding", len)?;
         if !self.recommended_name.is_empty() {
@@ -2337,6 +2358,9 @@ impl serde::Serialize for response::discovered::Binding {
         if self.is_fallback_key {
             struct_ser.serialize_field("isFallbackKey", &self.is_fallback_key)?;
         }
+        if self.collection_index != 0 {
+            struct_ser.serialize_field("collectionIndex", &self.collection_index)?;
+        }
         struct_ser.end()
     }
 }
@@ -2359,6 +2383,8 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
             "resourcePath",
             "is_fallback_key",
             "isFallbackKey",
+            "collection_index",
+            "collectionIndex",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2370,6 +2396,7 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
             Disable,
             ResourcePath,
             IsFallbackKey,
+            CollectionIndex,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2410,6 +2437,9 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                             "isFallbackKey" | "is_fallback_key" => {
                                 Ok(GeneratedField::IsFallbackKey)
                             }
+                            "collectionIndex" | "collection_index" => {
+                                Ok(GeneratedField::CollectionIndex)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2439,6 +2469,7 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                 let mut disable__ = None;
                 let mut resource_path__ = None;
                 let mut is_fallback_key__ = None;
+                let mut collection_index__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RecommendedName => {
@@ -2485,6 +2516,15 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                             }
                             is_fallback_key__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::CollectionIndex => {
+                            if collection_index__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("collectionIndex"));
+                            }
+                            collection_index__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2498,11 +2538,184 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                     disable: disable__.unwrap_or_default(),
                     resource_path: resource_path__.unwrap_or_default(),
                     is_fallback_key: is_fallback_key__.unwrap_or_default(),
+                    collection_index: collection_index__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct(
             "capture.Response.Discovered.Binding",
+            FIELDS,
+            GeneratedVisitor,
+        )
+    }
+}
+impl serde::Serialize for response::discovered::Collection {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.recommended_name.is_empty() {
+            len += 1;
+        }
+        if !self.document_schema_json.is_empty() {
+            len += 1;
+        }
+        if !self.key.is_empty() {
+            len += 1;
+        }
+        if self.is_fallback_key {
+            len += 1;
+        }
+        let mut struct_ser =
+            serializer.serialize_struct("capture.Response.Discovered.Collection", len)?;
+        if !self.recommended_name.is_empty() {
+            struct_ser.serialize_field("recommendedName", &self.recommended_name)?;
+        }
+        if !self.document_schema_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field(
+                "documentSchema",
+                &crate::as_raw_json(&self.document_schema_json)?,
+            )?;
+        }
+        if !self.key.is_empty() {
+            struct_ser.serialize_field("key", &self.key)?;
+        }
+        if self.is_fallback_key {
+            struct_ser.serialize_field("isFallbackKey", &self.is_fallback_key)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for response::discovered::Collection {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "recommended_name",
+            "recommendedName",
+            "document_schema_json",
+            "documentSchema",
+            "key",
+            "is_fallback_key",
+            "isFallbackKey",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            RecommendedName,
+            DocumentSchemaJson,
+            Key,
+            IsFallbackKey,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "recommendedName" | "recommended_name" => {
+                                Ok(GeneratedField::RecommendedName)
+                            }
+                            "documentSchema" | "document_schema_json" => {
+                                Ok(GeneratedField::DocumentSchemaJson)
+                            }
+                            "key" => Ok(GeneratedField::Key),
+                            "isFallbackKey" | "is_fallback_key" => {
+                                Ok(GeneratedField::IsFallbackKey)
+                            }
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = response::discovered::Collection;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct capture.Response.Discovered.Collection")
+            }
+
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<response::discovered::Collection, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut recommended_name__ = None;
+                let mut document_schema_json__ = None;
+                let mut key__ = None;
+                let mut is_fallback_key__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::RecommendedName => {
+                            if recommended_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("recommendedName"));
+                            }
+                            recommended_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::DocumentSchemaJson => {
+                            if document_schema_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("documentSchema"));
+                            }
+                            document_schema_json__ =
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
+                        }
+                        GeneratedField::Key => {
+                            if key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("key"));
+                            }
+                            key__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::IsFallbackKey => {
+                            if is_fallback_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isFallbackKey"));
+                            }
+                            is_fallback_key__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(response::discovered::Collection {
+                    recommended_name: recommended_name__.unwrap_or_default(),
+                    document_schema_json: document_schema_json__.unwrap_or_default(),
+                    key: key__.unwrap_or_default(),
+                    is_fallback_key: is_fallback_key__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct(
+            "capture.Response.Discovered.Collection",
             FIELDS,
             GeneratedVisitor,
         )

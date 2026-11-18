@@ -11,7 +11,13 @@ use tables::DraftCollection;
 pub fn parse_response(
     discovered: capture::response::Discovered,
 ) -> anyhow::Result<Vec<discovered::Binding>> {
-    let capture::response::Discovered { mut bindings } = discovered;
+    let capture::response::Discovered {
+        mut bindings,
+        linked_collections,
+    } = discovered;
+    if !linked_collections.is_empty() {
+        anyhow::bail!("connector protocol error: `linkedCollections` is not yet supported");
+    }
 
     // Sort bindings so they're consistently ordered on their recommended name.
     // This reduces potential churn if an established capture is refreshed.
@@ -166,6 +172,7 @@ pub fn update_capture_bindings(
             is_fallback_key,
             resource_path: discovered_path,
             disable: _,
+            collection_index: _,
         } = discovered_binding;
 
         // A discovered path takes precedence. The connector's pointers (if
