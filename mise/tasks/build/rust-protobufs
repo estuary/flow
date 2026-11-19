@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #MISE description="Generate Rust protobuf bindings"
+set -euo pipefail
+
+source "$(dirname "$0")/lib.sh"
 
 cargo build -p proto-gazette -p proto-flow -p proto-grpc --all-features
-cargo fmt
+cargo fmt --all
+rustfmt_included_sources

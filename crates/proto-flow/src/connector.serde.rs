@@ -38,12 +38,7 @@ impl<'de> serde::Deserialize<'de> for Request {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "start",
-            "capture",
-            "derive",
-            "materialize",
-        ];
+        const FIELDS: &[&str] = &["start", "capture", "derive", "materialize"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -63,7 +58,10 @@ impl<'de> serde::Deserialize<'de> for Request {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -93,8 +91,8 @@ impl<'de> serde::Deserialize<'de> for Request {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<Request, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut start__ = None;
                 let mut kind__ = None;
@@ -160,8 +158,9 @@ impl serde::Serialize for request::Start {
         }
         let mut struct_ser = serializer.serialize_struct("connector.Request.Start", len)?;
         if self.log_level != 0 {
-            let v = super::ops::log::Level::try_from(self.log_level)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.log_level)))?;
+            let v = super::ops::log::Level::try_from(self.log_level).map_err(|_| {
+                serde::ser::Error::custom(format!("Invalid variant {}", self.log_level))
+            })?;
             struct_ser.serialize_field("logLevel", &v)?;
         }
         if !self.sqlite_vfs_uri.is_empty() {
@@ -176,12 +175,7 @@ impl<'de> serde::Deserialize<'de> for request::Start {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "log_level",
-            "logLevel",
-            "sqlite_vfs_uri",
-            "sqliteVfsUri",
-        ];
+        const FIELDS: &[&str] = &["log_level", "logLevel", "sqlite_vfs_uri", "sqliteVfsUri"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -199,7 +193,10 @@ impl<'de> serde::Deserialize<'de> for request::Start {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -227,8 +224,8 @@ impl<'de> serde::Deserialize<'de> for request::Start {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Start, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut log_level__ = None;
                 let mut sqlite_vfs_uri__ = None;
@@ -300,13 +297,7 @@ impl<'de> serde::Deserialize<'de> for Response {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "started",
-            "log",
-            "capture",
-            "derive",
-            "materialize",
-        ];
+        const FIELDS: &[&str] = &["started", "log", "capture", "derive", "materialize"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -327,7 +318,10 @@ impl<'de> serde::Deserialize<'de> for Response {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -358,8 +352,8 @@ impl<'de> serde::Deserialize<'de> for Response {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<Response, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut kind__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -409,9 +403,7 @@ impl<'de> serde::Deserialize<'de> for Response {
                         }
                     }
                 }
-                Ok(Response {
-                    kind: kind__,
-                })
+                Ok(Response { kind: kind__ })
             }
         }
         deserializer.deserialize_struct("connector.Response", FIELDS, GeneratedVisitor)
@@ -445,8 +437,9 @@ impl serde::Serialize for response::Started {
             struct_ser.serialize_field("container", v)?;
         }
         if self.codec != 0 {
-            let v = response::started::Codec::try_from(self.codec)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.codec)))?;
+            let v = response::started::Codec::try_from(self.codec).map_err(|_| {
+                serde::ser::Error::custom(format!("Invalid variant {}", self.codec))
+            })?;
             struct_ser.serialize_field("codec", &v)?;
         }
         if let Some(v) = self.token_restart_at.as_ref() {
@@ -509,7 +502,10 @@ impl<'de> serde::Deserialize<'de> for response::Started {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -521,7 +517,9 @@ impl<'de> serde::Deserialize<'de> for response::Started {
                         match value {
                             "container" => Ok(GeneratedField::Container),
                             "codec" => Ok(GeneratedField::Codec),
-                            "tokenRestartAt" | "token_restart_at" => Ok(GeneratedField::TokenRestartAt),
+                            "tokenRestartAt" | "token_restart_at" => {
+                                Ok(GeneratedField::TokenRestartAt)
+                            }
                             "process" => Ok(GeneratedField::Process),
                             "capture" => Ok(GeneratedField::Capture),
                             "derive" => Ok(GeneratedField::Derive),
@@ -542,8 +540,8 @@ impl<'de> serde::Deserialize<'de> for response::Started {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Started, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut container__ = None;
                 let mut codec__ = None;
@@ -637,11 +635,7 @@ impl<'de> serde::Deserialize<'de> for response::started::Codec {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "INVALID",
-            "PROTO",
-            "JSON",
-        ];
+        const FIELDS: &[&str] = &["INVALID", "PROTO", "JSON"];
 
         struct GeneratedVisitor;
 

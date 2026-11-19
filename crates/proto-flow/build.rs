@@ -584,9 +584,9 @@ fn main() {
             );
         }
 
-        // Handle oneof variants which are explicitly null. These files are
-        // generator output which `cargo fmt` doesn't visit, so the replacement
-        // carries the indentation of the arm it replaces.
+        // Handle oneof variants which are explicitly null. The replacement
+        // carries the indentation of the arm it replaces, so this output reads
+        // the same before `mise run build:rust-protobufs` reformats the file.
         let mut cursor = 0;
         while let Some(capture) = de_oneof_re.captures_at(&buf, cursor) {
             let range = capture.get(0).unwrap().range();
