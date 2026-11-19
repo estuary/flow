@@ -466,7 +466,9 @@ impl HeadExtend {
             inner.extents.checkpoints += 1;
             inner.extents.synthetic_checkpoint = true;
 
-            return (Action::Idle, Head::Idle(inner));
+            // The sealed transaction must reach HeadIdle's close evaluation
+            // without waiting on further IO.
+            return (Action::PollAgain, Head::Idle(inner));
         }
 
         match std::mem::take(ready) {
@@ -1412,17 +1414,20 @@ mod tests {
         head = h;
         assert!(matches!(action, Action::Captured { .. }));
 
-        // `sequence_bytes` now exceeds the limit: HeadExtend injects a synthetic
-        // checkpoint and returns to Idle without awaiting a connector Checkpoint.
+        // `sequence_bytes` now exceeds the limit, and the connector has already
+        // offered a second oversized document. HeadExtend injects a synthetic
+        // checkpoint without consuming it, and asks HeadIdle to reevaluate the
+        // close policy.
+        ctx.ready = captured(0, b"{\"big\":\"zzzzzzzzzzzzzzzz\"}");
         let (action, h) = ctx.step_head(head, &tail);
         head = h;
-        assert!(matches!(action, Action::Idle));
+        assert!(matches!(action, Action::PollAgain));
         assert!(matches!(head, Head::Idle(_)));
+        assert!(matches!(ctx.ready, ConnectorRx::Captured(_)));
 
-        // The connector offers a second oversized document, but a transaction
-        // that already injected a synthetic checkpoint must NOT extend: Head
-        // closes instead, leaving the document queued for the next transaction.
-        ctx.ready = captured(0, b"{\"big\":\"zzzzzzzzzzzzzzzz\"}");
+        // A transaction that already injected a synthetic checkpoint must NOT
+        // extend: Head closes instead, leaving the document queued for the next
+        // transaction.
         let (action, _h) = ctx.step_head(head, &tail);
         let extents = match action {
             Action::Rotate { extents } => extents,
